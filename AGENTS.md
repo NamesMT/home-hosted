@@ -22,6 +22,7 @@ pnpm exec vitest run               # `pnpm test` is vitest in watch mode
 pnpm run check                     # quickcheck + vitest run --coverage
 pnpm run set-password              # non-interactive through HHOSTED_PASSWORD
 pnpm run set-token                 # --generate prints a new API token once
+pnpm run migrate                   # bring the config up to this release's schema
 pnpm run media                     # regenerate docs/media (mockups, both served UIs, tour.gif)
 ```
 
@@ -45,8 +46,10 @@ exists, so the first release has to be published by hand.
 - `src/api/**` — one file per URL group (`$.routes.ts` = several routes), mirroring the path.
 - `src/shared/contracts.ts` — every ArkType schema (config, API and SSE DTOs), shared with the UIs;
   the OpenAPI spec is generated from it, never hand-written.
-- `src/config/` — `schema.ts` (on-disk shape), `store.ts` (validate/merge/atomic commit, reports
-  `configError` instead of throwing on a bad file), `secrets.ts`, `seed.ts`.
+- `src/config/` — `schema.ts` (on-disk shape, including the `meta` stamp), `parse.ts` (the tolerant
+  reader: unknown keys are reported and kept, everything else blocking), `store.ts` (validate/merge/
+  atomic commit, reports `configError`/`configWarnings` instead of throwing on a bad file),
+  `migrations.ts` (the schema constant and the ordered step registry), `secrets.ts`, `seed.ts`.
 - `src/providers/` — stateless leaves: process, port (probe, holder lookup, and `terminatePids`),
   proc, health-check, host, telegram, archive.
 - `src/services/` — stateful orchestration: supervisor, control-server, state, auth + exposure,
@@ -97,12 +100,10 @@ either is a last resort, and never an accidental one.
 
 - **A config written by an older release has to load in a newer one.** That direction is the priority:
   add fields with defaults, never repurpose or remove one, and treat every existing key as permanent.
-- **The reverse direction is not free, and is worth knowing before adding a field.** Unknown keys
-  inside a group currently fail that *whole group*, which falls back to schema defaults — for
-  `control` that silently drops the listener port, bind and auth policy; an unknown key inside a
-  server entry drops the entry from the running set. Only unknown **top-level** keys are ignored, so
-  a new top-level block is the cheap home for anything optional. Prefer field-level tolerance plus a
-  warning before relying on a new key inside an existing group.
+- **Both directions matter, and both are now handled.** An unrecognized key is read, reported and
+  left on disk instead of failing anything: it is the normal way a config from a newer release looks
+  here. Anything that is not merely unrecognized — a wrong value, a duplicate id, an unreadable file —
+  stops the panel instead of being papered over with defaults.
 - **The UI moves in minor steps.** Routes, response fields and SSE frames are additive: keep the old
   one and add the new one. A new response field is optional (`'x?'`) and read defensively, because an
   upgrade writes a new `uis/stock/dist` while the old panel process keeps serving — and a
@@ -110,9 +111,22 @@ either is a last resort, and never an accidental one.
 - **Breaking is allowed; silent is not.** When nothing compatible can be done, say so in the final
   answer *and* in the commit message with a `BREAKING CHANGE:` footer, naming the exact migration the
   user must run.
-- **There is no migration framework yet.** `servers.config.json` carries no version stamp, so the
-  panel cannot tell which release wrote it. Anything added there should be able to answer "what wrote
-  this file?" before it needs to.
+- **A config records what wrote it.** Every write stamps a top-level `meta`
+  (`{ writtenBy, schema }`): the release that wrote the file and the config shape it wrote. An
+  unstamped file reads as the current schema, so nothing that existed before needed changing.
+- **Nobody runs a config this release cannot read.** `up` refuses to start — exit 1, the exact
+  problem printed — when the file is unparseable, has an invalid value or a duplicate id, carries a
+  newer `meta.schema`, or has a registered migration pending. A panel that is *already* running keeps
+  the config it has and only reports the error, so a bad edit never disturbs supervision.
+- **Unknown keys are dropped from the resolved config, kept on disk, and listed in a startup
+  warning.** Dropping one is the normal way a newer config looks here, so it must never fail the
+  group it sits in (that used to reset `control` — port, bind, auth policy — to schema defaults).
+- **Migrations ship inside the package** (`src/config/migrations.ts`), are ordered, idempotent and
+  described in one line each. `home-hosted migrate` prints the plan, keeps `servers.config.json.bak`,
+  refuses to write a config it cannot read, and needs consent: `--yes`, `HHOSTED_MIGRATE=allow`, or a
+  person at a terminal. A detached daemon never migrates on its own. Starting a fetch of migration
+  code from GitHub was considered and rejected: the panel supervises processes, so remote code is an
+  RCE surface, and a migration would age against a newer store API anyway.
 
 ## Rules that matter
 

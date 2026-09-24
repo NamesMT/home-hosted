@@ -1,0 +1,47 @@
+{
+  "$schema": "./servers.config.schema.json",
+  "control": {
+    "label": "Home server",
+    "port": 3999,
+    "host": "local",
+    "openBrowser": false,
+    "auth": {
+      "enabled": true,
+      "sessionTtlMs": 604800000,
+      "cookieSecure": "auto",
+      "trustProxy": false,
+      "maxLoginAttempts": 5,
+      "lockoutMs": 60000
+    },
+    "tls": { "enabled": false }
+  },
+  "defaults": {
+    "enabled": true,
+    "autostart": false,
+    "bind": "local",
+    "onPortConflict": "block",
+    "logBufferLines": 500
+  },
+  "logs": { "persist": true, "maxBytes": 2000000, "keep": 3 },
+  "host": { "enabled": true, "intervalMs": 15000, "diskPaths": ["/"], "diskUsedPercent": 90 },
+  "backups": { "enabled": false, "dir": "", "keep": 5, "includePaths": [] },
+  "servers": [
+    {
+      "id": "9router",
+      "label": "9Router gateway",
+      "command": "node",
+      "args": ["server.js"],
+      "env": { "PORT": "{port}" },
+      "dataEnvs": { "DATA_DIR": "{projectDir}/data/.9router" },
+      "port": 4000,
+      "bind": "lan",
+      "autostart": true
+    },
+    {
+      "id": "static",
+      "command": "npx",
+      "args": ["serve", "data/.serve/static", "-l", "tcp://{host}:{port}"],
+      "port": 4010
+    }
+  ]
+}

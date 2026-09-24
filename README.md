@@ -246,6 +246,7 @@ service can tell which entry it is and how to reach the panel.
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts) |
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
+| `home-hosted migrate` | bring `servers.config.json` up to this release's schema (`--dry-run`, `--yes`) |
 | `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
 
 <details>
@@ -262,6 +263,32 @@ service can tell which entry it is and how to reach the panel.
     --home <dir>      state directory         (or $HHOSTED_HOME)
     --project <dir>   base for relative paths (or $HHOSTED_PROJECT)
 ```
+
+</details>
+
+<details>
+<summary><b>🧭 Upgrading, and why the panel sometimes refuses to start</b></summary>
+
+`servers.config.json` records what wrote it: `meta.writtenBy` (the release) and `meta.schema` (the
+config shape). That buys two guarantees:
+
+- **A newer home-hosted always reads an older config** — every existing key keeps its meaning.
+- **Keys a newer release added are ignored, not fatal.** The panel names them in its log, leaves them
+  in the file, and never resets the settings around them.
+
+What it will not do is run a config it cannot read. A wrong value, a duplicate id, an unreadable file
+or a config whose schema is newer than the running release stops `up` with the exact problem, rather
+than starting with defaults that quietly differ from your file. Fix the file, or install the release
+that wrote it.
+
+When a release changes the shape itself, `home-hosted migrate` applies the steps it ships:
+
+```bash
+home-hosted migrate --dry-run   # print the steps, write nothing
+home-hosted migrate             # ask, then write — keeps servers.config.json.bak
+```
+
+Unattended, consent comes from `--yes` or `HHOSTED_MIGRATE=allow`; without it the command stops.
 
 </details>
 
@@ -418,7 +445,7 @@ Just the control panel, `3999` by default. Supervised servers use the ports you 
 `$HHOSTED_HOME`, default `~/.home-hosted`:
 
 ```text
-servers.config.json      your servers (the UI writes it back atomically)
+servers.config.json      your servers, plus meta: which release and schema wrote it
 servers.config.schema.json  regenerated on every start, for editor autocomplete
 .control-secrets.json    password hash + API token hash + Telegram token (mode 0600)
 .logs/                   rotated per-server logs + history

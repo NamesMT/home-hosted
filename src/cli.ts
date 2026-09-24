@@ -26,6 +26,7 @@ Usage
   home-hosted status [--json]   is it running, where, and how to reach it
   home-hosted set-password      set the panel password without the API
   home-hosted set-token         set the API token that scripts and agents use
+  home-hosted migrate           bring the config up to this release's schema
   home-hosted ui-revert         go back to the stock control panel UI
 
 Options for up/restart
@@ -40,6 +41,10 @@ Options for up/restart
 Options for set-token
       --generate        create a strong token and print it once
       --clear           remove the token, so it stops working
+
+Options for migrate
+      --dry-run         print what would change, write nothing
+  -y, --yes             apply without asking (or set HHOSTED_MIGRATE=allow)
 
 Everywhere
       --home <dir>      state directory (default: $HHOSTED_HOME or ~/.home-hosted)
@@ -423,6 +428,17 @@ function formatDuration(ms: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
+/** A plain y/N question, for decisions that are not secrets. */
+function prompt(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    rl.question(question, (answer) => {
+      rl.close()
+      resolve(answer)
+    })
+  })
+}
+
 /** Reads a line with echo suppressed, so the password never lands in scrollback. */
 function promptHidden(question: string): Promise<string> {
   return new Promise((resolve) => {
@@ -441,6 +457,100 @@ function promptHidden(question: string): Promise<string> {
       resolve(answer)
     })
   })
+}
+
+/**
+ * Brings `servers.config.json` up to the schema this release understands.
+ *
+ * Deliberately loud and deliberate: it prints every step first, backs the file up
+ * before writing, refuses to write a config it cannot read, and never runs on its
+ * own — a detached daemon cannot prompt, so consent comes from `--yes`, from
+ * `HHOSTED_MIGRATE=allow`, or from a person at a terminal.
+ */
+async function migrateConfig(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      'config': { type: 'string', short: 'c' },
+      'dry-run': { type: 'boolean' },
+      'yes': { type: 'boolean', short: 'y' },
+    },
+    allowPositionals: false,
+  })
+
+  const { defaultConfigPath } = await import('#src/helpers/paths')
+  const { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } = await import('#src/config/migrations')
+  const { parseConfig, stampConfig } = await import('#src/config/parse')
+  const { writeFileAtomic } = await import('#src/helpers/atomic')
+  const { appVersion } = await import('#src/helpers/version')
+
+  const file = values.config ?? defaultConfigPath
+  if (!fs.existsSync(file))
+    fail(`no config at ${file} — nothing to migrate`)
+
+  let raw: Record<string, unknown>
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+  }
+  catch (error) {
+    fail(`cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  const meta = typeof raw.meta === 'object' && raw.meta !== null ? raw.meta as { schema?: number, writtenBy?: string } : {}
+  const from = typeof meta.schema === 'number' ? meta.schema : CONFIG_SCHEMA
+  const plan = planConfigMigrations(from)
+
+  if (plan.tooNew) {
+    fail(`${file} was written by home-hosted ${meta.writtenBy ?? 'a newer release'} (config schema ${from});\n  this release understands schema ${plan.to}. Install that version, or edit the file yourself.`)
+  }
+
+  const stamped = stampConfig(raw)
+  const upToDate = plan.steps.length === 0
+  if (upToDate && values['dry-run'] !== true && JSON.stringify(stamped) !== JSON.stringify(raw)) {
+    writeFileAtomic(file, `${JSON.stringify(stamped, null, 2)}\n`)
+    process.stdout.write(`${green('config stamped')} in ${file} — written by home-hosted ${appVersion()}, schema ${plan.to}\n`)
+    return
+  }
+
+  if (upToDate) {
+    process.stdout.write(`config schema ${from} is already what home-hosted ${appVersion()} understands — nothing to migrate\n`)
+    return
+  }
+
+  process.stdout.write(`migrating ${file}: config schema ${from} → ${plan.to}\n`)
+  for (const [index, step] of plan.steps.entries())
+    process.stdout.write(`  ${index + 1}. ${step.describe}\n`)
+
+  if (values['dry-run'] === true) {
+    process.stdout.write(`${dim(`nothing was written (--dry-run, ${plan.steps.length} step(s) pending)`)}\n`)
+    return
+  }
+
+  const consented = values.yes === true || (process.env.HHOSTED_MIGRATE ?? '').toLowerCase() === 'allow'
+  if (!consented) {
+    if (process.stdin.isTTY !== true) {
+      fail(`this config needs ${plan.steps.length} migration(s) and this session cannot ask.\n  re-run with --yes, or set HHOSTED_MIGRATE=allow for unattended runs`)
+    }
+    const answer = await prompt(`Apply ${plan.steps.length} migration(s) to ${path.basename(file)}? [y/N] `)
+    if (!/^yes$|^y$/i.test(answer.trim())) {
+      process.stdout.write('cancelled — nothing was written\n')
+      return
+    }
+  }
+
+  const { config, applied } = applyConfigMigrations(raw, from)
+  const parsed = parseConfig(config)
+  if (parsed.config === null) {
+    fail(`the migration produced a config this release cannot read:\n  ${parsed.errors.join('\n  ')}`)
+  }
+
+  const backup = `${file}.bak`
+  fs.copyFileSync(file, backup)
+  writeFileAtomic(file, `${JSON.stringify(stampConfig(config), null, 2)}\n`)
+  process.stdout.write(`${green(`migrated to schema ${plan.to}`)} (${applied.length} step(s)) in ${file}\n`)
+  process.stdout.write(`  ${dim(`previous file kept at ${backup}`)}\n`)
+  for (const key of parsed.unknownKeys)
+    process.stdout.write(`  ${dim(`still ignoring an unrecognized key: ${key}`)}\n`)
 }
 
 /** Drops a user-installed UI so the stock panel serves again. */
@@ -623,6 +733,10 @@ async function main(): Promise<void> {
     case 'set-token':
       applyDirFlags(dirFlags)
       await setToken(args)
+      return
+    case 'migrate':
+      applyDirFlags(dirFlags)
+      await migrateConfig(args)
       return
     case 'ui-revert':
       applyDirFlags(dirFlags)

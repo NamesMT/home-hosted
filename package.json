@@ -57,6 +57,7 @@
     "build:server": "vite build --config vite.server.config.ts",
     "set-password": "tsx src/cli.ts set-password",
     "set-token": "tsx src/cli.ts set-token",
+    "migrate": "tsx src/cli.ts migrate",
     "lint": "eslint .",
     "test": "vitest",
     "test:types": "tsc --noEmit && node scripts/typecheck-uis.mjs",

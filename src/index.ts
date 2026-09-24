@@ -24,6 +24,7 @@ import {
   resolveUserPath,
 } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
+import { appVersion } from '#src/helpers/version'
 import { isPortFree } from '#src/providers/port'
 import { AuthService, DEFAULT_PASSWORD } from '#src/services/auth'
 import { BackupService, resolveBackupPaths } from '#src/services/backups'
@@ -88,6 +89,22 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   const store = new ConfigStore(configPath, SEED_CONFIG)
   store.load()
   store.writeJsonSchema()
+
+  // A config this release cannot read is refused rather than run with defaults: the
+  // groups would fall back silently, and for `control` that means a different port,
+  // bind and auth policy than the file asked for. Pinning the release that wrote it,
+  // or migrating, is the way forward — see the Compatibility section of AGENTS.md.
+  // Nothing is written before this point, so a refused start leaves the file alone.
+  if (store.configError !== null) {
+    logger.error(`refusing to start: ${store.configError}`)
+    logger.info(`fix ${store.path}, or install the release that wrote it`)
+    process.exit(1)
+  }
+  if (store.pendingMigrations.length > 0) {
+    logger.error(`refusing to start: ${store.path} needs ${store.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
+    logger.info('run `home-hosted migrate` to see and apply them')
+    process.exit(1)
+  }
 
   const secrets = new SecretsStore(defaultSecretsPath)
   const auth = new AuthService(secrets, () => store.config.control.auth)
@@ -264,8 +281,8 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     const meta = ui.status().meta
     logger.warn(`custom UI in use${meta === null ? '' : ` (${meta.name}${meta.version === null ? '' : ` ${meta.version}`})`} — if it breaks, run \`home-hosted ui-revert\``)
   }
-  if (store.configError !== null)
-    logger.warn(`config problem(s): ${store.configError}`)
+  for (const warning of store.configWarnings)
+    logger.warn(warning)
   for (const entry of supervisor.views())
     logger.info(`  ${entry.id.padEnd(12)} ${entry.config.command} ${entry.config.args.join(' ')}`.trimEnd())
 

@@ -66,7 +66,9 @@ describe('configStore', () => {
     expect(store.getServer('a')?.autostart).toBe(false)
   })
 
-  it('keeps valid servers and reports the invalid ones instead of failing the whole file', async () => {
+  it('refuses a file with an invalid entry, naming every one of them', async () => {
+    // Refusing beats serving a half-read config: a dropped entry looks like a removed
+    // server, which is a worse failure than a panel that says what is wrong.
     const file = await writeConfig({
       servers: [
         { id: 'good', command: 'node' },
@@ -77,9 +79,24 @@ describe('configStore', () => {
     const store = new ConfigStore(file)
     store.load()
 
-    expect(store.servers.map(server => server.id)).toEqual(['good'])
     expect(store.configError).toContain('servers[1]')
     expect(store.configError).toContain('servers[2]')
+    expect(store.servers).toEqual([])
+  })
+
+  it('keeps the config it is already running when the file on disk goes bad', async () => {
+    const file = await writeConfig({ servers: [{ id: 'keep', command: 'node' }] })
+    const store = new ConfigStore(file)
+    store.load()
+    expect(store.getServer('keep')).toBeDefined()
+
+    // Someone edits the file into an invalid state while the panel is up: the error
+    // is reported, but the running supervision is left alone.
+    await fs.promises.writeFile(file, JSON.stringify({ servers: [{ id: 'keep', command: 'node', port: 'nope' }] }, null, 2))
+    store.load()
+
+    expect(store.configError).toContain('servers[0]')
+    expect(store.getServer('keep')).toBeDefined()
   })
 
   it('reports duplicate ids', async () => {
@@ -88,7 +105,7 @@ describe('configStore', () => {
     })
     const store = new ConfigStore(file)
     store.load()
-    expect(store.servers).toHaveLength(1)
+    expect(store.servers).toEqual([])
     expect(store.configError).toContain('duplicate id')
   })
 
@@ -273,12 +290,38 @@ describe('server patching', () => {
     expect(store.getServer('a')?.bootstrap ?? null).toBeNull()
   })
 
-  it('surfaces an unknown key in the config file instead of ignoring it', async () => {
-    const file = await writeConfig({ servers: [{ id: 'a', command: 'node', autostartt: true }] })
+  it('tolerates keys a newer release wrote, and says which ones it ignored', async () => {
+    // The compatibility rule: an unrecognized key is the normal way a newer config
+    // looks to an older panel, so it is kept on disk, reported, and ignored here —
+    // never allowed to fail the group it sits in.
+    const file = await writeConfig({
+      control: { port: 4123, host: 'local', futurePanelFlag: true },
+      servers: [{ id: 'a', command: 'node', autostartt: true }],
+      futureTopLevelBlock: { anything: true },
+    })
     const store = new ConfigStore(file)
     store.load()
-    expect(store.servers).toEqual([])
-    expect(store.configError).toContain('autostartt')
+
+    expect(store.configError).toBeNull()
+    // The group kept its real values instead of falling back to schema defaults.
+    expect(store.config.control.port).toBe(4123)
+    expect(store.getServer('a')).toBeDefined()
+
+    const warnings = store.configWarnings.join('\n')
+    expect(warnings).toContain('control.futurePanelFlag')
+    expect(warnings).toContain('servers[0].autostartt')
+    expect(warnings).toContain('futureTopLevelBlock')
+
+    // Left on disk for the release that understands them.
+    const raw = JSON.parse(await fs.promises.readFile(file, 'utf8')) as Record<string, unknown>
+    expect(raw.futureTopLevelBlock).toBeDefined()
+  })
+
+  it('still refuses a value that is simply wrong', async () => {
+    const file = await writeConfig({ servers: [{ id: 'a', command: 'node', port: 'nope' }] })
+    const store = new ConfigStore(file)
+    store.load()
+    expect(store.configError).toContain('servers[0]')
   })
 
   it('never persists an unknown patch key', async () => {
@@ -387,18 +430,19 @@ describe('logs, notifications and dependencies', () => {
     store.load()
 
     expect(store.getServer('app')).toBeDefined()
-    expect(store.configError).toContain('unknown server "ghost"')
+    expect(store.configError).toBeNull()
+    expect(store.configWarnings.join('\n')).toContain('unknown server "ghost"')
   })
 
   it('reports a dependency cycle and self references', async () => {
     const cyclic = await writeConfig({ servers: [{ id: 'a', command: 'node', dependsOn: ['b'] }, { id: 'b', command: 'node', dependsOn: ['a'] }] })
     const store = new ConfigStore(cyclic)
     store.load()
-    expect(store.configError).toContain('dependency cycle')
+    expect(store.configWarnings.join('\n')).toContain('dependency cycle')
 
     const self = await writeConfig({ servers: [{ id: 'a', command: 'node', dependsOn: ['a'] }] })
     const selfStore = new ConfigStore(self)
     selfStore.load()
-    expect(selfStore.configError).toContain('depends on itself')
+    expect(selfStore.configWarnings.join('\n')).toContain('depends on itself')
   })
 })

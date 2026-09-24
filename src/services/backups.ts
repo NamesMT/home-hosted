@@ -3,8 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { type } from 'arktype'
-import { configSchema } from '#src/config/schema'
+import { parseConfig } from '#src/config/parse'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
 import { dataRoot, projectDir, resolveUserPath } from '#src/helpers/paths'
@@ -164,12 +163,16 @@ function controlBlock(configText: string | null): unknown {
   }
 }
 
-/** A restored config is only accepted when the full schema can read it. */
+/**
+ * A restored config is accepted when this release can read it — through the same
+ * tolerant parser the store uses, so an archive from a newer release keeps only
+ * the keys this one understands instead of being refused outright.
+ */
 function isUsableConfig(text: string | null): boolean {
   if (text === null)
     return false
   try {
-    return !(configSchema(JSON.parse(text)) instanceof type.errors)
+    return parseConfig(JSON.parse(text)).config !== null
   }
   catch {
     return false
@@ -185,11 +188,10 @@ function archiveTargets(configText: string | null): DeclaredTarget[] {
   if (configText === null)
     return []
   try {
-    const parsed = configSchema(JSON.parse(configText))
-    if (parsed instanceof type.errors)
+    const parsed = parseConfig(JSON.parse(configText)).config
+    if (parsed === null)
       return []
-    const servers: ServerConfig[] = parsed.servers.map(server => ({ ...server, port: server.port ?? null }))
-    return resolveBackupPaths(servers, parsed.backups.includePaths)
+    return resolveBackupPaths(parsed.servers, parsed.backups.includePaths)
       .filter(entry => entry.included)
       .map(entry => ({ path: entry.path, origin: entry.origin }))
   }

@@ -1,5 +1,5 @@
 import type { ControlEndpoint } from '#src/services/control-server'
-import type { ServerView } from '#src/shared/contracts'
+import type { ServerView, SseMessage } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -65,7 +65,7 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs = 10000): Promis
   }
 }
 
-async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ supervisor: Supervisor, store: ConfigStore }> {
+async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ supervisor: Supervisor, store: ConfigStore, hub: EventHub }> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-sup-'))
   const file = path.join(dir, 'servers.config.json')
   await fs.promises.writeFile(file, JSON.stringify({ control: { port: 3999 }, servers }, null, 2))
@@ -452,7 +452,7 @@ describe('supervisor', () => {
     }])
 
     const sampledAt: number[] = []
-    cleanups.push(hub.subscribe(null, (message) => {
+    cleanups.push(hub.subscribe(null, (message: SseMessage) => {
       if (message.type === 'state')
         sampledAt.push(message.state?.servers[0]?.resources?.sampledAt ?? 0)
     }))

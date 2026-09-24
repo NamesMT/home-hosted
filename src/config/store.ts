@@ -1,3 +1,4 @@
+import type { ConfigMigration } from '#src/config/migrations'
 import type { RawConfig, ResolvedConfig, ServerConfig } from '#src/config/schema'
 import type {
   BackupsConfig,
@@ -12,6 +13,8 @@ import type {
 import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
+import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
+import { parseConfig, stampConfig } from '#src/config/parse'
 import {
   backupsSchema,
   configSchema,
@@ -44,45 +47,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Dangling dependencies and cycles are reported, not fatal: supervision still runs. */
-function validateDependencies(servers: ServerConfig[]): string[] {
-  const ids = new Set(servers.map(server => server.id))
-  const errors: string[] = []
-
-  for (const server of servers) {
-    for (const dependency of server.dependsOn) {
-      if (dependency === server.id)
-        errors.push(`"${server.id}" depends on itself`)
-      else if (!ids.has(dependency))
-        errors.push(`"${server.id}" depends on unknown server "${dependency}"`)
-    }
-  }
-
-  const visiting = new Set<string>()
-  const done = new Set<string>()
-  const byId = new Map(servers.map(server => [server.id, server]))
-
-  const walk = (id: string, trail: string[]): void => {
-    if (done.has(id))
-      return
-    if (visiting.has(id)) {
-      errors.push(`dependency cycle: ${[...trail, id].join(' -> ')}`)
-      return
-    }
-    visiting.add(id)
-    for (const dependency of byId.get(id)?.dependsOn ?? []) {
-      if (ids.has(dependency) && dependency !== id)
-        walk(dependency, [...trail, id])
-    }
-    visiting.delete(id)
-    done.add(id)
-  }
-
-  for (const server of servers) walk(server.id, [])
-  return errors
-}
-
-/** Nested groups merge so a partial edit never drops a sibling field. */
 function applyPatch(target: Record<string, unknown>, patch: Record<string, unknown>, mergeKeys: Set<string>): void {
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined)
@@ -123,6 +87,8 @@ export class ConfigStore {
   private raw: RawConfig = {}
   private resolvedConfig!: ResolvedConfig
   private error: string | null = null
+  private warnings: string[] = []
+  private schemaVersion = CONFIG_SCHEMA
   private readonly listeners = new Set<() => void>()
 
   constructor(private readonly file: string, private readonly seed: RawConfig = SEED_CONFIG) {}
@@ -137,6 +103,21 @@ export class ConfigStore {
 
   get configError(): string | null {
     return this.error
+  }
+
+  /** Keys a newer release wrote that this one ignores; nothing to refuse over. */
+  get configWarnings(): string[] {
+    return [...this.warnings]
+  }
+
+  /** The shape the file declares, as last read. */
+  get configSchemaVersion(): number {
+    return this.schemaVersion
+  }
+
+  /** Steps that would have to run before this release could use the file. */
+  get pendingMigrations(): ConfigMigration[] {
+    return planConfigMigrations(this.schemaVersion).steps
   }
 
   get servers(): ServerConfig[] {
@@ -171,8 +152,8 @@ export class ConfigStore {
 
   private read(): void {
     if (!fs.existsSync(this.file)) {
-      // A missing file gets the seed, written out for the user to edit.
-      const seed = structuredClone(this.seed)
+      // A missing file gets the seed, stamped and written out for the user to edit.
+      const seed = stampConfig(structuredClone(this.seed))
       writeFileAtomic(this.file, `${JSON.stringify(seed, null, 2)}\n`)
       this.raw = seed
       this.apply(seed)
@@ -185,13 +166,6 @@ export class ConfigStore {
     }
     catch (error) {
       this.error = `cannot parse ${path.basename(this.file)}: ${(error as Error).message}`
-      this.raw = {}
-      this.resolvedConfig = this.resolveFallback()
-      return
-    }
-
-    if (!isRecord(parsed)) {
-      this.error = `${path.basename(this.file)} must contain a JSON object`
       this.raw = {}
       this.resolvedConfig = this.resolveFallback()
       return
@@ -336,9 +310,11 @@ export class ConfigStore {
   }
 
   private commit(draft: RawConfig): void {
-    writeFileAtomic(this.file, `${JSON.stringify(draft, null, 2)}\n`)
-    this.raw = draft
-    this.apply(draft)
+    // Every write carries the stamp, so the next release can tell what wrote it.
+    const stamped = stampConfig(draft)
+    writeFileAtomic(this.file, `${JSON.stringify(stamped, null, 2)}\n`)
+    this.raw = stamped
+    this.apply(stamped)
     this.notify()
   }
 
@@ -360,60 +336,21 @@ export class ConfigStore {
 
   private apply(raw: RawConfig): void {
     this.raw = raw
-    const errors: string[] = []
-
-    const control = controlSchema(raw.control ?? {})
-    const defaults = defaultsSchema(raw.defaults ?? {})
-    const logs = logsSchema(raw.logs ?? {})
-    const notifications = notificationsSchema(raw.notifications ?? {})
-    const host = hostSchema(raw.host ?? {})
-    const backups = backupsSchema(raw.backups ?? {})
-    if (control instanceof type.errors)
-      errors.push(`control: ${formatErrors(control)}`)
-    if (defaults instanceof type.errors)
-      errors.push(`defaults: ${formatErrors(defaults)}`)
-    if (logs instanceof type.errors)
-      errors.push(`logs: ${formatErrors(logs)}`)
-    if (notifications instanceof type.errors)
-      errors.push(`notifications: ${formatErrors(notifications)}`)
-    if (host instanceof type.errors)
-      errors.push(`host: ${formatErrors(host)}`)
-    if (backups instanceof type.errors)
-      errors.push(`backups: ${formatErrors(backups)}`)
-
-    const resolvedDefaults = defaults instanceof type.errors ? defaultsSchema({}) as ResolvedConfig['defaults'] : defaults
-    const servers: ServerConfig[] = []
-    const seen = new Set<string>()
-    const rawServers = Array.isArray(raw.servers) ? raw.servers : []
-
-    rawServers.forEach((entry, index) => {
-      const parsed = serverSchema({ ...resolvedDefaults, ...entry })
-      if (parsed instanceof type.errors) {
-        errors.push(`servers[${index}] (${(entry as { id?: string })?.id ?? 'no id'}): ${formatErrors(parsed)}`)
-        return
-      }
-      if (seen.has(parsed.id)) {
-        errors.push(`servers[${index}]: duplicate id "${parsed.id}"`)
-        return
-      }
-      seen.add(parsed.id)
-      servers.push({ ...parsed, port: parsed.port ?? null })
-    })
-
-    errors.push(...validateDependencies(servers))
-
-    this.error = errors.length > 0 ? errors.join('; ') : null
-    this.resolvedConfig = {
-      $schema: raw.$schema,
-      control: control instanceof type.errors ? controlSchema({}) as ResolvedConfig['control'] : control,
-      defaults: resolvedDefaults,
-      logs: logs instanceof type.errors ? logsSchema({}) as ResolvedConfig['logs'] : logs,
-      notifications: notifications instanceof type.errors
-        ? notificationsSchema({}) as ResolvedConfig['notifications']
-        : notifications,
-      host: host instanceof type.errors ? hostSchema({}) as ResolvedConfig['host'] : host,
-      backups: backups instanceof type.errors ? backupsSchema({}) as ResolvedConfig['backups'] : backups,
-      servers,
-    }
+    const parsed = parseConfig(raw)
+    this.error = parsed.errors.length > 0 ? parsed.errors.join('; ') : null
+    this.schemaVersion = parsed.schemaVersion
+    this.warnings = [
+      ...parsed.warnings,
+      ...(parsed.unknownKeys.length === 0
+        ? []
+        : [`${path.basename(this.file)} carries ${parsed.unknownKeys.length} unrecognized key(s) this release ignores: ${parsed.unknownKeys.join(', ')}`]),
+    ]
+    // A file that cannot be trusted never replaces a config this process is already
+    // running: a bad edit must not disturb supervision or blank the panel. It only
+    // falls back to defaults when there is nothing good to keep (a first load).
+    if (parsed.config !== null)
+      this.resolvedConfig = parsed.config
+    else if (this.resolvedConfig === undefined)
+      this.resolvedConfig = this.resolveFallback()
   }
 }

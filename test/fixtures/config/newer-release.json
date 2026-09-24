@@ -1,0 +1,21 @@
+{
+  "$schema": "./servers.config.schema.json",
+  "meta": { "writtenBy": "0.4.0", "schema": 1 },
+  "control": {
+    "port": 4123,
+    "host": "local",
+    "futurePanelFlag": true,
+    "auth": { "enabled": true, "sessionTtlMs": 604800000, "futureAuthField": "x" }
+  },
+  "defaults": { "logBufferLines": 500 },
+  "servers": [
+    {
+      "id": "web",
+      "command": "node",
+      "port": 4200,
+      "futureEntryField": true,
+      "health": { "enabled": true, "mode": "port", "futureHealthField": 1 }
+    }
+  ],
+  "futureTopLevelBlock": { "anything": true }
+}
