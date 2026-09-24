@@ -1,0 +1,19 @@
+minimumReleaseAgeExcludePrune: true
+
+trustPolicy: no-downgrade
+# vendored/historic transitives that would block the whole tree under no-downgrade
+trustPolicyExclude:
+  - semver@6.3.1
+  - chokidar@3.6.0
+
+shellEmulator: true
+
+overrides:
+  is-core-module: npm:@nolyfill/is-core-module@^1.0.39
+
+allowBuilds:
+  esbuild: true
+  simple-git-hooks: true
+  # reka-ui's transitive dep needs its postinstall to pick the Vue 2/3 build
+  unrs-resolver: true
+  vue-demi: true

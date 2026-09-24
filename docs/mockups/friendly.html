@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Friendly dashboard — home-hosted UI example</title>
+<style>
+  :root {
+    --bg: #f3f6f2;
+    --bg-glow: #e4eee7;
+    --panel: #ffffff;
+    --border: #d8e2d9;
+    --border-strong: #b8c8bd;
+    --ink: #1e2b25;
+    --ink-soft: #586a60;
+    --ink-faint: #6b7b71;
+    --ok: #2e7d5b;
+    --ok-soft: #dbeee3;
+    --warn: #8a6a1f;
+    --warn-soft: #f4e9cf;
+    --idle: #62736a;
+    --idle-soft: #e7ede9;
+    --card: 22px;
+    --field: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 15px/1.5 'Nunito', ui-sans-serif, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .page {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 20px;
+    padding: 34px 40px 26px;
+    position: relative;
+    overflow: hidden;
+  }
+  /* one soft glow, behind everything, as the friendly theme does */
+  .page::before {
+    content: '';
+    position: absolute;
+    top: -220px;
+    left: -140px;
+    width: 720px;
+    height: 520px;
+    background: radial-gradient(closest-side, var(--bg-glow), transparent 70%);
+    pointer-events: none;
+  }
+  header { display: flex; align-items: center; gap: 14px; position: relative; }
+  h1 { margin: 0; font-size: 27px; font-weight: 700; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-soft); font-size: 15px; }
+  .when {
+    margin-left: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 7px 15px;
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--card);
+    padding: 18px 20px;
+    box-shadow: 0 10px 24px rgba(30, 43, 37, 0.05);
+  }
+  .card h2 { margin: 0 0 2px; font-size: 19px; font-weight: 700; }
+  .card p { margin: 0; color: var(--ink-soft); font-size: 13.5px; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--ok-soft);
+    color: var(--ok);
+  }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .pill.idle { background: var(--idle-soft); color: var(--idle); }
+  .pill i { width: 7px; height: 7px; border-radius: 999px; background: currentColor; }
+  .card .row { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
+  .uptime { color: var(--ink-faint); font-size: 13px; }
+  .split { display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; min-height: 0; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--card);
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    box-shadow: 0 10px 24px rgba(30, 43, 37, 0.05);
+  }
+  .panel h3 { margin: 0 0 4px; font-size: 17px; font-weight: 700; }
+  .panel .lead { margin: 0 0 14px; color: var(--ink-soft); font-size: 13.5px; }
+  .attention { border-color: var(--border-strong); }
+  .fix {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--warn-soft);
+    border-radius: var(--field);
+    padding: 14px 16px;
+  }
+  .fix div { min-width: 0; }
+  .fix strong { display: block; font-size: 14.5px; }
+  .fix span { color: var(--ink-soft); font-size: 13px; }
+  .fix button {
+    margin-left: auto;
+    border: 0;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--bg);
+    font: 600 13px 'Nunito', sans-serif;
+    padding: 9px 16px;
+    white-space: nowrap;
+  }
+  .feed { list-style: none; margin: 14px 0 0; padding: 0; min-height: 0; }
+  .feed li { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--border); font-size: 13.5px; color: var(--ink-soft); }
+  .feed li:first-child { border-top: 0; }
+  .feed b { color: var(--ink); font-weight: 600; }
+  .feed time { color: var(--ink-faint); font-size: 12.5px; }
+  .vitals { display: grid; gap: 12px; margin-top: 4px; }
+  .vital { display: grid; gap: 6px; }
+  .vital .top { display: flex; justify-content: space-between; font-size: 13.5px; }
+  .vital .top span { color: var(--ink-soft); }
+  .vital .top b { font-weight: 700; }
+  .meter { height: 9px; border-radius: 999px; background: var(--idle-soft); overflow: hidden; }
+  .meter i { display: block; height: 100%; border-radius: 999px; background: var(--ok); }
+  .meter.warn i { background: #c69a3c; }
+  footer { display: flex; gap: 18px; color: var(--ink-faint); font-size: 12.5px; position: relative; }
+  footer b { color: var(--ink-soft); font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>Everything is up</h1>
+      <span class="sub">4 of 5 servers are running, and one wants a hand.</span>
+      <span class="when">checked 8 seconds ago</span>
+    </header>
+
+    <section class="cards">
+      <article class="card">
+        <h2>gateway</h2>
+        <p>model router on port 4000</p>
+        <div class="row">
+          <span class="pill"><i></i>running</span>
+          <span class="uptime">up 3h 12m</span>
+        </div>
+      </article>
+      <article class="card">
+        <h2>media</h2>
+        <p>library on port 8096</p>
+        <div class="row">
+          <span class="pill"><i></i>running</span>
+          <span class="uptime">up 14h 05m</span>
+        </div>
+      </article>
+      <article class="card">
+        <h2>vault</h2>
+        <p>notes on port 8080</p>
+        <div class="row">
+          <span class="pill"><i></i>running</span>
+          <span class="uptime">up 2h 26m</span>
+        </div>
+      </article>
+    </section>
+
+    <section class="split">
+      <div class="panel attention">
+        <h3>mirror wants a hand</h3>
+        <p class="lead">It is trying to start on port 4010, and something else is already there.
+          Nothing is lost — it will keep trying while you decide.</p>
+        <div class="fix">
+          <div>
+            <strong>Port 4010 is held by an old process</strong>
+            <span>pid 44120, started before your last reboot</span>
+          </div>
+          <button>Let it take the port</button>
+        </div>
+        <ul class="feed">
+          <li><time>11:02</time><span>Retried and stopped again — <b>4 attempts</b> so far</span></li>
+          <li><time>10:58</time><span>You restarted <b>mirror</b> from the panel</span></li>
+          <li><time>10:31</time><span><b>vault</b> wrote a backup, 48 MB</span></li>
+          <li><time>09:58</time><span><b>bot</b> was stopped by you</span></li>
+        </ul>
+      </div>
+
+      <div class="panel">
+        <h3>This machine</h3>
+        <p class="lead">Attic box · 4 cores · 16 GB</p>
+        <div class="vitals">
+          <div class="vital">
+            <div class="top"><span>Memory</span><b>6.1 / 16 GB</b></div>
+            <div class="meter"><i style="width: 38%"></i></div>
+          </div>
+          <div class="vital">
+            <div class="top"><span>Disk</span><b>82% full</b></div>
+            <div class="meter warn"><i style="width: 82%"></i></div>
+          </div>
+          <div class="vital">
+            <div class="top"><span>CPU temperature</span><b>54 °C</b></div>
+            <div class="meter"><i style="width: 54%"></i></div>
+          </div>
+          <div class="vital">
+            <div class="top"><span>Load</span><b>0.42</b></div>
+            <div class="meter"><i style="width: 21%"></i></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span><b>bot</b> is stopped, on purpose</span>
+      <span>next backup in <b>3 hours</b></span>
+      <span>notifications go to Telegram</span>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,67 @@
+# dependencies
+node_modules
+.pnp
+.pnp.js
+.pnpm-store
+
+# testing
+coverage/
+lib-cov/
+
+# dev/builds/outputs
+.output/
+.out/
+.data/
+.nuxt/
+.next/
+.nitro/
+.cache/
+dist/
+
+# misc
+.DS_Store
+.fleet
+.idea
+# rooted on purpose: a bare `logs` also matches e.g. web/src/components/logs/,
+# which silently untracks source and hides it from Tailwind's source detection
+/temp/
+/tmp/
+/logs/
+tsconfig.tsbuildinfo
+*.log
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local env files
+.env.*.ignored
+
+# turbo
+.turbo
+
+# cloud services
+.vercel
+.netlify
+
+# sst
+.sst
+
+# pnpm have a bug with tsx that creates the `tsx-0` folder everywhere
+tsx-0
+
+# GIF inputs from `scripts/capture-media.mjs`; `tour.gif` and the full-size PNGs are committed
+docs/media/*-tour.png
+
+# built UIs (`uis/*/dist` is shipped in the package tarball; `dist/` covers every one)
+# built CLI
+dist/
+# per-server secret env files
+.env.*
+# a local state directory, e.g. `HOME_HOSTED_HOME=./state`, is never committed:
+# config, password hash, logs, TLS keys and backups all live there
+state/
+.dev-state/

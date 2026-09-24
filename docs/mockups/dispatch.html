@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dispatch board — home-hosted UI example</title>
+<style>
+  :root {
+    --paper: #edf0f2;
+    --panel: #f8fafb;
+    --ink: #1b2126;
+    --muted: #5c6a72;
+    --rule: #cbd5db;
+    --moss: #5f6f52;
+    --amber: #a8691f;
+    --slate: #8a8f94;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 15px/1.5 system-ui, 'Segoe UI', sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .sheet { display: flex; flex-direction: column; height: 100%; padding: 40px 44px 0; }
+  header { display: flex; align-items: baseline; gap: 18px; padding-bottom: 14px; border-bottom: 2px solid var(--ink); }
+  h1 { margin: 0; font: 400 30px/1.1 'Iowan Old Style', 'Palatino Linotype', Palatino, serif; letter-spacing: -0.01em; }
+  .where { color: var(--muted); }
+  .when { margin-left: auto; color: var(--muted); font-size: 13px; }
+  .columns { display: grid; grid-template-columns: 1.55fr 1fr; gap: 0 44px; flex: 1; min-height: 0; }
+  .column { padding-top: 20px; }
+  .column + .column { border-left: 1px solid var(--rule); padding-left: 40px; }
+  h2 { margin: 0 0 10px; font: 400 13px/1 system-ui, sans-serif; color: var(--muted); letter-spacing: 0.02em; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .server { display: grid; grid-template-columns: 200px 1fr auto; align-items: baseline; gap: 14px; padding: 13px 0; border-bottom: 1px solid var(--rule); }
+  .server:last-child { border-bottom: 0; }
+  .name { font: 400 21px/1.2 'Iowan Old Style', Palatino, serif; }
+  .what { color: var(--muted); font-size: 13px; }
+  .state { display: flex; align-items: center; gap: 7px; justify-self: end; font-size: 13px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--slate); }
+  .running .dot { background: var(--moss); }
+  .restarting .dot { background: var(--amber); }
+  .running .state { color: var(--moss); }
+  .restarting .state { color: var(--amber); }
+  .ledger dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; margin: 0 0 22px; font-size: 14px; }
+  .ledger dt { color: var(--muted); }
+  .ledger dd { margin: 0; text-align: right; }
+  .bar { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; margin: 4px 0 12px; }
+  .bar i { display: block; height: 100%; background: var(--moss); }
+  .bar.warm i { background: var(--amber); }
+  .note { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+  .activity li { padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 13px; color: var(--muted); }
+  .activity time { color: var(--ink); }
+  footer { border-top: 1px solid var(--rule); padding: 12px 0 16px; font-size: 12px; color: var(--muted); display: flex; gap: 20px; }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <header>
+      <h1>Dispatch</h1>
+      <span class="where">attic-box · 127.0.0.1:3999</span>
+      <span class="when">updated 12 seconds ago</span>
+    </header>
+
+    <div class="columns">
+      <section class="column">
+        <h2>Servers</h2>
+        <ul>
+          <li class="server running">
+            <span class="name">gateway</span>
+            <span class="what">model router on 4000, healthy, 3h 12m up</span>
+            <span class="state"><i class="dot"></i>running</span>
+          </li>
+          <li class="server running">
+            <span class="name">media</span>
+            <span class="what">library on 8096, 41 sessions today</span>
+            <span class="state"><i class="dot"></i>running</span>
+          </li>
+          <li class="server restarting">
+            <span class="name">mirror</span>
+            <span class="what">static files on 4010 — port held by an old process</span>
+            <span class="state"><i class="dot"></i>restarting in 8s</span>
+          </li>
+          <li class="server running">
+            <span class="name">vault</span>
+            <span class="what">notes on 8080, last backup 06:15</span>
+            <span class="state"><i class="dot"></i>running</span>
+          </li>
+          <li class="server">
+            <span class="name">bot</span>
+            <span class="what">telegram bridge — stopped by you 2h ago</span>
+            <span class="state"><i class="dot"></i>stopped</span>
+          </li>
+        </ul>
+      </section>
+
+      <section class="column ledger">
+        <h2>This machine</h2>
+        <div class="note">Attic box, 4 cores, 16 GB</div>
+        <dl>
+          <dt>load</dt><dd>0.42 / 0.51 / 0.60</dd>
+          <dt>memory</dt><dd>6.1 of 16 GB</dd>
+          <dt>temperature</dt><dd>54 °C</dd>
+        </dl>
+        <div class="note">Disk used</div>
+        <div class="bar warm"><i style="width: 82%"></i></div>
+        <div class="note">82% of 2 TB — a backup prune is due</div>
+
+        <h2>Recent</h2>
+        <ul class="activity">
+          <li><time>11:02</time> mirror could not take 4010, retrying</li>
+          <li><time>10:47</time> gateway answered /healthz in 210 ms</li>
+          <li><time>10:31</time> vault wrote a backup, 48 MB</li>
+          <li><time>09:58</time> bot stopped from the panel</li>
+        </ul>
+      </section>
+    </div>
+
+    <footer>
+      <span>5 servers · 4 running</span>
+      <span>2 notified events today</span>
+      <span>next backup in 3h</span>
+    </footer>
+  </div>
+</body>
+</html>

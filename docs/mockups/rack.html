@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Rack sheet — home-hosted UI example</title>
+<style>
+  :root {
+    --paper: #ffffff;
+    --ink: #1c1f23;
+    --muted: #6b7280;
+    --grid: #e5e7eb;
+    --blue: #2b4ee6;
+    --green: #14724a;
+    --grey: #9ca3af;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 400 14px/1.45 system-ui, 'Segoe UI', sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .wrap { height: 100%; display: flex; flex-direction: column; padding: 36px 40px 28px; }
+  .top { display: flex; align-items: flex-end; gap: 16px; padding-bottom: 16px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.015em; }
+  .sub { color: var(--muted); padding-bottom: 2px; }
+  .chips { margin-left: auto; display: flex; gap: 8px; padding-bottom: 2px; }
+  .chip { border: 1px solid var(--grid); border-radius: 3px; padding: 4px 9px; font-size: 12px; color: var(--muted); }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .table { flex: 1; border-top: 2px solid var(--ink); min-height: 0; }
+  .row { display: grid; grid-template-columns: 1.4fr 0.7fr 0.6fr 1.5fr 1fr 0.8fr 1.6fr; align-items: center; gap: 14px; padding: 13px 4px; border-bottom: 1px solid var(--grid); }
+  .head { color: var(--muted); font-size: 12px; padding: 9px 4px; }
+  .name { font-weight: 600; }
+  .name small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+  .state { font-weight: 500; }
+  .state.running { color: var(--green); }
+  .state.stopped { color: var(--muted); }
+  .state.restarting { color: #a06a12; }
+  .track { height: 8px; background: var(--grid); position: relative; }
+  .track i { position: absolute; inset: 0 auto 0 0; background: var(--blue); }
+  .track.stopped i { background: var(--grey); }
+  .track small { position: absolute; right: 0; top: -17px; color: var(--muted); font-size: 11px; }
+  .tally { display: flex; gap: 3px; align-items: center; }
+  .tally span { width: 3px; height: 15px; background: var(--ink); }
+  .tally span.down { height: 9px; background: var(--grid); transform: rotate(28deg); }
+  .tally em { color: var(--muted); font-style: normal; margin-left: 6px; font-size: 12px; }
+  .event { color: var(--muted); font-size: 13px; }
+  .event b { color: var(--ink); font-weight: 500; }
+  .foot { display: flex; gap: 22px; padding-top: 14px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--grid); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <h1>Rack sheet</h1>
+      <span class="sub">attic-box · every supervised process on one line</span>
+      <div class="chips">
+        <span class="chip"><b>4</b> running</span>
+        <span class="chip"><b>1</b> restarting</span>
+        <span class="chip"><b>54 °C</b> cpu</span>
+        <span class="chip"><b>82%</b> disk</span>
+      </div>
+    </div>
+
+    <div class="table">
+      <div class="row head">
+        <span>Server</span><span>State</span><span>Port</span><span>Up since last restart</span><span>Restarts today</span><span>Memory</span><span>Last event</span>
+      </div>
+
+      <div class="row">
+        <span class="name">gateway<small>model router · 1 worker</small></span>
+        <span class="state running">running</span>
+        <span>4000</span>
+        <span class="track"><i style="width: 74%"></i><small>3h 12m</small></span>
+        <span class="tally"><span></span><span></span><span class="down"></span><span></span><span class="down"></span><em>2</em></span>
+        <span>412 MB</span>
+        <span class="event">rate limited upstream-1, <b>cooling 60s</b></span>
+      </div>
+
+      <div class="row">
+        <span class="name">media<small>library · transcodes</small></span>
+        <span class="state running">running</span>
+        <span>8096</span>
+        <span class="track"><i style="width: 96%"></i><small>14h 05m</small></span>
+        <span class="tally"><span></span><span></span><span></span><span></span><span></span><em>0</em></span>
+        <span>1.9 GB</span>
+        <span class="event">2 transcodes active, <b>queue 0</b></span>
+      </div>
+
+      <div class="row">
+        <span class="name">mirror<small>static files</small></span>
+        <span class="state restarting">restarting in 8s</span>
+        <span>4010</span>
+        <span class="track"><i style="width: 4%"></i><small>just now</small></span>
+        <span class="tally"><span></span><span class="down"></span><span></span><span class="down"></span><span></span><em>4</em></span>
+        <span>18 MB</span>
+        <span class="event">port held by pid <b>44120</b>, retry armed</span>
+      </div>
+
+      <div class="row">
+        <span class="name">vault<small>notes · sqlite</small></span>
+        <span class="state running">running</span>
+        <span>8080</span>
+        <span class="track"><i style="width: 61%"></i><small>2h 26m</small></span>
+        <span class="tally"><span></span><span></span><span></span><span></span><span></span><em>0</em></span>
+        <span>96 MB</span>
+        <span class="event">backup written, <b>48 MB</b></span>
+      </div>
+
+      <div class="row">
+        <span class="name">bot<small>telegram bridge</small></span>
+        <span class="state stopped">stopped</span>
+        <span>—</span>
+        <span class="track stopped"><i style="width: 0%"></i><small>—</small></span>
+        <span class="tally"><span></span><span></span><span></span><span></span><span></span><em>0</em></span>
+        <span>—</span>
+        <span class="event">stopped by you, <b>2h ago</b></span>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span>checked 12 seconds ago</span>
+      <span>probes: 3s interval, 2s timeout</span>
+      <span>restart budget: 3 per server, reset after 10m up</span>
+      <span>press ? for shortcuts</span>
+    </div>
+  </div>
+</body>
+</html>

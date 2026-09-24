@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Live stream — home-hosted UI example</title>
+<style>
+  :root {
+    --graphite: #12181c;
+    --rail: #171e23;
+    --chalk: #e7e3d8;
+    --dimmer: #8e979d;
+    --hair: #232c32;
+    --amber: #d9a04a;
+    --moss: #7f9a72;
+    --clay: #b4645a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--graphite);
+    color: var(--chalk);
+    font: 400 14px/1.55 ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .shell { display: grid; grid-template-columns: 232px 1fr; height: 100%; }
+  .rail { background: var(--rail); border-right: 1px solid var(--hair); padding: 22px 0; overflow: hidden; }
+  .rail h1 { margin: 0 20px 18px; font: 500 13px/1 ui-monospace, monospace; color: var(--dimmer); }
+  .rail ul { list-style: none; margin: 0; padding: 0; }
+  .rail li { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 9px; padding: 9px 20px; color: var(--dimmer); }
+  .rail li.on { color: var(--chalk); background: #1c242a; }
+  .pip { width: 8px; height: 8px; border-radius: 50%; background: #3a444b; }
+  .on .pip { background: var(--moss); }
+  .warn .pip { background: var(--amber); }
+  .off .pip { background: #39434a; }
+  .rail .port { color: var(--dimmer); font-size: 12px; }
+  .stage { display: flex; flex-direction: column; min-width: 0; }
+  .head { display: flex; align-items: baseline; gap: 14px; padding: 20px 26px 14px; border-bottom: 1px solid var(--hair); }
+  .head strong { font-weight: 500; font-size: 16px; }
+  .head span { color: var(--dimmer); font-size: 12px; }
+  .head .right { margin-left: auto; color: var(--amber); }
+  .log { flex: 1; padding: 16px 26px; overflow: hidden; display: grid; grid-template-columns: 1fr 168px; gap: 0 22px; align-content: start; }
+  .line { padding: 4px 0; white-space: pre-wrap; }
+  .meta { padding: 4px 0; color: var(--dimmer); font-size: 12px; border-left: 1px solid var(--hair); padding-left: 16px; }
+  .meta.bad { color: var(--clay); }
+  .meta.warn { color: var(--amber); }
+  .log .line:nth-child(odd) { color: #cfcabf; }
+  .caret { display: inline-block; width: 8px; height: 15px; background: var(--amber); vertical-align: -2px; animation: none; }
+  .foot { border-top: 1px solid var(--hair); padding: 12px 26px 16px; display: flex; gap: 22px; color: var(--dimmer); font-size: 12px; }
+  .foot b { color: var(--chalk); font-weight: 500; }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail">
+      <h1>attic-box · 4 online</h1>
+      <ul>
+        <li class="on"><i class="pip"></i><span>gateway</span><span class="port">:4000</span></li>
+        <li class="on"><i class="pip"></i><span>media</span><span class="port">:8096</span></li>
+        <li class="warn"><i class="pip"></i><span>mirror</span><span class="port">:4010</span></li>
+        <li class="on"><i class="pip"></i><span>vault</span><span class="port">:8080</span></li>
+        <li class="off"><i class="pip"></i><span>bot</span><span class="port">—</span></li>
+      </ul>
+    </aside>
+
+    <main class="stage">
+      <div class="head">
+        <strong>gateway</strong>
+        <span>model router · 3h 12m up · restarts 0 · 0.3% cpu</span>
+        <span class="right">following output</span>
+      </div>
+
+      <div class="log">
+        <div class="line">[11:02:41] route /v1/chat/completions → upstream-3 (210 ms)</div>
+        <div class="meta">210 ms · cache miss</div>
+        <div class="line">[11:02:44] route /v1/models → local table (2 ms)</div>
+        <div class="meta">2 ms · cached</div>
+        <div class="line">[11:02:51] stream closed by client after 4.1k tokens</div>
+        <div class="meta">client hung up</div>
+        <div class="line">[11:03:02] route /v1/chat/completions → upstream-1 (1.8 s)</div>
+        <div class="meta warn">slow · retry armed</div>
+        <div class="line">[11:03:09] upstream-1 answered 429, cooling down for 60s</div>
+        <div class="meta bad">rate limited</div>
+        <div class="line">[11:03:12] route /v1/chat/completions → upstream-3 (204 ms)</div>
+        <div class="meta">204 ms · ok</div>
+        <div class="line">[11:03:20] healthz 200 · port 4000 accepting</div>
+        <div class="meta">probe 3s interval</div>
+        <div class="line">[11:03:26] mirror could not take port 4010, next try in 8s<span class="caret"></span></div>
+        <div class="meta warn">held by pid 44120</div>
+      </div>
+
+      <div class="foot">
+        <span>log buffer <b>5000 lines</b></span>
+        <span>persisted to <b>~/.home-hosted/.logs</b></span>
+        <span>SSE <b>connected</b></span>
+        <span>9 events/min</span>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
