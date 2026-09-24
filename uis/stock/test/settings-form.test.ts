@@ -6,6 +6,7 @@ import {
   countLeaves,
   createSettingsForm,
   listenerBaseline,
+  numberModel,
   shouldHydrate,
 } from '../src/components/settings/settingsForm'
 
@@ -95,5 +96,39 @@ describe('settings form versus the live config', () => {
     expect(shouldHydrate({ hydrated: false, liveAvailable: true, changedCount: 1 })).toBe(true)
     expect(shouldHydrate({ hydrated: true, liveAvailable: true, changedCount: 0 })).toBe(true)
     expect(shouldHydrate({ hydrated: true, liveAvailable: true, changedCount: 2 })).toBe(false)
+  })
+})
+
+/**
+ * The settings blocks store plain numbers and back their `NumberField`s with this,
+ * so a number typed into one has to survive — and an emptied field has to land on
+ * the fallback rather than `NaN`.
+ */
+describe('numberModel', () => {
+  function model(initial: number, fallback: number) {
+    let stored = initial
+    const field = numberModel(() => stored, (value) => {
+      stored = value
+    }, fallback)
+    return { field, get: () => stored }
+  }
+
+  it('stores a number the field reported', () => {
+    const m = model(3999, 3999)
+    m.field.value = 4123
+    expect(m.get()).toBe(4123)
+  })
+
+  it('falls back when the field is emptied or left invalid', () => {
+    const m = model(3999, 3999)
+    m.field.value = null
+    expect(m.get()).toBe(3999)
+    m.field.value = Number.NaN
+    expect(m.get()).toBe(3999)
+  })
+
+  it('reads the stored number back out', () => {
+    const m = model(4321, 3999)
+    expect(m.field.value).toBe(4321)
   })
 })

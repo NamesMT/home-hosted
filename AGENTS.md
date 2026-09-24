@@ -94,6 +94,11 @@ exists, so the first release has to be published by hand.
   new UI meets an older payload for a while — a required field there rejects the whole frame and
   blanks the app. Request bodies and config keep their strict, defaulted shape.
 - Conventional commits; ESLint via `@antfu/eslint-config`; sparse comments.
+- UI tests live in `uis/stock/test/`: pure modules on node, and a component that is worth
+  guarding mounts under `// @vitest-environment happy-dom` (see `number-field.test.ts`). Reach for
+  that rather than trusting a component to be thin: `NumberField`'s setter assumed the string a text
+  input reports, but Vue casts `<input type="number">` to a *number* first, so `raw.trim()` threw and
+  every value typed into a numeric field was silently discarded — no pure-module test could see it.
 - A destructive action that is one click away confirms in a **popover** (`KillPortButton.vue`),
   never by arming the same button for a second press: an impatient double click on an arming
   button fires it. Keep the safe choice first in the popover's tab order.

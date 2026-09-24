@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue'
 import { cn } from '@/lib/cn'
+import { numberText, readNumber } from '@/lib/numeric'
 import { hintClass, inputClass, labelClass } from '@/lib/ui'
 
 defineOptions({ inheritAttrs: false })
@@ -31,15 +32,9 @@ const id = useId()
 
 /** Keeps a partially typed value (`1.`) from being clobbered mid-edit. */
 const text = computed({
-  get: () => (model.value === null || model.value === undefined ? '' : String(model.value)),
-  set: (raw: string) => {
-    const trimmed = raw.trim()
-    if (trimmed.length === 0) {
-      model.value = props.nullable ? null : Number.NaN
-      return
-    }
-    const parsed = Number(trimmed)
-    model.value = Number.isNaN(parsed) ? Number.NaN : parsed
+  get: () => numberText(model.value),
+  set: (raw: unknown) => {
+    model.value = readNumber(raw, props.nullable)
   },
 })
 

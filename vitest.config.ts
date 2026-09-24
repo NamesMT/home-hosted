@@ -1,11 +1,14 @@
 import { fileURLToPath } from 'node:url'
+import vue from '@vitejs/plugin-vue'
 import { configDefaults, defineConfig } from 'vitest/config'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 
 export default defineConfig({
-  // The SPA's own aliases, so its pure modules (forms, formatting, the API
-  // client's parsing) are testable — `uis/stock/test/` — without mounting components.
+  // The SPA's own aliases, so its modules are testable from `uis/stock/test/`:
+  // pure logic directly, and a component with `// @vitest-environment happy-dom`
+  // at the top of the file (the rest of the suite stays on node).
+  plugins: [vue()],
   resolve: {
     alias: {
       '@': `${root}uis/stock/src`,
