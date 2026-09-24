@@ -48,7 +48,9 @@ const showTime = ref(true)
 const currentMatch = ref(0)
 
 const filtered = computed<LogLine[]>(() => {
-  // `version` is the invalidation signal for the in-place buffer.
+  // `version` re-runs this when the buffer changed; the composable hands out a new
+  // array per batch, so everything derived below (the count, the matches, the
+  // visible window) is notified as well.
   void props.version
   const needle = query.value.trim().toLowerCase()
   const streamFilter = stream.value

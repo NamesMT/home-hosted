@@ -53,10 +53,13 @@ function bufferFor(serverId: string): LogBuffer {
 
 function appendLines(serverId: string, batch: LogLine[]): void {
   const buffer = bufferFor(serverId)
-  buffer.lines.push(...batch)
-  const overflow = buffer.lines.length - MAX_CLIENT_LINES
-  if (overflow > 0)
-    buffer.lines.splice(0, overflow)
+  // A new array per batch, never a push. A computed is only re-read by its
+  // subscribers when its own recomputed value *differs*, and Vue compares with
+  // Object.is — an array mutated in place is always equal to itself, so a viewer's
+  // line count stayed frozen at whatever it read first. The counters below are what
+  // tell the views to re-read the buffer at all.
+  const merged = buffer.lines.concat(batch)
+  buffer.lines = merged.length > MAX_CLIENT_LINES ? merged.slice(merged.length - MAX_CLIENT_LINES) : merged
   buffer.version.value += 1
   logRevision.value += 1
 }

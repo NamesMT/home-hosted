@@ -81,6 +81,10 @@ exists, so the first release has to be published by hand.
   `http`) merge key-by-key, and an explicit `null` clears a key.
 - Two-sided bounds read inclusively (`'1 <= number.integer <= 512'`). `test/shared/contracts.test.ts`
   pins every boundary and the patch/schema parity — update it with any schema change.
+- A new field in a **response** DTO is optional (`'x?'`) and its clients read it defensively. An
+  upgrade writes a new `uis/stock/dist` to disk while the old panel process is still serving, so a
+  new UI meets an older payload for a while — a required field there rejects the whole frame and
+  blanks the app. Request bodies and config keep their strict, defaulted shape.
 - Conventional commits; ESLint via `@antfu/eslint-config`; sparse comments.
 
 ## Rules that matter

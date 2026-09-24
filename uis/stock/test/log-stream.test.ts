@@ -114,6 +114,38 @@ describe('useServerLogs', () => {
     scope.stop()
   })
 
+  it('hands out a new array per batch, so a derived count cannot go stale', async () => {
+    // The real bug, second half: Vue does not notify a computed's subscribers when
+    // its recomputed value is Object.is-equal to the previous one. A buffer that
+    // pushed into its array in place therefore left the viewer's line count frozen
+    // at the value it read first, however many lines arrived. A new identity per
+    // batch is what makes derived values (count, matches, window) update, and the
+    // version is what makes the views re-read at all.
+    const scope = effectScope()
+    const logs = scope.run(() => useServerLogs(() => 'gamma'))!
+    await nextTick()
+
+    const first = logs.lines()
+    latest().emit('log', logFrame([line('a'), line('b')], 'gamma'))
+
+    expect(logs.lines()).not.toBe(first)
+    expect(texts(logs.lines())).toEqual(['a', 'b'])
+
+    // The shape a viewer uses: a count derived from the array, invalidated by version.
+    const total = computed(() => {
+      void logs.version.value
+      return logs.lines().length
+    })
+    expect(total.value).toBe(2)
+
+    const second = logs.lines()
+    latest().emit('log', logFrame([line('c', 3)], 'gamma'))
+    expect(logs.lines()).not.toBe(second)
+    expect(total.value).toBe(3)
+
+    scope.stop()
+  })
+
   it('bumps the same signal when the buffer is cleared', async () => {
     const scope = effectScope()
     const logs = scope.run(() => useServerLogs(() => 'beta'))!
