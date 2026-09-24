@@ -114,7 +114,18 @@ jobs:
 
       - name: Publish to npm
         if: ${{ !inputs.dry-run }}
-        run: npm publish --access public
+        run: |
+          npm publish --access public
+          # a trusted publisher can be configured to stage instead of publishing live, in which
+          # case npm accepts the upload and holds it for approval. Verify, and say which it was.
+          for attempt in 1 2 3 4 5 6; do
+            if npm view "$(node -p "require('./package.json').name")@$VERSION" version >/dev/null 2>&1; then
+              echo "live on npm: $(node -p "require('./package.json').name")@$VERSION"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::$VERSION is not visible on the registry yet — check npmjs.com for a staged publish waiting for approval"
 
       - name: Summary
         run: |
