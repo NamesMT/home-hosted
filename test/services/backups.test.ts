@@ -84,7 +84,7 @@ async function makeFixture(
 
 describe('slugifyPath', () => {
   it('produces a filesystem-safe name', () => {
-    expect(slugifyPath('/home/mt/.9router')).toBe('home-mt-9router')
+    expect(slugifyPath('/home/user/.9router')).toBe('home-user-9router')
     expect(slugifyPath('.')).toBe('path')
   })
 })

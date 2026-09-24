@@ -14,8 +14,8 @@ name: Release
 #     package that already exists
 #   * on npmjs.com → the package → Settings → Trusted Publisher, add this repository with the
 #     workflow filename `release.yml`
-#   * provenance attestations are only generated for public repositories, so `npm publish`
-#     runs without `--provenance` here
+#   * the repository is public, so `npm publish --provenance` attaches an attestation that links
+#     the tarball to this workflow run (drop the flag if the repo is ever made private again)
 
 on:
   workflow_dispatch:
@@ -115,7 +115,7 @@ jobs:
       - name: Publish to npm
         if: ${{ !inputs.dry-run }}
         run: |
-          npm publish --access public
+          npm publish --access public --provenance
           # a trusted publisher can be configured to stage instead of publishing live, in which
           # case npm accepts the upload and holds it for approval. Verify, and say which it was.
           for attempt in 1 2 3 4 5 6; do
