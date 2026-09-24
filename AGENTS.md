@@ -90,6 +90,30 @@ exists, so the first release has to be published by hand.
   never by arming the same button for a second press: an impatient double click on an arming
   button fires it. Keep the safe choice first in the popover's tab order.
 
+## Compatibility
+
+Two surfaces outlive the release that wrote them: **configs absolutely, UIs within reason.** Breaking
+either is a last resort, and never an accidental one.
+
+- **A config written by an older release has to load in a newer one.** That direction is the priority:
+  add fields with defaults, never repurpose or remove one, and treat every existing key as permanent.
+- **The reverse direction is not free, and is worth knowing before adding a field.** Unknown keys
+  inside a group currently fail that *whole group*, which falls back to schema defaults — for
+  `control` that silently drops the listener port, bind and auth policy; an unknown key inside a
+  server entry drops the entry from the running set. Only unknown **top-level** keys are ignored, so
+  a new top-level block is the cheap home for anything optional. Prefer field-level tolerance plus a
+  warning before relying on a new key inside an existing group.
+- **The UI moves in minor steps.** Routes, response fields and SSE frames are additive: keep the old
+  one and add the new one. A new response field is optional (`'x?'`) and read defensively, because an
+  upgrade writes a new `uis/stock/dist` while the old panel process keeps serving — and a
+  user-uploaded UI may be older than the panel it talks to.
+- **Breaking is allowed; silent is not.** When nothing compatible can be done, say so in the final
+  answer *and* in the commit message with a `BREAKING CHANGE:` footer, naming the exact migration the
+  user must run.
+- **There is no migration framework yet.** `servers.config.json` carries no version stamp, so the
+  panel cannot tell which release wrote it. Anything added there should be able to answer "what wrote
+  this file?" before it needs to.
+
 ## Rules that matter
 
 - **Server-agnostic.** No blessed ids, no `dataDir`-style globals: a server gets only its own
