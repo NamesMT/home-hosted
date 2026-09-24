@@ -1,7 +1,7 @@
 {
   "name": "home-hosted",
   "type": "module",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "packageManager": "pnpm@12.5.1",
   "description": "A self-hosted control panel that keeps your home server processes alive - with a UI you can replace.",
   "author": "NamesMT <dangquoctrung123@gmail.com>",

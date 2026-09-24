@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.4.1
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.4.0...v0.4.1)
+
+### 🩹 Fixes
+
+- **ui:** Make numeric fields keep what was typed into them ([a32cd13](https://github.com/NamesMT/home-hosted/commit/a32cd13))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.4.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.3.0...v0.4.0)
