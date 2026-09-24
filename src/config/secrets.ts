@@ -19,9 +19,23 @@ export interface PasswordRecord {
   isDefault?: boolean
 }
 
+/**
+ * An API token for scripts and agents. Tokens are high-entropy randoms, so a
+ * plain SHA-256 is the right hash — scrypt would only make every request pay
+ * for a slow KDF it does not need. `hint` is the readable head, kept so a human
+ * can tell two tokens apart without the file ever holding the whole secret.
+ */
+export interface ApiTokenRecord {
+  algo: 'sha256'
+  hash: string
+  hint: string
+  updatedAt: number
+}
+
 interface SecretsFile {
-  version: 2
+  version: 3
   password: PasswordRecord | null
+  apiToken: ApiTokenRecord | null
   telegram: { botToken: string } | null
 }
 
@@ -58,9 +72,40 @@ export function verifyPassword(password: string, record: PasswordRecord): boolea
   return crypto.timingSafeEqual(actual, expected)
 }
 
+/** Visible head of a generated token, so a token is recognisable on sight. */
+export const API_TOKEN_PREFIX = 'hh_'
+const API_TOKEN_BYTES = 32
+const API_TOKEN_HINT_CHARS = 8
+
+export function generateApiToken(): string {
+  return `${API_TOKEN_PREFIX}${crypto.randomBytes(API_TOKEN_BYTES).toString('base64url')}`
+}
+
+export function hashApiToken(token: string): string {
+  return crypto.createHash('sha256').update(token, 'utf8').digest('base64')
+}
+
+export function verifyApiToken(token: string, record: ApiTokenRecord): boolean {
+  if (token.length === 0)
+    return false
+  const expected = Buffer.from(record.hash, 'base64')
+  const actual = Buffer.from(hashApiToken(token), 'base64')
+  // Both sides are SHA-256 digests, so the lengths always match.
+  return crypto.timingSafeEqual(actual, expected)
+}
+
+export function apiTokenRecord(token: string, now = Date.now()): ApiTokenRecord {
+  return {
+    algo: 'sha256',
+    hash: hashApiToken(token),
+    hint: token.slice(0, API_TOKEN_HINT_CHARS),
+    updatedAt: now,
+  }
+}
+
 /**
- * The password hash is a secret, so it lives outside `servers.config.json`
- * (which is tracked) in a 0600 file that is git-ignored.
+ * The password hash and the API token are secrets, so they live outside
+ * `servers.config.json` (which is tracked) in a 0600 file that is git-ignored.
  */
 export class SecretsStore {
   private cache: SecretsFile | null = null
@@ -112,6 +157,19 @@ export class SecretsStore {
     return this.password?.isDefault === true
   }
 
+  get apiToken(): ApiTokenRecord | null {
+    return this.load().apiToken
+  }
+
+  get apiTokenSet(): boolean {
+    return this.apiToken !== null
+  }
+
+  /** The readable head of the stored token, or null when none is set. */
+  get apiTokenHint(): string | null {
+    return this.apiToken?.hint ?? null
+  }
+
   get telegramToken(): string | null {
     return this.load().telegram?.botToken ?? null
   }
@@ -137,6 +195,16 @@ export class SecretsStore {
     this.save({ ...this.load(), password: null })
   }
 
+  setApiToken(token: string): ApiTokenRecord {
+    const record = apiTokenRecord(token)
+    this.save({ ...this.load(), apiToken: record })
+    return record
+  }
+
+  clearApiToken(): void {
+    this.save({ ...this.load(), apiToken: null })
+  }
+
   setTelegramToken(token: string | null): void {
     const trimmed = token?.trim() ?? ''
     this.save({ ...this.load(), telegram: trimmed.length > 0 ? { botToken: trimmed } : null })
@@ -144,18 +212,20 @@ export class SecretsStore {
 
   private read(): SecretsFile {
     if (!fs.existsSync(this.file))
-      return { version: 2, password: null, telegram: null }
+      return { version: 3, password: null, apiToken: null, telegram: null }
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<SecretsFile>
       return {
-        version: 2,
+        version: 3,
+        // A version-2 file simply has no token, so it reads as "none set".
         password: parsed?.password ?? null,
+        apiToken: parsed?.apiToken?.hash ? parsed.apiToken : null,
         telegram: parsed?.telegram?.botToken ? { botToken: parsed.telegram.botToken } : null,
       }
     }
     catch {
       // A corrupt secrets file must not silently authenticate anyone.
-      return { version: 2, password: null, telegram: null }
+      return { version: 3, password: null, apiToken: null, telegram: null }
     }
   }
 

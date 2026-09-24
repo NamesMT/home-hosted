@@ -56,6 +56,7 @@
     "build": "pnpm run build:ui && pnpm run build:server",
     "build:server": "vite build --config vite.server.config.ts",
     "set-password": "tsx src/cli.ts set-password",
+    "set-token": "tsx src/cli.ts set-token",
     "lint": "eslint .",
     "test": "vitest",
     "test:types": "tsc --noEmit && node scripts/typecheck-uis.mjs",

@@ -384,6 +384,8 @@ export const authStatusSchema = type({
   enabled: 'boolean',
   passwordSet: 'boolean',
   passwordUpdatedAt: 'number | null',
+  /** An API token is set; it is shown here as a flag, never as a value. */
+  apiTokenSet: 'boolean',
   /** Still the boot-time default; the login page says so and exposure stays blocked. */
   usingDefaultPassword: 'boolean',
   /** The panel currently listens beyond loopback. */
@@ -438,6 +440,8 @@ export const sessionViewSchema = type({
   authenticated: 'boolean',
   authRequired: 'boolean',
   passwordSet: 'boolean',
+  /** A long-lived API token is configured for scripts and agents. */
+  apiTokenSet: 'boolean',
   usingDefaultPassword: 'boolean',
   /** The boot-time password, exposed only while it is still in use. */
   defaultPassword: 'string | null',

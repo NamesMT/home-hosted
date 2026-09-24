@@ -27,6 +27,7 @@ const maxLoginAttempts = numberModel(() => auth.value.maxLoginAttempts, value =>
 const lockoutMs = numberModel(() => auth.value.lockoutMs, value => (auth.value.lockoutMs = value), 60_000)
 
 const passwordSet = computed(() => props.view?.auth.passwordSet === true)
+const apiTokenSet = computed(() => props.view?.auth.apiTokenSet === true)
 const blockedReason = computed(() => props.view?.auth.blockedReason ?? null)
 const exposed = computed(() => props.view?.auth.exposed === true)
 const usingDefault = computed(() => props.view?.auth.usingDefaultPassword === true)
@@ -117,6 +118,17 @@ async function clearPasswordValue(): Promise<void> {
   </FieldGroup>
 
   <div class="space-y-2">
+    <Notice
+      :tone="apiTokenSet ? 'info' : 'neutral'"
+      :title="apiTokenSet ? 'An API token is set' : 'No API token'"
+    >
+      <template v-if="apiTokenSet">
+        Scripts can call the API with <code>Authorization: Bearer …</code> instead of signing in.
+      </template>
+      <template v-else>
+        For shell scripts and agents, generate one with <code>home-hosted set-token --generate</code>.
+      </template>
+    </Notice>
     <Notice v-if="usingDefault" tone="warn" title="The default password is still in use">
       Set your own password below. Binding beyond <code>127.0.0.1</code> stays refused until you do.
     </Notice>

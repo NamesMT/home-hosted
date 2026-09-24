@@ -168,6 +168,7 @@ describe('view contracts', () => {
           enabled: false,
           passwordSet: false,
           passwordUpdatedAt: null,
+          apiTokenSet: false,
           exposed: false,
           blockedReason: null,
           sessionTtlMs: 604800000,

@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
-import { hashPassword, SecretsStore, verifyPassword } from '#src/config/secrets'
-import { AuthService } from '#src/services/auth'
+import { apiTokenRecord, generateApiToken, hashPassword, SecretsStore, verifyApiToken, verifyPassword } from '#src/config/secrets'
+import { AuthService, bearerToken } from '#src/services/auth'
 import { authSchema } from '#src/shared/contracts'
 
 const dirs: string[] = []
@@ -218,5 +218,126 @@ describe('secrets store', () => {
 
     new SecretsStore(file).clearPassword()
     expect(live.passwordSet).toBe(false)
+  })
+})
+
+describe('api tokens', () => {
+  it('generates a prefixed, url-safe token every time', () => {
+    const first = generateApiToken()
+    const second = generateApiToken()
+
+    expect(first.startsWith('hh_')).toBe(true)
+    expect(first).not.toBe(second)
+    expect(first.length).toBeGreaterThan(30)
+    expect(first).toMatch(/^[\w-]+$/)
+  })
+
+  it('verifies only the token it hashed, and never stores it readably', () => {
+    const record = apiTokenRecord('hh_secret-value')
+
+    expect(verifyApiToken('hh_secret-value', record)).toBe(true)
+    expect(verifyApiToken('hh_secret-valu3', record)).toBe(false)
+    expect(verifyApiToken('', record)).toBe(false)
+    expect(record.hint).toBe('hh_secre')
+    expect(record.hash).not.toContain('secret-value')
+  })
+
+  it('reads the Authorization header, header scheme included', () => {
+    expect(bearerToken('Bearer abc123')).toBe('abc123')
+    expect(bearerToken('bearer   abc123  ')).toBe('abc123')
+    expect(bearerToken('Token abc123')).toBeNull()
+    expect(bearerToken('Bearer')).toBeNull()
+    expect(bearerToken('')).toBeNull()
+    expect(bearerToken(undefined)).toBeNull()
+  })
+
+  it('treats the token as a first-class credential', async () => {
+    const { auth, secrets } = await makeAuth()
+    const token = generateApiToken()
+    secrets.setApiToken(token)
+
+    expect(auth.apiTokenSet).toBe(true)
+    expect(auth.apiTokenHint).toBe(token.slice(0, 8))
+    expect(auth.validateApiToken(token)).toBe(true)
+    expect(auth.validateApiToken(generateApiToken())).toBe(false)
+    expect(auth.validateApiToken(null)).toBe(false)
+
+    const identity = auth.authenticate({ cookieToken: null, bearerToken: token })
+    expect(identity.authenticated).toBe(true)
+    expect(identity.method).toBe('token')
+    expect(identity.session).toBeNull()
+
+    expect(auth.authenticate({ cookieToken: null, bearerToken: 'not-the-token' }).authenticated).toBe(false)
+  })
+
+  it('prefers a live session when a request carries both credentials', async () => {
+    const { auth, secrets } = await makeAuth()
+    secrets.setApiToken(generateApiToken())
+    auth.setPassword('a-good-password')
+
+    const outcome = auth.login('a-good-password', null)
+    if (!outcome.ok)
+      throw new Error('login failed')
+
+    const identity = auth.authenticate({ cookieToken: outcome.token, bearerToken: secrets.apiToken?.hint ?? null })
+    expect(identity.method).toBe('cookie')
+    expect(identity.session?.token).toBe(outcome.token)
+  })
+
+  it('reports the token as a flag, never as a value', async () => {
+    const { auth, secrets } = await makeAuth()
+    expect(auth.sessionView(false).apiTokenSet).toBe(false)
+
+    const token = generateApiToken()
+    secrets.setApiToken(token)
+    const view = auth.sessionView(true)
+
+    expect(view.apiTokenSet).toBe(true)
+    expect(view.authenticated).toBe(true)
+    expect(JSON.stringify(view)).not.toContain(token)
+  })
+
+  it('writes a 0600 file that never contains the token itself', async () => {
+    const { secrets, file } = await makeAuth()
+    const token = generateApiToken()
+    secrets.setApiToken(token)
+
+    const raw = await fs.promises.readFile(file, 'utf8')
+    expect(raw).toContain('"apiToken"')
+    expect(raw).not.toContain(token)
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600)
+  })
+
+  it('clears the token so it stops authenticating', async () => {
+    const { auth, secrets } = await makeAuth()
+    const token = generateApiToken()
+    secrets.setApiToken(token)
+
+    secrets.clearApiToken()
+    expect(auth.apiTokenSet).toBe(false)
+    expect(auth.validateApiToken(token)).toBe(false)
+  })
+
+  it('picks up a token written by another process, and tolerates an older file', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-secrets-'))
+    dirs.push(dir)
+    const file = path.join(dir, 'secrets.json')
+
+    const live = new SecretsStore(file)
+    expect(live.apiTokenSet).toBe(false)
+
+    // A separate instance models `home-hosted set-token` running alongside `up`.
+    new SecretsStore(file).setApiToken('hh_written-elsewhere')
+    expect(live.apiTokenSet).toBe(true)
+    const record = live.apiToken
+    expect(record).not.toBeNull()
+    if (record)
+      expect(verifyApiToken('hh_written-elsewhere', record)).toBe(true)
+
+    // A version-2 file predates tokens entirely, so it must read as "none set".
+    await fs.promises.writeFile(file, JSON.stringify({ version: 2, password: null, telegram: null }))
+    const older = new SecretsStore(file)
+    expect(older.apiTokenSet).toBe(false)
+    expect(older.passwordSet).toBe(false)
   })
 })

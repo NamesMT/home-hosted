@@ -50,6 +50,7 @@ export function useSession() {
       authenticated: false,
       authRequired: true,
       passwordSet: session.value?.passwordSet ?? true,
+      apiTokenSet: session.value?.apiTokenSet ?? false,
       usingDefaultPassword: session.value?.usingDefaultPassword ?? false,
       defaultPassword: session.value?.defaultPassword ?? null,
       sessionTtlMs: session.value?.sessionTtlMs ?? 0,

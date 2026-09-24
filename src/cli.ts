@@ -25,6 +25,7 @@ Usage
   home-hosted restart [options] down, then up
   home-hosted status [--json]   is it running, where, and how to reach it
   home-hosted set-password      set the panel password without the API
+  home-hosted set-token         set the API token that scripts and agents use
   home-hosted ui-revert         go back to the stock control panel UI
 
 Options for up/restart
@@ -36,6 +37,10 @@ Options for up/restart
       --foreground      run in this process instead of detaching (systemd/docker)
       --print-config    print the effective config and exit
 
+Options for set-token
+      --generate        create a strong token and print it once
+      --clear           remove the token, so it stops working
+
 Everywhere
       --home <dir>      state directory (default: $HHOSTED_HOME or ~/.home-hosted)
       --project <dir>   base for relative entry paths (default: the current directory)
@@ -45,6 +50,8 @@ Everywhere
 Environment
   HHOSTED_HOME          where config, secrets, logs, TLS and backups live
   HHOSTED_PROJECT       base for relative entry paths
+  HHOSTED_PASSWORD      the password for a non-interactive set-password
+  HHOSTED_TOKEN         the token for a non-interactive set-token
 `
 
 const isTty = (): boolean => process.stdout.isTTY === true
@@ -488,6 +495,95 @@ async function setPassword(argv: string[]): Promise<void> {
   process.stdout.write(`${dim('restart the panel for it to take effect: home-hosted restart')}\n`)
 }
 
+/**
+ * The bearer credential for scripts and agents. Unlike a session it survives a
+ * restart, so an agent can set it up once and then just send the header.
+ */
+async function setToken(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: { generate: { type: 'boolean' }, clear: { type: 'boolean' } },
+    allowPositionals: false,
+  })
+  if (values.generate === true && values.clear === true)
+    fail('use either --generate or --clear, not both')
+
+  const { defaultSecretsPath } = await import('#src/helpers/paths')
+  const { generateApiToken, SecretsStore } = await import('#src/config/secrets')
+  const store = new SecretsStore(defaultSecretsPath)
+
+  if (values.clear === true) {
+    if (!store.apiTokenSet) {
+      process.stdout.write('no API token is set — nothing to clear\n')
+      return
+    }
+    store.clearApiToken()
+    process.stdout.write(`${green('API token cleared')} in ${defaultSecretsPath} — it stops working immediately\n`)
+    return
+  }
+
+  let token: string | null = process.env.HHOSTED_TOKEN ?? null
+  if (values.generate === true)
+    token = generateApiToken()
+  else if (token === null && process.stdin.isTTY === true)
+    token = await promptHidden('API token: ')
+  if (token !== null)
+    token = token.trim()
+  if (token === null || token.length === 0) {
+    fail('no token given: run `home-hosted set-token --generate`, set HHOSTED_TOKEN, or paste one interactively')
+  }
+
+  store.setApiToken(token)
+  const generated = values.generate === true
+  process.stdout.write(`${green(generated ? 'token generated' : 'token stored')} in ${defaultSecretsPath} (mode 0600)\n`)
+  if (generated) {
+    process.stdout.write(`  ${bold(token)}\n`)
+    process.stdout.write(`${dim('  shown once — only its SHA-256 is kept on disk, so copy it now')}\n`)
+  }
+  else {
+    process.stdout.write(`${dim(`  stored as ${token.slice(0, 8)}… — the file keeps only its hash`)}\n`)
+  }
+
+  const { readRuntime } = await import('#src/helpers/daemon')
+  // Only the panel that owns *this* state directory is worth asking: guessing a
+  // port would probe someone else's panel and call the mismatch a failure.
+  const runtime = readRuntime()
+  const base = (runtime?.url ?? `http://127.0.0.1:${DEFAULT_PORT}`).replace(/\/+$/, '')
+
+  if (runtime !== null) {
+    const verified = await verifyToken(base, token)
+    if (verified === true)
+      process.stdout.write(`${dim(`verified: ${base}/api/auth/session accepted it`)}\n`)
+    else if (verified === false)
+      process.stdout.write(`${dim(`the panel at ${base} did not accept it — is it running with this state directory?`)}\n`)
+  }
+
+  process.stdout.write(`Use it from a script or an agent:\n`)
+  process.stdout.write(`  ${bold(`curl -H "Authorization: Bearer ${generated ? token : '<token>'}" ${base}/api/state`)}\n`)
+  process.stdout.write(`${dim('It needs no restart, outlives sessions, and holds the same access as a signed-in browser.')}\n`)
+  process.stdout.write(`${dim('Remove it any time with: home-hosted set-token --clear')}\n`)
+  if (store.usingDefaultPassword)
+    process.stdout.write(`${dim('The panel password is still the default — change it before the panel is reachable beyond loopback.')}\n`)
+}
+
+/** Asks the live panel whether it accepts the token, without failing when it cannot. */
+async function verifyToken(base: string, token: string): Promise<boolean | null> {
+  // An https endpoint is usually TLS this project generated itself, which a plain
+  // fetch refuses; the liveness probe in `helpers/daemon` is the one that knows how.
+  if (!base.startsWith('http://'))
+    return null
+  try {
+    const response = await fetch(`${base}/api/auth/session`, { headers: { authorization: `Bearer ${token}` } })
+    if (!response.ok)
+      return false
+    const body = await response.json() as { authenticated?: boolean }
+    return body.authenticated === true
+  }
+  catch {
+    return null
+  }
+}
+
 function version(): void {
   const manifest = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string }
   process.stdout.write(`${manifest.version ?? '0.0.0'}\n`)
@@ -523,6 +619,10 @@ async function main(): Promise<void> {
     case 'set-password':
       applyDirFlags(dirFlags)
       await setPassword(args)
+      return
+    case 'set-token':
+      applyDirFlags(dirFlags)
+      await setToken(args)
       return
     case 'ui-revert':
       applyDirFlags(dirFlags)

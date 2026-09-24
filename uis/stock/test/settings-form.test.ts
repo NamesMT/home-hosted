@@ -24,6 +24,7 @@ function controlView(enabled: boolean): ControlView {
       enabled,
       passwordSet: true,
       passwordUpdatedAt: 1,
+      apiTokenSet: false,
       usingDefaultPassword: false,
       exposed: false,
       blockedReason: null,

@@ -4,6 +4,7 @@ import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { jsonBody } from '#src/helpers/openapi'
+import { requestIdentity } from '#src/middleware/auth'
 
 /**
  * Liveness for external monitors. Mounted outside `/api`, so it answers without a
@@ -34,7 +35,9 @@ export function createHealthRoute(deps: AppDeps) {
       (c) => {
         const state = deps.supervisor.getState()
         const broken = state.servers.filter(server => server.config.autostart && server.status === 'crashed')
-        const authenticated = deps.auth.validate(deps.auth.tokenFromCookie(c.req.header('cookie'))) !== null
+        // Detail is for a signed-in browser or an API token; the status line itself
+        // stays public, which is the whole point of a monitor endpoint.
+        const authenticated = requestIdentity(c, deps.auth).authenticated
 
         return c.json({
           status: broken.length > 0 ? 'degraded' : 'ok',

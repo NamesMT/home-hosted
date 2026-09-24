@@ -7,7 +7,7 @@ import { serializeCookie } from '#src/helpers/cookies'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
-import { AUTH_REQUIRED_CODE, SESSION_COOKIE } from '#src/middleware/auth'
+import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middleware/auth'
 import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
 import { checkExposure } from '#src/services/exposure'
 import { loginSchema, passwordSchema, sessionViewSchema } from '#src/shared/contracts'
@@ -31,7 +31,7 @@ export function createAuthRoute(deps: AppDeps) {
         summary: 'Who this request is, and how the panel is protected',
         responses: { 200: { description: 'Session', content: jsonBody(sessionViewSchema) } },
       }),
-      c => c.json(deps.auth.sessionView(deps.auth.tokenFromCookie(c.req.header('cookie')))),
+      c => c.json(deps.auth.sessionView(requestIdentity(c, deps.auth).authenticated)),
     )
 
     .post(
@@ -63,7 +63,7 @@ export function createAuthRoute(deps: AppDeps) {
           httpOnly: true,
         }))
 
-        return c.json(deps.auth.sessionView(outcome.token))
+        return c.json(deps.auth.sessionView(true))
       },
     )
 
@@ -101,22 +101,25 @@ export function createAuthRoute(deps: AppDeps) {
       validate('json', passwordSchema),
       (c) => {
         const body: PasswordRequest = c.req.valid('json')
+        const identity = requestIdentity(c, deps.auth)
         const hadPassword = deps.auth.passwordSet
-        const authenticated = deps.auth.validate(deps.auth.tokenFromCookie(c.req.header('cookie'))) !== null
         const firstSetup = !hadPassword && isLoopbackRequest(c)
 
-        if (!authenticated && !firstSetup)
+        if (!identity.authenticated && !firstSetup)
           throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
 
-        if (authenticated && hadPassword) {
+        // The current password is demanded of every credential, so a stolen API
+        // token cannot rewrite the password it would then need to be recovered from.
+        if (identity.authenticated && hadPassword) {
           if (body.currentPassword === undefined)
             throw new DetailedError('currentPassword is required to change an existing password', { statusCode: 400, code: 'CURRENT_PASSWORD_REQUIRED' })
           if (!deps.auth.verifyCurrentPassword(body.currentPassword))
             throw new DetailedError('current password is incorrect', { statusCode: 401, code: 'CURRENT_PASSWORD_WRONG' })
         }
 
-        // Keep the caller signed in: every *other* session is dropped.
-        deps.auth.setPassword(body.newPassword, { keepToken: deps.auth.tokenFromCookie(c.req.header('cookie')) })
+        // Keep the caller signed in: every *other* session is dropped. A token
+        // caller holds no session, so this signs every browser out instead.
+        deps.auth.setPassword(body.newPassword, { keepToken: identity.session?.token ?? null })
 
         // A password that is not enforced protects nothing, so the first setup enables it.
         let enabled = deps.store.config.control.auth.enabled
@@ -137,7 +140,7 @@ export function createAuthRoute(deps: AppDeps) {
         responses: { 200: { description: 'Cleared' }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401] },
       }),
       (c) => {
-        if (deps.auth.validate(deps.auth.tokenFromCookie(c.req.header('cookie'))) === null)
+        if (!requestIdentity(c, deps.auth).authenticated)
           throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
 
         const exposure = checkExposure(deps.store.config.control, false)

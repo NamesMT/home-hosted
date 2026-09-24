@@ -125,7 +125,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // is announced on the login page) until it is changed.
   if (!auth.passwordSet) {
     auth.ensureDefaultPassword(DEFAULT_PASSWORD)
-    logger.warn(`no password was set — created the default "${DEFAULT_PASSWORD}"; change it in Settings → Password`)
+    logger.warn(`no password was set — created the default "${DEFAULT_PASSWORD}"; change it in Settings → Authentication`)
   }
 
   const configured = store.config.control
@@ -257,7 +257,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   logger.box(`home-hosted ${runtime.version}\n${endpoint.url}`)
   logger.info(`config:  ${store.path}`)
   logger.info(`secrets: ${secrets.path}${auth.passwordSet ? '' : ' (no password set)'}`)
-  logger.info(`auth:    ${auth.isRequired() ? 'required' : 'disabled'}${auth.usingDefaultPassword ? ' (default password)' : ''}${exposure.exposed ? ' · exposed beyond loopback' : ''}`)
+  logger.info(`auth:    ${auth.isRequired() ? 'required' : 'disabled'}${auth.usingDefaultPassword ? ' (default password)' : ''}${auth.apiTokenSet ? ' · API token set' : ''}${exposure.exposed ? ' · exposed beyond loopback' : ''}`)
   logger.info(`logs:    ${store.config.logs.persist ? `${logFiles.directory} (max ${store.config.logs.maxBytes} B x ${store.config.logs.keep})` : 'memory only'}`)
   logger.info(`project: ${projectDir}`)
   if (ui.custom) {

@@ -1,7 +1,7 @@
 import type { SecretsStore } from '#src/config/secrets'
 import type { AuthConfig, SessionView } from '#src/shared/contracts'
 import crypto from 'node:crypto'
-import { verifyPassword } from '#src/config/secrets'
+import { verifyApiToken, verifyPassword } from '#src/config/secrets'
 import { parseCookies } from '#src/helpers/cookies'
 
 export const SESSION_COOKIE = 'hh2_session'
@@ -35,11 +35,42 @@ export type LoginOutcome
   = | { ok: true, status: 200, token: string, maxAgeMs: number }
     | { ok: false, status: 401 | 409 | 429, error: string, retryAfterMs?: number }
 
+/** Which credential a request presented. */
+export type AuthMethod = 'cookie' | 'token'
+
+export interface AuthIdentity {
+  authenticated: boolean
+  method: AuthMethod | null
+  /** The session record, when the cookie resolved to one. */
+  session: SessionRecord | null
+}
+
+export const ANONYMOUS: AuthIdentity = { authenticated: false, method: null, session: null }
+
 /**
- * Single-password authentication for the control panel.
+ * `Authorization: Bearer <token>`; the scheme is case-insensitive per RFC 7235,
+ * and the credential is taken whole so a stray space cannot silently shorten it.
+ */
+export function bearerToken(header: string | null | undefined): string | null {
+  if (!header)
+    return null
+  const [scheme, ...rest] = header.trim().split(/\s+/)
+  if (scheme?.toLowerCase() !== 'bearer')
+    return null
+  const token = rest.join('')
+  return token.length > 0 ? token : null
+}
+
+/**
+ * Authentication for the control panel.
+ *
+ * Two credentials are accepted: the browser's session cookie, and a long-lived
+ * API token for scripts and agents. They carry the same authority on purpose —
+ * a token that could do less than a signed-in browser would only be surprising.
  *
  * The password hash lives in the git-ignored secrets file; sessions live only in
- * memory, so restarting `up` invalidates every session.
+ * memory, so restarting `up` invalidates every session, while a token outlives
+ * the process until it is cleared.
  */
 export class AuthService {
   private readonly sessions = new Map<string, SessionRecord>()
@@ -72,7 +103,7 @@ export class AuthService {
     return this.getConfig().enabled
   }
 
-  /** On *and* usable: there is a password to check against. */
+  /** A password is set, so a browser has something to sign in with. */
   isArmed(): boolean {
     return this.getConfig().enabled && this.secrets.passwordSet
   }
@@ -82,11 +113,44 @@ export class AuthService {
     return this.isArmed()
   }
 
-  sessionView(token: string | null): SessionView {
+  get apiTokenSet(): boolean {
+    return this.secrets.apiTokenSet
+  }
+
+  /** The readable head of the stored token, never the token itself. */
+  get apiTokenHint(): string | null {
+    return this.secrets.apiTokenHint
+  }
+
+  /** Compared against the stored SHA-256, in constant time. */
+  validateApiToken(token: string | null): boolean {
+    if (token === null)
+      return false
+    const record = this.secrets.apiToken
+    if (record === null)
+      return false
+    return verifyApiToken(token, record)
+  }
+
+  /**
+   * Resolves whichever credential the request carried. The token is only
+   * consulted when no session matched, so a stale cookie cannot mask it.
+   */
+  authenticate(credentials: { cookieToken: string | null, bearerToken: string | null }): AuthIdentity {
+    const session = this.validate(credentials.cookieToken)
+    if (session !== null)
+      return { authenticated: true, method: 'cookie', session }
+    if (this.validateApiToken(credentials.bearerToken))
+      return { authenticated: true, method: 'token', session: null }
+    return ANONYMOUS
+  }
+
+  sessionView(authenticated: boolean): SessionView {
     return {
-      authenticated: this.validate(token) !== null,
+      authenticated,
       authRequired: this.isRequired(),
       passwordSet: this.secrets.passwordSet,
+      apiTokenSet: this.secrets.apiTokenSet,
       usingDefaultPassword: this.secrets.usingDefaultPassword,
       defaultPassword: this.secrets.usingDefaultPassword ? DEFAULT_PASSWORD : null,
       sessionTtlMs: this.getConfig().sessionTtlMs,

@@ -49,6 +49,7 @@ export function buildControlView(
       enabled: config.auth.enabled,
       passwordSet: auth.passwordSet,
       passwordUpdatedAt: auth.passwordUpdatedAt,
+      apiTokenSet: auth.apiTokenSet,
       usingDefaultPassword: auth.usingDefaultPassword,
       exposed: exposure.exposed,
       blockedReason: exposure.blockedReason,
