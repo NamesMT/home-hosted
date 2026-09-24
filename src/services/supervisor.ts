@@ -1014,6 +1014,12 @@ export class Supervisor {
         server.nextRetryAt,
         server.lastError,
         server.bufferedLines,
+        // A new resource sample *is* news: the UI builds its charts by sampling
+        // these frames, so leaving them out of the signature means a fleet where
+        // nothing structural changes emits no frames at all — and every graph
+        // stays empty until something else moves.
+        server.responseMs,
+        server.resources?.sampledAt,
       ].join(':')),
     ].join('|')
 

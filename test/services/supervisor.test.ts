@@ -91,7 +91,8 @@ async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ sup
     }),
   })
 
-  const supervisor = new Supervisor(store, new EventHub(), {
+  const hub = new EventHub()
+  const supervisor = new Supervisor(store, hub, {
     configPath: file,
     control,
     buildState: views => buildAppState({
@@ -118,7 +119,7 @@ async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ sup
     await fs.promises.rm(dir, { recursive: true, force: true })
   })
 
-  return { supervisor, store }
+  return { supervisor, store, hub }
 }
 
 function httpServerConfig(port: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -437,6 +438,38 @@ describe('supervisor', () => {
 
     store.removeServer('extra')
     await waitFor(() => !supervisor.views().some(entry => entry.id === 'extra'))
+  })
+  it('keeps publishing state for an idle server, so the charts get samples', async () => {
+    // Regression: the state signature held only structural fields, so a fleet where
+    // nothing moved emitted no frames at all. The UI builds its telemetry by sampling
+    // those frames, so every graph stayed empty until a server was poked into
+    // changing something.
+    const { supervisor, hub } = await makeSupervisor([{
+      id: 'idle',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      health: { enabled: false },
+    }])
+
+    const sampledAt: number[] = []
+    cleanups.push(hub.subscribe(null, (message) => {
+      if (message.type === 'state')
+        sampledAt.push(message.state?.servers[0]?.resources?.sampledAt ?? 0)
+    }))
+
+    await supervisor.start('idle')
+    await waitForStatus(supervisor, 'idle', 'running')
+
+    // Resources are sampled every 5 s; two distinct samples prove the frames flow.
+    const deadline = Date.now() + 14000
+    while (new Set(sampledAt.filter(value => value > 0)).size < 2 && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 200))
+
+    const distinct = new Set(sampledAt.filter(value => value > 0))
+    expect(distinct.size).toBeGreaterThanOrEqual(2)
+    // Nothing structural moved to earn those frames.
+    expect(view(supervisor, 'idle').status).toBe('running')
+    expect(view(supervisor, 'idle').health).toBe('disabled')
   })
 })
 
