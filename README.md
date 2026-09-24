@@ -281,8 +281,9 @@ Everything binds `127.0.0.1` until you say otherwise.
   signed-in browser, works without restarting the panel, and `set-token --clear` revokes it
   instantly.
 - **Port conflicts** are shown as `port 4010 is already in use (pid 4242)` and can be resolved
-  from that banner. The process is looked up again at that moment — never taken from the
-  message — and anything the panel supervises is refused, not killed.
+  from a confirmation popover on that banner or card. The process is looked up again at that
+  moment — never taken from the message — and anything the panel supervises is refused, not
+  killed. Once it is free, the entry starts normally.
 - **Secrets never enter the config**: the password hash, the API token hash, the Telegram token
   and the TLS key live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`.
 - **Behind a proxy** turn on `trustProxy` and let `cookieSecure: auto` add `Secure` on https,

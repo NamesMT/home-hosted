@@ -86,6 +86,9 @@ exists, so the first release has to be published by hand.
   new UI meets an older payload for a while — a required field there rejects the whole frame and
   blanks the app. Request bodies and config keep their strict, defaulted shape.
 - Conventional commits; ESLint via `@antfu/eslint-config`; sparse comments.
+- A destructive action that is one click away confirms in a **popover** (`KillPortButton.vue`),
+  never by arming the same button for a second press: an impatient double click on an arming
+  button fires it. Keep the safe choice first in the popover's tab order.
 
 ## Rules that matter
 
@@ -119,10 +122,11 @@ exists, so the first release has to be published by hand.
   `stopping` first: overlapping calls would double-spawn or resurrect a stopped process. Tests must
   call `supervisor.dispose()`.
 - Port preflight re-probes after 300 ms — a just-closed listener can still complete a handshake.
-- The UI's live log buffers (`uis/stock/src/composables/useControlPlane.ts`) are plain arrays mutated
-  in place, and a buffer may not exist when a view first evaluates. Views must invalidate on the
-  composable's `version` computed (backed by the module-level `logRevision`), never on `lines.length`
-  — reading a length that nothing tracks is exactly how the view ends up empty until a re-render.
+- Vue does not notify a computed's subscribers when its recomputed value is `Object.is`-equal to the
+  old one, so anything mutated in place silently freezes every value derived from it. The log buffers
+  (`uis/stock/src/composables/useControlPlane.ts`) therefore hand out a **new array per batch**, and
+  the `version` counter only exists to make the views re-read at all. Getting this wrong is what kept
+  the live output view empty until a remount — a test that reads the array itself will not catch it.
 - `stop.killPortHolders` frees a port only from a *listener* that is not our own process tree. Broad
   `lsof -ti:<port>` sweeps and pid-as-text parses have killed supervisors in the field; don't add one.
   `free-port` reuses the same lookup and adds the supervisor's own pid set on top.

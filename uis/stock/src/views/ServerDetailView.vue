@@ -6,8 +6,8 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import LogViewer from '@/components/log/LogViewer.vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
+import KillPortButton from '@/components/server/KillPortButton.vue'
 import ServerConfigEditor from '@/components/server/ServerConfigEditor.vue'
-import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import MetricSpark from '@/components/telemetry/MetricSpark.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
@@ -123,6 +123,23 @@ async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
 async function removeServer(): Promise<void> {
   confirmRemove.value = false
   await remove(serverId.value)
+}
+
+/**
+ * Frees the port this entry is blocked on. There is no confirmation step on
+ * purpose: the button names the exact port, and only exists in a conflict state.
+ */
+async function killPortHolder(): Promise<void> {
+  const value = server.value
+  if (!value)
+    return
+  busy.value = true
+  try {
+    await freePort(value.id)
+  }
+  finally {
+    busy.value = false
+  }
 }
 
 const downloadUrl = computed(() => api.logDownloadUrl(serverId.value, `${serverId.value}.log`))
@@ -249,13 +266,11 @@ const SECTIONS = [
         <p class="min-w-0 flex-1 text-2xs leading-4 text-danger">
           {{ server.lastError }}
         </p>
-        <ConfirmButton
+        <KillPortButton
           v-if="server.status === 'conflict' && server.config.port !== null"
-          :label="`Kill what holds port ${server.config.port}`"
-          confirm-label="Yes, kill it"
-          size="xs"
-          :loading="busy"
-          @confirm="freePort(server.id)"
+          :port="server.config.port"
+          :busy="busy"
+          @confirm="killPortHolder"
         />
       </div>
       <p

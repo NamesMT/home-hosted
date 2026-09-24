@@ -16,7 +16,7 @@ import {
 } from 'lucide-vue-next'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
-import ConfirmButton from '@/components/settings/ConfirmButton.vue'
+import KillPortButton from '@/components/server/KillPortButton.vue'
 import MetricSpark from '@/components/telemetry/MetricSpark.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
@@ -99,6 +99,17 @@ async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
   busy.value = true
   try {
     await control[action](props.server.id)
+  }
+  finally {
+    busy.value = false
+  }
+}
+
+/** Frees the port this entry is blocked on; the button names the exact port. */
+async function killPortHolder(): Promise<void> {
+  busy.value = true
+  try {
+    await control.freePort(props.server.id)
   }
   finally {
     busy.value = false
@@ -223,14 +234,12 @@ async function remove(): Promise<void> {
         <CircleAlert class="mt-0.5 size-3 shrink-0" />
         <span class="min-w-0 break-words">{{ server.lastError }}</span>
       </p>
-      <ConfirmButton
+      <KillPortButton
         v-if="server.status === 'conflict' && config.port !== null"
-        :label="`Kill what holds port ${config.port}`"
-        confirm-label="Yes, kill it"
-        size="xs"
+        :port="config.port"
+        :busy="busy"
         class="self-start"
-        :loading="busy"
-        @confirm="control.freePort(server.id)"
+        @confirm="killPortHolder"
       />
       <p v-if="unhealthyFor" class="text-2xs leading-4 text-warn">
         Unhealthy for {{ unhealthyFor }}
