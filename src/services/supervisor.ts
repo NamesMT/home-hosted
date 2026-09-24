@@ -573,16 +573,34 @@ export class Supervisor {
     const own = await this.ownPortHolders(entry, holders)
     const suffix = holders.length > 0 ? ` (pid ${holders.join(', ')})` : ''
 
-    // A detached restart of this same server: following it is what keeps the panel
-    // honest, because the service *is* running — only its parent changed.
-    if (own.length > 0 && entry.config.onPortConflict === 'adopt')
+    // A detached restart of this same server. Following it keeps whatever the program
+    // set up (at the cost of its output, which belongs to whoever spawned it);
+    // reclaiming the port buys back a fully supervised process instead.
+    if (own.length > 0 && entry.config.onPortConflict === 'follow')
       return { kind: 'adopt', pid: own[0]! }
 
+    if (own.length > 0 && entry.config.onPortConflict === 'reclaim') {
+      this.log(entry, 'system', `port ${port} is held by pid ${own.join(', ')}, a detached restart of this entry — replacing it with a supervised process`)
+      const { forced } = await terminatePids(own)
+      if (forced.length > 0)
+        this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
+      await delay(PORT_RELEASE_RECHECK_MS)
+      if (await freeOnAll()) {
+        entry.portState = 'free'
+        return { kind: 'free' }
+      }
+      entry.status = 'conflict'
+      entry.lastError = `port ${port} is still in use after replacing pid ${own.join(', ')}`
+      this.log(entry, 'system', entry.lastError)
+      this.publishServer(entry)
+      return { kind: 'blocked', error: entry.lastError }
+    }
+
     const hint = own.length > 0
-      ? ` — pid ${own.join(', ')} is a detached restart of this entry; set onPortConflict to "adopt" to follow it`
+      ? ` — pid ${own.join(', ')} is a detached restart of this entry: set onPortConflict to "follow" to adopt it, or "reclaim" to replace it with a supervised process`
       : ''
 
-    // `adopt` refines `block`: follow our own successor, never a stranger.
+    // `follow` and `reclaim` refine `block`: never a stranger's port.
     if (entry.config.onPortConflict !== 'warn') {
       entry.status = 'conflict'
       entry.lastError = `port ${port} is already in use${suffix}${hint}`

@@ -141,10 +141,11 @@ either is a last resort, and never an accidental one.
   the 0600 secrets file; the config holds policy.
 - **A port holder that carries `HHOSTED_SERVER_ID` for this entry is our own successor, not a
   stranger.** A program that restarts itself leaves a detached process behind; with
-  `onPortConflict: "adopt"` the panel takes it over (pid, liveness, health, resources, stop) instead
-  of blocking forever on a port that is already serving. Adoption is read from the environment —
-  `/proc` on Linux, `ps -E` on macOS, impossible on Windows — and `stop.killPortHolders` stays the
-  fallback.
+  `follow` the panel adopts it as-is (pid, liveness, health, resources, stop — but not its output);
+  with `reclaim` it stops that successor and starts a fully supervised child instead. Both are strictly
+  better than blocking forever on a port that is already serving, and neither ever touches a stranger.
+  Ownership is read from the environment — `/proc` on Linux, `ps -E` on macOS, impossible on Windows —
+  and `stop.killPortHolders` stays the fallback.
 - **A port is only ever freed by re-listing its listeners.** `POST /api/servers/:id/free-port` never
   trusts a pid quoted in a message, and refuses any listener in `supervisedPids()` (the panel plus
   every entry's child) instead of killing it — a port held by a sibling is a config mistake.

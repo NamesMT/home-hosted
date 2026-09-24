@@ -81,7 +81,7 @@ export interface DefaultsForm {
   enabled: boolean
   autostart: boolean
   bind: string
-  onPortConflict: 'block' | 'warn' | 'adopt'
+  onPortConflict: 'block' | 'warn' | 'follow' | 'reclaim'
   logBufferLines: number
   restart: RestartConfig
   health: HealthConfig

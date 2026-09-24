@@ -439,12 +439,12 @@ describe('supervisor', () => {
     store.removeServer('extra')
     await waitFor(() => !supervisor.views().some(entry => entry.id === 'extra'))
   })
-  it('adopts a detached restart of itself instead of reporting a conflict', async () => {
+  it('follows a detached restart of itself instead of reporting a conflict', async () => {
     // dsh (via its market plugin) restarts by spawning a new detached process and
     // exiting. The old panel saw a busy port and blocked forever while the service
     // was actually running; with onPortConflict adopt it takes the successor over.
     const port = await freePort()
-    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'adopt' })])
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'follow' })])
 
     const successor = spawn(process.execPath, [
       '-e',
@@ -486,10 +486,10 @@ describe('supervisor', () => {
     expect(stopped.pid).toBeNull()
   })
 
-  it('blocks on a stranger even when the policy is adopt', async () => {
+  it('blocks on a stranger under the follow policy too', async () => {
     const port = await freePort()
     const squatter = await squatterOn(port)
-    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'adopt' })])
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'follow' })])
 
     const result = await supervisor.start('web')
     expect(result.ok).toBe(false)
@@ -502,7 +502,7 @@ describe('supervisor', () => {
 
   it('starts its own process again once an adopted one exits', async () => {
     const port = await freePort()
-    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'adopt' })])
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'follow' })])
 
     const successor = spawn(process.execPath, [
       '-e',
@@ -535,6 +535,49 @@ describe('supervisor', () => {
       return current.status === 'running' && current.adopted !== true && current.pid !== successorPid && current.pid !== null
     }, 20000)
     expect(await portAccepts(port)).toBe(true)
+  })
+
+  it('reclaims the port from a detached successor, for a fully supervised process', async () => {
+    // The other half of the choice: following a successor costs its output, because
+    // the pipe belongs to whoever spawned it. Reclaiming kills it and starts a child
+    // of our own, so logs, resources and stop all work the normal way.
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'reclaim' })])
+
+    const successor = spawn(process.execPath, [
+      '-e',
+      'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")',
+    ], {
+      env: { ...process.env, PORT: String(port), HHOSTED_SERVER_ID: 'web' },
+      stdio: 'ignore',
+    })
+    const successorPid = successor.pid
+    if (successorPid === undefined)
+      throw new Error('no successor pid')
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    const result = await supervisor.start('web')
+    expect(result.ok).toBe(true)
+    // Reclaiming spawns a child of our own, so it becomes ready asynchronously.
+    await waitForStatus(supervisor, 'web', 'running')
+
+    const current = view(supervisor, 'web')
+    expect(current.adopted).toBeUndefined()
+    expect(current.pid).not.toBe(successorPid)
+    // The successor was replaced, not followed.
+    await waitFor(() => !isAlive(successorPid))
+    expect(supervisor.logLines('web').some(line => line.text.includes('replacing it with a supervised process'))).toBe(true)
+
+    await supervisor.stop('web')
   })
 
   it('keeps publishing state for an idle server, so the charts get samples', async () => {

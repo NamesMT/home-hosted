@@ -187,7 +187,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | --- | --- |
 | 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. |
-| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, check ports before starting — and follow a program that [restarts itself](./SERVERS.md#adopting-a-self-restarting-program). |
+| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, check ports before starting — and [follow or replace](./SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned — and stops in reverse. |
 | 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, download, one click to clear. |
 | 📈 **Resources** | CPU and RSS of the whole process tree, with an optional memory ceiling that triggers a restart. |
@@ -296,7 +296,8 @@ Everything binds `127.0.0.1` until you say otherwise.
 - **Port conflicts** are named — `port 4010 is already in use (pid 4242)` — and can be resolved from
   a confirmation popover on that banner or card. The process is looked up again at that moment,
   never taken from the message, and anything the panel supervises is refused, not killed. A server
-  that [restarts itself](./SERVERS.md#adopting-a-self-restarting-program) can be followed instead.
+  that [restarts itself](./SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced
+  with a supervised copy.
 - **Secrets never enter the config**: the password hash, the API token hash, the Telegram bot token
   and the TLS key live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`.
 - **Behind a proxy** turn on `trustProxy` and let `cookieSecure: auto` add `Secure` on https, or
@@ -379,7 +380,7 @@ the same way: every supervised process tree is stopped before the panel exits.
 <summary><b>Nothing starts and the port is busy</b></summary>
 
 A supervised server whose port is taken is reported rather than started over — the panel names the
-holder and offers to free it, and a program that restarts itself can be adopted instead
+holder and offers to free it, and a program that restarts itself can be followed or reclaimed instead
 ([SERVERS.md](./SERVERS.md#a-busy-port)). The control port itself is checked before the listener is
 opened.
 

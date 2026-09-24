@@ -64,34 +64,34 @@ Preflight runs before every start, so two servers cannot silently fight over one
 | --- | --- |
 | `block` *(default)* | the entry goes to **conflict** with `port 4000 is already in use (pid 4242)`, and does not start |
 | `warn` | it starts anyway — useful when the listener is a leftover you are replacing |
-| `adopt` | if the listener is a **detached restart of this same entry**, the panel adopts it; anything else blocks, exactly like `block` |
+| `follow` | if the listener is a **detached restart of this same entry**, the panel adopts it as-is; anything else blocks, exactly like `block` |
+| `reclaim` | same detection, but it stops that successor and starts a fully supervised process of its own |
 
-### Adopting a self-restarting program
+### When a program restarts itself
 
 Some programs restart themselves by launching a new detached process and exiting — a plugin doing an
 update, a `re-exec` on config change. The panel used to see the successor's port as a conflict and sit
 there blocked while the service was actually up.
 
-`adopt` fixes that. Every process gets `HHOSTED_SERVER_ID` in its environment, the successor inherits
-it, and the panel reads that marker (Linux `/proc`, macOS `ps -E`) to tell a successor apart from a
-stranger:
+Every process gets `HHOSTED_SERVER_ID` in its environment and a successor inherits it, so the preflight
+can tell a successor from a stranger (Linux `/proc`, macOS `ps -E`; Windows has no per-process
+environment, so there you get the conflict banner and the free-port button). Two policies act on that:
 
-- **ours** → adopt: report it running with the successor's pid, health-probe it, sample its CPU/RSS,
-  and start our own process again when it exits.
-- **a stranger** → it blocks, exactly like `block`, and the banner names the pid. `adopt` never starts
-  a second copy on top of somebody else's listener.
+| policy | what it does | trade-off |
+| --- | --- | --- |
+| `follow` | adopts the successor: pid, health probe, CPU/RSS, stop, and it starts its own process again when the successor exits | **keeps exactly what the program set up**, but its output is not captured — the pipe belongs to whoever spawned it, so that entry's log in the panel goes quiet |
+| `reclaim` | stops the successor, then starts a fully supervised process of its own | **full features** — live logs, resources, stop semantics all behave like any other entry — at the cost of one restart |
 
-Adopted entries are marked **detached** in the panel, can be stopped and restarted like any other, and
-their output stays wherever the successor redirected it — the panel reads their state, not their pipe.
-On Windows there is no per-process environment, so adoption does not apply and you get the conflict
-banner plus the free-port button instead.
+Both are shown as **detached** in the panel while adopted, both can be stopped and restarted like any
+other entry, and neither will ever start a second copy on top of a **stranger**: that still blocks,
+exactly like `block`.
 
-If the holder is ours but the policy is not `adopt`, the message says so, which is how you discover
-the setting:
+If the holder is ours under a different policy, the conflict message says so, which is how the setting
+is discovered:
 
 ```text
-port 4374 is already in use (pid 912) — pid 912 is a detached restart of this entry;
-set onPortConflict to "adopt" to follow it
+port 4374 is already in use (pid 912) — pid 912 is a detached restart of this entry:
+set onPortConflict to "follow" to adopt it, or "reclaim" to replace it with a supervised process
 ```
 
 ## Editing fields
