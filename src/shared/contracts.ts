@@ -200,7 +200,7 @@ export type BackupsConfig = typeof backupsSchema.infer
 
 export const controlSchema = type({
   /** What the panel calls itself; the stock UI shows it in the sidebar. */
-  label: '1 <= string <= 60 = "Stock UI"',
+  label: '1 <= string <= 60 = "home-hosted"',
   port: '1 <= number.integer <= 65535 = 3999',
   /** Where the control panel itself listens; keep it `local` unless you mean it. */
   host: bindSchema.default(() => 'local' as const),

@@ -133,7 +133,7 @@ export function cloneHealth(health: HealthConfig): HealthConfig {
 /** Schema defaults, used only until the first SSE frame fills the form in. */
 export function createSettingsForm(): SettingsForm {
   return {
-    control: { label: 'Stock UI', port: 3999, host: 'local', openBrowser: false, tlsEnabled: false },
+    control: { label: 'home-hosted', port: 3999, host: 'local', openBrowser: false, tlsEnabled: false },
     auth: { enabled: false, sessionTtlMs: 604_800_000, cookieSecure: 'auto', trustProxy: false, maxLoginAttempts: 5, lockoutMs: 60_000 },
     defaults: {
       enabled: true,

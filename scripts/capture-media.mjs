@@ -4,7 +4,7 @@
  *
  *   full-size PNGs of the mockups in `docs/mockups/`
  *   full-size PNGs of every UI in `uis/`, each served by a real panel with a throwaway
- *     demo state (three live servers printing plausible output, one stopped)
+ *     demo state (a small home stack: three running servers, one disabled)
  *   `tour.gif`, a GIF cycling the same views, from frames captured at GIF size
  *
  * Usage:
@@ -49,23 +49,40 @@ const FRAME_MS = 2400
 const only = process.argv.slice(2)
 const wants = what => only.length === 0 || only.includes(what)
 
-/** A stand-in server, so the panels have live output to show. */
+/** A stand-in server, so the panels have live output to show — one voice per entry. */
 const DEMO_SERVER = `
 const { createServer } = require('node:http')
-const [, , name, port] = process.argv
-const lines = [
-  () => \`route /v1/chat/completions → upstream-\${1 + Math.floor(Math.random() * 3)} (\${120 + Math.floor(Math.random() * 900)} ms)\`,
-  () => 'route /v1/models → local table (2 ms)',
-  () => \`stream closed by client after \${(2 + Math.random() * 4).toFixed(1)}k tokens\`,
-  () => \`healthz 200 · port \${port} accepting\`,
-  () => \`library scan: \${200 + Math.floor(Math.random() * 40)} files unchanged\`,
-]
+const [, , flavour, port] = process.argv
+const LINES = {
+  gateway: [
+    () => 'route /v1/chat/completions → upstream-' + 'abc'[Math.floor(Math.random() * 3)] + ' (' + (120 + Math.floor(Math.random() * 900)) + ' ms)',
+    () => 'route /v1/embeddings → local table (61 ms)',
+    () => 'upstreams healthy: 3/3 · queue depth 0',
+    () => 'stream closed by client after ' + (2 + Math.random() * 4).toFixed(1) + 'k tokens',
+    () => 'key ...4f21 refreshed, next in 41m',
+  ],
+  media: [
+    () => 'library scan: ' + (1180 + Math.floor(Math.random() * 40)) + ' items, 6 added',
+    () => 'transcode h264 → h265 finished in ' + (30 + Math.floor(Math.random() * 40)) + 's (S01E04)',
+    () => 'subtitle fetch queued for "S01E05"',
+    () => 'watched folder change: /media/incoming',
+    () => 'session 192.168.1.42 playing · direct play',
+  ],
+  vault: [
+    () => 'audit: read secret home/wifi by mt',
+    () => 'token issued for media (ttl 15m)',
+    () => 'auto-unseal: transit key rotated',
+    () => 'snapshot written (12 KiB) to /backups',
+    () => 'lease renewed for gateway (ttl 30m)',
+  ],
+}
+const lines = LINES[flavour] || LINES.gateway
 let index = 0
 createServer((request, response) => {
   response.writeHead(200, { 'content-type': 'text/plain' })
   response.end('ok\\n')
-}).listen(Number(port), '127.0.0.1', () => console.log(\`\${name} listening on \${port}\`))
-setInterval(() => console.log(\`[\${new Date().toTimeString().slice(0, 8)}] \${lines[index++ % lines.length]()}\`), 1300)
+}).listen(Number(port), '127.0.0.1', () => console.log(flavour + ' listening on ' + port))
+setInterval(() => console.log('[' + new Date().toTimeString().slice(0, 8) + '] ' + lines[index++ % lines.length]()), 1300)
 `
 
 function freePort() {
@@ -110,23 +127,30 @@ async function makeHome(uiDist, label) {
   fs.writeFileSync(path.join(home, 'server.cjs'), DEMO_SERVER)
 
   const servers = []
-  for (const id of ['gateway', 'media', 'vault']) {
+  const flavours = ['gateway', 'media', 'vault']
+  const labels = { gateway: 'LLM gateway', media: 'Media server', vault: 'Secrets vault' }
+  for (const id of flavours) {
     servers.push({
       id,
-      label: id,
+      label: labels[id],
       command: process.execPath,
       args: [path.join(home, 'server.cjs'), id, '{port}'],
       port: await freePort(),
       autostart: true,
-      health: { enabled: true, intervalMs: 3000, timeoutMs: 2000 },
+      env: { LOG_LEVEL: 'info' },
+      ...(id === 'media' ? { dataEnvs: { DATA_DIR: '{dataRoot}/.demo-media' } } : {}),
+      health: id === 'gateway'
+        ? { enabled: true, mode: 'http', http: { path: '/' }, intervalMs: 3000, timeoutMs: 2000 }
+        : { enabled: true, intervalMs: 3000, timeoutMs: 2000 },
     })
   }
   servers.push({
     id: 'bot',
-    label: 'bot',
+    label: 'Telegram bot',
     command: process.execPath,
     args: ['-e', 'setInterval(() => {}, 1000)'],
     port: await freePort(),
+    enabled: false,
     autostart: false,
   })
 

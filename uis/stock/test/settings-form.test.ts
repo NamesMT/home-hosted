@@ -63,9 +63,13 @@ describe('settings form versus the live config', () => {
    */
   it('shows the mismatch an un-hydrated form would offer to revert', () => {
     const form = createSettingsForm()
+    // Only the auth flag is under test, so the view's label starts from the form's own
+    // default instead of a copy of it that drifts whenever that default changes.
+    const view = controlView(true)
+    view.label = form.control.label
 
-    expect(countLeaves(controlPatch(controlView(true), form) as Record<string, unknown>)).toBe(1)
-    expect(controlPatch(controlView(true), form)).toEqual({ auth: { enabled: false } })
+    expect(countLeaves(controlPatch(view, form) as Record<string, unknown>)).toBe(1)
+    expect(controlPatch(view, form)).toEqual({ auth: { enabled: false } })
   })
 
   it('has nothing pending once the frame has filled the form', () => {

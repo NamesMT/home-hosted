@@ -995,6 +995,8 @@ async function revertUi(): Promise<void> {
                 <select v-model="form.defaults.onPortConflict">
                   <option value="block">block</option>
                   <option value="warn">warn</option>
+                  <option value="follow">follow</option>
+                  <option value="reclaim">reclaim</option>
                 </select>
               </label>
               <label class="field">

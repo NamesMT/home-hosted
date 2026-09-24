@@ -29,7 +29,7 @@ const running = computed(() => servers.value.filter(server => server.status === 
 const panelUrl = computed(() => control.control.value?.url ?? '—')
 const host = computed(() => control.host.value)
 /** The panel's own name, from its config; a custom UI is free to ignore it. */
-const panelLabel = computed(() => control.control.value?.label ?? 'Stock UI')
+const panelLabel = computed(() => control.control.value?.label ?? 'home-hosted')
 
 // A dropped session (or a 401 from any call) must land on the login view.
 watch([authRequired, authenticated], ([required, ok]) => {
