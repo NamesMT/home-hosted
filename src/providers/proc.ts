@@ -297,3 +297,42 @@ export class ProcessSampler {
     this.previous.delete(rootPid)
   }
 }
+
+/**
+ * Does this process carry the environment the supervisor gave the entry?
+ *
+ * A program that restarts itself — especially a plugin doing it — leaves behind a
+ * detached process that still inherits `HHOSTED_SERVER_ID`, and that marker is what
+ * tells a legitimate successor apart from a stranger squatting on the port.
+ *
+ * Linux reads `/proc`; macOS asks `ps -E`; Windows has no per-process environment,
+ * so the answer is always "no" there and ownership falls back to the port policy.
+ */
+export async function processCarriesServerId(pid: number, serverId: string): Promise<boolean> {
+  if (serverId.length === 0)
+    return false
+  const needle = `HHOSTED_SERVER_ID=${serverId}`
+
+  if (process.platform === 'linux') {
+    try {
+      const raw = await fs.promises.readFile(`/proc/${pid}/environ`, 'utf8')
+      return raw.split('\0').includes(needle)
+    }
+    catch {
+      return false
+    }
+  }
+
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-E', '-ww', '-o', 'command='], { timeout: 3000 })
+      // Values with spaces are unquoted in this output, so the marker is matched as a word.
+      return new RegExp(`(?:^|\\s)${needle}(?:\\s|$)`).test(stdout)
+    }
+    catch {
+      return false
+    }
+  }
+
+  return false
+}

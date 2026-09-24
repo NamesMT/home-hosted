@@ -439,6 +439,104 @@ describe('supervisor', () => {
     store.removeServer('extra')
     await waitFor(() => !supervisor.views().some(entry => entry.id === 'extra'))
   })
+  it('adopts a detached restart of itself instead of reporting a conflict', async () => {
+    // dsh (via its market plugin) restarts by spawning a new detached process and
+    // exiting. The old panel saw a busy port and blocked forever while the service
+    // was actually running; with onPortConflict adopt it takes the successor over.
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'adopt' })])
+
+    const successor = spawn(process.execPath, [
+      '-e',
+      'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")',
+    ], {
+      env: { ...process.env, PORT: String(port), HHOSTED_SERVER_ID: 'web' },
+      stdio: 'ignore',
+    })
+    const successorPid = successor.pid
+    if (successorPid === undefined)
+      throw new Error('no successor pid')
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    const result = await supervisor.start('web')
+    expect(result.ok).toBe(true)
+
+    const adopted = view(supervisor, 'web')
+    expect(adopted.status).toBe('running')
+    expect(adopted.pid).toBe(successorPid)
+    expect(adopted.adopted).toBe(true)
+    expect(adopted.lastError).toBeNull()
+    expect(supervisor.logLines('web').some(line => line.text.includes('adopted pid'))).toBe(true)
+
+    // Adopted or not, the panel still owns stopping it.
+    await supervisor.stop('web')
+    await waitFor(() => !isAlive(successorPid))
+    const stopped = view(supervisor, 'web')
+    expect(stopped.status).toBe('stopped')
+    expect(stopped.adopted).toBeUndefined()
+    expect(stopped.pid).toBeNull()
+  })
+
+  it('blocks on a stranger even when the policy is adopt', async () => {
+    const port = await freePort()
+    const squatter = await squatterOn(port)
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'adopt' })])
+
+    const result = await supervisor.start('web')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('already in use')
+    // Not ours, so nothing is adopted and nothing is started over it.
+    expect(view(supervisor, 'web').status).toBe('conflict')
+    expect(view(supervisor, 'web').adopted).toBeUndefined()
+    expect(isAlive(squatter)).toBe(true)
+  })
+
+  it('starts its own process again once an adopted one exits', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'adopt' })])
+
+    const successor = spawn(process.execPath, [
+      '-e',
+      'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")',
+    ], {
+      env: { ...process.env, PORT: String(port), HHOSTED_SERVER_ID: 'web' },
+      stdio: 'ignore',
+    })
+    const successorPid = successor.pid
+    if (successorPid === undefined)
+      throw new Error('no successor pid')
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    await supervisor.start('web')
+    expect(view(supervisor, 'web').adopted).toBe(true)
+
+    // The successor dies on its own: the tick notices and the normal lifecycle resumes.
+    process.kill(successorPid, 'SIGKILL')
+    await waitFor(() => {
+      const current = view(supervisor, 'web')
+      return current.status === 'running' && current.adopted !== true && current.pid !== successorPid && current.pid !== null
+    }, 20000)
+    expect(await portAccepts(port)).toBe(true)
+  })
+
   it('keeps publishing state for an idle server, so the charts get samples', async () => {
     // Regression: the state signature held only structural fields, so a fleet where
     // nothing moved emitted no frames at all. The UI builds its telemetry by sampling

@@ -29,9 +29,9 @@ import { logger } from '#src/helpers/logger'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { probeHealth } from '#src/providers/health-check'
-import { isPortFree, killPortHolders, listPortHolders, probePort, terminatePids } from '#src/providers/port'
-import { ProcessSampler } from '#src/providers/proc'
-import { resolveCommand, resolveCwd, spawnManaged, terminate } from '#src/providers/process'
+import { isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, terminatePids } from '#src/providers/port'
+import { processCarriesServerId, ProcessSampler } from '#src/providers/proc'
+import { resolveCommand, resolveCwd, spawnManaged, terminate, terminatePid } from '#src/providers/process'
 import { dependenciesOf, orderByDependencies } from '#src/services/dependencies'
 import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
 
@@ -56,6 +56,12 @@ export interface StartResult {
   error?: string
 }
 
+/** What the port preflight found: nothing in the way, our own successor, or a blocker. */
+type PreflightConflict
+  = | { kind: 'free' }
+    | { kind: 'adopt', pid: number }
+    | { kind: 'blocked', error: string }
+
 interface Entry {
   config: ServerConfig
   status: ServerStatus
@@ -75,6 +81,8 @@ interface Entry {
   lastProbeAt: number
   lastOccupancyProbeAt: number
   probing: boolean
+  /** The running process is a detached successor we adopted, not a child we spawned. */
+  adopted: boolean
   /** A start is in flight (set synchronously, unlike `status`). */
   starting: boolean
   stopping: boolean
@@ -199,8 +207,10 @@ export class Supervisor {
         return { ok: false, error: 'supervisor is shutting down' }
 
       const conflict = await this.preflight(entry)
-      if (conflict !== null)
-        return { ok: false, error: conflict }
+      if (conflict.kind === 'blocked')
+        return { ok: false, error: conflict.error }
+      if (conflict.kind === 'adopt')
+        return this.adoptEntry(entry, conflict.pid)
 
       return this.spawnEntry(entry)
     }
@@ -392,9 +402,8 @@ export class Supervisor {
     // after every await and aborts, instead of spawning behind our back.
     entry.stopping = true
 
-    if (entry.child === null) {
+    if (entry.child === null && entry.pid === null) {
       entry.status = 'stopped'
-      entry.pid = null
       this.publishServer(entry)
       return { ok: true }
     }
@@ -402,7 +411,10 @@ export class Supervisor {
     entry.status = 'stopping'
     this.publishServer(entry)
 
-    const outcome = await terminate(entry.child, entry.config.stop)
+    // An adopted successor is not our child: same shutdown, signalled by pid.
+    const outcome = entry.child === null && entry.pid !== null
+      ? await terminatePid(entry.pid, entry.config.stop)
+      : await terminate(entry.child!, entry.config.stop)
     if (outcome === 'force-killed')
       this.log(entry, 'system', 'force-killed after grace period')
 
@@ -418,6 +430,7 @@ export class Supervisor {
     entry.stopping = false
     entry.child = null
     entry.pid = null
+    entry.adopted = false
     entry.status = 'stopped'
     this.log(entry, 'system', 'stopped')
     this.publishServer(entry)
@@ -444,6 +457,7 @@ export class Supervisor {
       lastProbeAt: 0,
       lastOccupancyProbeAt: 0,
       probing: false,
+      adopted: false,
       starting: false,
       stopping: false,
       bootstrapDone: !config.bootstrap,
@@ -514,10 +528,25 @@ export class Supervisor {
     return results.some(Boolean)
   }
 
-  private async preflight(entry: Entry): Promise<string | null> {
+  /**
+   * The port holders that carry this entry's own marker — a program that restarted
+   * itself leaves a detached process behind, and that process is the *same server*,
+   * not a stranger to kill. Read from the environment the supervisor gave the entry,
+   * which a successor inherits unless it scrubs it.
+   */
+  private async ownPortHolders(entry: Entry, holders: number[]): Promise<number[]> {
+    const own: number[] = []
+    for (const pid of holders) {
+      if (await processCarriesServerId(pid, entry.config.id))
+        own.push(pid)
+    }
+    return own
+  }
+
+  private async preflight(entry: Entry): Promise<PreflightConflict> {
     const port = entry.config.port
     if (port === null)
-      return null
+      return { kind: 'free' }
 
     // A listener that was just closed can still complete a handshake for a few
     // milliseconds, which is exactly the window a fast restart lands in — so a
@@ -538,21 +567,70 @@ export class Supervisor {
 
     entry.portState = free ? 'free' : 'in-use'
     if (free)
-      return null
+      return { kind: 'free' }
 
     const holders = await listPortHolders(port)
+    const own = await this.ownPortHolders(entry, holders)
     const suffix = holders.length > 0 ? ` (pid ${holders.join(', ')})` : ''
 
-    if (entry.config.onPortConflict === 'block') {
+    // A detached restart of this same server: following it is what keeps the panel
+    // honest, because the service *is* running — only its parent changed.
+    if (own.length > 0 && entry.config.onPortConflict === 'adopt')
+      return { kind: 'adopt', pid: own[0]! }
+
+    const hint = own.length > 0
+      ? ` — pid ${own.join(', ')} is a detached restart of this entry; set onPortConflict to "adopt" to follow it`
+      : ''
+
+    // `adopt` refines `block`: follow our own successor, never a stranger.
+    if (entry.config.onPortConflict !== 'warn') {
       entry.status = 'conflict'
-      entry.lastError = `port ${port} is already in use${suffix}`
-      this.log(entry, 'system', `${entry.lastError} — not starting (onPortConflict: block)`)
+      entry.lastError = `port ${port} is already in use${suffix}${hint}`
+      this.log(entry, 'system', `${entry.lastError} — not starting (onPortConflict: ${entry.config.onPortConflict})`)
       this.publishServer(entry)
-      return entry.lastError
+      return { kind: 'blocked', error: entry.lastError }
     }
 
-    this.log(entry, 'system', `warning: port ${port} is already in use${suffix} — starting anyway`)
-    return null
+    this.log(entry, 'system', `warning: port ${port} is already in use${suffix}${hint} — starting anyway`)
+    return { kind: 'free' }
+  }
+
+  /**
+   * Takes over a detached successor: no spawn, no duplicate. The pid is supervised
+   * from here on (liveness, health probe, resources, stop), while its output stays
+   * wherever it was redirected.
+   */
+  private adoptEntry(entry: Entry, pid: number): StartResult {
+    entry.adopted = true
+    entry.pid = pid
+    entry.child = null
+    entry.status = 'running'
+    entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
+    entry.startedAt = Date.now()
+    entry.lastError = null
+    this.log(entry, 'system', `adopted pid ${pid}: a detached restart of this entry is already serving port ${entry.config.port}`)
+    this.publishServer(entry)
+    return { ok: true }
+  }
+
+  /** An adopted successor disappeared: fall back to the normal lifecycle. */
+  private handleAdoptedExit(entry: Entry): void {
+    if (entry.pid !== null)
+      this.sampler.forget(entry.pid)
+    const ranForMs = entry.startedAt === null ? 0 : Date.now() - entry.startedAt
+    entry.adopted = false
+    entry.pid = null
+    entry.resources = null
+    entry.responseMs = null
+    entry.exitCode = null
+    entry.exitSignal = null
+    this.options.history.record(entry.config.id, {
+      type: 'exit',
+      detail: 'adopted process exited',
+      runtimeMs: ranForMs,
+    })
+    this.log(entry, 'system', `the adopted process is gone after ${Math.max(1, Math.round(ranForMs / 1000))}s`)
+    this.afterExit(entry, 'adopted process exited', ranForMs, false)
   }
 
   private async runBootstrap(entry: Entry): Promise<void> {
@@ -751,6 +829,7 @@ export class Supervisor {
       this.sampler.forget(entry.pid)
     entry.child = null
     entry.pid = null
+    entry.adopted = false
     entry.resources = null
     entry.responseMs = null
     entry.exitCode = code
@@ -763,7 +842,6 @@ export class Supervisor {
       ? entry.lastError!
       : signal !== null ? `signal ${signal}` : `code ${code}`
     const ranForMs = entry.startedAt === null ? 0 : Date.now() - entry.startedAt
-    const ranFor = `${Math.max(1, Math.round(ranForMs / 1000))}s`
 
     // Recorded for *every* exit, not only the ones that end in `crashed`: the
     // rolling window (crashes, uptime, last exit) is built from these events.
@@ -772,6 +850,16 @@ export class Supervisor {
       detail,
       runtimeMs: ranForMs,
     })
+
+    this.afterExit(entry, detail, ranForMs, neverStarted)
+  }
+
+  /**
+   * What happens once a process is gone, whether it was a child we spawned or a
+   * detached successor we adopted: back off and retry, or record the crash.
+   */
+  private afterExit(entry: Entry, detail: string, ranForMs: number, neverStarted: boolean): void {
+    const ranFor = `${Math.max(1, Math.round(ranForMs / 1000))}s`
 
     if (entry.stopping) {
       entry.status = 'stopped'
@@ -828,6 +916,11 @@ export class Supervisor {
     await Promise.allSettled([...this.entries.values()].map(entry => this.probeEntry(entry, now)))
 
     for (const entry of this.entries.values()) {
+      // An adopted process is not our child, so nothing tells us it died.
+      if (entry.adopted && entry.pid !== null && !isProcessAlive(entry.pid)) {
+        this.handleAdoptedExit(entry)
+        continue
+      }
       if (await this.enforceMemoryLimit(entry))
         continue
       if (this.shouldForceRestart(entry, now)) {
@@ -845,7 +938,7 @@ export class Supervisor {
   private async sampleResources(now: number): Promise<void> {
     const due = [...this.entries.values()].filter(entry =>
       entry.pid !== null
-      && entry.child !== null
+      && (entry.child !== null || entry.adopted)
       && now - entry.resourcesSampledAt >= RESOURCE_SAMPLE_INTERVAL_MS)
     if (due.length === 0)
       return
@@ -965,6 +1058,8 @@ export class Supervisor {
       health: entry.health,
       portState: entry.portState,
       pid: entry.pid,
+      // Omitted when false: an optional ArkType property rejects an explicit undefined.
+      ...(entry.adopted ? { adopted: true } : {}),
       startedAt: entry.startedAt,
       exitCode: entry.exitCode,
       exitSignal: entry.exitSignal,

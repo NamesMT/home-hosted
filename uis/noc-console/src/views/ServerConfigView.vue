@@ -51,7 +51,7 @@ const form = reactive({
   port: '',
   bind: 'local',
   customBind: '',
-  onPortConflict: 'block' as 'block' | 'warn',
+  onPortConflict: 'block' as 'block' | 'warn' | 'adopt',
   logBufferLines: '500',
   enabled: true,
   autostart: false,

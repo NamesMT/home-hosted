@@ -2,7 +2,8 @@
 
 `home-hosted` is a Node 24 / TypeScript harness for self-hosted servers: `up` starts a Hono/srvx
 panel (default `127.0.0.1:3999`) that supervises the entries in `$HHOSTED_HOME/servers.config.json`
-and serves a UI. User docs: `README.md`; UI authors: `UI_CREATION.md`.
+and serves a UI. User docs: `README.md`, `SERVERS.md` (entries and port conflicts),
+`NOTIFICATIONS.md`; UI authors: `UI_CREATION.md`.
 
 State lives only in `$HHOSTED_HOME` (default `~/.home-hosted`): `servers.config.json`,
 `.control-secrets.json` (0600: password hash, API token hash, Telegram bot token), `.logs/`, `.tls/`,
@@ -50,8 +51,9 @@ exists, so the first release has to be published by hand.
   reader: unknown keys are reported and kept, everything else blocking), `store.ts` (validate/merge/
   atomic commit, reports `configError`/`configWarnings` instead of throwing on a bad file),
   `migrations.ts` (the schema constant and the ordered step registry), `secrets.ts`, `seed.ts`.
-- `src/providers/` — stateless leaves: process, port (probe, holder lookup, and `terminatePids`),
-  proc, health-check, host, telegram, archive.
+- `src/providers/` — stateless leaves: `process` (spawn, `terminate`, `terminatePid` for a process we
+  adopted), `port` (probe, holder lookup, `terminatePids`), `proc` (the sampler, plus
+  `processCarriesServerId` for ownership), health-check, host, telegram, archive.
 - `src/services/` — stateful orchestration: supervisor, control-server, state, auth + exposure,
   dependencies, history, log-buffer/log-files, notifications, host-monitor, backups, tls, ui.
 - `src/middleware/auth.ts` — the `/api/*` guard, and `requestIdentity()`, the one place a request's
@@ -137,6 +139,12 @@ either is a last resort, and never an accidental one.
   package-relative state.
 - **Secrets never enter the config.** Password hash, API token hash, bot token and TLS key live in
   the 0600 secrets file; the config holds policy.
+- **A port holder that carries `HHOSTED_SERVER_ID` for this entry is our own successor, not a
+  stranger.** A program that restarts itself leaves a detached process behind; with
+  `onPortConflict: "adopt"` the panel takes it over (pid, liveness, health, resources, stop) instead
+  of blocking forever on a port that is already serving. Adoption is read from the environment —
+  `/proc` on Linux, `ps -E` on macOS, impossible on Windows — and `stop.killPortHolders` stays the
+  fallback.
 - **A port is only ever freed by re-listing its listeners.** `POST /api/servers/:id/free-port` never
   trusts a pid quoted in a message, and refuses any listener in `supervisedPids()` (the panel plus
   every entry's child) instead of killing it — a port held by a sibling is a config mistake.
@@ -165,6 +173,9 @@ either is a last resort, and never an accidental one.
   (`uis/stock/src/composables/useControlPlane.ts`) therefore hand out a **new array per batch**, and
   the `version` counter only exists to make the views re-read at all. Getting this wrong is what kept
   the live output view empty until a remount — a test that reads the array itself will not catch it.
+- An adopted process is not a `ChildProcess`, so nothing reports its exit: the tick polls liveness and
+  hands the entry back to the normal `afterExit` path. Its output is not captured either — it was
+  redirected by whoever spawned it.
 - `stop.killPortHolders` frees a port only from a *listener* that is not our own process tree. Broad
   `lsof -ti:<port>` sweeps and pid-as-text parses have killed supervisors in the field; don't add one.
   `free-port` reuses the same lookup and adds the supervisor's own pid set on top.
@@ -196,6 +207,6 @@ either is a last resort, and never an accidental one.
 
 ## Publishing
 
-`pnpm pack` runs `prepack` (a full build) and ships `bin/`, `dist/`, `uis/stock/dist`, `README.md`,
-`UI_CREATION.md`, `AGENTS.md` and `LICENSE`. The bin falls back to tsx so `pnpm link` works before a
+`pnpm pack` runs `prepack` (a full build) and ships `bin/`, `dist/`, `uis/stock/dist`, `README.md`, `SERVERS.md`,
+`NOTIFICATIONS.md`, `UI_CREATION.md`, `AGENTS.md` and `LICENSE`. The bin falls back to tsx so `pnpm link` works before a
 build; `vue`/`vue-router` are devDependencies because the UIs are prebuilt.

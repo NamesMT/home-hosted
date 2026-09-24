@@ -88,7 +88,10 @@ function signalChild(child: ChildProcess, signal: NodeJS.Signals, killGroup: boo
   const pid = child.pid
   if (pid === undefined)
     return
+  signalPid(pid, signal, killGroup)
+}
 
+function signalPid(pid: number, signal: NodeJS.Signals, killGroup: boolean): void {
   if (process.platform === 'win32') {
     if (killGroup) {
       void killTreeWindows(pid)
@@ -120,6 +123,44 @@ function signalChild(child: ChildProcess, signal: NodeJS.Signals, killGroup: boo
   catch {
     // already exited
   }
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+/**
+ * The same shutdown a supervised child gets, for a process we adopted instead of
+ * spawned: a detached successor is not our child, so it is signalled by pid (and
+ * by process group when asked) and its exit is polled rather than awaited.
+ */
+export async function terminatePid(pid: number, options: TerminateOptions): Promise<'exited' | 'force-killed'> {
+  if (!alive(pid))
+    return 'exited'
+
+  signalPid(pid, options.signal, options.killGroup)
+
+  const deadline = Date.now() + Math.max(0, options.graceMs)
+  while (Date.now() < deadline && alive(pid))
+    await delay(50)
+  if (!alive(pid))
+    return 'exited'
+
+  signalPid(pid, 'SIGKILL', options.killGroup)
+  const hardDeadline = Date.now() + 2000
+  while (Date.now() < hardDeadline && alive(pid))
+    await delay(50)
+  return 'force-killed'
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {

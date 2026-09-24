@@ -183,6 +183,12 @@ async function remove(): Promise<void> {
         </p>
       </div>
       <StatusPill :status="server.status" :health="server.health" />
+      <Tip
+        v-if="server.adopted"
+        label="This process replaced itself: the panel adopted the successor instead of starting a second copy. Stop still works, its output stays where the successor sent it."
+      >
+        <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">detached</span>
+      </Tip>
     </header>
 
     <p class="truncate px-4 pb-3 font-mono text-2xs text-muted" :title="commandLine">

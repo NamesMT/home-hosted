@@ -171,6 +171,12 @@ const SECTIONS = [
     <PageHeader :title="label" back-to="/servers" back-label="All servers">
       <template #badges>
         <StatusPill :status="server.status" :health="server.health" />
+        <Tip
+          v-if="server.adopted"
+          label="This process replaced itself: the panel adopted the successor instead of starting a second copy. Stop still works, its output stays where the successor sent it."
+        >
+          <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">detached</span>
+        </Tip>
         <span class="font-mono text-xs text-faint">{{ server.id }}</span>
         <a
           v-if="server.url"

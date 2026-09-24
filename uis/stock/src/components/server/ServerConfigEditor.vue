@@ -64,7 +64,7 @@ interface EditorForm {
   maxRssMb: number | null
   port: number | null
   bind: string
-  onPortConflict: 'block' | 'warn'
+  onPortConflict: 'block' | 'warn' | 'adopt'
   logBufferLines: number | null
   enabled: boolean
   autostart: boolean
@@ -332,6 +332,7 @@ async function save(): Promise<void> {
           :options="[
             { value: 'block', label: 'block — refuse to start' },
             { value: 'warn', label: 'warn — start anyway' },
+            { value: 'adopt', label: 'adopt — follow a detached restart of itself' },
           ]"
         />
         <NumberField v-model="form.logBufferLines" label="Log buffer lines" :min="50" :max="100000" :step="50" />

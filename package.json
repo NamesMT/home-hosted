@@ -38,7 +38,9 @@
   "files": [
     "AGENTS.md",
     "LICENSE",
+    "NOTIFICATIONS.md",
     "README.md",
+    "SERVERS.md",
     "UI_CREATION.md",
     "bin",
     "dist",

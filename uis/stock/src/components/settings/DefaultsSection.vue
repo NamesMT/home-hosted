@@ -44,6 +44,7 @@ const logBufferLines = numberModel(() => defaults.value.logBufferLines, value =>
       :options="[
         { value: 'block', label: 'Block the start' },
         { value: 'warn', label: 'Warn and start anyway' },
+        { value: 'adopt', label: 'Adopt a detached restart of itself' },
       ]"
     />
     <NumberField v-model="logBufferLines" label="Log buffer lines" :min="50" :max="100000" hint="Kept in memory per server." />
