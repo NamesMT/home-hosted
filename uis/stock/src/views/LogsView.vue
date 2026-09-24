@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { LogLine } from '@shared/contracts'
 import { ArrowDownToLine, CircleAlert, FileText, RefreshCw, ScrollText, Trash2 } from 'lucide-vue-next'
-import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import LogViewer from '@/components/log/LogViewer.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -33,25 +33,16 @@ const listLoading = ref(true)
 const current = computed(() => servers.value.find(server => server.serverId === selected.value) ?? null)
 
 const logs = useServerLogs(() => (mode.value === 'live' ? selected.value : null))
-const liveVersions = ref(0)
+// The buffer is mutated in place, so the viewer invalidates on this counter — which
+// the composable bumps for every batch, including the first lines after connect.
+const liveVersion = logs.version
 const liveLines = computed(() => {
-  void liveVersions.value
+  void liveVersion.value
   return logs.lines()
 })
 
-let lastLiveCount = -1
-const liveClock = setInterval(() => {
-  const count = logs.count.value
-  if (count !== lastLiveCount) {
-    lastLiveCount = count
-    liveVersions.value += 1
-  }
-}, 250)
-
-onScopeDispose(() => clearInterval(liveClock))
-
 const lines = computed<LogLine[]>(() => (mode.value === 'live' ? liveLines.value : diskLines.value))
-const version = computed(() => (mode.value === 'live' ? liveVersions.value : diskVersion.value))
+const version = computed(() => (mode.value === 'live' ? liveVersion.value : diskVersion.value))
 
 const tailOptions = [
   { value: '200', label: '200 lines' },

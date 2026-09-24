@@ -30,6 +30,15 @@ interface LogBuffer {
 
 const buffers = new Map<string, LogBuffer>()
 
+/**
+ * Bumped on every buffer mutation. `lines` is a plain array mutated in place, and
+ * a buffer may not even exist when a view first evaluates its version, so a single
+ * always-live counter is what makes the log views re-render on the first line and
+ * on every one after it. Without it the version computed caches once and the
+ * viewer stays empty until something else forces a re-render.
+ */
+const logRevision = ref(0)
+
 let globalSource: EventSource | null = null
 let clock: ReturnType<typeof setInterval> | null = null
 
@@ -49,6 +58,7 @@ function appendLines(serverId: string, batch: LogLine[]): void {
   if (overflow > 0)
     buffer.lines.splice(0, overflow)
   buffer.version.value += 1
+  logRevision.value += 1
 }
 
 export function liveLines(serverId: string): LogLine[] {
@@ -61,6 +71,7 @@ export function resetLogs(serverId: string): void {
     return
   buffer.lines = []
   buffer.version.value += 1
+  logRevision.value += 1
 }
 
 function seriesFor(serverId: string): ServerSeries {
@@ -206,6 +217,9 @@ export function useServerLogs(serverId: MaybeRefOrGetter<string | null>) {
 
   const version = computed(() => {
     const id = current.value
+    // `logRevision` is the dependency that always exists; the per-buffer counter
+    // is only the value, so the first append still invalidates this.
+    void logRevision.value
     return id === null ? 0 : buffers.get(id)?.version.value ?? 0
   })
 
@@ -217,6 +231,7 @@ export function useServerLogs(serverId: MaybeRefOrGetter<string | null>) {
     },
     count: computed(() => {
       const id = current.value
+      void logRevision.value
       return id === null ? 0 : buffers.get(id)?.lines.length ?? 0
     }),
     clear(): void {

@@ -2,7 +2,7 @@
 import type { ServerView } from '@shared/contracts'
 import { Code2, ExternalLink, MoreHorizontal, Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-vue-next'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
-import { computed, onScopeDispose, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import LogViewer from '@/components/log/LogViewer.vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
@@ -47,30 +47,17 @@ const busy = ref(false)
 
 const logs = useServerLogs(() => (server.value ? serverId.value : null))
 
-const versions = ref(0)
+// `version` changes on every flushed batch (and on clear), which is what tells the
+// viewer its in-place line array gained content.
+const liveVersion = logs.version
 const liveLines = computed(() => {
-  void versions.value
+  void liveVersion.value
   return logs.lines()
 })
 
-let lastCount = 0
-// The buffer is mutated in place; a counter is what the viewer invalidates on.
-const liveClock = setInterval(() => {
-  const count = logs.count.value
-  if (count !== lastCount) {
-    lastCount = count
-    versions.value += 1
-  }
-}, 250)
-
-onScopeDispose(() => clearInterval(liveClock))
-
 const series = computed(() => seriesOf(serverId.value))
 
-const cpuValues = computed(() => {
-  void versions.value
-  return series.value.cpu
-})
+const cpuValues = computed(() => series.value.cpu)
 const rssValues = computed(() => series.value.rss)
 const probeValues = computed(() => series.value.probe)
 
@@ -307,7 +294,7 @@ const SECTIONS = [
     <LogViewer
       v-if="section === 'output'"
       :lines="liveLines"
-      :version="versions"
+      :version="liveVersion"
       live
       clearable
       :download-url="server.config.logBufferLines > 0 ? downloadUrl : undefined"
