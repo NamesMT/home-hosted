@@ -24,6 +24,7 @@ pnpm run check                     # quickcheck + vitest run --coverage
 pnpm run set-password              # non-interactive through HHOSTED_PASSWORD
 pnpm run set-token                 # --generate prints a new API token once
 pnpm run migrate                   # bring the config up to this release's schema
+pnpm exec tsx src/cli.ts init      # scaffold a project (interactive; --yes for defaults)
 pnpm run media                     # regenerate docs/media (mockups, both served UIs, tour.gif)
 ```
 
@@ -55,7 +56,9 @@ exists, so the first release has to be published by hand.
   adopted), `port` (probe, holder lookup, `terminatePids`), `proc` (the sampler, plus
   `processCarriesServerId` for ownership), health-check, host, telegram, archive.
 - `src/services/` — stateful orchestration: supervisor, control-server, state, auth + exposure,
-  dependencies, history, log-buffer/log-files, notifications, host-monitor, backups, tls, ui.
+  dependencies, history, log-buffer/log-files, notifications, host-monitor, backups, tls, ui, plus
+  `init` (the scaffold behind `home-hosted init`: a manifest, a `.gitignore`, and the prompts stay in
+  the CLI). It names no server — the scaffold must stay as neutral as the supervisor.
 - `src/middleware/auth.ts` — the `/api/*` guard, and `requestIdentity()`, the one place a request's
   credentials are read: the `hh2_session` cookie or `Authorization: Bearer <api token>`. A token is
   a first-class credential (same authority as a signed-in browser) and is verified from the secrets

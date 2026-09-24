@@ -66,7 +66,7 @@ cannot drift:
 | --- | --- |
 | **OpenAPI** | `GET /openapi/spec.json` (no session needed); browse it at `/openapi/ui` |
 | **Typed RPC** | inside this repo: `import type { AppType } from '@server/app'` + `hc<AppType>()`, as `uis/stock/src/lib/rpc.ts` does |
-| **Generated types** | `npx openapi-typescript http://127.0.0.1:3999/openapi/spec.json -o src/api.d.ts` |
+| **Generated types** | `pnpm dlx openapi-typescript http://127.0.0.1:3999/openapi/spec.json -o src/api.d.ts` |
 
 `uis/stock/src/lib/api.ts` is the reference client: plain `fetch`, with ArkType validating the
 responses at runtime. Either style is fine.
@@ -149,8 +149,8 @@ Only `stock` ships inside the npm package; the rest are release assets you insta
 ```bash
 # 1. any static framework; the only requirement is a static output
 npm create vite@latest my-panel -- --template vue-ts
-cd my-panel && npm install
-npm run build                       # → dist/
+cd my-panel && pnpm install
+pnpm run build                      # → dist/
 
 # 2. keep the API base relative, then zip the build
 cd dist && zip -r ../my-panel.zip . && cd ..

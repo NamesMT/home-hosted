@@ -27,6 +27,7 @@ Usage
   home-hosted set-password      set the panel password without the API
   home-hosted set-token         set the API token that scripts and agents use
   home-hosted migrate           bring the config up to this release's schema
+  home-hosted init              scaffold a project that keeps its state in the repo
   home-hosted ui-revert         go back to the stock control panel UI
 
 Options for up/restart
@@ -45,6 +46,13 @@ Options for set-token
 Options for migrate
       --dry-run         print what would change, write nothing
   -y, --yes             apply without asking (or set HHOSTED_MIGRATE=allow)
+
+Options for init
+      --dir <dir>       where to scaffold (default: ./my-servers)
+      --name <name>     package name (default: the directory name)
+      --pm <manager>    pnpm | npm | yarn | bun (default: the first one installed)
+      --no-install      write the files, install nothing
+  -y, --yes             take every default, ask nothing
 
 Everywhere
       --home <dir>      state directory (default: $HHOSTED_HOME or ~/.home-hosted)
@@ -553,6 +561,98 @@ async function migrateConfig(argv: string[]): Promise<void> {
     process.stdout.write(`  ${dim(`still ignoring an unrecognized key: ${key}`)}\n`)
 }
 
+/** Asks a yes/no question with a default, so an empty answer is a real answer. */
+async function confirm(question: string, fallback: boolean): Promise<boolean> {
+  const answer = (await prompt(`${question} ${fallback ? '[Y/n]' : '[y/N]'} `)).trim().toLowerCase()
+  if (answer.length === 0)
+    return fallback
+  return answer === 'y' || answer === 'yes'
+}
+
+function which(command: string): boolean {
+  const probe = spawnSync(command, ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' })
+  return probe.status === 0
+}
+
+/**
+ * Scaffolds a project that keeps its whole setup — state, data and the server
+ * definitions — inside its own directory. Interactive by nature, but `--yes`
+ * takes every default so an agent or a CI job can run it unattended.
+ */
+async function initProject(argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    options: {
+      'dir': { type: 'string' },
+      'name': { type: 'string' },
+      'pm': { type: 'string' },
+      'no-install': { type: 'boolean' },
+      'yes': { type: 'boolean', short: 'y' },
+    },
+    allowPositionals: false,
+  })
+
+  const { detectPackageManager, installArgs, PACKAGE_MANAGERS, runCommand, scaffold } = await import('#src/services/init')
+  const assumeYes = values.yes === true
+  if (!assumeYes && process.stdin.isTTY !== true) {
+    fail('init needs a terminal to ask in.\n  take the defaults with: home-hosted init --yes [--dir <dir>]')
+  }
+
+  const defaultDir = values.dir ?? './my-servers'
+  const dir = assumeYes ? defaultDir : (await prompt(`Project directory (${defaultDir}) `)).trim() || defaultDir
+  const defaultName = path.basename(path.resolve(dir))
+  const name = values.name ?? (assumeYes ? defaultName : (await prompt(`Package name (${defaultName}) `)).trim() || defaultName)
+
+  let pm = values.pm
+  if (pm !== undefined && !(PACKAGE_MANAGERS as string[]).includes(pm))
+    fail(`unknown package manager: ${pm} (expected one of ${PACKAGE_MANAGERS.join(', ')})`)
+  const detected = detectPackageManager(which)
+  if (pm === undefined)
+    pm = assumeYes ? detected : (await prompt(`Package manager (${detected}) `)).trim() || detected
+
+  const install = values['no-install'] === true
+    ? false
+    : assumeYes || (await confirm('Install the dependencies now?', true))
+  const git = assumeYes ? which('git') : which('git') && (await confirm('Initialize a git repository?', true))
+
+  try {
+    const result = scaffold({ dir: dir!, name, pm: pm as never, install, git })
+    process.stdout.write(`${green('project created')} in ${result.dir}\n`)
+    for (const file of result.files)
+      process.stdout.write(`  ${dim(file)}\n`)
+  }
+  catch (error) {
+    fail(error instanceof Error ? error.message : String(error))
+  }
+
+  const target = path.resolve(dir!)
+  if (git) {
+    spawnSync('git', ['init', '-q'], { cwd: target, stdio: 'inherit', shell: process.platform === 'win32' })
+    process.stdout.write(`  ${dim('git repository initialized')}\n`)
+  }
+
+  if (install) {
+    process.stdout.write(`${dim(`installing with ${pm}…`)}\n`)
+    const result = spawnSync(pm as string, installArgs(pm as never), {
+      cwd: target,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    })
+    if (result.status !== 0) {
+      process.stdout.write(`${paint('33', 'install failed')} — run it yourself in ${target}\n`)
+    }
+  }
+
+  // A path inside the working directory reads better relative; anything else absolute.
+  const relative = path.relative(process.cwd(), target)
+  const where = relative.length === 0 || relative.startsWith('..') ? target : relative
+  const cd = relative.length === 0 ? '' : `cd ${where} && `
+  process.stdout.write(`\nNext:\n`)
+  process.stdout.write(`  ${bold(`${cd}${runCommand(pm as never, 'up')}`)}     start the panel (default password \`hh\`)\n`)
+  process.stdout.write(`  ${dim('then change that password under Settings → Authentication, and add your servers')}\n`)
+  process.stdout.write(`  ${dim(`${runCommand(pm as never, 'set-token')} --generate    for scripts and agents`)}\n`)
+}
+
 /** Drops a user-installed UI so the stock panel serves again. */
 async function uiRevert(): Promise<void> {
   const { UiService } = await import('#src/services/ui')
@@ -737,6 +837,10 @@ async function main(): Promise<void> {
     case 'migrate':
       applyDirFlags(dirFlags)
       await migrateConfig(args)
+      return
+    case 'init':
+      applyDirFlags(dirFlags)
+      await initProject(args)
       return
     case 'ui-revert':
       applyDirFlags(dirFlags)

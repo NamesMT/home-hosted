@@ -39,6 +39,7 @@ shortcuts wizards), and UI directions you could build yourself —
 ```bash
 npx home-hosted            # start it — detached, it stays running
 npx home-hosted status     # where is it, is it healthy
+# pnpm instead of npx: `pnpm dlx home-hosted …`
 ```
 
 That is it. The panel is on **<http://127.0.0.1:3999>** and keeps running after the terminal
@@ -56,7 +57,7 @@ npx home-hosted down       # stops the panel *and* everything it started
 <summary><b>📦 Install it instead of npx-ing it</b></summary>
 
 ```bash
-npm install -g home-hosted
+npm install -g home-hosted      # or: pnpm add -g home-hosted
 home-hosted up
 ```
 
@@ -68,15 +69,15 @@ Everything it owns — config, secrets, logs, TLS, backups — lives in `$HHOSTE
 <details>
 <summary><b>📁 Keep a whole setup in a project you can take anywhere</b></summary>
 
-Install the servers next to `home-hosted` and commit the project — it *is* the setup:
+Commit the project and it *is* the setup. `init` scaffolds it:
 
 ```bash
-mkdir my-servers && cd my-servers
-npm init -y
-npm install home-hosted 9router                    # the lockfile pins them, so `npm ci` reproduces
-
-npx home-hosted up --home ./state                  # state lives inside the project
+npx home-hosted init            # or: pnpm dlx home-hosted init
+#   project directory, package name, package manager, install, git — every step has a default
+#   `--yes` takes them all, for an agent or a CI job
 ```
+
+It writes a manifest whose scripts all pass `--home ./state`:
 
 ```jsonc
 // package.json
@@ -85,20 +86,23 @@ npx home-hosted up --home ./state                  # state lives inside the proj
     "up": "home-hosted up --home ./state",
     "down": "home-hosted down --home ./state",
     "status": "home-hosted status --home ./state"
+    // …and restart, set-password, set-token, migrate
   }
 }
 ```
 
 ```gitignore
+node_modules/
 state/*                       # secrets, logs, TLS keys and archives stay local…
 !state/servers.config.json    # …but the server definitions are committed
+data/                         # per-server data directories, declared through dataEnvs
 ```
 
-One clone, `npm ci`, `npm run up`, and the setup is up on any machine with Node. A worked example,
-including per-server data directories inside the project: **[hhosted-9router-dsh](https://github.com/NamesMT/hhosted-9router-dsh)**
-(a 9router gateway + dsh harness demo).
+One clone, `pnpm install --frozen-lockfile`, `pnpm run up` — the setup is up on any machine with Node.
+Worked example, with per-server data inside the project:
+**[hhosted-9router-dsh](https://github.com/NamesMT/hhosted-9router-dsh)**.
 
-<sub>Call them as `npm run up` — `npm up` is npm's own update, not your script.</sub>
+<sub>Call them as `pnpm run up` — `pnpm up` is pnpm's own update, not your script.</sub>
 
 </details>
 
@@ -126,9 +130,9 @@ WantedBy=multi-user.target
 
 ## 🤖 Agents, scripts and tools
 
-The panel is a client of its own API, and the API takes a **long-lived token** as happily as a
-browser cookie. That makes home-hosted a natural tool for a coding agent or a shell script: one
-command to get a credential, then plain HTTP to start, stop, inspect, restart and read logs.
+Everything the panel does, a script or an agent can do: the API takes a **long-lived token** in place
+of the browser cookie. One command for a credential, then plain HTTP to start, stop, inspect, restart
+and read logs.
 
 ```bash
 home-hosted set-token --generate
@@ -140,9 +144,8 @@ curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/events?
 home-hosted status --json        # machine-readable: pid, url, health, paths
 ```
 
-A token is a first-class credential with the same authority as a signed-in browser, it survives
-restarts, and `home-hosted set-token --clear` revokes it instantly. `cookieSecure`/`trustProxy` in
-**Settings → Authentication** decide how it behaves behind a proxy.
+A token has the same authority as a signed-in browser and outlives restarts; `set-token --clear`
+revokes it instantly.
 
 <details>
 <summary><b>🌐 The endpoints worth knowing</b></summary>
@@ -197,7 +200,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 💾 **Backups** | One click for config, secrets, TLS and your declared data directories — plain `.zip`, or AES-256 with a password, restored per path. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `home-hosted ui-revert` to go back. [UI_CREATION.md](./UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
-| 🧩 **Server-agnostic** | `command` + `args` + `env` + `cwd`. Nothing in the code knows what you run. |
+| 🧩 **No special treatment** | A server is `command` + `args` + `env` + `cwd`; nothing is built in for any particular app. |
 | 🖥 **Cross-platform** | Linux, macOS and Windows: `/proc`, `ps` or Win32_Process, process groups or `taskkill /T`, no shell dependencies. |
 
 ---
@@ -234,6 +237,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./SERVERS.md).*
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | bring `servers.config.json` up to this release's schema (`--dry-run`, `--yes`) |
+| `home-hosted init` | scaffold a project that keeps `state/` and its data in the repo |
 | `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
 
 <details>
@@ -289,10 +293,9 @@ Everything binds `127.0.0.1` until you say otherwise.
   UI, in the config, or with `--host lan`. The same guard applies in all three places.
 - **Sessions** live in memory only; the cookie is `HttpOnly` and `SameSite=Strict`, and the login
   route locks out repeated failures per IP.
-- **API tokens** let a script or an agent drive the panel without the password:
-  `home-hosted set-token --generate` prints one once, and a request proves itself with
-  `Authorization: Bearer …`. It is stored as a SHA-256 hash, holds the same access as a signed-in
-  browser, works without restarting the panel, and `set-token --clear` revokes it instantly.
+- **API tokens** for scripts and agents: `home-hosted set-token --generate` prints one once, and a
+  request proves itself with `Authorization: Bearer …` — the same access as a signed-in browser,
+  stored as a SHA-256 hash, revoked with `set-token --clear`.
 - **Port conflicts** are named — `port 4010 is already in use (pid 4242)` — and can be resolved from
   a confirmation popover on that banner or card. The process is looked up again at that moment,
   never taken from the message, and anything the panel supervises is refused, not killed. A server
