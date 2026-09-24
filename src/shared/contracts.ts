@@ -691,6 +691,24 @@ export const logQuerySchema = type({
   limit: 'string?',
 })
 
+/**
+ * What a `free-port` attempt did. The pids are reported so the UI can say which
+ * process left, and which listeners were deliberately left alone because this
+ * panel supervises them.
+ */
+export const freePortResultSchema = type({
+  ok: 'boolean',
+  port: 'number | null',
+  /** Asked to leave with SIGTERM, and the ones that ignored it. */
+  terminated: 'number[]',
+  forced: 'number[]',
+  /** Listeners this panel supervises; never signalled. */
+  skipped: 'number[]',
+  /** The port answers no more after the attempt. */
+  free: 'boolean',
+})
+export type FreePortResult = typeof freePortResultSchema.infer
+
 export const logHistoryQuerySchema = type({
   tail: 'string?',
   /** Case-insensitive substring filter over the tail window. */

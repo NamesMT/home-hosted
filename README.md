@@ -162,7 +162,7 @@ WantedBy=multi-user.target
 | --- | --- |
 | 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. |
-| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, and check ports before starting. |
+| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, and check ports before starting — and when something else is squatting on one, kill it from the card. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned — and stops in reverse. |
 | 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, download, one click to clear. |
 | 📈 **Resources** | CPU and RSS of the whole process tree, with an optional memory ceiling that triggers a restart. |
@@ -171,7 +171,7 @@ WantedBy=multi-user.target
 | 🚚 **Portable setup** | Restore a shared backup onto a blank instance and the whole server setup is back: definitions, data, secrets and all. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `home-hosted ui-revert` to go back. [UI_CREATION.md](./UI_CREATION.md) |
 | 🔔 **Notifications** | Telegram (grammY) on crash, unhealthy, forced restart, recovery and host thresholds. |
-| 🔐 **Security** | httpOnly cookie sessions, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
+| 🔐 **Security** | httpOnly cookie sessions, **API tokens** for scripts, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
 | 🧩 **Server-agnostic** | `command` + `args` + `env` + `cwd`. Nothing in the code knows what you run. |
 | 🖥 **Cross-platform** | Linux, macOS and Windows: `/proc`, `ps` or Win32_Process, process groups or `taskkill /T`, no shell dependencies. |
 
@@ -245,6 +245,7 @@ service can tell which entry it is and how to reach the panel.
 | `home-hosted restart` | `down`, then `up` |
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts) |
 | `home-hosted set-password` | set the panel password without opening a browser |
+| `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
 
 <details>
@@ -274,8 +275,16 @@ Everything binds `127.0.0.1` until you say otherwise.
   in the UI, in the config, or with `--host lan`. The same guard applies in all three places.
 - **Sessions** live in memory only; the cookie is `HttpOnly` and `SameSite=Strict`, and the
   login route locks out repeated failures per IP.
-- **Secrets never enter the config**: the password hash, the Telegram token and the TLS key
-  live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`.
+- **API tokens** let a script or an agent drive the panel without the password:
+  `home-hosted set-token --generate` prints one once, and a request proves itself with
+  `Authorization: Bearer …`. It is stored as a SHA-256 hash, holds the same access as a
+  signed-in browser, works without restarting the panel, and `set-token --clear` revokes it
+  instantly.
+- **Port conflicts** are shown as `port 4010 is already in use (pid 4242)` and can be resolved
+  from that banner. The process is looked up again at that moment — never taken from the
+  message — and anything the panel supervises is refused, not killed.
+- **Secrets never enter the config**: the password hash, the API token hash, the Telegram token
+  and the TLS key live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`.
 - **Behind a proxy** turn on `trustProxy` and let `cookieSecure: auto` add `Secure` on https,
   or upload a PEM pair and let home-hosted terminate TLS itself.
 
@@ -357,10 +366,23 @@ The panel is a client of its own API, so everything is scriptable:
 | `GET /api/events` | SSE: the live state, plus logs (`?logs=0`, `?serverId=…`) |
 | `GET /api/servers/:id/stream` | SSE: one server's state and logs |
 | `POST /api/servers/:id/{start,stop,restart}` | lifecycle |
+| `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop |
 | `PATCH /api/servers/:id`, `PATCH /api/settings` | edit configuration |
 | `GET /api/logs`, `/api/backups`, `/api/notifications` | logs, archives, Telegram |
-| `GET /healthz` | no session needed — the one an external monitor wants |
+| `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) |
 | `GET /api/metrics` | Prometheus text |
+
+Everything under `/api` takes either credential: the session cookie, or an API token.
+
+```bash
+home-hosted set-token --generate      # prints the token once, then forgets the text
+
+curl -H "Authorization: Bearer hh_…" http://127.0.0.1:3999/api/state
+curl -H "Authorization: Bearer hh_…" -X POST http://127.0.0.1:3999/api/servers/9router/restart
+curl -N -H "Authorization: Bearer hh_…" 'http://127.0.0.1:3999/api/events?logs=1'   # SSE
+```
+
+`GET /openapi/spec.json` describes all of it; `/openapi/ui` is the browsable version.
 
 ---
 
@@ -397,7 +419,7 @@ Just the control panel, `3999` by default. Supervised servers use the ports you 
 ```text
 servers.config.json      your servers (the UI writes it back atomically)
 servers.config.schema.json  regenerated on every start, for editor autocomplete
-.control-secrets.json    password hash + Telegram token (mode 0600)
+.control-secrets.json    password hash + API token hash + Telegram token (mode 0600)
 .logs/                   rotated per-server logs + history
 .tls/                    an uploaded PEM pair
 .backups/                zip archives
@@ -434,7 +456,7 @@ the holder. The control port itself is checked before the listener is opened.
 
 ```text
 src/            control plane: config, supervisor, API, providers, services
-src/cli.ts      the command line (up/down/status/restart/set-password)
+src/cli.ts      the command line (up/down/status/restart/set-password/set-token)
 src/index.ts    the control plane itself, used by `up --foreground`
 uis/            UIs: `stock` (shipped) and alternatives — any framework, static output
 bin/            the published entry point

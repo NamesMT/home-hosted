@@ -262,14 +262,15 @@ export function useControlPlane() {
 
   async function run<T>(
     action: () => Promise<T>,
-    options: { title: string, success?: string },
+    options: { title: string, success?: string | ((result: T) => string) },
   ): Promise<T | undefined> {
     lastError.value = null
     try {
       const result = await action()
       appState.value = await api.fetchState()
-      if (options.success)
-        notifier.success(options.success)
+      const message = typeof options.success === 'function' ? options.success(result) : options.success
+      if (message)
+        notifier.success(message)
       return result
     }
     catch (error) {
@@ -308,6 +309,16 @@ export function useControlPlane() {
     stopAll: () => run(() => api.stopAll(), { title: 'Could not stop every server', success: 'Stopping every server' }),
     setAutostart: (id: string, autostart: boolean) => run(() => api.patchServer(id, { autostart }), { title: `Could not change autostart for ${id}` }),
     setEnabled: (id: string, enabled: boolean) => run(() => api.patchServer(id, { enabled }), { title: `Could not change ${id}` }),
+    /**
+     * Frees the port a blocked entry wants. The endpoint reports what it did, so
+     * the toast can say whether the port actually came free.
+     */
+    freePort: (id: string) => run(() => api.freePort(id), {
+      title: `Could not free the port for ${id}`,
+      success: result => (result.free
+        ? `Port ${result.port} is free — start ${id} now`
+        : `Port ${result.port} is still held`),
+    }),
     setBind: (id: string, bind: string) => {
       const parsed = parseBind(bind)
       if (parsed === null) {

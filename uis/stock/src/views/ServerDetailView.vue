@@ -7,6 +7,7 @@ import { useRoute } from 'vue-router'
 import LogViewer from '@/components/log/LogViewer.vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
 import ServerConfigEditor from '@/components/server/ServerConfigEditor.vue'
+import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import MetricSpark from '@/components/telemetry/MetricSpark.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
@@ -29,7 +30,7 @@ import {
 } from '@/lib/format'
 
 const route = useRoute()
-const { serverById, now, seriesOf, start, stop, restart, setEnabled, setAutostart, setBind, clearLogs, remove } = useControlPlane()
+const { serverById, now, seriesOf, start, stop, restart, setEnabled, setAutostart, setBind, clearLogs, freePort, remove } = useControlPlane()
 
 const serverId = computed(() => String(route.params.id ?? ''))
 const server = computed<ServerView | undefined>(() => serverById(serverId.value))
@@ -241,9 +242,22 @@ const SECTIONS = [
     </PageHeader>
 
     <div class="space-y-2">
-      <p v-if="server.lastError" class="rounded-control border border-danger/25 bg-danger-soft px-3 py-2 text-2xs leading-4 text-danger">
-        {{ server.lastError }}
-      </p>
+      <div
+        v-if="server.lastError"
+        class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-danger/25 bg-danger-soft px-3 py-2"
+      >
+        <p class="min-w-0 flex-1 text-2xs leading-4 text-danger">
+          {{ server.lastError }}
+        </p>
+        <ConfirmButton
+          v-if="server.status === 'conflict' && server.config.port !== null"
+          :label="`Kill what holds port ${server.config.port}`"
+          confirm-label="Yes, kill it"
+          size="xs"
+          :loading="busy"
+          @confirm="freePort(server.id)"
+        />
+      </div>
       <p
         v-if="server.health === 'unhealthy'"
         class="rounded-control border border-warn/25 bg-warn-soft px-3 py-2 text-2xs leading-4 text-warn"

@@ -16,6 +16,7 @@ import {
 } from 'lucide-vue-next'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
+import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import MetricSpark from '@/components/telemetry/MetricSpark.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
@@ -222,6 +223,15 @@ async function remove(): Promise<void> {
         <CircleAlert class="mt-0.5 size-3 shrink-0" />
         <span class="min-w-0 break-words">{{ server.lastError }}</span>
       </p>
+      <ConfirmButton
+        v-if="server.status === 'conflict' && config.port !== null"
+        :label="`Kill what holds port ${config.port}`"
+        confirm-label="Yes, kill it"
+        size="xs"
+        class="self-start"
+        :loading="busy"
+        @confirm="control.freePort(server.id)"
+      />
       <p v-if="unhealthyFor" class="text-2xs leading-4 text-warn">
         Unhealthy for {{ unhealthyFor }}
       </p>

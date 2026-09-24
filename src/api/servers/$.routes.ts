@@ -7,7 +7,7 @@ import { ConfigError } from '#src/config/store'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
-import { logQuerySchema, serverCreateSchema, serverPatchSchema, serverViewSchema } from '#src/shared/contracts'
+import { freePortResultSchema, logQuerySchema, serverCreateSchema, serverPatchSchema, serverViewSchema } from '#src/shared/contracts'
 
 const idParam = type({ id: 'string >= 1' })
 const serverResponse = type({ server: serverViewSchema })
@@ -195,6 +195,32 @@ export function createServersRoute(deps: AppDeps) {
       (c) => {
         deps.supervisor.clearLogs(c.req.valid('param').id)
         return c.json({ ok: true })
+      },
+    )
+
+    /**
+     * The escape hatch for `port x is already in use (pid x)`: it re-lists the
+     * listeners itself, so what is killed is the process holding the port now —
+     * never a pid quoted in an old message, and never one this panel supervises.
+     */
+    .post(
+      '/:id/free-port',
+      describeRoute({
+        tags: ['servers'],
+        summary: 'Ask whatever holds this server\'s port to stop',
+        responses: {
+          200: { description: 'What was signalled', content: jsonBody(freePortResultSchema) },
+          404: ERROR_RESPONSES[404],
+          409: { description: 'Nothing to free, or the holder is supervised by this panel' },
+        },
+      }),
+      validate('param', idParam),
+      async (c) => {
+        const { id } = c.req.valid('param')
+        const result = await deps.supervisor.freePort(id)
+        if (!result.ok)
+          throw new DetailedError(result.error ?? `could not free the port for "${id}"`, { statusCode: statusFor(result), code: 'FREE_PORT_FAILED' })
+        return c.json(result)
       },
     )
 

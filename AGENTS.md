@@ -5,9 +5,9 @@ panel (default `127.0.0.1:3999`) that supervises the entries in `$HHOSTED_HOME/s
 and serves a UI. User docs: `README.md`; UI authors: `UI_CREATION.md`.
 
 State lives only in `$HHOSTED_HOME` (default `~/.home-hosted`): `servers.config.json`,
-`.control-secrets.json` (0600), `.logs/`, `.tls/`, `.backups/`, `.ui/`, and `run.json` — the live
-daemon's pid/url/token, 0600. The package ships **no servers**: never commit a config, a seed
-entry, or a path that names one.
+`.control-secrets.json` (0600: password hash, API token hash, Telegram bot token), `.logs/`, `.tls/`,
+`.backups/`, `.ui/`, and `run.json` — the live daemon's pid/url/token, 0600. The package ships **no
+servers**: never commit a config, a seed entry, or a path that names one.
 
 ## Commands
 
@@ -21,6 +21,7 @@ pnpm run quickcheck                # eslint + tsc + vue-tsc for every UI under u
 pnpm exec vitest run               # `pnpm test` is vitest in watch mode
 pnpm run check                     # quickcheck + vitest run --coverage
 pnpm run set-password              # non-interactive through HHOSTED_PASSWORD
+pnpm run set-token                 # --generate prints a new API token once
 pnpm run media                     # regenerate docs/media (mockups, both served UIs, tour.gif)
 ```
 
@@ -46,9 +47,14 @@ exists, so the first release has to be published by hand.
   the OpenAPI spec is generated from it, never hand-written.
 - `src/config/` — `schema.ts` (on-disk shape), `store.ts` (validate/merge/atomic commit, reports
   `configError` instead of throwing on a bad file), `secrets.ts`, `seed.ts`.
-- `src/providers/` — stateless leaves: process, port, proc, health-check, host, telegram, archive.
+- `src/providers/` — stateless leaves: process, port (probe, holder lookup, and `terminatePids`),
+  proc, health-check, host, telegram, archive.
 - `src/services/` — stateful orchestration: supervisor, control-server, state, auth + exposure,
   dependencies, history, log-buffer/log-files, notifications, host-monitor, backups, tls, ui.
+- `src/middleware/auth.ts` — the `/api/*` guard, and `requestIdentity()`, the one place a request's
+  credentials are read: the `hh2_session` cookie or `Authorization: Bearer <api token>`. A token is
+  a first-class credential (same authority as a signed-in browser) and is verified from the secrets
+  file on every request, so `set-token` needs no restart.
 - `src/helpers/` — paths (`dataRoot` vs `projectDir`), daemon (run.json + a loopback probe that
   bypasses `fetch`, so TLS with a self-signed pair still answers), error, validator, atomic,
   template, env-file, openapi, factory.
@@ -84,8 +90,11 @@ exists, so the first release has to be published by hand.
 - **Paths.** `dataRoot` is state; `projectDir` is the base for relative entry paths. `{id}{port}`
   `{host}{bind}{cwd}{projectDir}{dataRoot}{home}` and `${ENV}` expand in config; there is no
   package-relative state.
-- **Secrets never enter the config.** Password hash, bot token and TLS key live in the 0600 secrets
-  file; the config holds policy.
+- **Secrets never enter the config.** Password hash, API token hash, bot token and TLS key live in
+  the 0600 secrets file; the config holds policy.
+- **A port is only ever freed by re-listing its listeners.** `POST /api/servers/:id/free-port` never
+  trusts a pid quoted in a message, and refuses any listener in `supervisedPids()` (the panel plus
+  every entry's child) instead of killing it — a port held by a sibling is a config mistake.
 - **Never expose beyond loopback without auth and a non-default password.** `checkExposure()` is the
   single rule, enforced at startup, on every settings write, and in the UI.
 - **UIs are external clients.** Nothing in `src/**` may know a UI's markup or files;
@@ -106,8 +115,13 @@ exists, so the first release has to be published by hand.
   `stopping` first: overlapping calls would double-spawn or resurrect a stopped process. Tests must
   call `supervisor.dispose()`.
 - Port preflight re-probes after 300 ms — a just-closed listener can still complete a handshake.
+- The UI's live log buffers (`uis/stock/src/composables/useControlPlane.ts`) are plain arrays mutated
+  in place, and a buffer may not exist when a view first evaluates. Views must invalidate on the
+  composable's `version` computed (backed by the module-level `logRevision`), never on `lines.length`
+  — reading a length that nothing tracks is exactly how the view ends up empty until a re-render.
 - `stop.killPortHolders` frees a port only from a *listener* that is not our own process tree. Broad
   `lsof -ti:<port>` sweeps and pid-as-text parses have killed supervisors in the field; don't add one.
+  `free-port` reuses the same lookup and adds the supervisor's own pid set on top.
 - `ServerView.config.port` is normalized to `number | null`; the hand-narrowed types in
   `contracts.ts` are deliberate.
 - ArkType: an optional property (`'x?'`) rejects an explicit `undefined` (omit the key). Fields a UI

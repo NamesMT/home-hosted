@@ -79,6 +79,7 @@ responses at runtime. Either style is fine.
 | `GET /api/events` | **the live feed**: `hello` carries the full state, then `state`, `server`, `log` |
 | `GET /api/servers/:id/stream` | one server's `server` + `log` frames |
 | `POST /api/servers/:id/{start,stop,restart}`, `/api/servers/{start-all,stop-all}` | lifecycle |
+| `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop (`403`-safe: supervised listeners are refused) |
 | `GET` / `POST /api/servers`, `PATCH` / `DELETE /api/servers/:id` | the entries themselves |
 | `GET /api/logs`, `/api/logs/:id?tail=&search=`, `/api/logs/:id/download?file=` | persisted logs |
 | `GET` / `PATCH /api/settings` | the panel's own config (`control.label`, host thresholds, backups, …) |
@@ -92,6 +93,11 @@ responses at runtime. Either style is fine.
 
 `GET /healthz` and `GET /openapi/*` are the only unauthenticated reads; the SPA shell itself is
 public, so your app can load before a session exists.
+
+Anything calling the API from outside a browser — a script, a test, an agent, a native shell — can
+skip the login dance with an API token: `home-hosted set-token --generate` prints one once, and
+`Authorization: Bearer <token>` authenticates every `/api` request with the same authority as a
+signed-in session. The browser app you ship should still use the cookie.
 
 Two settings worth reflecting: `control.label` is the panel's own name (the stock shell shows it),
 and `GET /api/settings` includes `ui` — which UI is being served, and its metadata.
@@ -153,8 +159,9 @@ cd dist && zip -r ../my-panel.zip . && cd ..
 ```
 
 Your client needs the session cookie, which the browser sends automatically once you log in on that
-origin. For local development `pnpm dev` runs the panel on 3999 and a Vite dev server on 3998 with
-`/api` proxied — point your own dev server at `http://127.0.0.1:3999` the same way.
+origin (a non-browser client uses an API token instead, above). For local development `pnpm dev` runs
+the panel on 3999 and a Vite dev server on 3998 with `/api` proxied — point your own dev server at
+`http://127.0.0.1:3999` the same way.
 
 ## Checklist
 

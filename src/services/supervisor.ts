@@ -10,6 +10,7 @@ import type { LogFiles } from '#src/services/log-files'
 import type { NotificationReason, NotificationService } from '#src/services/notifications'
 import type {
   AppState,
+  FreePortResult,
   HealthState,
   LogLine,
   LogStream,
@@ -28,7 +29,7 @@ import { logger } from '#src/helpers/logger'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { probeHealth } from '#src/providers/health-check'
-import { isPortFree, killPortHolders, listPortHolders, probePort } from '#src/providers/port'
+import { isPortFree, killPortHolders, listPortHolders, probePort, terminatePids } from '#src/providers/port'
 import { ProcessSampler } from '#src/providers/proc'
 import { resolveCommand, resolveCwd, spawnManaged, terminate } from '#src/providers/process'
 import { dependenciesOf, orderByDependencies } from '#src/services/dependencies'
@@ -218,6 +219,86 @@ export class Supervisor {
   async restart(id: string): Promise<StartResult> {
     await this.stop(id)
     return this.start(id)
+  }
+
+  /**
+   * Frees the port this entry wants, by asking whatever listens on it to leave.
+   *
+   * The pid is never taken from a message: holders are listed again here, and a
+   * listener this panel supervises is refused rather than killed — a port held by
+   * a sibling entry is a configuration mistake, not a stray process. That also
+   * keeps a stale `(pid 1234)` in an old banner from killing a recycled pid.
+   */
+  async freePort(id: string): Promise<FreePortResult & { error?: string }> {
+    const entry = this.entries.get(id)
+    const empty: FreePortResult & { error?: string } = { ok: false, port: null, terminated: [], forced: [], skipped: [], free: false }
+    if (!entry)
+      return { ...empty, error: `unknown server "${id}"` }
+
+    const port = entry.config.port
+    if (port === null)
+      return { ...empty, error: `server "${id}" has no port configured` }
+    if (entry.starting || entry.stopping)
+      return { ...empty, port, error: `server "${id}" is busy — try again in a moment` }
+
+    const supervised = this.supervisedPids()
+    const holders = await listPortHolders(port)
+    const ours = holders.filter(pid => supervised.has(pid))
+    const foreign = holders.filter(pid => !supervised.has(pid))
+
+    if (holders.length === 0)
+      return { ...empty, port, error: `nothing is listening on port ${port} any more` }
+    if (foreign.length === 0) {
+      const reason = `port ${port} is held by pid ${ours.join(', ')}, which this panel supervises — stop that server instead`
+      return { ...empty, port, error: reason, skipped: ours }
+    }
+
+    this.log(entry, 'system', `freeing port ${port}: asking pid ${foreign.join(', ')} to stop`)
+    const { stopped, forced } = await terminatePids(foreign)
+    if (forced.length > 0)
+      this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
+
+    // A held socket can take a moment to go away, so the port decides the outcome.
+    const free = await this.waitForPortRelease(entry, port)
+    if (free) {
+      // The reason the entry was blocked is gone, so the banner goes too.
+      if (entry.status === 'conflict') {
+        entry.status = 'stopped'
+        entry.lastError = null
+      }
+      entry.portState = 'free'
+      this.log(entry, 'system', `port ${port} is free${ours.length > 0 ? ` (pid ${ours.join(', ')} left untouched)` : ''}`)
+      this.publishServer(entry)
+    }
+    else {
+      entry.lastError = `port ${port} is still in use after killing pid ${foreign.join(', ')}`
+      this.log(entry, 'system', entry.lastError)
+      this.publishServer(entry)
+    }
+
+    return { ok: true, port, terminated: stopped, forced, skipped: ours, free }
+  }
+
+  /** Pids of the child processes this panel owns, plus itself. */
+  private supervisedPids(): Set<number> {
+    const pids = new Set<number>([process.pid])
+    for (const entry of this.entries.values()) {
+      if (entry.pid !== null)
+        pids.add(entry.pid)
+    }
+    return pids
+  }
+
+  /** The port's own answer, with the same short recheck the preflight uses. */
+  private async waitForPortRelease(entry: Entry, port: number): Promise<boolean> {
+    const freeOnAll = async (): Promise<boolean> => {
+      const results = await Promise.all(this.occupancyHosts(entry).map(host => isPortFree(port, host)))
+      return results.every(Boolean)
+    }
+    if (await freeOnAll())
+      return true
+    await delay(PORT_RELEASE_RECHECK_MS)
+    return freeOnAll()
   }
 
   clearLogs(id: string): void {

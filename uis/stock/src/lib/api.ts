@@ -1,6 +1,7 @@
 import type {
   AppState,
   ControlView,
+  FreePortResult,
   HostConfig,
   LogHistoryView,
   LogsConfig,
@@ -339,6 +340,18 @@ export async function serverAction(id: string, action: 'start' | 'stop' | 'resta
 
 export function startAll(): Promise<unknown> {
   return request('/api/servers/start-all', { method: 'POST' })
+}
+
+/**
+ * Frees a server's port by asking the listener holding it to stop. The server
+ * re-lists the holders itself, so this never kills a pid quoted in an old banner.
+ */
+export async function freePort(id: string): Promise<FreePortResult> {
+  const response = await rpc.api.servers[':id']['free-port'].$post({ param: { id } })
+  const payload = await response.json().catch(() => null) as (FreePortResult & { message?: string }) | null
+  if (!response.ok)
+    throw new Error(payload?.message ?? `request failed with ${response.status}`)
+  return payload ?? { ok: true, port: null, terminated: [], forced: [], skipped: [], free: false }
 }
 
 export function stopAll(): Promise<unknown> {

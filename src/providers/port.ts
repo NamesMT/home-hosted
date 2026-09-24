@@ -43,6 +43,62 @@ export async function killPortHolders(port: number): Promise<number[]> {
   return pids
 }
 
+/** Signal 0 asks the OS whether the pid still exists, without touching it. */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
+function signalPid(pid: number, name: NodeJS.Signals): void {
+  try {
+    process.kill(pid, name)
+  }
+  catch {
+    // already gone, or not ours to signal
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+/**
+ * Asks specific pids to leave, politely first: a stray dev server stops on
+ * SIGTERM, and only what ignores it is killed. Deciding *which* pids may be
+ * touched belongs to the caller — this only does the signalling.
+ */
+export async function terminatePids(
+  pids: number[],
+  options: { graceMs?: number } = {},
+): Promise<{ stopped: number[], forced: number[] }> {
+  const graceMs = options.graceMs ?? 3000
+  const targets = [...new Set(pids)]
+  // Only what was actually there is claimed as stopped; a pid that had already
+  // exited is neither ours to report nor ours to kill.
+  const aliveBefore = targets.filter(isProcessAlive)
+
+  for (const pid of aliveBefore) signalPid(pid, 'SIGTERM')
+
+  const deadline = Date.now() + graceMs
+  let alive = aliveBefore.filter(isProcessAlive)
+  while (alive.length > 0 && Date.now() < deadline) {
+    await delay(100)
+    alive = alive.filter(isProcessAlive)
+  }
+
+  const stopped = aliveBefore.filter(pid => !alive.includes(pid))
+  for (const pid of alive) signalPid(pid, 'SIGKILL')
+  if (alive.length > 0 && graceMs > 0)
+    await delay(150)
+
+  return { stopped, forced: alive }
+}
+
 /** `netstat -ano` lines: `  TCP    127.0.0.1:4010    0.0.0.0:0    LISTENING    1234` */
 export function parseNetstatListeners(output: string, port: number): number[] {
   const pids = new Set<number>()

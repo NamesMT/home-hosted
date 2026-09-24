@@ -1,5 +1,6 @@
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { ServerView } from '#src/shared/contracts'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
@@ -258,6 +259,93 @@ describe('supervisor', () => {
     expect(result.ok).toBe(false)
     expect(result.error).toContain('already in use')
     expect(view(supervisor, 'web').status).toBe('conflict')
+  })
+
+  /**
+   * A squatter must be a *separate* process: a listener inside the test process is
+   * deliberately ignored by `listPortHolders`, so it could never be a holder.
+   */
+  async function squatterOn(port: number): Promise<number> {
+    const child = spawn(process.execPath, ['-e', 'require("node:net").createServer().listen(Number(process.env.PORT),"127.0.0.1")'], {
+      env: { ...process.env, PORT: String(port) },
+      stdio: 'ignore',
+    })
+    const pid = child.pid
+    if (pid === undefined)
+      throw new Error('could not spawn the squatter')
+
+    cleanups.push(() => {
+      try {
+        process.kill(pid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+
+    const deadline = Date.now() + 10000
+    while (Date.now() < deadline) {
+      if (await portAccepts(port))
+        return pid
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    throw new Error(`the squatter never took port ${port}`)
+  }
+
+  it('frees a port held by a foreign process, and clears the conflict', async () => {
+    const port = await freePort()
+    const squatter = await squatterOn(port)
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'block' })])
+
+    const blocked = await supervisor.start('web')
+    expect(blocked.ok).toBe(false)
+    expect(blocked.error).toContain(`port ${port} is already in use`)
+    expect(blocked.error).toContain(`pid ${squatter}`)
+    expect(view(supervisor, 'web').status).toBe('conflict')
+
+    const freed = await supervisor.freePort('web')
+    expect(freed.ok).toBe(true)
+    expect(freed.free).toBe(true)
+    expect(freed.terminated).toContain(squatter)
+    expect(freed.skipped).toEqual([])
+
+    // The entry is no longer blocked, and can start again.
+    const after = view(supervisor, 'web')
+    expect(after.status).toBe('stopped')
+    expect(after.lastError).toBeNull()
+    expect(after.portState).toBe('free')
+    expect(supervisor.logLines('web').some(line => line.text.includes(`port ${port} is free`))).toBe(true)
+  })
+
+  it('refuses to kill a port held by a server this panel supervises', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([
+      httpServerConfig(port, { id: 'owner' }),
+      httpServerConfig(port, { id: 'twin', onPortConflict: 'block' }),
+    ])
+
+    await supervisor.start('owner')
+    await waitForStatus(supervisor, 'owner', 'running')
+
+    const result = await supervisor.freePort('twin')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('supervises')
+    expect(result.skipped.length).toBeGreaterThan(0)
+    // The sibling is untouched, which is the whole point of the refusal.
+    expect(view(supervisor, 'owner').status).toBe('running')
+  })
+
+  it('says so when there is nothing to free', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'block' })])
+
+    const missing = await supervisor.freePort('nope')
+    expect(missing.ok).toBe(false)
+    expect(missing.error).toContain('unknown server')
+
+    const idle = await supervisor.freePort('web')
+    expect(idle.ok).toBe(false)
+    expect(idle.error).toContain(`nothing is listening on port ${port}`)
   })
 
   it('runs bootstrap once, streams its output, and then starts the server', async () => {
