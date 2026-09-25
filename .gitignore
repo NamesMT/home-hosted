@@ -53,8 +53,9 @@ yarn-error.log*
 # pnpm have a bug with tsx that creates the `tsx-0` folder everywhere
 tsx-0
 
-# GIF inputs from `scripts/capture-media.mjs`; `tour.gif` and the full-size PNGs are committed
-docs/media/*-tour.png
+# Everything `scripts/capture-media.mjs` renders is a build artifact; only the
+# README's `tour.gif` is committed (a PNG is regenerated on demand, never carried)
+docs/media/*.png
 
 # built UIs (`uis/*/dist` is shipped in the package tarball; `dist/` covers every one)
 # built CLI
