@@ -93,8 +93,11 @@ exists, so the first release has to be published by hand.
   a UI under `uis/<name>/` bumps that `ui.json`'s `version` and sets `unix` to the commit's own epoch
   seconds: patch for a fix, minor for a feature, and **major only for a rewrite or a restyle**. The
   number is what tells a person how big the change is — `ui-update` prints it and holds it against
-  the release it is offering. `tag` is the release that carries the build, so it is set when the
-  release is cut, not before, and it is what pairs an official UI with its panel.
+  the release it is offering. `tag` is what pairs an official UI with its panel, and it is **stamped
+  by `build-uis.mjs`**, not trusted from the source file: a UI zip is built before its release is cut,
+  so the committed value is always a release behind the asset it ends up inside. The release workflow
+  passes `HHOSTED_UI_TAG`; anywhere else the build stamps `v<package.json version>`. Do not hand-edit
+  `tag` to chase a release — a stale one makes `ui-update` re-install the same UI on every boot.
 - `bin/home-hosted.mjs` — the published bin: `dist/cli.js`, or `src/cli.ts` through tsx when the
   build is missing (a linked checkout).
 - `scripts/` — `build-uis.mjs` (build one UI, optionally zip it), `typecheck-uis.mjs`,

@@ -2,6 +2,7 @@ import type { ArchiveEntry } from '#src/providers/archive'
 import type { UiMeta, UiStatus } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { extractZip, isZipArchive, listZip } from '#src/providers/archive'
@@ -90,14 +91,14 @@ export class UiService {
    * swapped in, so a failed upload leaves the previous UI (or the stock one)
    * serving.
    */
-  async install(archivePath: string, fallbackName = 'custom-ui'): Promise<UiInstallResult> {
+  async install(archivePath: string, fallbackName = 'custom-ui', installedTag?: string): Promise<UiInstallResult> {
     if (!isZipArchive(archivePath))
       return { ok: false, error: 'the upload is not a zip archive' }
 
     const staging = path.join(this.options.dataRoot, `.ui-staging-${Date.now()}`)
 
     try {
-      return await this.stage(archivePath, staging, fallbackName)
+      return await this.stage(archivePath, staging, fallbackName, installedTag)
     }
     catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
@@ -114,7 +115,7 @@ export class UiService {
     return existed
   }
 
-  private async stage(archivePath: string, staging: string, fallbackName: string): Promise<UiInstallResult> {
+  private async stage(archivePath: string, staging: string, fallbackName: string, installedTag?: string): Promise<UiInstallResult> {
     let entries: ArchiveEntry[]
     try {
       entries = await listZip(archivePath)
@@ -153,14 +154,18 @@ export class UiService {
       // still tell which release this UI came from long after the zip is gone. Omitted
       // rather than defaulted: a UI that declares nothing has nothing to say here.
       ...(manifest?.repo === undefined ? {} : { repo: manifest.repo }),
-      ...(manifest?.tag === undefined ? {} : { tag: manifest.tag }),
+      // The caller that fetched this from a release knows the tag better than the archive
+      // does: a UI zip is built *before* the release is cut, so its own `tag` is the
+      // previous release at best. Recording the archive's value here is what made a panel
+      // re-download and re-install the same UI on every boot.
+      ...(installedTag !== undefined ? { tag: installedTag } : manifest?.tag === undefined ? {} : { tag: manifest.tag }),
       ...(manifest?.asset === undefined ? {} : { asset: manifest.asset }),
       ...(manifest?.unix === undefined ? {} : { unix: manifest.unix }),
     }
 
-    // The old UI moves aside first: renaming onto an existing directory fails.
-    const previous = `${this.directory}.previous`
-    fs.rmSync(previous, { recursive: true, force: true })
+    // A unique `previous` per attempt: two installers used to share one name, and the
+    // second's cleanup could delete the first's only copy of the user's UI.
+    const previous = `${this.directory}.previous-${process.pid}-${Date.now()}`
     if (fs.existsSync(this.directory))
       fs.renameSync(this.directory, previous)
 
@@ -169,14 +174,22 @@ export class UiService {
       writeFileAtomic(path.join(this.directory, META), `${JSON.stringify(meta, null, 2)}\n`)
     }
     catch (error) {
-      fs.rmSync(this.directory, { recursive: true, force: true })
-      if (fs.existsSync(previous))
-        fs.renameSync(previous, this.directory)
+      // Put the old UI back before reporting. If that restore itself fails, keep
+      // `previous` on disk and say where it is — deleting it would destroy the only copy.
+      try {
+        fs.rmSync(this.directory, { recursive: true, force: true })
+        if (fs.existsSync(previous))
+          fs.renameSync(previous, this.directory)
+        fs.rmSync(previous, { recursive: true, force: true })
+      }
+      catch {
+        return { ok: false, error: `${error instanceof Error ? error.message : String(error)} — the previous UI is kept at ${previous}` }
+      }
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
-    finally {
-      fs.rmSync(previous, { recursive: true, force: true })
-    }
+
+    // Only now is `previous` disposable.
+    fs.rmSync(previous, { recursive: true, force: true })
 
     return { ok: true, meta }
   }

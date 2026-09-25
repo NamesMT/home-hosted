@@ -798,16 +798,19 @@ export type ApiError = typeof apiErrorSchema.infer
 /**
  * A user-supplied UI, as the settings page shows it.
  *
- * The first four are ours: written from what the archive declared plus the install
- * itself. `repo`/`tag`/`asset`/`unix` come from the UI author's own `ui.json`, and are
- * all optional because every UI installed before they existed has none of them — an
- * old UI meets a new panel, which is the normal direction of that mismatch.
+ * Every field is optional, and none of them is a fallback: a `ui.json` may be written by
+ * the panel (which adds `uploadedAt`/`files`) **or dropped in by hand** following
+ * `docs/UI_CREATION.md`, which documents only the author-facing fields. Requiring ours
+ * meant a hand-written file parsed to nothing at all, taking `repo`/`tag` with it and
+ * silently disabling `ui-update` for exactly the UI that declared itself.
  */
 export const uiMetaSchema = type({
-  'name': 'string',
-  'version': 'string | null',
-  'uploadedAt': 'number',
-  'files': 'number.integer >= 1',
+  'name?': 'string',
+  'version?': 'string | null',
+  /** Set by the panel, not by the author. */
+  'uploadedAt?': 'number',
+  /** Counted by the panel, not declared. */
+  'files?': 'number.integer >= 1',
   /** `owner/name` of the UI's own repository, for `ui-update`. */
   'repo?': 'string',
   /** The release tag this build came from, e.g. `v0.6.0`. */

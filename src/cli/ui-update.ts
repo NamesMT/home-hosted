@@ -1,4 +1,5 @@
 import type { UiSourceContext } from '#src/providers/ui-release'
+import type { UiMeta } from '#src/shared/contracts'
 import fs from 'node:fs'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
@@ -173,7 +174,30 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
   const order = values.old === true ? 'older' : 'newer'
   const repo = installed.repo === null ? null : parseRepoSlug(installed.repo)
 
-  // `--tag` names the release outright, so nothing has to be listed or chosen.
+  // A request to install cannot be honoured without a repo to install from: saying so
+  // beats discarding the flag and printing the "does not say where it came from" notice.
+  if (values.tag !== undefined && repo === null) {
+    throw new Error([
+      '--tag needs a repository to fetch from, and this UI does not declare one',
+      `  pass it: home-hosted ui-update --repo ${DEFAULT_REPO} --tag ${values.tag}`,
+    ].join('\n'))
+  }
+
+  // `--tag` names the release outright, so nothing has to be listed or chosen. `--check`
+  // outranks it: the flag documents itself as installing nothing, so it must come first
+  // or `--check --tag x` would install x.
+  if (values.check === true && repo !== null) {
+    if (isOwnRepo(repo)) {
+      const target = values.tag ?? `v${context.version}`
+      printCheck(io, installed, target)
+      return
+    }
+    const releases = await fetchReleases(repo, context)
+    const asset = impliedAsset(installed)
+    printCheck(io, installed, null, asset === null ? [] : usableCandidates(releases, asset, order, installed.tag))
+    return
+  }
+
   if (values.tag !== undefined && repo !== null) {
     await installTag(repo, values.asset ?? installed.asset ?? null, values.tag, context)
     return
@@ -184,9 +208,6 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
     releases = await fetchReleases(repo, context)
 
   const plan = planUiUpdate(installed, `v${context.version}`, releases, order)
-  if (plan.kind === 'stock')
-    return
-
   if (plan.kind === 'unidentifiable') {
     io.write(`${io.style.bold('this UI does not say where it came from')} — nothing to follow automatically\n`)
     printIdentity(io, plan.identity)
@@ -195,10 +216,6 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
   }
 
   if (plan.kind === 'official') {
-    if (values.check === true) {
-      printCheck(io, plan.identity, plan.target)
-      return
-    }
     if (plan.identity.tag === plan.target) {
       io.write(`${io.style.green('already current')} — ${io.style.bold(plan.identity.name)} is at ${plan.target}\n`)
       return
@@ -210,10 +227,8 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
   }
 
   // Someone else's UI: show what is installed, then what is actually available.
-  if (values.check === true) {
-    printCheck(io, plan.identity, null, plan.candidates)
+  if (plan.kind !== 'choice')
     return
-  }
 
   io.write(`${io.style.bold(plan.identity.name)} ${plan.identity.version ?? ''} — ${repoSlug(repo!)}@${plan.identity.tag ?? 'unknown tag'}\n`)
   io.write(`  ${io.style.dim(`asset: ${plan.asset}`)}\n`)
@@ -235,12 +250,13 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
   await installTag(repo!, chosen.asset, chosen.tag, context)
 }
 
-function identityOf(meta: { name: string, version: string | null, repo?: string, tag?: string, asset?: string, unix?: number } | null): UiIdentity | null {
+function identityOf(meta: UiMeta | null): UiIdentity | null {
   if (meta === null)
     return null
   return {
-    name: meta.name,
-    version: meta.version,
+    // Both are declared by the author, so neither is ever guaranteed.
+    name: meta.name ?? 'custom-ui',
+    version: meta.version ?? null,
     repo: meta.repo ?? null,
     tag: meta.tag ?? null,
     asset: meta.asset ?? null,

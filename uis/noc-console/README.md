@@ -12,7 +12,8 @@ can re-install the matching build on an upgrade. `../../docs/media/tour.gif` sho
 
 **Editing this UI means bumping that file**: raise `version` (patch for a fix, minor for a feature,
 major only for a rewrite or restyle) and set `unix` to the commit's epoch seconds. `tag` names the
-release that carries the build, so it moves when a release is cut.
+release that carries the build, and `build-uis.mjs` stamps it into the built copy — never chase a
+release by hand-editing it, because a stale one makes `ui-update` re-install the same UI every boot.
 
 ## Run it in development
 

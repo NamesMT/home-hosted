@@ -132,4 +132,41 @@ describe('ui service', () => {
     expect(fixture.ui.custom).toBe(true)
     expect(fs.readFileSync(path.join(fixture.ui.directory, 'index.html'), 'utf8')).toContain('good')
   })
+
+  it('records the release it was fetched from, not the tag the archive claims', async () => {
+    // Regression: a UI zip is built before its release is cut, so the tag inside it is
+    // the *previous* release. Trusting it made a panel re-install the same UI on every
+    // boot, forever, because the recorded tag could never reach the running version.
+    const fixture = await makeFixture()
+    const zip = await fixture.zip({
+      'index.html': '<title>noc</title>',
+      'ui.json': JSON.stringify({ name: 'noc-console', version: '1.0.0', repo: 'NamesMT/home-hosted', tag: 'v0.6.0' }),
+    })
+
+    expect((await fixture.ui.install(zip, 'noc-console', 'v0.6.1')).ok).toBe(true)
+    expect(fixture.ui.readMeta()?.tag).toBe('v0.6.1')
+
+    // With no caller-supplied tag, the declared one is still what is recorded.
+    expect((await fixture.ui.install(zip, 'noc-console')).ok).toBe(true)
+    expect(fixture.ui.readMeta()?.tag).toBe('v0.6.0')
+  })
+
+  it('reads a hand-written ui.json that carries none of the panel fields', async () => {
+    // The author-facing example has no `uploadedAt`/`files`; requiring them made the whole
+    // parse fail, losing `repo` and with it any chance of an update.
+    const fixture = await makeFixture()
+    fs.mkdirSync(fixture.ui.directory, { recursive: true })
+    fs.writeFileSync(path.join(fixture.ui.directory, 'index.html'), '<title>hand</title>')
+    fs.writeFileSync(path.join(fixture.ui.directory, 'ui.json'), JSON.stringify({
+      name: 'hand-made',
+      version: '2.0.0',
+      repo: 'someone/their-ui',
+      asset: 'their-ui.zip',
+      unix: 1790366625,
+    }))
+
+    const meta = fixture.ui.readMeta()
+    expect(meta).toMatchObject({ name: 'hand-made', version: '2.0.0', repo: 'someone/their-ui', asset: 'their-ui.zip' })
+    expect(meta?.uploadedAt).toBeUndefined()
+  })
 })

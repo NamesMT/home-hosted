@@ -62,10 +62,40 @@ for (const name of (wanted.length > 0 ? wanted : available)) {
     cwd: root,
     stdio: 'inherit',
   })
+  await stampUiTag(path.join(uiDir, 'dist'))
   if (!withZip)
     continue
   const target = path.join(artifactsDir, `home-hosted-ui-${name}.zip`)
   await zipDirectory(path.join(uiDir, 'dist'), target)
   const { size } = await fs.promises.stat(target)
   process.stdout.write(`[uis] ${path.relative(root, target)} (${Math.round(size / 1024)} KB)\n`)
+}
+
+/**
+ * Records the release this build belongs to inside the built `ui.json`.
+ *
+ * The tag cannot be trusted from the source file: a UI zip is built *before* the release
+ * is cut, so the committed `tag` is always a release behind the asset it sits in. Leaving
+ * it stale is what made `ui-update` re-install the same UI on every boot, since the
+ * recorded tag could never reach the panel's own version. `HHOSTED_UI_TAG` wins when set,
+ * because the release workflow knows the version before `package.json` is bumped.
+ */
+async function stampUiTag(distDir) {
+  const metaPath = path.join(distDir, 'ui.json')
+  if (!fs.existsSync(metaPath))
+    return
+
+  let meta
+  try {
+    meta = JSON.parse(await fs.promises.readFile(metaPath, 'utf8'))
+  }
+  catch {
+    process.stdout.write(`[uis] ${path.relative(root, metaPath)} is not valid JSON — left alone\n`)
+    return
+  }
+
+  const version = process.env.HHOSTED_UI_TAG ?? `v${JSON.parse(await fs.promises.readFile(path.join(root, 'package.json'), 'utf8')).version}`
+  meta.tag = version
+  await fs.promises.writeFile(metaPath, `${JSON.stringify(meta, null, 2)}\n`)
+  process.stdout.write(`[uis] ui.json tag -> ${version}\n`)
 }

@@ -151,6 +151,25 @@ export function isGithubHost(url: string): boolean {
   }
 }
 
+/**
+ * A hung connection must not become a hung command. `fetch` has no default timeout, and
+ * the startup hook is fire-and-forget: without this a stalled request would keep that
+ * promise (and its temp directory) pending for as long as the process lives.
+ */
+const REQUEST_TIMEOUT_MS = 30_000
+const DOWNLOAD_TIMEOUT_MS = 120_000
+
+function timeoutSignal(ms: number): AbortSignal | undefined {
+  // `AbortSignal.timeout` exists from Node 17.3; the engines field requires 24.
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+    ? AbortSignal.timeout(ms)
+    : undefined
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+}
+
 /** What `UiService` names the install when the archive carries no `ui.json`. */
 export function fallbackUiName(source: string): string {
   const base = path.basename(source).replace(/\.zip$/i, '')
@@ -163,10 +182,10 @@ export async function fetchRelease(repo: RepoSlug, tag: string | null, context: 
   const url = releaseApiUrl(repo, tag)
   let response: Response
   try {
-    response = await fetch(url, { headers: apiHeaders(context) })
+    response = await fetch(url, { headers: apiHeaders(context), signal: timeoutSignal(REQUEST_TIMEOUT_MS) })
   }
   catch (error) {
-    throw new Error(`could not reach GitHub: ${describeError(error)}`)
+    throw new Error(isTimeout(error) ? `GitHub did not answer within ${REQUEST_TIMEOUT_MS / 1000}s` : `could not reach GitHub: ${describeError(error)}`)
   }
 
   if (!response.ok)
@@ -180,10 +199,10 @@ export async function fetchRelease(repo: RepoSlug, tag: string | null, context: 
 export async function fetchReleases(repo: RepoSlug, context: UiSourceContext, perPage = 30): Promise<Array<{ tag: string, assets: GithubAsset[], publishedAt: string | null }>> {
   let response: Response
   try {
-    response = await fetch(releasesApiUrl(repo, perPage), { headers: apiHeaders(context) })
+    response = await fetch(releasesApiUrl(repo, perPage), { headers: apiHeaders(context), signal: timeoutSignal(REQUEST_TIMEOUT_MS) })
   }
   catch (error) {
-    throw new Error(`could not reach GitHub: ${describeError(error)}`)
+    throw new Error(isTimeout(error) ? `GitHub did not answer within ${REQUEST_TIMEOUT_MS / 1000}s` : `could not reach GitHub: ${describeError(error)}`)
   }
 
   if (!response.ok)
@@ -213,10 +232,10 @@ export function assetDownloadUrl(asset: GithubAsset): string {
 export async function downloadToTemp(url: string, headers: Record<string, string>, context: UiSourceContext): Promise<{ dir: string, file: string }> {
   let response: Response
   try {
-    response = await fetch(url, { headers, redirect: 'follow' })
+    response = await fetch(url, { headers, redirect: 'follow', signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) })
   }
   catch (error) {
-    throw new Error(`could not reach ${url}: ${describeError(error)}`)
+    throw new Error(isTimeout(error) ? `the download stalled for ${DOWNLOAD_TIMEOUT_MS / 1000}s: ${url}` : `could not reach ${url}: ${describeError(error)}`)
   }
 
   if (!response.ok)
@@ -341,17 +360,45 @@ export function compareTags(a: string, b: string): number {
     if (difference !== 0)
       return difference
   }
-  if (left.prerelease === right.prerelease)
+
+  // A release outranks its own prereleases, and two prereleases are ordered by their
+  // identifiers — `rc.2` after `rc.1`. Comparing only "is it a prerelease" made every
+  // pair of them equal, so `ui-update` hid each one from the other.
+  if (left.prerelease.length === 0 && right.prerelease.length === 0)
     return 0
-  return left.prerelease ? -1 : 1
+  if (left.prerelease.length === 0)
+    return 1
+  if (right.prerelease.length === 0)
+    return -1
+
+  for (let index = 0; index < Math.max(left.prerelease.length, right.prerelease.length); index++) {
+    const one = left.prerelease[index]
+    const two = right.prerelease[index]
+    if (one === undefined)
+      return -1
+    if (two === undefined)
+      return 1
+    if (one === two)
+      continue
+    const numeric = /^\d+$/
+    if (numeric.test(one) && numeric.test(two))
+      return Number(one) - Number(two)
+    // Numeric identifiers rank below alphanumeric ones, per semver.
+    if (numeric.test(one))
+      return -1
+    if (numeric.test(two))
+      return 1
+    return one.localeCompare(two)
+  }
+  return 0
 }
 
-function parseTag(tag: string): { parts: number[], prerelease: boolean } | null {
-  const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$/.exec(tag.trim())
+function parseTag(tag: string): { parts: number[], prerelease: string[] } | null {
+  const match = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$/.exec(tag.trim())
   if (match === null)
     return null
   return {
     parts: [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)],
-    prerelease: /-/.test(tag.trim()),
+    prerelease: match[4] === undefined ? [] : match[4].split('.'),
   }
 }

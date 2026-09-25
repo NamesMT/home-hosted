@@ -59,6 +59,10 @@ jobs:
     env:
       VERSION: ${{ inputs.version }}
       TAG: v${{ inputs.version }}
+      # The UI zip is built *before* changelogen bumps package.json, so the build is told
+      # which release it belongs to; each UI's built ui.json records it, and `ui-update`
+      # relies on that to stop re-installing the same UI on every boot.
+      HHOSTED_UI_TAG: v${{ inputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7

@@ -1,5 +1,6 @@
 import type { UiSourceContext } from '#src/providers/ui-release'
 import type { UiService } from '#src/services/ui'
+import process from 'node:process'
 import { logger } from '#src/helpers/logger'
 import { appVersion } from '#src/helpers/version'
 import {
@@ -67,7 +68,9 @@ export async function syncOfficialUi(ui: UiService, runningVersion = appVersion(
   const context: UiSourceContext = {
     io: { write: () => {}, style: { bold: (t: string) => t, dim: (t: string) => t, green: (t: string) => t } },
     version: runningVersion,
-    token: null,
+    // The one unattended call may use a token like the interactive commands do; without
+    // one, a shared or CI address hits GitHub's 60/hour unauthenticated limit.
+    token: process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? null,
     quiet: true,
   }
 
@@ -93,7 +96,8 @@ export async function syncOfficialUi(ui: UiService, runningVersion = appVersion(
     }, context)
 
     try {
-      const result = await ui.install(download.file, matched.name.replace(/\.zip$/i, ''))
+      // The tag is the release we just fetched, never what the archive claims.
+      const result = await ui.install(download.file, matched.name.replace(/\.zip$/i, ''), release.tag)
       if (!result.ok)
         throw new Error(result.error)
     }
