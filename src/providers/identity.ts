@@ -139,20 +139,85 @@ export async function processArgv(pid: number): Promise<string[] | null> {
 
 const windowsFilter = /^\d+$/
 
-/** `Win32_Process` for one pid, or null when it cannot be read. */
+/**
+ * The first two rows of `ConvertTo-Csv` output: the header and the first record. PowerShell
+ * quotes and doubles its way around CSV, so `a,"b""c"` is three fields with the second
+ * reading `b"c`.
+ */
+function parseCsvRows(output: string): [string[] | null, string[] | null] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+
+  for (let index = 0; index < output.length; index++) {
+    const char = output[index]!
+    if (quoted) {
+      if (char !== '"') {
+        field += char
+        continue
+      }
+      if (output[index + 1] === '"') {
+        field += '"'
+        index++
+        continue
+      }
+      quoted = false
+      continue
+    }
+
+    if (char === '"') {
+      quoted = true
+      continue
+    }
+    if (char === ',') {
+      row.push(field)
+      field = ''
+      continue
+    }
+    if (char === '\n') {
+      row.push(field.replace(/\r$/, ''))
+      rows.push(row)
+      row = []
+      field = ''
+      continue
+    }
+    field += char
+  }
+
+  if (field.length > 0 || row.length > 0)
+    rows.push([...row, field.replace(/\r$/, '')])
+
+  return [rows[0] ?? null, rows[1] ?? null]
+}
+
+/**
+ * `Win32_Process` for one pid, or null when it cannot be read.
+ *
+ * The whole round trip — launching PowerShell, loading the CIM provider, serializing —
+ * costs seconds on a cold runner, so the timeout is generous and the result is converted
+ * to CSV rather than JSON: CSV survives a value that contains a quote or a newline, which
+ * an argv legitimately can.
+ */
 export async function windowsProcessInfo(pid: number): Promise<{ commandLine: string, imagePath: string | null } | null> {
   if (!windowsFilter.test(String(pid)))
     return null
 
   try {
-    const script = `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object CommandLine,ExecutablePath | ConvertTo-Json -Compress`
-    const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 5000, windowsHide: true })
-    const parsed: unknown = JSON.parse(stdout.trim() || 'null')
-    // A single hit comes back as an object; an empty result is null, not `[...]`.
-    const record = (Array.isArray(parsed) ? parsed[0] : parsed) as { CommandLine?: unknown, ExecutablePath?: unknown } | null
-    if (!record || typeof record.CommandLine !== 'string')
+    const script = `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object CommandLine,ExecutablePath | ConvertTo-Csv -NoTypeInformation`
+    const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 20000, windowsHide: true })
+    const [headers, values] = parseCsvRows(stdout)
+    if (!headers || !values)
       return null
-    return { commandLine: record.CommandLine, imagePath: typeof record.ExecutablePath === 'string' ? record.ExecutablePath : null }
+
+    const commandLineIndex = headers.indexOf('CommandLine')
+    const imageIndex = headers.indexOf('ExecutablePath')
+    const commandLine = commandLineIndex >= 0 ? values[commandLineIndex] : undefined
+    if (commandLine === undefined || commandLine.length === 0)
+      return null
+
+    const imagePath = imageIndex >= 0 ? values[imageIndex] : undefined
+    return { commandLine, imagePath: imagePath && imagePath.length > 0 ? imagePath : null }
   }
   catch {
     return null

@@ -5,6 +5,13 @@ import { processCarriesServerId, ProcessSampler } from '#src/providers/proc'
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+/**
+ * macOS has no cumulative CPU counter to diff — `ps` hands back an instantaneous
+ * percentage on the first read — so "no baseline yet" is only meaningful on the
+ * platforms that compute a delta.
+ */
+const computesCpuFromDelta = process.platform !== 'darwin'
+
 describe('process sampler', () => {
   it('reports the tree of the current process', async () => {
     const sampler = new ProcessSampler()
@@ -13,8 +20,13 @@ describe('process sampler', () => {
     expect(sample).not.toBeNull()
     expect(sample!.rssBytes).toBeGreaterThan(1024 * 1024)
     expect(sample!.processes).toBeGreaterThanOrEqual(1)
-    // No previous sample yet, so CPU needs a second reading.
-    expect(sample!.cpuPercent).toBeNull()
+    if (computesCpuFromDelta) {
+      // No previous sample yet, so CPU needs a second reading.
+      expect(sample!.cpuPercent).toBeNull()
+    }
+    else {
+      expect(sample!.cpuPercent).toBeGreaterThanOrEqual(0)
+    }
   })
 
   it('computes cpu percent between two samples', async () => {
@@ -49,7 +61,10 @@ describe('process sampler', () => {
     await sleep(30)
     sampler.forget(process.pid)
     const after = await sampler.sample(process.pid)
-    expect(after!.cpuPercent).toBeNull()
+    if (computesCpuFromDelta)
+      expect(after!.cpuPercent).toBeNull()
+    else
+      expect(after!.cpuPercent).toBeGreaterThanOrEqual(0)
   })
 })
 

@@ -539,7 +539,11 @@ describe('supervisor', () => {
     expect(stopped.pid).toBeNull()
   })
 
-  it('follows a detached restart that lost the environment marker, by its argv', async () => {
+  // macOS cannot answer this one: its argv reading goes through `ps -o command=`, which
+  // joins the arguments with spaces and quotes none of them, so this entry's `-e` script
+  // (which contains spaces) cannot be told from several arguments. That case blocks by
+  // design rather than matching loosely; the marker path above still covers macOS.
+  it.skipIf(process.platform === 'darwin')('follows a detached restart that lost the environment marker, by its argv', async () => {
     // The Windows shape: no per-process environment to read, so the entry's own argv is
     // all the panel has. Same adoption, without the marker that made it easy.
     const port = await freePort()

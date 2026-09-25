@@ -35,15 +35,28 @@ describe('host sampling', () => {
     expect(strict.alerts.some(alert => alert.includes('disk'))).toBe(true)
     expect(strict.alerts.some(alert => alert.includes('memory'))).toBe(true)
 
-    const relaxed = await sampleHost(config({ diskPaths: ['.'] }), t => t)
+    // Every threshold is pinned above what any machine can report: leaving one at its
+    // schema default makes this "quiet" case depend on the runner's own memory and load,
+    // which a loaded CI host fails.
+    const relaxed = await sampleHost(config({
+      diskPaths: ['.'],
+      diskUsedPercent: 100,
+      memoryUsedPercent: 100,
+      loadPerCpu: 1e9,
+      swapUsedPercent: 100,
+    }), t => t)
     expect(relaxed.alerts).toEqual([])
   })
 
-  it('alerts on load per cpu and skips disabled thresholds', async () => {
-    const onLoad = await sampleHost(config({ diskPaths: [], loadPerCpu: 0.0001 }), t => t)
+  // Windows has no load average at all (`os.loadavg()` is always zero there, and the
+  // sampler zeroes it on purpose), so nothing can cross a load threshold to alert on.
+  it.skipIf(process.platform === 'win32')('alerts on load per cpu', async () => {
+    const onLoad = await sampleHost(config({ diskPaths: [], loadPerCpu: 0.0001, memoryUsedPercent: 100 }), t => t)
     expect(onLoad.alerts.some(alert => alert.includes('load'))).toBe(true)
+  })
 
-    const disabled = await sampleHost(config({ diskPaths: [], loadPerCpu: 0 }), t => t)
+  it('skips disabled thresholds', async () => {
+    const disabled = await sampleHost(config({ diskPaths: [], loadPerCpu: 0, memoryUsedPercent: 100 }), t => t)
     expect(disabled.alerts).toEqual([])
   })
 

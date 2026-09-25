@@ -10,6 +10,10 @@ import { isZipArchive, listZip } from '#src/providers/archive'
 import { BackupService, resolveBackupPaths, slugifyPath } from '#src/services/backups'
 import { backupsSchema, serverSchema } from '#src/shared/contracts'
 
+// An absolute path in the platform's own syntax: these fixtures used POSIX `/srv/…`,
+// which a Windows run normalizes to `\srv\…` and then fails to match.
+const fixtureRoot = path.parse(process.cwd()).root
+
 /** Builds a zip by hand, for the cases the service must refuse. */
 async function makeZip(file: string, entries: Record<string, string>): Promise<void> {
   const writer = new ZipWriter(new Uint8ArrayWriter())
@@ -93,38 +97,46 @@ describe('slugifyPath', () => {
 })
 
 describe('resolveBackupPaths', () => {
+  // `resolveBackupPaths` normalizes what it is handed, so the fixtures build their
+  // absolute paths with `path` and compare against the same normalized form. Literal
+  // `/srv/…` strings read fine on POSIX but become `\srv\…` on Windows.
+  const appDir = path.join(fixtureRoot, 'app')
+  const cacheDir = path.join(fixtureRoot, 'app-cache')
+  const sharedDir = path.join(fixtureRoot, 'shared')
+  const otherDir = path.join(fixtureRoot, 'other')
+
   it('turns each data env into a backed-up path and remembers its origin', () => {
-    const paths = resolveBackupPaths([serverConfig({ dataEnvs: { DATA_DIR: '/srv/app', CACHE_DIR: '/srv/app-cache' } })])
+    const paths = resolveBackupPaths([serverConfig({ dataEnvs: { DATA_DIR: appDir, CACHE_DIR: cacheDir } })])
     expect(paths).toEqual([
-      { path: '/srv/app', origin: 'app:DATA_DIR', included: true, note: null, ignoreGenerated: true },
-      { path: '/srv/app-cache', origin: 'app:CACHE_DIR', included: true, note: null, ignoreGenerated: true },
+      { path: appDir, origin: 'app:DATA_DIR', included: true, note: null, ignoreGenerated: true },
+      { path: cacheDir, origin: 'app:CACHE_DIR', included: true, note: null, ignoreGenerated: true },
     ])
   })
 
   it('carries the entry\'s generated-file flag, and never applies it to a global path', () => {
     const paths = resolveBackupPaths(
-      [serverConfig({ dataEnvs: { DATA_DIR: '/srv/app' }, backupIgnoreGenerated: false })],
-      ['/srv/shared'],
+      [serverConfig({ dataEnvs: { DATA_DIR: appDir }, backupIgnoreGenerated: false })],
+      [sharedDir],
     )
 
     expect(paths.find(entry => entry.origin === 'app:DATA_DIR')?.ignoreGenerated).toBe(false)
     expect(paths.find(entry => entry.origin === 'global')?.ignoreGenerated).toBe(false)
-    expect(resolveBackupPaths([serverConfig({ dataEnvs: { DATA_DIR: '/srv/app' } })])[0]?.ignoreGenerated).toBe(true)
+    expect(resolveBackupPaths([serverConfig({ dataEnvs: { DATA_DIR: appDir } })])[0]?.ignoreGenerated).toBe(true)
   })
 
   it('skips a path a declared parent already covers', () => {
     const paths = resolveBackupPaths([
-      serverConfig({ dataEnvs: { DATA_DIR: '/srv/app' }, backupPaths: ['/srv/app/cache', '/srv/other'] }),
+      serverConfig({ dataEnvs: { DATA_DIR: appDir }, backupPaths: [path.join(appDir, 'cache'), otherDir] }),
     ])
 
-    expect(paths.find(entry => entry.path === '/srv/app')).toMatchObject({ included: true })
-    expect(paths.find(entry => entry.path === '/srv/app/cache'))
-      .toMatchObject({ included: false, origin: 'app:backupPaths', note: 'covered by /srv/app' })
-    expect(paths.find(entry => entry.path === '/srv/other')).toMatchObject({ included: true })
+    expect(paths.find(entry => entry.path === appDir)).toMatchObject({ included: true })
+    expect(paths.find(entry => entry.path === path.join(appDir, 'cache')))
+      .toMatchObject({ included: false, origin: 'app:backupPaths', note: `covered by ${appDir}` })
+    expect(paths.find(entry => entry.path === otherDir)).toMatchObject({ included: true })
   })
 
   it('reports a path declared twice instead of capturing it twice', () => {
-    const paths = resolveBackupPaths([serverConfig({ dataEnvs: { DATA_DIR: '/srv/app' }, backupPaths: ['/srv/app'] })])
+    const paths = resolveBackupPaths([serverConfig({ dataEnvs: { DATA_DIR: appDir }, backupPaths: [appDir] })])
     expect(paths).toHaveLength(2)
     expect(paths[1]).toMatchObject({ included: false, note: 'already declared by app:DATA_DIR' })
   })

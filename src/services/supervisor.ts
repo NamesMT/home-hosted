@@ -22,6 +22,7 @@ import type {
 } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
 import os from 'node:os'
+import path from 'node:path'
 import process from 'node:process'
 import { computeBackoff } from '#src/helpers/backoff'
 import { bindHost, displayHost, lanAddress } from '#src/helpers/bind'
@@ -801,16 +802,22 @@ export class Supervisor {
     }
 
     const expansionVars: Record<string, string | undefined> = { ...process.env, ...fileEnv }
-    const env = {
+    // A data env's value is a directory this entry owns, so it is normalized to one
+    // absolute native path: a config writes `{projectDir}/data`, and a Windows run would
+    // otherwise hand the process a mixed `D:\…\app/data` that Backups has to re-resolve.
+    const dataEnvs = resolveRecord(entry.config.dataEnvs, vars)
+    const env: Record<string, string> = {
       // `envFile` is the machine-local layer, so it overrides the tracked `env`.
       ...expandEnvRecord(resolveRecord(entry.config.env, vars), expansionVars),
       ...fileEnv,
       // Data envs win over `env`: their value is the directory that gets backed
       // up, so the process has to be pointed at exactly that path.
-      ...expandEnvRecord(resolveRecord(entry.config.dataEnvs, vars), expansionVars),
+      ...expandEnvRecord(dataEnvs, expansionVars),
       HHOSTED_SERVER_ID: entry.config.id,
       HHOSTED_CONTROL_PORT: String(this.options.control.port),
     }
+    for (const key of Object.keys(dataEnvs))
+      env[key] = path.resolve(cwd, env[key]!)
 
     return {
       command,
