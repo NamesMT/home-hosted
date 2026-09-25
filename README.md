@@ -36,17 +36,12 @@ shortcuts wizards), and UI directions you could build yourself —
 
 ## 🤔 Why?
 
-Running services on a home machine usually means one of two extremes: `tmux` sessions you
-forget about, or a hand-written systemd unit per service (times six) — or a complex docker/k8s
-setup?
+You run a handful of services at home. The usual choices are extremes — 🧟 `tmux` sessions you
+forget about, 📜 a hand-written systemd unit per service (times six), or 🐳 a whole docker/k8s
+stack??? - too extreme! — plus 😩 monitoring, rebooting and changing the host machine, yuck!
 
-|  |  |
-| --- | --- |
-| ❌ **"Is it still running?"** | You check with `ps`, then `curl`, then hope. |
-| ❌ **Silent deaths** | Something crashes at 3am and you notice days later. |
-| ❌ **One terminal per service** | Logs scroll away in tabs you closed. |
-| ❌ **Fragile restarts** | The box reboots and half the stack is gone. |
-| ✅ **home-hosted** | Declare it once, watch it forever, one command to stop it all. |
+🙂 home-hosted, well, joins in somewhere: a panel/supervisor that starts them, watches them, restarts what dies, and
+puts the whole stack on one page, with deep backup support.
 
 ```text
                    ┌──────────────────────────────────────┐
@@ -63,8 +58,23 @@ setup?
      health ✓                  health ✓                  restarts ↻
 ```
 
-It ships with **nothing**. No blessed paths, no "data directory" setting, no opinion about
-what you run — a server is a command, some arguments, and the environment you give it.
+|  |  |
+| --- | --- |
+| ❌ **"Is it still running?"** | Health, CPU/mem, uptime and live logs per server — no `ps`, no `curl`, no hope |
+| ❌ **Silent deaths** | Restarted automatically, and the panel or Telegram notifies |
+| ❌ **Fragile reboots** | `autostart` brings the stack back; one `down` stops it all cleanly |
+| ❌ **"Move it to the new box"** | One archive: config **and** data, restored on a blank host |
+| ✅ **home-hosted** | Declare it once, watch it forever, one command to stop it all |
+
+It ships with **nothing**: no blessed paths, no opinion about what you run — a server is a command,
+some arguments, and the environment you give it:
+
+```json
+{ "id": "gateway", "command": "node", "args": ["server.js"], "port": 4000, "autostart": true }
+```
+
+<sub>Manage them from the panel, `home-hosted status --json`, or `GET /api/state`; `GET /healthz` is
+the same status line for your own monitor, no session needed.</sub>
 
 ---
 
@@ -178,7 +188,7 @@ home-hosted set-token --generate
 
 curl -H "Authorization: Bearer hh_9uA2…" http://127.0.0.1:3999/api/state
 curl -H "Authorization: Bearer hh_9uA2…" -X POST http://127.0.0.1:3999/api/servers/9router/restart
-curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/events?logs=1'   # SSE
+curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/events?serverId=9router'   # SSE
 home-hosted status --json        # machine-readable: pid, url, health, paths
 ```
 
@@ -196,7 +206,8 @@ revokes it instantly.
 | `POST /api/servers/:id/{start,stop,restart}` | lifecycle |
 | `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop |
 | `PATCH /api/servers/:id`, `PATCH /api/settings` | edit configuration |
-| `GET /api/logs`, `/api/backups`, `/api/notifications` | logs, archives, Telegram |
+| `GET /api/logs`, `/api/backups` | history and archives |
+| `PUT`/`DELETE /api/notifications/token`, `POST /api/notifications/{test,detect-chats}` | the bot credential, a test send |
 | `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) |
 | `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) |
 
@@ -277,25 +288,31 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | bring `servers.config.json` up to this release's schema (`--dry-run`, `--yes`) |
 | `home-hosted init` | scaffold a project that keeps `state/` and its data in the repo |
-| `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (`--list` to see them) |
+| `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (interactive) |
 | `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
 
 <details>
 <summary><b>⚙️ Flags</b></summary>
 
-`home-hosted <command> --help` prints the options that command takes.
+`home-hosted <command> --help` prints what that command takes.
 
 ```text
--c, --config <file>   servers config (default: <state>/servers.config.json)
--p, --port <port>     control panel port (default: 3999)
-    --host <bind>     local | lan | an ipv4 address
-    --open            open the panel in a browser once it is up
-    --no-autostart    do not start the entries marked autostart
-    --foreground      run in this process instead of detaching
-    --print-config    print the effective config and exit
-    --home <dir>      state directory         (or $HHOSTED_HOME)
-    --project <dir>   base for relative paths (or $HHOSTED_PROJECT)
+up, restart       -c/--config -p/--port --host --open --no-autostart --foreground --print-config
+
+down              (no flags)
+status            --json
+init              --dir --name --pm --no-install -y/--yes
+set-password      --clear
+set-token         --generate --clear
+migrate           --config --dry-run -y/--yes
+ui-switch         --repo --tag --asset --file --list --token -y/--yes
+ui-revert         (no flags)
+
+every command     --home <dir> --project <dir>       (or $HHOSTED_HOME, $HHOSTED_PROJECT)
+env vars          HHOSTED_PASSWORD, HHOSTED_MIGRATE=allow, HHOSTED_TOKEN, GITHUB_TOKEN or GH_TOKEN
 ```
+
+`up` and `restart` share the same flags: `restart` is `down`, then `up` with exactly what it was given.
 
 </details>
 
@@ -343,8 +360,8 @@ Everything binds `127.0.0.1` until you say otherwise.
   never taken from the message, and anything the panel supervises is refused, not killed. A server
   that [restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced
   with a supervised copy.
-- **Secrets never enter the config**: the password hash, the API token hash, the Telegram bot token
-  and the TLS key live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`.
+- **Secrets never enter the config**: the password hash, the API token hash and the Telegram bot
+  token live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`; the TLS pair in `.tls/`.
 - **Behind a proxy** turn on `trustProxy` and let `cookieSecure: auto` add `Secure` on https, or
   upload a PEM pair and let home-hosted terminate TLS itself.
 
@@ -390,6 +407,9 @@ panel if yours breaks.
 Two ship in this repo: `uis/stock`, and `uis/noc-console` for TUI and shortcuts wizards; a release
 attaches both as `home-hosted-ui-<name>.zip`. Yours can be anything that compiles to static files —
 the server never cares what built it.
+
+<sub>Install a UI from the CLI: `home-hosted ui-switch` — with no flags it fetches the official asset
+built for this release.</sub>
 
 <details>
 <summary><b>🤖 Or have an agent build the UI you actually want</b></summary>
@@ -439,13 +459,13 @@ opened.
 `$HHOSTED_HOME`, default `~/.home-hosted`:
 
 ```text
-servers.config.json      your servers, plus meta: which release and schema wrote it
-servers.config.schema.json  regenerated on every start, for editor autocomplete
-.control-secrets.json    password hash + API token hash + Telegram token (mode 0600)
-.logs/                   rotated per-server logs + history
-.tls/                    an uploaded PEM pair
-.backups/                zip archives
-run.json                 the running panel (pid, url, token, mode 0600)
+servers.config.json          your servers, plus meta: which release and schema wrote it
+servers.config.schema.json   regenerated on every start, for editor autocomplete
+.control-secrets.json        password hash + API token hash + Telegram token (mode 0600)
+.logs/                       rotated per-server logs + history
+.tls/                        an uploaded PEM pair
+.backups/                    zip archives
+run.json                     the running panel (pid, url, token, mode 0600)
 ```
 
 `home-hosted status` prints the paths.
@@ -488,15 +508,15 @@ test/           the vitest suite
 types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 
 <details>
-<summary><b>📚 The docs, and which one you want</b></summary>
+<summary><b>📚 Which doc do I need?</b></summary>
 
-| file | for |
+| if you want to… | read |
 | --- | --- |
-| [SERVERS.md](./docs/SERVERS.md) | declaring a server: every field, placeholders, port conflicts |
-| [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) | Telegram alerts, end to end |
-| [UI_CREATION.md](./docs/UI_CREATION.md) | building a UI against the API |
-| [AGENTS.md](./AGENTS.md) | the architecture and the rules worth knowing before changing anything |
-| [/openapi/ui](http://127.0.0.1:3999/openapi/ui) | the live API, on your own panel |
+| declare a server: every field, placeholders, port conflicts | [SERVERS.md](./docs/SERVERS.md) |
+| get Telegram alerts working end to end | [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) |
+| build a UI against the API | [UI_CREATION.md](./docs/UI_CREATION.md) |
+| change the internals: architecture and the rules | [AGENTS.md](./AGENTS.md) |
+| poke the live API on your own panel | [/openapi/ui](http://127.0.0.1:3999/openapi/ui) |
 
 </details>
 
