@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.6.1
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.0...v0.6.1)
+
+### 🚀 Enhancements
+
+- **ui:** Let a UI declare where it came from, and follow it ([b52ee2a](https://github.com/NamesMT/home-hosted/commit/b52ee2a))
+
+### 🩹 Fixes
+
+- **ui:** Close the reinstall loop, and the boot-path defects behind it ([ed798b8](https://github.com/NamesMT/home-hosted/commit/ed798b8))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.6.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.5.0...v0.6.0)
