@@ -90,7 +90,9 @@ export function verifyApiToken(token: string, record: ApiTokenRecord): boolean {
     return false
   const expected = Buffer.from(record.hash, 'base64')
   const actual = Buffer.from(hashApiToken(token), 'base64')
-  // Both sides are SHA-256 digests, so the lengths always match.
+  // A hand-edited or truncated secrets file must not make every request throw.
+  if (actual.length !== expected.length)
+    return false
   return crypto.timingSafeEqual(actual, expected)
 }
 

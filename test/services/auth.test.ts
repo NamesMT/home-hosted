@@ -242,6 +242,15 @@ describe('api tokens', () => {
     expect(record.hash).not.toContain('secret-value')
   })
 
+  it('refuses a corrupt token hash instead of throwing on every request', () => {
+    const record = apiTokenRecord('hh_secret-value')
+
+    // A hand-edited or truncated secrets file used to make the auth guard throw
+    // RangeError, which turned every /api request into a 500.
+    expect(verifyApiToken('hh_secret-value', { ...record, hash: record.hash.slice(0, 8) })).toBe(false)
+    expect(verifyApiToken('hh_secret-value', { ...record, hash: '' })).toBe(false)
+  })
+
   it('reads the Authorization header, header scheme included', () => {
     expect(bearerToken('Bearer abc123')).toBe('abc123')
     expect(bearerToken('bearer   abc123  ')).toBe('abc123')
