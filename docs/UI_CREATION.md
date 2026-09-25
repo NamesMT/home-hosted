@@ -105,6 +105,11 @@ signed-in session. The browser app you ship should still use the cookie.
 Two settings worth reflecting: `control.label` is the panel's own name (the stock shell shows it),
 and `GET /api/settings` includes `ui` — which UI is being served, and its metadata.
 
+An entry body is partial by design: `POST /api/servers` and `PATCH /api/servers/:id` take only the
+fields the person decided, and the panel's **Server defaults** fill the rest. Sending a value the
+person never chose freezes it against those defaults, so build the body as a diff
+(`inheritBaseline` and `diffFields` in `src/shared/patch-diff.ts`).
+
 ### Failures
 
 Every failing request answers with one envelope:
@@ -145,6 +150,12 @@ Two things the API will not tell you, and both are what people report as bugs:
 - **A boolean setting is a switch, not a checkbox.** Keep checkboxes for picking items out of a set
   (a restore plan), where the control is the list entry. `uis/stock/src/components/ui/ToggleSwitch.vue`
   is the reference.
+- **Decide to open the stream from the session, not from the auth flags.** With authentication off,
+  `authRequired` and `authenticated` are both `false` from the first paint to the last, so a watcher
+  on those two never re-runs when the session lands: no event stream is opened, the connection badge
+  sits on "Connecting", and the dashboard shows one stale snapshot forever. Turn the two flags into a
+  single decision (`wait` | `connect` | `login`) and watch that — see
+  `uis/stock/src/composables/useSession.ts`.
 
 A pending-edit summary pays for itself: show how many fields changed, and let the list be opened —
 `describeChanges` and `countLeaves` in `src/shared/patch-diff.ts` turn a patch into those rows.
