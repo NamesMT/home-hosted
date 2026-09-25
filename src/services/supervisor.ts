@@ -268,7 +268,7 @@ export class Supervisor {
     }
 
     this.log(entry, 'system', `freeing port ${port}: asking pid ${foreign.join(', ')} to stop`)
-    const { stopped, forced } = await terminatePids(foreign)
+    const { stopped, forced } = await terminatePids(foreign, { graceMs: entry.config.stop.graceMs })
     if (forced.length > 0)
       this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
 
@@ -524,7 +524,9 @@ export class Supervisor {
   }
 
   private isActive(entry: Entry): boolean {
-    return entry.child !== null || entry.status === 'backoff'
+    // An adopted successor has no child of ours but is very much running, so it has to
+    // count here — otherwise disabling the entry would leave it serving.
+    return entry.child !== null || entry.pid !== null || entry.adopted || entry.status === 'backoff'
   }
 
   /** Loopback first, then the configured address, so a custom bind is still probed. */
@@ -628,7 +630,7 @@ export class Supervisor {
       }
 
       this.log(entry, 'system', `port ${port} is held by pid ${foreign.join(', ')} — onPortConflict: kill, stopping the holder`)
-      const { forced } = await terminatePids(foreign)
+      const { forced } = await terminatePids(foreign, { graceMs: entry.config.stop.graceMs })
       if (forced.length > 0)
         this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
 
@@ -652,7 +654,7 @@ export class Supervisor {
 
     if (own !== null && entry.config.onPortConflict === 'reclaim') {
       this.log(entry, 'system', `port ${port} is held by pid ${own}, a detached restart of this entry — replacing it with a supervised process`)
-      const { forced } = await terminatePids([own])
+      const { forced } = await terminatePids([own], { graceMs: entry.config.stop.graceMs })
       if (forced.length > 0)
         this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
       await delay(PORT_RELEASE_RECHECK_MS)

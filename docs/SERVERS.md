@@ -77,9 +77,9 @@ there blocked while the service was actually up.
 Every process gets `HHOSTED_SERVER_ID` in its environment and a successor inherits it, so the preflight
 can tell a successor from a stranger — read from `/proc` on Linux and `ps -E` on macOS. **Windows
 cannot read another process's environment**, so there the entry's own argv answers instead: a process
-holding the port is the successor when its image and arguments are the entry's own. That fallback also
-covers a Linux or macOS program that restarted itself in a way that dropped the marker. Two policies
-act on the result:
+holding the port is the successor when its image and its arguments are both the entry's own. That
+fallback also covers a Linux or macOS program that restarted itself in a way that dropped the marker.
+Two policies act on the result:
 
 | policy | what it does | trade-off |
 | --- | --- | --- |
@@ -87,9 +87,19 @@ act on the result:
 | `reclaim` | stops the successor, then starts a fully supervised process of its own | **full features** — live logs, resources, stop semantics all behave like any other entry — at the cost of one restart |
 
 Identification is deliberately strict, because `reclaim` kills what it identifies: the image has to be
-the entry's resolved command and its arguments have to open with the entry's own, and when **more than
-one** holder matches, the panel refuses to guess and blocks, naming the pids. A successor that re-execs
-under a different image is not recognized, and neither is one that rewrites its own arguments.
+the entry's resolved command **and** the arguments have to be the entry's own, compared literally — an
+argument sharing a basename with another program's is not a match. When **more than one** holder
+matches, the panel refuses to guess and blocks, naming the pids. These are the cases that still block
+rather than being identified:
+
+- a successor that re-execs under a **different image**, or rewrites its own arguments;
+- an argument read back ambiguously — on macOS `ps` joins argv with spaces, so an argument that itself
+  contains a space cannot be told from two arguments;
+- a Windows entry launched through an `npm`/`pnpm` **`.cmd` shim**: the shim runs under `cmd.exe`, so
+  the process actually holding the port is `node.exe` and its argv never mentions the shim;
+- a Windows entry whose `CommandLine` PowerShell cannot read.
+
+`kill` exists precisely for those cases: it does not need to identify anything.
 
 Both are shown as **detached** in the panel while adopted, both can be stopped and restarted like any
 other entry, and neither will ever start a second copy on top of a **stranger**: that still blocks,

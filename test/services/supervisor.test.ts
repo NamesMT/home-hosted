@@ -622,6 +622,41 @@ describe('supervisor', () => {
     expect(await portAccepts(port)).toBe(true)
   })
 
+  it('stops an adopted successor when the entry is disabled', async () => {
+    // An adopted successor has no child of ours, which `isActive()` used to read as
+    // "nothing running" — so disabling the entry left the process serving.
+    const port = await freePort()
+    const { supervisor, store } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'follow' })])
+
+    const successor = spawn(process.execPath, [
+      '-e',
+      'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")',
+    ], {
+      env: { ...process.env, PORT: String(port), HHOSTED_SERVER_ID: 'web' },
+      stdio: 'ignore',
+    })
+    const successorPid = successor.pid
+    if (successorPid === undefined)
+      throw new Error('no successor pid')
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    await supervisor.start('web')
+    expect(view(supervisor, 'web').adopted).toBe(true)
+
+    store.updateServer('web', { enabled: false })
+    await waitFor(() => !isAlive(successorPid), 20000)
+    expect(isAlive(successorPid)).toBe(false)
+  })
+
   it('reclaims the port from a detached successor, for a fully supervised process', async () => {
     // The other half of the choice: following a successor costs its output, because
     // the pipe belongs to whoever spawned it. Reclaiming kills it and starts a child

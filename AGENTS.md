@@ -179,10 +179,16 @@ either is a last resort, and never an accidental one.
   process the panel could not identify — which is why it logs the pids it stopped.
   Ownership is read from `HHOSTED_SERVER_ID` in the environment (`/proc` on Linux, `ps -E` on macOS),
   falling back to the entry's own resolved image **plus its expanded argv** where that is unavailable
-  or unmatched — which is what makes `follow`/`reclaim` work on Windows at all, since it exposes no
-  per-process environment. The fallback requires an exact-one match: two holders that look like the
-  entry means the panel refuses to guess and blocks. `src/providers/identity.ts` owns this, and the
-  argv it matches must come from the same `resolveSpawn()` the spawn itself used.
+  or unmatched — the fallback is what gives `follow`/`reclaim` any reach on Windows, which exposes no
+  per-process environment. That fallback is strict on purpose, because `reclaim` kills what it
+  identifies: arguments are compared **literally** (never by basename — `/srv/a/server.js` must not
+  match `/tmp/b/server.js`), an argument can never be satisfied by a word that is not in the argv, and
+  two matching holders mean the panel refuses to guess and blocks. It still cannot see through a
+  Windows `.cmd` shim (the holder is `node.exe`, whose argv never mentions the shim) or a macOS
+  argument containing a space (`ps` joins argv without quoting); those cases block, and `kill` is the
+  answer for them. `src/providers/identity.ts` owns the matching, and the argv it is given comes from
+  the supervisor's single `resolveSpawn()`, the same one the spawn itself used — keep it to one
+  resolver, because a second one that expands or filters args differently re-opens these cases.
 - **A port is only ever freed by re-listing its listeners.** `POST /api/servers/:id/free-port` never
   trusts a pid quoted in a message, and refuses any listener in `supervisedPids()` (the panel plus
   every entry's child) instead of killing it — a port held by a sibling is a config mistake.

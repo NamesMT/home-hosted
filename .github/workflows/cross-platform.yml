@@ -47,13 +47,13 @@ jobs:
           - os: windows-latest
             label: Windows
 
-    # On workflow_call there are no inputs at all, so everything runs; an explicit
-    # `os` choice narrows it.
-    if: ${{ github.event.inputs.os == null || github.event.inputs.os == '' || github.event.inputs.os == 'all' || matrix.label == github.event.inputs.os }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        # `matrix` is not available to a job-level `if` (GitHub rejects the workflow at
+        # parse time), so the `os` filter has to be applied per step. On workflow_call
+        # there are no inputs at all, and an empty input means "run everything".
+        if: ${{ github.event.inputs.os == null || github.event.inputs.os == '' || github.event.inputs.os == 'all' || matrix.label == github.event.inputs.os }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
