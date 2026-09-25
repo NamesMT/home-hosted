@@ -1,6 +1,54 @@
 # Changelog
 
 
+## v0.6.0
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.5.0...v0.6.0)
+
+### 🚀 Enhancements
+
+- **cli:** An hh alias for the installed command ([eead327](https://github.com/NamesMT/home-hosted/commit/eead327))
+- **cli:** Per-command --help ([bd5f5d3](https://github.com/NamesMT/home-hosted/commit/bd5f5d3))
+- **cli:** Color the curated help text ([818e6a8](https://github.com/NamesMT/home-hosted/commit/818e6a8))
+- **supervisor:** Add a `kill` policy to onPortConflict ([fd46fbd](https://github.com/NamesMT/home-hosted/commit/fd46fbd))
+- **supervisor:** Identify a detached successor by its argv, not only the env marker ([f0f07b9](https://github.com/NamesMT/home-hosted/commit/f0f07b9))
+
+### 🩹 Fixes
+
+- **identity:** Stop trimming argv words when comparing a spawn ([d5a6aae](https://github.com/NamesMT/home-hosted/commit/d5a6aae))
+- **identity:** Compare arguments literally, never by basename ([03fef51](https://github.com/NamesMT/home-hosted/commit/03fef51))
+- **supervisor:** Honour stop.graceMs, stop adopted successors when disabled ([173b740](https://github.com/NamesMT/home-hosted/commit/173b740))
+- Windows and macOS findings from the first cross-platform run ([40f9ea1](https://github.com/NamesMT/home-hosted/commit/40f9ea1))
+- **identity:** Read an argument through the quoting Windows reports ([164e197](https://github.com/NamesMT/home-hosted/commit/164e197))
+
+### 💅 Refactors
+
+- ⚠️  Rename hh2 to hh ([add94d7](https://github.com/NamesMT/home-hosted/commit/add94d7))
+
+### 📖 Documentation
+
+- Rework the README's why, flags and endpoint tables ([c655f9e](https://github.com/NamesMT/home-hosted/commit/c655f9e))
+
+### ✅ Tests
+
+- Temporary Windows identity diagnostic ([2413ae5](https://github.com/NamesMT/home-hosted/commit/2413ae5))
+- Refine the Windows identity diagnostic ([e7fd9b5](https://github.com/NamesMT/home-hosted/commit/e7fd9b5))
+
+### 🤖 CI
+
+- **release:** Give npm five minutes to show the publish ([6990c51](https://github.com/NamesMT/home-hosted/commit/6990c51))
+- Run the suite on macOS and Windows, dispatched or called ([467e1d0](https://github.com/NamesMT/home-hosted/commit/467e1d0))
+- **release:** Gate the release on the macOS and Windows suite ([6f0c78f](https://github.com/NamesMT/home-hosted/commit/6f0c78f))
+- **release:** Run the gate on a dry run, and stop trusting `!${{ inputs.dry-run }}` ([e020b33](https://github.com/NamesMT/home-hosted/commit/e020b33))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Rename hh2 to hh ([add94d7](https://github.com/NamesMT/home-hosted/commit/add94d7))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.5.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.4.1...v0.5.0)
