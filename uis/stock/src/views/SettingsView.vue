@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { SettingsPatch } from '@shared/contracts'
-import type { SettingsForm } from '@/components/settings/settingsForm'
+import type { FormBlock, FormSnapshots, SettingsForm } from '@/components/settings/settingsForm'
 import type { SettingsView } from '@/lib/api'
+import { countLeaves, describeChanges } from '@shared/patch-diff'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AuthenticationSection from '@/components/settings/AuthenticationSection.vue'
@@ -19,19 +20,18 @@ import {
   authChanged,
   backupsBaseline,
   backupsPatch,
+  blockSnapshot,
   cloneHealth,
   controlPatch,
-  countLeaves,
   createSettingsForm,
   defaultsPatch,
-  describeChanges,
   followRebinding,
   hostBaseline,
   hostPatch,
+  isBlockEdited,
   listenerBaseline,
   listenerChanged,
   logsPatch,
-  shouldHydrate,
   telegramBaseline,
   telegramPatch,
   tlsChanged,
@@ -43,6 +43,7 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { formatChangeValue } from '@/lib/format'
 
 const SECTIONS = [
   { id: 'listener', title: 'Listener' },
@@ -152,11 +153,6 @@ const currentSnapshot = computed<Record<string, unknown>>(() => {
 const changes = computed(() => describeChanges(patch.value as Record<string, unknown>, currentSnapshot.value))
 const showChanges = ref(false)
 
-function formatChangeValue(value: unknown): string {
-  if (value === undefined)
-    return 'unset'
-  return typeof value === 'string' ? value : JSON.stringify(value)
-}
 const listenerDirty = computed(() => controlView.value !== null && listenerChanged(controlView.value, form))
 const tlsDirty = computed(() => controlView.value !== null && tlsChanged(controlView.value, form))
 const authDirty = computed(() => controlView.value !== null && authChanged(controlView.value, form))
@@ -166,54 +162,74 @@ const telegramDirty = computed(() => telegramStatus.value !== null && Object.key
 const hostDirty = computed(() => hostConfig.value !== null && Object.keys(hostPatch(hostConfig.value, form.host)).length > 0)
 const backupsDirty = computed(() => backupsPolicy.value !== null && Object.keys(backupsPatch(backupsPolicy.value, form.backups)).length > 0)
 
-const hydrated = ref(false)
+/** What each block held when it was last filled, so an edit is not overwritten. */
+const snapshots: FormSnapshots = {}
 
-/** Pulls live state into the form, but never over a half-typed edit. */
+/**
+ * Fills each group from its own source, unless the user is editing that group.
+ *
+ * The host thresholds and the backups policy only arrive with `/api/settings`,
+ * after the state stream has already filled the rest — a single global guard
+ * would leave those two showing schema defaults forever (the backups toggle
+ * reported itself as changed on every reload for exactly that reason).
+ */
 function syncFromLive(): void {
+  const fill = (block: FormBlock, apply: () => void): void => {
+    if (isBlockEdited(form, snapshots, block))
+      return
+    apply()
+    snapshots[block] = blockSnapshot(form, block)
+  }
+
   const view = controlView.value
   if (view !== null) {
-    Object.assign(form.control, listenerBaseline(view))
-    Object.assign(form.auth, authBaseline(view.auth))
+    fill('control', () => {
+      Object.assign(form.control, listenerBaseline(view))
+      Object.assign(form.auth, authBaseline(view.auth))
+    })
   }
   const logs = logsConfig.value
   if (logs !== null)
-    Object.assign(form.logs, logs)
+    fill('logs', () => Object.assign(form.logs, logs))
   const telegram = telegramStatus.value
   if (telegram !== null)
-    Object.assign(form.telegram, telegramBaseline(telegram))
+    fill('telegram', () => Object.assign(form.telegram, telegramBaseline(telegram)))
 
   const host = hostConfig.value
   if (host !== null)
-    Object.assign(form.host, hostBaseline(host))
+    fill('host', () => Object.assign(form.host, hostBaseline(host)))
   const backups = backupsPolicy.value
   if (backups !== null)
-    Object.assign(form.backups, backupsBaseline(backups))
+    fill('backups', () => Object.assign(form.backups, backupsBaseline(backups)))
 
   const defaults = defaultsView.value
   if (defaults !== null) {
-    form.defaults.enabled = defaults.enabled
-    form.defaults.autostart = defaults.autostart
-    form.defaults.bind = defaults.bind
-    form.defaults.onPortConflict = defaults.onPortConflict
-    form.defaults.logBufferLines = defaults.logBufferLines
-    form.defaults.restart = { ...defaults.restart }
-    form.defaults.health = cloneHealth(defaults.health)
-    form.defaults.stop = { ...defaults.stop }
+    fill('defaults', () => {
+      form.defaults.enabled = defaults.enabled
+      form.defaults.autostart = defaults.autostart
+      form.defaults.bind = defaults.bind
+      form.defaults.onPortConflict = defaults.onPortConflict
+      form.defaults.logBufferLines = defaults.logBufferLines
+      form.defaults.restart = { ...defaults.restart }
+      form.defaults.health = cloneHealth(defaults.health)
+      form.defaults.stop = { ...defaults.stop }
+    })
   }
+}
 
-  // From here on the form mirrors the config, so a diff means a real edit and
-  // its guard below may refuse to overwrite it.
-  hydrated.value = true
+/** "Never filled", so the next sync takes the block from its source as it is. */
+function forgetSnapshots(): void {
+  for (const key of Object.keys(snapshots))
+    delete snapshots[key as FormBlock]
+}
+
+/** A block the user just reset by hand is back in sync with its source. */
+function remember(block: FormBlock): void {
+  snapshots[block] = blockSnapshot(form, block)
 }
 
 watch([controlView, defaultsView, logsConfig, telegramStatus, settingsConfig], () => {
-  if (shouldHydrate({
-    hydrated: hydrated.value,
-    liveAvailable: controlView.value !== null,
-    changedCount: changedCount.value,
-  })) {
-    syncFromLive()
-  }
+  syncFromLive()
 }, { immediate: true })
 
 async function loadConfig(): Promise<void> {
@@ -247,6 +263,10 @@ async function save(): Promise<void> {
     saveMessage.value = 'Settings saved.'
     toasts.success('Settings saved')
     await loadConfig()
+    // What was saved is what live state holds now, so every block may follow it
+    // again — including the ones this save just brought back in sync.
+    forgetSnapshots()
+    syncFromLive()
 
     const failure = await followRebinding(result)
     if (failure !== null) {
@@ -265,17 +285,20 @@ async function save(): Promise<void> {
 function discard(): void {
   saveError.value = null
   saveMessage.value = null
+  forgetSnapshots()
   syncFromLive()
 }
 
 function resetHost(): void {
   if (hostConfig.value !== null)
     Object.assign(form.host, hostBaseline(hostConfig.value))
+  remember('host')
 }
 
 function resetBackups(): void {
   if (backupsPolicy.value !== null)
     Object.assign(form.backups, backupsBaseline(backupsPolicy.value))
+  remember('backups')
 }
 
 function resetListener(): void {
@@ -286,11 +309,13 @@ function resetListener(): void {
     form.control.host = baseline.host
     form.control.openBrowser = baseline.openBrowser
   }
+  remember('control')
 }
 
 function resetAuth(): void {
   if (controlView.value !== null)
     Object.assign(form.auth, authBaseline(controlView.value.auth))
+  remember('control')
 }
 
 function resetDefaults(): void {
@@ -305,21 +330,25 @@ function resetDefaults(): void {
   form.defaults.restart = { ...defaults.restart }
   form.defaults.health = cloneHealth(defaults.health)
   form.defaults.stop = { ...defaults.stop }
+  remember('defaults')
 }
 
 function resetLogs(): void {
   if (logsConfig.value !== null)
     Object.assign(form.logs, logsConfig.value)
+  remember('logs')
 }
 
 function resetTelegram(): void {
   if (telegramStatus.value !== null)
     Object.assign(form.telegram, telegramBaseline(telegramStatus.value))
+  remember('telegram')
 }
 
 function resetTls(): void {
   if (controlView.value !== null)
     form.control.tlsEnabled = controlView.value.tls.enabled
+  remember('control')
 }
 
 function scrollToSection(id: string): void {
@@ -438,18 +467,6 @@ onBeforeUnmount(() => observer?.disconnect())
               :dirty="authDirty"
               @reset="resetAuth"
             />
-          </section>
-
-          <section id="password" class="scroll-mt-5">
-            <header class="mb-3">
-              <h2 class="text-lg font-semibold text-ink">
-                Password
-              </h2>
-              <p class="mt-0.5 text-xs text-muted">
-                The one credential that guards this panel.
-              </p>
-            </header>
-            <PasswordSection :view="controlView" />
           </section>
 
           <section id="defaults" class="scroll-mt-5">

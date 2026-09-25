@@ -1,13 +1,15 @@
 import type { ControlView } from '@shared/contracts'
+import type { FormSnapshots } from '../src/components/settings/settingsForm'
+import { countLeaves } from '@shared/patch-diff'
 import { describe, expect, it } from 'vitest'
 import {
   authBaseline,
+  blockSnapshot,
   controlPatch,
-  countLeaves,
   createSettingsForm,
+  isBlockEdited,
   listenerBaseline,
   numberModel,
-  shouldHydrate,
 } from '../src/components/settings/settingsForm'
 
 /** A control view as the state frame carries it; only `auth.enabled` varies here. */
@@ -90,12 +92,35 @@ describe('settings form versus the live config', () => {
   })
 
   it('reports to the shell whether it may be overwritten', () => {
-    // No frame yet: nothing to fill from.
-    expect(shouldHydrate({ hydrated: false, liveAvailable: false, changedCount: 0 })).toBe(false)
-    // First frame, and the defaults differ: the form must still be filled.
-    expect(shouldHydrate({ hydrated: false, liveAvailable: true, changedCount: 1 })).toBe(true)
-    expect(shouldHydrate({ hydrated: true, liveAvailable: true, changedCount: 0 })).toBe(true)
-    expect(shouldHydrate({ hydrated: true, liveAvailable: true, changedCount: 2 })).toBe(false)
+    const view = controlView(true)
+    const form = createSettingsForm()
+    const snapshots: FormSnapshots = {}
+
+    // Never filled: the defaults differ from the config (`auth.enabled`), and
+    // that must not be mistaken for an edit that blocks the first fill.
+    expect(isBlockEdited(form, snapshots, 'control')).toBe(false)
+
+    hydrate(form, view)
+    snapshots.control = blockSnapshot(form, 'control')
+    expect(isBlockEdited(form, snapshots, 'control')).toBe(false)
+
+    form.auth.enabled = false
+    expect(isBlockEdited(form, snapshots, 'control')).toBe(true)
+  })
+
+  /**
+   * The reported bug: `/api/settings` lands after the state stream, so a guard
+   * that looked at the whole form refused to fill the backups policy and the
+   * toggle flipped back to the schema default on every reload.
+   */
+  it('fills each block on its own, whatever another block is doing', () => {
+    const form = createSettingsForm()
+    const snapshots: FormSnapshots = { backups: blockSnapshot(form, 'backups') }
+    form.backups.enabled = false
+
+    expect(isBlockEdited(form, snapshots, 'backups')).toBe(true)
+    expect(isBlockEdited(form, snapshots, 'host')).toBe(false)
+    expect(isBlockEdited(form, snapshots, 'control')).toBe(false)
   })
 })
 

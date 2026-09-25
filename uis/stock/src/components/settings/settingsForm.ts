@@ -12,7 +12,7 @@ import type {
 } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
-import { diffFields } from '@shared/patch-diff'
+import { countLeaves, diffFields } from '@shared/patch-diff'
 import { computed } from 'vue'
 import { waitForEndpoint } from '@/lib/endpoint'
 
@@ -281,56 +281,48 @@ export function telegramPatch(current: TelegramStatus, form: TelegramForm): Patc
 }
 
 /**
- * When the form may be overwritten from live state.
+ * The independently filled groups of the form.
  *
- * The form starts as *schema defaults*, and some differ from the live config —
- * `auth.enabled` is `true` in the config and `false` in the form. A bare
- * "nothing has changed" guard therefore never passes on a fresh page: the diff
- * against the defaults already looks like a pending edit, so the page showed the
- * wrong value *and* offered to revert it. Only a filled form may refuse.
+ * A live frame arrives in pieces: the control view comes from the state stream
+ * while the host thresholds and the backups policy come from `/api/settings`,
+ * which lands later. Each group is therefore filled on its own, and the one the
+ * user is editing is the one that must not be overwritten.
  */
-export function shouldHydrate(state: { hydrated: boolean, liveAvailable: boolean, changedCount: number }): boolean {
-  if (!state.liveAvailable)
-    return false
-  return !state.hydrated || state.changedCount === 0
-}
+export type FormBlock = 'control' | 'defaults' | 'logs' | 'telegram' | 'host' | 'backups'
 
-export interface FieldChange {
-  path: string
-  from: unknown
-  to: unknown
-}
+/** What each block held when it was last filled; absent means "never filled". */
+export type FormSnapshots = Partial<Record<FormBlock, unknown>>
 
-/** Flattens `{ a: { b: 1 } }` into `[{ path: 'a.b', value: 1 }]`. */
-export function flattenLeaves(value: unknown, prefix = ''): Array<{ path: string, value: unknown }> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value))
-    return [{ path: prefix, value }]
-  return Object.entries(value as Record<string, unknown>)
-    .flatMap(([key, inner]) => flattenLeaves(inner, prefix.length === 0 ? key : `${prefix}.${key}`))
+/** The block's current value, stable enough to compare with `JSON.stringify`. */
+export function blockSnapshot(form: SettingsForm, block: FormBlock): unknown {
+  switch (block) {
+    case 'control': return {
+      ...form.control,
+      auth: { ...form.auth },
+    }
+    case 'defaults': return {
+      ...form.defaults,
+      restart: { ...form.defaults.restart },
+      health: cloneHealth(form.defaults.health),
+      stop: { ...form.defaults.stop },
+    }
+    case 'logs': return { ...form.logs }
+    case 'telegram': return { ...form.telegram }
+    case 'host': return { ...form.host }
+    case 'backups': return { ...form.backups }
+  }
 }
 
 /**
- * The pending patch as a readable list: what each changed leaf was, and what it
- * is about to become. Values a snapshot does not have show as "unset".
+ * True when a block was filled from live state and has been edited since, so the
+ * next frame must leave it alone. A block that was never filled is always free:
+ * it still holds schema defaults, which differ from the live config in several
+ * places (`auth.enabled`, `backups.enabled`) and would otherwise look like a
+ * pending edit that blocks its own first fill.
  */
-export function describeChanges(patch: Patch, current: Patch): FieldChange[] {
-  const before = new Map(flattenLeaves(current).map(entry => [entry.path, entry.value]))
-  return flattenLeaves(patch).map(entry => ({
-    path: entry.path,
-    from: before.get(entry.path),
-    to: entry.value,
-  }))
-}
-
-/** Leaf count of a patch, for the "N fields changed" summary. */
-export function countLeaves(patch: Patch): number {
-  let total = 0
-  for (const value of Object.values(patch)) {
-    if (value !== null && typeof value === 'object' && !Array.isArray(value))
-      total += countLeaves(value as Patch)
-    else total += 1
-  }
-  return total
+export function isBlockEdited(form: SettingsForm, snapshots: FormSnapshots, block: FormBlock): boolean {
+  const snapshot = snapshots[block]
+  return snapshot !== undefined && JSON.stringify(snapshot) !== JSON.stringify(blockSnapshot(form, block))
 }
 
 export function listenerChanged(view: ControlView, form: SettingsForm): boolean {
