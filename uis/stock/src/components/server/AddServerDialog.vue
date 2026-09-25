@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import type { CreateServerPayload } from '@/lib/api'
+import type { AddServerForm } from '@/components/server/addServerForm'
+import { serverCreateSchema } from '@shared/contracts'
+import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
+import { addServerPayload, addServerPortError, addServerProblem, blankAddServerForm } from '@/components/server/addServerForm'
 import AppButton from '@/components/ui/AppButton.vue'
+import Disclosure from '@/components/ui/Disclosure.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import Modal from '@/components/ui/Modal.vue'
 import NumberField from '@/components/ui/NumberField.vue'
@@ -20,57 +24,15 @@ const control = useControlPlane()
 const creating = ref(false)
 const formError = ref<string | null>(null)
 
-const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
-
 /** Placeholders the supervisor substitutes in `args` (and in paths). */
 const PLACEHOLDERS = ['{port}', '{host}', '{home}', '{projectDir}', '{dataRoot}', '{id}', '{label}', '{cwd}', '{bind}', '{lanIp}']
 
-interface AddForm {
-  id: string
-  label: string
-  command: string
-  args: string
-  cwd: string
-  port: number | null
-  bind: string
-  autostart: boolean
-}
-
-const form = reactive<AddForm>({
-  id: '',
-  label: '',
-  command: '',
-  args: '',
-  cwd: '',
-  port: null,
-  bind: 'local',
-  autostart: false,
-})
-
-function blank(): AddForm {
-  return {
-    id: '',
-    label: '',
-    command: '',
-    args: '',
-    cwd: '',
-    port: null,
-    bind: 'local',
-    autostart: false,
-  }
-}
-
-const portError = computed(() => {
-  if (form.port === null || form.port === undefined || Number.isNaN(form.port))
-    return null
-  return Number.isInteger(form.port) && form.port >= 1 && form.port <= 65535
-    ? null
-    : 'Port must be a whole number between 1 and 65535.'
-})
+const form = reactive<AddServerForm>(blankAddServerForm())
+const portError = computed(() => addServerPortError(form.port))
 
 /** Reset every time the dialog opens, so a cancelled attempt leaves nothing behind. */
 function reset(): void {
-  Object.assign(form, blank())
+  Object.assign(form, blankAddServerForm())
   formError.value = null
 }
 
@@ -79,42 +41,23 @@ watch(open, (isOpen) => {
     reset()
 })
 
-function body(): CreateServerPayload {
-  return {
-    id: form.id.trim(),
-    label: form.label.trim().length > 0 ? form.label.trim() : undefined,
-    command: form.command.trim(),
-    args: form.args.split('\n').map(line => line.trim()).filter(line => line.length > 0),
-    cwd: form.cwd.trim().length > 0 ? form.cwd.trim() : undefined,
-    ...(form.port === null ? {} : { port: form.port }),
-    bind: form.bind,
-    autostart: form.autostart,
-  }
-}
-
-function validate(): string | null {
-  if (form.id.trim().length === 0)
-    return 'An id is required — it is the key this server lives under.'
-  if (!ID_PATTERN.test(form.id.trim()))
-    return 'The id must start with a lowercase letter or digit and contain only lowercase letters, digits, dashes and underscores.'
-  if (form.command.trim().length === 0)
-    return 'A command is required — the executable the supervisor spawns.'
-  if (portError.value !== null)
-    return portError.value
-  return null
-}
-
 async function submit(): Promise<void> {
   formError.value = null
-  const invalid = validate()
+  const invalid = addServerProblem(form)
   if (invalid !== null) {
     formError.value = invalid
     return
   }
 
+  const parsed = serverCreateSchema(addServerPayload(form))
+  if (parsed instanceof type.errors) {
+    formError.value = parsed.summary
+    return
+  }
+
   creating.value = true
   try {
-    await control.create(body())
+    await control.create(parsed)
     if (control.lastError.value !== null) {
       formError.value = control.lastError.value
       return
@@ -192,14 +135,78 @@ async function submit(): Promise<void> {
           ]"
           hint="lan exposes it to the network; only do that behind auth."
         />
+        <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Start it whenever the control plane comes up." wide />
       </FieldGroup>
 
-      <div class="flex flex-col gap-2 rounded-panel border border-line bg-panel-2/40 p-3">
-        <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Start it whenever the control plane comes up." />
+      <Disclosure title="Advanced settings" hint="environment, backups, resources, policy">
+        <FieldGroup title="Environment" :columns="2" dense>
+          <TextAreaField
+            v-model="form.env"
+            label="Environment"
+            :rows="3"
+            hint="KEY=value per line, exported to the process."
+            placeholder="NODE_ENV=production"
+          />
+          <TextAreaField
+            v-model="form.dataEnvs"
+            label="Data envs"
+            :rows="3"
+            hint="ENV=path per line — exported to the process and backed up automatically."
+            placeholder="DATA_DIR={home}/.app"
+          />
+          <TextField
+            v-model="form.envFile"
+            label="Env file"
+            placeholder="optional KEY=value file"
+            hint="Loaded at spawn; its values override env."
+            class="font-mono text-xs"
+          />
+          <TextField
+            v-model="form.dependsOn"
+            label="Depends on"
+            placeholder="postgres, redis"
+            hint="Comma separated; started first, stopped last."
+            class="font-mono text-xs"
+          />
+        </FieldGroup>
+
+        <FieldGroup title="Backups" :columns="2" dense>
+          <TextAreaField
+            v-model="form.backupPaths"
+            label="Extra backup paths"
+            :rows="2"
+            hint="One per line, placeholders allowed; data envs are captured already."
+            placeholder="{home}/.app/uploads"
+          />
+          <ToggleSwitch
+            v-model="form.backupIgnoreGenerated"
+            label="Ignore known generated files"
+            hint="Skips node_modules, dist, .next and the other caches nothing restores from."
+            wide
+          />
+        </FieldGroup>
+
+        <FieldGroup title="Policy &amp; resources" :columns="2" dense>
+          <SelectField
+            v-model="form.onPortConflict"
+            label="On port conflict"
+            :options="[
+              { value: 'block', label: 'block — refuse to start' },
+              { value: 'warn', label: 'warn — start anyway' },
+              { value: 'follow', label: 'follow — adopt a detached restart of itself' },
+              { value: 'reclaim', label: 'reclaim — replace it with a supervised copy' },
+            ]"
+          />
+          <NumberField v-model="form.logBufferLines" label="Log buffer lines" :min="50" :max="100000" :step="50" hint="Blank keeps the default." />
+          <NumberField v-model="form.maxRssMb" label="Max RSS (MB)" :min="0" hint="Restart above this; blank or 0 disables it." />
+          <ToggleSwitch v-model="form.enabled" label="Enabled" hint="Off keeps the entry in the config but refuses to start it." wide />
+        </FieldGroup>
+
         <p class="text-2xs leading-4 text-faint">
-          Everything this entry does not set — restart, health, stop, resources — is inherited from <span class="font-mono">Settings → Defaults</span>, and can be overridden afterwards from the server's own editor.
+          Restart, health, stop and bootstrapping policy comes from <span class="font-mono">Settings → Server defaults</span>.
+          Override them per server from its own editor after adding it.
         </p>
-      </div>
+      </Disclosure>
 
       <div class="rounded-panel border border-line-soft bg-panel-2/40 p-3">
         <p class="text-2xs font-medium text-muted">

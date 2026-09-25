@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import type { HealthConfig, RestartConfig, StopConfig } from '@shared/contracts'
 import { computed } from 'vue'
-import CheckField from '@/components/ui/CheckField.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 
 /**
  * The three nested policy groups shared by the global defaults and every
@@ -61,7 +61,7 @@ const signalOptions = [
     description="Backoff between attempts after a crash."
     :columns="3"
   >
-    <CheckField v-model="restart.enabled" label="Restart on crash" wide />
+    <ToggleSwitch v-model="restart.enabled" label="Restart on crash" wide />
     <NumberField v-model="maxRetries" label="Max retries" :min="0" hint="Attempts before the server is left crashed." />
     <NumberField v-model="baseDelayMs" label="Base delay (ms)" :min="0" />
     <NumberField v-model="factor" label="Backoff factor" :min="1" :step="0.1" />
@@ -74,7 +74,7 @@ const signalOptions = [
     description="How readiness is probed once the process is up."
     :columns="3"
   >
-    <CheckField v-model="health.enabled" label="Probe this server" wide />
+    <ToggleSwitch v-model="health.enabled" label="Probe this server" wide />
     <SelectField
       v-model="health.mode"
       label="Probe type"
@@ -112,7 +112,7 @@ const signalOptions = [
   >
     <SelectField v-model="stop.signal" label="Signal" :options="signalOptions" />
     <NumberField v-model="graceMs" label="Grace period (ms)" :min="0" />
-    <CheckField v-model="stop.killGroup" label="Kill the whole process group" />
-    <CheckField v-model="stop.killPortHolders" label="Also kill whatever holds the port" wide />
+    <ToggleSwitch v-model="stop.killGroup" label="Kill the whole process group" />
+    <ToggleSwitch v-model="stop.killPortHolders" label="Also kill whatever holds the port" wide />
   </FieldGroup>
 </template>

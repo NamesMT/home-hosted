@@ -217,11 +217,17 @@ async function applyRestore(): Promise<void> {
       <ToggleSwitch
         v-model="form.enabled"
         label="Allow backups"
-        hint="Turning this off hides nothing: the archives already on disk stay downloadable."
-        class="sm:col-span-2"
+        hint="Off stops new archives; whatever is already on disk stays downloadable and restorable."
+        wide
       />
+      <div v-if="!form.enabled" class="sm:col-span-2">
+        <Notice tone="warn" title="Backups are off">
+          Nothing new is archived until this is back on. The archives below can still be downloaded, restored and deleted.
+        </Notice>
+      </div>
       <NumberField v-model="keep" label="Keep" :min="1" hint="Older archives are pruned after each backup." />
       <TextField
+        v-if="form.enabled"
         v-model="form.includePaths"
         label="Extra paths"
         hint="Comma separated, in addition to every entry's data directories."
@@ -254,6 +260,9 @@ async function applyRestore(): Promise<void> {
             </p>
             <p class="mt-0.5 text-2xs leading-4 text-muted">
               {{ entry.included ? `from ${entry.origin}` : entry.note ?? 'not captured' }}
+              <template v-if="entry.included && entry.ignoreGenerated">
+                · generated directories skipped
+              </template>
             </p>
           </div>
           <ToneBadge :tone="entry.included ? 'ok' : 'neutral'" plain>
@@ -263,7 +272,7 @@ async function applyRestore(): Promise<void> {
       </ul>
     </FieldGroup>
 
-    <FieldGroup title="Create a backup now" description="Optional password encrypts the archive; restoring it will ask for the same password.">
+    <FieldGroup v-if="form.enabled" title="Create a backup now" description="Optional password encrypts the archive; restoring it will ask for the same password.">
       <TextField
         v-model="backupPassword"
         type="password"
@@ -284,11 +293,17 @@ async function applyRestore(): Promise<void> {
         <Skeleton class="h-4 w-2/3" />
       </div>
       <div v-else-if="files.length === 0" class="sm:col-span-2">
-        <EmptyState compact title="No archives yet" description="Create one now to capture the config, secrets and every declared data path.">
+        <EmptyState
+          compact
+          title="No archives yet"
+          :description="form.enabled
+            ? 'Create one now to capture the config, secrets and every declared data path.'
+            : 'Nothing has been archived yet, and backups are off.'"
+        >
           <template #icon>
             <Archive class="size-4" />
           </template>
-          <template #action>
+          <template v-if="form.enabled" #action>
             <AppButton size="sm" variant="primary" :disabled="busy" @click="runBackup">
               Create backup now
             </AppButton>

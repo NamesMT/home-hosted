@@ -9,17 +9,20 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   /** Put the switch after the text instead of before it. */
   trailing?: boolean
+  /** Span both columns of a `FieldGroup` grid, for a longer hint. */
+  wide?: boolean
 }>(), {
   hint: undefined,
   disabled: false,
   trailing: false,
+  wide: false,
 })
 
 const model = defineModel<boolean>({ default: false })
 </script>
 
 <template>
-  <div :class="cn('flex items-center gap-2.5', props.trailing && 'flex-row-reverse justify-end')">
+  <div :class="cn('flex items-center gap-2.5', props.trailing && 'flex-row-reverse justify-end', props.wide && 'sm:col-span-2')">
     <SwitchRoot
       v-model="model"
       :disabled="props.disabled"

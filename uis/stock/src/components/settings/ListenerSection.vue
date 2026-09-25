@@ -5,12 +5,12 @@ import { parseBind } from '@shared/contracts'
 import { computed } from 'vue'
 import { numberModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
-import CheckField from '@/components/ui/CheckField.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import TextField from '@/components/ui/TextField.vue'
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
 
 const props = defineProps<{
@@ -86,7 +86,7 @@ const liveAddress = computed(() => props.view?.url ?? '—')
       :error="customBindError"
       hint="Binding beyond 127.0.0.1 needs a real password."
     />
-    <CheckField v-model="control.openBrowser" label="Open a browser when the panel comes up" wide />
+    <ToggleSwitch v-model="control.openBrowser" label="Open a browser when the panel comes up" wide />
 
     <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
       <span class="text-xs font-medium text-muted">Live address</span>

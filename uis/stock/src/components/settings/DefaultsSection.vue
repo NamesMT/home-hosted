@@ -3,10 +3,10 @@ import type { DefaultsForm } from '@/components/settings/settingsForm'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
 import { numberModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
-import CheckField from '@/components/ui/CheckField.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 
 const props = defineProps<{ dirty: boolean }>()
 
@@ -28,8 +28,8 @@ const logBufferLines = numberModel(() => defaults.value.logBufferLines, value =>
       </AppButton>
     </template>
 
-    <CheckField v-model="defaults.enabled" label="Enabled" hint="New entries start enabled." />
-    <CheckField v-model="defaults.autostart" label="Autostart with the panel" />
+    <ToggleSwitch v-model="defaults.enabled" label="Enabled" hint="New entries start enabled." wide />
+    <ToggleSwitch v-model="defaults.autostart" label="Autostart with the panel" />
     <SelectField
       v-model="defaults.bind"
       label="Bind"

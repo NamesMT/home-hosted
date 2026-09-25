@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import type { HealthConfig, RestartConfig, ServerConfig, StopConfig } from '@shared/contracts'
+import type { Patch } from '@shared/patch-diff'
 import { serverPatchSchema } from '@shared/contracts'
-import { diffServerConfig } from '@shared/patch-diff'
+import { countLeaves, describeChanges, diffServerConfig } from '@shared/patch-diff'
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
+import AppButton from '@/components/ui/AppButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
+import Modal from '@/components/ui/Modal.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextAreaField from '@/components/ui/TextAreaField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { commaList, envToText, linesToArray, textToEnv } from '@/lib/fields'
+import { formatChangeValue } from '@/lib/format'
 
 const props = defineProps<{
   serverId: string
@@ -28,25 +33,6 @@ const control = useControlPlane()
 const saving = ref(false)
 const error = ref<string | null>(null)
 
-function linesToArray(value: string): string[] {
-  return value.split('\n').map(entry => entry.trim()).filter(entry => entry.length > 0)
-}
-
-function envToText(env: Record<string, string>): string {
-  return Object.entries(env).map(([key, value]) => `${key}=${value}`).join('\n')
-}
-
-function textToEnv(value: string): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const line of linesToArray(value)) {
-    const separator = line.indexOf('=')
-    if (separator <= 0)
-      continue
-    env[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
-  }
-  return env
-}
-
 function megabytes(bytes: number): number | null {
   return bytes > 0 ? Math.round(bytes / 1024 / 1024) : null
 }
@@ -59,6 +45,7 @@ interface EditorForm {
   env: string
   dataEnvs: string
   backupPaths: string
+  backupIgnoreGenerated: boolean
   dependsOn: string
   envFile: string
   maxRssMb: number | null
@@ -86,6 +73,8 @@ function formFrom(config: ServerConfig): EditorForm {
     env: envToText(config.env),
     dataEnvs: envToText(config.dataEnvs),
     backupPaths: config.backupPaths.join('\n'),
+    // Absent in a payload from a panel that predates the field: the default is on.
+    backupIgnoreGenerated: config.backupIgnoreGenerated !== false,
     dependsOn: config.dependsOn.join(', '),
     envFile: config.envFile,
     maxRssMb: megabytes(config.resources.maxRssBytes),
@@ -109,9 +98,6 @@ const restart = ref<RestartConfig>({ ...props.config.restart })
 const health = ref<HealthConfig>({ ...props.config.health })
 const stop = ref<StopConfig>({ ...props.config.stop })
 
-/** The exact object the last save sent, so "unsaved changes" survives a parent refresh. */
-let baseline: Record<string, unknown> = { ...props.config }
-
 /** An explicit IPv4 the config already carries is kept selectable rather than dropped. */
 const bindOptions = computed(() => {
   const options = [
@@ -124,9 +110,10 @@ const bindOptions = computed(() => {
 })
 
 function buildPayload(): Record<string, unknown> {
-  // A non-nullable NumberField yields NaN while it is being cleared.
+  // A non-nullable NumberField yields NaN while it is being cleared; the log
+  // buffer has a floor of its own, and 0 would be rejected outright.
   const maxRssMb = Number.isFinite(form.maxRssMb) ? form.maxRssMb! : 0
-  const logBufferLines = Number.isFinite(form.logBufferLines) ? form.logBufferLines! : 0
+  const logBufferLines = Number.isFinite(form.logBufferLines) && form.logBufferLines! >= 50 ? form.logBufferLines! : 50
   const bootstrapTimeoutMs = Number.isFinite(form.bootstrapTimeoutMs) ? form.bootstrapTimeoutMs! : 0
 
   return {
@@ -137,7 +124,8 @@ function buildPayload(): Record<string, unknown> {
     env: textToEnv(form.env),
     dataEnvs: textToEnv(form.dataEnvs),
     backupPaths: linesToArray(form.backupPaths),
-    dependsOn: form.dependsOn.split(',').map(entry => entry.trim()).filter(entry => entry.length > 0),
+    backupIgnoreGenerated: form.backupIgnoreGenerated,
+    dependsOn: commaList(form.dependsOn),
     envFile: form.envFile.trim(),
     resources: { maxRssBytes: maxRssMb > 0 ? Math.round(maxRssMb * 1024 * 1024) : 0 },
     port: form.port === null || Number.isNaN(form.port) ? null : form.port,
@@ -174,8 +162,7 @@ function groupPatch(payload: Record<string, unknown>, group: typeof NESTED[numbe
 }
 
 function buildDiff(payload: Record<string, unknown>): Record<string, unknown> {
-  const scope: typeof NESTED[number][] = ['restart', 'health', 'stop']
-  for (const group of scope) {
+  for (const group of NESTED) {
     if (groupPatch(payload, group) === null)
       delete payload[group]
   }
@@ -186,19 +173,15 @@ function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
 }
 
-const changed = computed(() => {
-  const payload = buildPayload()
-  let count = 0
-  for (const [key, value] of Object.entries(payload)) {
-    if (NESTED.includes(key as typeof NESTED[number]))
-      count += groupPatch(payload, key as typeof NESTED[number]) === null ? 0 : 1
-    else if (!same(baseline[key], value))
-      count += 1
-  }
-  return count
-})
+/** Exactly what Save would write: the payload minus everything that did not change. */
+const patch = computed(() => buildDiff(buildPayload()))
 
+const changed = computed(() => countLeaves(patch.value))
 const canSave = computed(() => changed.value > 0)
+
+/** The pending patch as readable rows, for the review dialog. */
+const changes = computed(() => describeChanges(patch.value, props.config as unknown as Patch))
+const showChanges = ref(false)
 
 /** The inbound config the form was last synced to, so a state refresh does not wipe unsaved edits. */
 let source: ServerConfig = { ...props.config }
@@ -208,7 +191,6 @@ function resetFrom(config: ServerConfig): void {
   restart.value = { ...config.restart }
   health.value = { ...config.health }
   stop.value = { ...config.stop }
-  baseline = { ...config }
   source = { ...config }
   error.value = null
 }
@@ -232,19 +214,18 @@ async function save(): Promise<void> {
       return
     }
 
-    const patch = buildDiff(payload)
-    if (Object.keys(patch).length === 0) {
+    const pending = buildDiff(payload)
+    if (Object.keys(pending).length === 0) {
       emit('saved')
       return
     }
 
-    await control.saveConfig(props.serverId, patch)
+    await control.saveConfig(props.serverId, pending)
     if (control.lastError.value !== null) {
       error.value = control.lastError.value
       return
     }
 
-    baseline = { ...payload }
     emit('saved')
   }
   finally {
@@ -265,9 +246,15 @@ async function save(): Promise<void> {
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <span v-if="changed > 0" class="text-2xs text-warn">
-          {{ changed }} unsaved {{ changed === 1 ? 'change' : 'changes' }}
-        </span>
+        <button
+          v-if="changed > 0"
+          type="button"
+          class="rounded-control px-1 py-0.5 text-2xs text-warn underline decoration-warn/40 underline-offset-2 transition-colors duration-150 hover:text-ink"
+          @click="showChanges = true"
+        >
+          <span class="font-mono tabular-nums">{{ changed }}</span>
+          unsaved {{ changed === 1 ? 'change' : 'changes' }}
+        </button>
         <span v-else class="text-2xs text-faint">in sync</span>
       </div>
     </header>
@@ -307,8 +294,14 @@ async function save(): Promise<void> {
           v-model="form.backupPaths"
           label="Extra backup paths"
           :rows="2"
-          hint="One per line, placeholders allowed."
+          hint="One per line, placeholders allowed; data envs are captured already."
           placeholder="{home}/.app/uploads"
+        />
+        <ToggleSwitch
+          v-model="form.backupIgnoreGenerated"
+          label="Ignore known generated files when backing this up"
+          hint="Skips node_modules, dist, .next and the other caches nothing restores from."
+          wide
         />
         <TextField v-model="form.dependsOn" label="Depends on" placeholder="postgres, redis" hint="Comma separated; started first, stopped last." class="font-mono text-xs" />
         <NumberField v-model="form.maxRssMb" label="Max RSS (MB)" :min="0" hint="Restart above this; blank or 0 disables it." />
@@ -397,20 +390,47 @@ async function save(): Promise<void> {
     </p>
 
     <div class="mt-4 flex items-center justify-end gap-2 border-t border-line pt-3.5">
-      <button
-        type="button"
-        class="inline-flex h-8 select-none items-center rounded-control border border-transparent bg-transparent px-2.5 text-xs font-medium whitespace-nowrap text-muted transition-colors duration-150 hover:bg-hover hover:text-ink"
-        @click="emit('cancel')"
-      >
+      <AppButton variant="ghost" @click="emit('cancel')">
         Cancel
-      </button>
-      <button
-        type="submit"
-        :disabled="saving || !canSave"
-        class="inline-flex h-8 select-none items-center gap-1.5 rounded-control border border-transparent bg-accent px-2.5 text-xs font-medium whitespace-nowrap text-accent-ink transition-[filter,opacity] duration-150 hover:brightness-110 disabled:pointer-events-none disabled:opacity-45"
-      >
-        {{ saving ? 'Saving…' : 'Save to servers.config.json' }}
-      </button>
+      </AppButton>
+      <AppButton type="submit" variant="primary" :disabled="saving || !canSave" :loading="saving">
+        Save to servers.config.json
+      </AppButton>
     </div>
   </form>
+
+  <Modal
+    v-model:open="showChanges"
+    title="Unsaved changes"
+    description="What Save would write to servers.config.json."
+    width="w-[min(92vw,42rem)]"
+  >
+    <div class="max-h-[60dvh] overflow-auto">
+      <ul v-if="changes.length > 0" class="divide-y divide-line-soft">
+        <li v-for="change in changes" :key="change.path" class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 first:pt-0">
+          <code class="font-mono text-xs text-ink">{{ change.path }}</code>
+          <span class="ml-auto font-mono text-xs text-muted line-through">{{ formatChangeValue(change.from) }}</span>
+          <span class="text-2xs text-faint">→</span>
+          <span class="font-mono text-xs text-accent">{{ formatChangeValue(change.to) }}</span>
+        </li>
+      </ul>
+      <p v-else class="text-xs text-muted">
+        Nothing to save.
+      </p>
+    </div>
+    <template #footer>
+      <AppButton size="sm" variant="ghost" @click="showChanges = false">
+        Close
+      </AppButton>
+      <AppButton
+        size="sm"
+        variant="primary"
+        :disabled="changes.length === 0 || saving"
+        :loading="saving"
+        @click="save(); showChanges = false"
+      >
+        Save {{ changes.length }} change{{ changes.length === 1 ? '' : 's' }}
+      </AppButton>
+    </template>
+  </Modal>
 </template>

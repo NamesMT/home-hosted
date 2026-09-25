@@ -1,0 +1,109 @@
+import { serverCreateSchema } from '@shared/contracts'
+import { type } from 'arktype'
+import { describe, expect, it } from 'vitest'
+import {
+  addServerPayload,
+  addServerPortError,
+  addServerProblem,
+  blankAddServerForm,
+} from '../src/components/server/addServerForm'
+
+/**
+ * Everything the add dialog offers has to reach `servers.config.json`. The
+ * advanced options are easy to render and forget to send, and that failure is
+ * silent — the entry is created without the option the person just set.
+ */
+describe('add-server payload', () => {
+  it('sends the basics, and only the fields that were filled in', () => {
+    const payload = addServerPayload({ ...blankAddServerForm(), id: 'web', command: 'node', args: '-p\n{port}' })
+
+    expect(payload).toMatchObject({ id: 'web', command: 'node', args: ['-p', '{port}'], cwd: '.', bind: 'local' })
+    expect('label' in payload).toBe(false)
+    expect('port' in payload).toBe(false)
+  })
+
+  it('carries every advanced option', () => {
+    const payload = addServerPayload({
+      ...blankAddServerForm(),
+      id: 'web',
+      label: ' Web ',
+      command: 'node',
+      cwd: '/srv/web',
+      port: 4100,
+      bind: 'lan',
+      autostart: true,
+      enabled: false,
+      onPortConflict: 'follow',
+      logBufferLines: 900,
+      dependsOn: 'db, cache',
+      envFile: '.env.local',
+      env: 'NODE_ENV=production\nPORT=4100',
+      dataEnvs: 'DATA_DIR={home}/.web',
+      backupPaths: '{home}/.web/uploads',
+      backupIgnoreGenerated: false,
+      maxRssMb: 512,
+    })
+
+    expect(payload).toMatchObject({
+      label: 'Web',
+      cwd: '/srv/web',
+      port: 4100,
+      bind: 'lan',
+      autostart: true,
+      enabled: false,
+      onPortConflict: 'follow',
+      logBufferLines: 900,
+      dependsOn: ['db', 'cache'],
+      envFile: '.env.local',
+      env: { NODE_ENV: 'production', PORT: '4100' },
+      dataEnvs: { DATA_DIR: '{home}/.web' },
+      backupPaths: ['{home}/.web/uploads'],
+      backupIgnoreGenerated: false,
+      resources: { maxRssBytes: 512 * 1024 * 1024 },
+    })
+  })
+
+  it('keeps the generated-file skip on by default, and off as a decision', () => {
+    const base = { ...blankAddServerForm(), id: 'web', command: 'node' }
+    expect(addServerPayload(base).backupIgnoreGenerated).toBe(true)
+    expect(addServerPayload({ ...base, backupIgnoreGenerated: false }).backupIgnoreGenerated).toBe(false)
+  })
+
+  it('is a valid create request for the route that receives it', () => {
+    const payload = addServerPayload({ ...blankAddServerForm(), id: 'web', command: 'node', port: 4100 })
+    expect(serverCreateSchema(payload) instanceof type.errors).toBe(false)
+  })
+
+  it('treats a cleared numeric field as "not set" rather than as 0', () => {
+    const payload = addServerPayload({
+      ...blankAddServerForm(),
+      id: 'web',
+      command: 'node',
+      logBufferLines: Number.NaN,
+      maxRssMb: Number.NaN,
+    })
+
+    expect('logBufferLines' in payload).toBe(false)
+    expect(payload.resources).toEqual({ maxRssBytes: 0 })
+  })
+})
+
+describe('add-server validation', () => {
+  it('requires an id the supervisor can key an entry by', () => {
+    expect(addServerProblem(blankAddServerForm())).toContain('id is required')
+    expect(addServerProblem({ ...blankAddServerForm(), id: 'Bad Id', command: 'node' })).toContain('lowercase')
+  })
+
+  it('requires a command', () => {
+    expect(addServerProblem({ ...blankAddServerForm(), id: 'web' })).toContain('command is required')
+  })
+
+  it('bounds the port, but allows none at all', () => {
+    const base = { ...blankAddServerForm(), id: 'web', command: 'node' }
+    expect(addServerProblem(base)).toBeNull()
+    expect(addServerProblem({ ...base, port: 4100 })).toBeNull()
+    expect(addServerProblem({ ...base, port: 0 })).toContain('between 1 and 65535')
+    expect(addServerProblem({ ...base, port: 70000 })).toContain('between 1 and 65535')
+    expect(addServerPortError(4100)).toBeNull()
+  })
+})

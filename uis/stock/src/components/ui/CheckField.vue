@@ -6,11 +6,9 @@ const props = withDefaults(defineProps<{
   label: string
   hint?: string
   disabled?: boolean
-  wide?: boolean
 }>(), {
   hint: undefined,
   disabled: false,
-  wide: false,
 })
 
 const model = defineModel<boolean>({ default: false })
@@ -22,7 +20,6 @@ const model = defineModel<boolean>({ default: false })
       'flex cursor-pointer select-none items-start gap-2 rounded-control px-2 py-1.5 text-xs transition-colors duration-150',
       'hover:bg-hover',
       props.disabled && 'cursor-not-allowed opacity-50 hover:bg-transparent',
-      props.wide && 'sm:col-span-2',
     )"
   >
     <input

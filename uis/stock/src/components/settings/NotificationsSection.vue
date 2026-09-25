@@ -6,7 +6,6 @@ import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import { numberModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
-import CheckField from '@/components/ui/CheckField.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import TextField from '@/components/ui/TextField.vue'
@@ -133,7 +132,7 @@ async function sendTest(): Promise<void> {
       v-model="telegram.enabled"
       label="Send notifications"
       hint="One message per event, throttled by the cooldown below."
-      class="sm:col-span-2"
+      wide
     />
     <TextField
       v-model="telegram.chatId"
@@ -143,11 +142,11 @@ async function sendTest(): Promise<void> {
     />
     <NumberField v-model="cooldownMs" label="Cooldown per event (ms)" :min="0" hint="Per server and reason, so a flapping server cannot spam." />
 
-    <CheckField v-model="telegram.onCrash" label="Retries exhausted" />
-    <CheckField v-model="telegram.onUnhealthy" label="Port unhealthy" />
-    <CheckField v-model="telegram.onForcedRestart" label="Forced restart" />
-    <CheckField v-model="telegram.onRecovered" label="Recovered" />
-    <CheckField
+    <ToggleSwitch v-model="telegram.onCrash" label="Retries exhausted" />
+    <ToggleSwitch v-model="telegram.onUnhealthy" label="Port unhealthy" />
+    <ToggleSwitch v-model="telegram.onForcedRestart" label="Forced restart" />
+    <ToggleSwitch v-model="telegram.onRecovered" label="Recovered" />
+    <ToggleSwitch
       v-model="telegram.onHost"
       label="Host vitals breached"
       hint="Disk, memory, swap, load and CPU temperature, per the thresholds under Host vitals."

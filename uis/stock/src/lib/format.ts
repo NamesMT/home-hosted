@@ -114,3 +114,10 @@ export function formatCpuPercent(value: number | null): string {
     return `${Math.round(value)}%`
   return `${value.toFixed(1)}%`
 }
+
+/** One value in a change review: a missing snapshot entry reads as "unset". */
+export function formatChangeValue(value: unknown): string {
+  if (value === undefined)
+    return 'unset'
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}

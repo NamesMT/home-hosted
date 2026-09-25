@@ -43,7 +43,7 @@ const tempCelsius = numberModel(() => host.value.tempCelsius, value => (host.val
       v-model="host.enabled"
       label="Sample this machine"
       hint="Load, memory, swap, disk and CPU temperature, on the interval below."
-      class="sm:col-span-2"
+      wide
     />
     <NumberField v-model="intervalMs" label="Interval (ms)" :min="5000" hint="How often the host is sampled and alerts are checked." />
     <TextField v-model="host.diskPaths" label="Disk paths" hint="Comma separated; templates like {home} are expanded." />
