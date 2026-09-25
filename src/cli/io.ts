@@ -13,7 +13,10 @@ export const isTty = (): boolean => process.stdout.isTTY === true
 export const paint = (code: string, text: string): string => (isTty() ? `\x1B[${code}m${text}\x1B[0m` : text)
 export const dim = (text: string): string => paint('2', text)
 export const bold = (text: string): string => paint('1', text)
+export const cyan = (text: string): string => paint('36', text)
 export const green = (text: string): string => paint('32', text)
+/** A section title in the help output. */
+export const heading = (text: string): string => paint('1;4', text)
 
 /** The seam `ui-switch` takes, so the command stays testable without a terminal. */
 export const style = { bold, dim, green }

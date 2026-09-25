@@ -38,6 +38,8 @@ describe('cli smoke', () => {
 
     expect(help.stdout).toContain('Options for up/restart')
     expect(help.stdout).toContain('Environment')
+    // Colours are for a terminal: piped help stays plain.
+    expect(help.stdout).not.toContain('\x1B[')
   })
 
   it('scopes `--help` to the command it follows', () => {

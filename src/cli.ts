@@ -4,7 +4,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
 import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
-import { fail } from './cli/io'
+import { cyan, dim, fail, heading } from './cli/io'
 
 /**
  * The command line, and nothing else. Two things happen before citty is asked
@@ -147,40 +147,57 @@ const EVERYWHERE_SECTION: OptionSection = {
   ],
 }
 
-const TRAILER = `Alias
-  hh                    the same CLI, on a machine where home-hosted is installed
+const ALIAS_SECTION: OptionSection = {
+  heading: 'Alias',
+  lines: [
+    ['hh', 'the same CLI, on a machine where home-hosted is installed'],
+  ],
+}
 
-Environment
-  HHOSTED_HOME          where config, secrets, logs, TLS and backups live
-  HHOSTED_PROJECT       base for relative entry paths
-  HHOSTED_PASSWORD      the password for a non-interactive set-password
-  HHOSTED_TOKEN         the token for a non-interactive set-token
-  GITHUB_TOKEN          a GitHub token for ui-switch (GH_TOKEN also works)
-`
+const ENVIRONMENT_SECTION: OptionSection = {
+  heading: 'Environment',
+  lines: [
+    ['HHOSTED_HOME', 'where config, secrets, logs, TLS and backups live'],
+    ['HHOSTED_PROJECT', 'base for relative entry paths'],
+    ['HHOSTED_PASSWORD', 'the password for a non-interactive set-password'],
+    ['HHOSTED_TOKEN', 'the token for a non-interactive set-token'],
+    ['GITHUB_TOKEN', 'a GitHub token for ui-switch (GH_TOKEN also works)'],
+  ],
+}
 
 /** The command list of the full reference, aligned as it always was. */
 function renderCommandList(): string {
   const width = Math.max(...Object.values(SYNOPSIS).map(synopsis => synopsis.length))
   return Object.keys(SYNOPSIS)
-    .map(name => `  ${SYNOPSIS[name]!.padEnd(width + 1)}   ${SUMMARIES[name]}`)
+    .map((name) => {
+      const synopsis = SYNOPSIS[name]!
+      return `  ${cyan(synopsis)}${' '.repeat(width + 1 - synopsis.length)}   ${SUMMARIES[name]}`
+    })
     .join('\n')
 }
 
 function renderSection(section: OptionSection): string {
   const lines = section.lines
-    .map(([left, right]) => `  ${left.padEnd(OPTION_WIDTH)}   ${right}`)
+    .map(([left, right]) => `  ${cyan(left)}${' '.repeat(Math.max(0, OPTION_WIDTH - left.length))}   ${right}`)
     .join('\n')
-  return `${section.heading}\n${lines}`
+  return `${heading(section.heading)}\n${lines}`
 }
 
 /** The trailer every command shares: the global flags, the alias and the environment. */
-const SHARED_TRAILER = `${renderSection(EVERYWHERE_SECTION)}\n\n${TRAILER}`
+const SHARED_TRAILER = [
+  renderSection(EVERYWHERE_SECTION),
+  '',
+  renderSection(ALIAS_SECTION),
+  '',
+  renderSection(ENVIRONMENT_SECTION),
+  '',
+].join('\n')
 
 /** The full reference: every command, every option, the trailer. */
 const USAGE = [
-  HEADER,
+  dim(HEADER),
   '',
-  'Usage',
+  heading('Usage'),
   renderCommandList(),
   '',
   renderSection(UP_SECTION),
@@ -197,9 +214,7 @@ const USAGE = [
   '',
   renderSection(STATUS_SECTION),
   '',
-  renderSection(EVERYWHERE_SECTION),
-  '',
-  TRAILER,
+  SHARED_TRAILER,
 ].join('\n')
 
 // `restart` is `up` behind the scenes, so it reads `up`'s flags under its own heading.
@@ -225,12 +240,12 @@ export function commandHelp(command: string): string {
     return USAGE
 
   const section = UP_COMMANDS.has(command) ? UP_SECTION : SECTIONS[command]
-  const options = section === undefined ? 'no options' : renderSection(section)
+  const options = section === undefined ? dim('no options') : renderSection(section)
 
   return [
-    HEADER,
+    dim(HEADER),
     '',
-    synopsis,
+    cyan(synopsis),
     '',
     options,
     '',
