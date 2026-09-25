@@ -147,6 +147,39 @@ describe('nested group comparison', () => {
     expect(diffFields(withStatus, withoutStatus, ['health'])).toEqual({ health: { http: withoutStatus.health.http } })
   })
 
+  it('ignores key order, which a rebuilt form cannot be trusted to keep', () => {
+    const a = { health: { enabled: true, http: { path: '/', method: 'GET' } } }
+    const b = { health: { enabled: true, http: { method: 'GET', path: '/' } } }
+
+    expect(diffFields(a, b, ['health'])).toEqual({})
+  })
+
+  it('ignores a null member inside a group member the form rebuilt', () => {
+    // The reported bug: a fresh console editor listed every `health.http.*` row
+    // with identical values, because the config has no `expectStatus` key and the
+    // form carries `expectStatus: null`.
+    const configured = {
+      health: {
+        enabled: true,
+        http: { path: '/', method: 'GET', expectStatusBelow: 400, expectBody: '' },
+        intervalMs: 3000,
+      },
+    }
+    const fromForm = {
+      health: {
+        enabled: true,
+        http: { path: '/', method: 'GET', expectStatus: null, expectStatusBelow: 400, expectBody: '' },
+        intervalMs: 3000,
+      },
+    }
+
+    expect(diffFields(configured, fromForm, ['health'])).toEqual({})
+    // …and clearing a value the config does have is still a change.
+    const withStatus = { health: { ...configured.health, http: { ...configured.health.http, expectStatus: 200 } } }
+    expect(diffFields(withStatus, fromForm, ['health']))
+      .toEqual({ health: { http: fromForm.health.http } })
+  })
+
   it('keeps a top-level null as the explicit clear it is', () => {
     expect(diffFields({ bootstrap: { command: 'x' } }, { bootstrap: null })).toEqual({ bootstrap: null })
     expect(diffFields({ bootstrap: null }, { bootstrap: null })).toEqual({})

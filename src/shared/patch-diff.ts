@@ -5,8 +5,33 @@ const NESTED_GROUPS = ['restart', 'health', 'stop'] as const
 
 export type Patch = Record<string, unknown>
 
+/**
+ * A `null` counts as "nothing here" wherever it sits, and key order never matters.
+ *
+ * A form builds its own copy of every group, so a field the config does not carry
+ * comes back as `null` — or as a `null` member inside `health.http`. To the store
+ * those are the same "unset", so they have to compare equal, or a page nobody has
+ * touched reports the whole group as changed (a freshly opened console editor
+ * listed `health.http.path  / → /` for exactly this reason).
+ */
 function same(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+  return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b))
+}
+
+function normalize(value: unknown): unknown {
+  if (Array.isArray(value))
+    return value.map(normalize)
+  if (value !== null && typeof value === 'object') {
+    const members: Record<string, unknown> = {}
+    for (const key of Object.keys(value).sort()) {
+      const member = (value as Record<string, unknown>)[key]
+      if (member === undefined || member === null)
+        continue
+      members[key] = normalize(member)
+    }
+    return members
+  }
+  return value ?? null
 }
 
 /**
