@@ -40,6 +40,46 @@ describe('cli smoke', () => {
     expect(help.stdout).toContain('Environment')
   })
 
+  it('scopes `--help` to the command it follows', () => {
+    const up = runCli(['up', '--help'])
+    expect(up.status).toBe(0)
+    expect(up.stdout).toContain('home-hosted up [options]')
+    expect(up.stdout).toContain('--config')
+    expect(up.stdout).toContain('--foreground')
+    // A command with options must not leak another command's option-only text.
+    expect(up.stdout).not.toContain('--pm')
+    expect(up.stdout).not.toContain('--generate')
+    // The shared trailer still comes along.
+    expect(up.stdout).toContain('--home')
+    expect(up.stdout).toContain('Alias')
+    expect(up.stdout).toContain('Environment')
+
+    const status = runCli(['status', '--help'])
+    expect(status.status).toBe(0)
+    expect(status.stdout).toContain('--json')
+    expect(status.stdout).not.toContain('--foreground')
+
+    const uiSwitch = runCli(['ui-switch', '-h'])
+    expect(uiSwitch.status).toBe(0)
+    expect(uiSwitch.stdout).toContain('--asset')
+    expect(uiSwitch.stdout).not.toContain('--pm')
+
+    for (const [name, marker] of [['down', '--foreground'], ['ui-revert', '--asset']] as const) {
+      const text = runCli([name, '--help'])
+      expect(text.status, name).toBe(0)
+      expect(text.stdout, name).toContain('no options')
+      expect(text.stdout, name).not.toContain(marker)
+    }
+  })
+
+  it('a command with no options says so instead of printing someone else’s', () => {
+    const down = runCli(['down', '--help'])
+    expect(down.status).toBe(0)
+    expect(down.stdout).toContain('home-hosted down')
+    expect(down.stdout).toContain('no options')
+    expect(down.stdout).not.toContain('--config')
+  })
+
   it('an unknown command exits 1 with the usage and the old wording', () => {
     const result = runCli(['nonsense'])
     expect(result.status).toBe(1)

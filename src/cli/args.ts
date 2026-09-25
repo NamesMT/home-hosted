@@ -56,7 +56,7 @@ export function applyDirFlags(flags: DirFlags): void {
 }
 
 export type Invocation
-  = | { kind: 'help' }
+  = | { kind: 'help', command?: string }
     | { kind: 'version' }
     | { kind: 'command', argv: string[] }
     | { kind: 'unknown', command: string }
@@ -74,9 +74,11 @@ const VERSION_FLAGS = new Set(['--version', '-v'])
  *
  * `help`/`version` are commands here, not flags, and a help or version flag on a
  * command is answered the same way instead of being parsed as one of that
- * command's options. A first token that starts with `-` is the one-shot form
- * (`home-hosted -p 4000`), so `up` is prepended. Anything else has to name a
- * command, which keeps the old `unknown command:` text exact.
+ * command's options. A help flag after a command keeps that command's name, so
+ * the curated text can stay scoped to it; the bare `help` (or a top-level flag)
+ * is the whole reference. A first token that starts with `-` is the one-shot
+ * form (`home-hosted -p 4000`), so `up` is prepended. Anything else has to name
+ * a command, which keeps the old `unknown command:` text exact.
  */
 export function resolveInvocation(argv: string[], commands: readonly string[]): Invocation {
   if (argv.length === 0)
@@ -96,7 +98,7 @@ export function resolveInvocation(argv: string[], commands: readonly string[]): 
 
   for (const arg of argv.slice(1)) {
     if (HELP_FLAGS.has(arg))
-      return { kind: 'help' }
+      return { kind: 'help', command: first }
     if (VERSION_FLAGS.has(arg))
       return { kind: 'version' }
   }

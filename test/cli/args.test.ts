@@ -104,8 +104,13 @@ describe('resolveInvocation', () => {
   })
 
   it('answers help and version, at the top level and on a command', () => {
-    for (const argv of [['help'], ['--help'], ['-h'], ['up', '--help'], ['ui-switch', '-h']])
+    for (const argv of [['help'], ['--help'], ['-h']])
       expect(resolveInvocation(argv, commands), argv.join(' ')).toEqual({ kind: 'help' })
+
+    // A help flag after a command keeps that command's name, so the curated text
+    // can be scoped to it instead of dumping the whole reference.
+    for (const argv of [['up', '--help'], ['up', '-h'], ['ui-switch', '--help']])
+      expect(resolveInvocation(argv, commands), argv.join(' ')).toEqual({ kind: 'help', command: argv[0] })
 
     for (const argv of [['version'], ['--version'], ['-v'], ['up', '--version']])
       expect(resolveInvocation(argv, commands), argv.join(' ')).toEqual({ kind: 'version' })
