@@ -7,7 +7,7 @@ import HostRail from '@/components/HostRail.vue'
 import LogDrawer from '@/components/LogDrawer.vue'
 import { connect, disconnect, useControlPlane } from '@/composables/useControlPlane'
 import { isTyping, runKeyHandlers } from '@/composables/useKeymap'
-import { useSession } from '@/composables/useSession'
+import { streamDecision, useSession } from '@/composables/useSession'
 import { useUi } from '@/composables/useUi'
 
 const router = useRouter()
@@ -123,10 +123,12 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 // A dropped session (or a 401 from any call) must land on the login view.
-watch([authRequired, authenticated], ([required, ok]) => {
-  if (session.value === null)
+const stream = computed(() => streamDecision(session.value))
+
+watch(stream, (decision) => {
+  if (decision === 'wait')
     return
-  if (required && !ok) {
+  if (decision === 'login') {
     disconnect()
     void router.push({ name: 'login' })
     return
@@ -136,7 +138,7 @@ watch([authRequired, authenticated], ([required, ok]) => {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
-  if (session.value?.authenticated !== false)
+  if (!authRequired.value || authenticated.value)
     await control.refresh()
 })
 

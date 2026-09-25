@@ -8,7 +8,7 @@ import SystemNotices from '@/components/shell/SystemNotices.vue'
 import ToastStack from '@/components/shell/ToastStack.vue'
 import TopBar from '@/components/shell/TopBar.vue'
 import { connect, disconnect, useControlPlane } from '@/composables/useControlPlane'
-import { useSession } from '@/composables/useSession'
+import { streamDecision, useSession } from '@/composables/useSession'
 import { cn } from '@/lib/cn'
 
 const route = useRoute()
@@ -31,13 +31,15 @@ const host = computed(() => control.host.value)
 /** The panel's own name, from its config; a custom UI is free to ignore it. */
 const panelLabel = computed(() => control.control.value?.label ?? 'home-hosted')
 
-// A dropped session (or a 401 from any call) must land on the login view.
-watch([authRequired, authenticated], ([required, ok]) => {
-  // Session unknown yet: the router guard is still resolving it.
-  if (session.value === null)
-    return
+// A dropped session (or a 401 from any call) must land on the login view, and the
+// event stream follows the session arriving — see `streamDecision` for why this
+// watches a decision and not the two flags.
+const stream = computed(() => streamDecision(session.value))
 
-  if (required && !ok) {
+watch(stream, (decision) => {
+  if (decision === 'wait')
+    return
+  if (decision === 'login') {
     disconnect()
     void router.push({ name: 'login' })
     return
@@ -112,8 +114,11 @@ onScopeDispose(() => disconnect())
           @sign-out="logout()"
         />
 
+        <!-- Gated on the login view, not on a session: a panel with authentication
+             off has no session, and those are exactly the panels whose notices
+             (a broken config, a default password) used to be invisible. -->
         <SystemNotices
-          v-if="authenticated"
+          v-if="!isLogin"
           :control="control.control.value"
           :config-error="control.configError.value"
           :config-path="control.appState.value?.configPath"

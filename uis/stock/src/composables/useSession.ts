@@ -13,6 +13,23 @@ const error = ref<string | null>(null)
  * object: callers destructure it (`const { setPassword } = useSession()`), and a
  * `this.refresh()` inside would then be `undefined.refresh()`.
  */
+/**
+ * What the shell should do about the live event stream.
+ *
+ * This is a value rather than two flags on purpose: the session lands
+ * asynchronously, and with authentication off `authRequired` *and*
+ * `authenticated` are both false from the first paint to the last, so a watcher
+ * on those flags alone never ran — the shell never opened its stream and the
+ * dashboard never updated on its own.
+ */
+export type StreamDecision = 'wait' | 'connect' | 'login'
+
+export function streamDecision(session: SessionView | null): StreamDecision {
+  if (session === null)
+    return 'wait'
+  return session.authRequired && !session.authenticated ? 'login' : 'connect'
+}
+
 export function useSession() {
   async function refresh(): Promise<void> {
     try {
