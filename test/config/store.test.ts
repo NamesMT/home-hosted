@@ -99,6 +99,100 @@ describe('configStore', () => {
     expect(store.getServer('keep')).toBeDefined()
   })
 
+  /**
+   * The reload path a file watcher uses. `lastText` is what makes it quiet: our own
+   * writes are remembered, so only somebody else's bytes count as an edit.
+   */
+  it('reloads a hand edit, and ignores the writes it made itself', async () => {
+    const file = await writeConfig({ servers: [{ id: 'a', command: 'node', autostart: false }] })
+    const store = new ConfigStore(file)
+    store.load()
+
+    store.updateServer('a', { label: 'via the panel' })
+    expect(store.reloadFromDisk()).toEqual({ changed: false, applied: false, error: null })
+
+    await fs.promises.writeFile(file, JSON.stringify({
+      servers: [{ id: 'a', command: 'node', label: 'via an editor' }, { id: 'b', command: 'node' }],
+    }, null, 2))
+
+    expect(store.reloadFromDisk()).toEqual({ changed: true, applied: true, error: null })
+    expect(store.getServer('a')?.label).toBe('via an editor')
+    expect(store.getServer('b')).toBeDefined()
+    // Read once, reported once.
+    expect(store.reloadFromDisk()).toEqual({ changed: false, applied: false, error: null })
+  })
+
+  it('keeps the running config when the file is edited into invalid json, and picks the fix back up', async () => {
+    const file = await writeConfig({ servers: [{ id: 'keep', command: 'node' }] })
+    const store = new ConfigStore(file)
+    store.load()
+
+    const good = await fs.promises.readFile(file, 'utf8')
+    await fs.promises.writeFile(file, '{ nope')
+
+    const broken = store.reloadFromDisk()
+    expect(broken.changed).toBe(true)
+    expect(broken.applied).toBe(false)
+    expect(store.configError).toContain('cannot parse')
+    expect(store.getServer('keep')).toBeDefined()
+
+    await fs.promises.writeFile(file, good)
+    expect(store.reloadFromDisk()).toEqual({ changed: false, applied: false, error: null })
+    expect(store.configError).toBeNull()
+  })
+
+  it('tells the listeners when a broken file becomes readable again', async () => {
+    const file = await writeConfig({ servers: [{ id: 'keep', command: 'node' }] })
+    const store = new ConfigStore(file)
+    store.load()
+
+    const good = await fs.promises.readFile(file, 'utf8')
+    await fs.promises.writeFile(file, '{ nope')
+    expect(store.reloadFromDisk().error).toContain('cannot parse')
+
+    let notified = false
+    store.onChange(() => {
+      notified = true
+    })
+    await fs.promises.writeFile(file, good)
+
+    expect(store.reloadFromDisk()).toEqual({ changed: false, applied: false, error: null })
+    expect(notified).toBe(true)
+  })
+
+  /**
+   * Every write patches `raw`, so a read that could not be trusted must leave it
+   * alone: `{}` would turn the next settings save into a config with no servers.
+   */
+  it('never lets a broken file become the config a write is built from', async () => {
+    const file = await writeConfig({ servers: [{ id: 'keep', command: 'node' }] })
+    const store = new ConfigStore(file)
+    store.load()
+
+    await fs.promises.writeFile(file, '{ nope')
+    store.reloadFromDisk()
+    expect(store.getServer('keep')).toBeDefined()
+
+    store.updateControl({ label: 'written while the file was broken' })
+
+    const written = JSON.parse(await fs.promises.readFile(file, 'utf8')) as { servers?: Array<{ id: string }> }
+    expect(written.servers?.map(entry => entry.id)).toEqual(['keep'])
+  })
+
+  it('treats a deleted file as a problem, never as an edit to re-seed', async () => {
+    const file = await writeConfig({ servers: [{ id: 'keep', command: 'node' }] })
+    const store = new ConfigStore(file)
+    store.load()
+
+    await fs.promises.rm(file)
+    const result = store.reloadFromDisk()
+
+    expect(result.changed).toBe(false)
+    expect(result.error).toContain('is gone')
+    expect(fs.existsSync(file)).toBe(false)
+    expect(store.getServer('keep')).toBeDefined()
+  })
+
   it('reports duplicate ids', async () => {
     const file = await writeConfig({
       servers: [{ id: 'dup', command: 'node' }, { id: 'dup', command: 'node' }],

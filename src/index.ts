@@ -28,6 +28,7 @@ import { appVersion } from '#src/helpers/version'
 import { isPortFree } from '#src/providers/port'
 import { AuthService, DEFAULT_PASSWORD } from '#src/services/auth'
 import { BackupService, resolveBackupPaths } from '#src/services/backups'
+import { ConfigWatch } from '#src/services/config-watch'
 import { ControlServer } from '#src/services/control-server'
 import { EventHub } from '#src/services/events'
 import { checkExposure } from '#src/services/exposure'
@@ -217,6 +218,57 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     hostMonitor,
   })
 
+  /**
+   * A config edited by hand — a text editor, a `git checkout`, a config-management
+   * tool — is picked up without a restart. A revision this release cannot read is
+   * reported in the state frame and the panel keeps running what it had, so a typo
+   * never stops a server. A definition that *did* change takes effect on that
+   * entry's next start; a newly added entry with `autostart` starts now, the way it
+   * would after a restart, and a removed one is stopped and forgotten.
+   */
+  let lastConfigError: string | null = store.configError
+  const configWatch = new ConfigWatch({
+    file: store.path,
+    onChange: () => {
+      const before = new Set(store.servers.map(server => server.id))
+      const result = store.reloadFromDisk()
+
+      // One line per change of state, not one per poll: the file stays bad until
+      // somebody fixes it.
+      if (store.configError !== lastConfigError) {
+        if (store.configError === null)
+          logger.info('the config file is readable again')
+        else
+          logger.error(`${store.configError} — keeping the config already running`)
+        lastConfigError = store.configError
+      }
+
+      if (!result.applied) {
+        if (result.changed && result.error === null)
+          logger.info('the config file changed, but not in a way that changes the config')
+        return
+      }
+
+      const added = store.servers.filter(server => !before.has(server.id))
+      const removed = [...before].filter(id => !store.getServer(id))
+      logger.info(`config reloaded from disk — ${store.servers.length} server(s)${added.length === 0 ? '' : `, ${added.length} added`}${removed.length === 0 ? '' : `, ${removed.length} removed`}`)
+
+      // `--no-autostart` means "do not start anything on your own", and a reload is
+      // not an exception to that.
+      if (!options.autostart)
+        return
+      for (const server of added) {
+        if (!server.autostart)
+          continue
+        void supervisor.start(server.id).catch((error: unknown) => {
+          logger.error(`could not start the added server ${server.id}`, error)
+        })
+      }
+    },
+    onError: error => logger.warn(`cannot watch ${path.basename(store.path)} for changes: ${error instanceof Error ? error.message : String(error)}`),
+  })
+  configWatch.start()
+
   let shuttingDown = false
   const shutdown = async (reason: string): Promise<void> => {
     if (shuttingDown)
@@ -224,6 +276,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     shuttingDown = true
     logger.info(`${reason} — stopping ${supervisor.views().length} server(s)`)
     clearRuntime()
+    configWatch.dispose()
     auth.dispose()
     await supervisor.dispose()
     logFiles.dispose()

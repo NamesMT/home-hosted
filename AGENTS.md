@@ -68,10 +68,10 @@ exists, so the first release has to be published by hand.
 - `src/providers/` — stateless leaves: `process` (spawn, `terminate`, `terminatePid` for a process we
   adopted), `port` (probe, holder lookup, `terminatePids`), `proc` (the sampler, plus
   `processCarriesServerId` for ownership), health-check, host, telegram, archive.
-- `src/services/` — stateful orchestration: supervisor, control-server, state, auth + exposure,
-  dependencies, history, log-buffer/log-files, notifications, host-monitor, backups, tls, ui, plus
-  `init` (the scaffold behind `home-hosted init`: a manifest, a `.gitignore`, and the prompts stay in
-  the CLI). It names no server — the scaffold must stay as neutral as the supervisor.
+- `src/services/` — stateful orchestration: supervisor, control-server, config-watch, state,
+  auth + exposure, dependencies, history, log-buffer/log-files, notifications, host-monitor, backups,
+  tls, ui, plus `init` (the scaffold behind `home-hosted init`: a manifest, a `.gitignore`, and the
+  prompts stay in the CLI). It names no server — the scaffold must stay as neutral as the supervisor.
 - `src/middleware/auth.ts` — the `/api/*` guard, and `requestIdentity()`, the one place a request's
   credentials are read: the `hh2_session` cookie or `Authorization: Bearer <api token>`. A token is
   a first-class credential (same authority as a signed-in browser) and is verified from the secrets
@@ -198,6 +198,22 @@ either is a last resort, and never an accidental one.
   `stopping` first: overlapping calls would double-spawn or resurrect a stopped process. Tests must
   call `supervisor.dispose()`.
 - Port preflight re-probes after 300 ms — a just-closed listener can still complete a handshake.
+- **The config is re-read whenever the file changes on disk** (`src/services/config-watch.ts` →
+  `ConfigStore.reloadFromDisk()`, wired in `src/index.ts`). The watch is on the *directory*, because
+  an editor's save is a temporary file renamed over the target — the inode changes, the name does not
+  — and a two-second poll backs it up where `fs.watch` is undependable (network mounts). The store
+  compares the bytes it last read and the bytes it wrote, so the panel's own saves never reload
+  anything, and a revision it cannot read (unparseable JSON included — that path used to fall back to
+  an *empty* config until a watcher made it reachable, which would have stopped every server) is
+  reported in the state frame while the running config is kept. A changed definition takes effect on
+  that entry's next start; only an added `autostart` entry is started, and `--no-autostart` still
+  means the panel starts nothing on its own.
+- **The shell must watch the *session*, not only the flags it derives.** With authentication off,
+  `authRequired` and `authenticated` are both `false` from the first paint to the last, so a watcher
+  on those two never ran after the session landed: the panel never opened its event stream, the
+  connection badge sat on "Connecting", and the dashboard showed one stale snapshot forever. Both
+  UIs turn it into a single `streamDecision(session)` value (`wait` | `connect` | `login`) and watch
+  that, which is also what the test pins.
 - **A form that copies live state must guard per block, never globally.** The host thresholds and the
   backups policy arrive from `/api/settings` *after* the SSE frame, so a single "has anything
   changed?" gate leaves them showing schema defaults forever — the backups toggle reported itself as

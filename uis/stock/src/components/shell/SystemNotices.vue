@@ -25,7 +25,7 @@ const notices = computed<Notice[]>(() => {
       id: 'config',
       tone: 'danger',
       text: `The config could not be read: ${props.configError}`,
-      hint: `Fix ${props.configPath ?? 'servers.config.json'} and restart the panel.`,
+      hint: `The panel keeps running the config it already had; fix ${props.configPath ?? 'servers.config.json'} and it reloads on its own.`,
     })
   }
 

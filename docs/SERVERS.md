@@ -96,6 +96,17 @@ set onPortConflict to "follow" to adopt it, or "reclaim" to replace it with a su
 
 ## Editing fields
 
-Changes from the panel are atomic and validated before they are written. Editing an entry in the file
-by hand is picked up without a restart; a value the schema rejects is refused with the exact path, and
-the panel keeps running on the config it already had.
+Changes from the panel are atomic and validated before they are written. Editing the file by hand —
+an editor, a `git checkout`, a config-management tool — is picked up within a couple of seconds, no
+restart needed:
+
+- **A definition you changed** takes effect on that entry's next start; a running process is not
+  restarted under you.
+- **A definition you added** appears (and starts itself if it is `autostart`); **one you removed** is
+  stopped and forgotten.
+- **A file the schema rejects, or one that cannot be parsed**, is reported in the panel with the
+  exact path and the running config is left alone. Fix it and it reloads on its own — a typo never
+  stops a server.
+
+A save from the panel's own UI is the panel's write: it replaces the file, so hand-edits made while
+it runs are lost by that next save. Edit, then let the panel read it back, before using the UI.

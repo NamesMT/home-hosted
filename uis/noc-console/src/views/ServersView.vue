@@ -201,6 +201,7 @@ useKeyHandler((key) => {
       <strong>config problem</strong>
       <span>{{ control.configError.value }}</span>
       <code>{{ control.appState.value?.configPath }}</code>
+      <span class="faint">running the last good config; fixing the file reloads it</span>
     </p>
 
     <Splitpanes

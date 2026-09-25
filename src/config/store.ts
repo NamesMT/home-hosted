@@ -85,6 +85,8 @@ function mergeGroup(target: Record<string, unknown>, patch: Record<string, unkno
 
 export class ConfigStore {
   private raw: RawConfig = {}
+  /** The bytes behind the live config, so a watcher can tell a real edit from our own write. */
+  private lastText: string | null = null
   private resolvedConfig!: ResolvedConfig
   private error: string | null = null
   private warnings: string[] = []
@@ -143,34 +145,82 @@ export class ConfigStore {
 
   /**
    * Reads the file and tells the listeners, so whatever wrote it — the settings
-   * page, or a restored backup landing on disk — becomes the live config.
+   * page, a restored backup, or the file watcher — becomes the live config.
    */
   load(): void {
     this.read()
     this.notify()
   }
 
+  /**
+   * The watcher's entry point: re-reads the file only when its bytes changed.
+   *
+   * `changed` means the file on disk is different from what the live config was
+   * read from, `applied` means that difference was accepted — a file this release
+   * cannot read is reported and the config already running is left alone, which is
+   * what keeps an editor's typo from stopping every server.
+   */
+  reloadFromDisk(): { changed: boolean, applied: boolean, error: string | null } {
+    let text: string
+    try {
+      text = fs.readFileSync(this.file, 'utf8')
+    }
+    catch {
+      // Deleting the file is not an edit of it: the seed is written on a first
+      // load, never under a running panel.
+      this.error = `${path.basename(this.file)} is gone`
+      return { changed: false, applied: false, error: this.error }
+    }
+
+    if (text === this.lastText) {
+      // These are the bytes the live config came from, so whatever went wrong in
+      // between (the file was gone, or was edited into something unusable and then
+      // put back) is over. The listeners have to hear about it: the error is part of
+      // the state they publish, and a notice for a file that is fine again is a lie.
+      if (this.error !== null) {
+        this.error = null
+        this.load()
+      }
+      return { changed: false, applied: false, error: null }
+    }
+
+    const before = this.resolvedConfig
+    this.load()
+    return { changed: true, applied: this.resolvedConfig !== before, error: this.error }
+  }
+
   private read(): void {
     if (!fs.existsSync(this.file)) {
       // A missing file gets the seed, stamped and written out for the user to edit.
       const seed = stampConfig(structuredClone(this.seed))
-      writeFileAtomic(this.file, `${JSON.stringify(seed, null, 2)}\n`)
+      const text = `${JSON.stringify(seed, null, 2)}\n`
+      writeFileAtomic(this.file, text)
+      this.lastText = text
       this.raw = seed
       this.apply(seed)
       return
     }
 
+    let text: string
     let parsed: unknown
     try {
-      parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'))
+      text = fs.readFileSync(this.file, 'utf8')
+      parsed = JSON.parse(text)
     }
     catch (error) {
       this.error = `cannot parse ${path.basename(this.file)}: ${(error as Error).message}`
-      this.raw = {}
-      this.resolvedConfig = this.resolveFallback()
+      // The same rule `apply` follows for a value it rejects: a file that cannot be
+      // trusted never replaces a config this process is already running — neither the
+      // running one nor the `raw` one every write patches, or the next settings save
+      // would write a config with no servers in it. Only a first load has nothing to keep.
+      if (this.resolvedConfig === undefined) {
+        this.raw = {}
+        this.resolvedConfig = this.resolveFallback()
+      }
       return
     }
 
+    this.lastText = text
     this.apply(parsed as RawConfig)
   }
 
@@ -312,7 +362,9 @@ export class ConfigStore {
   private commit(draft: RawConfig): void {
     // Every write carries the stamp, so the next release can tell what wrote it.
     const stamped = stampConfig(draft)
-    writeFileAtomic(this.file, `${JSON.stringify(stamped, null, 2)}\n`)
+    const text = `${JSON.stringify(stamped, null, 2)}\n`
+    writeFileAtomic(this.file, text)
+    this.lastText = text
     this.raw = stamped
     this.apply(stamped)
     this.notify()

@@ -407,7 +407,10 @@ onBeforeUnmount(() => observer?.disconnect())
       </header>
 
       <Notice v-if="control.configError.value" tone="danger" title="The config file could not be read" class="mb-4">
-        {{ control.configError.value }}
+        <p>{{ control.configError.value }}</p>
+        <p class="mt-1">
+          The panel keeps running the config it already had; fixing the file reloads it on its own.
+        </p>
       </Notice>
       <Notice v-else-if="configLoadError" tone="warn" title="Some file-only values could not be loaded" class="mb-4">
         {{ configLoadError }}
