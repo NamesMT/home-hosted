@@ -123,16 +123,20 @@ jobs:
         if: ${{ !inputs.dry-run }}
         run: |
           npm publish --access public --provenance
-          # a trusted publisher can be configured to stage instead of publishing live, in which
-          # case npm accepts the upload and holds it for approval. Verify, and say which it was.
-          for attempt in 1 2 3 4 5 6; do
+          # npm accepts the upload and then processes it, which it says can take a few
+          # minutes: a one-minute poll called a green publish "not visible" more than once.
+          # A trusted publisher can also be configured to stage instead of publishing live,
+          # in which case npm holds it for approval — five minutes is long enough that the
+          # warning below means something is actually waiting or wrong.
+          deadline=$((SECONDS + 300))
+          while [ "$SECONDS" -lt "$deadline" ]; do
             if npm view "$(node -p "require('./package.json').name")@$VERSION" version >/dev/null 2>&1; then
               echo "live on npm: $(node -p "require('./package.json').name")@$VERSION"
               exit 0
             fi
             sleep 10
           done
-          echo "::warning::$VERSION is not visible on the registry yet — check npmjs.com for a staged publish waiting for approval"
+          echo "::warning::$VERSION is still not visible on the registry after five minutes — check npmjs.com for a staged publish waiting for approval"
 
       - name: Summary
         run: |
