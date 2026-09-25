@@ -64,4 +64,30 @@ describe('lineSplitter', () => {
     splitter.flush('stderr')
     expect(seen).toEqual(['partial'])
   })
+
+  it('emits an oversized partial line instead of buffering it forever', () => {
+    const seen: string[] = []
+    const splitter = new LineSplitter((_stream, text) => seen.push(text))
+    const huge = 'x'.repeat(200 * 1024)
+
+    splitter.push('stdout', huge)
+
+    // Nothing is lost, but no piece is left growing in memory: a child that never
+    // sends a newline (a progress bar, one minified JSON blob) cannot OOM the daemon.
+    expect(huge.startsWith(seen.join(''))).toBe(true)
+    expect(seen.length).toBeGreaterThan(1)
+    expect(seen.every(text => text.length <= 64 * 1024)).toBe(true)
+
+    // What is left buffered is the tail of that same line, not a copy.
+    splitter.flush('stdout')
+    expect(seen.join('')).toBe(huge)
+  })
+
+  it('strips the carriage return of a flushed partial line too', () => {
+    const seen: string[] = []
+    const splitter = new LineSplitter((_stream, text) => seen.push(text))
+    splitter.push('stdout', 'done\r')
+    splitter.flush('stdout')
+    expect(seen).toEqual(['done'])
+  })
 })
