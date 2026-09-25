@@ -198,7 +198,7 @@ revokes it instantly.
 | `PATCH /api/servers/:id`, `PATCH /api/settings` | edit configuration |
 | `GET /api/logs`, `/api/backups`, `/api/notifications` | logs, archives, Telegram |
 | `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) |
-| `GET /api/metrics` | Prometheus text |
+| `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) |
 
 `GET /openapi/spec.json` describes all of it, `/openapi/ui` is the browsable version, and every error
 comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on.
@@ -227,6 +227,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | | |
 | --- | --- |
 | 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. |
+| 📝 **Hand edits welcome** | Change `servers.config.json` in an editor, a `git checkout` or a config tool: the panel notices within seconds, no restart. A file it cannot read is reported in the panel, and the running servers are left alone. |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. |
 | 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, check ports before starting — and [follow or replace](./docs/SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned — and stops in reverse. |
@@ -281,6 +282,8 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 
 <details>
 <summary><b>⚙️ Flags</b></summary>
+
+`home-hosted <command> --help` prints the options that command takes.
 
 ```text
 -c, --config <file>   servers config (default: <state>/servers.config.json)
@@ -471,10 +474,13 @@ expose them to an unprivileged process, and adopting a self-restarted process is
 
 ```text
 src/            control plane: config, supervisor, API, providers, services
-src/cli.ts      the command line (up/down/status/restart/set-password/set-token/migrate)
+src/cli.ts      the command line; one file per command under src/cli/
 src/index.ts    the control plane itself, used by `up --foreground`
-uis/            UIs: `stock` (shipped) and alternatives — any framework, static output
+uis/            UIs: `stock` (shipped in the package) and `noc-console`, plus any of yours
 bin/            the published entry point
+docs/           topic docs, UI examples and the README's media
+scripts/        builds, typechecks, media capture, release helpers
+test/           the vitest suite
 ```
 
 `pnpm dev` runs the panel with `tsx watch` plus the stock UI's dev server (state goes to
