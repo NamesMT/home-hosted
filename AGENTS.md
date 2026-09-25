@@ -37,11 +37,22 @@ exists, so the first release has to be published by hand.
 
 ## Architecture (and why)
 
-- `src/cli.ts` — the CLI. Its only static imports are node builtins: `--home`/`--project` must set
-  `HHOSTED_HOME`/`HHOSTED_PROJECT` before any `#src` module resolves paths, so every `#src` import is
-  dynamic. `up` re-spawns itself detached as `up --foreground`. A command with helpers of its own
-  lives in `src/cli/` and is imported dynamically after `applyDirFlags()`, taking the readline
-  prompt and the colours through an IO seam (`src/cli/ui-switch.ts` is the first).
+- `src/cli.ts` — the CLI's thin root. Two things happen before [citty](https://github.com/unjs/citty)
+  is asked anything: `--home`/`--project` are peeled off and applied (`src/cli/args.ts`), and the
+  curated dispatch — `help`/`version`, `unknown command`, and the `-p 4000` shorthand for `up` — is
+  decided, because `#src/helpers/paths.ts` resolves at import time. Its static imports stay node
+  builtins, citty and those two path-free local modules; every command is a lazy
+  `() => import('#src/cli/<command>')` in citty's `subCommands`, so a command module *may* use static
+  `#src` imports (that is the whole point of the pre-pass). citty's `runMain` is deliberately not
+  used: it prints its own usage and `console.error`s before `process.exit(1)`, replacing `fail()`'s
+  one error shape; the root calls `runCommand` and catches. `src/cli/<command>.ts` is one command per
+  file — citty owns dispatch and argument parsing, with `--no-autostart`/`--no-install` declared as
+  boolean negations rather than literal arg names. The curated `--help` prose stays in `src/cli.ts`
+  because citty cannot generate it. `up` re-spawns itself detached as `up --foreground …`, with the
+  argv built from the *parsed* flags (`buildDaemonArgv`) plus this file's own URL as the entry, so it
+  works under tsx and from `dist/cli.js` alike. `src/cli/io.ts` is the one place the readline prompts
+  and colours live; commands take `prompt`/`style` through that seam (`src/cli/ui-switch.ts` keeps
+  `UiSwitchIo`).
 - `src/index.ts` — `runControlPlane()`: wiring, startup guards (exposure, free port, live run.json),
   `run.json`, signals. Wiring belongs here and nowhere else.
 - `src/app.ts` — the Hono root, chained routes only. `/_hh` is mounted *before* the `/api/*` auth

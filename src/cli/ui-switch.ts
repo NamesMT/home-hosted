@@ -3,6 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
+import { defineCommand } from 'citty'
+import { prompt, style } from '#src/cli/io'
 
 /**
  * `home-hosted ui-switch` installs the panel's frontend UI without the settings
@@ -436,3 +438,19 @@ function formatBytes(bytes: number): string {
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
+
+/**
+ * The citty entry. `ui-switch` keeps parsing its own flags (and its own error
+ * messages) inside `uiSwitch`; citty dispatches with the argv it was handed, so
+ * the invocation changes and the helpers do not.
+ */
+export const uiSwitchCommand = defineCommand({
+  meta: { name: 'ui-switch', description: 'install a UI from a release asset, a zip file or a URL' },
+  run: async ({ rawArgs }) => {
+    await uiSwitch(rawArgs, {
+      write: text => process.stdout.write(text),
+      prompt,
+      style,
+    })
+  },
+})
