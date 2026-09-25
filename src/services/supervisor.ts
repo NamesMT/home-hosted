@@ -255,10 +255,8 @@ export class Supervisor {
     if (entry.starting || entry.stopping)
       return { ...empty, port, error: `server "${id}" is busy — try again in a moment` }
 
-    const supervised = this.supervisedPids()
-    const holders = await listPortHolders(port)
-    const ours = holders.filter(pid => supervised.has(pid))
-    const foreign = holders.filter(pid => !supervised.has(pid))
+    const { ours, foreign } = await this.portHolders(port)
+    const holders = [...ours, ...foreign]
 
     if (holders.length === 0)
       return { ...empty, port, error: `nothing is listening on port ${port} any more` }
@@ -291,6 +289,21 @@ export class Supervisor {
     }
 
     return { ok: true, port, terminated: stopped, forced, skipped: ours, free }
+  }
+
+  /**
+   * Splits the port's listeners into the processes this panel owns and everyone
+   * else. Only the foreign half may ever be signalled — a port held by a sibling
+   * is a config mistake, not a stray process. That also keeps a stale `(pid 1234)`
+   * in an old banner from killing a recycled pid.
+   */
+  private async portHolders(port: number): Promise<{ ours: number[], foreign: number[] }> {
+    const supervised = this.supervisedPids()
+    const holders = await listPortHolders(port)
+    return {
+      ours: holders.filter(pid => supervised.has(pid)),
+      foreign: holders.filter(pid => !supervised.has(pid)),
+    }
   }
 
   /** Pids of the child processes this panel owns, plus itself. */
@@ -582,6 +595,43 @@ export class Supervisor {
     const holders = await listPortHolders(port)
     const own = await this.ownPortHolders(entry, holders)
     const suffix = holders.length > 0 ? ` (pid ${holders.join(', ')})` : ''
+
+    // `kill` asks for the port outright: whoever holds it goes, this entry's own
+    // successor included. It never touches our own process tree — a port held by
+    // the panel or a sibling stays a config mistake, exactly as `follow`/`reclaim`.
+    if (entry.config.onPortConflict === 'kill') {
+      const { ours, foreign } = await this.portHolders(port)
+
+      if (ours.length > 0) {
+        entry.status = 'conflict'
+        entry.lastError = `port ${port} is held by pid ${ours.join(', ')}, which this panel supervises — stop that server instead`
+        this.log(entry, 'system', `${entry.lastError} — not starting (onPortConflict: kill)`)
+        this.publishServer(entry)
+        return { kind: 'blocked', error: entry.lastError }
+      }
+
+      if (foreign.length === 0) {
+        // The probe says busy but no listener could be listed: let the start decide.
+        this.log(entry, 'system', `port ${port} looks busy but no listener could be found — starting anyway`)
+        return { kind: 'free' }
+      }
+
+      this.log(entry, 'system', `port ${port} is held by pid ${foreign.join(', ')} — onPortConflict: kill, stopping the holder`)
+      const { forced } = await terminatePids(foreign)
+      if (forced.length > 0)
+        this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
+
+      await delay(PORT_RELEASE_RECHECK_MS)
+      if (await freeOnAll()) {
+        entry.portState = 'free'
+        return { kind: 'free' }
+      }
+      entry.status = 'conflict'
+      entry.lastError = `port ${port} is still in use after killing pid ${foreign.join(', ')}`
+      this.log(entry, 'system', entry.lastError)
+      this.publishServer(entry)
+      return { kind: 'blocked', error: entry.lastError }
+    }
 
     // A detached restart of this same server. Following it keeps whatever the program
     // set up (at the cost of its output, which belongs to whoever spawned it);

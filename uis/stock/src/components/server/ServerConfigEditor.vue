@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { HealthConfig, RestartConfig, ServerConfig, StopConfig } from '@shared/contracts'
+import type { HealthConfig, OnPortConflict, RestartConfig, ServerConfig, StopConfig } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import { serverPatchSchema } from '@shared/contracts'
 import { countLeaves, describeChanges, diffServerConfig } from '@shared/patch-diff'
@@ -51,7 +51,7 @@ interface EditorForm {
   maxRssMb: number | null
   port: number | null
   bind: string
-  onPortConflict: 'block' | 'warn' | 'follow' | 'reclaim'
+  onPortConflict: OnPortConflict
   logBufferLines: number | null
   enabled: boolean
   autostart: boolean
@@ -327,6 +327,7 @@ async function save(): Promise<void> {
             { value: 'warn', label: 'warn — start anyway' },
             { value: 'follow', label: 'follow — adopt a detached restart of itself' },
             { value: 'reclaim', label: 'reclaim — replace it with a supervised copy' },
+            { value: 'kill', label: 'kill — stop whatever holds the port' },
           ]"
         />
         <NumberField v-model="form.logBufferLines" label="Log buffer lines" :min="50" :max="100000" :step="50" />

@@ -53,7 +53,7 @@ const form = reactive({
   port: '',
   bind: 'local',
   customBind: '',
-  onPortConflict: 'block' as 'block' | 'warn' | 'follow' | 'reclaim',
+  onPortConflict: 'block' as ServerConfig['onPortConflict'],
   logBufferLines: '500',
   enabled: true,
   autostart: false,
@@ -427,6 +427,7 @@ async function remove(): Promise<void> {
                 <option value="warn">warn</option>
                 <option value="follow">follow</option>
                 <option value="reclaim">reclaim</option>
+                <option value="kill">kill</option>
               </select>
             </label>
             <label class="field">

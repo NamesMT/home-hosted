@@ -66,6 +66,7 @@ Preflight runs before every start, so two servers cannot silently fight over one
 | `warn` | it starts anyway — useful when the listener is a leftover you are replacing |
 | `follow` | if the listener is a **detached restart of this same entry**, the panel adopts it as-is; anything else blocks, exactly like `block` |
 | `reclaim` | same detection, but it stops that successor and starts a fully supervised process of its own |
+| `kill` | stops **whatever holds the port** — no ownership test — then starts. The blunt one: see below |
 
 ### When a program restarts itself
 
@@ -74,8 +75,9 @@ update, a `re-exec` on config change. The panel used to see the successor's port
 there blocked while the service was actually up.
 
 Every process gets `HHOSTED_SERVER_ID` in its environment and a successor inherits it, so the preflight
-can tell a successor from a stranger (Linux `/proc`, macOS `ps -E`; Windows has no per-process
-environment, so there you get the conflict banner and the free-port button). Two policies act on that:
+can tell a successor from a stranger (Linux `/proc`, macOS `ps -E`). **Windows cannot read another
+process's environment**, so there is no ownership test at all there: `follow` and `reclaim` behave
+exactly like `block`, and `kill` is the way out of a stuck port. Two policies act on that marker:
 
 | policy | what it does | trade-off |
 | --- | --- | --- |
@@ -93,6 +95,27 @@ is discovered:
 port 4374 is already in use (pid 912) — pid 912 is a detached restart of this entry:
 set onPortConflict to "follow" to adopt it, or "reclaim" to replace it with a supervised process
 ```
+
+### The `kill` policy
+
+`follow` and `reclaim` need to know *whose* port it is. When they cannot answer that — Windows, or a
+program that re-execs under a different image — `kill` skips the question:
+
+1. SIGTERM every listener on the port, escalating to SIGKILL after `stop.graceMs`.
+2. Wait for the port to actually accept nothing, then start as usual.
+3. If the port is somehow still held, the entry goes to **conflict** with the pids it tried —
+   it does **not** retry in a loop.
+
+It is the one policy that will stop a **stranger** whose port you have configured, so the log says
+which pids it stopped and why. It will not touch the panel itself or any process the panel
+supervises: a port held by a sibling entry is a config mistake and still blocks, exactly as it does
+under `block`. If it is a stray leftover you would rather inspect first, the **Free port** button on
+the server card does the same thing on demand.
+
+Because a detached successor is not something the panel supervises, `kill` ends up doing what
+`reclaim` does for your own restarted process — stops it and starts a supervised child — without ever
+asking whether it was yours. Only `follow` ever adopts, and only `reclaim` will refuse to act on a
+holder it cannot prove is yours.
 
 ## Editing fields
 

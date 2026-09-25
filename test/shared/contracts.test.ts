@@ -12,6 +12,7 @@ import {
   healthSchema,
   logBufferLinesSchema,
   logsSchema,
+  onPortConflictSchema,
   passwordSchema,
   passwordValueSchema,
   portSchema,
@@ -71,6 +72,17 @@ describe('server schema', () => {
   it('bounds logBufferLines', () => {
     expect(logBufferLinesSchema(500)).toBe(500)
     expect(logBufferLinesSchema(10) instanceof type.errors).toBe(true)
+  })
+
+  it('pins every onPortConflict value, and defaults to block', () => {
+    for (const value of ['block', 'warn', 'follow', 'reclaim', 'kill'] as const)
+      expect(onPortConflictSchema(value)).toBe(value)
+
+    expect(onPortConflictSchema('nuke') instanceof type.errors).toBe(true)
+    expect(unwrap(serverSchema({ id: 'a', command: 'node' })).onPortConflict).toBe('block')
+    // A patch carries only what changed, so it must not fill the default in.
+    expect(unwrap(serverPatchSchema({}))).toEqual({})
+    expect(unwrap(serverPatchSchema({ onPortConflict: 'kill' }))).toEqual({ onPortConflict: 'kill' })
   })
 })
 

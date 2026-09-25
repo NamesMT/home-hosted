@@ -232,6 +232,7 @@ async function submit(): Promise<void> {
               { value: 'warn', label: 'warn — start anyway' },
               { value: 'follow', label: 'follow — adopt a detached restart of itself' },
               { value: 'reclaim', label: 'reclaim — replace it with a supervised copy' },
+              { value: 'kill', label: 'kill — stop whatever holds the port' },
             ]"
           />
           <NumberField v-model="form.logBufferLines" label="Log buffer lines" :min="50" :max="100000" :step="50" hint="Blank keeps the default." />

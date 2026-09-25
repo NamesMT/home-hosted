@@ -5,6 +5,7 @@ import type {
   HealthConfig,
   HostConfig,
   LogsConfig,
+  OnPortConflict,
   RestartConfig,
   ServerDefaults,
   StopConfig,
@@ -81,7 +82,7 @@ export interface DefaultsForm {
   enabled: boolean
   autostart: boolean
   bind: string
-  onPortConflict: 'block' | 'warn' | 'follow' | 'reclaim'
+  onPortConflict: OnPortConflict
   logBufferLines: number
   restart: RestartConfig
   health: HealthConfig

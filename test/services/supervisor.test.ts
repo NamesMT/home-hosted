@@ -66,7 +66,7 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs = 10000): Promis
 }
 
 async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ supervisor: Supervisor, store: ConfigStore, hub: EventHub }> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-sup-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-sup-'))
   const file = path.join(dir, 'servers.config.json')
   await fs.promises.writeFile(file, JSON.stringify({ control: { port: 3999 }, servers }, null, 2))
 
@@ -357,6 +357,38 @@ describe('supervisor', () => {
     expect(view(supervisor, 'owner').status).toBe('running')
   })
 
+  it('kills a foreign holder when the policy says so, then starts', async () => {
+    const port = await freePort()
+    const squatter = await squatterOn(port)
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'kill' })])
+
+    const result = await supervisor.start('web')
+    expect(result.ok).toBe(true)
+    await waitForStatus(supervisor, 'web', 'running')
+
+    await waitFor(() => !isAlive(squatter))
+    expect(isAlive(squatter)).toBe(false)
+    expect(supervisor.logLines('web').some(line => line.text.includes(`held by pid ${squatter}`) && line.text.includes('onPortConflict: kill'))).toBe(true)
+  })
+
+  it('will not kill a port held by a server this panel supervises, even under `kill`', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([
+      httpServerConfig(port, { id: 'owner' }),
+      httpServerConfig(port, { id: 'twin', onPortConflict: 'kill' }),
+    ])
+
+    await supervisor.start('owner')
+    await waitForStatus(supervisor, 'owner', 'running')
+
+    const blocked = await supervisor.start('twin')
+    expect(blocked.ok).toBe(false)
+    expect(blocked.error).toContain('which this panel supervises')
+    // The sibling is untouched: a supervised holder is a config mistake, not a target.
+    expect(view(supervisor, 'owner').status).toBe('running')
+    expect(view(supervisor, 'twin').status).toBe('conflict')
+  })
+
   it('says so when there is nothing to free', async () => {
     const port = await freePort()
     const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'block' })])
@@ -395,7 +427,7 @@ describe('supervisor', () => {
   })
 
   it('exports data envs to the process, over `env`', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-dataenv-'))
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dataenv-'))
     cleanups.push(() => fs.promises.rm(dir, { recursive: true, force: true }))
     const out = path.join(dir, 'env.json')
 
@@ -597,6 +629,47 @@ describe('supervisor', () => {
     // The successor was replaced, not followed.
     await waitFor(() => !isAlive(successorPid))
     expect(supervisor.logLines('web').some(line => line.text.includes('replacing it with a supervised process'))).toBe(true)
+
+    await supervisor.stop('web')
+  })
+
+  it('treats our own detached successor like `reclaim` under `kill`, not like `block`', async () => {
+    // `kill` skips the ownership question, so it does not need the HHOSTED_SERVER_ID
+    // marker at all — but the outcome for a successor is `reclaim`'s (stopped and
+    // replaced by a supervised child), never `block`'s.
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'kill' })])
+
+    const successor = spawn(process.execPath, [
+      '-e',
+      'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")',
+    ], {
+      env: { ...process.env, PORT: String(port), HHOSTED_SERVER_ID: 'web' },
+      stdio: 'ignore',
+    })
+    const successorPid = successor.pid
+    if (successorPid === undefined)
+      throw new Error('no successor pid')
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    const result = await supervisor.start('web')
+    expect(result.ok).toBe(true)
+    await waitForStatus(supervisor, 'web', 'running')
+
+    const current = view(supervisor, 'web')
+    expect(current.adopted).toBeUndefined()
+    expect(current.pid).not.toBe(successorPid)
+    await waitFor(() => !isAlive(successorPid))
+    expect(supervisor.logLines('web').some(line => line.text.includes('onPortConflict: kill'))).toBe(true)
 
     await supervisor.stop('web')
   })

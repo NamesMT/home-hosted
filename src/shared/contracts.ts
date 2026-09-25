@@ -20,6 +20,18 @@ export function parseBind(value: string): Bind | null {
 /** `null` means "no port": no readiness probe, no health supervision, no preflight. */
 export const portSchema = type('1 <= number.integer <= 65535 | null')
 
+/**
+ * What to do when something already listens on the entry's port. `follow` and
+ * `reclaim` only ever act on a holder proven to be this entry's own detached
+ * successor (the `HHOSTED_SERVER_ID` marker, POSIX only); `kill` is the blunt one:
+ * it stops any holder except the panel's own process tree.
+ */
+export const onPortConflictSchema = type.enumerated('block', 'warn', 'follow', 'reclaim', 'kill')
+export type OnPortConflict = typeof onPortConflictSchema.infer
+
+/** The stored forms carry the default; a patch must not (see the patch schemas below). */
+export const onPortConflictDefaultSchema = onPortConflictSchema.default('block')
+
 export const restartSchema = type({
   enabled: 'boolean = true',
   maxRetries: 'number.integer >= 0 = 3',
@@ -108,7 +120,7 @@ export const serverSchema = type({
   bootstrap: bootstrapOrNullSchema.optional(),
   port: portSchema.optional(),
   bind: bindSchema.default(() => 'local' as const),
-  onPortConflict: '"block" | "warn" | "follow" | "reclaim" = "block"',
+  onPortConflict: onPortConflictDefaultSchema,
   restart: restartSchema.default(() => ({})),
   health: healthSchema.default(() => ({})),
   stop: stopSchema.default(() => ({})),
@@ -220,7 +232,7 @@ export const defaultsSchema = type({
   enabled: 'boolean = true',
   autostart: 'boolean = false',
   bind: bindSchema.default(() => 'local' as const),
-  onPortConflict: '"block" | "warn" | "follow" | "reclaim" = "block"',
+  onPortConflict: onPortConflictDefaultSchema,
   restart: restartSchema.default(() => ({})),
   health: healthSchema.default(() => ({})),
   stop: stopSchema.default(() => ({})),
@@ -334,7 +346,7 @@ const defaultsPatchSchema = type({
   enabled: 'boolean?',
   autostart: 'boolean?',
   bind: bindSchema.optional(),
-  onPortConflict: '"block" | "warn" | "follow" | "reclaim"?',
+  onPortConflict: onPortConflictSchema.optional(),
   restart: restartPatchSchema.optional(),
   health: healthPatchSchema.optional(),
   stop: stopPatchSchema.optional(),
@@ -353,7 +365,7 @@ const editableFields = {
   bootstrap: bootstrapOrNullSchema.optional(),
   port: portSchema.optional(),
   bind: bindSchema.optional(),
-  onPortConflict: '"block" | "warn" | "follow" | "reclaim"?',
+  onPortConflict: onPortConflictSchema.optional(),
   restart: restartPatchSchema.optional(),
   health: healthPatchSchema.optional(),
   stop: stopPatchSchema.optional(),
