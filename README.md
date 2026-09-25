@@ -251,7 +251,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
 | 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery and host thresholds — [setup here](./docs/NOTIFICATIONS.md). |
 | 💾 **Backups** | One click for config, secrets, TLS and your declared data directories — plain `.zip`, or AES-256 with a password, restored per path. |
-| 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `home-hosted ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
+| 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
 | 🧩 **No special treatment** | A server is `command` + `args` + `env` + `cwd`; nothing is built in for any particular app. |
 | 🖥 **Cross-platform** | Linux, macOS and Windows: `/proc`, `ps` or Win32_Process, process groups or `taskkill /T`, no shell dependencies. |
@@ -292,6 +292,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted migrate` | bring `servers.config.json` up to this release's schema (`--dry-run`, `--yes`) |
 | `home-hosted init` | scaffold a project that keeps `state/` and its data in the repo |
 | `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (interactive) |
+| `home-hosted ui-update` | bring an installed UI up to date, or pick a release (`--old`, `--check`) |
 | `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
 
 <details>
@@ -309,6 +310,7 @@ set-password      --clear
 set-token         --generate --clear
 migrate           --config --dry-run -y/--yes
 ui-switch         --repo --tag --asset --file --list --token -y/--yes
+ui-update         --check --tag --asset --old --repo --token -y/--yes
 ui-revert         (no flags)
 
 every command     --home <dir> --project <dir>       (or $HHOSTED_HOME, $HHOSTED_PROJECT)
@@ -412,7 +414,9 @@ attaches both as `home-hosted-ui-<name>.zip`. Yours can be anything that compile
 the server never cares what built it.
 
 <sub>Install a UI from the CLI: `home-hosted ui-switch` — with no flags it fetches the official asset
-built for this release.</sub>
+built for this release. An **official** UI keeps itself paired with the panel: upgrade the panel and
+the next `up` re-installs the matching asset. Someone else's UI declares its own `repo`/`asset` in
+`ui.json`, and `home-hosted ui-update` offers its newer releases to pick from — `--old` for older ones.</sub>
 
 <details>
 <summary><b>🤖 Or have an agent build the UI you actually want</b></summary>

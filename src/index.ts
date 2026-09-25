@@ -40,6 +40,7 @@ import { buildAppState } from '#src/services/state'
 import { Supervisor } from '#src/services/supervisor'
 import { TlsStore } from '#src/services/tls'
 import { UiService } from '#src/services/ui'
+import { autoUpdateOfficialUi } from '#src/services/ui-update'
 import { parseBind } from '#src/shared/contracts'
 
 /** The package root: one level above this file, whether it is `src/` or `dist/`. */
@@ -334,6 +335,9 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   if (ui.custom) {
     const meta = ui.status().meta
     logger.warn(`custom UI in use${meta === null ? '' : ` (${meta.name}${meta.version === null ? '' : ` ${meta.version}`})`} — if it breaks, run \`home-hosted ui-revert\``)
+    // An official UI is paired with a release, so a panel upgrade re-pairs it without
+    // asking. Never awaited: the UI already on disk keeps serving until it lands.
+    autoUpdateOfficialUi(ui, runtime.version)
   }
   for (const warning of store.configWarnings)
     logger.warn(warning)

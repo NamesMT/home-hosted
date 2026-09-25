@@ -42,6 +42,7 @@ const SYNOPSIS: Record<string, string> = {
   'migrate': 'home-hosted migrate',
   'init': 'home-hosted init',
   'ui-switch': 'home-hosted ui-switch',
+  'ui-update': 'home-hosted ui-update',
   'ui-revert': 'home-hosted ui-revert',
 }
 
@@ -55,6 +56,7 @@ const SUMMARIES: Record<string, string> = {
   'migrate': 'bring the config up to this release\'s schema',
   'init': 'scaffold a project that keeps its state in the repo',
   'ui-switch': 'install a UI from a release asset, a zip file or a URL',
+  'ui-update': 'bring the installed UI up to date, or pick a release',
   'ui-revert': 'go back to the stock control panel UI',
 }
 
@@ -134,6 +136,19 @@ const UI_SWITCH_SECTION: OptionSection = {
     ['--list', 'list the usable assets and install nothing'],
     ['--token <token>', 'GitHub token (or GITHUB_TOKEN / GH_TOKEN)'],
     ['-y, --yes', 'take the only asset instead of asking'],
+  ],
+}
+
+const UI_UPDATE_SECTION: OptionSection = {
+  heading: 'Options for ui-update',
+  lines: [
+    ['--check', 'report whether an update is available and install nothing'],
+    ['--tag <tag>', 'install that release instead of asking'],
+    ['--asset <name>', 'asset to install (defaults to the one in use)'],
+    ['--old', 'list older releases instead of newer ones'],
+    ['--repo <owner/name>', 'for a UI that does not declare its own repo'],
+    ['--token <token>', 'GitHub token (or GITHUB_TOKEN / GH_TOKEN)'],
+    ['-y, --yes', 'take the only release instead of asking'],
   ],
 }
 
@@ -227,6 +242,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'migrate': MIGRATE_SECTION,
   'init': INIT_SECTION,
   'ui-switch': UI_SWITCH_SECTION,
+  'ui-update': UI_UPDATE_SECTION,
 }
 
 /**
@@ -281,6 +297,7 @@ const COMMANDS = {
   'migrate': () => import('#src/cli/migrate').then(module => module.migrateCommand),
   'init': () => import('#src/cli/init').then(module => module.initCommand),
   'ui-switch': () => import('#src/cli/ui-switch').then(module => module.uiSwitchCommand),
+  'ui-update': () => import('#src/cli/ui-update').then(module => module.uiUpdateCommand),
   'ui-revert': () => import('#src/cli/ui-revert').then(module => module.uiRevertCommand),
 } satisfies SubCommandsDef
 

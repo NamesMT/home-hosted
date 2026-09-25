@@ -795,12 +795,27 @@ export const apiErrorSchema = type({
 }).onUndeclaredKey('reject')
 export type ApiError = typeof apiErrorSchema.infer
 
-/** A user-supplied UI, as the settings page shows it. */
+/**
+ * A user-supplied UI, as the settings page shows it.
+ *
+ * The first four are ours: written from what the archive declared plus the install
+ * itself. `repo`/`tag`/`asset`/`unix` come from the UI author's own `ui.json`, and are
+ * all optional because every UI installed before they existed has none of them — an
+ * old UI meets a new panel, which is the normal direction of that mismatch.
+ */
 export const uiMetaSchema = type({
-  name: 'string',
-  version: 'string | null',
-  uploadedAt: 'number',
-  files: 'number.integer >= 1',
+  'name': 'string',
+  'version': 'string | null',
+  'uploadedAt': 'number',
+  'files': 'number.integer >= 1',
+  /** `owner/name` of the UI's own repository, for `ui-update`. */
+  'repo?': 'string',
+  /** The release tag this build came from, e.g. `v0.6.0`. */
+  'tag?': 'string',
+  /** The release asset name, e.g. `home-hosted-ui-noc-console`. */
+  'asset?': 'string',
+  /** When the UI was built, in unix epoch seconds. */
+  'unix?': 'number.integer >= 0',
 })
 export type UiMeta = typeof uiMetaSchema.infer
 

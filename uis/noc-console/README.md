@@ -7,7 +7,12 @@ chords (`g s`, `g l`, `g v`, `g t`). The layout is a rail plus panes: servers, p
 disk logs, host vitals, settings.
 
 It ships as a release asset, not inside the npm package. `public/ui.json` names it `noc-console`
-version `1.0.0`, what Settings shows once installed. `../../docs/media/tour.gif` shows both UIs.
+version `1.0.0`, what Settings shows once installed, and declares `repo`/`tag`/`asset` so the panel
+can re-install the matching build on an upgrade. `../../docs/media/tour.gif` shows both UIs.
+
+**Editing this UI means bumping that file**: raise `version` (patch for a fix, minor for a feature,
+major only for a rewrite or restyle) and set `unix` to the commit's epoch seconds. `tag` names the
+release that carries the build, so it moves when a release is cut.
 
 ## Run it in development
 
@@ -35,6 +40,8 @@ pnpm exec vite --config uis/noc-console/vite.config.ts   # this UI
 - Settings → Interface, pick the zip, then Install UI and refresh.
 - Or drop the build into `$HHOSTED_HOME/.ui` yourself (`index.html` at the root).
 - Or `home-hosted ui-switch --asset home-hosted-ui-noc-console.zip` (or `--asset noc-console`).
+- `home-hosted ui-update` re-installs the build for the running panel, since this UI declares
+  `repo: NamesMT/home-hosted`.
 - `home-hosted ui-revert` puts the stock panel back.
 
 ## Before you edit

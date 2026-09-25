@@ -25,16 +25,47 @@ care what your UI looks like.
 $HHOSTED_HOME/.ui/            ← where your build lives
   index.html                  ← required, at the root
   assets/…
-  ui.json                     ← optional: { "name": "my-panel", "version": "2.1.0" }
+  ui.json                     ← optional, but see below
 ```
 
 **Settings → Interface** → pick a `.zip` → *Install UI* (refresh to see it). Or drop the files into
 `$HHOSTED_HOME/.ui` yourself. The zip may hold the files at its root or inside one wrapper directory
-(`zip -r ui.zip dist` works too). `ui.json` is optional; it is what the settings page shows as
-installed.
+(`zip -r ui.zip dist` works too).
 
 Without the settings page, `home-hosted ui-switch` installs one from a GitHub release asset (its
 default), from a local `.zip` (`--file ./ui.zip`), or from a URL (`--file https://…/ui.zip`).
+
+### `ui.json`
+
+Optional, and everything in it is optional — but it is what lets the panel tell you what is
+installed, and what lets it offer you the next version:
+
+```json
+{
+  "name": "my-panel",
+  "version": "2.1.0",
+  "repo": "you/my-panel",
+  "tag": "v2.1.0",
+  "asset": "my-panel.zip",
+  "unix": 1790366625
+}
+```
+
+| field | |
+| --- | --- |
+| `name`, `version` | what Settings shows as installed |
+| `repo` | `owner/name` the releases come from — the one field `ui-update` needs |
+| `tag` | the release this build came from, so an update can tell newer from older |
+| `asset` | the release asset name, when a release carries more than one UI |
+| `unix` | when the build was made, in epoch seconds |
+
+With those set, `home-hosted ui-update` lists the releases carrying your `asset` and installs the one
+you pick; `--old` lists older ones. A version bump in your own repo is enough — nothing about the
+panel is involved.
+
+> **Official UIs** (`repo: NamesMT/home-hosted`) are paired with the panel instead: the panel knows
+> its own release, so `home-hosted ui-update` installs the matching tag without asking, and
+> upgrading the panel re-pairs the UI on the next `up`.
 
 Nothing is built on the server side: whatever you upload is served as-is, so ship plain
 HTML/JS/CSS or the output of your own Vite/Next/Astro build with relative asset paths.
@@ -204,4 +235,4 @@ the panel on 3999 and a Vite dev server on 3998 with `/api` proxied — point yo
 - [ ] deep links render (the server falls back to `index.html`)
 - [ ] assets self-hosted, no CDN
 - [ ] works over plain http on a LAN
-- [ ] `ui.json` with a name and version, so Settings can tell you what is installed
+- [ ] `ui.json` with a name and version, so Settings can tell you what is installed — plus `repo`/`tag`/`asset` if you want `ui-update` to follow your releases

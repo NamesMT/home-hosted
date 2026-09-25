@@ -24,6 +24,10 @@ const MAX_NAME = 120
 const manifestSchema = type({
   'name?': 'string',
   'version?': 'string',
+  'repo?': 'string',
+  'tag?': 'string',
+  'asset?': 'string',
+  'unix?': 'number.integer >= 0',
 })
 
 /**
@@ -145,6 +149,13 @@ export class UiService {
       version: manifest?.version ?? null,
       uploadedAt: Date.now(),
       files: countFiles(root),
+      // The declared identity is carried into the installed metadata, so `ui-update` can
+      // still tell which release this UI came from long after the zip is gone. Omitted
+      // rather than defaulted: a UI that declares nothing has nothing to say here.
+      ...(manifest?.repo === undefined ? {} : { repo: manifest.repo }),
+      ...(manifest?.tag === undefined ? {} : { tag: manifest.tag }),
+      ...(manifest?.asset === undefined ? {} : { asset: manifest.asset }),
+      ...(manifest?.unix === undefined ? {} : { unix: manifest.unix }),
     }
 
     // The old UI moves aside first: renaming onto an existing directory fails.
@@ -187,7 +198,7 @@ function resolveRoot(staging: string): string | null {
   return fs.existsSync(path.join(inner, 'index.html')) ? inner : null
 }
 
-function readManifest(root: string): { name?: string, version?: string } | null {
+function readManifest(root: string): typeof manifestSchema.infer | null {
   try {
     const parsed = manifestSchema(JSON.parse(fs.readFileSync(path.join(root, META), 'utf8')))
     return parsed instanceof type.errors ? null : parsed

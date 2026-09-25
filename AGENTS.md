@@ -85,6 +85,16 @@ exists, so the first release has to be published by hand.
 - `uis/<name>/` — each UI is a Vite app (Vue 3 + Tailwind v4) built through `uis/vite.shared.ts`;
   `stock` is the one shipped inside the package. Aliases: `@` → that UI's `src`, `@shared` →
   `src/shared`, `@server` → `src` (**types only** — never import runtime server code into a UI).
+  Its `public/ui.json` is the UI's identity: `name` and `version` (what Settings shows),
+  `repo`/`tag`/`asset` (which release carries it, for `ui-update`) and `unix` (when it was built).
+  `UiService` carries those fields into the installed `$HHOSTED_HOME/.ui/ui.json` unchanged and adds
+  `uploadedAt`/`files` of its own.
+- **Bumping a UI ships a new asset, so its `ui.json` is part of the change.** Any commit that alters
+  a UI under `uis/<name>/` bumps that `ui.json`'s `version` and sets `unix` to the commit's own epoch
+  seconds: patch for a fix, minor for a feature, and **major only for a rewrite or a restyle**. The
+  number is what tells a person how big the change is — `ui-update` prints it and holds it against
+  the release it is offering. `tag` is the release that carries the build, so it is set when the
+  release is cut, not before, and it is what pairs an official UI with its panel.
 - `bin/home-hosted.mjs` — the published bin: `dist/cli.js`, or `src/cli.ts` through tsx when the
   build is missing (a linked checkout).
 - `scripts/` — `build-uis.mjs` (build one UI, optionally zip it), `typecheck-uis.mjs`,
