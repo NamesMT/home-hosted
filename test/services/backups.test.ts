@@ -2,16 +2,13 @@ import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
+import { projectDir } from '#src/helpers/paths'
 import { isZipArchive, listZip } from '#src/providers/archive'
 import { BackupService, resolveBackupPaths, slugifyPath } from '#src/services/backups'
 import { backupsSchema, serverSchema } from '#src/shared/contracts'
-
-/** Stands in for the project directory a real run would pass to the templates. */
-const projectDir = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '')
 
 /** Builds a zip by hand, for the cases the service must refuse. */
 async function makeZip(file: string, entries: Record<string, string>): Promise<void> {

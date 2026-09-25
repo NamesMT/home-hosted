@@ -20,6 +20,14 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     coverage: {
+      // A floor, not a target: it fails the run when a change quietly drops a whole
+      // area (a route factory, a provider) out of the suite.
+      thresholds: {
+        statements: 75,
+        branches: 63,
+        functions: 80,
+        lines: 75,
+      },
       exclude: [
         ...configDefaults.coverage.exclude!,
         'src/helpers/logger.ts',
