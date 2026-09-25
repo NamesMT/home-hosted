@@ -34,6 +34,40 @@ shortcuts wizards), and UI directions you could build yourself —
 
 ---
 
+## 🤔 Why?
+
+Running services on a home machine usually means one of two extremes: `tmux` sessions you
+forget about, or a hand-written systemd unit per service (times six) — or a complex docker/k8s
+setup?
+
+|  |  |
+| --- | --- |
+| ❌ **"Is it still running?"** | You check with `ps`, then `curl`, then hope. |
+| ❌ **Silent deaths** | Something crashes at 3am and you notice days later. |
+| ❌ **One terminal per service** | Logs scroll away in tabs you closed. |
+| ❌ **Fragile restarts** | The box reboots and half the stack is gone. |
+| ✅ **home-hosted** | Declare it once, watch it forever, one command to stop it all. |
+
+```text
+                   ┌──────────────────────────────────────┐
+   your browser ──▶│  home-hosted  ·  127.0.0.1:3999      │
+                   │  your UI + JSON API + SSE logs       │
+                   └───────────────┬──────────────────────┘
+                                   │  supervises
+        ┌──────────────────────────┼──────────────────────────┐
+        ▼                          ▼                          ▼
+   ┌─────────┐               ┌─────────┐                ┌─────────┐
+   │ gateway │               │ files   │                │ bot     │
+   │ :4000   │               │ :4010   │                │  ...    │
+   └─────────┘               └─────────┘                └─────────┘
+     health ✓                  health ✓                  restarts ↻
+```
+
+It ships with **nothing**. No blessed paths, no "data directory" setting, no opinion about
+what you run — a server is a command, some arguments, and the environment you give it.
+
+---
+
 ## ⚡ Quick start
 
 ```bash
@@ -103,6 +137,10 @@ Worked example, with per-server data inside the project:
 **[hhosted-9router-dsh](https://github.com/NamesMT/hhosted-9router-dsh)**.
 
 <sub>Call them as `pnpm run up` — `pnpm up` is pnpm's own update, not your script.</sub>
+
+> [!TIP]
+> Give a project its own panel port (`control.port`, e.g. `4399`) — the default `3999` is what the
+> global instance and every other project also want.
 
 </details>
 
