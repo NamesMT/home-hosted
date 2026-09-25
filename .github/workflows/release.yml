@@ -2,7 +2,7 @@ name: Release
 
 # Manual, version-first release. Dispatch with the version to ship:
 #   * gates on the macOS and Windows suite (`cross-platform.yml`) at this exact commit,
-#     so a platform-specific break cannot be published
+#     so a platform-specific break cannot be published (a dry run exercises the gate too)
 #   * verifies the version, lints/types/tests, then builds the CLI, the stock UI and every
 #     UI bundle (`uis/dist/home-hosted-ui-<name>.zip`)
 #   * changelogen derives the changelog from conventional commits, bumps package.json,
@@ -11,7 +11,7 @@ name: Release
 #     and the UI bundles are attached to it
 #   * the package is published to npm with trusted publishing (OIDC — no token)
 #
-# A `dry-run` dispatch skips the gate so a rehearsal stays fast.
+# A `dry-run` dispatch runs the gate too and stops before pushing, releasing and publishing.
 #
 # One-time setup before the first run:
 #   * publish the package once by hand: npm only lets you configure a trusted publisher for a
@@ -44,17 +44,17 @@ concurrency:
 
 jobs:
   # The platform gate: Windows and macOS must pass before anything is tagged or
-  # published. It runs from the same commit being released (`./.github/...`, not a
-  # branch ref), and a dry run skips it so a rehearsal stays fast.
+  # published. It runs from the same commit being released (`./.github/...`, not a branch
+  # ref), on a dry run as well — the gate is exactly what a rehearsal needs to exercise.
   cross-platform:
-    if: ${{ !inputs.dry-run }}
     uses: ./.github/workflows/cross-platform.yml
 
   release:
     needs: [cross-platform]
     # `always()` because a skipped dependency would otherwise skip this job too, and
     # `needs.*.result` is what makes the gate real: a red platform run stops the release.
-    if: ${{ always() && !inputs.dry-run && needs.cross-platform.result == 'success' }}
+    # A dry run still runs the gate — that is the point of rehearsing it.
+    if: ${{ always() && needs.cross-platform.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ inputs.version }}
@@ -103,7 +103,7 @@ jobs:
           test "$(node -p "require('./package.json').version")" = "$VERSION" || { echo "::error::package.json was not bumped to $VERSION"; exit 1; }
 
       - name: Push the commit and the tag
-        if: ${{ !inputs.dry-run }}
+        if: ${{ inputs.dry-run != true && inputs.dry-run != 'true' }}
         run: |
           # Hooks and build steps can leave the tree non-empty, and someone may have pushed
           # while this ran: autostash the leftovers, replay the release commit, then push.
@@ -120,7 +120,7 @@ jobs:
           exit 1
 
       - name: Create the GitHub release with the UI bundles
-        if: ${{ !inputs.dry-run }}
+        if: ${{ inputs.dry-run != true && inputs.dry-run != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -135,7 +135,7 @@ jobs:
             uis/dist/*.zip
 
       - name: Publish to npm
-        if: ${{ !inputs.dry-run }}
+        if: ${{ inputs.dry-run != true && inputs.dry-run != 'true' }}
         run: |
           npm publish --access public --provenance
           # npm accepts the upload and then processes it, which it says can take a few
