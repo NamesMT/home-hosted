@@ -18,6 +18,10 @@ export interface SpawnInfo {
  * Splits a command line into words, undoing the quoting Windows put there. `CommandLine`
  * is the raw string from the spawn call, so `"C:\a b\x.cmd" /c` is one argv entry plus
  * two words, and a quoted argument that contains spaces has to come back as one word.
+ *
+ * Windows also *escapes* a quote inside an argument as `\"` (Node does this for any argv
+ * containing a quote), so the escape is undone here — otherwise every argument with a
+ * quote in it survives as a stray backslash and never matches what the panel spawned.
  */
 export function splitCommandLine(line: string): string[] {
   const words: string[] = []
@@ -51,20 +55,27 @@ export function splitCommandLine(line: string): string[] {
 function comparable(target: string): string {
   // Quotes around a whole word are stripped; whitespace never is. `SpawnInfo.args` is the
   // argv `spawn` was handed, where a whitespace argument is still an argument, so trimming
-  // here would make it compare equal to a missing one.
-  const value = target.replace(/^"(.*)"$/, '$1')
+  // here would make it compare equal to a missing one. A `\"` is Windows' escape for a
+  // quote inside an argument, and the word it sits in is compared against the raw argv.
+  const value = target.replace(/^"(.*)"$/, '$1').replace(/\\(?=")/g, '')
   return process.platform === 'win32' ? value.toLowerCase() : value
 }
 
 /**
- * Literal comparison for an argument: the same string, modulo the case folding Windows
- * paths need and the surrounding quotes a command line may carry. Deliberately *not*
- * `sameWord`: folding an argument to its basename would let this entry's
- * `/srv/web/build/server.js` equal a stranger's `/tmp/evil/build/server.js`, and a match
- * here is what `reclaim` kills.
+ * Literal comparison for an argument: the same text, modulo the case folding Windows needs
+ * and the quoting a command line shuffles around.
+ *
+ * Deliberately *not* `sameWord`: folding an argument to its basename would let this
+ * entry's `/srv/web/build/server.js` equal a stranger's `/tmp/evil/build/server.js`, and a
+ * match here is what `reclaim` kills. Nor is it a plain string equality: reading an argv
+ * back out of a Windows `CommandLine` cannot preserve quotes exactly — the OS escapes an
+ * argument's own quote as `\"` and strips the structural ones — so quotes and backslashes
+ * are dropped from both sides. That leaves the arguments' actual text, which is what the
+ * match is about.
  */
 function sameArg(a: string, b: string): boolean {
-  return comparable(a) === comparable(b)
+  const normalize = (value: string): string => comparable(value).replace(/["\\]/g, '')
+  return normalize(a) === normalize(b)
 }
 
 /** The same file spelled differently (`node`, `node.exe`, a relative path) compares equal. */

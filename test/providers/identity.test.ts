@@ -106,6 +106,15 @@ describe('matchesSpawn', () => {
     expect(matchesSpawn({ words: [process.execPath, '--flag', ''] }, withEmpty)).toBe(true)
   })
 
+  it('matches an argument whose quotes a Windows command line escaped', () => {
+    // A Windows `CommandLine` cannot preserve quotes exactly: the OS escapes an argument's
+    // own quote as \" and drops the structural ones. Comparing the text alone is what
+    // makes an entry whose script contains a quote recognizable there at all.
+    const scripted = { command: process.execPath, args: ['-e', 'require("node:http").createServer()'], cwd: '.' }
+    const reported = `${process.execPath} -e "require(\\"node:http\\").createServer()"`
+    expect(matchesSpawn({ words: splitCommandLine(reported) }, scripted)).toBe(true)
+  })
+
   it('refuses an argument that merely shares a basename', () => {
     // Regression: `sameWord`'s basename folding used to apply to arguments, so the
     // entry's script matched a stranger's script in another directory — and `reclaim`
