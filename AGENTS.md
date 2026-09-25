@@ -196,7 +196,17 @@ either is a last resort, and never an accidental one.
   `PATCH /api/settings`, the TLS routes and `/_hh/shutdown` defer with `afterResponse()`.
 - `Supervisor.start()` sets `starting` synchronously before its first await, and `stop()` sets
   `stopping` first: overlapping calls would double-spawn or resurrect a stopped process. Tests must
-  call `supervisor.dispose()`.
+  call `supervisor.dispose()`. `stopping` is cleared on **every** exit path of `stopEntry()`: the
+  early return for an entry with no child used to leave it set, and since `start()` refuses while it
+  is true, one Stop on an already-stopped server made that entry unstartable until a daemon restart.
+- Timers and `void`-ed promises in the supervisor carry a `.catch`: a throw in the tick or in a retry
+  is an unhandled rejection, and Node 24 ends the process on one.
+- **`Settings → Server defaults` merge into the nested groups key by key** (`mergeDefaults` in
+  `src/config/schema.ts`, used by both the config parser and `validateServer`). A shallow
+  `{ ...defaults, ...entry }` lets an entry that decides `restart.maxRetries` silently drop the
+  panel's `restart.baseDelayMs` — and the create/edit diff flow depends on inheriting exactly that.
+- The curated CLI dispatch reads only the **flag** forms (`--help`/`-h`, `--version`/`-v`) after a
+  command name, never a bare `help`/`version`: that is an option's value (`init --name help`).
 - Port preflight re-probes after 300 ms — a just-closed listener can still complete a handshake.
 - **The config is re-read whenever the file changes on disk** (`src/services/config-watch.ts` →
   `ConfigStore.reloadFromDisk()`, wired in `src/index.ts`). The watch is on the *directory*, because
