@@ -1,12 +1,15 @@
 import type { ControlView } from '@shared/contracts'
 import type { FormSnapshots } from '../src/components/settings/settingsForm'
+import { defaultsSchema } from '@shared/contracts'
 import { countLeaves } from '@shared/patch-diff'
+import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import {
   authBaseline,
   blockSnapshot,
   controlPatch,
   createSettingsForm,
+  defaultsPatch,
   isBlockEdited,
   listenerBaseline,
   numberModel,
@@ -155,5 +158,45 @@ describe('numberModel', () => {
   it('reads the stored number back out', () => {
     const m = model(4321, 3999)
     expect(m.field.value).toBe(4321)
+  })
+})
+
+/**
+ * The health group is the one place a patch has an object to compare: comparing
+ * its members by reference reported the whole group as changed on a form nobody
+ * had touched, which is the "4 fields changed" phantom.
+ */
+describe('nested policy groups', () => {
+  function liveDefaults() {
+    const parsed = defaultsSchema({ health: { mode: 'http' } })
+    if (parsed instanceof type.errors)
+      throw new Error(parsed.summary)
+    return parsed
+  }
+
+  it('reports nothing for an untouched group, object member included', () => {
+    const live = liveDefaults()
+    const form = {
+      ...createSettingsForm().defaults,
+      ...live,
+      restart: { ...live.restart },
+      health: { ...live.health, http: { ...live.health.http } },
+      stop: { ...live.stop },
+    }
+
+    expect(defaultsPatch(live, form)).toEqual({})
+  })
+
+  it('reports the sub-key that changed', () => {
+    const live = liveDefaults()
+    const form = {
+      ...createSettingsForm().defaults,
+      ...live,
+      restart: { ...live.restart },
+      health: { ...live.health, intervalMs: 1234, http: { ...live.health.http } },
+      stop: { ...live.stop },
+    }
+
+    expect(defaultsPatch(live, form)).toEqual({ health: { intervalMs: 1234 } })
   })
 })

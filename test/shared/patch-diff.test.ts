@@ -1,7 +1,7 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { serverSchema } from '#src/shared/contracts'
-import { countLeaves, describeChanges, diffServerConfig, flattenLeaves } from '#src/shared/patch-diff'
+import { countLeaves, describeChanges, diffFields, diffServerConfig, flattenLeaves } from '#src/shared/patch-diff'
 
 function config(overrides: Record<string, unknown> = {}) {
   const parsed = serverSchema({ id: 'web', command: 'node', port: 4000, ...overrides })
@@ -105,5 +105,50 @@ describe('change review', () => {
     expect(countLeaves({ port: 1 })).toBe(1)
     expect(countLeaves({ restart: { maxRetries: 9, factor: 3 } })).toBe(2)
     expect(countLeaves({ args: ['a', 'b'], health: { http: { path: '/x' } } })).toBe(2)
+  })
+})
+
+describe('nested group comparison', () => {
+  const current = {
+    health: {
+      enabled: true,
+      http: { path: '/healthz', method: 'GET', expectStatus: null, expectStatusBelow: 400, expectBody: '' },
+    },
+  }
+
+  it('does not report an object member that is only a different object', () => {
+    const next = {
+      health: {
+        enabled: true,
+        http: { path: '/healthz', method: 'GET', expectStatus: null, expectStatusBelow: 400, expectBody: '' },
+      },
+    }
+
+    expect(diffFields(current, next, ['health'])).toEqual({})
+  })
+
+  it('reports a member that really changed, and only that one', () => {
+    const next = {
+      health: {
+        enabled: true,
+        http: { path: '/ready', method: 'GET', expectStatus: null, expectStatusBelow: 400, expectBody: '' },
+      },
+    }
+
+    expect(diffFields(current, next, ['health'])).toEqual({ health: { http: next.health.http } })
+  })
+
+  it('treats a null the form carries as the absent key it is', () => {
+    const withStatus = { health: { ...current.health, http: { ...current.health.http, expectStatus: 200 } } }
+    const withoutStatus = { health: { ...current.health, http: { ...current.health.http } } }
+
+    expect(diffFields(current, withoutStatus, ['health'])).toEqual({})
+    // Clearing a value the config does have is still a change.
+    expect(diffFields(withStatus, withoutStatus, ['health'])).toEqual({ health: { http: withoutStatus.health.http } })
+  })
+
+  it('keeps a top-level null as the explicit clear it is', () => {
+    expect(diffFields({ bootstrap: { command: 'x' } }, { bootstrap: null })).toEqual({ bootstrap: null })
+    expect(diffFields({ bootstrap: null }, { bootstrap: null })).toEqual({})
   })
 })

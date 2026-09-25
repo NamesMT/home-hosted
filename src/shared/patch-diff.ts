@@ -13,7 +13,11 @@ function same(a: unknown, b: unknown): boolean {
  * Keeps only the fields that differ from `current`.
  *
  * Nested groups list only the sub-keys that changed, which is what lets the
- * server merge a partial patch instead of replacing the whole group.
+ * server merge a partial patch instead of replacing the whole group. Every
+ * comparison goes through `same`, including the one inside a group: `health.http`
+ * is an object, so comparing those members by reference reported the whole group
+ * as changed on a form nobody had touched, and a `null` the form carries where
+ * the config has no key at all is the same "nothing here" the server would clear.
  */
 export function diffFields(current: Patch, next: Patch, nested: readonly string[] = []): Patch {
   const patch: Patch = {}
@@ -23,7 +27,7 @@ export function diffFields(current: Patch, next: Patch, nested: readonly string[
       const before = (current[key] ?? {}) as Patch
       const changed: Patch = {}
       for (const [innerKey, innerValue] of Object.entries((value ?? {}) as Patch)) {
-        if (before[innerKey] !== innerValue)
+        if (!same(before[innerKey], innerValue))
           changed[innerKey] = innerValue
       }
       if (Object.keys(changed).length > 0)

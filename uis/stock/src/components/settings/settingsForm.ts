@@ -256,19 +256,9 @@ export function controlPatch(view: ControlView, form: SettingsForm): Patch {
   return diffFields(current, next, ['auth', 'tls'])
 }
 
-/**
- * `diffFields` compares nested group members by reference, and `health.http` is
- * the only object down there: drop it again when its contents did not change.
- */
+/** Only the changed sub-keys: the store merges a nested group rather than replacing it. */
 export function defaultsPatch(current: ServerDefaults, form: DefaultsForm): Patch {
-  const patch = diffFields(current as unknown as Patch, form as unknown as Patch, ['restart', 'health', 'stop'])
-  const health = patch.health as Patch | undefined
-  if (health !== undefined && 'http' in health && JSON.stringify(current.health.http) === JSON.stringify(form.health.http)) {
-    delete health.http
-    if (Object.keys(health).length === 0)
-      delete patch.health
-  }
-  return patch
+  return diffFields(current as unknown as Patch, form as unknown as Patch, ['restart', 'health', 'stop'])
 }
 
 export function logsPatch(current: LogsConfig, form: LogsForm): Patch {
