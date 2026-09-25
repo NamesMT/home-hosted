@@ -3,12 +3,13 @@ import type { AuthStatus, ControlView, LogsConfig, ServerDefaults, SettingsPatch
 import type { Patch } from '@shared/patch-diff'
 
 import type { BackupsState, RestoreOptions, RestorePlan, SettingsView } from '@/lib/api'
-import { diffFields } from '@shared/patch-diff'
+import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
+import { changesOpen } from '@/composables/useUi'
 import * as api from '@/lib/api'
 import { waitForEndpoint } from '@/lib/endpoint'
 import { formatBytes, formatDateTime } from '@/lib/format'
@@ -143,62 +144,167 @@ async function loadSettings(): Promise<void> {
   }
 }
 
-/** Pulls the config into the form; called on mount and after every save. */
-function applySettings(): void {
+type FormBlock = 'control' | 'auth' | 'defaults' | 'logs' | 'telegram' | 'host' | 'backups'
+type FormSnapshots = Partial<Record<FormBlock, unknown>>
+
+/** A copy of the health group, nested `http` included. */
+function cloneHealth(health: ServerDefaults['health']): ServerDefaults['health'] {
+  return { ...health, http: { ...health.http } }
+}
+
+function fillControl(): boolean {
   const view = controlView.value
-  if (view) {
-    Object.assign(form.control, {
-      label: view.label,
-      port: view.port,
-      host: view.host,
-      openBrowser: view.openBrowser,
-      tlsEnabled: view.tls.enabled,
-    })
-    Object.assign(form.auth, authConfig(view.auth))
-  }
+  if (!view)
+    return false
+  Object.assign(form.control, {
+    label: view.label,
+    port: view.port,
+    host: view.host,
+    openBrowser: view.openBrowser,
+    tlsEnabled: view.tls.enabled,
+  })
+  return true
+}
 
-  const logsConfig: LogsConfig | undefined = state.value?.logs
-  if (logsConfig)
-    Object.assign(form.logs, logsConfig)
+function fillAuth(): boolean {
+  const view = controlView.value
+  if (!view)
+    return false
+  Object.assign(form.auth, authConfig(view.auth))
+  return true
+}
 
-  const telegramStatus = state.value?.notifications.telegram
-  if (telegramStatus)
-    Object.assign(form.notifications.telegram, telegramConfig(telegramStatus))
-
-  const configured = settings.value
-  if (configured) {
-    Object.assign(form.host, { ...configured.host, diskPaths: joinList(configured.host.diskPaths) })
-    Object.assign(form.backups, {
-      enabled: configured.backups.enabled,
-      keep: configured.backups.keep,
-      includePaths: joinList(configured.backups.includePaths),
-    })
-  }
-
+function fillDefaults(): boolean {
   const defaults = defaultsView.value
-  if (defaults) {
-    Object.assign(form.defaults, {
-      enabled: defaults.enabled,
-      autostart: defaults.autostart,
-      bind: defaults.bind,
-      onPortConflict: defaults.onPortConflict,
-      logBufferLines: defaults.logBufferLines,
-    })
-    Object.assign(form.defaults.restart, defaults.restart)
-    Object.assign(form.defaults.health, defaults.health)
-    Object.assign(form.defaults.stop, defaults.stop)
+  if (!defaults)
+    return false
+  Object.assign(form.defaults, {
+    enabled: defaults.enabled,
+    autostart: defaults.autostart,
+    bind: defaults.bind,
+    onPortConflict: defaults.onPortConflict,
+    logBufferLines: defaults.logBufferLines,
+  })
+  Object.assign(form.defaults.restart, defaults.restart)
+  Object.assign(form.defaults.health, cloneHealth(defaults.health))
+  Object.assign(form.defaults.stop, defaults.stop)
+  return true
+}
+
+function fillLogs(): boolean {
+  const logs: LogsConfig | undefined = state.value?.logs
+  if (!logs)
+    return false
+  Object.assign(form.logs, logs)
+  return true
+}
+
+function fillTelegram(): boolean {
+  const status = state.value?.notifications.telegram
+  if (!status)
+    return false
+  Object.assign(form.notifications.telegram, telegramConfig(status))
+  return true
+}
+
+function fillHost(): boolean {
+  const configured = settings.value
+  if (!configured)
+    return false
+  Object.assign(form.host, { ...configured.host, diskPaths: joinList(configured.host.diskPaths) })
+  return true
+}
+
+function fillBackups(): boolean {
+  const configured = settings.value
+  if (!configured)
+    return false
+  Object.assign(form.backups, {
+    enabled: configured.backups.enabled,
+    keep: configured.backups.keep,
+    includePaths: joinList(configured.backups.includePaths),
+  })
+  return true
+}
+
+const FILLERS: Record<FormBlock, () => boolean> = {
+  control: fillControl,
+  auth: fillAuth,
+  defaults: fillDefaults,
+  logs: fillLogs,
+  telegram: fillTelegram,
+  host: fillHost,
+  backups: fillBackups,
+}
+
+/** What each block held when it was last filled; absent means "never filled". */
+const snapshots: FormSnapshots = {}
+
+function blockSnapshot(block: FormBlock): unknown {
+  switch (block) {
+    case 'control': return { ...form.control }
+    case 'auth': return { ...form.auth }
+    case 'defaults': return {
+      ...form.defaults,
+      restart: { ...form.defaults.restart },
+      health: cloneHealth(form.defaults.health),
+      stop: { ...form.defaults.stop },
+    }
+    case 'logs': return { ...form.logs }
+    case 'telegram': return { ...form.notifications.telegram }
+    case 'host': return { ...form.host }
+    case 'backups': return { ...form.backups }
+  }
+}
+
+/**
+ * True when a block was filled from live state and edited since, so the next
+ * frame must leave it alone. A block that was never filled is always free: the
+ * schema defaults differ from the live config (`auth.enabled`, `backups.enabled`)
+ * and would otherwise look like a pending edit that blocks its own first fill.
+ */
+function isBlockEdited(block: FormBlock): boolean {
+  const snapshot = snapshots[block]
+  return snapshot !== undefined && JSON.stringify(snapshot) !== JSON.stringify(blockSnapshot(block))
+}
+
+/** A block the user just reset by hand is back in sync with its source. */
+function remember(block: FormBlock): void {
+  snapshots[block] = blockSnapshot(block)
+}
+
+function forgetSnapshots(): void {
+  for (const key of Object.keys(snapshots))
+    delete snapshots[key as FormBlock]
+}
+
+/**
+ * Fills each block from its own source unless the user is editing that block.
+ * Host thresholds and the backups policy land from `/api/settings` *after* the
+ * state stream, so a single global gate would leave those two showing schema
+ * defaults forever — the backups toggle reported itself as changed on reload.
+ */
+function syncFromLive(): void {
+  for (const block of Object.keys(FILLERS) as FormBlock[]) {
+    if (isBlockEdited(block))
+      continue
+    if (FILLERS[block]())
+      remember(block)
+  }
+}
+
+/** The unconditional fill: on mount and just after a successful save. */
+function applySettings(): void {
+  for (const block of Object.keys(FILLERS) as FormBlock[]) {
+    if (FILLERS[block]())
+      remember(block)
   }
 }
 
 onMounted(loadSettings)
 
-/**
- * Form state initialises from the live app state and stays in sync as it lands,
- * exactly like a fresh page load would: the watcher is not immediate because the
- * config-bearing `appState` is usually still null on mount.
- */
-watch([controlView, defaultsView, settings], () => {
-  applySettings()
+watch([controlView, defaultsView, settings, state], () => {
+  syncFromLive()
 }, { immediate: true })
 
 const PRESET_BINDS = ['local', 'lan']
@@ -305,6 +411,64 @@ function buildPatch(view: ControlView, defaults: ServerDefaults): SettingsPatch 
   return patch
 }
 
+const pendingPatch = computed<SettingsPatch | null>(() => {
+  const view = controlView.value
+  const defaults = defaultsView.value
+  if (!view || !defaults)
+    return null
+  return buildPatch(view, defaults)
+})
+
+const changedCount = computed(() => (pendingPatch.value === null ? 0 : countLeaves(pendingPatch.value as Patch)))
+
+/** What every patched field is compared against, keyed the way the patch is. */
+const currentSnapshot = computed<Patch>(() => {
+  const view = controlView.value
+  const configured = settings.value
+  return {
+    control: view === null
+      ? {}
+      : {
+          label: view.label,
+          port: view.port,
+          host: view.host,
+          openBrowser: view.openBrowser,
+          tls: { enabled: view.tls.enabled },
+          auth: authConfig(view.auth),
+        },
+    defaults: defaultsView.value ?? {},
+    logs: configured?.logs ?? {},
+    notifications: configured === null ? {} : { telegram: configured.notifications.telegram },
+    host: configured === null ? {} : { ...configured.host, diskPaths: configured.host.diskPaths },
+    backups: configured === null
+      ? {}
+      : { enabled: configured.backups.enabled, keep: configured.backups.keep, includePaths: configured.backups.includePaths },
+  }
+})
+
+const changes = computed(() => (pendingPatch.value === null
+  ? []
+  : describeChanges(pendingPatch.value as Patch, currentSnapshot.value)))
+
+function formatChangeValue(value: unknown): string {
+  if (value === undefined)
+    return 'unset'
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function saveFromDialog(): void {
+  changesOpen.value = false
+  void saveSettings()
+}
+
+function openChanges(): void {
+  changesOpen.value = true
+}
+
+function closeChanges(): void {
+  changesOpen.value = false
+}
+
 async function saveSettings(): Promise<void> {
   saving.value = true
   settingsError.value = null
@@ -331,6 +495,9 @@ async function saveSettings(): Promise<void> {
     }
 
     settings.value = result
+    // What was saved is what live state holds now, so every block may follow it
+    // again — including the ones this save just brought back in sync.
+    forgetSnapshots()
     applySettings()
 
     if (!result.rebinding) {
@@ -749,6 +916,14 @@ async function revertUi(): Promise<void> {
       <span class="view__count">panel config · servers.config.json</span>
       <span v-if="controlView?.restartRequired" class="chip chip--warn">restart required</span>
       <span class="view__spacer" />
+      <button
+        v-if="changedCount > 0"
+        type="button"
+        class="btn btn--sm btn--ghost changelink"
+        @click="openChanges"
+      >
+        <span class="mono">{{ changedCount }}</span> field{{ changedCount === 1 ? '' : 's' }} changed
+      </button>
       <button type="button" class="btn btn--sm btn--primary" :disabled="saving" @click="saveSettings">
         {{ saving ? 'Saving…' : 'Save settings' }}
       </button>
@@ -1247,7 +1422,7 @@ async function revertUi(): Promise<void> {
             </p>
           </div>
 
-          <div class="group">
+          <div v-if="form.backups.enabled" class="group">
             <div class="group__head">
               <span class="group__title">create</span>
               <span class="group__note">the password encrypts this archive only; restoring asks for it</span>
@@ -1263,6 +1438,12 @@ async function revertUi(): Promise<void> {
                 Create backup now
               </button>
             </div>
+          </div>
+          <div v-else class="group">
+            <p class="note note--warn">
+              Backups are off — nothing new is archived. Archives already on disk stay
+              downloadable and restorable.
+            </p>
           </div>
 
           <div class="group">
@@ -1552,6 +1733,43 @@ async function revertUi(): Promise<void> {
       <p v-if="settingsMessage" class="note note--ok settings-note">
         {{ settingsMessage }}
       </p>
+    </div>
+
+    <div v-if="changesOpen" class="overlay" @click.self="closeChanges">
+      <div class="overlay__panel overlay__panel--sheet" role="dialog" aria-label="unsaved settings changes">
+        <div class="overlay__head">
+          <span class="overlay__title">unsaved changes</span>
+          <span class="view__spacer" />
+          <span class="faint">{{ changedCount }} field(s) → servers.config.json</span>
+          <kbd class="kbd">esc</kbd>
+          <button type="button" class="btn btn--xs btn--ghost" @click="closeChanges">
+            close
+          </button>
+        </div>
+        <div class="overlay__body">
+          <div v-if="changes.length > 0" class="change-list">
+            <div v-for="change in changes" :key="change.path" class="change-row">
+              <code class="change-row__path">{{ change.path }}</code>
+              <span class="change-row__from">{{ formatChangeValue(change.from) }}</span>
+              <span class="change-row__arrow">→</span>
+              <span class="change-row__to">{{ formatChangeValue(change.to) }}</span>
+            </div>
+          </div>
+          <p v-else class="empty">
+            nothing changed
+          </p>
+        </div>
+        <div class="group">
+          <div class="actions">
+            <button type="button" class="btn btn--sm" @click="closeChanges">
+              close
+            </button>
+            <button type="button" class="btn btn--sm btn--primary" :disabled="saving || changes.length === 0" @click="saveFromDialog">
+              save {{ changes.length }} change{{ changes.length === 1 ? '' : 's' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>

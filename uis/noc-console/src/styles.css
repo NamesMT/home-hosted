@@ -536,11 +536,9 @@ textarea {
 }
 
 .split__half--list {
-  flex: 0 0 auto;
-  max-height: 46%;
-  min-height: 160px;
   display: flex;
   flex-direction: column;
+  min-height: 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -549,18 +547,143 @@ textarea {
   min-height: 0;
 }
 
+/* The whole detail column scrolls; each pane keeps its natural height. */
 .split__half--detail {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.split__half--detail > .pane {
+  flex: 0 0 auto;
+  max-height: none;
+}
+
+.split__half--detail > .pane > .pane__body {
+  overflow: visible;
+  flex: none;
+  min-height: 0;
+}
+
+/* ---- resizable servers split --------------------------------------------- */
+
+/* The layout splitpanes itself does not ship in JS: only the base it needs,
+   restyled below. The library's default theme is deliberately not imported. */
+.splitpanes {
+  width: 100%;
+  height: 100%;
+  display: flex;
+}
+
+.splitpanes--vertical {
+  flex-direction: row;
+}
+
+.splitpanes--horizontal {
+  flex-direction: column;
+}
+
+.splitpanes--dragging .splitpanes__pane {
+  user-select: none;
+  pointer-events: none;
+}
+
+.splitpanes__pane {
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 
-/* Only the last pane in the detail column grows; the rest cap and scroll. */
-.split__half--detail > .pane:not(:last-child) {
-  flex: 0 1 auto;
-  max-height: 190px;
+.splitpanes--ready .splitpanes__pane {
+  will-change: width, height;
+  transition: width 0.2s ease-out, height 0.2s ease-out;
+}
+
+.splitpanes--ready.splitpanes--dragging .splitpanes__pane {
+  transition: none;
+}
+
+.split-panes {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+}
+
+.split-panes--servers > .splitpanes__pane {
+  overflow: hidden;
+}
+
+.split-panes--servers .split__half--list {
+  height: 100%;
+  border-bottom: 0;
+}
+
+.split-panes--servers .split__half--detail {
+  height: 100%;
+}
+
+.split-panes--servers > .splitpanes__splitter {
+  position: relative;
+  flex: none;
+  height: 9px;
+  min-height: 9px;
+  background: transparent;
+  cursor: row-resize;
+  touch-action: none;
+  transition: background-color 120ms ease;
+}
+
+/* The hairline divider with a taller pointer hit area around it. */
+.split-panes--servers > .splitpanes__splitter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto 0;
+  height: 1px;
+  background: var(--line);
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.split-panes--servers > .splitpanes__splitter:hover {
+  background: rgb(56 199 214 / 10%);
+}
+
+.split-panes--servers > .splitpanes__splitter:hover::after,
+.split-panes--servers.splitpanes--dragging > .splitpanes__splitter::after {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.split-panes--servers > .splitpanes__splitter:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ---- stacked fallback (narrow viewports) --------------------------------- */
+
+.split--stacked {
+  flex: none;
+}
+
+.split--stacked .split__half--list {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.split--stacked .split__half--detail {
+  flex: none;
+  overflow: visible;
+}
+
+.split--stacked .split__half--detail > .pane {
+  min-height: 0;
+}
+
+.split--stacked .split__half--detail .log__body {
+  max-height: 320px;
 }
 
 /* ---- status line --------------------------------------------------------- */
@@ -1194,6 +1317,23 @@ input[type='file'] {
   flex-direction: column;
 }
 
+/* A long form scrolls as one document: panes keep their natural height and the
+   page's `.view` owns the only scrollbar. */
+.form--page {
+  flex: none;
+  min-height: 0;
+}
+
+.form--page .pane {
+  min-height: 0;
+}
+
+.form--page .pane__body {
+  overflow: visible;
+  flex: none;
+  min-height: 0;
+}
+
 .group {
   border-bottom: 1px solid var(--line);
   padding: 0.6rem 0.75rem 0.75rem;
@@ -1626,6 +1766,127 @@ input[type='file'] {
   padding: 0.75rem;
 }
 
+/* A sheet keeps its footer visible while the body scrolls. */
+.overlay__panel--sheet {
+  display: flex;
+  flex-direction: column;
+  max-height: 88dvh;
+  overflow: hidden;
+}
+
+.overlay__panel--sheet > .overlay__head,
+.overlay__panel--sheet > .group,
+.overlay__panel--sheet .sheet__foot {
+  flex: none;
+}
+
+.overlay__panel--sheet .overlay__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sheet__form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.change-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.change-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+
+.change-row:last-child {
+  border-bottom: 0;
+}
+
+.change-row__path {
+  color: var(--text-hi);
+  min-width: 0;
+  word-break: break-all;
+}
+
+.change-row__from,
+.change-row__to {
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.change-row__from {
+  margin-left: auto;
+  color: var(--faint);
+  text-decoration: line-through;
+}
+
+.change-row__to {
+  color: var(--accent);
+}
+
+.change-row__arrow {
+  flex: none;
+  color: var(--faint);
+}
+
+.changelink {
+  font-family: var(--mono);
+  color: var(--warn);
+}
+
+/* ---- disclosure ---------------------------------------------------------- */
+
+.advanced {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 0.4rem;
+}
+
+.advanced__summary {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.advanced__summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced__summary::before {
+  content: '›';
+  display: inline-block;
+  transition: transform 120ms ease;
+}
+
+.advanced[open] > .advanced__summary::before {
+  transform: rotate(90deg);
+}
+
+.advanced__note {
+  margin: 0.35rem 0 0.5rem;
+  max-width: 84ch;
+}
+
 .keys {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
@@ -1860,10 +2121,6 @@ button.nav__item {
     flex: 1 1 auto;
     border-left: 0;
     border-top: 1px solid var(--line);
-  }
-
-  .split__half--list {
-    max-height: 40%;
   }
 }
 

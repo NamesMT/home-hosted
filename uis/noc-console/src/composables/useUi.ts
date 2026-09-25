@@ -10,6 +10,9 @@ export const filter = ref('')
 export const helpOpen = ref(false)
 export const addOpen = ref(false)
 export const drawerOpen = ref(false)
+/** The settings change review and the server-config save review. */
+export const changesOpen = ref(false)
+export const configChangesOpen = ref(false)
 /** First key of a two-key chord (`g`), shown in the status line while pending. */
 export const keyPrefix = ref<string | null>(null)
 export const toast = ref<{ text: string, kind: 'info' | 'error' } | null>(null)
@@ -33,9 +36,24 @@ export function closeOverlays(): void {
   helpOpen.value = false
   addOpen.value = false
   drawerOpen.value = false
+  changesOpen.value = false
+  configChangesOpen.value = false
   keyPrefix.value = null
 }
 
 export function useUi() {
-  return { selectedId, filter, helpOpen, addOpen, drawerOpen, keyPrefix, toast, flash, toggleDrawer, closeOverlays }
+  return {
+    selectedId,
+    filter,
+    helpOpen,
+    addOpen,
+    drawerOpen,
+    changesOpen,
+    configChangesOpen,
+    keyPrefix,
+    toast,
+    flash,
+    toggleDrawer,
+    closeOverlays,
+  }
 }

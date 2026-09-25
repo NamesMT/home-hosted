@@ -13,7 +13,7 @@ import { useUi } from '@/composables/useUi'
 const router = useRouter()
 const control = useControlPlane()
 const { session, logout } = useSession()
-const { selectedId, drawerOpen, helpOpen, addOpen, keyPrefix, toast } = useUi()
+const { selectedId, drawerOpen, helpOpen, addOpen, changesOpen, configChangesOpen, keyPrefix, toast } = useUi()
 
 const servers = computed(() => control.servers.value)
 const connectionLabel = computed(() => ({
@@ -56,13 +56,23 @@ function onKeydown(event: KeyboardEvent): void {
       event.preventDefault()
       return
     }
+    if (changesOpen.value) {
+      changesOpen.value = false
+      event.preventDefault()
+      return
+    }
+    if (configChangesOpen.value) {
+      configChangesOpen.value = false
+      event.preventDefault()
+      return
+    }
     if (isTyping(event))
       (event.target as HTMLElement).blur()
     keyPrefix.value = null
     return
   }
 
-  if (helpOpen.value || addOpen.value || isTyping(event))
+  if (helpOpen.value || addOpen.value || changesOpen.value || configChangesOpen.value || isTyping(event))
     return
   if (event.metaKey || event.ctrlKey || event.altKey)
     return

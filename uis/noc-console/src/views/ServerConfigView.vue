@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import type { ServerConfig } from '@shared/contracts'
+import type { Patch } from '@shared/patch-diff'
 import { parseBind, serverPatchSchema } from '@shared/contracts'
-import { diffServerConfig } from '@shared/patch-diff'
+import { countLeaves, describeChanges, diffServerConfig } from '@shared/patch-diff'
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
-import { flash, selectedId } from '@/composables/useUi'
+import { configChangesOpen, flash, selectedId } from '@/composables/useUi'
 
 const props = defineProps<{ id: string }>()
 
@@ -48,6 +49,7 @@ const form = reactive({
   env: '',
   dataEnvs: '',
   backupPaths: '',
+  backupIgnoreGenerated: true,
   port: '',
   bind: 'local',
   customBind: '',
@@ -92,6 +94,9 @@ const form = reactive({
   bootstrapTimeoutMs: '120000',
   bootstrapRunOnce: true,
 })
+
+/** The config the form was last loaded from; a live frame equal to it must not reload the form. */
+let source: ServerConfig | null = null
 
 function load(cfg: ServerConfig): void {
   const standard = cfg.bind === 'local' || cfg.bind === 'lan'
@@ -141,12 +146,16 @@ function load(cfg: ServerConfig): void {
     bootstrapEnv: envToText(cfg.bootstrap?.env ?? {}),
     bootstrapTimeoutMs: String(cfg.bootstrap?.timeoutMs ?? 120000),
     bootstrapRunOnce: cfg.bootstrap?.runOnce ?? true,
+    backupIgnoreGenerated: cfg.backupIgnoreGenerated !== false,
   })
+  source = cfg
 }
 
-watch(config, (cfg) => {
-  if (cfg)
-    load(cfg)
+// The control plane rebuilds every config object on each state frame; only a
+// genuine change may replace what the user has typed so far.
+watch(config, (next) => {
+  if (next && JSON.stringify(next) !== JSON.stringify(source))
+    load(next)
 }, { immediate: true })
 
 const bindValue = computed(() => (form.bind === 'custom' ? form.customBind.trim() : form.bind))
@@ -164,6 +173,7 @@ function buildPayload(): Record<string, unknown> {
     env: textToEnv(form.env),
     dataEnvs: textToEnv(form.dataEnvs),
     backupPaths: linesToArray(form.backupPaths),
+    backupIgnoreGenerated: form.backupIgnoreGenerated,
     port: form.port.trim() === '' ? null : Number(form.port),
     bind: bindValue.value,
     onPortConflict: form.onPortConflict,
@@ -217,6 +227,39 @@ function back(): void {
   void router.push({ name: 'servers' })
 }
 
+const payload = computed(() => buildPayload())
+/**
+ * `diffServerConfig` compares nested group members by reference, and `health.http`
+ * is the only object down there: drop it again when its contents did not change,
+ * or every load would report a phantom "unsaved changes". A blank exact status is
+ * `null` in the payload and an absent key in the config — both mean "any below".
+ */
+const patch = computed<Patch>(() => (config.value === null ? {} : diffServerConfig(config.value, payload.value)))
+const changedCount = computed(() => countLeaves(patch.value))
+const changes = computed(() => describeChanges(
+  patch.value,
+  config.value === null ? {} : { ...config.value, label: config.value.label ?? '' } as Patch,
+))
+
+function formatChangeValue(value: unknown): string {
+  if (value === undefined)
+    return 'unset'
+  return typeof value === 'string' ? value : JSON.stringify(value)
+}
+
+function openChanges(): void {
+  configChangesOpen.value = true
+}
+
+function closeChanges(): void {
+  configChangesOpen.value = false
+}
+
+function saveFromDialog(): void {
+  configChangesOpen.value = false
+  void save()
+}
+
 async function save(): Promise<void> {
   error.value = null
   const cfg = config.value
@@ -225,18 +268,18 @@ async function save(): Promise<void> {
 
   if (form.bind === 'custom' && parseBind(form.customBind.trim()) === null) {
     error.value = 'a custom bind must be an IPv4 address, "local" or "lan"'
+    configChangesOpen.value = false
     return
   }
 
-  const payload = buildPayload()
-  const validated = serverPatchSchema(payload)
+  const validated = serverPatchSchema(payload.value)
   if (validated instanceof type.errors) {
     error.value = validated.summary
+    configChangesOpen.value = false
     return
   }
 
-  const patch = diffServerConfig(cfg, payload)
-  if (Object.keys(patch).length === 0) {
+  if (Object.keys(patch.value).length === 0) {
     flash('nothing changed')
     back()
     return
@@ -244,7 +287,7 @@ async function save(): Promise<void> {
 
   saving.value = true
   try {
-    await control.saveConfig(props.id, patch)
+    await control.saveConfig(props.id, patch.value)
     if (control.lastError.value !== null) {
       error.value = control.lastError.value
       return
@@ -277,6 +320,15 @@ async function remove(): Promise<void> {
       <StatusChip v-if="server" :status="server.status" />
       <span v-if="server && !server.config.enabled" class="chip chip--idle">disabled</span>
       <span class="view__spacer" />
+      <button
+        v-if="changedCount > 0"
+        type="button"
+        class="btn btn--sm btn--ghost changelink"
+        @click="openChanges"
+      >
+        <span class="mono">{{ changedCount }}</span> unsaved {{ changedCount === 1 ? 'change' : 'changes' }}
+      </button>
+      <span v-else-if="config" class="view__count">in sync</span>
       <ConfirmButton v-if="server" label="remove server" confirm-label="confirm remove" tone="danger" @confirm="remove" />
       <button type="button" class="btn btn--sm" @click="back">
         cancel
@@ -290,7 +342,7 @@ async function remove(): Promise<void> {
       no server called “{{ id }}” — it may have been removed
     </p>
 
-    <form v-else class="form view__body" @submit.prevent="save">
+    <form v-else class="form form--page" @submit.prevent="save">
       <p v-if="error" class="banner banner--error">
         {{ error }}
       </p>
@@ -335,6 +387,11 @@ async function remove(): Promise<void> {
             <label class="field grid__full">
               <span class="field__label">extra backup paths — one per line</span>
               <textarea v-model="form.backupPaths" rows="2" spellcheck="false" placeholder="{home}/.app/uploads" />
+            </label>
+            <label class="field field--check grid__full">
+              <input v-model="form.backupIgnoreGenerated" type="checkbox">
+              <span class="field__label">ignore known generated files when backing this up</span>
+              <span class="field__hint">node_modules, dist, .next, caches — nothing restores from them</span>
             </label>
           </div>
         </div>
@@ -593,5 +650,42 @@ async function remove(): Promise<void> {
         </div>
       </div>
     </form>
+
+    <div v-if="configChangesOpen" class="overlay" @click.self="closeChanges">
+      <div class="overlay__panel overlay__panel--sheet" role="dialog" aria-label="unsaved server config changes">
+        <div class="overlay__head">
+          <span class="overlay__title">unsaved changes</span>
+          <span class="view__spacer" />
+          <span class="faint">writes to servers.config.json</span>
+          <kbd class="kbd">esc</kbd>
+          <button type="button" class="btn btn--xs btn--ghost" @click="closeChanges">
+            close
+          </button>
+        </div>
+        <div class="overlay__body">
+          <div v-if="changes.length > 0" class="change-list">
+            <div v-for="change in changes" :key="change.path" class="change-row">
+              <code class="change-row__path">{{ change.path }}</code>
+              <span class="change-row__from">{{ formatChangeValue(change.from) }}</span>
+              <span class="change-row__arrow">→</span>
+              <span class="change-row__to">{{ formatChangeValue(change.to) }}</span>
+            </div>
+          </div>
+          <p v-else class="empty">
+            nothing to save
+          </p>
+        </div>
+        <div class="group">
+          <div class="actions">
+            <button type="button" class="btn btn--sm" @click="closeChanges">
+              close
+            </button>
+            <button type="button" class="btn btn--sm btn--primary" :disabled="saving || changes.length === 0" @click="saveFromDialog">
+              save {{ changes.length }} change{{ changes.length === 1 ? '' : 's' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

@@ -6,6 +6,7 @@ import type {
   LogsConfig,
   LogServerView,
   NotificationView,
+  ServerCreate,
   ServerDefaults,
   ServerPatch,
   SessionView,
@@ -359,16 +360,7 @@ export function removeServer(id: string): Promise<unknown> {
   return request(`/api/servers/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-export interface CreateServerPayload {
-  id: string
-  label?: string
-  command: string
-  args?: string[]
-  cwd?: string
-  port?: number
-  bind?: string
-  autostart?: boolean
-}
+export type CreateServerPayload = ServerCreate
 
 export function createServer(payload: CreateServerPayload): Promise<unknown> {
   return request('/api/servers', { method: 'POST', body: JSON.stringify(payload) })

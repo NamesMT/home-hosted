@@ -102,6 +102,7 @@
     "pngjs": "^7.0.0",
     "reka-ui": "^2.10.5",
     "simple-git-hooks": "^2.14.0",
+    "splitpanes": "^4.1.2",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",

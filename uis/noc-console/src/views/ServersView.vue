@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import type { HealthState, ServerStatus, ServerView } from '@shared/contracts'
-import { computed, watch } from 'vue'
+import type { ServerView } from '@shared/contracts'
+import { Pane, Splitpanes } from 'splitpanes'
+import { computed, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ServerDetail from '@/components/ServerDetail.vue'
-import Sparkline from '@/components/Sparkline.vue'
-import StatusChip from '@/components/StatusChip.vue'
+import ServerList from '@/components/ServerList.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useKeyHandler } from '@/composables/useKeymap'
+import { useMediaQuery } from '@/composables/useMediaQuery'
 import { addOpen, flash, helpOpen, useUi } from '@/composables/useUi'
-import { briefBytes, formatRatio, formatUptime } from '@/lib/format'
 
 const control = useControlPlane()
 const router = useRouter()
@@ -35,6 +35,54 @@ watch(visible, (list) => {
     selectedId.value = list[0]?.id ?? null
 }, { immediate: true })
 
+/** The split is wrong on a phone; the same content stacks and the page scrolls instead. */
+const isNarrow = useMediaQuery('(width <= 860px)')
+
+const PANES_KEY = 'noc.panes.servers'
+const DEFAULT_SIZES = { list: 46, detail: 54 }
+
+function clampSize(value: number): number {
+  return Math.min(88, Math.max(12, value))
+}
+
+function storedSizes(): { list: number, detail: number } {
+  try {
+    const raw = window.localStorage.getItem(PANES_KEY)
+    if (raw === null)
+      return { ...DEFAULT_SIZES }
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed) || parsed.length !== 2)
+      return { ...DEFAULT_SIZES }
+    const [list, detail] = parsed as unknown[]
+    if (typeof list !== 'number' || typeof detail !== 'number' || !Number.isFinite(list) || !Number.isFinite(detail))
+      return { ...DEFAULT_SIZES }
+    return { list: clampSize(list), detail: clampSize(detail) }
+  }
+  catch {
+    return { ...DEFAULT_SIZES }
+  }
+}
+
+const sizes = reactive(storedSizes())
+
+interface ResizePayload {
+  panes: { size: number }[]
+}
+
+function onResized(payload: ResizePayload): void {
+  const [first, second] = payload.panes
+  if (first === undefined || second === undefined)
+    return
+  sizes.list = first.size
+  sizes.detail = second.size
+  try {
+    window.localStorage.setItem(PANES_KEY, JSON.stringify([sizes.list, sizes.detail]))
+  }
+  catch {
+    // A full or unavailable storage is never worth interrupting the layout for.
+  }
+}
+
 function move(delta: number): void {
   const list = visible.value
   if (list.length === 0)
@@ -44,39 +92,35 @@ function move(delta: number): void {
   selectedId.value = list[next]?.id ?? selectedId.value
 }
 
+function editTo(id: string): void {
+  void router.push({ name: 'server-config', params: { id } })
+}
+
 function edit(): void {
   const server = selected.value
   if (server)
-    void router.push({ name: 'server-config', params: { id: server.id } })
+    editTo(server.id)
+}
+
+function actOn(id: string, action: 'start' | 'stop' | 'restart'): void {
+  void control.act(id, action)
 }
 
 function act(action: 'start' | 'stop' | 'restart'): void {
   const server = selected.value
   if (server)
-    void control.act(server.id, action)
+    actOn(server.id, action)
+}
+
+async function clearServer(id: string): Promise<void> {
+  await control.clearLogs(id)
+  flash(`${id}: buffered logs cleared`)
 }
 
 async function clearSelected(): Promise<void> {
   const server = selected.value
-  if (!server)
-    return
-  await control.clearLogs(server.id)
-  flash(`${server.id}: buffered logs cleared`)
-}
-
-function cpuText(server: ServerView): string {
-  const value = server.resources?.cpuPercent
-  return value === null || value === undefined ? '—' : `${value.toFixed(0)}%`
-}
-
-function probeText(server: ServerView): string {
-  return server.responseMs === null ? '—' : `${server.responseMs}ms`
-}
-
-function uptimeText(server: ServerView): string {
-  if (server.startedAt === null || server.status !== 'running')
-    return '—'
-  return formatUptime(control.now.value - server.startedAt)
+  if (server)
+    await clearServer(server.id)
 }
 
 useKeyHandler((key) => {
@@ -123,36 +167,6 @@ useKeyHandler((key) => {
       return false
   }
 })
-
-function ledFor(status: ServerStatus): string {
-  return {
-    running: 'led--running',
-    starting: 'led--starting',
-    stopping: 'led--stopped',
-    stopped: 'led--stopped',
-    backoff: 'led--starting',
-    crashed: 'led--crashed',
-    conflict: 'led--crashed',
-  }[status]
-}
-
-function healthLed(health: HealthState): string {
-  return {
-    disabled: 'led--stopped',
-    unknown: 'led--stopped',
-    healthy: 'led--healthy',
-    unhealthy: 'led--unhealthy',
-  }[health]
-}
-
-function cpuColor(server: ServerView): string {
-  const value = server.resources?.cpuPercent ?? 0
-  if (value >= 80)
-    return 'var(--danger)'
-  if (value >= 40)
-    return 'var(--warn)'
-  return 'var(--accent)'
-}
 </script>
 
 <template>
@@ -189,119 +203,41 @@ function cpuColor(server: ServerView): string {
       <code>{{ control.appState.value?.configPath }}</code>
     </p>
 
-    <div class="split">
-      <div class="split__half--list">
-        <div class="tblwrap">
-          <table class="tbl">
-            <thead>
-              <tr>
-                <th class="tbl__gutter" />
-                <th>id</th>
-                <th>state</th>
-                <th class="num">
-                  pid
-                </th>
-                <th class="num">
-                  port
-                </th>
-                <th>bind</th>
-                <th class="num">
-                  uptime
-                </th>
-                <th class="num">
-                  rst
-                </th>
-                <th>cpu</th>
-                <th>rss</th>
-                <th class="num">
-                  probe
-                </th>
-                <th class="num">
-                  24h up
-                </th>
-                <th class="tbl__actions">
-                  act
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="server in visible"
-                :key="server.id"
-                :class="{ 'is-selected': server.id === selectedId, 'is-dim': !server.config.enabled }"
-                @click="selectedId = server.id"
-                @dblclick="selectedId = server.id; edit()"
-              >
-                <td class="tbl__gutter">
-                  <span class="led" :class="ledFor(server.status)" />
-                </td>
-                <td>
-                  <span class="id">{{ server.id }}</span>
-                  <span v-if="server.config.label" class="dim"> {{ server.config.label }}</span>
-                </td>
-                <td>
-                  <StatusChip :status="server.status" />
-                  <span
-                    class="led"
-                    :class="healthLed(server.health)"
-                    :title="`health: ${server.health}`"
-                    style="margin-left: 5px"
-                  />
-                </td>
-                <td class="num">
-                  {{ server.pid ?? '—' }}
-                </td>
-                <td class="num" :class="{ accent: server.portState === 'in-use' }">
-                  {{ server.config.port ?? '—' }}
-                </td>
-                <td class="dim" :title="server.bindHost">
-                  {{ server.bindHost }}
-                </td>
-                <td class="num">
-                  {{ uptimeText(server) }}
-                </td>
-                <td class="num">
-                  {{ server.restarts }}<span class="faint">/{{ server.maxRetries }}</span>
-                </td>
-                <td>
-                  <span class="row" style="gap: 0.35rem">
-                    <Sparkline :values="control.seriesOf(server.id).cpu" :color="cpuColor(server)" :width="54" :height="13" />
-                    <span class="num mono">{{ cpuText(server) }}</span>
-                  </span>
-                </td>
-                <td>
-                  <span class="row" style="gap: 0.35rem">
-                    <Sparkline :values="control.seriesOf(server.id).rss" color="var(--accent)" :width="54" :height="13" />
-                    <span class="num mono">{{ briefBytes(server.resources?.rssBytes ?? null) }}</span>
-                  </span>
-                </td>
-                <td class="num" :class="{ warn: (server.responseMs ?? 0) >= 1000 }">
-                  {{ probeText(server) }}
-                </td>
-                <td class="num">
-                  {{ formatRatio(server.history.uptimeRatio) }}
-                </td>
-                <td class="tbl__actions">
-                  <span class="rowbtns">
-                    <button type="button" class="btn btn--xs btn--icon" title="start (s)" @click.stop="control.act(server.id, 'start')">s</button>
-                    <button type="button" class="btn btn--xs btn--icon" title="stop (x)" @click.stop="control.act(server.id, 'stop')">x</button>
-                    <button type="button" class="btn btn--xs btn--icon" title="restart (r)" @click.stop="control.act(server.id, 'restart')">r</button>
-                    <button type="button" class="btn btn--xs btn--icon" title="edit config (e)" @click.stop="selectedId = server.id; edit()">e</button>
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p v-if="servers.length === 0" class="empty">
-            no servers configured — press <kbd class="kbd">a</kbd> to add one, or edit
-            <code>{{ control.appState.value?.configPath }}</code>
-          </p>
-          <p v-else-if="visible.length === 0" class="empty">
-            nothing matches “{{ filter }}”
-          </p>
-        </div>
-      </div>
+    <Splitpanes
+      v-if="!isNarrow"
+      class="split-panes split-panes--servers"
+      horizontal
+      @resized="onResized"
+    >
+      <Pane :size="sizes.list" :min-size="15" :max-size="85">
+        <ServerList
+          :servers="visible"
+          :total="servers.length"
+          :config-path="control.appState.value?.configPath ?? null"
+          @select="selectedId = $event"
+          @edit="editTo"
+          @act="actOn"
+          @clear="clearServer"
+        />
+      </Pane>
+      <Pane :size="sizes.detail" :min-size="15" :max-size="85">
+        <ServerDetail v-if="selected" :server="selected" :now="control.now.value" />
+        <p v-else class="empty">
+          select a server to see its detail
+        </p>
+      </Pane>
+    </Splitpanes>
 
+    <div v-else class="split split--stacked">
+      <ServerList
+        :servers="visible"
+        :total="servers.length"
+        :config-path="control.appState.value?.configPath ?? null"
+        @select="selectedId = $event"
+        @edit="editTo"
+        @act="actOn"
+        @clear="clearServer"
+      />
       <ServerDetail v-if="selected" :server="selected" :now="control.now.value" />
       <p v-else class="empty">
         select a server to see its detail
