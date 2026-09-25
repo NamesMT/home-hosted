@@ -1,4 +1,5 @@
-import type { ServerCreate } from '@shared/contracts'
+import type { HealthConfig, RestartConfig, ServerCreate, ServerDefaults, StopConfig } from '@shared/contracts'
+import { cloneHealth, SCHEMA_HEALTH, SCHEMA_RESTART, SCHEMA_STOP } from '@/components/settings/settingsForm'
 import { commaList, linesToArray, textToEnv } from '@/lib/fields'
 
 /**
@@ -7,6 +8,10 @@ import { commaList, linesToArray, textToEnv } from '@/lib/fields'
  * It lives outside the component so the dialog → payload mapping is testable on
  * its own: every option the advanced fold offers has to reach
  * `servers.config.json`, and forgetting one there is silent.
+ *
+ * Restart, health, stop and bootstrap start out *equal to the panel defaults*
+ * and only travel when the person changed them, so an entry that leaves them
+ * alone keeps inheriting the defaults instead of freezing today's values.
  */
 
 export interface AddServerForm {
@@ -28,11 +33,20 @@ export interface AddServerForm {
   backupPaths: string
   backupIgnoreGenerated: boolean
   maxRssMb: number | null
+  restart: RestartConfig
+  health: HealthConfig
+  stop: StopConfig
+  bootstrapEnabled: boolean
+  bootstrapCommand: string
+  bootstrapArgs: string
+  bootstrapEnv: string
+  bootstrapTimeoutMs: number | null
+  bootstrapRunOnce: boolean
 }
 
 export const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
 
-export function blankAddServerForm(): AddServerForm {
+export function blankAddServerForm(defaults?: ServerDefaults): AddServerForm {
   return {
     id: '',
     label: '',
@@ -40,10 +54,10 @@ export function blankAddServerForm(): AddServerForm {
     args: '',
     cwd: '',
     port: null,
-    bind: 'local',
-    autostart: false,
-    enabled: true,
-    onPortConflict: 'block',
+    bind: defaults?.bind ?? 'local',
+    autostart: defaults?.autostart ?? false,
+    enabled: defaults?.enabled ?? true,
+    onPortConflict: defaults?.onPortConflict ?? 'block',
     logBufferLines: null,
     dependsOn: '',
     envFile: '',
@@ -52,12 +66,25 @@ export function blankAddServerForm(): AddServerForm {
     backupPaths: '',
     backupIgnoreGenerated: true,
     maxRssMb: null,
+    restart: { ...(defaults?.restart ?? SCHEMA_RESTART) },
+    health: cloneHealth(defaults?.health ?? SCHEMA_HEALTH),
+    stop: { ...(defaults?.stop ?? SCHEMA_STOP) },
+    bootstrapEnabled: false,
+    bootstrapCommand: '',
+    bootstrapArgs: '',
+    bootstrapEnv: '',
+    bootstrapTimeoutMs: 120_000,
+    bootstrapRunOnce: true,
   }
 }
 
 /** A blank, non-nullable numeric field is `NaN` while it is being cleared. */
 function finite(value: number | null): number {
   return value !== null && Number.isFinite(value) ? value : 0
+}
+
+function same(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 export function addServerPortError(port: number | null): string | null {
@@ -69,8 +96,10 @@ export function addServerPortError(port: number | null): string | null {
 }
 
 /** The request body: only fields a person actually filled in are sent. */
-export function addServerPayload(form: AddServerForm): ServerCreate {
+export function addServerPayload(form: AddServerForm, defaults?: ServerDefaults): ServerCreate {
   const rssMb = finite(form.maxRssMb)
+  const bootstrapMs = finite(form.bootstrapTimeoutMs)
+
   return {
     id: form.id.trim(),
     ...(form.label.trim().length === 0 ? {} : { label: form.label.trim() }),
@@ -92,6 +121,21 @@ export function addServerPayload(form: AddServerForm): ServerCreate {
     backupPaths: linesToArray(form.backupPaths),
     backupIgnoreGenerated: form.backupIgnoreGenerated,
     resources: { maxRssBytes: rssMb > 0 ? Math.round(rssMb * 1024 * 1024) : 0 },
+    // A policy group the person left alone keeps inheriting the panel defaults.
+    ...(defaults === undefined || !same(form.restart, defaults.restart) ? { restart: { ...form.restart } } : {}),
+    ...(defaults === undefined || !same(form.health, defaults.health) ? { health: cloneHealth(form.health) } : {}),
+    ...(defaults === undefined || !same(form.stop, defaults.stop) ? { stop: { ...form.stop } } : {}),
+    ...(form.bootstrapEnabled
+      ? {
+          bootstrap: {
+            command: form.bootstrapCommand.trim(),
+            args: linesToArray(form.bootstrapArgs),
+            env: textToEnv(form.bootstrapEnv),
+            timeoutMs: bootstrapMs >= 1000 ? bootstrapMs : 120_000,
+            runOnce: form.bootstrapRunOnce,
+          },
+        }
+      : {}),
   }
 }
 
@@ -103,5 +147,7 @@ export function addServerProblem(form: AddServerForm): string | null {
     return 'The id must start with a lowercase letter or digit and contain only lowercase letters, digits, dashes and underscores.'
   if (form.command.trim().length === 0)
     return 'A command is required — the executable the supervisor spawns.'
+  if (form.bootstrapEnabled && form.bootstrapCommand.trim().length === 0)
+    return 'A bootstrap needs a command to run.'
   return addServerPortError(form.port)
 }

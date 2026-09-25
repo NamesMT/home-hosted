@@ -98,7 +98,8 @@ export interface SettingsForm {
   telegram: TelegramForm
 }
 
-const DEFAULT_RESTART: RestartConfig = {
+/** The schema's own defaults, for a form that has not been filled yet. */
+export const SCHEMA_RESTART: RestartConfig = {
   enabled: true,
   maxRetries: 3,
   baseDelayMs: 1000,
@@ -107,7 +108,7 @@ const DEFAULT_RESTART: RestartConfig = {
   resetAfterMs: 60000,
 }
 
-const DEFAULT_HEALTH: HealthConfig = {
+export const SCHEMA_HEALTH: HealthConfig = {
   enabled: true,
   mode: 'port',
   http: { path: '/', method: 'GET', expectStatusBelow: 400, expectBody: '' },
@@ -118,7 +119,7 @@ const DEFAULT_HEALTH: HealthConfig = {
   startTimeoutMs: 20000,
 }
 
-const DEFAULT_STOP: StopConfig = {
+export const SCHEMA_STOP: StopConfig = {
   signal: 'SIGTERM',
   killGroup: true,
   graceMs: 5000,
@@ -141,9 +142,9 @@ export function createSettingsForm(): SettingsForm {
       bind: 'local',
       onPortConflict: 'block',
       logBufferLines: 500,
-      restart: { ...DEFAULT_RESTART },
-      health: cloneHealth(DEFAULT_HEALTH),
-      stop: { ...DEFAULT_STOP },
+      restart: { ...SCHEMA_RESTART },
+      health: cloneHealth(SCHEMA_HEALTH),
+      stop: { ...SCHEMA_STOP },
     },
     logs: { persist: true, maxBytes: 2_000_000, keep: 3 },
     host: {

@@ -4,6 +4,7 @@ import { serverCreateSchema } from '@shared/contracts'
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import { addServerPayload, addServerPortError, addServerProblem, blankAddServerForm } from '@/components/server/addServerForm'
+import LifecycleFields from '@/components/server/LifecycleFields.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Disclosure from '@/components/ui/Disclosure.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
@@ -27,12 +28,15 @@ const formError = ref<string | null>(null)
 /** Placeholders the supervisor substitutes in `args` (and in paths). */
 const PLACEHOLDERS = ['{port}', '{host}', '{home}', '{projectDir}', '{dataRoot}', '{id}', '{label}', '{cwd}', '{bind}', '{lanIp}']
 
-const form = reactive<AddServerForm>(blankAddServerForm())
+/** What an entry would inherit; a policy group is only sent when it differs. */
+const panelDefaults = computed(() => control.defaults.value ?? undefined)
+
+const form = reactive<AddServerForm>(blankAddServerForm(panelDefaults.value))
 const portError = computed(() => addServerPortError(form.port))
 
 /** Reset every time the dialog opens, so a cancelled attempt leaves nothing behind. */
 function reset(): void {
-  Object.assign(form, blankAddServerForm())
+  Object.assign(form, blankAddServerForm(panelDefaults.value))
   formError.value = null
 }
 
@@ -49,7 +53,7 @@ async function submit(): Promise<void> {
     return
   }
 
-  const parsed = serverCreateSchema(addServerPayload(form))
+  const parsed = serverCreateSchema(addServerPayload(form, panelDefaults.value))
   if (parsed instanceof type.errors) {
     formError.value = parsed.summary
     return
@@ -138,7 +142,7 @@ async function submit(): Promise<void> {
         <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Start it whenever the control plane comes up." wide />
       </FieldGroup>
 
-      <Disclosure title="Advanced settings" hint="environment, backups, resources, policy">
+      <Disclosure title="Advanced settings" hint="environment, backups, policy, lifecycle, bootstrap">
         <FieldGroup title="Environment" :columns="2" dense>
           <TextAreaField
             v-model="form.env"
@@ -186,6 +190,39 @@ async function submit(): Promise<void> {
           />
         </FieldGroup>
 
+        <LifecycleFields v-model:restart="form.restart" v-model:health="form.health" v-model:stop="form.stop" />
+
+        <FieldGroup title="Bootstrap" description="A one-off command run before the first start." :columns="2" dense>
+          <ToggleSwitch
+            v-model="form.bootstrapEnabled"
+            label="Run a bootstrap"
+            hint="Installs, migrations, downloads — before the first start, not on every one."
+            wide
+          />
+          <template v-if="form.bootstrapEnabled">
+            <TextField
+              v-model="form.bootstrapCommand"
+              label="Command"
+              placeholder="./scripts/install.sh"
+              class="font-mono text-xs"
+            />
+            <NumberField v-model="form.bootstrapTimeoutMs" label="Timeout (ms)" :min="1000" :step="1000" />
+            <ToggleSwitch v-model="form.bootstrapRunOnce" label="Only once per session" hint="Off means every start re-runs it." />
+            <TextAreaField
+              v-model="form.bootstrapArgs"
+              label="Bootstrap arguments"
+              :rows="2"
+              hint="One per line; same placeholders as the main arguments."
+            />
+            <TextAreaField
+              v-model="form.bootstrapEnv"
+              label="Bootstrap environment"
+              :rows="2"
+              hint="KEY=value per line, exported to the bootstrap process only."
+            />
+          </template>
+        </FieldGroup>
+
         <FieldGroup title="Policy &amp; resources" :columns="2" dense>
           <SelectField
             v-model="form.onPortConflict"
@@ -203,8 +240,8 @@ async function submit(): Promise<void> {
         </FieldGroup>
 
         <p class="text-2xs leading-4 text-faint">
-          Restart, health, stop and bootstrapping policy comes from <span class="font-mono">Settings → Server defaults</span>.
-          Override them per server from its own editor after adding it.
+          Restart, health and stop start out matching <span class="font-mono">Settings → Server defaults</span>;
+          change one here and it is written into this entry instead of staying inherited.
         </p>
       </Disclosure>
 

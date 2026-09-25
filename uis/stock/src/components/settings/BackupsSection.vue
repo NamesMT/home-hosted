@@ -227,7 +227,6 @@ async function applyRestore(): Promise<void> {
       </div>
       <NumberField v-model="keep" label="Keep" :min="1" hint="Older archives are pruned after each backup." />
       <TextField
-        v-if="form.enabled"
         v-model="form.includePaths"
         label="Extra paths"
         hint="Comma separated, in addition to every entry's data directories."

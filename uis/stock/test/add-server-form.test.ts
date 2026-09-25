@@ -1,4 +1,4 @@
-import { serverCreateSchema } from '@shared/contracts'
+import { defaultsSchema, serverCreateSchema } from '@shared/contracts'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import {
@@ -105,5 +105,81 @@ describe('add-server validation', () => {
     expect(addServerProblem({ ...base, port: 0 })).toContain('between 1 and 65535')
     expect(addServerProblem({ ...base, port: 70000 })).toContain('between 1 and 65535')
     expect(addServerPortError(4100)).toBeNull()
+  })
+})
+
+/**
+ * A policy group is the one place an entry can stay silent: sending it freezes
+ * today's values, so an untouched group must not travel and an entry must keep
+ * inheriting whatever the panel defaults become later.
+ */
+describe('add-server policy groups', () => {
+  function panelDefaults(overrides: Record<string, unknown> = {}) {
+    const parsed = defaultsSchema(overrides)
+    if (parsed instanceof type.errors)
+      throw new Error(parsed.summary)
+    return parsed
+  }
+
+  it('seeds the entry from the panel defaults, and sends nothing it did not change', () => {
+    const defaults = panelDefaults({ autostart: true, bind: 'lan', logBufferLines: 900 })
+    const form = { ...blankAddServerForm(defaults), id: 'web', command: 'node' }
+
+    expect(form).toMatchObject({ autostart: true, bind: 'lan' })
+
+    const payload = addServerPayload(form, defaults)
+    expect('restart' in payload).toBe(false)
+    expect('health' in payload).toBe(false)
+    expect('stop' in payload).toBe(false)
+    expect('bootstrap' in payload).toBe(false)
+    expect(serverCreateSchema(payload) instanceof type.errors).toBe(false)
+  })
+
+  it('sends only the group that was changed', () => {
+    const defaults = panelDefaults()
+    const form = {
+      ...blankAddServerForm(defaults),
+      id: 'web',
+      command: 'node',
+      restart: { ...defaults.restart, maxRetries: 9 },
+    }
+
+    const payload = addServerPayload(form, defaults)
+    expect(payload.restart).toEqual({ ...defaults.restart, maxRetries: 9 })
+    expect('health' in payload).toBe(false)
+    expect('stop' in payload).toBe(false)
+  })
+
+  it('sends the lifecycle groups when there is no snapshot to compare against', () => {
+    const form = { ...blankAddServerForm(), id: 'web', command: 'node' }
+    const payload = addServerPayload(form)
+
+    expect(payload.restart).toBeDefined()
+    expect(payload.health).toBeDefined()
+    expect(payload.stop).toBeDefined()
+    expect(serverCreateSchema(payload) instanceof type.errors).toBe(false)
+  })
+
+  it('sends a bootstrap only when it is on, with a sane timeout', () => {
+    const base = { ...blankAddServerForm(), id: 'web', command: 'node' }
+    expect('bootstrap' in addServerPayload({ ...base, bootstrapEnabled: false, bootstrapCommand: './install.sh' })).toBe(false)
+
+    const payload = addServerPayload({
+      ...base,
+      bootstrapEnabled: true,
+      bootstrapCommand: './install.sh',
+      bootstrapArgs: '--verbose',
+      bootstrapEnv: 'CI=1',
+      bootstrapTimeoutMs: 5,
+    })
+
+    expect(payload.bootstrap).toEqual({
+      command: './install.sh',
+      args: ['--verbose'],
+      env: { CI: '1' },
+      timeoutMs: 120000,
+      runOnce: true,
+    })
+    expect(addServerProblem({ ...base, bootstrapEnabled: true })).toContain('bootstrap needs a command')
   })
 })
