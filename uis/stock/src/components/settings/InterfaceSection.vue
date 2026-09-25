@@ -125,7 +125,7 @@ async function revert(): Promise<void> {
     <Notice v-else-if="message" tone="ok" :title="message" />
 
     <p class="text-2xs leading-4 text-faint sm:col-span-2">
-      See <code>UI_CREATION.md</code> for the API contract. If a custom UI breaks the panel,
+      See <code>docs/UI_CREATION.md</code> for the API contract. If a custom UI breaks the panel,
       <code>home-hosted ui-revert</code> puts the stock one back from the terminal.
     </p>
 

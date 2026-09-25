@@ -11,12 +11,12 @@ specific about what you want:
 
 > Help me build a UI for `home-hosted`: a nostalgic game theme. Servers as a party menu, health as
 > HP bars, logs in a text-box pane, keyboard navigation, and a save-state corner for backups.
-> Follow `UI_CREATION.md`.
+> Follow `docs/UI_CREATION.md`.
 
 Then zip the build and install it (below). Useful constraints to include in the prompt: the API is
 same-origin (relative `/api/...`), `401 { code: 'AUTH_REQUIRED' }` means "show the login screen",
 live data should come from SSE, and assets must be self-hosted. Existing directions to borrow from
-live in [`docs/mockups/`](./docs/mockups) — or ask for something else entirely; the server does not
+live in [`mockups/`](./mockups) — or ask for something else entirely; the server does not
 care what your UI looks like.
 
 ## Install it

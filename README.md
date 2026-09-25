@@ -16,7 +16,7 @@ them, watches them, restarts what dies, and shows you one page of what is going 
 [![License](https://img.shields.io/npm/l/home-hosted.svg)](./LICENSE)
 [![Node](https://img.shields.io/node/v/home-hosted.svg)](https://nodejs.org)
 
-[🚀 Quick start](#-quick-start) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🧩 Servers](./SERVERS.md) · [🛠 CLI](#-cli) · [🔔 Notifications](./NOTIFICATIONS.md) · [🎨 BYOU](#-bring-your-own-ui-byou)
+[🚀 Quick start](#-quick-start) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🧩 Servers](./docs/SERVERS.md) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🎨 BYOU](#-bring-your-own-ui-byou)
 
 </div>
 
@@ -213,9 +213,9 @@ Give the agent four things and it can run your home server without guessing:
 1. the token (`home-hosted set-token --generate`),
 2. `http://127.0.0.1:3999/openapi/spec.json` — the API it may call,
 3. `home-hosted status --json` — where things are,
-4. [SERVERS.md](./SERVERS.md) — how an entry is declared when it needs a new server.
+4. [SERVERS.md](./docs/SERVERS.md) — how an entry is declared when it needs a new server.
 
-For a UI rather than the API, [UI_CREATION.md](./UI_CREATION.md) is the whole contract, and the panel
+For a UI rather than the API, [UI_CREATION.md](./docs/UI_CREATION.md) is the whole contract, and the panel
 can be told what to be: *"Help me build a UI for home-hosted: nostalgic game theme, including …"*.
 
 </details>
@@ -228,15 +228,15 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | --- | --- |
 | 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. |
-| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, check ports before starting — and [follow or replace](./SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
+| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, check ports before starting — and [follow or replace](./docs/SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned — and stops in reverse. |
 | 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, download, one click to clear. |
 | 📈 **Resources** | CPU and RSS of the whole process tree, with an optional memory ceiling that triggers a restart. |
 | 🌡️ **Host vitals** | Load, memory, swap, disk and CPU temperature, with thresholds that notify once and again on recovery. |
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
-| 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery and host thresholds — [setup here](./NOTIFICATIONS.md). |
+| 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery and host thresholds — [setup here](./docs/NOTIFICATIONS.md). |
 | 💾 **Backups** | One click for config, secrets, TLS and your declared data directories — plain `.zip`, or AES-256 with a password, restored per path. |
-| 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `home-hosted ui-revert` to go back. [UI_CREATION.md](./UI_CREATION.md) |
+| 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `home-hosted ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
 | 🧩 **No special treatment** | A server is `command` + `args` + `env` + `cwd`; nothing is built in for any particular app. |
 | 🖥 **Cross-platform** | Linux, macOS and Windows: `/proc`, `ps` or Win32_Process, process groups or `taskkill /T`, no shell dependencies. |
@@ -260,7 +260,7 @@ An entry is a few lines. Add one with **➕ Add server**, or write it into `serv
 
 `dataEnvs` declares a data directory once: it is exported to the process *and* picked up by Backups.
 **Every field, every placeholder, the port-conflict policies (including adopting a server that
-restarts itself), and how hand-edits are validated: [SERVERS.md](./SERVERS.md).**
+restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.md).**
 
 ---
 
@@ -338,7 +338,7 @@ Everything binds `127.0.0.1` until you say otherwise.
 - **Port conflicts** are named — `port 4010 is already in use (pid 4242)` — and can be resolved from
   a confirmation popover on that banner or card. The process is looked up again at that moment,
   never taken from the message, and anything the panel supervises is refused, not killed. A server
-  that [restarts itself](./SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced
+  that [restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced
   with a supervised copy.
 - **Secrets never enter the config**: the password hash, the API token hash, the Telegram bot token
   and the TLS key live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`.
@@ -352,7 +352,7 @@ Everything binds `127.0.0.1` until you say otherwise.
 Telegram, when something happens while you are not looking: a server that gave up restarting, a
 failing health check, a forced restart, a recovery, or a host threshold (disk, memory, swap, load,
 temperature). Opt-in, rate-limited per server *and* reason, and the bot token stays in the secrets
-file. **Two minutes of setup: [NOTIFICATIONS.md](./NOTIFICATIONS.md).**
+file. **Two minutes of setup: [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md).**
 
 ---
 
@@ -396,7 +396,7 @@ specific:
 
 > Help me build a UI for `home-hosted`: nostalgic game theme, including … features.
 
-[UI_CREATION.md](./UI_CREATION.md) has the endpoints, the SSE frames, the auth rules and a checklist.
+[UI_CREATION.md](./docs/UI_CREATION.md) has the endpoints, the SSE frames, the auth rules and a checklist.
 
 </details>
 
@@ -425,7 +425,7 @@ the same way: every supervised process tree is stopped before the panel exits.
 
 A supervised server whose port is taken is reported rather than started over — the panel names the
 holder and offers to free it, and a program that restarts itself can be followed or reclaimed instead
-([SERVERS.md](./SERVERS.md#a-busy-port)). The control port itself is checked before the listener is
+([SERVERS.md](./docs/SERVERS.md#a-busy-port)). The control port itself is checked before the listener is
 opened.
 
 </details>
@@ -486,9 +486,9 @@ types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 
 | file | for |
 | --- | --- |
-| [SERVERS.md](./SERVERS.md) | declaring a server: every field, placeholders, port conflicts |
-| [NOTIFICATIONS.md](./NOTIFICATIONS.md) | Telegram alerts, end to end |
-| [UI_CREATION.md](./UI_CREATION.md) | building a UI against the API |
+| [SERVERS.md](./docs/SERVERS.md) | declaring a server: every field, placeholders, port conflicts |
+| [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) | Telegram alerts, end to end |
+| [UI_CREATION.md](./docs/UI_CREATION.md) | building a UI against the API |
 | [AGENTS.md](./AGENTS.md) | the architecture and the rules worth knowing before changing anything |
 | [/openapi/ui](http://127.0.0.1:3999/openapi/ui) | the live API, on your own panel |
 

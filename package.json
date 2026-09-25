@@ -38,12 +38,12 @@
   "files": [
     "AGENTS.md",
     "LICENSE",
-    "NOTIFICATIONS.md",
     "README.md",
-    "SERVERS.md",
-    "UI_CREATION.md",
     "bin",
     "dist",
+    "docs/NOTIFICATIONS.md",
+    "docs/SERVERS.md",
+    "docs/UI_CREATION.md",
     "uis/stock/dist"
   ],
   "engines": {
