@@ -806,3 +806,23 @@ export const tlsUploadSchema = type({
   privateKey: 'string >= 1',
 }).onUndeclaredKey('reject')
 export type TlsUpload = typeof tlsUploadSchema.infer
+
+/** `GET /api/settings`: the panel's own configuration, as the settings page reads it. */
+export const settingsViewSchema = type({
+  control: controlViewSchema,
+  defaults: defaultsSchema,
+  logs: logsSchema,
+  notifications: notificationViewSchema,
+  host: hostSchema,
+  backups: backupsViewSchema,
+  ui: uiStatusSchema,
+})
+export type SettingsView = typeof settingsViewSchema.infer
+
+/** `PATCH /api/settings` answers with the saved view, plus where the listener lands. */
+export const settingsSavedSchema = settingsViewSchema.and(type({
+  /** The listener is moving; reconnect at `targetUrl` when it stops being null. */
+  rebinding: 'boolean',
+  targetUrl: 'string | null',
+}))
+export type SettingsSaved = typeof settingsSavedSchema.infer

@@ -3,6 +3,7 @@ import type { ControlEndpoint } from '#src/services/control-server'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { type } from 'arktype'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createSettingsRoute } from '#src/api/settings'
@@ -14,6 +15,7 @@ import { BackupService } from '#src/services/backups'
 import { NotificationService } from '#src/services/notifications'
 import { TlsStore } from '#src/services/tls'
 import { UiService } from '#src/services/ui'
+import { settingsSavedSchema, settingsViewSchema } from '#src/shared/contracts'
 
 const dirs: string[] = []
 
@@ -97,5 +99,15 @@ describe('settings route', () => {
 
     expect((await patch(app, { logs: { keep: 99 } })).status).toBe(400)
     expect(fs.readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  it('answers the shapes the OpenAPI document describes', async () => {
+    const { app } = await makeApp()
+
+    const read = settingsViewSchema(await (await app.request('/api/settings')).json())
+    expect(read instanceof type.errors ? read.summary : 'ok').toBe('ok')
+
+    const saved = settingsSavedSchema(await (await patch(app, { logs: { keep: 7 } })).json())
+    expect(saved instanceof type.errors ? saved.summary : 'ok').toBe('ok')
   })
 })

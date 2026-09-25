@@ -10,11 +10,11 @@ import { displayHost } from '#src/helpers/bind'
 import { afterResponse } from '#src/helpers/deferred'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
-import { ERROR_RESPONSES } from '#src/helpers/openapi'
+import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { checkExposure } from '#src/services/exposure'
 import { buildBackupsView, buildControlView } from '#src/services/state'
-import { settingsPatchSchema } from '#src/shared/contracts'
+import { settingsPatchSchema, settingsSavedSchema, settingsViewSchema } from '#src/shared/contracts'
 
 /** Uploads are buffered in memory by `parseBody`, so they get a hard ceiling. */
 const MAX_UI_UPLOAD_BYTES = 128 * 1024 * 1024
@@ -27,20 +27,28 @@ function sanitizeName(name: string): string {
 
 export function createSettingsRoute(deps: AppDeps) {
   return appFactory.createApp()
-    .get('/settings', c => c.json({
-      control: buildControlView(deps.store, deps.auth, deps.controlServer.endpoint, deps.tls),
-      defaults: deps.store.defaults,
-      logs: deps.store.config.logs,
-      notifications: { telegram: deps.notifications.status() },
-      host: deps.store.config.host,
-      backups: buildBackupsView(deps.store, deps.backups),
-      ui: deps.ui.status(),
-    }))
+    .get(
+      '/settings',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'The panel, server defaults, logs, notifications, host and backups',
+        responses: { 200: { description: 'The settings', content: jsonBody(settingsViewSchema) } },
+      }),
+      c => c.json({
+        control: buildControlView(deps.store, deps.auth, deps.controlServer.endpoint, deps.tls),
+        defaults: deps.store.defaults,
+        logs: deps.store.config.logs,
+        notifications: { telegram: deps.notifications.status() },
+        host: deps.store.config.host,
+        backups: buildBackupsView(deps.store, deps.backups),
+        ui: deps.ui.status(),
+      }),
+    )
 
     .patch('/settings', describeRoute({
       tags: ['panel'],
       summary: 'Edit the panel, server defaults, logs, notifications, host and backups',
-      responses: { 200: { description: 'Saved; the listener may be moving' }, 400: ERROR_RESPONSES[400] },
+      responses: { 200: { description: 'Saved; the listener may be moving', content: jsonBody(settingsSavedSchema) }, 400: ERROR_RESPONSES[400] },
     }), validate('json', settingsPatchSchema), async (c) => {
       const patch: SettingsPatch = c.req.valid('json')
       const current = deps.store.config.control

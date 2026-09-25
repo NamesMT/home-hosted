@@ -1,9 +1,11 @@
 import type { AppDeps } from '#src/app'
 import type { BackupCreate, RestoreRequest } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DetailedError } from '@namesmt/utils'
+import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
@@ -15,6 +17,8 @@ import { backupCreateSchema, backupsViewSchema, restorePlanSchema, restoreReques
 
 /** Uploads are buffered in memory by `parseBody`, so they get a hard ceiling. */
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024
+
+const nameParam = type({ name: 'string >= 1' })
 
 /** A backup that failed to be created is a bad request, not a server fault. */
 function backupFailed(error: string | undefined): DetailedError {
@@ -57,8 +61,9 @@ export function createBackupsRoute(deps: AppDeps) {
         summary: 'Download one archive',
         responses: { 200: { description: 'the archive (application/zip)' }, 404: ERROR_RESPONSES[404] },
       }),
+      validate('param', nameParam),
       (c) => {
-        const file = deps.backups.resolve(c.req.param('name'))
+        const file = deps.backups.resolve(c.req.valid('param').name)
         if (file === null)
           throw new DetailedError('unknown backup', { statusCode: 404, code: 'UNKNOWN_BACKUP' })
 
@@ -78,8 +83,9 @@ export function createBackupsRoute(deps: AppDeps) {
         summary: 'Delete one archive',
         responses: { 200: { description: 'Removed' }, 404: ERROR_RESPONSES[404] },
       }),
+      validate('param', nameParam),
       (c) => {
-        if (!deps.backups.remove(c.req.param('name')))
+        if (!deps.backups.remove(c.req.valid('param').name))
           throw new DetailedError('unknown backup', { statusCode: 404, code: 'UNKNOWN_BACKUP' })
         return c.json({ ok: true, files: deps.backups.list() })
       },
@@ -117,8 +123,10 @@ export function createBackupsRoute(deps: AppDeps) {
 
           const uploads = path.join(deps.backups.directory, 'uploads')
           fs.mkdirSync(uploads, { recursive: true })
-          uploadedTo = path.join(uploads, `upload-${Date.now()}.zip`)
-          fs.writeFileSync(uploadedTo, Buffer.from(await file.arrayBuffer()))
+          uploadedTo = path.join(uploads, `upload-${crypto.randomUUID()}.zip`)
+          // 0600: the archive holds whatever the config declares as data, possibly in
+          // the clear, and sits here until the request finishes.
+          fs.writeFileSync(uploadedTo, Buffer.from(await file.arrayBuffer()), { mode: 0o600 })
           archive = uploadedTo
           // A multipart body can only carry strings, so the selection is JSON.
           const rawInclude = typeof body.include === 'string' && body.include.length > 0 ? body.include : null

@@ -10,6 +10,8 @@ import { validate } from '#src/helpers/validator'
 import { freePortResultSchema, logQuerySchema, serverCreateSchema, serverPatchSchema, serverViewSchema } from '#src/shared/contracts'
 
 const idParam = type({ id: 'string >= 1' })
+/** Pending SSE writes per connection; log frames are dropped past it, state is not. */
+const MAX_PENDING_WRITES = 200
 const serverResponse = type({ server: serverViewSchema })
 const serversResponse = type({ servers: serverViewSchema.array() })
 const okResponse = type({ ok: 'boolean' })
@@ -122,12 +124,20 @@ export function createServersRoute(deps: AppDeps) {
 
         return streamSSE(c, async (stream) => {
           let closed = false
+          let pending = 0
           let queue: Promise<void> = Promise.resolve()
           const send = (data: string, event: string): void => {
             if (closed)
               return
+            // Same rule as the panel-wide stream: a slow client loses the chatty
+            // server's log frames before it grows an unbounded write queue.
+            if (event === 'log' && pending > MAX_PENDING_WRITES)
+              return
+            pending += 1
             queue = queue.then(() => stream.writeSSE({ event, data })).catch(() => {
               closed = true
+            }).finally(() => {
+              pending -= 1
             })
           }
 
