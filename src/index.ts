@@ -258,7 +258,8 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
       if (!options.autostart)
         return
       for (const server of added) {
-        if (!server.autostart)
+        // A disabled entry is left alone even when the file says autostart.
+        if (!server.enabled || !server.autostart)
           continue
         void supervisor.start(server.id).catch((error: unknown) => {
           logger.error(`could not start the added server ${server.id}`, error)
@@ -368,6 +369,14 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     })
   }
 
-  process.on('SIGINT', () => void shutdown('SIGINT'))
-  process.on('SIGTERM', () => void shutdown('SIGTERM'))
+  // A failure while tearing down must still end the process: a rejected promise
+  // here would leave the panel half-stopped.
+  const onSignal = (signal: string): void => {
+    void shutdown(signal).catch((error: unknown) => {
+      logger.error(`shutdown after ${signal} failed`, error)
+      process.exit(1)
+    })
+  }
+  process.on('SIGINT', () => onSignal('SIGINT'))
+  process.on('SIGTERM', () => onSignal('SIGTERM'))
 }
