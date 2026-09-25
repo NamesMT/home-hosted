@@ -539,6 +539,38 @@ describe('supervisor', () => {
     expect(stopped.pid).toBeNull()
   })
 
+  it('follows a detached restart that lost the environment marker, by its argv', async () => {
+    // The Windows shape: no per-process environment to read, so the entry's own argv is
+    // all the panel has. Same adoption, without the marker that made it easy.
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'follow' })])
+
+    const env: Record<string, string> = { ...process.env, PORT: String(port) }
+    delete env.HHOSTED_SERVER_ID
+    const successor = spawn(process.execPath, httpServerConfig(port).args as string[], { env, stdio: 'ignore' })
+    const successorPid = successor.pid
+    if (successorPid === undefined)
+      throw new Error('no successor pid')
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    const result = await supervisor.start('web')
+    expect(result.ok).toBe(true)
+
+    const adopted = view(supervisor, 'web')
+    expect(adopted.status).toBe('running')
+    expect(adopted.pid).toBe(successorPid)
+    expect(adopted.adopted).toBe(true)
+  })
+
   it('blocks on a stranger under the follow policy too', async () => {
     const port = await freePort()
     const squatter = await squatterOn(port)

@@ -2,6 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import type { ServerConfig } from '#src/config/schema'
 import type { ConfigStore } from '#src/config/store'
 import type { TemplateVars } from '#src/helpers/template'
+import type { SpawnInfo } from '#src/providers/identity'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { EventHub } from '#src/services/events'
 import type { HistoryStore } from '#src/services/history'
@@ -29,8 +30,9 @@ import { logger } from '#src/helpers/logger'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { probeHealth } from '#src/providers/health-check'
+import { identifyHolders } from '#src/providers/identity'
 import { isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, terminatePids } from '#src/providers/port'
-import { processCarriesServerId, ProcessSampler } from '#src/providers/proc'
+import { ProcessSampler } from '#src/providers/proc'
 import { resolveCommand, resolveCwd, spawnManaged, terminate, terminatePid } from '#src/providers/process'
 import { dependenciesOf, orderByDependencies } from '#src/services/dependencies'
 import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
@@ -552,18 +554,26 @@ export class Supervisor {
   }
 
   /**
-   * The port holders that carry this entry's own marker — a program that restarted
-   * itself leaves a detached process behind, and that process is the *same server*,
-   * not a stranger to kill. Read from the environment the supervisor gave the entry,
-   * which a successor inherits unless it scrubs it.
+   * The port holder that is this entry's own detached successor — a program that
+   * restarted itself leaves a process behind, and that process is the *same server*,
+   * not a stranger to kill.
+   *
+   * The environment marker is authoritative where the platform can read it (Linux,
+   * macOS). Failing that — Windows has no per-process environment at all — the entry's
+   * own argv answers, which a successor keeps unless it re-execs under a different
+   * image. Ambiguity is not resolved by guessing: two holders that both look like this
+   * entry means we do not know which one is ours, so we act on neither.
    */
-  private async ownPortHolders(entry: Entry, holders: number[]): Promise<number[]> {
-    const own: number[] = []
-    for (const pid of holders) {
-      if (await processCarriesServerId(pid, entry.config.id))
-        own.push(pid)
+  private async ownPortHolder(entry: Entry, holders: number[]): Promise<number | null> {
+    const spawn = this.resolveSpawn(entry)
+    const candidates = await identifyHolders(entry.config.id, spawn, holders)
+
+    if (candidates.length > 1) {
+      this.log(entry, 'system', `pid ${candidates.join(', ')} all look like this entry: refusing to guess which is ours, set onPortConflict to "kill" to clear the port anyway`)
+      return null
     }
-    return own
+
+    return candidates[0] ?? null
   }
 
   private async preflight(entry: Entry): Promise<PreflightConflict> {
@@ -592,16 +602,17 @@ export class Supervisor {
     if (free)
       return { kind: 'free' }
 
-    const holders = await listPortHolders(port)
-    const own = await this.ownPortHolders(entry, holders)
+    // One split serves every policy: the supervised half is never a target, and the
+    // foreign half is where our own detached successor hides.
+    const { ours, foreign } = await this.portHolders(port)
+    const holders = [...ours, ...foreign]
+    const own = await this.ownPortHolder(entry, foreign)
     const suffix = holders.length > 0 ? ` (pid ${holders.join(', ')})` : ''
 
     // `kill` asks for the port outright: whoever holds it goes, this entry's own
     // successor included. It never touches our own process tree — a port held by
     // the panel or a sibling stays a config mistake, exactly as `follow`/`reclaim`.
     if (entry.config.onPortConflict === 'kill') {
-      const { ours, foreign } = await this.portHolders(port)
-
       if (ours.length > 0) {
         entry.status = 'conflict'
         entry.lastError = `port ${port} is held by pid ${ours.join(', ')}, which this panel supervises — stop that server instead`
@@ -636,12 +647,12 @@ export class Supervisor {
     // A detached restart of this same server. Following it keeps whatever the program
     // set up (at the cost of its output, which belongs to whoever spawned it);
     // reclaiming the port buys back a fully supervised process instead.
-    if (own.length > 0 && entry.config.onPortConflict === 'follow')
-      return { kind: 'adopt', pid: own[0]! }
+    if (own !== null && entry.config.onPortConflict === 'follow')
+      return { kind: 'adopt', pid: own }
 
-    if (own.length > 0 && entry.config.onPortConflict === 'reclaim') {
-      this.log(entry, 'system', `port ${port} is held by pid ${own.join(', ')}, a detached restart of this entry — replacing it with a supervised process`)
-      const { forced } = await terminatePids(own)
+    if (own !== null && entry.config.onPortConflict === 'reclaim') {
+      this.log(entry, 'system', `port ${port} is held by pid ${own}, a detached restart of this entry — replacing it with a supervised process`)
+      const { forced } = await terminatePids([own])
       if (forced.length > 0)
         this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
       await delay(PORT_RELEASE_RECHECK_MS)
@@ -650,14 +661,14 @@ export class Supervisor {
         return { kind: 'free' }
       }
       entry.status = 'conflict'
-      entry.lastError = `port ${port} is still in use after replacing pid ${own.join(', ')}`
+      entry.lastError = `port ${port} is still in use after replacing pid ${own}`
       this.log(entry, 'system', entry.lastError)
       this.publishServer(entry)
       return { kind: 'blocked', error: entry.lastError }
     }
 
-    const hint = own.length > 0
-      ? ` — pid ${own.join(', ')} is a detached restart of this entry: set onPortConflict to "follow" to adopt it, or "reclaim" to replace it with a supervised process`
+    const hint = own !== null
+      ? ` — pid ${own} is a detached restart of this entry: set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a supervised process, or "kill" to stop whatever holds the port`
       : ''
 
     // `follow` and `reclaim` refine `block`: never a stranger's port.
@@ -763,7 +774,13 @@ export class Supervisor {
       this.log(entry, 'system', `bootstrap exited with code ${code} — continuing anyway`)
   }
 
-  private spawnEntry(entry: Entry): StartResult {
+  /**
+   * Everything `spawn` needs for an entry: the resolved image, the expanded argv, the
+   * cwd and the environment. The argv is also what the preflight recognizes the entry's
+   * own detached successor by, so spawn and identification must never resolve it twice
+   * with two different rules.
+   */
+  private resolveSpawn(entry: Entry): SpawnInfo & { env: Record<string, string>, loggedArgs: string[] } {
     const vars = this.buildVars(entry)
     const cwd = resolveCwd(entry.config.cwd)
     const command = resolveCommand(entry.config.command, cwd, projectDir)
@@ -782,7 +799,6 @@ export class Supervisor {
     }
 
     const expansionVars: Record<string, string | undefined> = { ...process.env, ...fileEnv }
-    const args = expandEnvList(resolveTemplates(entry.config.args, vars), expansionVars)
     const env = {
       // `envFile` is the machine-local layer, so it overrides the tracked `env`.
       ...expandEnvRecord(resolveRecord(entry.config.env, vars), expansionVars),
@@ -794,9 +810,21 @@ export class Supervisor {
       HHOSTED_CONTROL_PORT: String(this.options.control.port),
     }
 
-    // Logged *before* `${VAR}` expansion: an argument like `${API_TOKEN}` must not
-    // land in the ring buffer, the rotated files, SSE or Telegram.
-    this.log(entry, 'system', `start: ${command} ${resolveTemplates(entry.config.args, vars).join(' ')}`)
+    return {
+      command,
+      args: expandEnvList(resolveTemplates(entry.config.args, vars), expansionVars),
+      env,
+      cwd,
+      // Logged *before* `${VAR}` expansion: an argument like `${API_TOKEN}` must not
+      // land in the ring buffer, the rotated files, SSE or Telegram.
+      loggedArgs: resolveTemplates(entry.config.args, vars),
+    }
+  }
+
+  private spawnEntry(entry: Entry): StartResult {
+    const { command, args, env, cwd, loggedArgs } = this.resolveSpawn(entry)
+
+    this.log(entry, 'system', `start: ${command} ${loggedArgs.join(' ')}`)
 
     let child: ChildProcess
     try {

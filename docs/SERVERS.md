@@ -75,14 +75,21 @@ update, a `re-exec` on config change. The panel used to see the successor's port
 there blocked while the service was actually up.
 
 Every process gets `HHOSTED_SERVER_ID` in its environment and a successor inherits it, so the preflight
-can tell a successor from a stranger (Linux `/proc`, macOS `ps -E`). **Windows cannot read another
-process's environment**, so there is no ownership test at all there: `follow` and `reclaim` behave
-exactly like `block`, and `kill` is the way out of a stuck port. Two policies act on that marker:
+can tell a successor from a stranger — read from `/proc` on Linux and `ps -E` on macOS. **Windows
+cannot read another process's environment**, so there the entry's own argv answers instead: a process
+holding the port is the successor when its image and arguments are the entry's own. That fallback also
+covers a Linux or macOS program that restarted itself in a way that dropped the marker. Two policies
+act on the result:
 
 | policy | what it does | trade-off |
 | --- | --- | --- |
 | `follow` | adopts the successor: pid, health probe, CPU/RSS, stop, and it starts its own process again when the successor exits | **keeps exactly what the program set up**, but its output is not captured — the pipe belongs to whoever spawned it, so that entry's log in the panel goes quiet |
 | `reclaim` | stops the successor, then starts a fully supervised process of its own | **full features** — live logs, resources, stop semantics all behave like any other entry — at the cost of one restart |
+
+Identification is deliberately strict, because `reclaim` kills what it identifies: the image has to be
+the entry's resolved command and its arguments have to open with the entry's own, and when **more than
+one** holder matches, the panel refuses to guess and blocks, naming the pids. A successor that re-execs
+under a different image is not recognized, and neither is one that rewrites its own arguments.
 
 Both are shown as **detached** in the panel while adopted, both can be stopped and restarted like any
 other entry, and neither will ever start a second copy on top of a **stranger**: that still blocks,
@@ -93,13 +100,15 @@ is discovered:
 
 ```text
 port 4374 is already in use (pid 912) — pid 912 is a detached restart of this entry:
-set onPortConflict to "follow" to adopt it, or "reclaim" to replace it with a supervised process
+set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a supervised process,
+or "kill" to stop whatever holds the port
 ```
 
 ### The `kill` policy
 
-`follow` and `reclaim` need to know *whose* port it is. When they cannot answer that — Windows, or a
-program that re-execs under a different image — `kill` skips the question:
+`follow` and `reclaim` need to know *whose* port it is. When they cannot answer that — a program that
+re-execs under a different image, or two holders that both look like the entry — `kill` skips the
+question:
 
 1. SIGTERM every listener on the port, escalating to SIGKILL after `stop.graceMs`.
 2. Wait for the port to actually accept nothing, then start as usual.

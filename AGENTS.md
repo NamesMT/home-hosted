@@ -69,7 +69,8 @@ exists, so the first release has to be published by hand.
   `migrations.ts` (the schema constant and the ordered step registry), `secrets.ts`, `seed.ts`.
 - `src/providers/` — stateless leaves: `process` (spawn, `terminate`, `terminatePid` for a process we
   adopted), `port` (probe, holder lookup, `terminatePids`), `proc` (the sampler, plus
-  `processCarriesServerId` for ownership), health-check, host, telegram, archive.
+  `processCarriesServerId` for the environment marker), `identity` (which port holder is this entry's
+  own successor: marker first, then resolved image + argv), health-check, host, telegram, archive.
 - `src/services/` — stateful orchestration: supervisor, control-server, config-watch, state,
   auth + exposure, dependencies, history, log-buffer/log-files, notifications, host-monitor, backups,
   tls, ui, plus `init` (the scaffold behind `home-hosted init`: a manifest, a `.gitignore`, and the
@@ -170,13 +171,18 @@ either is a last resort, and never an accidental one.
   package-relative state.
 - **Secrets never enter the config.** The password hash, API token hash and bot token live in the
   0600 secrets file, and the TLS pair in `.tls/`; the config holds policy.
-- **A port holder that carries `HHOSTED_SERVER_ID` for this entry is our own successor, not a
-  stranger.** A program that restarts itself leaves a detached process behind; with
-  `follow` the panel adopts it as-is (pid, liveness, health, resources, stop — but not its output);
-  with `reclaim` it stops that successor and starts a fully supervised child instead. Both are strictly
-  better than blocking forever on a port that is already serving, and neither ever touches a stranger.
-  Ownership is read from the environment — `/proc` on Linux, `ps -E` on macOS, impossible on Windows —
-  and `stop.killPortHolders` stays the fallback.
+- **A port holder that is this entry's own successor is not a stranger.** A program that restarts
+  itself leaves a detached process behind; with `follow` the panel adopts it as-is (pid, liveness,
+  health, resources, stop — but not its output); with `reclaim` it stops that successor and starts a
+  fully supervised child instead; with `kill` it stops whatever holds the port without asking whose it
+  is. All three beat blocking forever on a port that is already serving, and only `kill` ever touches a
+  process the panel could not identify — which is why it logs the pids it stopped.
+  Ownership is read from `HHOSTED_SERVER_ID` in the environment (`/proc` on Linux, `ps -E` on macOS),
+  falling back to the entry's own resolved image **plus its expanded argv** where that is unavailable
+  or unmatched — which is what makes `follow`/`reclaim` work on Windows at all, since it exposes no
+  per-process environment. The fallback requires an exact-one match: two holders that look like the
+  entry means the panel refuses to guess and blocks. `src/providers/identity.ts` owns this, and the
+  argv it matches must come from the same `resolveSpawn()` the spawn itself used.
 - **A port is only ever freed by re-listing its listeners.** `POST /api/servers/:id/free-port` never
   trusts a pid quoted in a message, and refuses any listener in `supervisedPids()` (the panel plus
   every entry's child) instead of killing it — a port held by a sibling is a config mistake.
