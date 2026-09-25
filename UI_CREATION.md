@@ -128,6 +128,24 @@ Send `?logs=0` to skip log frames, or `?serverId=<id>` to follow one server. The
 `sseMessageSchema` in `src/shared/contracts.ts` — the server validates against it before writing, so
 that schema is also your best type source.
 
+## Editing settings without fighting the stream
+
+Two things the API will not tell you, and both are what people report as bugs:
+
+- **A live frame must never overwrite a half-typed edit.** Every frame carries freshly built
+  objects, so a watcher that copies state into a form on each change reverts whatever is being
+  typed. The settings are also not one payload: host thresholds and the backups policy come from
+  `GET /api/settings`, which lands *after* the first SSE frame — a single "has anything changed?"
+  guard reads that late arrival as a pending edit, leaves those fields showing schema defaults
+  forever, and offers to "revert" a change nobody made. Fill each block on its own, and only while
+  that block is untouched since it was last filled (`uis/stock/src/components/settings/settingsForm.ts`).
+- **A boolean setting is a switch, not a checkbox.** Keep checkboxes for picking items out of a set
+  (a restore plan), where the control is the list entry. `uis/stock/src/components/ui/ToggleSwitch.vue`
+  is the reference.
+
+A pending-edit summary pays for itself: show how many fields changed, and let the list be opened —
+`describeChanges` and `countLeaves` in `src/shared/patch-diff.ts` turn a patch into those rows.
+
 ## Building one in this repo
 
 The repo's own UIs are Vite apps: `uis/<name>/` holds `index.html`, `src/`, a `tsconfig.json`

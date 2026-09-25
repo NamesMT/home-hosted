@@ -10,6 +10,10 @@
  * Matching is by exact name, on any segment, at any depth: `dist/` and
  * `app/node_modules/` are generated, `distributed/` and `my-node_modules/` are
  * not.
+ *
+ * `.git` is deliberately absent however much a `.gitignore` would not list it:
+ * a package manager can reinstall `node_modules`, but nobody can restore a
+ * commit that was never pushed.
  */
 
 /** Whole directories that are regenerated, never authored. */
