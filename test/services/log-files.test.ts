@@ -14,7 +14,7 @@ afterEach(async () => {
 })
 
 async function makeLogs(overrides: Partial<LogsConfig> = {}) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-logs-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-logs-'))
   dirs.push(dir)
 
   const parsed = logsSchema({ ...overrides })

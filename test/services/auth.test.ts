@@ -15,7 +15,7 @@ afterEach(async () => {
 })
 
 async function makeAuth(overrides: Partial<AuthConfig> = {}) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-auth-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-auth-'))
   dirs.push(dir)
   const file = path.join(dir, 'secrets.json')
   const secrets = new SecretsStore(file)
@@ -191,7 +191,7 @@ describe('auth service', () => {
 
 describe('secrets store', () => {
   it('picks up a password written by another process without a restart', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-secrets-'))
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-secrets-'))
     dirs.push(dir)
     const file = path.join(dir, 'secrets.json')
 
@@ -208,7 +208,7 @@ describe('secrets store', () => {
   })
 
   it('also notices the password being removed', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-secrets-'))
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-secrets-'))
     dirs.push(dir)
     const file = path.join(dir, 'secrets.json')
 
@@ -328,7 +328,7 @@ describe('api tokens', () => {
   })
 
   it('picks up a token written by another process, and tolerates an older file', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-secrets-'))
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-secrets-'))
     dirs.push(dir)
     const file = path.join(dir, 'secrets.json')
 

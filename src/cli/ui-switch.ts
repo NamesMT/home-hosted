@@ -325,7 +325,7 @@ async function downloadToTemp(url: string, headers: Record<string, string>, cont
   if (response.body === null)
     throw new Error(`the download from ${url} had no body`)
 
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-ui-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-ui-'))
   const file = path.join(dir, 'ui.zip')
   const handle = await fs.promises.open(file, 'w')
   let received = 0

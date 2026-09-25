@@ -75,7 +75,7 @@ exists, so the first release has to be published by hand.
   tls, ui, plus `init` (the scaffold behind `home-hosted init`: a manifest, a `.gitignore`, and the
   prompts stay in the CLI). It names no server — the scaffold must stay as neutral as the supervisor.
 - `src/middleware/auth.ts` — the `/api/*` guard, and `requestIdentity()`, the one place a request's
-  credentials are read: the `hh2_session` cookie or `Authorization: Bearer <api token>`. A token is
+  credentials are read: the `hh_session` cookie or `Authorization: Bearer <api token>`. A token is
   a first-class credential (same authority as a signed-in browser) and is verified from the secrets
   file on every request, so `set-token` needs no restart.
 - `src/helpers/` — paths (`dataRoot` vs `projectDir`), daemon (run.json + a loopback probe that

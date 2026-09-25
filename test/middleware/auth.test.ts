@@ -18,7 +18,7 @@ afterEach(async () => {
 })
 
 async function makeApp(options: { enabled: boolean, password?: string, token?: string }) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-guard-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-guard-'))
   dirs.push(dir)
 
   const parsed = authSchema({ enabled: options.enabled })

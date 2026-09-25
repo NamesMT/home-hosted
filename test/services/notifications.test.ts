@@ -19,7 +19,7 @@ async function makeService(options: {
   telegram?: Record<string, unknown>
   token?: string
 } = {}) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-notify-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-notify-'))
   dirs.push(dir)
 
   const notifications = notificationsSchema({ telegram: options.telegram ?? {} })

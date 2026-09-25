@@ -40,7 +40,7 @@ describe('parseEnvFile', () => {
 
 describe('loadEnvFile', () => {
   it('treats a missing file as an empty layer, not an error', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-env-'))
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-env-'))
     dirs.push(dir)
 
     const missing = loadEnvFile(path.join(dir, 'nope.env'))
@@ -49,7 +49,7 @@ describe('loadEnvFile', () => {
   })
 
   it('reads a real file and reports unreadable ones', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-env-'))
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-env-'))
     dirs.push(dir)
 
     const file = path.join(dir, 'app.env')

@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import { verifyApiToken, verifyPassword } from '#src/config/secrets'
 import { parseCookies } from '#src/helpers/cookies'
 
-export const SESSION_COOKIE = 'hh2_session'
+export const SESSION_COOKIE = 'hh_session'
 
 /** Created on first boot when no password exists; exposure stays blocked until it changes. */
 export const DEFAULT_PASSWORD = 'hh'

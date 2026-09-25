@@ -10,7 +10,7 @@ import { ConfigError, ConfigStore } from '#src/config/store'
 const dirs: string[] = []
 
 async function writeConfig(content: unknown): Promise<string> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-config-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-config-'))
   dirs.push(dir)
   const file = path.join(dir, 'servers.config.json')
   await fs.promises.writeFile(file, JSON.stringify(content, null, 2))
@@ -23,7 +23,7 @@ afterEach(async () => {
 
 describe('configStore', () => {
   it('seeds a default file when the config is missing', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-seed-'))
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-seed-'))
     dirs.push(dir)
     const file = path.join(dir, 'servers.config.json')
 
@@ -228,7 +228,7 @@ describe('configStore', () => {
   })
 
   it('survives unparseable json with an error instead of throwing', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-bad-'))
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-bad-'))
     dirs.push(dir)
     const file = path.join(dir, 'servers.config.json')
     await fs.promises.writeFile(file, '{ nope')

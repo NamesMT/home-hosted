@@ -23,7 +23,7 @@ function fixture(name: string): RawConfig {
 }
 
 async function tempStore(contents: RawConfig): Promise<{ store: ConfigStore, file: string }> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-compat-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-compat-'))
   dirs.push(dir)
   const file = path.join(dir, 'servers.config.json')
   await fs.promises.writeFile(file, `${JSON.stringify(contents, null, 2)}\n`)

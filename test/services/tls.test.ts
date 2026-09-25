@@ -12,7 +12,7 @@ let otherKey = ''
 let openssl = true
 
 beforeAll(async () => {
-  dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-tls-'))
+  dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-tls-'))
 
   try {
     // A real self-signed pair, so the parsing paths are exercised for real.
@@ -29,7 +29,7 @@ beforeAll(async () => {
       '-days',
       '3',
       '-subj',
-      '/CN=hh2.test',
+      '/CN=hh.test',
     ], { stdio: 'ignore' })
     execFileSync('openssl', [
       'genrsa',
@@ -105,7 +105,7 @@ describe('tls store', () => {
     store.save(cert, key)
 
     const status = store.status(true)
-    expect(status.subject).toContain('hh2.test')
+    expect(status.subject).toContain('hh.test')
     expect(status.keyMatches).toBe(true)
     expect(status.fingerprint).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)
     expect(status.daysRemaining).toBeGreaterThan(0)

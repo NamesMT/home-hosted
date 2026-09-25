@@ -44,7 +44,7 @@ interface Fixture {
 async function makeFixture(
   options: { keep?: number, enabled?: boolean, dataPaths?: string[], ignoreGenerated?: boolean, onConfigRestored?: () => void } = {},
 ): Promise<Fixture> {
-  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-backup-'))
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-backup-'))
   dirs.push(root)
 
   const configPath = path.join(root, 'servers.config.json')

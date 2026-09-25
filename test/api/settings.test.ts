@@ -28,7 +28,7 @@ afterEach(async () => {
  * out on purpose: a patch that keeps the listener where it is never rebinds.
  */
 async function makeApp(): Promise<{ app: Hono, file: string, store: ConfigStore }> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-settings-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-settings-'))
   dirs.push(dir)
 
   const file = path.join(dir, 'servers.config.json')

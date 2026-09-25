@@ -11,7 +11,7 @@ afterEach(async () => {
 })
 
 async function makeFile(): Promise<string> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-watch-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-watch-'))
   dirs.push(dir)
   const file = path.join(dir, 'servers.config.json')
   await fs.promises.writeFile(file, '{ "servers": [] }\n')
@@ -101,7 +101,7 @@ describe('configWatch', () => {
   })
 
   it('reports a watch it cannot establish instead of throwing', async () => {
-    const missing = path.join(os.tmpdir(), 'hh2-watch-nonexistent', 'servers.config.json')
+    const missing = path.join(os.tmpdir(), 'hh-watch-nonexistent', 'servers.config.json')
     const errors: unknown[] = []
     const watch = new ConfigWatch({
       file: missing,

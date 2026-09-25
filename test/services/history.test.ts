@@ -11,7 +11,7 @@ afterEach(async () => {
 })
 
 async function makeHistory() {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-history-'))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-history-'))
   dirs.push(dir)
   const file = path.join(dir, 'history.json')
   return { history: new HistoryStore(file), file }

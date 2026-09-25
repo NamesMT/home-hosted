@@ -21,7 +21,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
 })
 
-async function tempDir(name = 'hh2-init-'): Promise<string> {
+async function tempDir(name = 'hh-init-'): Promise<string> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), name))
   dirs.push(dir)
   return dir

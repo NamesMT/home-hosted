@@ -21,7 +21,7 @@ async function makeZip(file: string, entries: Record<string, string>): Promise<s
 }
 
 async function makeFixture(): Promise<{ ui: UiService, root: string, stock: string, zip: (entries: Record<string, string>) => Promise<string> }> {
-  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-ui-'))
+  const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-ui-'))
   dirs.push(root)
 
   const stock = path.join(root, 'stock')
