@@ -64,7 +64,10 @@ export function splitCommandLine(line: string): string[] {
 }
 
 function comparable(target: string): string {
-  const value = target.replace(/^"(.*)"$/, '$1').trim()
+  // Quotes around a whole word are stripped; whitespace never is. `resolveSpawn` only
+  // drops *empty* arguments, so an argument of one space has to stay distinguishable
+  // from a missing one — trimming it here would make them compare equal.
+  const value = target.replace(/^"(.*)"$/, '$1')
   return process.platform === 'win32' ? value.toLowerCase() : value
 }
 

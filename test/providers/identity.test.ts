@@ -88,6 +88,15 @@ describe('matchesSpawn', () => {
   it('never matches on the image alone when the args differ', () => {
     expect(matchesSpawn({ words: ['other.exe', '--different'], imagePath: process.execPath }, entrySpawn)).toBe(false)
   })
+
+  it('keeps a whitespace argument distinct from a missing one', () => {
+    // Regression: comparing used to trim, so a lone-space argument matched a process
+    // with no argument there at all — a false positive that `reclaim` would act on.
+    const spacey = { ...entrySpawn, args: [' '] }
+    expect(matchesSpawn({ words: [process.execPath] }, spacey)).toBe(false)
+    expect(matchesSpawn({ words: [process.execPath, ''] }, spacey)).toBe(false)
+    expect(matchesSpawn({ words: [process.execPath, ' '] }, spacey)).toBe(true)
+  })
 })
 
 describe('resolveSpawn', () => {

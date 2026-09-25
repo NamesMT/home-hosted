@@ -26,7 +26,7 @@ servers and its state together.
 | `command`, `args`, `cwd` | what to run, with `{placeholders}` resolved per entry |
 | `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config |
 | `port`, `bind` | enables the readiness wait, health checks and the conflict preflight; `local` keeps it on `127.0.0.1` |
-| `onPortConflict` | `block` (default), `warn`, `follow`, or `reclaim` — see below |
+| `onPortConflict` | `block` (default), `warn`, `follow`, `reclaim`, or `kill` — see below |
 | `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body) |
 | `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway |
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` |
