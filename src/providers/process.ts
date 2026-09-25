@@ -15,6 +15,9 @@ export interface SpawnSpec {
   env: Record<string, string>
 }
 
+/** Windows resolves a project-local bin to one of these shims, not the bare name. */
+const WINDOWS_SHIM_EXTENSIONS = ['.cmd', '.exe', '.bat', '.ps1']
+
 /**
  * Resolves a bare command through the entry's own directory and the project's
  * `node_modules/.bin` first, so a server installed as a project dependency is
@@ -24,10 +27,16 @@ export function resolveCommand(command: string, ...searchDirs: string[]): string
   if (command.includes('/') || command.includes('\\'))
     return command
 
+  const candidates = process.platform === 'win32' && path.extname(command) === ''
+    ? [command, ...WINDOWS_SHIM_EXTENSIONS.map(extension => `${command}${extension}`)]
+    : [command]
+
   for (const dir of searchDirs) {
-    const local = path.join(dir, 'node_modules', '.bin', command)
-    if (fs.existsSync(local))
-      return local
+    for (const candidate of candidates) {
+      const local = path.join(dir, 'node_modules', '.bin', candidate)
+      if (fs.existsSync(local))
+        return local
+    }
   }
 
   return command
@@ -38,6 +47,11 @@ export function resolveCwd(cwd: string, base: string = projectDir): string {
   return path.resolve(base, cwd)
 }
 
+/** Node cannot spawn a Windows `.cmd`/`.bat` shim without a shell (EINVAL). */
+export function needsShell(command: string): boolean {
+  return process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(command)
+}
+
 export function spawnManaged(spec: SpawnSpec): ChildProcess {
   return spawn(spec.command, spec.args, {
     cwd: spec.cwd,
@@ -45,6 +59,7 @@ export function spawnManaged(spec: SpawnSpec): ChildProcess {
     // Own process group: a stop can signal the whole tree with one kill(-pid).
     detached: true,
     stdio: ['ignore', 'pipe', 'pipe'],
+    shell: needsShell(spec.command),
     windowsHide: true,
   })
 }

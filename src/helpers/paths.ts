@@ -52,7 +52,7 @@ export function resolveUserPath(target: string, base = projectDir): string {
   let value = target
   if (value === '~')
     value = os.homedir()
-  else if (value.startsWith('~/'))
+  else if (value.startsWith('~/') || value.startsWith('~\\'))
     value = path.join(os.homedir(), value.slice(2))
   return path.isAbsolute(value) ? value : path.resolve(base, value)
 }
