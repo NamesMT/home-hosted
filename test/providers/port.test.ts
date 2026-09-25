@@ -1,8 +1,9 @@
 import type { ChildProcess } from 'node:child_process'
 import { spawn } from 'node:child_process'
+import net from 'node:net'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { isProcessAlive, terminatePids } from '#src/providers/port'
+import { isProcessAlive, killPortHolders, listPortHolders, terminatePids } from '#src/providers/port'
 
 const children: ChildProcess[] = []
 
@@ -36,14 +37,27 @@ function spawnSleeper(options: { ignoreTerm?: boolean } = {}): Promise<number> {
   })
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (predicate())
+    if (await predicate())
       return
     await delay(25)
   }
   throw new Error('waitFor timed out')
+}
+
+/** A port the OS just handed out, and that nothing is listening on any more. */
+async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address !== null ? address.port : 0
+      server.close(() => resolve(port))
+    })
+  })
 }
 
 describe('isProcessAlive', () => {
@@ -94,5 +108,32 @@ describe('terminatePids', () => {
 
     expect(result.stopped).toEqual([pid])
     expect(result.forced).toEqual([])
+  })
+})
+
+describe('killPortHolders', () => {
+  it('never touches a listener it was told to exclude', async () => {
+    const port = await freePort()
+    const child = spawn(process.execPath, ['-e', `require("node:net").createServer().listen(${port}, "127.0.0.1")`], { stdio: 'ignore' })
+    children.push(child)
+    if (child.pid === undefined)
+      throw new Error('could not spawn a listener')
+    const pid = child.pid
+
+    try {
+      await waitFor(async () => (await listPortHolders(port)).includes(pid))
+
+      // The panel's own process tree is never a leftover to kill: a sibling entry
+      // under `onPortConflict: warn` shares a port without becoming a target.
+      expect(await killPortHolders(port, new Set([pid]))).toEqual([])
+      expect(isProcessAlive(pid)).toBe(true)
+
+      expect(await killPortHolders(port)).toContain(pid)
+      await waitFor(() => !isProcessAlive(pid))
+    }
+    finally {
+      if (isProcessAlive(pid))
+        process.kill(pid, 'SIGKILL')
+    }
   })
 })

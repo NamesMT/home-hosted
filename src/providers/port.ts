@@ -27,11 +27,12 @@ export async function isPortFree(port: number, host = '127.0.0.1', timeoutMs = 1
 }
 
 /**
- * Kills whatever holds the port. Only used as a last resort for wrappers that
- * spawn their real server detached, where a process-group signal cannot reach it.
+ * Kills whatever holds the port, minus `exclude` (the panel's own process tree).
+ * Only used as a last resort for wrappers that spawn their real server detached,
+ * where a process-group signal cannot reach it.
  */
-export async function killPortHolders(port: number): Promise<number[]> {
-  const pids = await listPortHolders(port)
+export async function killPortHolders(port: number, exclude?: ReadonlySet<number>): Promise<number[]> {
+  const pids = (await listPortHolders(port)).filter(pid => !exclude?.has(pid))
   for (const pid of pids) {
     try {
       process.kill(pid, 'SIGKILL')
