@@ -95,6 +95,10 @@ exists, so the first release has to be published by hand.
 - `#src/*` imports inside `src/`; UIs use `@shared/*`.
 - A single on/off setting is a `ToggleSwitch`; `CheckField` is only for picking items out of a set
   (the restore plan). A checkbox in a `FieldGroup` grid reads as misaligned next to the inputs.
+- A create body carries only what differs from what the entry would inherit — the schema's defaults
+  with the panel's `Settings → Server defaults` on top (`inheritBaseline` + `diffFields` in both
+  UIs). A value written into `servers.config.json` stops following those defaults, so anything the
+  person did not decide stays out; the editor applies the same rule to an edit.
 - ArkType at every runtime boundary: routes use `validate('json'|'query'|'param', schema)` then
   `c.req.valid(...)`; ad-hoc payloads use `parseOrThrow`. Schemas reject undeclared keys.
 - Every failure is a `DetailedError` (`@namesmt/utils`), mapped by `src/helpers/error.ts` into one
