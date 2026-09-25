@@ -132,7 +132,7 @@ export class NotificationService {
     const result = await sendTelegramMessage(
       token,
       chatId,
-      formatTelegramMessage('✅ home-hosted-2 test', ['notifications are wired up correctly']),
+      formatTelegramMessage('✅ home-hosted test', ['notifications are wired up correctly']),
     )
     this.remember(result.ok ? 'test message sent' : result.error ?? 'test failed')
     return result
