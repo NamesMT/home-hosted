@@ -94,7 +94,9 @@ describe('tls store', () => {
 
     expect(store.save(cert, key)).toEqual({ ok: true })
     expect(store.present).toBe(true)
-    expect(fs.statSync(store.keyPath).mode & 0o777).toBe(0o600)
+    // NTFS stores no POSIX mode, so the 0600 assertion belongs to the POSIX platforms.
+    if (process.platform !== 'win32')
+      expect(fs.statSync(store.keyPath).mode & 0o777).toBe(0o600)
     expect(store.load()?.cert).toContain('BEGIN CERTIFICATE')
   })
 

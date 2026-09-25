@@ -1,0 +1,74 @@
+name: Cross-platform tests
+
+# Linux CI lives in test.yml/quickcheck.yml and runs on every push and pull request.
+# This one is the expensive half: macOS and Windows runners, dispatched by hand or as
+# the release gate, so a platform-specific break is caught before it ships rather than
+# on a user's machine.
+#
+# Windows coverage matters most here: the panel's process handling (port holders,
+# `taskkill /T`, `.cmd` shims) and the `follow`/`reclaim` successor identification have
+# code paths that no Linux runner can execute.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Which platforms to run
+        required: true
+        type: choice
+        options:
+          - all
+          - macos
+          - windows
+        default: all
+
+permissions:
+  contents: read
+
+# A dispatch racing a release would otherwise pay for two macOS runners at once.
+concurrency:
+  group: cross-platform-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # Both platforms report in one run: a Windows-only break should not hide the
+      # macOS result, and vice versa.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS
+          - os: windows-latest
+            label: Windows
+
+    # On workflow_call there are no inputs at all, so everything runs; an explicit
+    # `os` choice narrows it.
+    if: ${{ github.event.inputs.os == null || github.event.inputs.os == '' || github.event.inputs.os == 'all' || matrix.label == github.event.inputs.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # No --coverage on purpose. The thresholds are calibrated on Linux, where the
+      # platform-guarded tests actually execute; running them here would fail a
+      # correct skip. Coverage stays the ubuntu job's business.
+      - name: Test
+        run: pnpm exec vitest run

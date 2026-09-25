@@ -51,7 +51,9 @@ describe('password hashing', () => {
     expect(verifyPassword('pässwörd-with-composed-é'.normalize('NFC'), record)).toBe(true)
   })
 
-  it('writes the secrets file with mode 0600', async () => {
+  // NTFS has no POSIX mode bits: Node reports a fixed 0o666/0o444 there whatever
+  // `mode` the write asked for, so this can only be asserted where it means something.
+  it.skipIf(process.platform === 'win32')('writes the secrets file with mode 0600', async () => {
     const { secrets, file } = await makeAuth()
     secrets.setPassword('a-good-password')
 
@@ -306,7 +308,7 @@ describe('api tokens', () => {
     expect(JSON.stringify(view)).not.toContain(token)
   })
 
-  it('writes a 0600 file that never contains the token itself', async () => {
+  it('writes a file that never contains the token itself', async () => {
     const { secrets, file } = await makeAuth()
     const token = generateApiToken()
     secrets.setApiToken(token)
@@ -314,6 +316,11 @@ describe('api tokens', () => {
     const raw = await fs.promises.readFile(file, 'utf8')
     expect(raw).toContain('"apiToken"')
     expect(raw).not.toContain(token)
+  })
+
+  it.skipIf(process.platform === 'win32')('writes that token file with mode 0600', async () => {
+    const { secrets, file } = await makeAuth()
+    secrets.setApiToken(generateApiToken())
     expect(fs.statSync(file).mode & 0o777).toBe(0o600)
   })
 

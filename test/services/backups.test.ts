@@ -266,7 +266,9 @@ describe('backup service', () => {
     expect(fs.readFileSync(fixture.configPath, 'utf8')).toContain('"servers": []')
     expect(fs.readFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'utf8')).toBe('ORIGINAL\n')
     expect(fs.readFileSync(fixture.secretsPath, 'utf8')).toContain('"password"')
-    expect(fs.statSync(fixture.secretsPath).mode & 0o777).toBe(0o600)
+    // Restoring re-tightens the secrets file where the platform has POSIX modes.
+    if (process.platform !== 'win32')
+      expect(fs.statSync(fixture.secretsPath).mode & 0o777).toBe(0o600)
   })
 
   it('password-protects an archive, and only opens it with the right password', async () => {
