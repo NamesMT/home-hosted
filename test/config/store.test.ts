@@ -56,6 +56,30 @@ describe('configStore', () => {
     expect(server?.stop.killGroup).toBe(true)
   })
 
+  it('merges a global default into a group the entry only partly declares', async () => {
+    const file = await writeConfig({
+      defaults: { restart: { baseDelayMs: 5000, maxRetries: 9 } },
+      servers: [
+        { id: 'a', command: 'node' },
+        { id: 'b', command: 'node', restart: { maxRetries: 2 } },
+      ],
+    })
+    const store = new ConfigStore(file)
+    store.load()
+
+    expect(store.getServer('a')?.restart.baseDelayMs).toBe(5000)
+    expect(store.getServer('b')?.restart.maxRetries).toBe(2)
+    // Deciding one member must not drop the panel's default for the others.
+    expect(store.getServer('b')?.restart.baseDelayMs).toBe(5000)
+    // …and the schema defaults still fill what neither side decided.
+    expect(store.getServer('b')?.restart.factor).toBe(2)
+
+    // Same rule on the write path: a created entry inherits the group defaults.
+    const created = store.addServer({ id: 'c', command: 'node', restart: { maxRetries: 1 } })
+    expect(created.restart.baseDelayMs).toBe(5000)
+    expect(created.restart.maxRetries).toBe(1)
+  })
+
   it('lets an entry override a global default', async () => {
     const file = await writeConfig({
       defaults: { autostart: true },

@@ -22,6 +22,7 @@ import {
   defaultsSchema,
   hostSchema,
   logsSchema,
+  mergeDefaults,
   notificationsSchema,
   serverSchema,
 } from '#src/config/schema'
@@ -353,7 +354,7 @@ export class ConfigStore {
   }
 
   private validateServer(entry: Record<string, unknown>, label: string): ServerConfig {
-    const parsed = serverSchema({ ...this.defaults, ...entry })
+    const parsed = serverSchema(mergeDefaults(this.defaults, entry))
     if (parsed instanceof type.errors)
       throw new ConfigError(`${label}: ${formatErrors(parsed)}`)
     return { ...parsed, port: parsed.port ?? null }

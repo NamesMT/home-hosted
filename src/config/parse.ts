@@ -10,6 +10,7 @@ import {
   defaultsSchema,
   hostSchema,
   logsSchema,
+  mergeDefaults,
   notificationsSchema,
 
   serverSchema,
@@ -159,7 +160,7 @@ export function parseConfig(raw: unknown, options: MigrationOptions = {}): Confi
 
   rawServers.forEach((entry, index) => {
     const label = `servers[${index}]`
-    const merged = isRecord(entry) ? { ...defaults, ...entry } : entry
+    const merged = isRecord(entry) ? mergeDefaults(defaults, entry) : entry
     const parsed = parseTolerant(merged, serverSchema as unknown as Validator, label, unknownKeys)
     if (parsed.error !== null) {
       const id = isRecord(entry) ? entry.id : undefined

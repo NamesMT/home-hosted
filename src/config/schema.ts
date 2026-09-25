@@ -42,6 +42,31 @@ export type ResolvedConfig = Omit<typeof configSchema.infer, 'servers'> & { serv
 /** Every key `configSchema` knows, for reporting blocks a newer release added. */
 export const CONFIG_KEYS = ['$schema', 'meta', 'control', 'defaults', 'logs', 'notifications', 'host', 'backups', 'servers'] as const
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Resolves one entry against the panel's server defaults. A group (`restart`,
+ * `health`, `health.http`, `stop`) merges key by key, so an entry that decides one
+ * member does not silently fall back to the *schema* default for the others — which
+ * is the whole point of the panel having defaults at all.
+ */
+export function mergeDefaults(
+  defaults: Record<string, unknown>,
+  entry: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...entry }
+  for (const [key, value] of Object.entries(defaults)) {
+    const current = merged[key]
+    if (current === undefined)
+      merged[key] = value
+    else if (isRecord(value) && isRecord(current))
+      merged[key] = mergeDefaults(value, current)
+  }
+  return merged
+}
+
 /** The on-disk shape: everything optional except `servers`, defaults applied per entry. */
 export interface RawConfig {
   $schema?: string
