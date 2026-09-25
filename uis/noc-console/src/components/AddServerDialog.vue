@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { HealthConfig, RestartConfig, ServerDefaults, StopConfig } from '@shared/contracts'
 import { serverCreateSchema } from '@shared/contracts'
+import { diffFields } from '@shared/patch-diff'
 import { type } from 'arktype'
 import { nextTick, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
@@ -82,10 +83,6 @@ function textToEnv(value: string): Record<string, string> {
   return env
 }
 
-function same(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
 function reset(): void {
   Object.assign(form, blank(control.defaults.value))
 }
@@ -100,44 +97,79 @@ watch(() => props.open, async (open) => {
   idField.value?.focus()
 })
 
+/** What the entry would inherit if the body said nothing: schema defaults under the panel's own. */
+function inheritBaseline(defaults: ServerDefaults | null): Record<string, unknown> {
+  return {
+    args: [],
+    cwd: '.',
+    env: {},
+    dataEnvs: {},
+    dependsOn: [],
+    envFile: '',
+    backupPaths: [],
+    backupIgnoreGenerated: true,
+    resources: { maxRssBytes: 0 },
+    bind: defaults?.bind ?? 'local',
+    enabled: defaults?.enabled ?? true,
+    autostart: defaults?.autostart ?? false,
+    onPortConflict: defaults?.onPortConflict ?? 'block',
+    logBufferLines: defaults?.logBufferLines ?? 500,
+  }
+}
+
+/**
+ * What the person decided, and nothing else: a value equal to what the entry
+ * would inherit stays out, so it keeps following `Settings → Server defaults`
+ * instead of freezing today's values into `servers.config.json`.
+ */
 function buildPayload(): Record<string, unknown> {
   const rssMb = form.maxRssMb.trim()
   const bufferLines = form.logBufferLines.trim()
   const bootstrapMs = Number(form.bootstrapTimeoutMs)
   const defaults = control.defaults.value
+  const baseline = inheritBaseline(defaults)
 
-  const payload: Record<string, unknown> = {
-    id: form.id.trim(),
-    label: form.label.trim(),
-    command: form.command.trim(),
+  const flat = diffFields(baseline, {
     args: linesToArray(form.args),
     cwd: form.cwd.trim().length > 0 ? form.cwd.trim() : '.',
     env: textToEnv(form.env),
     dataEnvs: textToEnv(form.dataEnvs),
-    backupPaths: linesToArray(form.backupPaths),
-    backupIgnoreGenerated: form.backupIgnoreGenerated,
     dependsOn: form.dependsOn.split(',').map(entry => entry.trim()).filter(entry => entry.length > 0),
     envFile: form.envFile.trim(),
+    backupPaths: linesToArray(form.backupPaths),
+    backupIgnoreGenerated: form.backupIgnoreGenerated,
     resources: { maxRssBytes: rssMb === '' ? 0 : Math.round(Number(rssMb) * 1024 * 1024) },
     onPortConflict: form.onPortConflict,
-    port: form.port.trim() === '' ? null : Number(form.port),
     bind: form.bind,
     enabled: form.enabled,
     autostart: form.autostart,
+    // Blank means inherited, and a value equal to the default is left out too.
+    logBufferLines: bufferLines === '' ? baseline.logBufferLines : Number(bufferLines),
+  })
+
+  const groups = diffFields(
+    {
+      restart: defaults?.restart ?? SCHEMA_RESTART,
+      health: defaults?.health ?? SCHEMA_HEALTH,
+      stop: defaults?.stop ?? SCHEMA_STOP,
+    },
+    { restart: form.restart, health: form.health, stop: form.stop },
+  )
+
+  const payload: Record<string, unknown> = {
+    ...flat,
+    ...groups,
+    id: form.id.trim(),
+    command: form.command.trim(),
   }
 
-  // Blank means inherited; 0 is below the schema's floor, so the key stays out.
-  if (bufferLines !== '')
-    payload.logBufferLines = Number(bufferLines)
+  const label = form.label.trim()
+  if (label.length > 0)
+    payload.label = label
 
-  // A policy group the person left alone keeps inheriting the panel defaults
-  // instead of freezing today's values into servers.config.json.
-  if (defaults === null || !same(form.restart, defaults.restart))
-    payload.restart = { ...form.restart }
-  if (defaults === null || !same(form.health, defaults.health))
-    payload.health = cloneHealth(form.health)
-  if (defaults === null || !same(form.stop, defaults.stop))
-    payload.stop = { ...form.stop }
+  const port = form.port.trim()
+  if (port !== '')
+    payload.port = Number(port)
 
   if (form.bootstrapEnabled) {
     payload.bootstrap = {

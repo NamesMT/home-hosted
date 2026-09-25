@@ -13,13 +13,45 @@ import {
  * advanced options are easy to render and forget to send, and that failure is
  * silent — the entry is created without the option the person just set.
  */
+/** The effective `Settings → Server defaults` the dialog seeds itself from. */
+function panelDefaults(overrides: Record<string, unknown> = {}) {
+  const parsed = defaultsSchema(overrides)
+  if (parsed instanceof type.errors)
+    throw new Error(parsed.summary)
+  return parsed
+}
+
 describe('add-server payload', () => {
   it('sends the basics, and only the fields that were filled in', () => {
-    const payload = addServerPayload({ ...blankAddServerForm(), id: 'web', command: 'node', args: '-p\n{port}' })
+    const payload = addServerPayload(
+      { ...blankAddServerForm(), id: 'web', command: 'node', args: '-p\n{port}' },
+      panelDefaults(),
+    )
 
-    expect(payload).toMatchObject({ id: 'web', command: 'node', args: ['-p', '{port}'], cwd: '.', bind: 'local' })
-    expect('label' in payload).toBe(false)
-    expect('port' in payload).toBe(false)
+    expect(payload).toEqual({ id: 'web', command: 'node', args: ['-p', '{port}'] })
+  })
+
+  /**
+   * The reported preference: an entry that leaves a field alone must keep
+   * inheriting it, so a later `Settings → Server defaults` change still reaches
+   * it. Writing the default in would freeze today's value instead.
+   */
+  it('leaves out every value that only repeats what the entry would inherit', () => {
+    const payload = addServerPayload({
+      ...blankAddServerForm(),
+      id: 'web',
+      command: 'node',
+      cwd: '.',
+      bind: 'local',
+      enabled: true,
+      autostart: false,
+      onPortConflict: 'block',
+      logBufferLines: 500,
+      backupIgnoreGenerated: true,
+    }, panelDefaults())
+
+    expect(payload).toEqual({ id: 'web', command: 'node' })
+    expect(serverCreateSchema(payload) instanceof type.errors).toBe(false)
   })
 
   it('carries every advanced option', () => {
@@ -65,7 +97,8 @@ describe('add-server payload', () => {
 
   it('keeps the generated-file skip on by default, and off as a decision', () => {
     const base = { ...blankAddServerForm(), id: 'web', command: 'node' }
-    expect(addServerPayload(base).backupIgnoreGenerated).toBe(true)
+    // On is the schema default, so saying nothing says it; off is a decision.
+    expect('backupIgnoreGenerated' in addServerPayload(base)).toBe(false)
     expect(addServerPayload({ ...base, backupIgnoreGenerated: false }).backupIgnoreGenerated).toBe(false)
   })
 
@@ -84,7 +117,7 @@ describe('add-server payload', () => {
     })
 
     expect('logBufferLines' in payload).toBe(false)
-    expect(payload.resources).toEqual({ maxRssBytes: 0 })
+    expect('resources' in payload).toBe(false)
   })
 })
 
@@ -114,12 +147,12 @@ describe('add-server validation', () => {
  * inheriting whatever the panel defaults become later.
  */
 describe('add-server policy groups', () => {
-  function panelDefaults(overrides: Record<string, unknown> = {}) {
-    const parsed = defaultsSchema(overrides)
-    if (parsed instanceof type.errors)
-      throw new Error(parsed.summary)
-    return parsed
-  }
+  it('sends nothing that only repeats a panel default it was seeded from', () => {
+    const defaults = panelDefaults({ bind: 'lan', autostart: true, onPortConflict: 'warn', logBufferLines: 900 })
+    const payload = addServerPayload({ ...blankAddServerForm(defaults), id: 'web', command: 'node' }, defaults)
+
+    expect(payload).toEqual({ id: 'web', command: 'node' })
+  })
 
   it('seeds the entry from the panel defaults, and sends nothing it did not change', () => {
     const defaults = panelDefaults({ autostart: true, bind: 'lan', logBufferLines: 900 })
@@ -150,13 +183,13 @@ describe('add-server policy groups', () => {
     expect('stop' in payload).toBe(false)
   })
 
-  it('sends the lifecycle groups when there is no snapshot to compare against', () => {
+  it('falls back to the schema\'s own defaults when no panel defaults were loaded', () => {
     const form = { ...blankAddServerForm(), id: 'web', command: 'node' }
     const payload = addServerPayload(form)
 
-    expect(payload.restart).toBeDefined()
-    expect(payload.health).toBeDefined()
-    expect(payload.stop).toBeDefined()
+    // Nothing is written that the entry would inherit anyway — including the
+    // groups, which are seeded to the same schema defaults the form shows.
+    expect(payload).toEqual({ id: 'web', command: 'node' })
     expect(serverCreateSchema(payload) instanceof type.errors).toBe(false)
   })
 

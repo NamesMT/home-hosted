@@ -1,4 +1,5 @@
 import type { HealthConfig, RestartConfig, ServerCreate, ServerDefaults, StopConfig } from '@shared/contracts'
+import { diffFields } from '@shared/patch-diff'
 import { cloneHealth, SCHEMA_HEALTH, SCHEMA_RESTART, SCHEMA_STOP } from '@/components/settings/settingsForm'
 import { commaList, linesToArray, textToEnv } from '@/lib/fields'
 
@@ -83,8 +84,27 @@ function finite(value: number | null): number {
   return value !== null && Number.isFinite(value) ? value : 0
 }
 
-function same(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
+/**
+ * What an entry would inherit if the body said nothing about it: the schema's own
+ * defaults, with the panel's `Settings → Server defaults` on top.
+ */
+function inheritBaseline(defaults?: ServerDefaults): Record<string, unknown> {
+  return {
+    args: [],
+    cwd: '.',
+    env: {},
+    dataEnvs: {},
+    dependsOn: [],
+    envFile: '',
+    backupPaths: [],
+    backupIgnoreGenerated: true,
+    resources: { maxRssBytes: 0 },
+    bind: defaults?.bind ?? 'local',
+    enabled: defaults?.enabled ?? true,
+    autostart: defaults?.autostart ?? false,
+    onPortConflict: defaults?.onPortConflict ?? 'block',
+    logBufferLines: defaults?.logBufferLines ?? 500,
+  }
 }
 
 export function addServerPortError(port: number | null): string | null {
@@ -95,36 +115,56 @@ export function addServerPortError(port: number | null): string | null {
     : 'Port must be a whole number between 1 and 65535.'
 }
 
-/** The request body: only fields a person actually filled in are sent. */
+/**
+ * The request body: what the person decided, and nothing else.
+ *
+ * A value equal to what the entry would inherit is left out, so it stays
+ * inherited — changing `Settings → Server defaults` later still reaches this
+ * entry. That is the rule the editor already applies to an edit, and it keeps a
+ * new entry down to the fields someone actually touched.
+ */
 export function addServerPayload(form: AddServerForm, defaults?: ServerDefaults): ServerCreate {
   const rssMb = finite(form.maxRssMb)
   const bootstrapMs = finite(form.bootstrapTimeoutMs)
+  const baseline = inheritBaseline(defaults)
 
-  return {
-    id: form.id.trim(),
-    ...(form.label.trim().length === 0 ? {} : { label: form.label.trim() }),
-    command: form.command.trim(),
+  // A policy group is compared as a whole, against the same baseline: untouched,
+  // it is left out and the entry keeps inheriting the panel's restart/health/stop.
+  const groups = diffFields(
+    {
+      restart: defaults?.restart ?? SCHEMA_RESTART,
+      health: defaults?.health ?? SCHEMA_HEALTH,
+      stop: defaults?.stop ?? SCHEMA_STOP,
+    },
+    { restart: form.restart, health: form.health, stop: form.stop },
+  )
+
+  const flat = diffFields(baseline, {
     args: linesToArray(form.args),
     cwd: form.cwd.trim().length > 0 ? form.cwd.trim() : '.',
-    ...(form.port === null || Number.isNaN(form.port) ? {} : { port: form.port }),
-    // The select offers `local` and `lan` only; `SelectField` speaks plain strings.
-    bind: form.bind as ServerCreate['bind'],
-    autostart: form.autostart,
-    enabled: form.enabled,
-    onPortConflict: form.onPortConflict,
-    // A blank field inherits the default instead of sending an out-of-bounds 0.
-    ...(finite(form.logBufferLines) > 0 ? { logBufferLines: finite(form.logBufferLines) } : {}),
-    dependsOn: commaList(form.dependsOn),
-    envFile: form.envFile.trim(),
     env: textToEnv(form.env),
     dataEnvs: textToEnv(form.dataEnvs),
+    dependsOn: commaList(form.dependsOn),
+    envFile: form.envFile.trim(),
     backupPaths: linesToArray(form.backupPaths),
     backupIgnoreGenerated: form.backupIgnoreGenerated,
     resources: { maxRssBytes: rssMb > 0 ? Math.round(rssMb * 1024 * 1024) : 0 },
-    // A policy group the person left alone keeps inheriting the panel defaults.
-    ...(defaults === undefined || !same(form.restart, defaults.restart) ? { restart: { ...form.restart } } : {}),
-    ...(defaults === undefined || !same(form.health, defaults.health) ? { health: cloneHealth(form.health) } : {}),
-    ...(defaults === undefined || !same(form.stop, defaults.stop) ? { stop: { ...form.stop } } : {}),
+    // The select offers `local` and `lan` only; `SelectField` speaks plain strings.
+    bind: form.bind,
+    enabled: form.enabled,
+    autostart: form.autostart,
+    onPortConflict: form.onPortConflict,
+    // Blank means "inherit", and a value equal to the default is left out too.
+    logBufferLines: finite(form.logBufferLines) > 0 ? finite(form.logBufferLines) : baseline.logBufferLines,
+  })
+
+  return {
+    ...flat,
+    ...groups,
+    id: form.id.trim(),
+    ...(form.label.trim().length === 0 ? {} : { label: form.label.trim() }),
+    command: form.command.trim(),
+    ...(form.port === null || Number.isNaN(form.port) ? {} : { port: form.port }),
     ...(form.bootstrapEnabled
       ? {
           bootstrap: {
