@@ -33,6 +33,9 @@ $HHOSTED_HOME/.ui/            ← where your build lives
 (`zip -r ui.zip dist` works too). `ui.json` is optional; it is what the settings page shows as
 installed.
 
+Without the settings page, `home-hosted ui-switch` installs one from a GitHub release asset (its
+default), from a local `.zip` (`--file ./ui.zip`), or from a URL (`--file https://…/ui.zip`).
+
 Nothing is built on the server side: whatever you upload is served as-is, so ship plain
 HTML/JS/CSS or the output of your own Vite/Next/Astro build with relative asset paths.
 

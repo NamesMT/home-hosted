@@ -276,6 +276,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./SERVERS.md).*
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | bring `servers.config.json` up to this release's schema (`--dry-run`, `--yes`) |
 | `home-hosted init` | scaffold a project that keeps `state/` and its data in the repo |
+| `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (`--list` to see them) |
 | `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
 
 <details>

@@ -39,7 +39,9 @@ exists, so the first release has to be published by hand.
 
 - `src/cli.ts` — the CLI. Its only static imports are node builtins: `--home`/`--project` must set
   `HHOSTED_HOME`/`HHOSTED_PROJECT` before any `#src` module resolves paths, so every `#src` import is
-  dynamic. `up` re-spawns itself detached as `up --foreground`.
+  dynamic. `up` re-spawns itself detached as `up --foreground`. A command with helpers of its own
+  lives in `src/cli/` and is imported dynamically after `applyDirFlags()`, taking the readline
+  prompt and the colours through an IO seam (`src/cli/ui-switch.ts` is the first).
 - `src/index.ts` — `runControlPlane()`: wiring, startup guards (exposure, free port, live run.json),
   `run.json`, signals. Wiring belongs here and nowhere else.
 - `src/app.ts` — the Hono root, chained routes only. `/_hh` is mounted *before* the `/api/*` auth

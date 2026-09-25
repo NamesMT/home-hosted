@@ -28,6 +28,7 @@ Usage
   home-hosted set-token         set the API token that scripts and agents use
   home-hosted migrate           bring the config up to this release's schema
   home-hosted init              scaffold a project that keeps its state in the repo
+  home-hosted ui-switch         install a UI from a release asset, a zip file or a URL
   home-hosted ui-revert         go back to the stock control panel UI
 
 Options for up/restart
@@ -54,6 +55,15 @@ Options for init
       --no-install      write the files, install nothing
   -y, --yes             take every default, ask nothing
 
+Options for ui-switch
+      --repo <owner/name>   release repo (default: NamesMT/home-hosted)
+      --tag <tag>           release tag (default: this release's tag, or latest for another repo)
+      --asset <name>        asset to install (exact or unambiguous match)
+      --file <path|url>     install a zip from a local path or an http(s) URL
+      --list                list the usable assets and install nothing
+      --token <token>       GitHub token (or GITHUB_TOKEN / GH_TOKEN)
+  -y, --yes                 take the only asset instead of asking
+
 Everywhere
       --home <dir>      state directory (default: $HHOSTED_HOME or ~/.home-hosted)
       --project <dir>   base for relative entry paths (default: the current directory)
@@ -65,6 +75,7 @@ Environment
   HHOSTED_PROJECT       base for relative entry paths
   HHOSTED_PASSWORD      the password for a non-interactive set-password
   HHOSTED_TOKEN         the token for a non-interactive set-token
+  GITHUB_TOKEN          a GitHub token for ui-switch (GH_TOKEN also works)
 `
 
 const isTty = (): boolean => process.stdout.isTTY === true
@@ -842,6 +853,18 @@ async function main(): Promise<void> {
       applyDirFlags(dirFlags)
       await initProject(args)
       return
+    case 'ui-switch': {
+      applyDirFlags(dirFlags)
+      // `--home` must be in the environment before anything reads `dataRoot`, so
+      // the command is imported here rather than at the top (as every `#src` import is).
+      const { uiSwitch } = await import('#src/cli/ui-switch')
+      await uiSwitch(args, {
+        write: text => process.stdout.write(text),
+        prompt,
+        style: { bold, dim, green },
+      })
+      return
+    }
     case 'ui-revert':
       applyDirFlags(dirFlags)
       await uiRevert()
