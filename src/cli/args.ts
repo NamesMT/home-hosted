@@ -63,6 +63,11 @@ export type Invocation
 
 const HELP_TOKENS = new Set(['help', '--help', '-h'])
 const VERSION_TOKENS = new Set(['version', '--version', '-v'])
+// After a command, only the flag forms count: a bare `help` may be the value of an
+// option (`init --name help`), and answering that with the usage text would skip
+// the command instead of running it.
+const HELP_FLAGS = new Set(['--help', '-h'])
+const VERSION_FLAGS = new Set(['--version', '-v'])
 
 /**
  * What the stripped argv means, before citty sees it.
@@ -90,9 +95,9 @@ export function resolveInvocation(argv: string[], commands: readonly string[]): 
     return { kind: 'unknown', command: first }
 
   for (const arg of argv.slice(1)) {
-    if (HELP_TOKENS.has(arg))
+    if (HELP_FLAGS.has(arg))
       return { kind: 'help' }
-    if (VERSION_TOKENS.has(arg))
+    if (VERSION_FLAGS.has(arg))
       return { kind: 'version' }
   }
 

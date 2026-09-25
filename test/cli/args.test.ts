@@ -115,6 +115,13 @@ describe('resolveInvocation', () => {
     expect(resolveInvocation(['nonsense'], commands)).toEqual({ kind: 'unknown', command: 'nonsense' })
     expect(resolveInvocation(['nonsense', '--json'], commands)).toEqual({ kind: 'unknown', command: 'nonsense' })
   })
+
+  it('reads a bare help or version after a command as that option value', () => {
+    // `ui-switch --asset help` used to print the usage and install nothing.
+    expect(resolveInvocation(['ui-switch', '--asset', 'help'], commands)).toEqual({ kind: 'command', argv: ['ui-switch', '--asset', 'help'] })
+    expect(resolveInvocation(['ui-switch', '--tag', 'version'], commands)).toEqual({ kind: 'command', argv: ['ui-switch', '--tag', 'version'] })
+    expect(resolveInvocation(['up', '--config', 'help'], commands)).toEqual({ kind: 'command', argv: ['up', '--config', 'help'] })
+  })
 })
 
 describe('buildDaemonArgv', () => {
