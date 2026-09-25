@@ -45,7 +45,7 @@ interface Fixture {
 }
 
 async function makeFixture(
-  options: { keep?: number, enabled?: boolean, dataPaths?: string[], onConfigRestored?: () => void } = {},
+  options: { keep?: number, enabled?: boolean, dataPaths?: string[], ignoreGenerated?: boolean, onConfigRestored?: () => void } = {},
 ): Promise<Fixture> {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh2-backup-'))
   dirs.push(root)
@@ -75,7 +75,13 @@ async function makeFixture(
       configPath,
       secretsPath,
       tlsDir,
-      paths: (options.dataPaths ?? [dataDir]).map(target => ({ path: target, origin: 'test', included: true, note: null })),
+      paths: (options.dataPaths ?? [dataDir]).map(target => ({
+        path: target,
+        origin: 'test',
+        included: true,
+        note: null,
+        ...(options.ignoreGenerated === undefined ? {} : { ignoreGenerated: options.ignoreGenerated }),
+      })),
     }),
   })
 
@@ -93,9 +99,20 @@ describe('resolveBackupPaths', () => {
   it('turns each data env into a backed-up path and remembers its origin', () => {
     const paths = resolveBackupPaths([serverConfig({ dataEnvs: { DATA_DIR: '/srv/app', CACHE_DIR: '/srv/app-cache' } })])
     expect(paths).toEqual([
-      { path: '/srv/app', origin: 'app:DATA_DIR', included: true, note: null },
-      { path: '/srv/app-cache', origin: 'app:CACHE_DIR', included: true, note: null },
+      { path: '/srv/app', origin: 'app:DATA_DIR', included: true, note: null, ignoreGenerated: true },
+      { path: '/srv/app-cache', origin: 'app:CACHE_DIR', included: true, note: null, ignoreGenerated: true },
     ])
+  })
+
+  it('carries the entry\'s generated-file flag, and never applies it to a global path', () => {
+    const paths = resolveBackupPaths(
+      [serverConfig({ dataEnvs: { DATA_DIR: '/srv/app' }, backupIgnoreGenerated: false })],
+      ['/srv/shared'],
+    )
+
+    expect(paths.find(entry => entry.origin === 'app:DATA_DIR')?.ignoreGenerated).toBe(false)
+    expect(paths.find(entry => entry.origin === 'global')?.ignoreGenerated).toBe(false)
+    expect(resolveBackupPaths([serverConfig({ dataEnvs: { DATA_DIR: '/srv/app' } })])[0]?.ignoreGenerated).toBe(true)
   })
 
   it('skips a path a declared parent already covers', () => {
@@ -150,6 +167,40 @@ describe('backup service', () => {
     expect(names).toContain('tls/control.crt.pem')
     expect(names).toContain('manifest.json')
     expect(names).toContain(`data/${slugifyPath(fixture.dataDir)}/db.sqlite`)
+  })
+
+  it('leaves generated directories out when the entry asks for it', async () => {
+    const fixture = await makeFixture({ ignoreGenerated: true })
+    const generated = [
+      path.join(fixture.dataDir, 'node_modules', 'pkg', 'index.js'),
+      path.join(fixture.dataDir, '.next', 'cache', 'entry'),
+      path.join(fixture.dataDir, 'dist', 'bundle.js'),
+    ]
+    for (const file of generated) {
+      fs.mkdirSync(path.dirname(file), { recursive: true })
+      fs.writeFileSync(file, 'generated\n')
+    }
+    fs.mkdirSync(path.join(fixture.dataDir, 'uploads'), { recursive: true })
+    fs.writeFileSync(path.join(fixture.dataDir, 'uploads', 'keep.txt'), 'keep\n')
+
+    const result = await fixture.service.create()
+    const names = (await listZip(path.join(fixture.service.directory, result.file!.name))).map(entry => entry.name)
+
+    for (const name of ['node_modules', '.next', 'dist'])
+      expect(names.some(entry => entry.includes(`/${name}/`)), name).toBe(false)
+    expect(names).toContain(`data/${slugifyPath(fixture.dataDir)}/uploads/keep.txt`)
+    expect(names).toContain(`data/${slugifyPath(fixture.dataDir)}/db.sqlite`)
+  })
+
+  it('keeps generated directories for an entry with the flag off', async () => {
+    const fixture = await makeFixture({ ignoreGenerated: false })
+    fs.mkdirSync(path.join(fixture.dataDir, 'node_modules', 'pkg'), { recursive: true })
+    fs.writeFileSync(path.join(fixture.dataDir, 'node_modules', 'pkg', 'index.js'), 'generated\n')
+
+    const result = await fixture.service.create()
+    const names = (await listZip(path.join(fixture.service.directory, result.file!.name))).map(entry => entry.name)
+
+    expect(names).toContain(`data/${slugifyPath(fixture.dataDir)}/node_modules/pkg/index.js`)
   })
 
   it('refuses to create anything when disabled', async () => {

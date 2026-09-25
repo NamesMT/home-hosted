@@ -10,6 +10,7 @@ import { dataRoot, projectDir, resolveUserPath } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { serverTemplateVars } from '#src/services/supervisor'
+import { isGeneratedPath } from '#src/shared/generated'
 
 const MANIFEST = 'manifest.json'
 const ALLOWED_ROOTS = new Set(['config', 'secrets', 'tls', 'data'])
@@ -54,6 +55,7 @@ interface DeclaredPath {
   origin: string
   depth: number
   order: number
+  ignoreGenerated: boolean
 }
 
 /**
@@ -66,7 +68,7 @@ export function resolveBackupPaths(servers: ServerConfig[], includePaths: string
   const declared: DeclaredPath[] = []
   const globalVars = { projectDir, dataRoot, home: os.homedir() }
 
-  const add = (value: string, origin: string, vars: Record<string, string | number>): void => {
+  const add = (value: string, origin: string, vars: Record<string, string | number>, ignoreGenerated: boolean): void => {
     if (value.trim().length === 0)
       return
     // Normalized, so a trailing slash or a doubled one cannot defeat the
@@ -77,15 +79,18 @@ export function resolveBackupPaths(servers: ServerConfig[], includePaths: string
       origin,
       depth: path.normalize(resolved).split(path.sep).filter(Boolean).length,
       order: declared.length,
+      ignoreGenerated,
     })
   }
 
-  for (const value of includePaths) add(value, 'global', globalVars)
+  // A global extra path is named by hand, so it is captured as it stands.
+  for (const value of includePaths) add(value, 'global', globalVars, false)
 
   for (const config of servers) {
     const vars = serverTemplateVars(config)
-    for (const [name, value] of Object.entries(config.dataEnvs)) add(value, `${config.id}:${name}`, vars)
-    for (const value of config.backupPaths) add(value, `${config.id}:backupPaths`, vars)
+    const ignoreGenerated = config.backupIgnoreGenerated !== false
+    for (const [name, value] of Object.entries(config.dataEnvs)) add(value, `${config.id}:${name}`, vars, ignoreGenerated)
+    for (const value of config.backupPaths) add(value, `${config.id}:backupPaths`, vars, ignoreGenerated)
   }
 
   // Shallowest first, so a parent always absorbs its descendants whatever order
@@ -95,11 +100,11 @@ export function resolveBackupPaths(servers: ServerConfig[], includePaths: string
   return sorted.map((entry, index) => {
     const parent = sorted.slice(0, index).find(candidate => isInside(candidate.path, entry.path))
     if (parent === undefined)
-      return { path: entry.path, origin: entry.origin, included: true, note: null }
+      return { path: entry.path, origin: entry.origin, included: true, note: null, ignoreGenerated: entry.ignoreGenerated }
     const note = parent.path === entry.path
       ? `already declared by ${parent.origin}`
       : `covered by ${parent.path}`
-    return { path: entry.path, origin: entry.origin, included: false, note }
+    return { path: entry.path, origin: entry.origin, included: false, note, ignoreGenerated: entry.ignoreGenerated }
   })
 }
 
@@ -332,7 +337,7 @@ export class BackupService {
         const slug = slugifyPath(declared.path)
         if (data.some(entry => entry.slug === slug))
           continue
-        this.copyInto(staging, path.join('data', slug), declared.path)
+        this.copyInto(staging, path.join('data', slug), declared.path, declared.ignoreGenerated === true)
         data.push({ slug, path: declared.path, origin: declared.origin })
       }
 
@@ -624,7 +629,7 @@ export class BackupService {
     }
   }
 
-  private copyInto(staging: string, relative: string, source: string): void {
+  private copyInto(staging: string, relative: string, source: string, ignoreGenerated = false): void {
     if (!fs.existsSync(source))
       return
     const target = path.join(staging, relative)
@@ -632,10 +637,18 @@ export class BackupService {
     // Never copy the archive directory into itself, however broad a declared
     // path is (`fs.cpSync` would walk it while writing into it).
     const archiveDir = path.resolve(this.resolveDir())
+    const root = path.resolve(source)
     fs.cpSync(source, target, {
       recursive: true,
       force: true,
-      filter: from => !isInside(archiveDir, path.resolve(from)),
+      filter: (from) => {
+        const resolved = path.resolve(from)
+        if (isInside(archiveDir, resolved))
+          return false
+        if (!ignoreGenerated || resolved === root)
+          return true
+        return !isGeneratedPath(path.relative(root, resolved))
+      },
     })
   }
 

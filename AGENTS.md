@@ -80,6 +80,8 @@ exists, so the first release has to be published by hand.
 ## Conventions
 
 - `#src/*` imports inside `src/`; UIs use `@shared/*`.
+- A single on/off setting is a `ToggleSwitch`; `CheckField` is only for picking items out of a set
+  (the restore plan). A checkbox in a `FieldGroup` grid reads as misaligned next to the inputs.
 - ArkType at every runtime boundary: routes use `validate('json'|'query'|'param', schema)` then
   `c.req.valid(...)`; ad-hoc payloads use `parseOrThrow`. Schemas reject undeclared keys.
 - Every failure is a `DetailedError` (`@namesmt/utils`), mapped by `src/helpers/error.ts` into one
@@ -177,6 +179,16 @@ either is a last resort, and never an accidental one.
   `stopping` first: overlapping calls would double-spawn or resurrect a stopped process. Tests must
   call `supervisor.dispose()`.
 - Port preflight re-probes after 300 ms — a just-closed listener can still complete a handshake.
+- **A form that copies live state must guard per block, never globally.** The host thresholds and the
+  backups policy arrive from `/api/settings` *after* the SSE frame, so a single "has anything
+  changed?" gate leaves them showing schema defaults forever — the backups toggle reported itself as
+  changed and flipped back to `true` on every reload. `uis/stock` compares each block against the
+  snapshot it was last filled from (`blockSnapshot`/`isBlockEdited`, `syncFromLive`) and reads the
+  file-only blocks on their own.
+- **A dialog's footer has to be a flex sibling of a scrolling body** (`uis/stock/src/components/ui/Modal.vue`):
+  the sheet is `flex flex-col` with `max-h-[88dvh]`, the body `min-h-0 flex-1 overflow-y-auto`. When
+  only the body carried a max-height, a tall form pushed its own save button below the clipped
+  edge — the add-server dialog looked like it had no save button at all.
 - Vue does not notify a computed's subscribers when its recomputed value is `Object.is`-equal to the
   old one, so anything mutated in place silently freezes every value derived from it. The log buffers
   (`uis/stock/src/composables/useControlPlane.ts`) therefore hand out a **new array per batch**, and
@@ -197,6 +209,10 @@ either is a last resort, and never an accidental one.
 - Backups are zips; a password makes them WinZip AES-256/AE-2, and zero-byte entries stay
   unencrypted on purpose (p7zip 16.02 reports a CRC failure otherwise). `list()` is sync, so
   encryption flags are cached and refreshed in the background.
+- Generated directories are skipped by the `filter` handed to `fs.cpSync`, matched on an exact path
+  segment at any depth (`src/shared/generated.ts`): `dist/` and `app/node_modules/` go, while
+  `distributed/` and `my-node_modules/` stay. Only the paths an entry declares are filtered — a
+  global `backups.includePaths` entry is captured as it stands.
 - `vite.server.config.ts` targets `node22` while `engines` requires >= 24 — deliberate margin, leave it.
 - `pnpm test` watches; CI runs `vitest run`.
 - `pnpm run media` drives Chromium through Playwright, which needs fonts *and* the X/NSS/Mesa

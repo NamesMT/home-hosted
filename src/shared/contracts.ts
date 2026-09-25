@@ -120,6 +120,11 @@ export const serverSchema = type({
   resources: resourcesSchema.default(() => ({})),
   /** Paths included in backups for this server (templates allowed). */
   backupPaths: type('string[]').default(() => []),
+  /**
+   * Skip well-known build output and dependency directories (`node_modules`,
+   * `dist`, `.next`, caches, …) inside the paths this entry declares.
+   */
+  backupIgnoreGenerated: 'boolean = true',
 }).onUndeclaredKey('reject')
 export type ServerConfig = Omit<typeof serverSchema.infer, 'port'> & { port: number | null }
 
@@ -357,6 +362,7 @@ const editableFields = {
   envFile: 'string?',
   resources: resourcesPatchSchema.optional(),
   backupPaths: type('string[]').optional(),
+  backupIgnoreGenerated: 'boolean?',
 } as const
 
 export const serverPatchSchema = type(editableFields).onUndeclaredKey('reject')
@@ -559,6 +565,8 @@ export const backupPathSchema = type({
   /** false when a parent path already covers it, or it would swallow the archive dir. */
   included: 'boolean',
   note: 'string | null',
+  /** The declaring entry asked for generated directories to be skipped. */
+  ignoreGenerated: 'boolean?',
 })
 export type BackupPath = typeof backupPathSchema.infer
 

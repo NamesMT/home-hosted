@@ -1,7 +1,7 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { serverSchema } from '#src/shared/contracts'
-import { diffServerConfig } from '#src/shared/patch-diff'
+import { countLeaves, describeChanges, diffServerConfig, flattenLeaves } from '#src/shared/patch-diff'
 
 function config(overrides: Record<string, unknown> = {}) {
   const parsed = serverSchema({ id: 'web', command: 'node', port: 4000, ...overrides })
@@ -67,5 +67,43 @@ describe('diffServerConfig', () => {
     const withBootstrap = config({ bootstrap: added })
     expect(diffServerConfig(withBootstrap, { bootstrap: added })).toEqual({})
     expect(diffServerConfig(withBootstrap, { bootstrap: null })).toEqual({ bootstrap: null })
+  })
+})
+
+describe('change review', () => {
+  it('flattens nested groups into dotted leaf paths', () => {
+    expect(flattenLeaves({ a: { b: 1, c: { d: 'x' } }, e: [1, 2] })).toEqual([
+      { path: 'a.b', value: 1 },
+      { path: 'a.c.d', value: 'x' },
+      { path: 'e', value: [1, 2] },
+    ])
+    expect(flattenLeaves({ health: { http: { path: '/x' } }, enabled: false }))
+      .toEqual([{ path: 'health.http.path', value: '/x' }, { path: 'enabled', value: false }])
+  })
+
+  it('pairs every changed leaf with what it was', () => {
+    const changes = describeChanges(
+      { port: 4100, restart: { maxRetries: 9 }, env: { A: '2' } },
+      { port: 4000, restart: { maxRetries: 3 }, env: { A: '1' } },
+    )
+
+    expect(changes).toEqual([
+      { path: 'port', from: 4000, to: 4100 },
+      { path: 'restart.maxRetries', from: 3, to: 9 },
+      { path: 'env.A', from: '1', to: '2' },
+    ])
+  })
+
+  it('reports a value the snapshot does not have as undefined', () => {
+    expect(describeChanges({ backupIgnoreGenerated: false }, {})).toEqual([
+      { path: 'backupIgnoreGenerated', from: undefined, to: false },
+    ])
+  })
+
+  it('counts leaves, not top-level keys, and treats arrays as one', () => {
+    expect(countLeaves({})).toBe(0)
+    expect(countLeaves({ port: 1 })).toBe(1)
+    expect(countLeaves({ restart: { maxRetries: 9, factor: 3 } })).toBe(2)
+    expect(countLeaves({ args: ['a', 'b'], health: { http: { path: '/x' } } })).toBe(2)
   })
 })

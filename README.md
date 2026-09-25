@@ -358,7 +358,9 @@ file. **Two minutes of setup: [NOTIFICATIONS.md](./NOTIFICATIONS.md).**
 ## 💾 Backups
 
 **Settings → Backups** archives the config, secrets, TLS pair and every data directory your entries
-declare — an ordinary `.zip`, or WinZip AES-256 with a password, restored per path.
+declare — an ordinary `.zip`, or WinZip AES-256 with a password, restored per path. Known build output
+and dependency directories (`node_modules`, `dist`, `.next`, framework caches) are skipped per entry;
+`backupIgnoreGenerated: false` captures them anyway.
 
 <details>
 <summary><b>🚚 One archive is a whole setup</b></summary>
