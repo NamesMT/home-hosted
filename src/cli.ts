@@ -75,6 +75,9 @@ Everywhere
   -h, --help            this text
   -v, --version         the version
 
+Alias
+  hh                    the same CLI, on a machine where home-hosted is installed
+
 Environment
   HHOSTED_HOME          where config, secrets, logs, TLS and backups live
   HHOSTED_PROJECT       base for relative entry paths

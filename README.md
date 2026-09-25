@@ -102,11 +102,14 @@ npx home-hosted down       # stops the panel *and* everything it started
 
 ```bash
 npm install -g home-hosted      # or: pnpm add -g home-hosted
-home-hosted up
+home-hosted up                  # `hh up` does the same
 ```
 
 Everything it owns — config, secrets, logs, TLS, backups — lives in `$HHOSTED_HOME`, default
 `~/.home-hosted`. Delete that and nothing of yours is left behind.
+
+<sub>An installed home-hosted answers to **`hh`** too — `hh up`, `hh status`, `hh down`. Only the
+installed form gets it; npx stays `npx home-hosted …`.</sub>
 
 </details>
 

@@ -28,6 +28,8 @@ pnpm exec tsx src/cli.ts init      # scaffold a project (interactive; --yes for 
 pnpm run media                     # regenerate docs/media (mockups, both served UIs, tour.gif)
 ```
 
+The published bin is `home-hosted`, with an `hh` alias: both names run the same CLI.
+
 Releases are dispatched from `.github/workflows/release.yml` with a version (and a `dry-run` switch
 that stops before pushing). It verifies the version against `package.json`, lints/types/tests,
 builds the CLI plus the stock UI and every UI zip, lets changelogen write the changelog and tag
@@ -166,8 +168,8 @@ either is a last resort, and never an accidental one.
 - **Paths.** `dataRoot` is state; `projectDir` is the base for relative entry paths. `{id}{port}`
   `{host}{bind}{cwd}{projectDir}{dataRoot}{home}` and `${ENV}` expand in config; there is no
   package-relative state.
-- **Secrets never enter the config.** Password hash, API token hash, bot token and TLS key live in
-  the 0600 secrets file; the config holds policy.
+- **Secrets never enter the config.** The password hash, API token hash and bot token live in the
+  0600 secrets file, and the TLS pair in `.tls/`; the config holds policy.
 - **A port holder that carries `HHOSTED_SERVER_ID` for this entry is our own successor, not a
   stranger.** A program that restarts itself leaves a detached process behind; with
   `follow` the panel adopts it as-is (pid, liveness, health, resources, stop — but not its output);
