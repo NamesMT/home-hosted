@@ -233,6 +233,27 @@ describe('supervisor', () => {
     expect(supervisor.logLines('missing').some(line => line.text.includes('did not start'))).toBe(true)
   })
 
+  it('stops an already-stopped server without wedging it', async () => {
+    const { supervisor } = await makeSupervisor([{
+      id: 'web',
+      command: process.execPath,
+      args: ['-e', 'setTimeout(() => {}, 5000)'],
+      health: { enabled: false },
+    }])
+
+    expect(view(supervisor, 'web').status).toBe('stopped')
+    expect(await supervisor.stop('web')).toEqual({ ok: true })
+
+    // The stop cleared nothing, so it must not have left the entry stopping: a
+    // `stopping` flag that is never reset makes every later start a 409.
+    const started = await supervisor.start('web')
+    expect(started.ok, `start failed: ${started.error}`).toBe(true)
+    await waitForStatus(supervisor, 'web', 'running')
+
+    expect((await supervisor.restart('web')).ok).toBe(true)
+    await waitForStatus(supervisor, 'web', 'running')
+  })
+
   it('does not restart when automatic restart is disabled', async () => {
     const { supervisor } = await makeSupervisor([{
       id: 'once',

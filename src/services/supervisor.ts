@@ -134,7 +134,11 @@ export class Supervisor {
   ) {
     this.sync()
     this.store.onChange(() => this.sync())
-    this.tickTimer = setInterval(() => void this.tick(), TICK_INTERVAL_MS)
+    // A throw inside the tick must not become an unhandled rejection: on Node 24
+    // that ends the process, and this timer is what keeps every server watched.
+    this.tickTimer = setInterval(() => {
+      void this.tick().catch((error: unknown) => logger.error('the supervisor tick failed', error))
+    }, TICK_INTERVAL_MS)
     this.tickTimer.unref()
   }
 
@@ -403,6 +407,7 @@ export class Supervisor {
     entry.stopping = true
 
     if (entry.child === null && entry.pid === null) {
+      entry.stopping = false
       entry.status = 'stopped'
       this.publishServer(entry)
       return { ok: true }
@@ -420,11 +425,11 @@ export class Supervisor {
 
     const { port, stop } = entry.config
     if (stop.killPortHolders && port !== null) {
-      const leftover = await listPortHolders(port)
-      if (leftover.length > 0) {
-        this.log(entry, 'system', `port ${port} still held by pid ${leftover.join(', ')} — killing`)
-        await killPortHolders(port)
-      }
+      // Only a stranger: a port held by a server this panel supervises is a config
+      // mistake, not a leftover, and is never killed from here.
+      const leftover = await killPortHolders(port, this.supervisedPids())
+      if (leftover.length > 0)
+        this.log(entry, 'system', `port ${port} was still held by pid ${leftover.join(', ')} — killed`)
     }
 
     entry.stopping = false
@@ -476,7 +481,9 @@ export class Supervisor {
       const config = wanted.get(id)
       if (!config) {
         this.entries.delete(id)
-        void this.stopEntry(entry)
+        void this.stopEntry(entry).catch((error: unknown) => {
+          logger.error(`could not stop the removed server ${id}`, error)
+        })
         continue
       }
       const bufferChanged = entry.config.logBufferLines !== config.logBufferLines
@@ -486,8 +493,11 @@ export class Supervisor {
         entry.logs = new LogBuffer(config.logBufferLines)
         entry.logs.extend(kept)
       }
-      if (!config.enabled && this.isActive(entry))
-        void this.stopEntry(entry)
+      if (!config.enabled && this.isActive(entry)) {
+        void this.stopEntry(entry).catch((error: unknown) => {
+          logger.error(`could not stop the disabled server ${id}`, error)
+        })
+      }
     }
 
     for (const [id, config] of wanted) {
@@ -900,7 +910,9 @@ export class Supervisor {
       this.log(entry, 'system', `restart ${entry.restarts}/${restart.maxRetries} in ${backoffMs}ms`)
       entry.retryTimer = setTimeout(() => {
         entry.retryTimer = null
-        void this.start(entry.config.id, { retry: true })
+        void this.start(entry.config.id, { retry: true }).catch((error: unknown) => {
+          logger.error(`could not restart ${entry.config.id}`, error)
+        })
       }, backoffMs)
       entry.retryTimer.unref()
     }
@@ -945,8 +957,11 @@ export class Supervisor {
         await this.restart(entry.config.id)
         continue
       }
-      if (entry.status === 'backoff' && entry.nextRetryAt !== null && now >= entry.nextRetryAt && entry.retryTimer === null)
-        void this.start(entry.config.id, { retry: true })
+      if (entry.status === 'backoff' && entry.nextRetryAt !== null && now >= entry.nextRetryAt && entry.retryTimer === null) {
+        void this.start(entry.config.id, { retry: true }).catch((error: unknown) => {
+          logger.error(`could not restart ${entry.config.id}`, error)
+        })
+      }
     }
 
     this.publishState()
