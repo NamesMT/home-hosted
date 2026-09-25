@@ -4,7 +4,6 @@ import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { processCarriesServerId } from '#src/providers/proc'
-import { resolveCommand } from '#src/providers/process'
 
 const execFileAsync = promisify(execFile)
 
@@ -13,20 +12,6 @@ export interface SpawnInfo {
   command: string
   args: string[]
   cwd: string
-}
-
-/**
- * The argv a detached successor may have kept. Never logged or published: `${SECRET}`
- * in an argument is expanded here and the spawn path already logs the unexpanded form.
- */
-export function resolveSpawn(config: { command: string, args: string[], cwd: string }, projectDir: string): SpawnInfo {
-  const cwd = path.resolve(projectDir, config.cwd)
-  return {
-    command: resolveCommand(config.command, cwd, projectDir),
-    // Never trimmed: an argument that is a space is still an argument.
-    args: config.args.filter(arg => arg.length > 0),
-    cwd,
-  }
 }
 
 /**
@@ -64,11 +49,22 @@ export function splitCommandLine(line: string): string[] {
 }
 
 function comparable(target: string): string {
-  // Quotes around a whole word are stripped; whitespace never is. `resolveSpawn` only
-  // drops *empty* arguments, so an argument of one space has to stay distinguishable
-  // from a missing one — trimming it here would make them compare equal.
+  // Quotes around a whole word are stripped; whitespace never is. `SpawnInfo.args` is the
+  // argv `spawn` was handed, where a whitespace argument is still an argument, so trimming
+  // here would make it compare equal to a missing one.
   const value = target.replace(/^"(.*)"$/, '$1')
   return process.platform === 'win32' ? value.toLowerCase() : value
+}
+
+/**
+ * Literal comparison for an argument: the same string, modulo the case folding Windows
+ * paths need and the surrounding quotes a command line may carry. Deliberately *not*
+ * `sameWord`: folding an argument to its basename would let this entry's
+ * `/srv/web/build/server.js` equal a stranger's `/tmp/evil/build/server.js`, and a match
+ * here is what `reclaim` kills.
+ */
+function sameArg(a: string, b: string): boolean {
+  return comparable(a) === comparable(b)
 }
 
 /** The same file spelled differently (`node`, `node.exe`, a relative path) compares equal. */
@@ -83,25 +79,32 @@ function sameWord(a: string, b: string): boolean {
 /**
  * True when the argv a process is running is the entry's own: the image must match where
  * `spawn` would have looked it up — the image Path, or the first word of the command line
- * — and the remaining words must open with the entry's args in order. So `spawn --port
- * 4000` also covers `spawn -p 4000 --extra`, which is what a self-restarting wrapper does.
+ * — and the words after it must open with the entry's args, compared literally. So
+ * `spawn --port 4000` also covers `spawn -p 4000 --extra`, which is what a self-restarting
+ * wrapper does, while `/tmp/evil/server.js` never covers `/srv/web/server.js`.
  *
- * `words` must already be the process's own argv. A `commandLine` string is only correct
+ * `words` must already be the process's own argv. A command-line *string* is only correct
  * on Windows, where the OS hands one out; `/proc/<pid>/cmdline` quotes are literal bytes
  * of an argument, so re-joining that argv into one string corrupts it.
  */
 export function matchesSpawn(info: { words: string[], imagePath?: string | null }, spawn: SpawnInfo): boolean {
   const { words } = info
+  const first = words[0] ?? ''
 
-  // Via the image the argv is the whole command line; via the first word the image
-  // itself is that word, so the args start after it.
-  if (info.imagePath && sameWord(info.imagePath, spawn.command)
-    && spawn.args.every((arg, index) => sameWord(words[index] ?? '', arg))) {
-    return true
-  }
+  // The image may be the first word, or absent from the command line entirely — a shim or
+  // an interpreter reports its own image while the argv still carries what we passed.
+  const imageMatches = sameWord(first, spawn.command)
+    || (info.imagePath != null && info.imagePath !== '' && sameWord(info.imagePath, spawn.command))
+  if (!imageMatches)
+    return false
 
-  return sameWord(words[0] ?? '', spawn.command)
-    && spawn.args.every((arg, index) => sameWord(words[index + 1] ?? '', arg))
+  // `>` rather than `>=`: a process has to have *more* words than we have args, so an
+  // argument can never be satisfied by a word that is not there.
+  const offset = sameWord(first, spawn.command) ? 1 : 0
+  if (words.length < spawn.args.length + offset)
+    return false
+
+  return spawn.args.every((arg, index) => sameArg(words[index + offset]!, arg))
 }
 
 /** The argv of a pid on the platforms whose process table can answer it; null otherwise. */
@@ -122,7 +125,10 @@ export async function processArgv(pid: number): Promise<string[] | null> {
 
   try {
     const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-ww', '-o', 'command='], { timeout: 3000 })
-    // macOS hands back one line, so it has to be split back into words here.
+    // macOS receives one line and has to split it back into words here. `ps` joins argv
+    // with spaces and quotes none of them, so an argument that itself contains a space
+    // cannot be told from two arguments — that entry then fails to match and blocks,
+    // which is the safe direction to be wrong in.
     const words = splitCommandLine(stdout.trim())
     return words.length > 0 ? words : null
   }

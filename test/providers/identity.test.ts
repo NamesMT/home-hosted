@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { identifyHolders, matchesSpawn, resolveSpawn, splitCommandLine } from '#src/providers/identity'
+import { identifyHolders, matchesSpawn, splitCommandLine } from '#src/providers/identity'
 
 const cwd = process.cwd()
 const entrySpawn = { command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'], cwd }
@@ -97,18 +97,23 @@ describe('matchesSpawn', () => {
     expect(matchesSpawn({ words: [process.execPath, ''] }, spacey)).toBe(false)
     expect(matchesSpawn({ words: [process.execPath, ' '] }, spacey)).toBe(true)
   })
-})
 
-describe('resolveSpawn', () => {
-  it('resolves a relative cwd against the project dir and keeps a bare command', () => {
-    const info = resolveSpawn({ command: 'node', args: ['-e', 'x'], cwd: 'app' }, '/proj')
-    expect(info.cwd).toBe(path.resolve('/proj', 'app'))
-    expect(info.command).toBe('node')
-    expect(info.args).toEqual(['-e', 'x'])
+  it('never lets an argument be satisfied by a word that is not there', () => {
+    // The empty-argument trap: a config arg of `''` (or a missing one) must not be
+    // matched by a process that simply has no word in that position.
+    const withEmpty = { ...entrySpawn, args: ['--flag', ''] }
+    expect(matchesSpawn({ words: [process.execPath, '--flag'] }, withEmpty)).toBe(false)
+    expect(matchesSpawn({ words: [process.execPath, '--flag', ''] }, withEmpty)).toBe(true)
   })
 
-  it('drops only the empty arguments, never a whitespace one', () => {
-    expect(resolveSpawn({ command: 'node', args: ['  -e  ', '', ' '], cwd: '.' }, '/proj').args).toEqual(['  -e  ', ' '])
+  it('refuses an argument that merely shares a basename', () => {
+    // Regression: `sameWord`'s basename folding used to apply to arguments, so the
+    // entry's script matched a stranger's script in another directory — and `reclaim`
+    // kills what it matches.
+    const scripted = { command: 'node', args: ['/srv/web/build/server.js', '--port', '4000'], cwd: '.' }
+    expect(matchesSpawn({ words: ['/usr/bin/node', '/tmp/evil/build/server.js', '--port', '4000'] }, scripted)).toBe(false)
+    expect(matchesSpawn({ words: ['/usr/bin/node', '/srv/web/build/server.js', '--port', '4000'] }, scripted)).toBe(true)
+    expect(matchesSpawn({ words: ['/usr/bin/node', 'server.js', '--port', '4000'] }, scripted)).toBe(false)
   })
 })
 
