@@ -53,6 +53,7 @@
     "up": "tsx src/cli.ts up",
     "down": "tsx src/cli.ts down",
     "status": "tsx src/cli.ts status",
+    "restart": "tsx src/cli.ts restart",
     "start": "tsx src/cli.ts up --foreground",
     "dev": "node scripts/dev.mjs",
     "build": "pnpm run build:ui && pnpm run build:server",
