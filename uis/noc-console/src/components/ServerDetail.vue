@@ -157,6 +157,7 @@ function ledClass(status: ServerStatus): string {
         <span class="faint mono">{{ server.id }}</span>
         <StatusChip :status="server.status" />
         <HealthChip :health="server.health" />
+        <span v-if="config.persistent" class="chip chip--neutral" title="runs under its own nanny: it survives a panel stop, and `down` reports it instead of stopping it">persistent</span>
         <span class="view__spacer" />
         <a v-if="server.url" class="chip chip--accent" :href="server.url" target="_blank" rel="noreferrer">{{ server.url }}</a>
       </div>

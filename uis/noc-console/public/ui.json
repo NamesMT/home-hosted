@@ -1,8 +1,8 @@
 {
   "name": "noc-console",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "repo": "NamesMT/home-hosted",
   "tag": "v0.6.0",
   "asset": "home-hosted-ui-noc-console.zip",
-  "unix": 1790366625
+  "unix": 1790451019
 }

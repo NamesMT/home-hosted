@@ -57,6 +57,7 @@ const form = reactive({
   logBufferLines: '500',
   enabled: true,
   autostart: false,
+  persistent: false,
 
   restartEnabled: true,
   maxRetries: '3',
@@ -115,6 +116,8 @@ function load(cfg: ServerConfig): void {
     logBufferLines: String(cfg.logBufferLines),
     enabled: cfg.enabled,
     autostart: cfg.autostart,
+    // Absent in a payload from a panel that predates the field: the default is off.
+    persistent: cfg.persistent === true,
     restartEnabled: cfg.restart.enabled,
     maxRetries: String(cfg.restart.maxRetries),
     baseDelayMs: String(cfg.restart.baseDelayMs),
@@ -180,6 +183,7 @@ function buildPayload(): Record<string, unknown> {
     logBufferLines: Number(form.logBufferLines),
     enabled: form.enabled,
     autostart: form.autostart,
+    persistent: form.persistent,
     restart: {
       enabled: form.restartEnabled,
       maxRetries: Number(form.maxRetries),
@@ -445,6 +449,11 @@ async function remove(): Promise<void> {
             <label class="field field--check">
               <input v-model="form.autostart" type="checkbox">
               <span class="field__label">autostart with up</span>
+            </label>
+            <label class="field field--check">
+              <input v-model="form.persistent" type="checkbox">
+              <span class="field__label">persistent</span>
+              <span class="field__hint">keeps running when the panel stops; stop it explicitly to end it</span>
             </label>
             <label class="field grid__full">
               <span class="field__label">depends on — comma separated ids</span>

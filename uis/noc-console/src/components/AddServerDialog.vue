@@ -3,7 +3,7 @@ import type { HealthConfig, RestartConfig, ServerDefaults, StopConfig } from '@s
 import { serverCreateSchema } from '@shared/contracts'
 import { diffFields } from '@shared/patch-diff'
 import { type } from 'arktype'
-import { nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { flash, selectedId } from '@/composables/useUi'
@@ -44,6 +44,7 @@ function blank(defaults: ServerDefaults | null) {
     port: '',
     bind: defaults?.bind ?? 'local',
     autostart: defaults?.autostart ?? false,
+    persistent: false,
     enabled: defaults?.enabled ?? true,
     env: '',
     dataEnvs: '',
@@ -67,6 +68,9 @@ function blank(defaults: ServerDefaults | null) {
 }
 
 const form = reactive(blank(control.defaults.value))
+
+/** What a blank buffer field inherits, so the hint cannot lie about the number. */
+const inheritedLogLines = computed(() => control.defaults.value?.logBufferLines ?? 500)
 
 function linesToArray(value: string): string[] {
   return value.split('\n').map(entry => entry.trim()).filter(entry => entry.length > 0)
@@ -112,6 +116,7 @@ function inheritBaseline(defaults: ServerDefaults | null): Record<string, unknow
     bind: defaults?.bind ?? 'local',
     enabled: defaults?.enabled ?? true,
     autostart: defaults?.autostart ?? false,
+    persistent: false,
     onPortConflict: defaults?.onPortConflict ?? 'block',
     logBufferLines: defaults?.logBufferLines ?? 500,
   }
@@ -143,6 +148,7 @@ function buildPayload(): Record<string, unknown> {
     bind: form.bind,
     enabled: form.enabled,
     autostart: form.autostart,
+    persistent: form.persistent,
     // Blank means inherited, and a value equal to the default is left out too.
     logBufferLines: bufferLines === '' ? baseline.logBufferLines : Number(bufferLines),
   })
@@ -277,6 +283,11 @@ async function submit(): Promise<void> {
               <input v-model="form.autostart" type="checkbox">
               <span class="field__label">autostart with up</span>
             </label>
+            <label class="field field--check">
+              <input v-model="form.persistent" type="checkbox">
+              <span class="field__label">persistent</span>
+              <span class="field__hint">keeps running when the panel stops; <code>down</code> reports it instead of stopping it</span>
+            </label>
           </div>
 
           <details class="advanced">
@@ -305,7 +316,7 @@ async function submit(): Promise<void> {
               </label>
               <label class="field">
                 <span class="field__label">log buffer lines</span>
-                <input v-model="form.logBufferLines" inputmode="numeric" placeholder="inherited (500)">
+                <input v-model="form.logBufferLines" inputmode="numeric" :placeholder="`inherited (${inheritedLogLines})`">
               </label>
               <label class="field">
                 <span class="field__label">max rss (MiB)</span>
