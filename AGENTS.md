@@ -40,32 +40,18 @@ exists, so the first release has to be published by hand.
 
 ### Which version to dispatch
 
-While the package is `0.y.z`, the **minor is the breaking channel**: npm semver makes no stability
-promise below 1.0, so a `0.x` minor is what a consumer reads as "read the release notes". That is the
-opposite of 1.x, where a feature earns a minor — do not carry that habit here.
+Below 1.0 the **minor is the breaking channel**: a fix or a non-breaking feature is a **patch**
+(`0.6.2` → `0.6.3`), while a minor (`0.6.3` → `0.7.0`) means someone has to read the release notes and
+act. A `feat:` commit does not decide this — ask what the user has to do about it.
 
-| channel | use it for | example |
-| --- | --- | --- |
-| `0.y.Z` patch | a fix, a new option, any change a config or a UI survives untouched | `0.6.2` → `0.6.3` |
-| `0.Y.0` minor | a change that needs a migration, breaks a documented behaviour or drops a surface | `0.6.3` → `0.7.0` |
-| `1.0.0` major | declaring the surfaces stable (and then: a feature earns a minor again) | — |
-
-The decision is not the commit type: a `feat:` that only adds a defaulted field is a **patch**. Ask
-instead what a user has to do about it — if the answer is "nothing", it is a patch; if the answer is
-"read this and act", it is a minor. Conventional commits still shape the changelog section, and a
-breaking change must say so with a `!` and a `BREAKING CHANGE:` footer, naming the migration.
-
-Two things follow: **never edit `package.json`'s version by hand** — the workflow's changelogen does
-it, and asserts the result — and dispatching is a single step on work already merged to `main`:
+Never edit `package.json` by hand; changelogen bumps, commits and tags inside the workflow:
 
 ```sh
-gh workflow run release.yml -f version=0.6.3          # add -f dry-run=true to rehearse
+gh workflow run release.yml -f version=0.6.3          # -f dry-run=true to rehearse
 ```
 
-`scripts/check-release-version.mjs` gates the request: it refuses a version that is not greater than
-the current one, refuses a **patch while a breaking commit is pending** (you would be shipping a
-breaking change as a patch), and warns when a **minor is dispatched with no breaking commit** — which
-is the usual sign that a patch was meant.
+`scripts/check-release-version.mjs` refuses a patch while a breaking commit is pending, and warns on
+a minor without one.
 
 ## Architecture (and why)
 
@@ -73,13 +59,12 @@ is the usual sign that a patch was meant.
   is asked anything: `--home`/`--project` are peeled off and applied (`src/cli/args.ts`), and the
   curated dispatch — `help`/`version`, `unknown command`, and the `-p 4000` shorthand for `up` — is
   decided, because `#src/helpers/paths.ts` resolves at import time. Its static imports stay node
-  builtins, citty and those two path-free local modules (`src/cli/args.ts` and
-  `src/helpers/runtime.ts`, which only names the hidden `__nanny` command and how to re-run this CLI);
+  builtins, citty and the two path-free local modules (`src/cli/args.ts`, `src/helpers/runtime.ts`);
   every command is a lazy
   `() => import('#src/cli/<command>')` in citty's `subCommands`, so a command module *may* use static
-  `#src` imports (that is the whole point of the pre-pass). The hidden `__nanny` command is dispatched
-  by an early branch rather than `subCommands`, so it stays out of the curated help, the
-  unknown-command message and flag refusal — it is spawned by the panel, never typed by a person. citty's `runMain` is deliberately not
+  `#src` imports (that is the whole point of the pre-pass). The hidden `__nanny` is dispatched by an
+  early branch, not `subCommands`, so it stays out of the curated help and the unknown-command
+  message — the panel spawns it, nobody types it. citty's `runMain` is deliberately not
   used: it prints its own usage and `console.error`s before `process.exit(1)`, replacing `fail()`'s
   one error shape; the root calls `runCommand` and catches. `src/cli/<command>.ts` is one command per
   file — citty owns dispatch and argument parsing, with `--no-autostart`/`--no-install` declared as
@@ -245,25 +230,18 @@ either is a last resort, and never an accidental one.
   puts the real server one generation down, and so does any wrapper entry. The panel's own tree is
   deliberately excluded — "ours" has to mean a process a server owns.
 - **A persistent entry is run by its own nanny, not by the panel.** `persistent: true` makes the panel
-  spawn the hidden `__nanny` command (`src/services/nanny.ts`) with a resolved spawn spec in
-  `.state/<id>.spec.json` (0600, consumed by the read — even unparseable, because it carries expanded
-  env — and swept at boot for the nanny that never read it), and the nanny owns the child's pipes,
-  writes its JSONL and mirrors its exit. That is the only arrangement in which a
-  server outlives the panel *and* keeps logging: pipes held by the panel break when it dies, and a
-  file written straight by the child can never be rotated while the child holds the fd. The panel
-  therefore: never stops such an entry from `stopAll()`/`dispose()` (it logs that it left it running,
-  and `down` reports it by scanning `.state/`), reattaches on boot through the state file
-  (`nannyIsAlive` = live pid **and** a fresh heartbeat, the `HHOSTED_SERVER_ID` marker or the argv)
-  before any port preflight, starts the relay tailer instead of reading a pipe, and reads `lastExit`
-  once so a crash nobody watched is reported rather than lost. Two lifetimes are pinned: the nanny
-  **exits with its child** (`process.exit`, never lingering — an inherited pipe would keep it alive and
-  the panel would then report a healthy entry whose real server is a detached stranger), and an explicit
-  stop reaches the child by pid from the state file, because `SIGKILL` cannot be forwarded and
-  `killGroup: false` signals the nanny alone. That is why a self-restarting program belongs on
-  `reclaim`, not `follow`. The nanny never restarts anything:
-  retries, backoff and health stay in the supervisor, or there would be two supervisors disagreeing.
-  `logs.persist: false` still keeps that file out of the Logs page (`LogFiles.readTail`/`info`), but it
-  is written regardless — it is the transport, not the retention policy.
+  spawn the hidden `__nanny` (`src/services/nanny.ts`), which owns the child's pipes, writes its JSONL
+  and mirrors its exit — the only arrangement that outlives the panel *and* keeps logging. The panel
+  skips such an entry in `stopAll()`/`dispose()` (`down` reports what it left running), reattaches on
+  boot through `.state/<id>.json` before any port preflight (`nannyIsAlive` = live pid **and** a fresh
+  heartbeat, the `HHOSTED_SERVER_ID` marker or the argv), tails that file for live logs, and reads
+  `lastExit` once so a crash nobody watched is reported. The spawn spec is consumed by the read and
+  swept at boot — it carries expanded env. Two lifetimes are pinned: the nanny **exits with its child**
+  (an inherited pipe would keep it alive, and the panel would report a healthy entry whose server is a
+  detached stranger), and a stop reaches the child by pid from the state file, because `SIGKILL` and
+  `killGroup: false` cannot be forwarded — which is why a self-restarting program belongs on `reclaim`.
+  The nanny never restarts anything: retries and health stay the supervisor's. `logs.persist: false`
+  keeps that file out of the Logs page but never stops it being written — it is the transport.
 - **A port is only ever freed by re-listing its listeners.** `POST /api/servers/:id/free-port` never
   trusts a pid quoted in a message, and refuses any listener in `supervisedPids()` (the panel plus
   every entry's child) instead of killing it — a port held by a sibling is a config mistake.
