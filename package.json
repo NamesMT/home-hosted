@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.6.4",
   "packageManager": "pnpm@12.5.1",
-  "description": "A self-hosted control panel that keeps your home server processes alive - with a UI you can replace.",
+  "description": "Self-hosted control panel that keeps your home-server processes alive: supervision, restarts, port conflicts, logs \u2014 and a UI you can replace.",
   "author": "NamesMT <dangquoctrung123@gmail.com>",
   "license": "MIT",
   "homepage": "https://github.com/NamesMT/home-hosted#readme",
@@ -15,14 +15,27 @@
     "url": "https://github.com/NamesMT/home-hosted/issues"
   },
   "keywords": [
-    "home-server",
-    "process-manager",
-    "supervisor",
     "self-hosted",
+    "homelab",
+    "home-server",
     "control-panel",
+    "admin-panel",
+    "process-manager",
+    "process-supervisor",
+    "supervisor",
     "daemon",
+    "autostart",
+    "systemd",
+    "launchd",
+    "windows-service",
+    "port-conflict",
+    "health-check",
+    "logs",
+    "telegram",
+    "backups",
     "hono",
-    "ui"
+    "vue",
+    "typescript"
   ],
   "imports": {
     "#src/*": "./src/*"
