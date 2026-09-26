@@ -31,7 +31,9 @@ afterEach(async () => {
 
 async function tempDir(): Promise<string> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-nanny-'))
-  cleanups.push(() => fs.promises.rm(dir, { recursive: true, force: true }))
+  // `maxRetries` is what makes this work on Windows, where removing a directory fails
+  // while any process still has it open.
+  cleanups.push(() => fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }))
   return dir
 }
 
@@ -99,13 +101,23 @@ async function startNanny(spec: NannySpec, specPath: string, statePath: string):
     statePath,
   ], { stdio: 'ignore' })
   child.unref()
-  cleanups.push(() => {
-    try {
-      process.kill(child.pid!, 'SIGKILL')
+  cleanups.push(async () => {
+    // The nanny runs its child with `cwd` inside the temp directory, and Windows refuses
+    // to remove a directory a live process still sits in — as well as the log file it
+    // holds open. So both pids are killed and waited on before the directory goes.
+    const state = readNannyState(statePath)
+    const pids = [child.pid, state?.childPid].filter((pid): pid is number => typeof pid === 'number')
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGKILL')
+      }
+      catch {
+        // Already gone.
+      }
     }
-    catch {
-      // Already gone.
-    }
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline && pids.some(pid => isAlive(pid)))
+      await new Promise(resolve => setTimeout(resolve, 50))
   })
   return child.pid!
 }
