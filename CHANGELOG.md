@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.6.4
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.3...v0.6.4)
+
+### 🚀 Enhancements
+
+- **ui:** Bring noc-console up to date with persistent ([421105b](https://github.com/NamesMT/home-hosted/commit/421105b))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.6.3
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.2...v0.6.3)
