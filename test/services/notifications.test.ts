@@ -1,11 +1,11 @@
-import type { NotificationEvent } from '#src/services/notifications'
+import type { NotificationEvent, NotificationReason } from '#src/services/notifications'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SecretsStore } from '#src/config/secrets'
-import { formatTelegramMessage } from '#src/providers/telegram'
+import { forgetBots, formatTelegramMessage, getBot } from '#src/providers/telegram'
 import { NotificationService } from '#src/services/notifications'
 import { logsSchema, notificationsSchema } from '#src/shared/contracts'
 
@@ -14,6 +14,25 @@ const dirs: string[] = []
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
 })
+
+// A stubbed telegram client must never leak into the next test.
+afterEach(() => {
+  forgetBots()
+})
+
+const BOT_TOKEN = '123456:notification-test-token'
+const OVERRIDE_TOKEN = '654321:override-test-token'
+
+/** Replaces one cached bot API method: the only seam this service has. */
+function stubApi(token: string, method: string, impl: (...args: unknown[]) => unknown): void {
+  const api = getBot(token).api as unknown as Record<string, unknown>
+  api[method] = impl
+}
+
+/** Lets a fire-and-forget `notify()` settle without depending on timing. */
+function flush(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve))
+}
 
 async function makeService(options: {
   telegram?: Record<string, unknown>
@@ -93,5 +112,151 @@ describe('telegram formatting', () => {
 
   it('skips empty lines', () => {
     expect(formatTelegramMessage('t', ['', 'kept'])).toBe('<b>t</b>\n• kept')
+  })
+})
+
+describe('reason toggles', () => {
+  it('maps every reason onto its own switch', async () => {
+    const cases: Array<[NotificationReason, string]> = [
+      ['crash', 'onCrash'],
+      // A memory limit is a crash by another name, so it follows the crash switch.
+      ['rss', 'onCrash'],
+      ['unhealthy', 'onUnhealthy'],
+      ['forced-restart', 'onForcedRestart'],
+      ['recovered', 'onRecovered'],
+      ['host', 'onHost'],
+      ['host-recovered', 'onHost'],
+    ]
+
+    for (const [reason, toggle] of cases) {
+      const off = await makeService({ telegram: { enabled: true, chatId: '1', [toggle]: false }, token: BOT_TOKEN })
+      expect(off.shouldNotify({ ...crash, reason }), `${reason} with ${toggle} off`).toBe(false)
+
+      const on = await makeService({ telegram: { enabled: true, chatId: '1', [toggle]: true }, token: BOT_TOKEN })
+      expect(on.shouldNotify({ ...crash, reason }), `${reason} with ${toggle} on`).toBe(true)
+    }
+  })
+
+  it('leaves recovery notices opt-in, so a flapping server does not narrate itself', async () => {
+    const defaults = await makeService({ telegram: { enabled: true, chatId: '1' }, token: BOT_TOKEN })
+
+    expect(defaults.shouldNotify(crash)).toBe(true)
+    expect(defaults.shouldNotify({ ...crash, reason: 'recovered' })).toBe(false)
+  })
+})
+
+describe('telegram delivery', () => {
+  it('reports whether a bot token is stored', async () => {
+    expect((await makeService()).telegramTokenSet).toBe(false)
+    expect((await makeService({ token: BOT_TOKEN })).telegramTokenSet).toBe(true)
+  })
+
+  it('sends an alert once and then suppresses the flap', async () => {
+    const service = await makeService({ telegram: { enabled: true, chatId: '42', cooldownMs: 60_000 }, token: BOT_TOKEN })
+    const sent: unknown[][] = []
+    stubApi(BOT_TOKEN, 'sendMessage', (...args) => {
+      sent.push(args)
+      return Promise.resolve({ ok: true })
+    })
+
+    expect(await service.dispatch(crash)).toBe(true)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]![0]).toBe('42')
+    expect(sent[0]![1]).toContain('server down')
+    expect(sent[0]![1]).toContain('Web (web) gave up restarting')
+    expect(service.status().lastResult).toBe('sent')
+
+    // The same server crashing again inside the cooldown stays quiet.
+    expect(await service.dispatch(crash)).toBe(false)
+    expect(sent).toHaveLength(1)
+  })
+
+  it('records why a delivery was refused instead of pretending it was sent', async () => {
+    const noChat = await makeService({ telegram: { enabled: true, chatId: '' }, token: BOT_TOKEN })
+    expect(await noChat.dispatch(crash)).toBe(false)
+    expect(noChat.status().lastResult).toBe('no chat id configured')
+
+    const noToken = await makeService({ telegram: { enabled: true, chatId: '42' } })
+    expect(await noToken.dispatch(crash)).toBe(false)
+    expect(noToken.status().lastResult).toBe('no bot token configured')
+  })
+
+  it('records a provider failure rather than throwing at the supervisor', async () => {
+    const service = await makeService({ telegram: { enabled: true, chatId: '42' }, token: BOT_TOKEN })
+    stubApi(BOT_TOKEN, 'sendMessage', () => {
+      // grammY rejects with a plain object, so the shape is the thing under test.
+      // eslint-disable-next-line no-throw-literal
+      throw { error_code: 403, description: 'bot was blocked by the user' }
+    })
+
+    expect(await service.dispatch(crash)).toBe(false)
+    expect(service.status().lastResult).toBe('bot was blocked by the user (403)')
+  })
+
+  it('never lets a failed fire-and-forget notification reject the caller', async () => {
+    const service = await makeService({ telegram: { enabled: true, chatId: '42' }, token: BOT_TOKEN })
+    stubApi(BOT_TOKEN, 'sendMessage', () => {
+      throw new Error('network down')
+    })
+
+    expect(() => service.notify(crash)).not.toThrow()
+    await flush()
+    expect(service.status().lastResult).toBe('network down')
+  })
+
+  it('sends the test message, honouring an override', async () => {
+    const service = await makeService({ telegram: { enabled: true, chatId: '42' }, token: BOT_TOKEN })
+    const sent: unknown[][] = []
+    const record = (...args: unknown[]): Promise<{ ok: boolean }> => {
+      sent.push(args)
+      return Promise.resolve({ ok: true })
+    }
+    stubApi(BOT_TOKEN, 'sendMessage', record)
+    stubApi(OVERRIDE_TOKEN, 'sendMessage', record)
+
+    expect(await service.sendTest()).toEqual({ ok: true })
+    expect(sent[0]![0]).toBe('42')
+    expect(sent[0]![1]).toContain('home-hosted test')
+    expect(service.status().lastResult).toBe('test message sent')
+
+    expect(await service.sendTest({ chatId: '99', botToken: OVERRIDE_TOKEN })).toEqual({ ok: true })
+    expect(sent[1]![0]).toBe('99')
+  })
+
+  it('records a refused test message', async () => {
+    const service = await makeService({ telegram: { enabled: true, chatId: '42' }, token: BOT_TOKEN })
+    stubApi(BOT_TOKEN, 'sendMessage', () => {
+      throw new Error('chat not found')
+    })
+
+    expect(await service.sendTest()).toEqual({ ok: false, error: 'chat not found' })
+    expect(service.status().lastResult).toBe('chat not found')
+  })
+
+  it('lists the chats the bot can see, and reports a failure', async () => {
+    const service = await makeService({ telegram: { enabled: true, chatId: '42' }, token: BOT_TOKEN })
+    stubApi(BOT_TOKEN, 'getUpdates', () => Promise.resolve([
+      { update_id: 1, message: { chat: { id: 7, title: 'Group' } } },
+    ]))
+
+    expect(await service.detectChats()).toEqual({ ok: true, chats: [{ id: 7, title: 'Group' }] })
+    expect(service.status().lastResult).toBe('1 chat(s) found')
+
+    const noToken = await makeService()
+    expect(await noToken.detectChats()).toEqual({ ok: false, chats: [], error: 'no bot token configured' })
+
+    stubApi(BOT_TOKEN, 'getUpdates', () => {
+      // eslint-disable-next-line no-throw-literal
+      throw { error_code: 401, description: 'Unauthorized' }
+    })
+    expect((await service.detectChats()).ok).toBe(false)
+    expect(service.status().lastResult).toBe('Unauthorized (401)')
+  })
+
+  it('verifies a token without sending anything', async () => {
+    const service = await makeService()
+    stubApi(BOT_TOKEN, 'getMe', () => Promise.resolve({ id: 1, is_bot: true, first_name: 'HH', username: 'hh_bot' }))
+
+    expect(await service.verifyToken(BOT_TOKEN)).toEqual({ ok: true, username: 'hh_bot' })
   })
 })

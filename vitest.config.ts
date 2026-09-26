@@ -28,6 +28,10 @@ export default defineConfig({
         functions: 80,
         lines: 75,
       },
+      // v8 only reports files a test actually imported, so without this the gate is
+      // blind to whatever nothing imports — and a whole area can leave the suite
+      // without the number moving at all. Measure every source file instead.
+      include: ['src/**/*.ts'],
       exclude: [
         ...configDefaults.coverage.exclude!,
         'src/helpers/logger.ts',
@@ -35,6 +39,22 @@ export default defineConfig({
         'scripts/**',
         // The SPA is covered by behaviour tests in uis/*/test/ instead.
         'uis/**',
+        // Process boundaries: these run as their own process, never inside the test
+        // runner, so in-process coverage cannot attribute anything to them. Their
+        // behaviour is pinned by the spawned-process suites (`test/cli/cli-smoke.test.ts`
+        // for the CLI surface), which is the same reason `src/index.ts` is excluded above.
+        'src/cli.ts',
+        'src/cli/down.ts',
+        'src/cli/init.ts',
+        'src/cli/migrate.ts',
+        'src/cli/restart.ts',
+        'src/cli/set-password.ts',
+        'src/cli/set-token.ts',
+        'src/cli/status.ts',
+        'src/cli/ui-revert.ts',
+        'src/cli/up.ts',
+        // Best-effort browser launch: no return value and no assertion surface.
+        'src/helpers/open.ts',
       ],
     },
   },
