@@ -1,6 +1,23 @@
 # Changelog
 
 
+## v0.6.2
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.1...v0.6.2)
+
+### 🩹 Fixes
+
+- **ui:** Make an interrupted or overlapping install recoverable ([f08a4b0](https://github.com/NamesMT/home-hosted/commit/f08a4b0))
+- **config-watch:** Compare the reported filename by basename ([a556f22](https://github.com/NamesMT/home-hosted/commit/a556f22))
+
+### 📖 Documentation
+
+- Rename the example server to omniroute, and show a compose stack ([5973bd4](https://github.com/NamesMT/home-hosted/commit/5973bd4))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.6.1
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.0...v0.6.1)
