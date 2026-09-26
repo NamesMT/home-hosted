@@ -40,8 +40,9 @@ You run a handful of services at home. The usual choices are extremes — 🧟 `
 forget about, 📜 a hand-written systemd unit per service (times six), or 🐳 a whole docker/k8s
 stack??? - too extreme! — plus 😩 monitoring, rebooting and changing the host machine, yuck!
 
-🙂 home-hosted, well, joins in somewhere: a panel/supervisor that starts them, watches them, restarts what dies, and
-puts the whole stack on one page, with deep backup support.
+🙂✨ home-hosted enhances on top: a panel/supervisor that starts them, watches them, restarts what
+dies, and puts the whole stack on one page, with deep backup support — whether a server is a plain
+command or a `docker compose` stack.
 
 ```text
                    ┌──────────────────────────────────────┐
@@ -54,8 +55,13 @@ puts the whole stack on one page, with deep backup support.
    ┌─────────┐               ┌─────────┐                ┌─────────┐
    │ gateway │               │ files   │                │ bot     │
    │ :4000   │               │ :4010   │                │  ...    │
-   └─────────┘               └─────────┘                └─────────┘
-     health ✓                  health ✓                  restarts ↻
+   └────┬────┘               └─────────┘                └─────────┘
+        │ compose up -d
+        ▼
+   ┌────────────┬────────────┬────────────┐
+   │  gateway   │  postgres  │   redis    │          restarts ↻
+   └────────────┴────────────┴────────────┘
+     health ✓ (the published port is the probe)
 ```
 
 |  |  |
@@ -147,7 +153,7 @@ data/                         # per-server data directories, declared through da
 
 One clone, `pnpm install --frozen-lockfile`, `pnpm run up` — the setup is up on any machine with Node.
 Worked example, with per-server data inside the project:
-**[hhosted-9router-dsh](https://github.com/NamesMT/hhosted-9router-dsh)**.
+**[hhosted-ai-pack](https://github.com/NamesMT/hhosted-ai-pack)**.
 
 <sub>Call them as `pnpm run up` — `pnpm up` is pnpm's own update, not your script.</sub>
 
@@ -190,8 +196,8 @@ home-hosted set-token --generate
 #   hh_9uA2…                     (printed once; only its hash is kept, mode 0600)
 
 curl -H "Authorization: Bearer hh_9uA2…" http://127.0.0.1:3999/api/state
-curl -H "Authorization: Bearer hh_9uA2…" -X POST http://127.0.0.1:3999/api/servers/9router/restart
-curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/events?serverId=9router'   # SSE
+curl -H "Authorization: Bearer hh_9uA2…" -X POST http://127.0.0.1:3999/api/servers/omniroute/restart
+curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/events?serverId=omniroute'   # SSE
 home-hosted status --json        # machine-readable: pid, url, health, paths
 ```
 
@@ -396,7 +402,7 @@ archive and restore. Definitions come back, data lands where *this* machine's co
 `autostart` entries come up immediately.
 
 It works because an archive carries its own `servers.config.json` and paths are matched by the
-**declaration** (`9router:DATA_DIR`), not by an absolute path from the source machine. A restore never
+**declaration** (`omniroute:DATA_DIR`), not by an absolute path from the source machine. A restore never
 writes where no config declares.
 
 </details>

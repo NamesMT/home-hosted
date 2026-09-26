@@ -270,7 +270,7 @@ describe('genericity', () => {
   it('has no server-specific global config or placeholders', async () => {
     for (const file of coreFiles) {
       const text = await fs.promises.readFile(path.join(packageRoot, file), 'utf8')
-      expect(text, `${file} must not know about 9router`).not.toMatch(/9router/i)
+      expect(text, `${file} must not know about omniroute`).not.toMatch(/omniroute/i)
       expect(text, `${file} must not define a dataDir/staticDir global`).not.toMatch(/\b(dataDir|staticDir)\b/)
     }
   })

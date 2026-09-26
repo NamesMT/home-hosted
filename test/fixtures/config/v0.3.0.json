@@ -27,12 +27,12 @@
   "backups": { "enabled": false, "dir": "", "keep": 5, "includePaths": [] },
   "servers": [
     {
-      "id": "9router",
-      "label": "9Router gateway",
+      "id": "omniroute",
+      "label": "omniroute gateway",
       "command": "node",
       "args": ["server.js"],
       "env": { "PORT": "{port}" },
-      "dataEnvs": { "DATA_DIR": "{projectDir}/data/.9router" },
+      "dataEnvs": { "DATA_DIR": "{projectDir}/data/.omniroute" },
       "port": 4000,
       "bind": "lan",
       "autostart": true

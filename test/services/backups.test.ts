@@ -91,7 +91,7 @@ async function makeFixture(
 
 describe('slugifyPath', () => {
   it('produces a filesystem-safe name', () => {
-    expect(slugifyPath('/home/user/.9router')).toBe('home-user-9router')
+    expect(slugifyPath('/home/user/.omniroute')).toBe('home-user-omniroute')
     expect(slugifyPath('.')).toBe('path')
   })
 })
@@ -146,12 +146,12 @@ describe('resolveBackupPaths', () => {
     try {
       const paths = resolveBackupPaths(
         // eslint-disable-next-line no-template-curly-in-string -- the literal reference is the point
-        [serverConfig({ dataEnvs: { ROUTER_DATA: '{home}/.9router', CUSTOM: '${HHOSTED_TEST_DATA}' } })],
+        [serverConfig({ dataEnvs: { ROUTER_DATA: '{home}/.omniroute', CUSTOM: '${HHOSTED_TEST_DATA}' } })],
         ['{projectDir}/shared'],
       )
 
       expect(paths.find(entry => entry.origin === 'global')?.path).toBe(path.join(projectDir, 'shared'))
-      expect(paths.find(entry => entry.origin === 'app:ROUTER_DATA')?.path).toBe(path.join(os.homedir(), '.9router'))
+      expect(paths.find(entry => entry.origin === 'app:ROUTER_DATA')?.path).toBe(path.join(os.homedir(), '.omniroute'))
       expect(paths.find(entry => entry.origin === 'app:CUSTOM')?.path).toBe(path.join(projectDir, 'srv', 'custom'))
     }
     finally {

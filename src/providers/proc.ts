@@ -202,7 +202,7 @@ function collectTree(rootPid: number, children: Map<number, number[]>): number[]
  * Samples CPU and RSS for a process *and its descendants*.
  *
  * Descendants matter: a wrapper that spawns the real server detached (the
- * 9router CLI does) owns the tree, and only the tree's RSS means anything.
+ * omniroute CLI does) owns the tree, and only the tree's RSS means anything.
  *
  * Backends: `/proc` on Linux, `ps` on macOS/other POSIX, and Win32_Process via
  * PowerShell (wmic as a fallback) on Windows. When a backend cannot run, samples

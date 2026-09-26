@@ -43,7 +43,7 @@ describe('reading configs from other releases', () => {
     expect(parsed.unknownKeys).toEqual([])
     expect(parsed.schemaVersion).toBe(CONFIG_SCHEMA)
     expect(parsed.config?.control.port).toBe(3999)
-    expect(parsed.config?.servers.map(server => server.id)).toEqual(['9router', 'static'])
+    expect(parsed.config?.servers.map(server => server.id)).toEqual(['omniroute', 'static'])
     expect(parsed.config?.servers[1]?.port).toBe(4010)
   })
 
