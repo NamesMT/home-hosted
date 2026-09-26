@@ -189,6 +189,12 @@ async function remove(): Promise<void> {
       >
         <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">detached</span>
       </Tip>
+      <Tip
+        v-if="config.persistent"
+        label="This entry runs under its own nanny, so it keeps running when the panel stops, restarts or is killed. `home-hosted down` reports it instead of stopping it; only an explicit stop does."
+      >
+        <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">persistent</span>
+      </Tip>
     </header>
 
     <p class="truncate px-4 pb-3 font-mono text-2xs text-muted" :title="commandLine">

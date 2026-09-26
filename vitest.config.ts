@@ -42,17 +42,20 @@ export default defineConfig({
         // Process boundaries: these run as their own process, never inside the test
         // runner, so in-process coverage cannot attribute anything to them. Their
         // behaviour is pinned by the spawned-process suites (`test/cli/cli-smoke.test.ts`
-        // for the CLI surface), which is the same reason `src/index.ts` is excluded above.
+        // for the CLI surface, `test/services/nanny.test.ts` for the nanny), which is the
+        // same reason `src/index.ts` is excluded above.
         'src/cli.ts',
         'src/cli/down.ts',
         'src/cli/init.ts',
         'src/cli/migrate.ts',
+        'src/cli/nanny.ts',
         'src/cli/restart.ts',
         'src/cli/set-password.ts',
         'src/cli/set-token.ts',
         'src/cli/status.ts',
         'src/cli/ui-revert.ts',
         'src/cli/up.ts',
+        'src/services/nanny.ts',
         // Best-effort browser launch: no return value and no assertion surface.
         'src/helpers/open.ts',
       ],

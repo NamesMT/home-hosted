@@ -1,5 +1,5 @@
 import type { ControlEndpoint } from '#src/services/control-server'
-import type { ServerView, SseMessage } from '#src/shared/contracts'
+import type { NannyState, ServerView, SseMessage } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { SecretsStore } from '#src/config/secrets'
 import { ConfigStore } from '#src/config/store'
 import { projectDir } from '#src/helpers/paths'
+import { nannySpecPath, nannyStatePath, readNannyState, writeNannySpec, writeNannyState } from '#src/providers/nanny'
 import { isPortFree } from '#src/providers/port'
 import { AuthService } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
@@ -65,8 +66,11 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs = 10000): Promis
   }
 }
 
-async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ supervisor: Supervisor, store: ConfigStore, hub: EventHub }> {
+async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir: string) => void | Promise<void>): Promise<{ supervisor: Supervisor, store: ConfigStore, hub: EventHub, nannyDir: string, logDir: string }> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-sup-'))
+  // State that must exist *before* the supervisor is constructed (a boot sweep, say).
+  if (prepare !== undefined)
+    await prepare(dir)
   const file = path.join(dir, 'servers.config.json')
   await fs.promises.writeFile(file, JSON.stringify({ control: { port: 3999 }, servers }, null, 2))
 
@@ -77,6 +81,7 @@ async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ sup
   const control: ControlEndpoint = { host: 'local', port: 3999, bindHost: '127.0.0.1', url: 'http://127.0.0.1:3999', protocol: 'http' }
   const tls = new TlsStore(path.join(dir, 'tls'))
   const logFiles = new LogFiles(path.join(dir, 'logs'), () => store.config.logs)
+  const nannyDir = path.join(dir, 'state')
   const notifications = new NotificationService(secrets, () => store.config.notifications, () => store.config.logs)
   const history = new HistoryStore(path.join(dir, 'history.json'))
   const hostMonitor = new HostMonitor(() => store.config.host, target => path.resolve(dir, target), notifications)
@@ -110,6 +115,7 @@ async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ sup
     logFiles,
     notifications,
     hostMonitor,
+    nannyDir,
   })
 
   cleanups.push(async () => {
@@ -119,7 +125,7 @@ async function makeSupervisor(servers: Record<string, unknown>[]): Promise<{ sup
     await fs.promises.rm(dir, { recursive: true, force: true })
   })
 
-  return { supervisor, store, hub }
+  return { supervisor, store, hub, nannyDir, logDir: logFiles.directory }
 }
 
 function httpServerConfig(port: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -776,6 +782,212 @@ describe('supervisor', () => {
     // Nothing structural moved to earn those frames.
     expect(view(supervisor, 'idle').status).toBe('running')
     expect(view(supervisor, 'idle').health).toBe('disabled')
+  })
+})
+
+/**
+ * A persistent entry is run by a nanny process the panel spawns and then reattaches
+ * to. These tests stand in for that nanny with a plain long-lived process: the panel's
+ * whole job is to find it again through the state file and leave it alone.
+ */
+describe('persistent entries', () => {
+  /** A long-lived process, cleaned up whatever the test does. */
+  function spawnStub(): number {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: 'ignore' })
+    child.unref()
+    const pid = child.pid!
+    cleanups.push(() => {
+      try {
+        process.kill(pid, 'SIGKILL')
+      }
+      catch {
+        // Already gone.
+      }
+    })
+    return pid
+  }
+
+  /** A process that outlives the test's own supervisor, plus the state describing it. */
+  async function fakeNanny(nannyDir: string, id: string, patch: Partial<NannyState> = {}): Promise<number> {
+    const pid = spawnStub()
+    writeNannyState(nannyStatePath(nannyDir, id), {
+      serverId: id,
+      nannyPid: pid,
+      childPid: null,
+      startedAt: Date.now(),
+      logFile: '',
+      heartbeatAt: Date.now(),
+      ...patch,
+    } as NannyState)
+    return pid
+  }
+
+  function persistentConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: 'keep',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      persistent: true,
+      autostart: false,
+      ...overrides,
+    }
+  }
+
+  it('reattaches to a running entry instead of starting a second copy', async () => {
+    const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
+    const pid = await fakeNanny(nannyDir, 'keep')
+
+    await supervisor.startAll({ autostartOnly: true })
+
+    expect(view(supervisor, 'keep').status).toBe('running')
+    expect(view(supervisor, 'keep').pid).toBe(pid)
+    expect(supervisor.logLines('keep').some(line => line.text.includes('reattached'))).toBe(true)
+    // Reattaching is not starting: an entry the panel was told to leave alone is
+    // adopted because it is running, not because it was launched.
+    expect(supervisor.logLines('keep').some(line => line.text.startsWith('start'))).toBe(false)
+  })
+
+  it('leaves a persistent entry running through stop-all, and stops it explicitly', async () => {
+    const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
+    const pid = await fakeNanny(nannyDir, 'keep')
+    await supervisor.startAll({ autostartOnly: true })
+
+    await supervisor.stopAll()
+    expect(isAlive(pid)).toBe(true)
+    expect(view(supervisor, 'keep').status).toBe('running')
+
+    const result = await supervisor.stop('keep')
+    expect(result.ok).toBe(true)
+    expect(isAlive(pid)).toBe(false)
+    expect(readNannyState(nannyStatePath(nannyDir, 'keep'))).toBeNull()
+  })
+
+  it('stops the child of a persistent entry even when the stop cannot be forwarded', async () => {
+    // SIGKILL cannot be trapped, and `killGroup: false` signals the nanny's pid alone:
+    // without reaching into the state file for the child, the panel would report
+    // "stopped" while the server kept running and holding its port.
+    const { supervisor, nannyDir } = await makeSupervisor([
+      persistentConfig({ stop: { signal: 'SIGKILL', killGroup: false, graceMs: 1000, killPortHolders: false } }),
+    ])
+    const child = spawnStub()
+    const pid = await fakeNanny(nannyDir, 'keep', { childPid: child })
+    await supervisor.startAll({ autostartOnly: true })
+    expect(view(supervisor, 'keep').pid).toBe(pid)
+
+    const result = await supervisor.stop('keep')
+
+    expect(result.ok).toBe(true)
+    expect(isAlive(pid)).toBe(false)
+    expect(isAlive(child)).toBe(false)
+    expect(readNannyState(nannyStatePath(nannyDir, 'keep'))).toBeNull()
+  })
+
+  it('stops a persistent entry that was disabled while the panel was down', async () => {
+    // Nobody will ever attach to it now, and an unadopted nanny is invisible to
+    // `supervisedPids()` — a process this panel could later kill as a stranger.
+    const { supervisor, nannyDir } = await makeSupervisor([persistentConfig({ enabled: false })])
+    const pid = await fakeNanny(nannyDir, 'keep')
+
+    await supervisor.startAll({ autostartOnly: true })
+
+    await waitFor(() => isAlive(pid) ? undefined : true)
+    expect(readNannyState(nannyStatePath(nannyDir, 'keep'))).toBeNull()
+  })
+
+  it('sweeps a spawn spec left behind by a panel that died before its nanny read it', async () => {
+    let specPath = ''
+    await makeSupervisor([persistentConfig()], (dir) => {
+      specPath = nannySpecPath(path.join(dir, 'state'), 'keep')
+      writeNannySpec(specPath, {
+        serverId: 'keep',
+        command: process.execPath,
+        args: [],
+        cwd: dir,
+        env: { SECRET: 'expanded' },
+        logDir: path.join(dir, 'logs'),
+        logs: { persist: true, maxBytes: 1_000_000, keep: 3 },
+        stop: { signal: 'SIGTERM', killGroup: true, graceMs: 1000, killPortHolders: false },
+      })
+    })
+
+    expect(fs.existsSync(specPath)).toBe(false)
+  })
+
+  it('starts tailing the log when it adopts a persistent entry\'s successor', async () => {
+    // The fallback path: the state file is gone, so `follow` takes the successor over.
+    // Its nanny is still writing the entry's log file, and the panel has to read it —
+    // adopting a persistent entry must not cost its live output.
+    const port = await freePort()
+    const { supervisor, logDir } = await makeSupervisor([
+      persistentConfig({ port, onPortConflict: 'follow' }),
+    ])
+
+    const successor = spawn(process.execPath, [
+      '-e',
+      `require("node:http").createServer((q,s)=>s.end("ok")).listen(${port},"127.0.0.1"); setInterval(() => {}, 1000)`,
+    ], {
+      env: { ...process.env, HHOSTED_SERVER_ID: 'keep' },
+      stdio: 'ignore',
+    })
+    const successorPid = successor.pid!
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // Already gone.
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect((await supervisor.start('keep')).ok).toBe(true)
+    expect(view(supervisor, 'keep').adopted).toBe(true)
+
+    // What a nanny would append next; the relay is the only thing that can surface it.
+    const logFile = path.join(logDir, 'keep.log')
+    fs.mkdirSync(logDir, { recursive: true })
+    fs.appendFileSync(logFile, `${JSON.stringify({ ts: Date.now(), stream: 'stdout', text: 'adopted-live' })}\n`)
+
+    await waitFor(() => supervisor.logLines('keep').some(line => line.text === 'adopted-live') ? true : undefined)
+  })
+
+  it('reports how a persistent entry ended while the panel was away', async () => {
+    const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
+    // A heartbeat nobody refreshed: the nanny is gone, whatever the pid says.
+    writeNannyState(nannyStatePath(nannyDir, 'keep'), {
+      serverId: 'keep',
+      nannyPid: 999_999,
+      childPid: 999_998,
+      startedAt: Date.now() - 60_000,
+      logFile: '',
+      heartbeatAt: Date.now() - 120_000,
+      lastExit: { code: 3, signal: null, at: Date.now() - 30_000, runtimeMs: 30_000 },
+    })
+
+    await supervisor.startAll({ autostartOnly: true })
+
+    expect(view(supervisor, 'keep').status).toBe('crashed')
+    expect(supervisor.logLines('keep').some(line => line.text.includes('while the panel was away with code 3'))).toBe(true)
+    // Read once: the state file is consumed, not replayed on the next boot.
+    expect(readNannyState(nannyStatePath(nannyDir, 'keep'))).toBeNull()
+  })
+
+  it('ignores a state file whose recorded process is not there any more', async () => {
+    const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
+    writeNannyState(nannyStatePath(nannyDir, 'keep'), {
+      serverId: 'keep',
+      nannyPid: 999_999,
+      childPid: 999_998,
+      startedAt: Date.now(),
+      logFile: '',
+      heartbeatAt: Date.now() - 120_000,
+    })
+
+    await supervisor.startAll({ autostartOnly: true })
+
+    expect(view(supervisor, 'keep').status).toBe('stopped')
+    expect(view(supervisor, 'keep').pid).toBeNull()
   })
 })
 

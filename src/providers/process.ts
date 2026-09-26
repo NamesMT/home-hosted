@@ -52,12 +52,21 @@ export function needsShell(command: string): boolean {
   return process.platform === 'win32' && /\.(?:cmd|bat)$/i.test(command)
 }
 
-export function spawnManaged(spec: SpawnSpec): ChildProcess {
+export interface SpawnOptions {
+  /**
+   * A supervised child gets its own process group, so one `kill(-pid)` stops the tree.
+   * A child spawned by a nanny does not: it shares the nanny's group, which is the
+   * group the panel signals — so the same one-signal semantics still reach both.
+   */
+  detached?: boolean
+}
+
+export function spawnManaged(spec: SpawnSpec, options: SpawnOptions = {}): ChildProcess {
   return spawn(spec.command, spec.args, {
     cwd: spec.cwd,
     env: { ...process.env, ...spec.env },
     // Own process group: a stop can signal the whole tree with one kill(-pid).
-    detached: true,
+    detached: options.detached ?? true,
     stdio: ['ignore', 'pipe', 'pipe'],
     shell: needsShell(spec.command),
     windowsHide: true,

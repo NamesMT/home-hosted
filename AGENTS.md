@@ -7,7 +7,8 @@ and serves a UI. User docs: `README.md`, `docs/SERVERS.md` (entries and port con
 
 State lives only in `$HHOSTED_HOME` (default `~/.home-hosted`): `servers.config.json`,
 `.control-secrets.json` (0600: password hash, API token hash, Telegram bot token), `.logs/`, `.tls/`,
-`.backups/`, `.ui/`, and `run.json` — the live daemon's pid/url/token, 0600. The package ships **no
+`.backups/`, `.ui/`, `.state/` (a persistent entry's nanny state, plus its 0600 spawn spec until the
+nanny reads it), and `run.json` — the live daemon's pid/url/token, 0600. The package ships **no
 servers**: never commit a config, a seed entry, or a path that names one.
 
 ## Commands
@@ -31,11 +32,40 @@ pnpm run media                     # regenerate docs/media (mockups, both served
 The published bin is `home-hosted`, with an `hh` alias: both names run the same CLI.
 
 Releases are dispatched from `.github/workflows/release.yml` with a version (and a `dry-run` switch
-that stops before pushing). It verifies the version against `package.json`, lints/types/tests,
-builds the CLI plus the stock UI and every UI zip, lets changelogen write the changelog and tag
+that stops before pushing). It verifies the version, lints/types/tests, builds the CLI plus the stock
+UI and every UI zip, lets changelogen write the changelog, bump `package.json`, commit and tag
 `v<version>`, creates the GitHub release with the UI bundles attached, and publishes to npm through
 trusted publishing (OIDC, no token). npm only offers a trusted publisher for a package that already
 exists, so the first release has to be published by hand.
+
+### Which version to dispatch
+
+While the package is `0.y.z`, the **minor is the breaking channel**: npm semver makes no stability
+promise below 1.0, so a `0.x` minor is what a consumer reads as "read the release notes". That is the
+opposite of 1.x, where a feature earns a minor — do not carry that habit here.
+
+| channel | use it for | example |
+| --- | --- | --- |
+| `0.y.Z` patch | a fix, a new option, any change a config or a UI survives untouched | `0.6.2` → `0.6.3` |
+| `0.Y.0` minor | a change that needs a migration, breaks a documented behaviour or drops a surface | `0.6.3` → `0.7.0` |
+| `1.0.0` major | declaring the surfaces stable (and then: a feature earns a minor again) | — |
+
+The decision is not the commit type: a `feat:` that only adds a defaulted field is a **patch**. Ask
+instead what a user has to do about it — if the answer is "nothing", it is a patch; if the answer is
+"read this and act", it is a minor. Conventional commits still shape the changelog section, and a
+breaking change must say so with a `!` and a `BREAKING CHANGE:` footer, naming the migration.
+
+Two things follow: **never edit `package.json`'s version by hand** — the workflow's changelogen does
+it, and asserts the result — and dispatching is a single step on work already merged to `main`:
+
+```sh
+gh workflow run release.yml -f version=0.6.3          # add -f dry-run=true to rehearse
+```
+
+`scripts/check-release-version.mjs` gates the request: it refuses a version that is not greater than
+the current one, refuses a **patch while a breaking commit is pending** (you would be shipping a
+breaking change as a patch), and warns when a **minor is dispatched with no breaking commit** — which
+is the usual sign that a patch was meant.
 
 ## Architecture (and why)
 
@@ -43,9 +73,13 @@ exists, so the first release has to be published by hand.
   is asked anything: `--home`/`--project` are peeled off and applied (`src/cli/args.ts`), and the
   curated dispatch — `help`/`version`, `unknown command`, and the `-p 4000` shorthand for `up` — is
   decided, because `#src/helpers/paths.ts` resolves at import time. Its static imports stay node
-  builtins, citty and those two path-free local modules; every command is a lazy
+  builtins, citty and those two path-free local modules (`src/cli/args.ts` and
+  `src/helpers/runtime.ts`, which only names the hidden `__nanny` command and how to re-run this CLI);
+  every command is a lazy
   `() => import('#src/cli/<command>')` in citty's `subCommands`, so a command module *may* use static
-  `#src` imports (that is the whole point of the pre-pass). citty's `runMain` is deliberately not
+  `#src` imports (that is the whole point of the pre-pass). The hidden `__nanny` command is dispatched
+  by an early branch rather than `subCommands`, so it stays out of the curated help, the
+  unknown-command message and flag refusal — it is spawned by the panel, never typed by a person. citty's `runMain` is deliberately not
   used: it prints its own usage and `console.error`s before `process.exit(1)`, replacing `fail()`'s
   one error shape; the root calls `runCommand` and catches. `src/cli/<command>.ts` is one command per
   file — citty owns dispatch and argument parsing, with `--no-autostart`/`--no-install` declared as
@@ -69,12 +103,17 @@ exists, so the first release has to be published by hand.
   `migrations.ts` (the schema constant and the ordered step registry), `secrets.ts`, `seed.ts`.
 - `src/providers/` — stateless leaves: `process` (spawn, `terminate`, `terminatePid` for a process we
   adopted), `port` (probe, holder lookup, `terminatePids`), `proc` (the sampler, plus
-  `processCarriesServerId` for the environment marker), `identity` (which port holder is this entry's
-  own successor: marker first, then resolved image + argv), health-check, host, telegram, archive.
+  `processCarriesServerId` for the environment marker and `processTreePids` for tree ownership),
+  `identity` (which port holder is this entry's own successor: marker first, then resolved image +
+  argv), `nanny` (a persistent entry's spec/state files and the liveness rules for one),
+  `log-tail` (an offset reader that survives rotation and truncation), health-check, host, telegram,
+  archive.
 - `src/services/` — stateful orchestration: supervisor, control-server, config-watch, state,
   auth + exposure, dependencies, history, log-buffer/log-files, notifications, host-monitor, backups,
   tls, ui, plus `init` (the scaffold behind `home-hosted init`: a manifest, a `.gitignore`, and the
-  prompts stay in the CLI). It names no server — the scaffold must stay as neutral as the supervisor.
+  prompts stay in the CLI), `nanny` (the process a persistent entry runs under) and `log-relay` (the
+  tailer that feeds its lines to the supervisor). It names no server — the scaffold must stay as
+  neutral as the supervisor.
 - `src/middleware/auth.ts` — the `/api/*` guard, and `requestIdentity()`, the one place a request's
   credentials are read: the `hh_session` cookie or `Authorization: Bearer <api token>`. A token is
   a first-class credential (same authority as a signed-in browser) and is verified from the secrets
@@ -202,6 +241,29 @@ either is a last resort, and never an accidental one.
   answer for them. `src/providers/identity.ts` owns the matching, and the argv it is given comes from
   the supervisor's single `resolveSpawn()`, the same one the spawn itself used — keep it to one
   resolver, because a second one that expands or filters args differently re-opens these cases.
+  Ownership covers the entry's whole **tree**, not the pid it recorded (`processTreePids`): a nanny
+  puts the real server one generation down, and so does any wrapper entry. The panel's own tree is
+  deliberately excluded — "ours" has to mean a process a server owns.
+- **A persistent entry is run by its own nanny, not by the panel.** `persistent: true` makes the panel
+  spawn the hidden `__nanny` command (`src/services/nanny.ts`) with a resolved spawn spec in
+  `.state/<id>.spec.json` (0600, consumed by the read — even unparseable, because it carries expanded
+  env — and swept at boot for the nanny that never read it), and the nanny owns the child's pipes,
+  writes its JSONL and mirrors its exit. That is the only arrangement in which a
+  server outlives the panel *and* keeps logging: pipes held by the panel break when it dies, and a
+  file written straight by the child can never be rotated while the child holds the fd. The panel
+  therefore: never stops such an entry from `stopAll()`/`dispose()` (it logs that it left it running,
+  and `down` reports it by scanning `.state/`), reattaches on boot through the state file
+  (`nannyIsAlive` = live pid **and** a fresh heartbeat, the `HHOSTED_SERVER_ID` marker or the argv)
+  before any port preflight, starts the relay tailer instead of reading a pipe, and reads `lastExit`
+  once so a crash nobody watched is reported rather than lost. Two lifetimes are pinned: the nanny
+  **exits with its child** (`process.exit`, never lingering — an inherited pipe would keep it alive and
+  the panel would then report a healthy entry whose real server is a detached stranger), and an explicit
+  stop reaches the child by pid from the state file, because `SIGKILL` cannot be forwarded and
+  `killGroup: false` signals the nanny alone. That is why a self-restarting program belongs on
+  `reclaim`, not `follow`. The nanny never restarts anything:
+  retries, backoff and health stay in the supervisor, or there would be two supervisors disagreeing.
+  `logs.persist: false` still keeps that file out of the Logs page (`LogFiles.readTail`/`info`), but it
+  is written regardless — it is the transport, not the retention policy.
 - **A port is only ever freed by re-listing its listeners.** `POST /api/servers/:id/free-port` never
   trusts a pid quoted in a message, and refuses any listener in `supervisedPids()` (the panel plus
   every entry's child) instead of killing it — a port held by a sibling is a config mistake.
@@ -268,7 +330,9 @@ either is a last resort, and never an accidental one.
   the live output view empty until a remount — a test that reads the array itself will not catch it.
 - An adopted process is not a `ChildProcess`, so nothing reports its exit: the tick polls liveness and
   hands the entry back to the normal `afterExit` path. Its output is not captured either — it was
-  redirected by whoever spawned it.
+  redirected by whoever spawned it. The exception is a persistent entry, whose output the panel
+  *does* capture: its nanny writes the JSONL, and `log-relay` tails it into the same buffer and SSE
+  frames a pipe would feed.
 - `stop.killPortHolders` frees a port only from a *listener* that is not our own process tree. Broad
   `lsof -ti:<port>` sweeps and pid-as-text parses have killed supervisors in the field; don't add one.
   `free-port` reuses the same lookup and adds the supervisor's own pid set on top.

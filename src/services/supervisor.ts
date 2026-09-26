@@ -15,6 +15,8 @@ import type {
   HealthState,
   LogLine,
   LogStream,
+  NannyExit,
+  NannySpec,
   PortState,
   ProcessResources,
   ServerStatus,
@@ -29,14 +31,29 @@ import { bindHost, displayHost, lanAddress } from '#src/helpers/bind'
 import { expandEnvList, expandEnvRecord, loadEnvFile, resolveEnvFilePath } from '#src/helpers/env-file'
 import { logger } from '#src/helpers/logger'
 import { dataRoot, projectDir } from '#src/helpers/paths'
+import { nannyArgv } from '#src/helpers/runtime'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { probeHealth } from '#src/providers/health-check'
 import { identifyHolders } from '#src/providers/identity'
+import {
+  clearNannySpec,
+  clearNannyState,
+  describeNannyExit,
+  nannyEntryPoint,
+  nannyIsAlive,
+  nannyLogFile,
+  nannySpecPath,
+  nannyStatePath,
+  readNannyState,
+  sweepNannySpecs,
+  writeNannySpec,
+} from '#src/providers/nanny'
 import { isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, terminatePids } from '#src/providers/port'
-import { ProcessSampler } from '#src/providers/proc'
+import { ProcessSampler, processTreePids } from '#src/providers/proc'
 import { resolveCommand, resolveCwd, spawnManaged, terminate, terminatePid } from '#src/providers/process'
 import { dependenciesOf, orderByDependencies } from '#src/services/dependencies'
 import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
+import { LogRelay } from '#src/services/log-relay'
 
 export interface SupervisorOptions {
   configPath: string
@@ -48,6 +65,8 @@ export interface SupervisorOptions {
   logFiles: LogFiles
   notifications: NotificationService
   hostMonitor: HostMonitor
+  /** Where a persistent entry's nanny keeps its state; injected for the same reason. */
+  nannyDir: string
 }
 
 /** Uptime/crash counters are reported over this window. */
@@ -86,6 +105,11 @@ interface Entry {
   probing: boolean
   /** The running process is a detached successor we adopted, not a child we spawned. */
   adopted: boolean
+  /**
+   * How the child of a persistent entry ended, read from its nanny's state file: the
+   * panel was not its parent, so `code`/`signal` of the *nanny* are only a mirror.
+   */
+  nannyExit: NannyExit | null
   /** A start is in flight (set synchronously, unlike `status`). */
   starting: boolean
   stopping: boolean
@@ -101,6 +125,9 @@ const TICK_INTERVAL_MS = 1000
 const PORT_STATE_INTERVAL_MS = 10000
 const PORT_RELEASE_RECHECK_MS = 300
 const RESOURCE_SAMPLE_INTERVAL_MS = 5000
+
+/** History a panel attaches with, so a persistent entry's live view is not blank. */
+const PERSISTENT_BACKFILL_LINES = 200
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -125,6 +152,14 @@ export function serverTemplateVars(config: ServerConfig): TemplateVars {
 
 export class Supervisor {
   private readonly sampler = new ProcessSampler()
+  /**
+   * Live output of persistent entries. A normal entry's logs arrive down the pipe the
+   * panel owns; a persistent one's are written by its nanny, so they are read back.
+   */
+  private readonly relay = new LogRelay({
+    onLines: (serverId, lines) => this.ingestExternalLines(serverId, lines),
+  })
+
   private readonly entries = new Map<string, Entry>()
   private readonly tickTimer: NodeJS.Timeout
   private disposed = false
@@ -135,6 +170,12 @@ export class Supervisor {
     private readonly hub: EventHub,
     private readonly options: SupervisorOptions,
   ) {
+    // A spec on disk belongs to a nanny that never read it: nothing this process has
+    // spawned yet can be waiting for one, and it holds expanded env.
+    const swept = sweepNannySpecs(this.options.nannyDir)
+    if (swept > 0)
+      logger.warn(`removed ${swept} unread nanny spec file(s) from ${this.options.nannyDir}`)
+
     this.sync()
     this.store.onChange(() => this.sync())
     // A throw inside the tick must not become an unhandled rejection: on Node 24
@@ -158,6 +199,30 @@ export class Supervisor {
   }
 
   async startAll(options: { autostartOnly?: boolean } = {}): Promise<void> {
+    // Reattaching comes first and ignores `autostartOnly`: adopting a process that is
+    // already running is not starting one, and leaving it unmanaged would make this
+    // panel treat its own persistent entry as a stranger when a port is involved.
+    for (const entry of [...this.entries.values()]) {
+      if (!entry.config.persistent || this.isActive(entry))
+        continue
+      if (entry.config.enabled) {
+        await this.resumePersistent(entry).catch((error: unknown) => {
+          logger.error(`could not reattach the persistent server ${entry.config.id}`, error)
+        })
+        continue
+      }
+      // Disabled while the panel was down: someone decided this entry should not run,
+      // and a nanny left over from that decision must not hide from `supervisedPids()`
+      // as an unmanaged stranger. Adopting it is only the way to stop it.
+      try {
+        if (await this.resumePersistent(entry))
+          await this.stop(entry.config.id)
+      }
+      catch (error) {
+        logger.error(`could not stop the disabled persistent server ${entry.config.id}`, error)
+      }
+    }
+
     const targets = [...this.entries.values()]
       .filter(entry => !options.autostartOnly || entry.config.autostart)
       .map(entry => entry.config)
@@ -167,9 +232,20 @@ export class Supervisor {
     }
   }
 
+  /**
+   * Stops every entry this command owns. A persistent entry is deliberately not among
+   * them: that is the whole point of the flag, and it is said out loud rather than
+   * silently skipped, so "stopped everything" is never claimed about a running server.
+   */
   async stopAll(): Promise<void> {
     const targets = orderByDependencies([...this.entries.values()].map(entry => entry.config)).reverse()
     for (const config of targets) {
+      const entry = this.entries.get(config.id)
+      if (entry !== undefined && entry.config.persistent) {
+        if (this.isActive(entry))
+          this.log(entry, 'system', 'persistent: left running (stop it explicitly to end it)')
+        continue
+      }
       await this.stop(config.id)
     }
   }
@@ -206,6 +282,13 @@ export class Supervisor {
       entry.status = 'starting'
       entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
       this.publishServer(entry)
+
+      // A persistent entry whose nanny is still alive is reattached, not restarted:
+      // nothing was stopped, so there is no port to fight over and no bootstrap to
+      // re-run. Only once that fails does the normal start path (and its conflict
+      // policy) apply.
+      if (entry.config.persistent && await this.resumePersistent(entry))
+        return { ok: true }
 
       await this.runBootstrap(entry)
       if (entry.stopping)
@@ -301,7 +384,7 @@ export class Supervisor {
    * in an old banner from killing a recycled pid.
    */
   private async portHolders(port: number): Promise<{ ours: number[], foreign: number[] }> {
-    const supervised = this.supervisedPids()
+    const supervised = await this.supervisedPids()
     const holders = await listPortHolders(port)
     return {
       ours: holders.filter(pid => supervised.has(pid)),
@@ -309,13 +392,30 @@ export class Supervisor {
     }
   }
 
-  /** Pids of the child processes this panel owns, plus itself. */
-  private supervisedPids(): Set<number> {
-    const pids = new Set<number>([process.pid])
+  /**
+   * Pids of the processes this panel owns, plus itself — the whole *tree* of every
+   * entry, not just the pid it recorded.
+   *
+   * Both kinds of indirection are covered by that: a persistent entry runs under a
+   * nanny, and a wrapper entry spawns the real server one generation down. The process
+   * holding the port is a descendant in both cases, and a descendant mistaken for a
+   * stranger is one `kill`/`free-port` away from stopping a server we own.
+   *
+   * The panel's own tree is deliberately *not* walked: "ours" has to mean a process a
+   * server owns, or anything the panel happened to spawn would be unkillable and
+   * unattributable.
+   */
+  private async supervisedPids(): Promise<Set<number>> {
+    const roots: number[] = []
     for (const entry of this.entries.values()) {
       if (entry.pid !== null)
-        pids.add(entry.pid)
+        roots.push(entry.pid)
+      else if (entry.child?.pid !== undefined)
+        roots.push(entry.child.pid)
     }
+
+    const pids = await processTreePids(roots)
+    pids.add(process.pid)
     return pids
   }
 
@@ -343,7 +443,14 @@ export class Supervisor {
     this.disposed = true
     clearInterval(this.tickTimer)
     for (const entry of this.entries.values()) this.clearRetry(entry)
-    await Promise.all([...this.entries.values()].map(entry => this.stopEntry(entry)))
+    // Persistent entries are left running on purpose: their nannies outlive this
+    // process, which is exactly what `down` is not allowed to end for them.
+    await Promise.all(
+      [...this.entries.values()]
+        .filter(entry => !entry.config.persistent)
+        .map(entry => this.stopEntry(entry)),
+    )
+    this.relay.dispose()
   }
 
   /**
@@ -432,6 +539,14 @@ export class Supervisor {
     entry.status = 'stopping'
     this.publishServer(entry)
 
+    // A persistent entry's nanny is only the handle; the server is the child it owns.
+    // A stop this process cannot forward — `SIGKILL` cannot be trapped, and
+    // `stop.killGroup: false` signals the pid alone — would leave that child running
+    // while the panel reported "stopped". Its pid is in the state file.
+    const nannyState = entry.config.persistent
+      ? readNannyState(nannyStatePath(this.options.nannyDir, entry.config.id))
+      : null
+
     // An adopted successor is not our child: same shutdown, signalled by pid.
     const outcome = entry.child === null && entry.pid !== null
       ? await terminatePid(entry.pid, entry.config.stop)
@@ -439,23 +554,49 @@ export class Supervisor {
     if (outcome === 'force-killed')
       this.log(entry, 'system', 'force-killed after grace period')
 
+    if (nannyState?.childPid != null && !entry.config.stop.killGroup)
+      await terminatePid(nannyState.childPid, { ...entry.config.stop, killGroup: false })
+
     const { port, stop } = entry.config
     if (stop.killPortHolders && port !== null) {
       // Only a stranger: a port held by a server this panel supervises is a config
       // mistake, not a leftover, and is never killed from here.
-      const leftover = await killPortHolders(port, this.supervisedPids())
+      const leftover = await killPortHolders(port, await this.supervisedPids())
       if (leftover.length > 0)
         this.log(entry, 'system', `port ${port} was still held by pid ${leftover.join(', ')} — killed`)
+    }
+
+    // An explicit stop ends a persistent entry for real: nothing may reattach to it,
+    // and nothing should keep tailing a log no nanny writes any more. A pid that
+    // outlived SIGKILL is the exception — its state file is the only way a later boot
+    // can find it, so it is kept and the outcome is not dressed up as "stopped".
+    const survivor = entry.config.persistent && entry.pid !== null && isProcessAlive(entry.pid)
+      ? entry.pid
+      : null
+    if (entry.config.persistent) {
+      if (survivor === null) {
+        clearNannyState(nannyStatePath(this.options.nannyDir, entry.config.id))
+        clearNannySpec(nannySpecPath(this.options.nannyDir, entry.config.id))
+      }
+      else {
+        this.log(entry, 'system', `pid ${survivor} is still alive after the stop — its state file is kept`)
+      }
+      this.relay.unfollow(entry.config.id)
     }
 
     entry.stopping = false
     entry.child = null
     entry.pid = null
     entry.adopted = false
-    entry.status = 'stopped'
-    this.log(entry, 'system', 'stopped')
+    entry.nannyExit = null
+    entry.status = survivor === null ? 'stopped' : 'conflict'
+    if (survivor !== null)
+      entry.lastError = `pid ${survivor} survived the stop`
+    this.log(entry, 'system', survivor === null ? 'stopped' : entry.lastError!)
     this.publishServer(entry)
-    return { ok: true }
+    return survivor === null
+      ? { ok: true }
+      : { ok: false, error: entry.lastError! }
   }
 
   private createEntry(config: ServerConfig): Entry {
@@ -479,6 +620,7 @@ export class Supervisor {
       lastOccupancyProbeAt: 0,
       probing: false,
       adopted: false,
+      nannyExit: null,
       starting: false,
       stopping: false,
       bootstrapDone: !config.bootstrap,
@@ -497,6 +639,7 @@ export class Supervisor {
       const config = wanted.get(id)
       if (!config) {
         this.entries.delete(id)
+        this.relay.unfollow(id)
         void this.stopEntry(entry).catch((error: unknown) => {
           logger.error(`could not stop the removed server ${id}`, error)
         })
@@ -504,6 +647,10 @@ export class Supervisor {
       }
       const bufferChanged = entry.config.logBufferLines !== config.logBufferLines
       entry.config = config
+      // The flag decides how the entry is *run*, so it takes effect on the next start;
+      // what must not linger is a tailer for an entry that is no longer persistent.
+      if (!config.persistent)
+        this.relay.unfollow(id)
       if (bufferChanged) {
         const kept = entry.logs.list(config.logBufferLines)
         entry.logs = new LogBuffer(config.logBufferLines)
@@ -691,6 +838,11 @@ export class Supervisor {
    * Takes over a detached successor: no spawn, no duplicate. The pid is supervised
    * from here on (liveness, health probe, resources, stop), while its output stays
    * wherever it was redirected.
+   *
+   * For a persistent entry that output is not a mystery: its nanny is still writing
+   * the entry's log file, so the relay is started here too. Without this, adopting a
+   * persistent entry whose state file was lost would show its history but never
+   * another live line.
    */
   private adoptEntry(entry: Entry, pid: number): StartResult {
     entry.adopted = true
@@ -701,6 +853,8 @@ export class Supervisor {
     entry.startedAt = Date.now()
     entry.lastError = null
     this.log(entry, 'system', `adopted pid ${pid}: a detached restart of this entry is already serving port ${entry.config.port}`)
+    if (entry.config.persistent)
+      this.followPersistent(entry)
     this.publishServer(entry)
     return { ok: true }
   }
@@ -709,7 +863,12 @@ export class Supervisor {
   private handleAdoptedExit(entry: Entry): void {
     if (entry.pid !== null)
       this.sampler.forget(entry.pid)
-    const ranForMs = entry.startedAt === null ? 0 : Date.now() - entry.startedAt
+    // A nanny that vanished while we watched still leaves the real exit behind.
+    if (entry.config.persistent)
+      this.consumeNannyExit(entry)
+    const ranForMs = entry.nannyExit?.runtimeMs ?? (entry.startedAt === null ? 0 : Date.now() - entry.startedAt)
+    const detail = entry.nannyExit === null ? 'adopted process exited' : describeNannyExit(entry.nannyExit)
+    entry.nannyExit = null
     entry.adopted = false
     entry.pid = null
     entry.resources = null
@@ -718,11 +877,11 @@ export class Supervisor {
     entry.exitSignal = null
     this.options.history.record(entry.config.id, {
       type: 'exit',
-      detail: 'adopted process exited',
+      detail,
       runtimeMs: ranForMs,
     })
     this.log(entry, 'system', `the adopted process is gone after ${Math.max(1, Math.round(ranForMs / 1000))}s`)
-    this.afterExit(entry, 'adopted process exited', ranForMs, false)
+    this.afterExit(entry, detail, ranForMs, false)
   }
 
   private async runBootstrap(entry: Entry): Promise<void> {
@@ -831,6 +990,12 @@ export class Supervisor {
   }
 
   private spawnEntry(entry: Entry): StartResult {
+    // A persistent entry is not run by this process: it gets a nanny, whose whole
+    // purpose is to keep the pipes alive when the panel is gone.
+    return entry.config.persistent ? this.spawnNanny(entry) : this.spawnDirect(entry)
+  }
+
+  private spawnDirect(entry: Entry): StartResult {
     const { command, args, env, cwd, loggedArgs } = this.resolveSpawn(entry)
 
     this.log(entry, 'system', `start: ${command} ${loggedArgs.join(' ')}`)
@@ -840,48 +1005,217 @@ export class Supervisor {
       child = spawnManaged({ command, args, cwd, env })
     }
     catch (error) {
-      entry.status = 'crashed'
-      entry.lastError = (error as Error).message
-      this.log(entry, 'system', `spawn failed: ${entry.lastError}`)
-      this.publishServer(entry)
-      return { ok: false, error: entry.lastError }
+      return this.failSpawn(entry, (error as Error).message)
     }
-
-    entry.child = child
-    entry.pid = child.pid ?? null
-    entry.startedAt = Date.now()
-    this.options.history.record(entry.config.id, {
-      type: 'start',
-      detail: `${command} ${args.join(' ')}`.trim(),
-    })
-    entry.exitCode = null
-    entry.exitSignal = null
-    entry.lastProbeAt = 0
-    entry.healthFailures = 0
-    entry.unhealthySince = null
-    this.publishServer(entry)
 
     const stdout = new LineSplitter((stream, text) => this.log(entry, stream, text))
     const stderr = new LineSplitter((stream, text) => this.log(entry, stream, text))
     child.stdout?.on('data', chunk => stdout.push('stdout', chunk))
     child.stderr?.on('data', chunk => stderr.push('stderr', chunk))
 
+    this.attachChild(entry, child, `${command} ${args.join(' ')}`.trim(), () => {
+      stdout.flush('stdout')
+      stderr.flush('stderr')
+    })
+    return { ok: true }
+  }
+
+  /**
+   * Starts a persistent entry: the panel spawns a *nanny*, which spawns the entry and
+   * owns its pipes. From here the nanny is the child this supervisor tracks — its exit
+   * event drives the normal lifecycle (backoff, history, notifications) — while the
+   * real exit cause is read back from the state file the nanny leaves behind.
+   */
+  private spawnNanny(entry: Entry): StartResult {
+    const { command, args, env, cwd, loggedArgs } = this.resolveSpawn(entry)
+
+    this.log(entry, 'system', `start (persistent): ${command} ${loggedArgs.join(' ')}`)
+
+    // The panel itself was launched through this entry point, so this is the CLI to
+    // re-run — under tsx, from dist/cli.js and through the published bin alike.
+    const entryPoint = nannyEntryPoint()
+    if (entryPoint.length === 0)
+      return this.failSpawn(entry, 'cannot locate this CLI to start a persistent entry')
+
+    const id = entry.config.id
+    const specPath = nannySpecPath(this.options.nannyDir, id)
+    const statePath = nannyStatePath(this.options.nannyDir, id)
+    // The spec carries the already-expanded argv and env: `resolveSpawn()` stays the
+    // only resolver, and the nanny never re-expands anything. It is 0600 and the nanny
+    // unlinks it as it reads it, because expanded env may hold secrets.
+    const spec: NannySpec = {
+      serverId: id,
+      command,
+      args,
+      cwd,
+      env,
+      logDir: this.options.logFiles.directory,
+      logs: this.options.logFiles.config,
+      stop: entry.config.stop,
+    }
+
+    let child: ChildProcess
+    try {
+      writeNannySpec(specPath, spec)
+      child = spawn(process.execPath, nannyArgv(entryPoint, id, specPath, statePath), {
+        cwd,
+        env: { ...process.env, ...env, HHOSTED_HOME: dataRoot, HHOSTED_PROJECT: projectDir },
+        // The nanny reports through the entry's log file, so it holds no pipe of ours:
+        // nothing the panel does (or fails to do) can break its output.
+        stdio: ['ignore', 'ignore', 'ignore'],
+        detached: true,
+        windowsHide: true,
+      })
+    }
+    catch (error) {
+      clearNannySpec(specPath)
+      return this.failSpawn(entry, (error as Error).message)
+    }
+
+    // Outliving this panel is the point, so the loop must not be held open by it.
+    child.unref()
+
+    this.attachChild(entry, child, `nanny → ${command} ${args.join(' ')}`.trim())
+    this.followPersistent(entry)
+    return { ok: true }
+  }
+
+  private failSpawn(entry: Entry, message: string): StartResult {
+    entry.status = 'crashed'
+    entry.lastError = message
+    this.log(entry, 'system', `spawn failed: ${message}`)
+    this.publishServer(entry)
+    return { ok: false, error: message }
+  }
+
+  /** The bookkeeping every spawn shares, plus the exit events that end it. */
+  private attachChild(entry: Entry, child: ChildProcess, detail: string, flush?: () => void): void {
+    entry.child = child
+    entry.pid = child.pid ?? null
+    entry.startedAt = Date.now()
+    this.options.history.record(entry.config.id, { type: 'start', detail })
+    entry.exitCode = null
+    entry.exitSignal = null
+    entry.nannyExit = null
+    entry.lastProbeAt = 0
+    entry.healthFailures = 0
+    entry.unhealthySince = null
+    this.publishServer(entry)
+
     child.once('error', (error) => {
       entry.lastError = (error as Error).message
       this.log(entry, 'system', `process error: ${entry.lastError}`)
-      stdout.flush('stdout')
-      stderr.flush('stderr')
+      flush?.()
       this.handleExit(entry, child, null, null)
     })
 
     child.once('exit', (code, signal) => {
-      stdout.flush('stdout')
-      stderr.flush('stderr')
+      flush?.()
       this.handleExit(entry, child, code, signal)
     })
 
     void this.awaitReadiness(entry, child)
-    return { ok: true }
+  }
+
+  /**
+   * Live output for a persistent entry, which arrives by reading its log file rather
+   * than down a pipe. It is pushed into the same ring buffer and published as the same
+   * SSE frame a normal entry's output is, so nothing downstream knows the difference.
+   */
+  private ingestExternalLines(serverId: string, lines: LogLine[]): void {
+    const entry = this.entries.get(serverId)
+    if (entry === undefined || !entry.config.persistent || lines.length === 0)
+      return
+
+    for (const line of lines) entry.logs.push(line)
+    // One frame per batch: this is a file tail, and a burst of lines would otherwise
+    // become a burst of frames.
+    this.hub.publish({ type: 'log', ts: lines[lines.length - 1]!.ts, serverId, lines })
+  }
+
+  /**
+   * Follows a persistent entry's log file, filling the ring buffer from what is on disk.
+   *
+   * The backfill is read *through* the tailer, which is the only thing that may own the
+   * offset: reading it from `LogFiles` first and seeking to EOF second would either
+   * replay a line as news or skip one as history, depending on which order the two
+   * syscalls happen to land in.
+   */
+  private followPersistent(entry: Entry): void {
+    const id = entry.config.id
+    // `logs.persist: false` means that history is not served, and the backfill follows suit.
+    const backfill = entry.logs.size === 0 && this.options.logFiles.config.persist
+      ? PERSISTENT_BACKFILL_LINES
+      : 0
+
+    const history = this.relay.follow(id, nannyLogFile(this.options.logFiles.directory, id), { backfill })
+    if (history.length > 0)
+      entry.logs.extend(history)
+  }
+
+  /**
+   * Reattaches to a persistent entry that is still running, or reports how it ended
+   * while nobody was watching. Never starts anything: that is `start()`'s job, and it
+   * is what keeps this honest about "not starting entries on your own".
+   */
+  private async resumePersistent(entry: Entry): Promise<boolean> {
+    const id = entry.config.id
+    const state = readNannyState(nannyStatePath(this.options.nannyDir, id))
+
+    if (state !== null && state.serverId === id && await nannyIsAlive(state, id)) {
+      entry.adopted = true
+      entry.child = null
+      entry.pid = state.nannyPid
+      entry.startedAt = state.startedAt
+      entry.status = 'running'
+      entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
+      entry.portState = entry.config.port === null ? 'unknown' : 'in-use'
+      entry.lastError = null
+      entry.nannyExit = null
+      const child = state.childPid === null ? '' : `, server pid ${state.childPid}`
+      this.log(entry, 'system', `persistent: still running (nanny pid ${state.nannyPid}${child}) — reattached`)
+      this.followPersistent(entry)
+      this.publishServer(entry)
+      return true
+    }
+
+    if (state === null)
+      return false
+
+    // The nanny is gone. Its state file is the only witness of what happened, so it is
+    // read, reported and consumed exactly once.
+    this.consumeNannyExit(entry)
+    const exit = entry.nannyExit
+    entry.nannyExit = null
+    if (exit === null)
+      return false
+
+    const detail = exit.code === null && exit.signal === null ? 'it could not start' : describeNannyExit(exit)
+    const ranFor = `${Math.max(1, Math.round(exit.runtimeMs / 1000))}s`
+    this.options.history.record(id, { type: 'exit', detail: `while the panel was away: ${detail}`, runtimeMs: exit.runtimeMs })
+    this.log(entry, 'system', `persistent: exited while the panel was away with ${detail} after ${ranFor}`)
+
+    if (exit.code !== 0 || exit.signal !== null) {
+      entry.status = 'crashed'
+      entry.lastError = `exited while the panel was away with ${detail}`
+      this.options.history.record(id, { type: 'crash', detail: entry.lastError, runtimeMs: exit.runtimeMs })
+      this.notify(entry, 'crash', entry.lastError)
+    }
+    this.publishServer(entry)
+    return false
+  }
+
+  /**
+   * The nanny's last word, then the state file goes: a panel that has read how the
+   * entry ended must not report it twice.
+   */
+  private consumeNannyExit(entry: Entry): void {
+    const statePath = nannyStatePath(this.options.nannyDir, entry.config.id)
+    const state = readNannyState(statePath)
+    if (state?.lastExit !== undefined)
+      entry.nannyExit = state.lastExit
+    clearNannyState(statePath)
+    this.relay.unfollow(entry.config.id)
   }
 
   /** One probe using the configured mode (TCP or HTTP), with timing. */
@@ -942,6 +1276,13 @@ export class Supervisor {
       return
     if (entry.pid !== null)
       this.sampler.forget(entry.pid)
+    // A persistent entry's nanny is only a mirror of the real process: its own exit
+    // code says nothing, so the state file is read before the reason is decided.
+    if (entry.config.persistent)
+      this.consumeNannyExit(entry)
+    const nannyExit = entry.nannyExit
+    entry.nannyExit = null
+
     entry.child = null
     entry.pid = null
     entry.adopted = false
@@ -952,11 +1293,15 @@ export class Supervisor {
 
     // Both null means the process never got off the ground — a missing command,
     // for instance — so its error is more useful than "code null".
-    const neverStarted = code === null && signal === null && entry.lastError !== null
+    const neverStarted = nannyExit !== null
+      ? nannyExit.code === null && nannyExit.signal === null
+      : code === null && signal === null && entry.lastError !== null
     const detail = neverStarted
-      ? entry.lastError!
-      : signal !== null ? `signal ${signal}` : `code ${code}`
-    const ranForMs = entry.startedAt === null ? 0 : Date.now() - entry.startedAt
+      ? (entry.lastError ?? 'the entry could not start')
+      : nannyExit !== null
+        ? describeNannyExit(nannyExit)
+        : signal !== null ? `signal ${signal}` : `code ${code}`
+    const ranForMs = nannyExit?.runtimeMs ?? (entry.startedAt === null ? 0 : Date.now() - entry.startedAt)
 
     // Recorded for *every* exit, not only the ones that end in `crashed`: the
     // rolling window (crashes, uptime, last exit) is built from these events.

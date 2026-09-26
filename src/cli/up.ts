@@ -7,6 +7,7 @@ import process from 'node:process'
 import { defineCommand } from 'citty'
 import { buildDaemonArgv } from '#src/cli/args'
 import { bold, delay, dim, fail, green, paint } from '#src/cli/io'
+import { runtimeArgs } from '#src/helpers/runtime'
 
 /** `up` starts the panel; without `--foreground` it re-spawns itself detached. */
 
@@ -51,24 +52,6 @@ export function toUpFlags(args: RawUpArgs): UpFlags {
     foreground: args.foreground === true,
     printConfig: args.printConfig === true,
   }
-}
-
-/**
- * How to run this CLI again in the same runtime. Under tsx that means passing the
- * resolved loader too, because the daemon's working directory is the project's,
- * not the package's.
- */
-function runtimeArgs(): string[] {
-  let resolved: string | null = null
-  const resolveTsx = (): string => resolved ??= import.meta.resolve('tsx')
-
-  return process.execArgv.map((arg) => {
-    if (arg === 'tsx')
-      return resolveTsx()
-    if (arg.startsWith('--import=') && arg.slice('--import='.length) === 'tsx')
-      return `--import=${resolveTsx()}`
-    return arg
-  })
 }
 
 /** One rotation is enough for a console log. */

@@ -177,6 +177,12 @@ const SECTIONS = [
         >
           <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">detached</span>
         </Tip>
+        <Tip
+          v-if="server.config.persistent"
+          label="This entry runs under its own nanny, so it keeps running when the panel stops, restarts or is killed. `home-hosted down` reports it instead of stopping it; only Stop does."
+        >
+          <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">persistent</span>
+        </Tip>
         <span class="font-mono text-xs text-faint">{{ server.id }}</span>
         <a
           v-if="server.url"

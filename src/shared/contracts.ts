@@ -108,6 +108,12 @@ export const serverSchema = type({
   label: 'string?',
   enabled: 'boolean = true',
   autostart: 'boolean = false',
+  /**
+   * Handed to a nanny process that owns the pipes, so the entry keeps running when
+   * this panel stops, restarts or is killed. `down`/`stop-all` leave it alone and
+   * report it; only an explicit stop or restart stops it.
+   */
+  persistent: 'boolean = false',
   command: 'string >= 1',
   args: type('string[]').default(() => []),
   cwd: 'string = "."',
@@ -357,6 +363,7 @@ const editableFields = {
   label: 'string?',
   enabled: 'boolean?',
   autostart: 'boolean?',
+  persistent: 'boolean?',
   command: 'string?',
   args: 'string[]?',
   cwd: 'string?',
@@ -386,6 +393,51 @@ export const serverCreateSchema = type({
   command: 'string',
 }).onUndeclaredKey('reject')
 export type ServerCreate = typeof serverCreateSchema.infer
+
+/**
+ * What the panel hands a persistent entry's nanny, written 0600 and unlinked by the
+ * nanny as it reads it. Everything is already resolved and expanded, because
+ * `Supervisor.resolveSpawn()` must stay the only resolver.
+ */
+export const nannySpecSchema = type({
+  serverId: 'string',
+  command: 'string',
+  args: 'string[]',
+  cwd: 'string',
+  env: 'Record<string, string>',
+  /** Directory of the JSONL the nanny writes; `<dir>/<id>.log`, exactly as the panel names it. */
+  logDir: 'string',
+  /** The same retention the panel applies, so the nanny rotates identically. */
+  logs: logsSchema,
+  /** How the nanny stops the child it owns. */
+  stop: stopSchema,
+}).onUndeclaredKey('reject')
+export type NannySpec = typeof nannySpecSchema.infer
+
+/** How the child of a nanny ended, recorded for a panel that may not have been there. */
+export const nannyExitSchema = type({
+  code: 'number | null',
+  signal: 'string | null',
+  at: 'number',
+  runtimeMs: 'number',
+}).onUndeclaredKey('reject')
+export type NannyExit = typeof nannyExitSchema.infer
+
+/**
+ * A persistent entry's process state, written by its nanny (heartbeat included) and
+ * read by the panel to re-adopt a survivor and to learn how a child it never saw
+ * exit actually ended.
+ */
+export const nannyStateSchema = type({
+  'serverId': 'string',
+  'nannyPid': 'number',
+  'childPid': 'number | null',
+  'startedAt': 'number',
+  'logFile': 'string',
+  'heartbeatAt': 'number',
+  'lastExit?': nannyExitSchema,
+}).onUndeclaredKey('reject')
+export type NannyState = typeof nannyStateSchema.infer
 
 /** Edits to the panel's own control block and to the global server defaults. */
 export const settingsPatchSchema = type({

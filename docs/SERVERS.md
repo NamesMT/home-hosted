@@ -27,6 +27,7 @@ servers and its state together.
 | `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config |
 | `port`, `bind` | enables the readiness wait, health checks and the conflict preflight; `local` keeps it on `127.0.0.1` |
 | `onPortConflict` | `block` (default), `warn`, `follow`, `reclaim`, or `kill` — see below |
+| `persistent` | run it under its own nanny so it survives the panel — see below |
 | `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body) |
 | `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway |
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` |
@@ -135,6 +136,52 @@ Because a detached successor is not something the panel supervises, `kill` ends 
 `reclaim` does for your own restarted process — stops it and starts a supervised child — without ever
 asking whether it was yours. Only `follow` ever adopts, and only `reclaim` will refuse to act on a
 holder it cannot prove is yours.
+
+## Persistent entries
+
+`"persistent": true` means "keep this running whatever happens to the panel". It is off by default,
+it is per entry (not a `Settings → Server defaults` field), and it covers the three ways the panel can
+go away: `down`, a restart, or being killed outright.
+
+How it works: the panel does not run the entry directly. It spawns a **nanny** — the same CLI, hidden
+`__nanny` mode — which starts the entry, owns its pipes and writes its output to the entry's own log
+file. The nanny is what survives; the panel reattaches to it on the next boot through
+`$HHOSTED_HOME/.state/<id>.json`, and a stale file is how it learns how a child ended while nobody was
+watching.
+
+What that changes:
+
+- **`down`, `restart` and `stop-all` leave it running** and say so (`2 persistent server(s) left
+  running: …`). Only an explicit **Stop** on that entry — or removing/disabling it — ends it.
+- **It is reattached, not restarted.** `--no-autostart` still starts nothing, but a persistent entry
+  that is already running is adopted, because leaving it unmanaged would make the panel treat its own
+  server as a stranger on the port.
+- **Logs keep flowing.** The panel tails the nanny's file, so history survives the panel being down;
+  `logs.persist: false` still keeps it out of the Logs page — but a file has to exist in
+  `.logs/`, because there is no pipe to carry the output.
+- **A crash while the panel is away is reported, not restarted.** Retries and backoff remain the
+  panel's job, so an entry that dies with nobody watching shows up as **crashed** on the next boot
+  with the exit code in its log.
+- **Port policies still apply, as a fallback.** A persistent entry reattaches from its state file
+  before any preflight runs, so `onPortConflict` matters only when that state is gone — and `follow`
+  is then the policy that adopts instead of blocking.
+- **A program that restarts itself wants `reclaim`, not `follow`.** The nanny lives exactly as long
+  as the child it owns: when that child exits to hand over to a successor, the nanny exits too, and
+  nothing is left writing the entry's log — `follow` would adopt the successor with no capture at
+  all. `reclaim` stops it and starts a fresh nanny, which is both the log and the persistence back.
+
+### What still ends one
+
+The panel is not the only thing that can sweep a process off a machine. A persistent entry is a
+normal process, so it is still subject to:
+
+- **systemd**, when the panel runs as a unit with the default `KillMode=control-group` — stopping the
+  unit kills everything in its cgroup, nanny included. Use `KillMode=process` if you want the panel's
+  own lifecycle to be the only thing that decides.
+- **A container.** Docker stops everything in the container's PID namespace, so persistence means the
+  panel's lifetime inside that container, not the host's.
+- **Windows, on the forced path.** `taskkill /T` walks the parent tree, and `down --force` uses it;
+  the graceful path (which is what `down` normally takes) leaves a persistent entry alone.
 
 ## Editing fields
 

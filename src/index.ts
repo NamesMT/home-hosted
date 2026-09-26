@@ -18,6 +18,7 @@ import {
   defaultConfigPath,
   defaultHistoryPath,
   defaultLogsDir,
+  defaultNannyDir,
   defaultSecretsPath,
   defaultTlsDir,
   projectDir,
@@ -223,6 +224,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     logFiles,
     notifications,
     hostMonitor,
+    nannyDir: defaultNannyDir,
   })
 
   /**

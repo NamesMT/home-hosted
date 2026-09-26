@@ -43,6 +43,8 @@ export const defaultLogsDir = path.join(dataRoot, '.logs')
 export const defaultHistoryPath = path.join(dataRoot, '.logs', 'history.json')
 /** Uploaded TLS PEM pair (the key is written 0600). */
 export const defaultTlsDir = path.join(dataRoot, '.tls')
+/** Per-entry nanny state and spawn specs — how a persistent server survives a restart. */
+export const defaultNannyDir = path.join(dataRoot, '.state')
 /** `run.json` records the live control plane; the log captures its console. */
 export const runtimePath = path.join(dataRoot, 'run.json')
 export const daemonLogPath = path.join(dataRoot, '.logs', 'home-hosted.log')

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { processCarriesServerId, ProcessSampler } from '#src/providers/proc'
+import { processCarriesServerId, ProcessSampler, processTreePids } from '#src/providers/proc'
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -95,5 +95,42 @@ describe('processCarriesServerId', () => {
 
   it('says no when there is no process to ask', async () => {
     expect(await processCarriesServerId(2 ** 30, 'web')).toBe(false)
+  })
+})
+
+describe('processTreePids', () => {
+  const children: ReturnType<typeof spawn>[] = []
+
+  afterEach(() => {
+    for (const child of children.splice(0)) {
+      if (child.pid !== undefined)
+        child.kill('SIGKILL')
+    }
+  })
+
+  /**
+   * The pid the panel records is rarely the pid holding the port: a nanny, or a
+   * wrapper like the one the sampler's own docs describe, puts the real server one
+   * generation down. Ownership has to reach it, or `kill`/`free-port` stops our own.
+   */
+  it('includes a grandchild, which is where a wrapped server actually listens', async () => {
+    const parent = spawn(process.execPath, [
+      '-e',
+      'const { spawn } = require("node:child_process");const c = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });console.log(c.pid);setInterval(() => {}, 1000)',
+    ], { stdio: ['ignore', 'pipe', 'ignore'] })
+    children.push(parent)
+    if (parent.pid === undefined)
+      throw new Error('no pid')
+
+    const grandchild = await new Promise<number>((resolve, reject) => {
+      parent.stdout!.once('data', (chunk: { toString: () => string }) => resolve(Number.parseInt(chunk.toString().trim(), 10)))
+      parent.once('error', reject)
+    })
+    children.push({ kill: () => process.kill(grandchild, 'SIGKILL') } as unknown as ReturnType<typeof spawn>)
+
+    const pids = await processTreePids([parent.pid])
+    expect(pids.has(parent.pid)).toBe(true)
+    expect(pids.has(grandchild)).toBe(true)
+    expect(pids.has(process.pid)).toBe(false)
   })
 })

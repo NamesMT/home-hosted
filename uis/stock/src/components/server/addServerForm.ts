@@ -24,6 +24,7 @@ export interface AddServerForm {
   port: number | null
   bind: string
   autostart: boolean
+  persistent: boolean
   enabled: boolean
   onPortConflict: ServerCreate['onPortConflict']
   logBufferLines: number | null
@@ -57,6 +58,7 @@ export function blankAddServerForm(defaults?: ServerDefaults): AddServerForm {
     port: null,
     bind: defaults?.bind ?? 'local',
     autostart: defaults?.autostart ?? false,
+    persistent: false,
     enabled: defaults?.enabled ?? true,
     onPortConflict: defaults?.onPortConflict ?? 'block',
     logBufferLines: null,
@@ -102,6 +104,7 @@ function inheritBaseline(defaults?: ServerDefaults): Record<string, unknown> {
     bind: defaults?.bind ?? 'local',
     enabled: defaults?.enabled ?? true,
     autostart: defaults?.autostart ?? false,
+    persistent: false,
     onPortConflict: defaults?.onPortConflict ?? 'block',
     logBufferLines: defaults?.logBufferLines ?? 500,
   }
@@ -153,6 +156,7 @@ export function addServerPayload(form: AddServerForm, defaults?: ServerDefaults)
     bind: form.bind,
     enabled: form.enabled,
     autostart: form.autostart,
+    persistent: form.persistent,
     onPortConflict: form.onPortConflict,
     // Blank means "inherit", and a value equal to the default is left out too.
     logBufferLines: finite(form.logBufferLines) > 0 ? finite(form.logBufferLines) : baseline.logBufferLines,

@@ -33,6 +33,11 @@ export class LogFiles {
     return this.dir
   }
 
+  /** The retention a nanny has to apply itself, on the same files. */
+  get config(): LogsConfig {
+    return this.getConfig()
+  }
+
   append(serverId: string, line: LogLine): void {
     if (this.closed || !this.getConfig().persist)
       return
@@ -74,6 +79,9 @@ export class LogFiles {
     const files: LogFileInfo[] = []
     let sizeBytes = 0
 
+    if (!config.persist)
+      return { enabled: false, sizeBytes, files }
+
     for (const file of this.rotateTargets(serverId)) {
       try {
         const stats = fs.statSync(file)
@@ -89,8 +97,17 @@ export class LogFiles {
     return { enabled: config.persist, sizeBytes, files }
   }
 
-  /** Reads the last `tail` lines, newest file first, padding from one rotation back. */
+  /**
+   * Reads the last `tail` lines, newest file first, padding from one rotation back.
+   *
+   * With `persist` off there is nothing this panel is willing to serve, even though a
+   * persistent entry's nanny still writes its file: that file is the log's transport —
+   * there is no pipe to carry it — and `persist` decides what counts as history.
+   */
   readTail(serverId: string, tail: number): LogLine[] {
+    if (!this.getConfig().persist)
+      return []
+
     const sources = [this.currentPath(serverId), this.rotatedPath(serverId, 1)]
     const lines: LogLine[] = []
 

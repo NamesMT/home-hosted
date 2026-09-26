@@ -55,6 +55,7 @@ interface EditorForm {
   logBufferLines: number | null
   enabled: boolean
   autostart: boolean
+  persistent: boolean
   bootstrapEnabled: boolean
   bootstrapCommand: string
   bootstrapArgs: string
@@ -84,6 +85,8 @@ function formFrom(config: ServerConfig): EditorForm {
     logBufferLines: config.logBufferLines,
     enabled: config.enabled,
     autostart: config.autostart,
+    // Absent in a payload from a panel that predates the field: the default is off.
+    persistent: config.persistent === true,
     bootstrapEnabled: config.bootstrap !== null && config.bootstrap !== undefined,
     bootstrapCommand: config.bootstrap?.command ?? '',
     bootstrapArgs: (config.bootstrap?.args ?? []).join('\n'),
@@ -134,6 +137,7 @@ function buildPayload(): Record<string, unknown> {
     logBufferLines,
     enabled: form.enabled,
     autostart: form.autostart,
+    persistent: form.persistent,
     restart: { ...restart.value },
     health: { ...health.value },
     stop: { ...stop.value },
@@ -336,10 +340,11 @@ async function save(): Promise<void> {
       <FieldGroup
         title="Lifecycle"
         description="Whether the supervisor owns this entry at all."
-        :columns="2"
+        :columns="3"
       >
         <ToggleSwitch v-model="form.enabled" label="Enabled" hint="Shows up and can be started at all." />
         <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Started when the control plane comes up." />
+        <ToggleSwitch v-model="form.persistent" label="Persistent" hint="Keeps running when the panel stops; `down` reports it instead of stopping it." />
       </FieldGroup>
 
       <LifecycleFields

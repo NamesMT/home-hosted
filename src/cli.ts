@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
 import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
 import { cyan, dim, fail, heading } from './cli/io'
+import { NANNY_COMMAND } from './helpers/runtime'
 
 /**
  * The command line, and nothing else. Two things happen before citty is asked
@@ -15,9 +16,10 @@ import { cyan, dim, fail, heading } from './cli/io'
  * own `#src` imports are safe: by the time one is imported, the directories are
  * already in the environment.
  *
- * The only static imports here are node builtins, citty, and the two path-free
- * local modules the pre-pass needs; every command (and so every state-reading
- * module) is a dynamic import behind `subCommands`.
+ * The only static imports here are node builtins, citty, and the path-free local
+ * modules the pre-pass needs (`helpers/runtime.ts` only names the hidden nanny
+ * command); every command (and so every state-reading module) is a dynamic import
+ * behind `subCommands`.
  */
 
 const CLI_ENTRY = fileURLToPath(import.meta.url)
@@ -317,6 +319,20 @@ async function main(): Promise<void> {
   if (dirFlags.error !== undefined)
     fail(dirFlags.error)
   applyDirFlags(dirFlags)
+
+  // The persistent-entry nanny is spawned by the panel, never typed by a person, so
+  // it is dispatched before the curated surface and stays out of it: no synopsis, no
+  // unknown-command interplay, and citty owns its own `--help`.
+  if (dirFlags.rest[0] === NANNY_COMMAND) {
+    const { nannyCommand } = await import('#src/cli/nanny')
+    try {
+      await runCommand(nannyCommand, { rawArgs: dirFlags.rest })
+    }
+    catch (error) {
+      fail(error instanceof Error ? error.message : String(error))
+    }
+    return
+  }
 
   const invocation = resolveInvocation(dirFlags.rest, commandNames)
 

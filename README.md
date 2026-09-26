@@ -290,7 +290,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | command | |
 | --- | --- |
 | `home-hosted up` | start the panel detached, and keep it alive in the background |
-| `home-hosted down` | stop it cleanly — supervised processes included |
+| `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
 | `home-hosted restart` | `down`, then `up` |
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts) |
 | `home-hosted set-password` | set the panel password without opening a browser |
@@ -454,6 +454,10 @@ panel itself (`--foreground`) and for system services; use home-hosted for the r
 `home-hosted down` stops them — that is the point of the command. `SIGTERM`/`SIGINT` are handled
 the same way: every supervised process tree is stopped before the panel exits.
 
+An entry marked `persistent` is the exception, and `down` names it instead of stopping it: it runs
+under its own nanny process, keeps logging, and is reattached by the next panel
+([SERVERS.md](./docs/SERVERS.md#persistent-entries)).
+
 </details>
 
 <details>
@@ -530,6 +534,17 @@ types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 | build a UI against the API | [UI_CREATION.md](./docs/UI_CREATION.md) |
 | change the internals: architecture and the rules | [AGENTS.md](./AGENTS.md) |
 | poke the live API on your own panel | [/openapi/ui](http://127.0.0.1:3999/openapi/ui) |
+
+</details>
+
+---
+
+<details>
+<summary><b>🔗 Interesting resources</b></summary>
+
+- [dsh-home-hosted](https://github.com/NamesMT/dsh-home-hosted) — home-hosted servers management with boot autostart from [DeepSeek Harness](https://github.com/deepseek-ai/dsh)
+
+<sub><i>+ PR to add yours</i></sub>
 
 </details>
 

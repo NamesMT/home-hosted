@@ -199,6 +199,42 @@ function collectTree(rootPid: number, children: Map<number, number[]>): number[]
 }
 
 /**
+ * The roots and every descendant of theirs, from one scan of the process table.
+ *
+ * Ownership has to mean the *tree*: a persistent entry runs under a nanny, and a
+ * wrapper entry spawns the real server one generation down. Both keep the pid the
+ * panel recorded, but the process holding the port is a descendant of it — and a
+ * descendant classified as a stranger is one `kill`/`free-port` away from stopping
+ * a server this panel is responsible for.
+ *
+ * A backend that cannot run answers with the roots alone, which is the old,
+ * narrower behaviour rather than a wrong one.
+ */
+export async function processTreePids(roots: number[]): Promise<Set<number>> {
+  const pids = new Set<number>(roots)
+  if (roots.length === 0)
+    return pids
+
+  try {
+    const rows = await readProcesses()
+    const children = new Map<number, number[]>()
+    for (const row of rows) {
+      const siblings = children.get(row.ppid) ?? []
+      siblings.push(row.pid)
+      children.set(row.ppid, siblings)
+    }
+    for (const root of roots) {
+      for (const pid of collectTree(root, children)) pids.add(pid)
+    }
+  }
+  catch {
+    // Sampling already treats an unreadable table as "nothing to say".
+  }
+
+  return pids
+}
+
+/**
  * Samples CPU and RSS for a process *and its descendants*.
  *
  * Descendants matter: a wrapper that spawns the real server detached (the

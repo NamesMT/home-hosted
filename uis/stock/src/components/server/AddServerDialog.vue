@@ -140,6 +140,7 @@ async function submit(): Promise<void> {
           hint="lan exposes it to the network; only do that behind auth."
         />
         <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Start it whenever the control plane comes up." wide />
+        <ToggleSwitch v-model="form.persistent" label="Persistent" hint="Keeps running when the panel stops; `down` reports it instead of stopping it." wide />
       </FieldGroup>
 
       <Disclosure title="Advanced settings" hint="environment, backups, policy, lifecycle, bootstrap">
