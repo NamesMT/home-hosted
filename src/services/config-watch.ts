@@ -50,8 +50,10 @@ export class ConfigWatch {
     try {
       this.watcher = fs.watch(path.dirname(this.options.file), (_event, filename) => {
         // Only our file: the directory is shared with the logs, the secrets file and
-        // whatever else home-hosted keeps beside its config.
-        if (filename !== null && filename !== path.basename(this.options.file))
+        // whatever else home-hosted keeps beside its config. The name is compared by
+        // basename because a platform may hand back a path, not the bare name — macOS
+        // has been seen to — and an exact compare then drops the edit it was told about.
+        if (filename !== null && path.basename(filename) !== path.basename(this.options.file))
           return
         this.schedule()
       })

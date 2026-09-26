@@ -47,6 +47,27 @@ describe('configWatch', () => {
     }
   })
 
+  /**
+   * The filter compares by basename, because a platform may report the changed entry as
+   * a path rather than a bare name — macOS does — and comparing it raw dropped the very
+   * edit it had just been told about. This pins the edit being seen from a write that
+   * comes from outside the panel.
+   */
+  it('sees an external write, reported as a path or as a name', async () => {
+    const file = await makeFile()
+    let calls = 0
+    const watch = new ConfigWatch({ file, onChange: () => calls++, debounceMs: 20, pollMs: 0 })
+    watch.start()
+
+    try {
+      await fs.promises.writeFile(file, '{ "servers": [{ "id": "external" }] }\n')
+      await until(() => calls > 0)
+    }
+    finally {
+      watch.dispose()
+    }
+  })
+
   /** The poll is what carries a file on a mount where `fs.watch` never fires. */
   it('checks on demand, exactly what the poll does', async () => {
     const file = await makeFile()
