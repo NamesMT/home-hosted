@@ -133,6 +133,65 @@ describe('ui service', () => {
     expect(fs.readFileSync(path.join(fixture.ui.directory, 'index.html'), 'utf8')).toContain('good')
   })
 
+  it('serializes overlapping installs instead of letting them destroy each other', async () => {
+    // The boot hook, a Settings upload and a second panel can all install at once. Before
+    // the lock, two interleaved swaps could leave `.ui` missing entirely, and the panel
+    // would serve the stock UI while the user's copy sat in an unreferenced backup.
+    const fixture = await makeFixture()
+    const one = await fixture.zip({ 'index.html': '<title>one</title>' })
+    const two = await fixture.zip({ 'index.html': '<title>two</title>' })
+
+    const results = await Promise.all([
+      fixture.ui.install(one, 'one'),
+      fixture.ui.install(two, 'two'),
+      fixture.ui.install(one, 'one'),
+    ])
+
+    expect(results.every(result => result.ok)).toBe(true)
+    expect(fixture.ui.custom).toBe(true)
+    // Whichever won, a complete UI is there and no backup was left behind.
+    expect(fs.readFileSync(path.join(fixture.ui.directory, 'index.html'), 'utf8')).toMatch(/one|two/)
+    expect(fs.readdirSync(fixture.root).filter(name => name.startsWith('.ui.previous-'))).toEqual([])
+    expect(fs.readdirSync(fixture.root).filter(name => name.startsWith('.ui-staging-'))).toEqual([])
+  })
+
+  it('restores the installed UI when an install was interrupted mid-swap', async () => {
+    // The shape a kill between the two renames leaves: no `.ui`, the only copy in a backup.
+    const fixture = await makeFixture()
+    const zip = await fixture.zip({ 'index.html': '<title>stranded</title>' })
+    expect((await fixture.ui.install(zip, 'stranded')).ok).toBe(true)
+
+    const backup = path.join(fixture.root, '.ui.previous-999-1730000000000')
+    fs.renameSync(fixture.ui.directory, backup)
+    expect(fixture.ui.custom).toBe(false)
+
+    const recovery = fixture.ui.recover()
+    expect(recovery.restored).not.toBeNull()
+    expect(fixture.ui.custom).toBe(true)
+    expect(fs.readFileSync(path.join(fixture.ui.directory, 'index.html'), 'utf8')).toContain('stranded')
+    // The backup has been consumed, not copied.
+    expect(fs.existsSync(backup)).toBe(false)
+  })
+
+  it('sweeps stale staging trees and superseded backups on recovery', async () => {
+    const fixture = await makeFixture()
+    const zip = await fixture.zip({ 'index.html': '<title>live</title>' })
+    expect((await fixture.ui.install(zip, 'live')).ok).toBe(true)
+
+    const junk = path.join(fixture.root, '.ui-staging-1730000000000')
+    fs.mkdirSync(junk, { recursive: true })
+    const stale = path.join(fixture.root, '.ui.previous-1-1')
+    fs.mkdirSync(stale, { recursive: true })
+    fs.writeFileSync(path.join(stale, 'index.html'), 'older')
+
+    // The live UI is whole, so nothing is restored and both leftovers go.
+    const recovery = fixture.ui.recover()
+    expect(recovery.restored).toBeNull()
+    expect(fs.existsSync(junk)).toBe(false)
+    expect(fs.existsSync(stale)).toBe(false)
+    expect(fixture.ui.custom).toBe(true)
+  })
+
   it('records the release it was fetched from, not the tag the archive claims', async () => {
     // Regression: a UI zip is built before its release is cut, so the tag inside it is
     // the *previous* release. Trusting it made a panel re-install the same UI on every

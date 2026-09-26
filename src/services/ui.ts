@@ -95,7 +95,9 @@ export class UiService {
     if (!isZipArchive(archivePath))
       return { ok: false, error: 'the upload is not a zip archive' }
 
-    const staging = path.join(this.options.dataRoot, `.ui-staging-${Date.now()}`)
+    // Unique per attempt, not just per millisecond: two installs starting together would
+    // otherwise stage into the same directory and rename each other's tree away.
+    const staging = path.join(this.options.dataRoot, `.ui-staging-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
 
     try {
       return await this.stage(archivePath, staging, fallbackName, installedTag)
@@ -163,36 +165,153 @@ export class UiService {
       ...(manifest?.unix === undefined ? {} : { unix: manifest.unix }),
     }
 
-    // A unique `previous` per attempt: two installers used to share one name, and the
-    // second's cleanup could delete the first's only copy of the user's UI.
-    const previous = `${this.directory}.previous-${process.pid}-${Date.now()}`
-    if (fs.existsSync(this.directory))
-      fs.renameSync(this.directory, previous)
+    // Metadata is written while the tree is still in staging, so the swap below is two
+    // renames and nothing else — the window where `.ui` does not exist shrinks to that.
+    writeFileAtomic(path.join(root, META), `${JSON.stringify(meta, null, 2)}\n`)
 
-    try {
-      fs.renameSync(root, this.directory)
-      writeFileAtomic(path.join(this.directory, META), `${JSON.stringify(meta, null, 2)}\n`)
-    }
-    catch (error) {
-      // Put the old UI back before reporting. If that restore itself fails, keep
-      // `previous` on disk and say where it is — deleting it would destroy the only copy.
-      try {
-        fs.rmSync(this.directory, { recursive: true, force: true })
-        if (fs.existsSync(previous))
-          fs.renameSync(previous, this.directory)
-        fs.rmSync(previous, { recursive: true, force: true })
-      }
-      catch {
-        return { ok: false, error: `${error instanceof Error ? error.message : String(error)} — the previous UI is kept at ${previous}` }
-      }
-      return { ok: false, error: error instanceof Error ? error.message : String(error) }
-    }
-
-    // Only now is `previous` disposable.
-    fs.rmSync(previous, { recursive: true, force: true })
-
-    return { ok: true, meta }
+    return commitSwap(this.options.dataRoot, this.directory, root, meta)
   }
+
+  /**
+   * Puts a half-finished install back together, and is safe to call on every boot.
+   *
+   * An install that was interrupted between its two renames — a kill, a power cut, a
+   * crash — leaves `.ui` missing with the user's only copy sitting in a `.previous-*`
+   * sibling. Without this the panel would quietly serve the stock UI forever, because
+   * `custom` is false and nothing ever looked at the backup.
+   */
+  recover(): { restored: string | null, swept: number } {
+    const resting = this.directory
+    let restored: string | null = null
+
+    if (!fs.existsSync(path.join(resting, 'index.html'))) {
+      const backup = newestBackup(this.options.dataRoot, resting)
+      if (backup !== null) {
+        fs.rmSync(resting, { recursive: true, force: true })
+        fs.renameSync(backup, resting)
+        restored = path.basename(backup)
+      }
+    }
+
+    // Only after the live tree is whole again: a leftover backup is the last resort.
+    return { restored, swept: sweepJunk(this.options.dataRoot) }
+  }
+}
+
+/**
+ * Serializes installs per data root. `Settings → Interface`, the boot hook and a second
+ * panel can all reach the same `.ui`, and two interleaved swaps could leave it absent.
+ * The key is the directory rather than the instance: every caller builds its own
+ * `UiService`. Cross-process overlap is still possible, which is why the swap is
+ * crash-recoverable — this closes the window that was open *within* a process.
+ */
+const installLocks = new Map<string, Promise<unknown>>()
+
+function withInstallLock<T>(dataRoot: string, run: () => Promise<T>): Promise<T> {
+  const key = path.resolve(dataRoot)
+  const previous = installLocks.get(key) ?? Promise.resolve()
+  // Chain whether or not the predecessor succeeded: a failed install must not wedge the lock.
+  const next = previous.then(run, run)
+  installLocks.set(key, next.catch(() => {}))
+  return next
+}
+
+/** Renames the staged tree into place, keeping the old one until that has certainly worked. */
+function commitSwap(dataRoot: string, resting: string, staged: string, meta: UiMeta): Promise<UiInstallResult> {
+  return withInstallLock(dataRoot, async () => {
+    // One rename, and no window at all: POSIX renames a directory onto an existing one.
+    try {
+      fs.renameSync(staged, resting)
+    }
+    catch {
+      // Windows refuses that when the target is a non-empty directory, so the old tree
+      // steps aside first — immediately, with no I/O in between.
+      const previous = `${resting}.previous-${process.pid}-${Date.now()}`
+      const hadPrevious = fs.existsSync(resting)
+      if (hadPrevious)
+        fs.renameSync(resting, previous)
+
+      try {
+        fs.renameSync(staged, resting)
+      }
+      catch (error) {
+        // Put the user's UI back before reporting. If even that fails, keep the backup
+        // and say where it is — deleting it would destroy the only copy.
+        try {
+          fs.rmSync(resting, { recursive: true, force: true })
+          if (hadPrevious && fs.existsSync(previous))
+            fs.renameSync(previous, resting)
+          fs.rmSync(previous, { recursive: true, force: true })
+        }
+        catch {
+          return { ok: false, error: `${describeError(error)} — the previous UI is kept at ${previous}` }
+        }
+        return { ok: false, error: describeError(error) }
+      }
+
+      fs.rmSync(previous, { recursive: true, force: true })
+    }
+
+    // Any backup older than this successful swap is now unreferenced; sweep them so an
+    // interrupted install cannot leave a pile of stale full copies behind.
+    sweepBackups(dataRoot, resting)
+    return { ok: true, meta }
+  })
+}
+
+function sweepBackups(dataRoot: string, resting: string): void {
+  const prefix = `${path.basename(resting)}.previous-`
+  for (const entry of readDataRoot(dataRoot)) {
+    if (entry.startsWith(prefix))
+      fs.rmSync(path.join(dataRoot, entry), { recursive: true, force: true })
+  }
+}
+
+/** The most recently abandoned UI tree, or null when there is not one. */
+function newestBackup(dataRoot: string, resting: string): string | null {
+  const prefix = `${path.basename(resting)}.previous-`
+  let best: string | null = null
+  let bestStamp = -1
+
+  for (const entry of readDataRoot(dataRoot)) {
+    if (!entry.startsWith(prefix))
+      continue
+    const full = path.join(dataRoot, entry)
+    if (!fs.existsSync(path.join(full, 'index.html')))
+      continue
+    // `<name>.previous-<pid>-<stamp>`: the longest stamp is the newest attempt.
+    const stamp = Number(entry.slice(prefix.length).split('-').pop() ?? '')
+    if (Number.isFinite(stamp) && stamp > bestStamp) {
+      bestStamp = stamp
+      best = full
+    }
+  }
+  return best
+}
+
+/** Dropped staging trees and superseded backups, once the live UI is whole. */
+function sweepJunk(dataRoot: string): number {
+  let swept = 0
+  for (const entry of readDataRoot(dataRoot)) {
+    if (!entry.startsWith('.ui-staging-') && !entry.startsWith(`.ui.previous-`))
+      continue
+    fs.rmSync(path.join(dataRoot, entry), { recursive: true, force: true })
+    swept += 1
+  }
+  return swept
+}
+
+function readDataRoot(dataRoot: string): string[] {
+  try {
+    return fs.readdirSync(dataRoot)
+  }
+  catch {
+    return []
+  }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**

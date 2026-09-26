@@ -182,6 +182,12 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     store.updateControl({ host: intended.host, port: intended.port })
 
   const ui = new UiService({ dataRoot, stockDir: path.join(packageRoot, 'uis', 'stock', 'dist') })
+  // An install killed between its two renames leaves `.ui` missing and the user's copy in
+  // a backup; put that back before anything reads the directory, or the panel would serve
+  // the stock UI forever with the real one sitting right beside it.
+  const uiRecovery = ui.recover()
+  if (uiRecovery.restored !== null)
+    logger.warn(`ui:      restored the installed UI from ${uiRecovery.restored} — an earlier update was interrupted`)
   const hub = new EventHub()
   let app: AppType | undefined
   const token = newToken()
