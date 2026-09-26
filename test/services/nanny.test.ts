@@ -220,13 +220,36 @@ describe('nanny', () => {
     // The panel's own start line is written by the nanny, so a panel that attaches
     // later still sees why the entry came up.
     expect(linesOf(logFile).some(line => line.text.includes('runs this entry'))).toBe(true)
+  })
 
-    // Stopping the nanny stops the entry, and leaves behind how it went.
+  // Windows has no signals to trap: `process.kill(pid, 'SIGTERM')` is a hard terminate
+  // there, so a nanny can never write down how it was stopped. The panel's Windows stop
+  // is a tree kill, which is what `killTreeWindows` already does for every entry.
+  it.runIf(process.platform !== 'win32')('takes its child down on SIGTERM and records how it went', async () => {
+    const dir = await tempDir()
+    const logDir = path.join(dir, 'logs')
+    const specPath = path.join(dir, 'keep.spec.json')
+    const statePath = path.join(dir, 'keep.json')
+    const logFile = nannyLogFile(logDir, 'keep')
+
+    const nannyPid = await startNanny({
+      ...baseSpec(dir),
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+    }, specPath, statePath)
+
+    const state = await waitFor(() => readNannyState(statePath) ?? undefined)
+    const childPid = state.childPid
+    if (childPid === null)
+      throw new Error('the nanny recorded no child')
+
     process.kill(nannyPid, 'SIGTERM')
+
     const exit = await waitFor(() => readNannyState(statePath)?.lastExit ?? undefined)
     expect(exit.signal).toBe('SIGTERM')
     expect(exit.runtimeMs).toBeGreaterThan(0)
     expect(linesOf(logFile).some(line => line.text.includes('exited with signal SIGTERM'))).toBe(true)
+    await waitFor(() => isAlive(childPid) ? undefined : true)
+    await waitFor(() => isAlive(nannyPid) ? undefined : true)
   })
 
   it('reports an entry that cannot be started instead of hanging', async () => {

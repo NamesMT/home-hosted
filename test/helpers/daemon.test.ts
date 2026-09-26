@@ -101,7 +101,10 @@ describe('run.json round trip', () => {
     writeRuntime(runtime)
 
     expect(readRuntime()).toEqual(runtime)
-    expect(fs.statSync(path.join(home, 'run.json')).mode & 0o777).toBe(0o600)
+    // Windows has no POSIX mode bits: `chmod` there only toggles the read-only flag, and
+    // `stat` reports 0o666 for any writable file, so the mode is a POSIX-only assertion.
+    if (process.platform !== 'win32')
+      expect(fs.statSync(path.join(home, 'run.json')).mode & 0o777).toBe(0o600)
 
     clearRuntime()
     expect(readRuntime()).toBeNull()

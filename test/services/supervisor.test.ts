@@ -918,14 +918,14 @@ describe('persistent entries', () => {
     // Its nanny is still writing the entry's log file, and the panel has to read it —
     // adopting a persistent entry must not cost its live output.
     const port = await freePort()
+    // The successor runs the entry's *own* args: on Windows there is no per-process
+    // environment to read, so the argv is the only thing that can prove it is ours.
+    const code = `require("node:http").createServer((q,s)=>s.end("ok")).listen(${port},"127.0.0.1"); setInterval(() => {}, 1000)`
     const { supervisor, logDir } = await makeSupervisor([
-      persistentConfig({ port, onPortConflict: 'follow' }),
+      persistentConfig({ args: ['-e', code], port, onPortConflict: 'follow' }),
     ])
 
-    const successor = spawn(process.execPath, [
-      '-e',
-      `require("node:http").createServer((q,s)=>s.end("ok")).listen(${port},"127.0.0.1"); setInterval(() => {}, 1000)`,
-    ], {
+    const successor = spawn(process.execPath, ['-e', code], {
       env: { ...process.env, HHOSTED_SERVER_ID: 'keep' },
       stdio: 'ignore',
     })
