@@ -1,6 +1,35 @@
 # Changelog
 
 
+## v0.6.3
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.2...v0.6.3)
+
+### 🚀 Enhancements
+
+- **servers:** Keep an entry running through a panel stop, with its logs ([66bda88](https://github.com/NamesMT/home-hosted/commit/66bda88))
+
+### 🩹 Fixes
+
+- **test:** Keep the new suites running on Windows ([7064a80](https://github.com/NamesMT/home-hosted/commit/7064a80))
+- **test:** Let the nanny suite clean up on Windows ([0bad678](https://github.com/NamesMT/home-hosted/commit/0bad678))
+
+### 📖 Documentation
+
+- Trim the release and nanny notes in AGENTS.md ([083c2f3](https://github.com/NamesMT/home-hosted/commit/083c2f3))
+
+### 🏡 Chore
+
+- Drop a stray gh cache artifact from the tree ([d23377e](https://github.com/NamesMT/home-hosted/commit/d23377e))
+
+### ✅ Tests
+
+- Measure every source file and cover the HTTP surface ([84f2482](https://github.com/NamesMT/home-hosted/commit/84f2482))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.6.2
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.1...v0.6.2)
