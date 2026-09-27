@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.6.5
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.4...v0.6.5)
+
+### 🩹 Fixes
+
+- **ui:** Stop the server editor aliasing live config ([34676d0](https://github.com/NamesMT/home-hosted/commit/34676d0))
+
+### 📖 Documentation
+
+- **meta:** Sharper npm description and keywords for search ([098595d](https://github.com/NamesMT/home-hosted/commit/098595d))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.6.4
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.3...v0.6.4)
