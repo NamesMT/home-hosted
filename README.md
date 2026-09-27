@@ -293,8 +293,8 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
 | `home-hosted restart` | `down`, then `up` |
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts) |
-| `home-hosted start <id>` | start one server, leaving the panel and its other servers alone |
-| `home-hosted stop <id>` | stop one server — the panel stays up |
+| `home-hosted start <id>` | start one server — and anything it `dependsOn` |
+| `home-hosted stop <id>` | stop one server, nothing else |
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | bring `servers.config.json` up to this release's schema (`--dry-run`, `--yes`) |
