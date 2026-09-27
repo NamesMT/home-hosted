@@ -6,6 +6,7 @@ import { countLeaves, describeChanges, diffServerConfig } from '@shared/patch-di
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
+import { cloneHealth } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import Modal from '@/components/ui/Modal.vue'
@@ -98,7 +99,8 @@ function formFrom(config: ServerConfig): EditorForm {
 
 const form = reactive<EditorForm>(formFrom(props.config))
 const restart = ref<RestartConfig>({ ...props.config.restart })
-const health = ref<HealthConfig>({ ...props.config.health })
+// A shallow copy would still alias the live `health.http`, which the frame guard compares against.
+const health = ref<HealthConfig>(cloneHealth(props.config.health))
 const stop = ref<StopConfig>({ ...props.config.stop })
 
 /** An explicit IPv4 the config already carries is kept selectable rather than dropped. */
@@ -139,7 +141,7 @@ function buildPayload(): Record<string, unknown> {
     autostart: form.autostart,
     persistent: form.persistent,
     restart: { ...restart.value },
-    health: { ...health.value },
+    health: cloneHealth(health.value),
     stop: { ...stop.value },
     bootstrap: form.bootstrapEnabled
       ? {
@@ -188,14 +190,19 @@ const changes = computed(() => describeChanges(patch.value, props.config as unkn
 const showChanges = ref(false)
 
 /** The inbound config the form was last synced to, so a state refresh does not wipe unsaved edits. */
-let source: ServerConfig = { ...props.config }
+let source: ServerConfig = detach(props.config)
+
+/** A detached copy: the form must never alias the live state this guard compares against. */
+function detach(config: ServerConfig): ServerConfig {
+  return JSON.parse(JSON.stringify(config)) as ServerConfig
+}
 
 function resetFrom(config: ServerConfig): void {
   Object.assign(form, formFrom(config))
   restart.value = { ...config.restart }
-  health.value = { ...config.health }
+  health.value = cloneHealth(config.health)
   stop.value = { ...config.stop }
-  source = { ...config }
+  source = detach(config)
   error.value = null
 }
 

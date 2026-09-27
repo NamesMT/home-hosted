@@ -296,7 +296,9 @@ either is a last resort, and never an accidental one.
   changed?" gate leaves them showing schema defaults forever — the backups toggle reported itself as
   changed and flipped back to `true` on every reload. `uis/stock` compares each block against the
   snapshot it was last filled from (`blockSnapshot`/`isBlockEdited`, `syncFromLive`) and reads the
-  file-only blocks on their own.
+  file-only blocks on their own. The copy has to be **detached**, too: a shallow one leaves a nested
+  group (`health.http`) aliased to live state, so an edit to "Healthy below status" mutated the very
+  config the guard compared against and the next frame reset the whole editor (`cloneHealth`).
 - **A dialog's footer has to be a flex sibling of a scrolling body** (`uis/stock/src/components/ui/Modal.vue`):
   the sheet is `flex flex-col` with `max-h-[88dvh]`, the body `min-h-0 flex-1 overflow-y-auto`. When
   only the body carried a max-height, a tall form pushed its own save button below the clipped
