@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.6.6
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.5...v0.6.6)
+
+### 🚀 Enhancements
+
+- **cli:** Per-server start/stop, and the version on up/down ([23d59e1](https://github.com/NamesMT/home-hosted/commit/23d59e1))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.6.5
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.4...v0.6.5)
