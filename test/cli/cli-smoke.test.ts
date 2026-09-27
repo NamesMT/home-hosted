@@ -30,7 +30,7 @@ describe('cli smoke', () => {
     const help = runCli(['--help'])
     expect(help.status).toBe(0)
 
-    for (const command of ['up', 'down', 'restart', 'status', 'set-password', 'set-token', 'migrate', 'init', 'ui-switch', 'ui-revert'])
+    for (const command of ['up', 'down', 'restart', 'status', 'start', 'stop', 'set-password', 'set-token', 'migrate', 'init', 'ui-switch', 'ui-revert'])
       expect(help.stdout, command).toContain(command)
 
     for (const flag of ['--config', '--port', '--host', '--open', '--no-autostart', '--foreground', '--print-config', '--home', '--project'])
@@ -66,6 +66,13 @@ describe('cli smoke', () => {
     expect(uiSwitch.stdout).toContain('--asset')
     expect(uiSwitch.stdout).not.toContain('--pm')
 
+    // The per-server commands take a bare id, and their help has to say so.
+    const start = runCli(['start', '--help'])
+    expect(start.status).toBe(0)
+    expect(start.stdout).toContain('home-hosted start <id>')
+    expect(start.stdout).toContain('<id>')
+    expect(start.stdout).not.toContain('--foreground')
+
     for (const [name, marker] of [['down', '--foreground'], ['ui-revert', '--asset']] as const) {
       const text = runCli([name, '--help'])
       expect(text.status, name).toBe(0)
@@ -87,6 +94,17 @@ describe('cli smoke', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('unknown command: nonsense')
     expect(result.stderr).toContain('home-hosted — a control panel')
+  })
+
+  /** The supervisor lives in the daemon, so `start` has to say what it is missing. */
+  it('start/stop name the missing piece instead of failing obscurely', () => {
+    const noId = runCli(['start'])
+    expect(noId.status).toBe(1)
+    expect(noId.stderr).toContain('needs a server id')
+
+    const noPanel = runCli(['stop', 'web'])
+    expect(noPanel.status).toBe(1)
+    expect(noPanel.stderr).toContain('home-hosted is not running')
   })
 
   it('--version prints the package version', () => {

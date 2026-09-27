@@ -274,6 +274,54 @@ describe('/_hh/shutdown', () => {
   })
 })
 
+describe('/_hh/servers/:id/start|stop', () => {
+  const local = { 'x-home-hosted-token': 'runtime-token' }
+
+  it('drives one server with the run.json token, no session needed', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    const calls: string[] = []
+    created.supervisor.start = async (id) => {
+      calls.push(`start ${id}`)
+      return { ok: true }
+    }
+    created.supervisor.stop = async (id) => {
+      calls.push(`stop ${id}`)
+      return { ok: true }
+    }
+
+    for (const action of ['start', 'stop'] as const) {
+      const response = await created.app.request(`/_hh/servers/web/${action}`, { method: 'POST', headers: local })
+      expect(response.status, action).toBe(200)
+      expect(await response.json(), action).toEqual({ ok: true })
+    }
+    expect(calls).toEqual(['start web', 'stop web'])
+  })
+
+  it('refuses a missing token, and a caller that is not on this machine', async () => {
+    const noToken = await fixture()
+    expect((await noToken.app.request('/_hh/servers/web/start', { method: 'POST' })).status).toBe(403)
+
+    const remote = await fixture({ ip: '10.0.0.5' })
+    const response = await remote.app.request('/_hh/servers/web/start', { method: 'POST', headers: local })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'NOT_LOOPBACK' })
+  })
+
+  it('answers a refusal with the supervisor’s reason, 409 for that and 404 for an unknown id', async () => {
+    const created = await fixture()
+    created.supervisor.start = async () => ({ ok: false, error: 'server "web" is disabled' })
+    created.supervisor.stop = async id => ({ ok: false, error: `unknown server "${id}"` })
+
+    const refused = await created.app.request('/_hh/servers/web/start', { method: 'POST', headers: local })
+    expect(refused.status).toBe(409)
+    expect(await refused.json()).toEqual({ ok: false, error: 'server "web" is disabled' })
+
+    const missing = await created.app.request('/_hh/servers/nope/stop', { method: 'POST', headers: local })
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toEqual({ ok: false, error: 'unknown server "nope"' })
+  })
+})
+
 describe('static UI', () => {
   it('serves index.html for / and for a client-side route', async () => {
     const created = await fixture()

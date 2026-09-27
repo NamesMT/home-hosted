@@ -739,20 +739,22 @@ export const controlViewSchema = type({
 export type ControlView = typeof controlViewSchema.infer
 
 export const appStateSchema = type({
-  control: controlViewSchema,
-  defaults: defaultsSchema,
-  logs: logsSchema,
-  notifications: notificationViewSchema,
-  host: hostViewSchema,
-  backups: backupsViewSchema,
-  configPath: 'string',
-  configError: 'string | null',
+  'control': controlViewSchema,
+  'defaults': defaultsSchema,
+  'logs': logsSchema,
+  'notifications': notificationViewSchema,
+  'host': hostViewSchema,
+  'backups': backupsViewSchema,
+  'configPath': 'string',
+  'configError': 'string | null',
   /** The directory the panel was started from; relative entry paths use it. */
-  projectDir: 'string',
+  'projectDir': 'string',
   /** `HHOSTED_HOME`: every file home-hosted owns lives under here. */
-  dataRoot: 'string',
-  logsDir: 'string',
-  servers: serverViewSchema.array(),
+  'dataRoot': 'string',
+  'logsDir': 'string',
+  /** The release this panel is running. Optional: an older panel does not send one. */
+  'version?': 'string',
+  'servers': serverViewSchema.array(),
 })
 export type AppState = Omit<typeof appStateSchema.infer, 'servers'> & { servers: ServerView[] }
 

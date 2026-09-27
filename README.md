@@ -79,8 +79,8 @@ some arguments, and the environment you give it:
 { "id": "gateway", "command": "node", "args": ["server.js"], "port": 4000, "autostart": true }
 ```
 
-<sub>Manage them from the panel, `home-hosted status --json`, or `GET /api/state`; `GET /healthz` is
-the same status line for your own monitor, no session needed.</sub>
+<sub>Manage them from the panel, `home-hosted start|stop <id>` from a shell, `home-hosted status --json`,
+or `GET /api/state`; `GET /healthz` is the same status line for your own monitor, no session needed.</sub>
 
 ---
 
@@ -293,6 +293,8 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
 | `home-hosted restart` | `down`, then `up` |
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts) |
+| `home-hosted start <id>` | start one server, leaving the panel and its other servers alone |
+| `home-hosted stop <id>` | stop one server — the panel stays up |
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | bring `servers.config.json` up to this release's schema (`--dry-run`, `--yes`) |
@@ -311,6 +313,7 @@ up, restart       -c/--config -p/--port --host --open --no-autostart --foregroun
 
 down              (no flags)
 status            --json
+start, stop       <id>   (the server's id in servers.config.json; both need the panel up)
 init              --dir --name --pm --no-install -y/--yes
 set-password      --clear
 set-token         --generate --clear

@@ -8,7 +8,7 @@ import FieldGroup from '@/components/ui/FieldGroup.vue'
 import TextField from '@/components/ui/TextField.vue'
 import * as api from '@/lib/api'
 
-const props = defineProps<{ ui: UiStatus | null, labelDirty: boolean }>()
+const props = defineProps<{ ui: UiStatus | null, panelVersion: string | null, labelDirty: boolean }>()
 const emit = defineEmits<{ changed: [], resetLabel: [] }>()
 
 /** `control.label`: what this panel calls itself in the shell. */
@@ -100,6 +100,17 @@ async function revert(): Promise<void> {
       <p class="text-2xs leading-4 text-faint">
         <span v-if="uploaded">{{ uploaded }} · </span>
         <code>{{ ui?.dir ?? '—' }}</code>
+      </p>
+    </div>
+
+    <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
+      <span class="text-xs font-medium text-muted">Panel version</span>
+      <div class="flex items-center gap-1.5 rounded-control border border-line bg-page/60 px-2.5 py-1.5">
+        <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink">home-hosted {{ props.panelVersion ?? 'unknown' }}</span>
+        <CopyButton v-if="props.panelVersion" :value="props.panelVersion" label="Copy the panel version" />
+      </div>
+      <p class="text-2xs leading-4 text-faint">
+        The release this panel process is running — <code>home-hosted status</code> prints the same number.
       </p>
     </div>
 

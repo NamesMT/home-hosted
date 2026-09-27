@@ -73,8 +73,8 @@ export interface RuntimeProbe {
 
 /** A degraded panel is still answering: a 503 must not read as "not running". */
 export async function probeRuntime(runtime: Runtime, timeoutMs = 2500): Promise<RuntimeProbe> {
-  const status = await localRequest(runtime, '/healthz', 'GET', undefined, timeoutMs)
-  return { reachable: status !== null, degraded: status === 503 }
+  const answer = await localCall(runtime, '/healthz', 'GET', undefined, timeoutMs)
+  return { reachable: answer !== null, degraded: answer?.status === 503 }
 }
 
 /**
@@ -82,16 +82,46 @@ export async function probeRuntime(runtime: Runtime, timeoutMs = 2500): Promise<
  * shut down cleanly on every platform (a bare signal is not graceful on Windows).
  */
 export async function requestShutdown(runtime: Runtime, timeoutMs = 4000): Promise<boolean> {
-  const status = await localRequest(runtime, '/_hh/shutdown', 'POST', runtime.token, timeoutMs)
-  return status !== null && status >= 200 && status < 300
+  const answer = await localCall(runtime, '/_hh/shutdown', 'POST', runtime.token, timeoutMs)
+  return answer !== null && answer.status >= 200 && answer.status < 300
+}
+
+/** A `/_hh` answer: the status, plus the body when it was JSON. */
+export interface ControlAnswer {
+  status: number
+  body: unknown
+}
+
+/**
+ * Drives a supervised server from this machine (`home-hosted start`/`stop`). The
+ * token comes from run.json, so it needs no session, no password and no API token —
+ * only the owner of that 0600 file, talking over loopback.
+ *
+ * The wait is generous on purpose: a start may have to run a bootstrap, which has a
+ * 120s default timeout of its own. Past this it is a wedged panel, not a slow one.
+ */
+export async function requestControl(runtime: Runtime, path: string, timeoutMs = 150000): Promise<ControlAnswer | null> {
+  const answer = await localCall(runtime, path, 'POST', runtime.token, timeoutMs)
+  if (answer === null)
+    return null
+
+  let body: unknown = null
+  try {
+    body = JSON.parse(answer.body)
+  }
+  catch {
+    // Not JSON: an empty body or a proxy's error page. The status still means something.
+  }
+  return { status: answer.status, body }
 }
 
 /**
  * Talks to the panel over loopback. Node's `fetch` cannot be told to accept the
  * self-signed certificate an uploaded TLS pair usually is, which would break
- * `status` and the graceful `down` — so this speaks http/https directly.
+ * `status`, the graceful `down` and the local start/stop — so this speaks
+ * http/https directly.
  */
-function localRequest(runtime: Runtime, path: string, method: 'GET' | 'POST', token: string | undefined, timeoutMs: number): Promise<number | null> {
+function localCall(runtime: Runtime, path: string, method: 'GET' | 'POST', token: string | undefined, timeoutMs: number): Promise<{ status: number, body: string } | null> {
   return new Promise((resolve) => {
     const url = new URL(`${runtime.probeUrl}${path}`)
     const secure = url.protocol === 'https:'
@@ -105,8 +135,12 @@ function localRequest(runtime: Runtime, path: string, method: 'GET' | 'POST', to
       headers: token === undefined ? {} : { 'x-home-hosted-token': token },
       timeout: timeoutMs,
     }, (response) => {
-      response.resume()
-      response.once('end', () => resolve(response.statusCode ?? null))
+      let body = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk: string) => {
+        body += chunk
+      })
+      response.once('end', () => resolve({ status: response.statusCode ?? 0, body }))
     })
 
     request.once('error', () => resolve(null))

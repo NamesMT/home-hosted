@@ -209,6 +209,19 @@ describe('rejectUnknownFlags', () => {
     expect(rejectUnknownFlags(['--anything'], {})).toBeNull()
   })
 
+  /**
+   * `start <id>` is the one command with a bare argument, and the guard has to know
+   * about it: every other bare word is still the stray argument it always was.
+   */
+  it('accepts a declared positional, and only that many', () => {
+    const start: ArgsDef = { id: { type: 'positional' } }
+
+    expect(rejectUnknownFlags(['web'], start)).toBeNull()
+    expect(rejectUnknownFlags(['web', 'extra'], start)).toBe('Unexpected argument \'extra\'')
+    expect(rejectUnknownFlags(['--id', 'web'], start)).toBe('Unknown option \'--id\'')
+    expect(rejectUnknownFlags(['web'], args)).toBe('Unexpected argument \'web\'')
+  })
+
   it('stops at `--`, which is where arguments start', () => {
     expect(rejectUnknownFlags(['--', '--not-an-option'], args)).toBeNull()
   })

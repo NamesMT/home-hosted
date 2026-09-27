@@ -123,6 +123,10 @@ function findArg(argsDef: ArgsDef, name: string): ArgsDef[string] | undefined {
   for (const [key, def] of Object.entries(argsDef)) {
     if (def === undefined)
       continue
+    // A positional is never reachable as `--<key>`: `start --id web` is a mistake,
+    // not a second way to spell `start web`.
+    if (def.type === 'positional')
+      continue
     const names = new Set([key, kebab(key), ...aliasesOf(def)])
     if (names.has(name))
       return def
@@ -146,12 +150,20 @@ export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined)
   if (argsDef === undefined || Object.keys(argsDef).length === 0)
     return null
 
+  // Declared positionals are the only bare arguments a command accepts, and they
+  // are filled in the order they were declared (`start <id>`).
+  let positionals = Object.values(argsDef).filter(def => def?.type === 'positional').length
+
   for (let index = 0; index < argv.length; index++) {
     const token = argv[index]!
     if (token === '--')
       return null
-    if (!token.startsWith('-') || token.length === 1)
-      return `Unexpected argument '${token}'`
+    if (!token.startsWith('-') || token.length === 1) {
+      if (positionals === 0)
+        return `Unexpected argument '${token}'`
+      positionals -= 1
+      continue
+    }
 
     const body = token.startsWith('--') ? token.slice(2) : token.slice(1)
     const equals = body.indexOf('=')

@@ -247,6 +247,9 @@ either is a last resort, and never an accidental one.
   every entry's child) instead of killing it — a port held by a sibling is a config mistake.
 - **Never expose beyond loopback without auth and a non-default password.** `checkExposure()` is the
   single rule, enforced at startup, on every settings write, and in the UI.
+- **The CLI drives a running panel through `/_hh`, never `/api`.** `down` and `start`/`stop` read
+  run.json's token and speak over loopback through one guard (`assertLocalCall`), so they need no
+  session, password or API token — and a new local command must not open an unauthenticated `/api` route.
 - **UIs are external clients.** Nothing in `src/**` may know a UI's markup or files;
   `$HHOSTED_HOME/.ui` overrides the packaged UI at runtime.
 - **A restore writes only where a config says** — archive allowlist, `origin` matching first,

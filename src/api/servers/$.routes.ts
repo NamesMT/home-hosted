@@ -4,6 +4,7 @@ import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { streamSSE } from 'hono/streaming'
 import { ConfigError } from '#src/config/store'
+import { statusForAction } from '#src/helpers/action-result'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
@@ -15,13 +16,6 @@ const MAX_PENDING_WRITES = 200
 const serverResponse = type({ server: serverViewSchema })
 const serversResponse = type({ servers: serverViewSchema.array() })
 const okResponse = type({ ok: 'boolean' })
-
-/** Unknown ids are 404; a server that exists but cannot start is a 409. */
-function statusFor(result: { ok: boolean, error?: string }): 200 | 404 | 409 {
-  if (result.ok)
-    return 200
-  return result.error?.startsWith('unknown server') ? 404 : 409
-}
 
 function unknownServer(id: string): DetailedError {
   return new DetailedError(`unknown server "${id}"`, { statusCode: 404, code: 'UNKNOWN_SERVER' })
@@ -174,7 +168,7 @@ export function createServersRoute(deps: AppDeps) {
       validate('param', idParam),
       async (c) => {
         const result = await deps.supervisor.start(c.req.valid('param').id)
-        return c.json(result, statusFor(result))
+        return c.json(result, statusForAction(result))
       },
     )
 
@@ -194,7 +188,7 @@ export function createServersRoute(deps: AppDeps) {
       validate('param', idParam),
       async (c) => {
         const result = await deps.supervisor.restart(c.req.valid('param').id)
-        return c.json(result, statusFor(result))
+        return c.json(result, statusForAction(result))
       },
     )
 
@@ -229,7 +223,7 @@ export function createServersRoute(deps: AppDeps) {
         const { id } = c.req.valid('param')
         const result = await deps.supervisor.freePort(id)
         if (!result.ok)
-          throw new DetailedError(result.error ?? `could not free the port for "${id}"`, { statusCode: statusFor(result), code: 'FREE_PORT_FAILED' })
+          throw new DetailedError(result.error ?? `could not free the port for "${id}"`, { statusCode: statusForAction(result), code: 'FREE_PORT_FAILED' })
         return c.json(result)
       },
     )

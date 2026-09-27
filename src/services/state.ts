@@ -7,6 +7,7 @@ import type { NotificationService } from '#src/services/notifications'
 import type { TlsStore } from '#src/services/tls'
 import type { AppState, BackupsView, ControlConfig, ControlView, HostView, ServerDefaults, ServerView } from '#src/shared/contracts'
 import { dataRoot, projectDir } from '#src/helpers/paths'
+import { appVersion } from '#src/helpers/version'
 import { checkExposure } from '#src/services/exposure'
 
 export interface BuildStateDeps {
@@ -95,6 +96,7 @@ export function buildAppState(deps: BuildStateDeps): AppState {
     projectDir,
     dataRoot,
     logsDir: deps.logsDir,
+    version: appVersion(),
     servers: deps.views,
   }
 }

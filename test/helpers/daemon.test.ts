@@ -19,7 +19,7 @@ const originalHome = process.env.HHOSTED_HOME
 const home = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-daemon-'))
 process.env.HHOSTED_HOME = home
 
-const { clearRuntime, isProcessAlive, newToken, probeRuntime, readRuntime, requestShutdown, runtimeSchema, writeRuntime } = await import('#src/helpers/daemon')
+const { clearRuntime, isProcessAlive, newToken, probeRuntime, readRuntime, requestControl, requestShutdown, runtimeSchema, writeRuntime } = await import('#src/helpers/daemon')
 
 const servers: http.Server[] = []
 
@@ -192,5 +192,37 @@ describe('requestShutdown', () => {
 
   it('is false when nothing is listening', async () => {
     expect(await requestShutdown(validRuntime({ probeUrl: 'http://127.0.0.1:1' }), 500)).toBe(false)
+  })
+})
+
+describe('requestControl', () => {
+  /** `listener` always answers a plain "x"; a JSON body needs its own throwaway. */
+  async function jsonListener(body: unknown): Promise<{ url: string, seen: { path?: string, token?: string } }> {
+    const seen: { path?: string, token?: string } = {}
+    const server = http.createServer((req, res) => {
+      seen.path = req.url
+      seen.token = req.headers['x-home-hosted-token'] as string | undefined
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify(body))
+    })
+    servers.push(server)
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address() as net.AddressInfo
+    return { url: `http://127.0.0.1:${address.port}`, seen }
+  }
+
+  it('posts the run.json token to the given path and reads the JSON body', async () => {
+    const { url, seen } = await jsonListener({ ok: true })
+    const answer = await requestControl(validRuntime({ probeUrl: url, token: 'local-token' }), '/_hh/servers/web/start')
+
+    expect(seen.path).toBe('/_hh/servers/web/start')
+    expect(seen.token).toBe('local-token')
+    expect(answer).toEqual({ status: 200, body: { ok: true } })
+  })
+
+  it('keeps the status when the body is not JSON, and reports an unreachable panel as null', async () => {
+    const notJson = await listener(403)
+    expect(await requestControl(validRuntime({ probeUrl: notJson }), '/_hh/servers/web/stop')).toEqual({ status: 403, body: null })
+    expect(await requestControl(validRuntime({ probeUrl: 'http://127.0.0.1:1' }), '/_hh/servers/web/stop', 500)).toBeNull()
   })
 })

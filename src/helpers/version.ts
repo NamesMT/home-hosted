@@ -36,3 +36,13 @@ export function appVersion(): string {
   cached = '0.0.0'
   return cached
 }
+
+/**
+ * The one line to add when this CLI and the panel it is talking to are not the same
+ * release — which is what a linked checkout, a global install and a project pin
+ * produce. `null` when they agree.
+ */
+export function versionMismatchNote(panelVersion: string): string | null {
+  const cli = appVersion()
+  return cli === panelVersion ? null : `note: this CLI is ${cli}, the panel is ${panelVersion}`
+}

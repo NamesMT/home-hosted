@@ -86,6 +86,8 @@ const backupsPolicy = computed(() => settingsConfig.value?.backups ?? null)
 const uiStatus = computed(() => settingsConfig.value?.ui ?? null)
 const backupsState = computed(() => control.backups.value)
 const configPath = computed(() => control.appState.value?.configPath ?? null)
+/** The running release; `null` on a panel that predates the field. */
+const panelVersion = computed(() => control.appState.value?.version ?? null)
 
 /** Only fields that differ from what the panel currently holds. */
 const patch = computed<SettingsPatch>(() => {
@@ -588,6 +590,7 @@ onBeforeUnmount(() => observer?.disconnect())
             <InterfaceSection
               v-model:label="form.control.label"
               :ui="uiStatus"
+              :panel-version="panelVersion"
               :label-dirty="listenerDirty"
               @changed="loadConfig"
               @reset-label="resetListener"

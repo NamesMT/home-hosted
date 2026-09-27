@@ -11,6 +11,8 @@ const props = defineProps<{
   connection: 'connecting' | 'open' | 'closed'
   /** The panel's own name (`control.label`), so a custom UI can rename itself. */
   panelLabel: string
+  /** The release the panel is running; `null` on a panel that predates the field. */
+  panelVersion: string | null
   planLabel: string
   running: number
   total: number
@@ -30,6 +32,8 @@ const items = [
 function isActive(item: typeof items[number]): boolean {
   return item.exact ? route.path === item.to : route.path === item.to || route.path.startsWith(`${item.to}/`)
 }
+
+const versionLine = computed(() => (props.panelVersion === null ? props.panelLabel : `${props.panelLabel} · v${props.panelVersion}`))
 
 const connectionMeta = computed(() => ({
   open: { label: 'Live', dot: 'bg-ok' },
@@ -52,8 +56,8 @@ const connectionMeta = computed(() => ({
         <p class="truncate text-sm font-semibold tracking-tight text-ink">
           home-hosted
         </p>
-        <p class="truncate text-2xs text-faint">
-          {{ props.panelLabel }}
+        <p class="truncate text-2xs text-faint" :title="versionLine">
+          {{ versionLine }}
         </p>
       </div>
       <button

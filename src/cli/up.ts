@@ -8,6 +8,7 @@ import { defineCommand } from 'citty'
 import { buildDaemonArgv } from '#src/cli/args'
 import { bold, delay, dim, fail, green, paint } from '#src/cli/io'
 import { runtimeArgs } from '#src/helpers/runtime'
+import { versionMismatchNote } from '#src/helpers/version'
 
 /** `up` starts the panel; without `--foreground` it re-spawns itself detached. */
 
@@ -98,7 +99,10 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
 
   const existing = readRuntime()
   if (existing !== null && isProcessAlive(existing.pid)) {
-    process.stdout.write(`${green('already running')} (pid ${existing.pid}) at ${existing.url}\n`)
+    process.stdout.write(`${green('already running')} home-hosted ${existing.version} (pid ${existing.pid}) at ${existing.url}\n`)
+    const note = versionMismatchNote(existing.version)
+    if (note !== null)
+      process.stdout.write(`${dim(note)}\n`)
     process.stdout.write(`${dim('stop it with `home-hosted down`')}\n`)
     return
   }
@@ -128,7 +132,7 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
     process.exit(1)
   }
 
-  process.stdout.write(`${green('home-hosted is up')} (pid ${runtime.pid})\n`)
+  process.stdout.write(`${green(`home-hosted ${runtime.version} is up`)} (pid ${runtime.pid})\n`)
   process.stdout.write(`  ${bold(runtime.url)}\n`)
   process.stdout.write(`  ${dim(`project ${runtime.projectDir}`)}\n`)
   process.stdout.write(`  ${dim(`state   ${runtime.dataRoot}`)}\n`)

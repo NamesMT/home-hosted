@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { delay, dim, green } from '#src/cli/io'
+import { versionMismatchNote } from '#src/helpers/version'
 
 /** `down` stops the panel and everything it supervises. */
 
@@ -15,8 +16,16 @@ export async function runDown(): Promise<void> {
   }
   if (!isProcessAlive(runtime.pid)) {
     clearRuntime()
-    process.stdout.write('home-hosted is not running (removed a stale run.json)\n')
+    process.stdout.write(`home-hosted is not running (removed a stale run.json from home-hosted ${runtime.version})\n`)
     return
+  }
+
+  /** What was stopped, and whether this CLI is a different release than it was. */
+  const reportStopped = (forced: boolean): void => {
+    process.stdout.write(`${green('stopped')}${forced ? ' (forced)' : ''} ${dim(`— was home-hosted ${runtime.version}`)}\n`)
+    const note = versionMismatchNote(runtime.version)
+    if (note !== null)
+      process.stdout.write(`${dim(note)}\n`)
   }
 
   process.stdout.write(`stopping pid ${runtime.pid}…\n`)
@@ -27,7 +36,7 @@ export async function runDown(): Promise<void> {
 
   if (await waitForExit(runtime.pid, 20000)) {
     clearRuntime()
-    process.stdout.write(`${green('stopped')}\n`)
+    reportStopped(false)
     await reportPersistent()
     return
   }
@@ -36,7 +45,7 @@ export async function runDown(): Promise<void> {
   forceStop(runtime.pid)
   await waitForExit(runtime.pid, 5000)
   clearRuntime()
-  process.stdout.write(`${green('stopped')} (forced)\n`)
+  reportStopped(true)
   await reportPersistent()
 }
 

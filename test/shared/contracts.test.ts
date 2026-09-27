@@ -241,7 +241,9 @@ describe('view contracts', () => {
       logsDir: '/repo/.logs',
       servers: [view],
     })
+    // No `version`: a panel from before the field still frames a state the UI accepts.
     expect(state instanceof type.errors).toBe(false)
+    expect(appStateSchema({ ...(state as Record<string, unknown>), version: '0.7.0' }) instanceof type.errors).toBe(false)
   })
 })
 

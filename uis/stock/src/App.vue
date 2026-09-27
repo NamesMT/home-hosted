@@ -30,6 +30,8 @@ const panelUrl = computed(() => control.control.value?.url ?? '—')
 const host = computed(() => control.host.value)
 /** The panel's own name, from its config; a custom UI is free to ignore it. */
 const panelLabel = computed(() => control.control.value?.label ?? 'home-hosted')
+/** The release the panel is running; absent from a panel that predates the field. */
+const panelVersion = computed(() => control.appState.value?.version ?? null)
 
 // A dropped session (or a 401 from any call) must land on the login view, and the
 // event stream follows the session arriving — see `streamDecision` for why this
@@ -70,6 +72,7 @@ onScopeDispose(() => disconnect())
           :host="host"
           :connection="control.connection.value"
           :panel-label="panelLabel"
+          :panel-version="panelVersion"
           :plan-label="panelUrl"
           :running="running"
           :total="servers.length"
@@ -95,6 +98,7 @@ onScopeDispose(() => disconnect())
             :host="host"
             :connection="control.connection.value"
             :panel-label="panelLabel"
+            :panel-version="panelVersion"
             :plan-label="panelUrl"
             :running="running"
             :total="servers.length"

@@ -39,6 +39,8 @@ const SYNOPSIS: Record<string, string> = {
   'down': 'home-hosted down',
   'restart': 'home-hosted restart [options]',
   'status': 'home-hosted status [--json]',
+  'start': 'home-hosted start <id>',
+  'stop': 'home-hosted stop <id>',
   'set-password': 'home-hosted set-password',
   'set-token': 'home-hosted set-token',
   'migrate': 'home-hosted migrate',
@@ -53,6 +55,8 @@ const SUMMARIES: Record<string, string> = {
   'down': 'stop it, and everything it supervises',
   'restart': 'down, then up',
   'status': 'is it running, where, and how to reach it',
+  'start': 'start one server, leaving the panel up',
+  'stop': 'stop one server, leaving the panel up',
   'set-password': 'set the panel password without the API',
   'set-token': 'set the API token that scripts and agents use',
   'migrate': 'bring the config up to this release\'s schema',
@@ -91,6 +95,13 @@ const STATUS_SECTION: OptionSection = {
   heading: 'Options for status',
   lines: [
     ['--json', 'print machine-readable JSON'],
+  ],
+}
+
+const SERVER_SECTION: OptionSection = {
+  heading: 'Arguments for start/stop',
+  lines: [
+    ['<id>', 'the server id from servers.config.json'],
   ],
 }
 
@@ -231,6 +242,8 @@ const USAGE = [
   '',
   renderSection(STATUS_SECTION),
   '',
+  renderSection(SERVER_SECTION),
+  '',
   SHARED_TRAILER,
 ].join('\n')
 
@@ -239,6 +252,8 @@ const UP_COMMANDS = new Set(['up', 'restart'])
 
 const SECTIONS: Record<string, OptionSection> = {
   'status': STATUS_SECTION,
+  'start': SERVER_SECTION,
+  'stop': SERVER_SECTION,
   'set-password': SET_PASSWORD_SECTION,
   'set-token': SET_TOKEN_SECTION,
   'migrate': MIGRATE_SECTION,
@@ -294,6 +309,8 @@ const COMMANDS = {
   'down': () => import('#src/cli/down').then(module => module.downCommand),
   'restart': () => import('#src/cli/restart').then(module => module.restartCommand(CLI_ENTRY)),
   'status': () => import('#src/cli/status').then(module => module.statusCommand),
+  'start': () => import('#src/cli/server').then(module => module.startCommand),
+  'stop': () => import('#src/cli/server').then(module => module.stopCommand),
   'set-password': () => import('#src/cli/set-password').then(module => module.setPasswordCommand),
   'set-token': () => import('#src/cli/set-token').then(module => module.setTokenCommand),
   'migrate': () => import('#src/cli/migrate').then(module => module.migrateCommand),
