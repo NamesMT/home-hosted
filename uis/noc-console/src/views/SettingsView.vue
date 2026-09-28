@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { AuthStatus, ControlView, LogsConfig, ServerDefaults, SettingsPatch, TelegramStatus } from '@shared/contracts'
+import type { AuthStatus, ControlView, DdnsConfig, LogsConfig, ServerDefaults, SettingsPatch, TelegramStatus } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 
 import type { BackupsState, RestoreOptions, RestorePlan, SettingsView } from '@/lib/api'
+import type { DraftConfig } from '@/lib/ddns'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
@@ -30,6 +31,10 @@ const telegram = computed<TelegramPolicy | null>(() => state.value?.notification
 const settings = ref<SettingsView | null>(null)
 const settingsMessage = ref<string | null>(null)
 const settingsError = ref<string | null>(null)
+/** What the DDNS panel would change, and the block it started from. */
+const ddnsPatch = ref<DdnsConfig | null>(null)
+const ddnsBaseline = ref<DraftConfig | null>(null)
+const ddnsSection = ref<{ reload: () => Promise<void> } | null>(null)
 const saving = ref(false)
 
 const form = reactive({
@@ -412,6 +417,11 @@ function buildPatch(view: ControlView, defaults: ServerDefaults): SettingsPatch 
       patch.backups = backupsPatch as SettingsPatch['backups']
   }
 
+  // The DDNS panel owns its own draft and publishes what would change, so the one
+  // Save at the top of this page writes it with everything else.
+  if (ddnsPatch.value !== null)
+    patch.ddns = ddnsPatch.value
+
   return patch
 }
 
@@ -443,6 +453,7 @@ const currentSnapshot = computed<Patch>(() => {
     defaults: defaultsView.value ?? {},
     logs: configured?.logs ?? {},
     notifications: configured === null ? {} : { telegram: configured.notifications.telegram },
+    ddns: ddnsBaseline.value ?? {},
     host: configured === null ? {} : { ...configured.host, diskPaths: configured.host.diskPaths },
     backups: configured === null
       ? {}
@@ -503,6 +514,7 @@ async function saveSettings(): Promise<void> {
     // again — including the ones this save just brought back in sync.
     forgetSnapshots()
     applySettings()
+    await ddnsSection.value?.reload()
 
     if (!result.rebinding) {
       settingsMessage.value = 'saved'
@@ -1401,7 +1413,11 @@ async function revertUi(): Promise<void> {
           <span class="faint">provider tokens stay in the secrets file</span>
         </div>
         <div class="pane__body">
-          <DdnsPanel />
+          <DdnsPanel
+            ref="ddnsSection"
+            v-model:patch="ddnsPatch"
+            v-model:baseline="ddnsBaseline"
+          />
         </div>
       </section>
 

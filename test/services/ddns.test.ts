@@ -130,12 +130,14 @@ describe('ddnsService', () => {
     expect(status.records[0]?.message).toContain('DNS validation error')
     expect(notify).toHaveBeenCalledTimes(1)
     expect(notify.mock.calls[0]?.[0]).toMatchObject({ serverId: 'ddns', reason: 'ddns-error' })
+    // Whether Telegram carries it is the notification policy's call, not this one.
   })
 
-  it('says nothing when notifications are off', async () => {
-    const { service, notify } = await harness(baseConfig({ notify: false }), { fail: true })
+  it('stays quiet on a pass that changed nothing', async () => {
+    const { service, notify } = await harness(baseConfig())
     await service.run()
-    expect(notify).not.toHaveBeenCalled()
+    await service.run()
+    expect(notify).toHaveBeenCalledTimes(1)
   })
 
   it('skips a family whose detection is switched off', async () => {

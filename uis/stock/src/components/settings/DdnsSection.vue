@@ -17,8 +17,15 @@ import ToneBadge from '@/components/ui/ToneBadge.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
 import * as api from '@/lib/api'
-import { cloneDdnsConfig } from '@/lib/ddns'
+import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@/lib/ddns'
 import { formatAgo } from '@/lib/format'
+
+/**
+ * The policy is part of the page's patch, so the settings Save owns it. Only the
+ * credentials keep an endpoint of their own — they are a secret, like the bot token.
+ */
+const patch = defineModel<DdnsConfig | null>('patch', { default: null })
+const baseline = defineModel<DraftConfig | null>('baseline', { default: null })
 
 const RECORD_STATE: Record<DdnsRecordState, { label: string, tone: Tone }> = {
   pending: { label: 'Waiting', tone: 'neutral' },
@@ -34,11 +41,10 @@ const toasts = useToasts()
 const view = ref<Awaited<ReturnType<typeof api.fetchDdns>> | null>(null)
 const draft = ref<DraftConfig | null>(null)
 const loadError = ref<string | null>(null)
-const saveError = ref<string | null>(null)
-const saving = ref(false)
+const actionError = ref<string | null>(null)
 const checking = ref(false)
 
-const newAccount = reactive({ id: '', provider: 'cloudflare', label: '' })
+const newAccount = reactive({ id: '', provider: 'cloudflare' })
 const newDomain = reactive({ host: '', account: '' })
 
 const credentialAccount = ref<DdnsAccount | null>(null)
@@ -52,12 +58,12 @@ const domains = computed<DraftDomain[]>(() => draft.value?.domains ?? [])
 const accountIds = computed(() => accounts.value.map(account => account.id).join(','))
 
 const providerOptions = computed(() => providers.value.map(provider => ({ value: provider.id, label: provider.label })))
-const accountOptions = computed(() => accounts.value.map(account => ({ value: account.id, label: account.label.length > 0 ? `${account.label} (${account.id})` : account.id })))
+const accountOptions = computed(() => accounts.value.map(account => ({ value: account.id, label: account.id })))
 
 /** Live state from the SSE frame; the fetch is only the fallback before one lands. */
 const status = computed(() => control.appState.value?.ddns ?? view.value?.status ?? null)
 
-const dirty = computed(() => draft.value !== null && view.value !== null && JSON.stringify(draft.value) !== JSON.stringify(view.value.config))
+const dirty = computed(() => draft.value !== null && baseline.value !== null && !ddnsConfigEquals(draft.value, baseline.value))
 const canAddAccount = computed(() => /^[a-z0-9][a-z0-9_-]*$/.test(newAccount.id) && !accounts.value.some(account => account.id === newAccount.id))
 const canAddDomain = computed(() => newDomain.host.includes('.') && newDomain.account.length > 0 && !domains.value.some(domain => domain.host.toLowerCase() === newDomain.host.trim().toLowerCase()))
 
@@ -105,10 +111,19 @@ function setOptional(target: DraftDomain, key: 'zone' | 'ttl' | 'proxied', value
     (target as Record<string, unknown>)[key] = value
 }
 
+/** Publishes the pending block to the page's patch; null means "nothing to save". */
+function syncPatch(): void {
+  patch.value = draft.value === null || baseline.value === null || ddnsConfigEquals(draft.value, baseline.value)
+    ? null
+    : toDdnsConfig(draft.value)
+}
+
 function apply(next: Awaited<ReturnType<typeof api.fetchDdns>>, keepDraft = false): void {
   view.value = next
+  baseline.value = cloneDdnsConfig(next.config)
   if (!keepDraft)
     draft.value = cloneDdnsConfig(next.config)
+  syncPatch()
 }
 
 async function load(): Promise<void> {
@@ -127,6 +142,9 @@ onMounted(() => {
   void load()
 })
 
+// A draft edit is news for the page: it owns the Save that will write it.
+watch(draft, syncPatch, { deep: true })
+
 // Watching the ids, not the array: pushing onto `draft.accounts` mutates the same
 // array the computed hands back, which Vue would not see as a change.
 watch(accountIds, () => {
@@ -137,9 +155,8 @@ watch(accountIds, () => {
 function addAccount(): void {
   if (!canAddAccount.value || draft.value === null)
     return
-  draft.value.accounts.push({ id: newAccount.id, provider: newAccount.provider, label: newAccount.label.trim() })
+  draft.value.accounts.push({ id: newAccount.id, provider: newAccount.provider, label: '' })
   newAccount.id = ''
-  newAccount.label = ''
 }
 
 function removeAccount(account: DraftAccount): void {
@@ -151,7 +168,7 @@ function removeAccount(account: DraftAccount): void {
 function addDomain(): void {
   if (!canAddDomain.value || draft.value === null)
     return
-  draft.value.domains.push({ host: newDomain.host.trim().toLowerCase(), account: newDomain.account, types: ['A'], enabled: true })
+  draft.value.domains.push({ host: newDomain.host.trim().toLowerCase(), account: newDomain.account, types: ['A'], enabled: true, key: newDraftDomainKey() })
   newDomain.host = ''
 }
 
@@ -161,41 +178,24 @@ function removeDomain(domain: DraftDomain): void {
   draft.value.domains = draft.value.domains.filter(entry => entry !== domain)
 }
 
-async function save(): Promise<void> {
-  if (draft.value === null || saving.value)
-    return
-  saving.value = true
-  saveError.value = null
-  try {
-    apply(await api.saveDdns(draft.value as unknown as DdnsConfig))
-    toasts.success('Dynamic DNS saved')
-  }
-  catch (caught) {
-    saveError.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    saving.value = false
-  }
-}
-
 function discard(): void {
-  if (view.value !== null)
-    draft.value = cloneDdnsConfig(view.value.config)
-  saveError.value = null
+  if (baseline.value !== null)
+    draft.value = cloneDdnsConfig(baseline.value)
+  actionError.value = null
 }
 
 async function updateNow(): Promise<void> {
   if (checking.value)
     return
   checking.value = true
-  saveError.value = null
+  actionError.value = null
   try {
     // Keeps an unsaved draft: a pass does not change the policy.
     apply(await api.checkDdns(), true)
     toasts.success(status.value?.lastResult ?? 'Dynamic DNS pass finished')
   }
   catch (caught) {
-    saveError.value = caught instanceof Error ? caught.message : String(caught)
+    actionError.value = caught instanceof Error ? caught.message : String(caught)
   }
   finally {
     checking.value = false
@@ -216,7 +216,7 @@ async function saveCredentials(): Promise<void> {
   credentialError.value = null
   try {
     apply(await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value), true)
-    toasts.success(`Credentials saved for ${account.label || account.id}`)
+    toasts.success(`Credentials saved for ${account.id}`)
     credentialAccount.value = null
   }
   catch (caught) {
@@ -235,7 +235,7 @@ async function clearCredentials(): Promise<void> {
   credentialError.value = null
   try {
     apply(await api.clearDdnsCredentials(account.id), true)
-    toasts.success(`Credentials removed for ${account.label || account.id}`)
+    toasts.success(`Credentials removed for ${account.id}`)
     credentialAccount.value = null
   }
   catch (caught) {
@@ -245,6 +245,9 @@ async function clearCredentials(): Promise<void> {
     credentialBusy.value = false
   }
 }
+
+// The page owns the Save, so it asks for a re-read once the block has landed.
+defineExpose({ reload: load })
 </script>
 
 <template>
@@ -259,6 +262,9 @@ async function clearCredentials(): Promise<void> {
         description="Keep these hostnames pointed at this machine's public address. Credentials live in the secrets file, never in servers.config.json."
       >
         <template #actions>
+          <AppButton size="xs" variant="ghost" :disabled="!dirty" @click="discard">
+            Reset
+          </AppButton>
           <ToneBadge v-if="status?.running" tone="info" dot>
             checking
           </ToneBadge>
@@ -277,12 +283,15 @@ async function clearCredentials(): Promise<void> {
           wide
         />
         <NumberField v-model="draft.intervalMs" label="Check every (ms)" :min="60000" :step="60000" hint="60000 is one minute; the default is five." />
+        <NumberField v-model="draft.ttl" label="TTL (s)" :min="1" hint="1 means automatic where the provider supports it." />
         <ToggleSwitch v-model="draft.ipv4.enabled" label="Detect IPv4" hint="Needed for A records." />
         <ToggleSwitch v-model="draft.ipv6.enabled" label="Detect IPv6" hint="Needed for AAAA records." />
-        <NumberField v-model="draft.ttl" label="TTL (s)" :min="1" hint="1 means automatic where the provider supports it." />
         <ToggleSwitch v-model="draft.proxied" label="Proxy through Cloudflare" hint="Cloudflare only; a proxied record always uses automatic TTL." />
-        <ToggleSwitch v-model="draft.notify" label="Notify on changes" hint="Uses the Telegram channel under Notifications; failures notify whenever that is on." wide />
       </FieldGroup>
+
+      <Notice v-if="actionError" tone="danger">
+        {{ actionError }}
+      </Notice>
 
       <section class="rounded-panel border border-line bg-panel-2/40 p-3.5">
         <header class="mb-3">
@@ -297,9 +306,8 @@ async function clearCredentials(): Promise<void> {
         <ul v-if="accounts.length > 0" class="divide-y divide-line-soft">
           <li v-for="account in accounts" :key="account.id" class="flex flex-wrap items-center gap-x-3 gap-y-2 py-2 first:pt-0">
             <div class="min-w-0">
-              <p class="text-xs text-ink">
-                {{ account.label || account.id }}
-                <span v-if="account.label" class="font-mono text-2xs text-faint">{{ account.id }}</span>
+              <p class="font-mono text-xs text-ink">
+                {{ account.id }}
               </p>
               <p class="text-2xs text-faint">
                 {{ providerLabel(account) }}
@@ -329,16 +337,15 @@ async function clearCredentials(): Promise<void> {
           No accounts yet. Pick a provider and add one.
         </p>
 
-        <div class="mt-3 grid gap-2 border-t border-line-soft pt-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+        <div class="mt-3 grid gap-2 border-t border-line-soft pt-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <SelectField v-model="newAccount.provider" label="Provider" :options="providerOptions" />
           <TextField v-model="newAccount.id" label="Account id" placeholder="cloudflare-home" />
-          <TextField v-model="newAccount.label" label="Label" placeholder="Home zone" />
           <AppButton variant="secondary" :disabled="!canAddAccount" @click="addAccount">
             Add
           </AppButton>
         </div>
         <p class="mt-1.5 text-2xs text-faint">
-          The account id is how stored credentials are keyed; lowercase letters, digits, `-` and `_`.
+          The account id names the account and keys its stored credentials; lowercase letters, digits, `-` and `_`.
         </p>
       </section>
 
@@ -353,7 +360,7 @@ async function clearCredentials(): Promise<void> {
         </header>
 
         <ul v-if="domains.length > 0" class="space-y-2">
-          <li v-for="domain in domains" :key="`${domain.host}|${domain.account}`" class="rounded-control border border-line-soft bg-panel/50 p-2.5">
+          <li v-for="domain in domains" :key="domain.key" class="rounded-control border border-line-soft bg-panel/50 p-2.5">
             <div class="flex flex-wrap items-end gap-2">
               <div class="min-w-40 flex-1">
                 <TextField v-model="domain.host" label="Hostname" />
@@ -484,28 +491,13 @@ async function clearCredentials(): Promise<void> {
           </table>
         </div>
       </section>
-
-      <div class="flex flex-wrap items-center gap-2">
-        <AppButton variant="primary" :disabled="!dirty" :loading="saving" @click="save">
-          Save dynamic DNS
-        </AppButton>
-        <AppButton variant="ghost" :disabled="!dirty" @click="discard">
-          Discard
-        </AppButton>
-        <p v-if="saveError" class="text-2xs text-danger">
-          {{ saveError }}
-        </p>
-        <p v-else-if="dirty" class="text-2xs text-muted">
-          Unsaved changes.
-        </p>
-      </div>
     </template>
   </div>
 
   <Modal
     v-model:open="credentialsOpen"
     title="Provider credentials"
-    :description="credentialAccount === null ? '' : `${providerLabel(credentialAccount)} — ${credentialAccount.label || credentialAccount.id}`"
+    :description="credentialAccount === null ? '' : `${providerLabel(credentialAccount)} — ${credentialAccount.id}`"
     width="w-[min(92vw,32rem)]"
   >
     <div class="space-y-3">

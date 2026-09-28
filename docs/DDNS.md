@@ -5,7 +5,8 @@ interval and calls a provider only when it actually changed — restart-safe, be
 confirmed address per hostname is kept in `$HHOSTED_HOME/.state/ddns.json`.
 
 **Settings → Dynamic DNS** is the whole setup: add an account, paste its credentials, add hostnames.
-Nothing else is required, and provider credentials never enter `servers.config.json`.
+The block is saved by the page's own **Save settings**, like every other section on it; the credentials
+button saves on its own, being a secret. Provider credentials never enter `servers.config.json`.
 
 ```json
 {
@@ -16,7 +17,6 @@ Nothing else is required, and provider credentials never enter `servers.config.j
     "ipv6": { "enabled": false, "url": "" },
     "ttl": 1,
     "proxied": false,
-    "notify": true,
     "accounts": [
       { "id": "cf", "provider": "cloudflare", "label": "Home zone" }
     ],
@@ -44,8 +44,7 @@ Header fields:
 | `ipv4.url` / `ipv6.url` | `""` | Override the detector with one endpoint. |
 | `ttl` | `1` | Default record TTL; `1` is automatic where supported. |
 | `proxied` | `false` | Default for providers with a CDN flag (Cloudflare). |
-| `notify` | `true` | Tell Telegram about a change, and about a failure. |
-| `accounts[]` | — | `id` (keys the credentials), `provider`, optional `label`. |
+| `accounts[]` | — | `id` (names the account and keys its credentials) and `provider`. A `label` from an earlier release is still read, and no longer shown. |
 | `domains[]` | — | `host`, `account`, `types` (`A`/`AAAA`, default `A`), optional `ttl`, `proxied`, `zone`, `enabled`. |
 
 Per-hostname `zone` pins the registered domain — only needed where a provider has to be told the apex
@@ -74,8 +73,9 @@ DNS API), and the Namecheap XML API (a full zone rewrite per update).
 
 ## Notifications
 
-Telegram carries one message per pass that changed a record, and one for a pass that failed. Turn it
-off under Settings → Notifications → *Dynamic DNS*, or with `ddns.notify: false`.
+Telegram carries one message per pass that changed a record, and one for a pass that failed — the
+same switch as every other event, under Settings → Notifications → *Dynamic DNS changes and
+failures* (`telegram.onDdns`). There is no second switch in this section.
 
 ## Adding a provider
 

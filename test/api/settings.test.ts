@@ -53,7 +53,7 @@ async function makeApp(): Promise<{ app: Hono, file: string, store: ConfigStore 
     protocol: 'http',
   }
 
-  const deps = { store, auth, controlServer: { endpoint }, tls, notifications, backups, ui } as unknown as AppDeps
+  const deps = { store, auth, controlServer: { endpoint }, tls, notifications, backups, ui, ddns: { refresh: () => {} } } as unknown as AppDeps
   // Failures are thrown, so the app needs the same error handler as the real one.
   const app = new Hono().onError(errorHandler).route('/api', createSettingsRoute(deps))
   return { app, file, store }
@@ -98,6 +98,40 @@ describe('settings route', () => {
     const before = fs.readFileSync(file, 'utf8')
 
     expect((await patch(app, { logs: { keep: 99 } })).status).toBe(400)
+    expect(fs.readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  it('writes the DDNS block through the same PATCH, replacing its lists', async () => {
+    const { app, store } = await makeApp()
+
+    const first = await patch(app, {
+      ddns: {
+        enabled: true,
+        accounts: [{ id: 'cf', provider: 'cloudflare' }, { id: 'nc', provider: 'namecheap' }],
+        domains: [
+          { host: 'a.example.com', account: 'cf', types: ['A'] },
+          { host: 'b.example.com', account: 'nc', types: ['A'] },
+        ],
+      },
+    })
+    expect(first.status).toBe(200)
+    expect(store.config.ddns.domains).toHaveLength(2)
+
+    // A patch merges the nested groups, but a list it sends is the whole list.
+    const second = await patch(app, { ddns: { domains: [{ host: 'a.example.com', account: 'cf', types: ['A'] }] } })
+    expect(second.status).toBe(200)
+    expect(store.config.ddns.domains.map(domain => domain.host)).toEqual(['a.example.com'])
+    expect(store.config.ddns.accounts.map(account => account.id)).toEqual(['cf', 'nc'])
+    expect(store.config.ddns.enabled).toBe(true)
+  })
+
+  it('refuses a DDNS block whose hostnames point at nothing', async () => {
+    const { app, file } = await makeApp()
+    const before = fs.readFileSync(file, 'utf8')
+
+    const response = await patch(app, { ddns: { accounts: [], domains: [{ host: 'a.example.com', account: 'ghost' }] } })
+    expect(response.status).toBe(400)
+    expect((await response.json() as { code?: string }).code).toBe('INVALID_SETTINGS')
     expect(fs.readFileSync(file, 'utf8')).toBe(before)
   })
 

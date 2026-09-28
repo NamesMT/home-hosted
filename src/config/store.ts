@@ -4,6 +4,7 @@ import type {
   BackupsConfig,
   ControlConfig,
   DdnsConfig,
+  DdnsPatch,
   HostConfig,
   LogsConfig,
   NotificationsConfig,
@@ -15,7 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
 import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
-import { parseConfig, stampConfig } from '#src/config/parse'
+import { parseConfig, parseTolerant, stampConfig } from '#src/config/parse'
 import {
   backupsSchema,
   configSchema,
@@ -31,11 +32,14 @@ import {
 import { SEED_CONFIG } from '#src/config/seed'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { configSchemaPath } from '#src/helpers/paths'
+import { validateDdnsConfig } from '#src/providers/ddns'
 
 /** Nested groups a patch merges into instead of replacing. */
 const SERVER_MERGE_KEYS = new Set(['restart', 'health', 'stop'])
 const CONTROL_MERGE_KEYS = new Set(['auth', 'tls'])
 const NOTIFICATION_MERGE_KEYS = new Set(['telegram'])
+/** The DDNS lists are replaced; only its two IP-family groups merge. */
+const DDNS_MERGE_KEYS = new Set(['ipv4', 'ipv6'])
 const EMPTY_MERGE_KEYS = new Set<string>()
 
 export class ConfigError extends Error {
@@ -251,9 +255,7 @@ export class ConfigStore {
     draft.control = { ...(draft.control ?? {}) }
     applyPatch(draft.control, patch as Record<string, unknown>, CONTROL_MERGE_KEYS)
 
-    const control = controlSchema(draft.control)
-    if (control instanceof type.errors)
-      throw new ConfigError(`control: ${formatErrors(control)}`)
+    const control = this.parseGroup<ControlConfig>(controlSchema as unknown as (input: unknown) => unknown, draft.control, 'control')
 
     this.commit(draft)
     return control
@@ -264,9 +266,7 @@ export class ConfigStore {
     draft.logs = { ...(draft.logs ?? {}) }
     applyPatch(draft.logs, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
 
-    const logs = logsSchema(draft.logs)
-    if (logs instanceof type.errors)
-      throw new ConfigError(`logs: ${formatErrors(logs)}`)
+    const logs = this.parseGroup<LogsConfig>(logsSchema as unknown as (input: unknown) => unknown, draft.logs, 'logs')
 
     this.commit(draft)
     return logs
@@ -277,9 +277,7 @@ export class ConfigStore {
     draft.notifications = { ...(draft.notifications ?? {}) }
     applyPatch(draft.notifications, patch as Record<string, unknown>, NOTIFICATION_MERGE_KEYS)
 
-    const notifications = notificationsSchema(draft.notifications)
-    if (notifications instanceof type.errors)
-      throw new ConfigError(`notifications: ${formatErrors(notifications)}`)
+    const notifications = this.parseGroup<NotificationsConfig>(notificationsSchema as unknown as (input: unknown) => unknown, draft.notifications, 'notifications')
 
     this.commit(draft)
     return notifications
@@ -290,9 +288,7 @@ export class ConfigStore {
     draft.host = { ...(draft.host ?? {}) }
     applyPatch(draft.host, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
 
-    const host = hostSchema(draft.host)
-    if (host instanceof type.errors)
-      throw new ConfigError(`host: ${formatErrors(host)}`)
+    const host = this.parseGroup<HostConfig>(hostSchema as unknown as (input: unknown) => unknown, draft.host, 'host')
 
     this.commit(draft)
     return host
@@ -303,25 +299,28 @@ export class ConfigStore {
     draft.backups = { ...(draft.backups ?? {}) }
     applyPatch(draft.backups, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
 
-    const backups = backupsSchema(draft.backups)
-    if (backups instanceof type.errors)
-      throw new ConfigError(`backups: ${formatErrors(backups)}`)
+    const backups = this.parseGroup<BackupsConfig>(backupsSchema as unknown as (input: unknown) => unknown, draft.backups, 'backups')
 
     this.commit(draft)
     return backups
   }
 
   /**
-   * The DDNS block is replaced as a whole: its accounts and domains are lists,
-   * and a key-by-key merge would leave a removed account or hostname behind.
+   * The DDNS block merges its two nested groups and **replaces** `accounts` and
+   * `domains`: those are lists, and a key-by-key merge cannot express removing a
+   * hostname. A whole-block patch (the `PUT /api/ddns` route) lands the same way.
    */
-  updateDdns(config: DdnsConfig): DdnsConfig {
-    const parsed = ddnsConfigSchema(config)
-    if (parsed instanceof type.errors)
-      throw new ConfigError(`ddns: ${formatErrors(parsed)}`)
-
+  updateDdns(patch: DdnsPatch): DdnsConfig {
     const draft = structuredClone(this.raw)
-    draft.ddns = parsed as unknown as Record<string, unknown>
+    draft.ddns = { ...(draft.ddns ?? {}) }
+    applyPatch(draft.ddns, patch as Record<string, unknown>, DDNS_MERGE_KEYS)
+
+    const parsed = this.parseGroup<DdnsConfig>(ddnsConfigSchema as unknown as (input: unknown) => unknown, draft.ddns, 'ddns')
+
+    const problems = validateDdnsConfig(parsed)
+    if (problems.length > 0)
+      throw new ConfigError(`ddns: ${problems.join('; ')}`)
+
     this.commit(draft)
     return parsed
   }
@@ -331,9 +330,7 @@ export class ConfigStore {
     draft.defaults = { ...(draft.defaults ?? {}) }
     applyPatch(draft.defaults, patch as Record<string, unknown>, SERVER_MERGE_KEYS)
 
-    const defaults = defaultsSchema(draft.defaults)
-    if (defaults instanceof type.errors)
-      throw new ConfigError(`defaults: ${formatErrors(defaults)}`)
+    const defaults = this.parseGroup<ServerDefaults>(defaultsSchema as unknown as (input: unknown) => unknown, draft.defaults, 'defaults')
 
     this.commit(draft)
     return defaults
@@ -368,6 +365,18 @@ export class ConfigStore {
     const current = fs.existsSync(configSchemaPath) ? fs.readFileSync(configSchemaPath, 'utf8') : null
     if (current !== schema)
       writeFileAtomic(configSchemaPath, schema)
+  }
+
+  /**
+   * Validates one group the way the reader does: a key this release does not know
+   * is reported and skipped, never fatal. Without this, a config carrying a key a
+   * newer release added — or an older one removed — could not be saved at all.
+   */
+  private parseGroup<T>(schema: (input: unknown) => unknown, value: Record<string, unknown>, label: string): T {
+    const parsed = parseTolerant(value, schema, label, [])
+    if (parsed.error !== null)
+      throw new ConfigError(`${label}: ${parsed.error}`)
+    return parsed.value as T
   }
 
   private validateServer(entry: Record<string, unknown>, label: string): ServerConfig {

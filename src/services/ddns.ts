@@ -260,7 +260,7 @@ export class DdnsService {
       this.persisted.updatedAt = this.lastRunAt
       this.writeState()
       this.lastResult = this.describe(changed, unchanged, failed, skipped)
-      this.announce(config, { changed, failed })
+      this.announce({ changed, failed })
     }
 
     return this.view
@@ -290,8 +290,8 @@ export class DdnsService {
   }
 
   /** One message per pass, so a flapping provider cannot flood the chat. */
-  private announce(config: DdnsConfig, counts: { changed: number, failed: number }): void {
-    if (!config.notify || (counts.changed === 0 && counts.failed === 0))
+  private announce(counts: { changed: number, failed: number }): void {
+    if (counts.changed === 0 && counts.failed === 0)
       return
     if (counts.failed > 0) {
       this.deps.notifications.notify({

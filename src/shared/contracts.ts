@@ -278,8 +278,6 @@ export const ddnsConfigSchema = type({
   ttl: 'number.integer >= 1 = 1',
   /** Default proxy flag, where the provider has one (Cloudflare). */
   proxied: 'boolean = false',
-  /** Tell Telegram about a change, and about an update that failed. */
-  notify: 'boolean = true',
   accounts: ddnsAccountSchema.array().default(() => []),
   domains: ddnsDomainSchema.array().default(() => []),
 }).onUndeclaredKey('reject')
@@ -355,6 +353,23 @@ export const ddnsCredentialsSchema = type({
   credentials: type('Record<string, string>'),
 }).onUndeclaredKey('reject')
 export type DdnsCredentials = typeof ddnsCredentialsSchema.infer
+
+/**
+ * The DDNS block as a patch: no defaults, and `accounts`/`domains` are lists a
+ * patch **replaces** — a key-by-key merge cannot express removing a hostname.
+ * `ipv4`/`ipv6` still merge, so a patch may decide just one of their members.
+ */
+export const ddnsPatchSchema = type({
+  enabled: 'boolean?',
+  intervalMs: 'number >= 60000?',
+  ipv4: type({ enabled: 'boolean?', url: 'string?' }).onUndeclaredKey('reject').optional(),
+  ipv6: type({ enabled: 'boolean?', url: 'string?' }).onUndeclaredKey('reject').optional(),
+  ttl: 'number.integer >= 1?',
+  proxied: 'boolean?',
+  accounts: ddnsAccountSchema.array().optional(),
+  domains: ddnsDomainSchema.array().optional(),
+}).onUndeclaredKey('reject')
+export type DdnsPatch = typeof ddnsPatchSchema.infer
 
 /** Tar archives of config, secrets, TLS and declared data paths. */
 export const backupsSchema = type({
@@ -593,6 +608,8 @@ export const settingsPatchSchema = type({
   notifications: notificationsPatchSchema.optional(),
   host: hostPatchSchema.optional(),
   backups: backupsPatchSchema.optional(),
+  /** Replaces the DDNS lists; see `ddnsPatchSchema`. */
+  ddns: ddnsPatchSchema.optional(),
 }).onUndeclaredKey('reject')
 export type SettingsPatch = typeof settingsPatchSchema.infer
 

@@ -77,7 +77,7 @@ function deleteAtPath(root: Record<string, unknown>, path: readonly (string | nu
  * Only unrecognized keys are dropped, and each one is reported. Anything else is
  * a real problem, returned for the caller to refuse on.
  */
-function parseTolerant(
+export function parseTolerant(
   value: unknown,
   schema: Validator,
   prefix: string,

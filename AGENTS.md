@@ -150,7 +150,9 @@ a minor without one.
   envelope `{ message, code, detail }`. Never hand-roll `c.json({ error })`.
 - Document routes with `describeRoute` + `jsonBody(schema)`; `jsonBody` needs a real schema.
 - Patch schemas carry no defaults; nested groups (`restart`/`health`/`stop`/`auth`/`tls`/`telegram`/
-  `http`) merge key-by-key, and an explicit `null` clears a key.
+  `http`) merge key-by-key, and an explicit `null` clears a key. `ddns` is the exception: its
+  `accounts`/`domains` lists are **replaced** (a merge cannot express removing a hostname), and only
+  `ipv4`/`ipv6` merge.
 - Two-sided bounds read inclusively (`'1 <= number.integer <= 512'`). `test/shared/contracts.test.ts`
   pins every boundary and the patch/schema parity — update it with any schema change.
 - A new field in a **response** DTO is optional (`'x?'`) and its clients read it defensively. An
@@ -201,6 +203,9 @@ either is a last resort, and never an accidental one.
 - **Unknown keys are dropped from the resolved config, kept on disk, and listed in a startup
   warning.** Dropping one is the normal way a newer config looks here, so it must never fail the
   group it sits in (that used to reset `control` — port, bind, auth policy — to schema defaults).
+  A *write* to a group validates the same tolerant way (`parseTolerant` via the store), so a key this
+  release does not know never blocks a save — removing a key from a schema must not brick the page
+  that writes it.
 - **Migrations ship inside the package** (`src/config/migrations.ts`), are ordered, idempotent and
   described in one line each. `home-hosted migrate` prints the plan, keeps `servers.config.json.bak`,
   refuses to write a config it cannot read, and needs consent: `--yes`, `HHOSTED_MIGRATE=allow`, or a

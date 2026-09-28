@@ -517,7 +517,7 @@ describe('dynamic DNS config', () => {
     const store = new ConfigStore(file)
     store.load()
 
-    expect(store.config.ddns).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1, proxied: false, notify: true })
+    expect(store.config.ddns).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1, proxied: false })
     expect(store.config.ddns.ipv4.enabled).toBe(true)
     expect(store.config.ddns.ipv6.enabled).toBe(false)
     expect(store.config.ddns.accounts).toEqual([])
@@ -556,6 +556,53 @@ describe('dynamic DNS config', () => {
 
     expect(() => store.updateDdns({ enabled: true, intervalMs: 10 } as never)).toThrow(ConfigError)
     expect(await fs.promises.readFile(file, 'utf8')).toBe(before)
+  })
+
+  it('still saves a block that carries a key this release does not know', async () => {
+    // `notify` was removed from the schema after 0.6.7 wrote it; a save must not
+    // fail on it, and the key stays on disk the way every unknown key does.
+    const file = await writeConfig({
+      ddns: {
+        enabled: true,
+        notify: false,
+        accounts: [{ id: 'cf', provider: 'cloudflare' }],
+        domains: [{ host: 'a.example.com', account: 'cf' }],
+      },
+      servers: [],
+    })
+    const store = new ConfigStore(file)
+    store.load()
+
+    expect(store.configWarnings.join(' ')).toContain('ddns.notify')
+    expect(store.config.ddns).not.toHaveProperty('notify')
+
+    store.updateDdns({ enabled: false })
+    expect(store.config.ddns.enabled).toBe(false)
+
+    const written = JSON.parse(await fs.promises.readFile(file, 'utf8'))
+    expect(written.ddns.notify).toBe(false)
+    expect(written.ddns.accounts).toHaveLength(1)
+  })
+})
+
+describe('unknown keys in a group', () => {
+  it('do not stop any settings write', async () => {
+    const file = await writeConfig({
+      control: { port: 3999, fromANewerRelease: true },
+      logs: { keep: 3, futureKnob: 'x' },
+      servers: [],
+    })
+    const store = new ConfigStore(file)
+    store.load()
+
+    expect(() => store.updateLogs({ keep: 5 })).not.toThrow()
+    expect(() => store.updateControl({ openBrowser: true })).not.toThrow()
+    expect(store.config.logs.keep).toBe(5)
+    expect(store.config.control.openBrowser).toBe(true)
+
+    const written = JSON.parse(await fs.promises.readFile(file, 'utf8'))
+    expect(written.control.fromANewerRelease).toBe(true)
+    expect(written.logs.futureKnob).toBe('x')
   })
 })
 

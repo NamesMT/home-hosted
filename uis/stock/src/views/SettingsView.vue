@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import type { SettingsPatch } from '@shared/contracts'
+import type { DdnsConfig, SettingsPatch } from '@shared/contracts'
 import type { FormBlock, FormSnapshots, SettingsForm } from '@/components/settings/settingsForm'
 import type { SettingsView } from '@/lib/api'
+import type { DraftConfig } from '@/lib/ddns'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -77,6 +78,15 @@ const configLoadError = ref<string | null>(null)
 /** The panel's own config file (`/api/settings`), for blocks it does not serve live. */
 const settingsConfig = ref<SettingsView | null>(null)
 
+/**
+ * The DDNS section owns its own draft (its accounts and hostnames are lists), and
+ * publishes what it would write plus the block it started from. Both feed the one
+ * Save at the bottom of this page, so the section needs no button of its own.
+ */
+const ddnsPatch = ref<DdnsConfig | null>(null)
+const ddnsBaseline = ref<DraftConfig | null>(null)
+const ddnsSection = ref<{ reload: () => Promise<void> } | null>(null)
+
 const controlView = computed(() => control.control.value)
 const defaultsView = computed(() => control.defaults.value)
 const logsConfig = computed(() => control.logsConfig.value)
@@ -133,6 +143,9 @@ const patch = computed<SettingsPatch>(() => {
     if (Object.keys(backupsDiff).length > 0)
       out.backups = backupsDiff as SettingsPatch['backups']
   }
+  // Only the fields that changed, computed against the block the section started from.
+  if (ddnsPatch.value !== null)
+    out.ddns = ddnsPatch.value
   return out
 })
 
@@ -151,6 +164,7 @@ const currentSnapshot = computed<Record<string, unknown>>(() => {
     notifications: telegram === null ? {} : { telegram: telegramBaseline(telegram) },
     host: host ?? {},
     backups: backups === null ? {} : { enabled: backups.enabled, keep: backups.keep, includePaths: backups.includePaths },
+    ddns: ddnsBaseline.value ?? {},
   }
 })
 
@@ -271,6 +285,7 @@ async function save(): Promise<void> {
     // again — including the ones this save just brought back in sync.
     forgetSnapshots()
     syncFromLive()
+    await ddnsSection.value?.reload()
 
     const failure = await followRebinding(result)
     if (failure !== null) {
@@ -535,7 +550,11 @@ onBeforeUnmount(() => observer?.disconnect())
                 Keep hostnames pointed at this machine's public address, whichever registrar holds them.
               </p>
             </header>
-            <DdnsSection />
+            <DdnsSection
+              ref="ddnsSection"
+              v-model:patch="ddnsPatch"
+              v-model:baseline="ddnsBaseline"
+            />
           </section>
 
           <section id="host" class="scroll-mt-5">

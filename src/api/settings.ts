@@ -78,6 +78,8 @@ export function createSettingsRoute(deps: AppDeps) {
           deps.store.updateHost(patch.host)
         if (patch.backups !== undefined)
           deps.store.updateBackups(patch.backups)
+        if (patch.ddns !== undefined)
+          deps.store.updateDdns(patch.ddns)
         if (patch.control !== undefined)
           deps.store.updateControl(patch.control)
       }
@@ -86,6 +88,10 @@ export function createSettingsRoute(deps: AppDeps) {
           throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_SETTINGS' })
         throw error
       }
+
+      // An edit to the DDNS block is a reason to look again now, not next interval.
+      if (patch.ddns !== undefined)
+        deps.ddns.refresh()
 
       const next = deps.store.config.control
       const endpointChanged = next.host !== deps.controlServer.endpoint.host || next.port !== deps.controlServer.endpoint.port

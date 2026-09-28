@@ -362,7 +362,7 @@ describe('dynamic DNS schema', () => {
 
   it('defaults every new block, and keeps IPv6 off until asked for', () => {
     const parsed = unwrap(ddnsConfigSchema({}))
-    expect(parsed).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1, proxied: false, notify: true })
+    expect(parsed).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1, proxied: false })
     expect(parsed.ipv4).toEqual({ enabled: true, url: '' })
     expect(parsed.ipv6).toEqual({ enabled: false, url: '' })
     expect(parsed.accounts).toEqual([])
