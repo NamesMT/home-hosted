@@ -80,7 +80,7 @@ function toggleType(domain: DraftDomain, recordType: DdnsRecordType, on: boolean
 }
 
 /** Optional fields are cleared by removing the key, which the schema reads as "inherit". */
-function setOptional(target: DraftDomain, key: 'zone' | 'ttl' | 'proxied', value: string | number | boolean | null | undefined): void {
+function setOptional(target: DraftDomain, key: 'zone' | 'ttl', value: string | number | null | undefined): void {
   if (value === undefined || value === null || value === '')
     delete target[key]
   else
@@ -146,7 +146,7 @@ function removeAccount(account: DraftAccount): void {
 function addDomain(): void {
   if (!canAddDomain.value || draft.value === null)
     return
-  draft.value.domains.push({ host: newDomain.host.trim().toLowerCase(), account: newDomain.account, types: ['A'], enabled: true, key: newDraftDomainKey() })
+  draft.value.domains.push({ host: newDomain.host.trim().toLowerCase(), account: newDomain.account, types: ['A'], proxied: false, enabled: true, key: newDraftDomainKey() })
   newDomain.host = ''
 }
 
@@ -269,10 +269,6 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
         <label class="field field--check">
           <input v-model="draft.ipv6.enabled" type="checkbox">
           <span class="field__label">detect IPv6 (AAAA records)</span>
-        </label>
-        <label class="field field--check">
-          <input v-model="draft.proxied" type="checkbox">
-          <span class="field__label">proxied (Cloudflare)</span>
         </label>
       </div>
       <div class="actions actions--start" style="margin-top: 0.6rem">
@@ -424,6 +420,10 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
               <span class="field__label">AAAA (IPv6)</span>
             </label>
             <span v-if="accountProvider(domain)?.families.includes('AAAA') === false" class="field__hint">this provider cannot manage AAAA records</span>
+            <label v-if="accountProvider(domain)?.proxied === true" class="field field--check" style="padding-top: 0">
+              <input v-model="domain.proxied" type="checkbox">
+              <span class="field__label">proxied (Cloudflare)</span>
+            </label>
             <span v-if="domain.types.includes('AAAA') && !draft.ipv6.enabled" class="chip chip--warn">IPv6 detection is off</span>
           </div>
 
@@ -440,17 +440,6 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
                 min="1"
                 @input="setOptional(domain, 'ttl', ($event.target as HTMLInputElement).value === '' ? undefined : Number(($event.target as HTMLInputElement).value))"
               >
-            </label>
-            <label v-if="accountProvider(domain)?.proxied === true" class="field">
-              <span class="field__label">proxy</span>
-              <select
-                :value="domain.proxied === undefined ? '' : String(domain.proxied)"
-                @change="setOptional(domain, 'proxied', ($event.target as HTMLSelectElement).value === '' ? undefined : ($event.target as HTMLSelectElement).value === 'true')"
-              >
-                <option value="">use the default</option>
-                <option value="true">proxied</option>
-                <option value="false">DNS only</option>
-              </select>
             </label>
           </div>
         </div>

@@ -517,7 +517,7 @@ describe('dynamic DNS config', () => {
     const store = new ConfigStore(file)
     store.load()
 
-    expect(store.config.ddns).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1, proxied: false })
+    expect(store.config.ddns).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1 })
     expect(store.config.ddns.ipv4.enabled).toBe(true)
     expect(store.config.ddns.ipv6.enabled).toBe(false)
     expect(store.config.ddns.accounts).toEqual([])
@@ -540,7 +540,7 @@ describe('dynamic DNS config', () => {
 
     store.updateDdns({
       ...store.config.ddns,
-      domains: [{ host: 'a.example.com', account: 'cf', types: ['A'], enabled: true }],
+      domains: [{ host: 'a.example.com', account: 'cf', types: ['A'], proxied: false, enabled: true }],
     })
 
     expect(store.config.ddns.domains.map(domain => domain.host)).toEqual(['a.example.com'])

@@ -244,8 +244,8 @@ export const ddnsDomainSchema = type({
   zone: 'string?',
   /** Seconds; `1` means "automatic" where the provider supports it. */
   ttl: 'number.integer >= 1?',
-  /** Cloudflare only. */
-  proxied: 'boolean?',
+  /** Proxying is a property of the record, not the panel: Cloudflare only. */
+  proxied: 'boolean = false',
   enabled: 'boolean = true',
 }).onUndeclaredKey('reject')
 export type DdnsDomain = typeof ddnsDomainSchema.infer
@@ -276,8 +276,6 @@ export const ddnsConfigSchema = type({
   ipv6: ddnsIpv6Schema.default(() => ({})),
   /** Default TTL for the records that accept one. */
   ttl: 'number.integer >= 1 = 1',
-  /** Default proxy flag, where the provider has one (Cloudflare). */
-  proxied: 'boolean = false',
   accounts: ddnsAccountSchema.array().default(() => []),
   domains: ddnsDomainSchema.array().default(() => []),
 }).onUndeclaredKey('reject')
@@ -365,7 +363,6 @@ export const ddnsPatchSchema = type({
   ipv4: type({ enabled: 'boolean?', url: 'string?' }).onUndeclaredKey('reject').optional(),
   ipv6: type({ enabled: 'boolean?', url: 'string?' }).onUndeclaredKey('reject').optional(),
   ttl: 'number.integer >= 1?',
-  proxied: 'boolean?',
   accounts: ddnsAccountSchema.array().optional(),
   domains: ddnsDomainSchema.array().optional(),
 }).onUndeclaredKey('reject')

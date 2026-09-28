@@ -227,7 +227,7 @@ export class DdnsService {
             type,
             ip: address,
             ttl: domain.ttl ?? config.ttl,
-            proxied: domain.proxied ?? config.proxied,
+            proxied: domain.proxied,
             ...(domain.zone === undefined ? {} : { zone: domain.zone }),
             ...(cache === undefined ? {} : { cache: { ...(cache.zoneId === undefined ? {} : { zoneId: cache.zoneId }), ...(cache.recordId === undefined ? {} : { recordId: cache.recordId }) } }),
           }

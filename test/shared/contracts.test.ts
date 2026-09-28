@@ -365,16 +365,18 @@ describe('dynamic DNS schema', () => {
 
   it('defaults every new block, and keeps IPv6 off until asked for', () => {
     const parsed = unwrap(ddnsConfigSchema({}))
-    expect(parsed).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1, proxied: false })
+    expect(parsed).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1 })
     expect(parsed.ipv4).toEqual({ enabled: true, url: '' })
     expect(parsed.ipv6).toEqual({ enabled: false, url: '' })
     expect(parsed.accounts).toEqual([])
     expect(parsed.domains).toEqual([])
   })
 
-  it('defaults a hostname to an A record', () => {
+  it('defaults a hostname to an A record, not proxied', () => {
     const parsed = unwrap(ddnsConfigSchema({ accounts: [{ id: 'cf', provider: 'cloudflare' }], domains: [{ host: 'home.example.com', account: 'cf' }] }))
-    expect(parsed.domains[0]).toMatchObject({ types: ['A'], enabled: true })
+    // Proxying belongs to the record, so there is no panel-wide default for it.
+    expect(parsed.domains[0]).toMatchObject({ types: ['A'], enabled: true, proxied: false })
+    expect(parsed).not.toHaveProperty('proxied')
   })
 
   it('rejects a hostname that is not one, and an unknown record family', () => {

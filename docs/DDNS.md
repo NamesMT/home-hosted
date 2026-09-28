@@ -16,7 +16,6 @@ button saves on its own, being a secret. Provider credentials never enter `serve
     "ipv4": { "enabled": true, "url": "" },
     "ipv6": { "enabled": false, "url": "" },
     "ttl": 1,
-    "proxied": false,
     "accounts": [
       { "id": "cf", "provider": "cloudflare", "label": "Home zone" }
     ],
@@ -43,9 +42,8 @@ Header fields:
 | `ipv4` / `ipv6` | on / off | Which families to detect. A family must be on for its record types. |
 | `ipv4.url` / `ipv6.url` | `""` | Override the detector with one endpoint. |
 | `ttl` | `1` | Default record TTL; `1` is automatic where supported. |
-| `proxied` | `false` | Default for providers with a CDN flag (Cloudflare). |
 | `accounts[]` | — | `id` (names the account and keys its credentials) and `provider`. A `label` from an earlier release is still read, and no longer shown. |
-| `domains[]` | — | `host`, `account`, `types` (`A`/`AAAA`, default `A`), optional `ttl`, `proxied`, `zone`, `enabled`. |
+| `domains[]` | — | `host`, `account`, `types` (`A`/`AAAA`, default `A`), `proxied` (default off; Cloudflare only), optional `ttl`, `zone`, `enabled`. |
 
 Per-hostname `zone` pins the registered domain — only needed where a provider has to be told the apex
 and the guess is wrong (`home.example.co.uk` is handled; an unusual suffix may not be).

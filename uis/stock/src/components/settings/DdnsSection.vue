@@ -104,7 +104,7 @@ function toggleType(domain: DraftDomain, recordType: DdnsRecordType, on: boolean
 }
 
 /** Optional fields are cleared by removing the key, which the schema reads as "inherit". */
-function setOptional(target: DraftDomain, key: 'zone' | 'ttl' | 'proxied', value: string | number | boolean | null | undefined): void {
+function setOptional(target: DraftDomain, key: 'zone' | 'ttl', value: string | number | null | undefined): void {
   if (value === undefined || value === null || value === '')
     delete target[key]
   else
@@ -168,7 +168,7 @@ function removeAccount(account: DraftAccount): void {
 function addDomain(): void {
   if (!canAddDomain.value || draft.value === null)
     return
-  draft.value.domains.push({ host: newDomain.host.trim().toLowerCase(), account: newDomain.account, types: ['A'], enabled: true, key: newDraftDomainKey() })
+  draft.value.domains.push({ host: newDomain.host.trim().toLowerCase(), account: newDomain.account, types: ['A'], proxied: false, enabled: true, key: newDraftDomainKey() })
   newDomain.host = ''
 }
 
@@ -286,7 +286,6 @@ defineExpose({ reload: load })
         <NumberField v-model="draft.ttl" label="TTL (s)" :min="1" hint="1 means automatic where the provider supports it." />
         <ToggleSwitch v-model="draft.ipv4.enabled" label="Detect IPv4" hint="Needed for A records." />
         <ToggleSwitch v-model="draft.ipv6.enabled" label="Detect IPv6" hint="Needed for AAAA records." />
-        <ToggleSwitch v-model="draft.proxied" label="Proxy through Cloudflare" hint="Cloudflare only; a proxied record always uses automatic TTL." />
       </FieldGroup>
 
       <Notice v-if="actionError" tone="danger">
@@ -387,12 +386,18 @@ defineExpose({ reload: load })
                 :hint="accountProvider(domain)?.families.includes('AAAA') === false ? 'This provider cannot manage AAAA records.' : undefined"
                 @update:model-value="value => toggleType(domain, 'AAAA', value === true)"
               />
+              <CheckField
+                v-if="accountProvider(domain)?.proxied === true"
+                v-model="domain.proxied"
+                label="Proxied"
+                hint="Cloudflare serves this record through its own network."
+              />
               <ToneBadge v-if="domain.types.includes('AAAA') && !draft.ipv6.enabled" tone="warn">
                 IPv6 detection is off
               </ToneBadge>
             </div>
 
-            <Disclosure title="Advanced" hint="registered domain, TTL and proxy overrides" class="mt-2">
+            <Disclosure title="Advanced" hint="registered domain and TTL override" class="mt-2">
               <TextField
                 :model-value="domain.zone ?? ''"
                 label="Registered domain"
@@ -408,17 +413,6 @@ defineExpose({ reload: load })
                 label="TTL override (s)"
                 hint="Blank uses the value above."
                 @update:model-value="value => setOptional(domain, 'ttl', value)"
-              />
-              <SelectField
-                v-if="accountProvider(domain)?.proxied === true"
-                :model-value="domain.proxied === undefined ? '' : String(domain.proxied)"
-                label="Proxy"
-                :options="[
-                  { value: '', label: 'Use the default' },
-                  { value: 'true', label: 'Proxied' },
-                  { value: 'false', label: 'DNS only' },
-                ]"
-                @update:model-value="value => setOptional(domain, 'proxied', value === '' ? undefined : value === 'true')"
               />
             </Disclosure>
           </li>
