@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.6.7
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.6...v0.6.7)
+
+### 🚀 Enhancements
+
+- **ddns:** Keep hostnames pointed at this machine's public IP ([a854102](https://github.com/NamesMT/home-hosted/commit/a854102))
+
+### 🩹 Fixes
+
+- **logs:** Stop losing a persistent entry's output ([48995c5](https://github.com/NamesMT/home-hosted/commit/48995c5))
+
+### 📖 Documentation
+
+- Say what start/stop actually touch ([49d3038](https://github.com/NamesMT/home-hosted/commit/49d3038))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.6.6
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.5...v0.6.6)
