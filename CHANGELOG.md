@@ -1,6 +1,24 @@
 # Changelog
 
 
+## v0.6.8
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.7...v0.6.8)
+
+### 🚀 Enhancements
+
+- **backups:** Pick what a backup captures, and restore from a dialog ([b8584ca](https://github.com/NamesMT/home-hosted/commit/b8584ca))
+
+### 🩹 Fixes
+
+- **ddns:** Store credentials for an account that is not saved yet ([596506c](https://github.com/NamesMT/home-hosted/commit/596506c))
+- **ddns:** One Save for the page, and the hostname caret stays put ([0d45b03](https://github.com/NamesMT/home-hosted/commit/0d45b03))
+- **ddns:** Proxying is a per-hostname choice ([b90917c](https://github.com/NamesMT/home-hosted/commit/b90917c))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.6.7
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.6...v0.6.7)
