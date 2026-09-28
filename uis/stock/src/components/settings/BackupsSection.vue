@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type { BackupsConfig, BackupsView } from '@shared/contracts'
 import type { BackupsForm } from '@/components/settings/settingsForm'
-import type { RestorePlan } from '@/lib/api'
 import { Archive, Download, RotateCcw } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
+import BackupDialog from '@/components/settings/BackupDialog.vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
+import RestoreDialog from '@/components/settings/RestoreDialog.vue'
 import { numberModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
-import CheckField from '@/components/ui/CheckField.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
@@ -21,7 +21,7 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatDateTime } from '@/lib/format'
-import { focusRing, inputClass, labelClass } from '@/lib/ui'
+import { focusRing } from '@/lib/ui'
 
 const props = defineProps<{
   state: BackupsView | null
@@ -42,53 +42,35 @@ const keep = numberModel(() => form.value.keep, value => (form.value.keep = valu
 const busy = ref(false)
 const message = ref<string | null>(null)
 const error = ref<string | null>(null)
-/** Optional: encrypts the next archive. Never stored anywhere. */
-const backupPassword = ref('')
-const restorePlan = ref<RestorePlan | null>(null)
-const restoreFile = ref<File | null>(null)
-const restorePassword = ref('')
-/** What the shown plan refers to, so "apply" cannot target the wrong archive. */
-const restoreTarget = ref<{ kind: 'stored', name: string } | { kind: 'upload' } | null>(null)
+const createOpen = ref(false)
+const restoreOpen = ref(false)
+/** Which archive the restore dialog starts on; `null` lets it pick. */
+const restoreSource = ref<{ kind: 'stored', name: string } | null>(null)
 
 const files = computed(() => props.state?.files ?? [])
 const paths = computed(() => props.state?.paths ?? [])
-const selectedCount = computed(() => restorePlan.value?.items.filter(item => item.selected).length ?? 0)
-const restoringConfig = computed(() => restorePlan.value?.items.some(item => item.id === 'config' && item.selected) ?? false)
 
-const fileInput = cn(
-  inputClass,
-  'cursor-pointer text-xs',
-  'file:mr-2 file:cursor-pointer file:rounded-control file:border-0 file:bg-panel-2 file:px-2 file:py-1 file:text-xs file:text-ink',
-)
 const downloadClass = cn(
   'inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-line bg-raise px-2 text-2xs font-medium text-ink',
   'transition-colors duration-150 hover:bg-hover',
   focusRing,
 )
 
-function selectAllRestorable(selected: boolean): void {
-  for (const item of restorePlan.value?.items ?? []) {
-    if (item.restorable)
-      item.selected = selected
-  }
+function openRestore(name?: string): void {
+  restoreSource.value = name === undefined ? null : { kind: 'stored', name }
+  restoreOpen.value = true
 }
 
-async function runBackup(): Promise<void> {
-  busy.value = true
+function onCreated(result: string): void {
   error.value = null
-  message.value = null
-  try {
-    await api.createBackup(backupPassword.value)
-    backupPassword.value = ''
-    message.value = 'Backup created.'
-    await control.refresh()
-  }
-  catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    busy.value = false
-  }
+  message.value = result
+  void control.refresh()
+}
+
+function onRestored(result: string): void {
+  error.value = null
+  message.value = result
+  void control.refresh()
 }
 
 async function removeBackup(name: string): Promise<void> {
@@ -98,102 +80,6 @@ async function removeBackup(name: string): Promise<void> {
   try {
     await api.deleteBackup(name)
     message.value = `Deleted ${name}.`
-    await control.refresh()
-  }
-  catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    busy.value = false
-  }
-}
-
-function pickRestoreFile(event: Event): void {
-  restoreFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
-  restorePlan.value = null
-  restoreTarget.value = null
-  error.value = null
-  message.value = null
-}
-
-function restoreOptions(): api.RestoreOptions {
-  return restorePassword.value.length > 0 ? { password: restorePassword.value } : {}
-}
-
-/** `name` selects a stored archive; without it the picked upload is used. */
-async function planRestore(name?: string): Promise<void> {
-  busy.value = true
-  error.value = null
-  message.value = null
-  restorePlan.value = null
-  try {
-    if (name !== undefined) {
-      restoreTarget.value = { kind: 'stored', name }
-      restorePlan.value = await api.restoreStoredBackup(name, false, restoreOptions())
-    }
-    else if (restoreFile.value !== null) {
-      restoreTarget.value = { kind: 'upload' }
-      restorePlan.value = await api.restoreUploadedBackup(restoreFile.value, false, restoreOptions())
-    }
-    else {
-      restoreTarget.value = null
-    }
-
-    if (restorePlan.value === null)
-      error.value = 'Choose a stored backup or upload one first.'
-  }
-  catch (caught) {
-    restoreTarget.value = null
-    error.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    busy.value = false
-  }
-}
-
-/** Re-reads the same archive, now with whatever the password field holds. */
-async function replanRestore(): Promise<void> {
-  const target = restoreTarget.value
-  if (target === null)
-    return
-  await planRestore(target.kind === 'stored' ? target.name : undefined)
-}
-
-async function applyRestore(): Promise<void> {
-  const target = restoreTarget.value
-  const plan = restorePlan.value
-  if (target === null || plan === null) {
-    error.value = 'Check an archive first.'
-    return
-  }
-
-  busy.value = true
-  error.value = null
-  const options: api.RestoreOptions = {
-    ...restoreOptions(),
-    include: plan.items.filter(item => item.restorable && item.selected).map(item => item.id),
-  }
-
-  try {
-    const result = target.kind === 'stored'
-      ? await api.restoreStoredBackup(target.name, true, options)
-      : restoreFile.value !== null
-        ? await api.restoreUploadedBackup(restoreFile.value, true, options)
-        : null
-
-    restorePlan.value = null
-    restoreTarget.value = null
-    restoreFile.value = null
-    restorePassword.value = ''
-
-    const notes: string[] = []
-    if (result?.reloaded)
-      notes.push('the restored servers are live, autostart entries starting')
-    if (result?.restartRequired)
-      notes.push('restart the panel to apply its own settings')
-    message.value = result === null
-      ? 'The restore failed.'
-      : `Restored ${result.applied.length} item(s)${notes.length === 0 ? '' : ` — ${notes.join('; ')}`}.`
     await control.refresh()
   }
   catch (caught) {
@@ -244,7 +130,7 @@ async function applyRestore(): Promise<void> {
       </div>
     </FieldGroup>
 
-    <FieldGroup title="Declared paths" description="Config, secrets and TLS are always captured. A path already covered by a declared parent is skipped.">
+    <FieldGroup title="Declared paths" description="Config, secrets and TLS are captured unless a backup leaves them out. A path already covered by a declared parent is skipped.">
       <div v-if="props.state === null" class="space-y-2 sm:col-span-2">
         <Skeleton class="h-4 w-full" />
       </div>
@@ -271,22 +157,22 @@ async function applyRestore(): Promise<void> {
       </ul>
     </FieldGroup>
 
-    <FieldGroup v-if="form.enabled" title="Create a backup now" description="Optional password encrypts the archive; restoring it will ask for the same password.">
-      <TextField
-        v-model="backupPassword"
-        type="password"
-        autocomplete="new-password"
-        label="Password (optional)"
-        wide
-      />
-      <div class="sm:col-span-2">
-        <AppButton variant="primary" :disabled="busy" :loading="busy" @click="runBackup">
-          Create backup now
-        </AppButton>
-      </div>
-    </FieldGroup>
-
     <FieldGroup title="Archives" description="Stored in the backup directory and downloadable at any time.">
+      <template #actions>
+        <AppButton
+          v-if="form.enabled"
+          size="xs"
+          variant="primary"
+          :disabled="props.state === null"
+          @click="createOpen = true"
+        >
+          Create backup…
+        </AppButton>
+        <AppButton size="xs" variant="secondary" :disabled="props.state === null" @click="openRestore()">
+          Restore…
+        </AppButton>
+      </template>
+
       <div v-if="props.state === null" class="space-y-2 sm:col-span-2">
         <Skeleton class="h-4 w-full" />
         <Skeleton class="h-4 w-2/3" />
@@ -303,8 +189,8 @@ async function applyRestore(): Promise<void> {
             <Archive class="size-4" />
           </template>
           <template v-if="form.enabled" #action>
-            <AppButton size="sm" variant="primary" :disabled="busy" @click="runBackup">
-              Create backup now
+            <AppButton size="sm" variant="primary" @click="createOpen = true">
+              Create backup…
             </AppButton>
           </template>
         </EmptyState>
@@ -327,7 +213,7 @@ async function applyRestore(): Promise<void> {
               <Download class="size-3" aria-hidden="true" />
               Download
             </a>
-            <AppButton size="xs" variant="secondary" :disabled="busy" @click="planRestore(file.name)">
+            <AppButton size="xs" variant="secondary" @click="openRestore(file.name)">
               <RotateCcw class="size-3" aria-hidden="true" />
               Restore
             </AppButton>
@@ -343,96 +229,6 @@ async function applyRestore(): Promise<void> {
           </div>
         </li>
       </ul>
-    </FieldGroup>
-
-    <FieldGroup title="Restore" description="Nothing is written until the plan is applied.">
-      <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
-        <label :class="labelClass" for="restore-upload">Restore from an uploaded .zip</label>
-        <input id="restore-upload" type="file" accept=".zip,application/zip" :class="fileInput" @change="pickRestoreFile">
-        <p v-if="restoreFile" class="font-mono text-2xs text-muted">
-          {{ restoreFile.name }}
-        </p>
-      </div>
-      <div class="sm:col-span-2">
-        <AppButton variant="secondary" :disabled="busy || restoreFile === null" @click="planRestore()">
-          Check the upload
-        </AppButton>
-      </div>
-
-      <div v-if="restorePlan" class="sm:col-span-2">
-        <Notice tone="warn" :title="restorePlan.dryRun ? 'Nothing has changed yet' : 'Applied'">
-          <p>
-            <template v-if="restoreTarget?.kind === 'stored'">
-              Archive <code>{{ restoreTarget.name }}</code>.
-            </template>
-            <template v-else>
-              The uploaded archive.
-            </template>
-          </p>
-
-          <template v-if="restorePlan.needsPassword">
-            <p class="mt-2">
-              {{ restorePlan.error ?? 'This backup is password-protected.' }}
-            </p>
-            <div class="mt-2 max-w-sm">
-              <TextField v-model="restorePassword" type="password" autocomplete="off" label="Password" />
-            </div>
-            <div class="mt-2">
-              <AppButton size="sm" variant="secondary" :disabled="busy" @click="replanRestore">
-                Check again with the password
-              </AppButton>
-            </div>
-          </template>
-
-          <template v-else>
-            <p class="mt-2">
-              Choose what to restore — {{ selectedCount }} of {{ restorePlan.items.length }} selected.
-            </p>
-            <ul class="mt-1 max-h-64 space-y-0.5 overflow-auto">
-              <li v-for="item in restorePlan.items" :key="item.id">
-                <CheckField
-                  v-model="item.selected"
-                  :label="item.label"
-                  :hint="[item.kind, item.note].filter(Boolean).join(' · ')"
-                  :disabled="!item.restorable"
-                />
-              </li>
-            </ul>
-            <div class="mt-2 flex flex-wrap items-center gap-2">
-              <AppButton size="xs" variant="ghost" :disabled="busy" @click="selectAllRestorable(true)">
-                Select all
-              </AppButton>
-              <AppButton size="xs" variant="ghost" :disabled="busy" @click="selectAllRestorable(false)">
-                Select none
-              </AppButton>
-            </div>
-
-            <p class="mt-2">
-              Will restore: {{ restorePlan.applied.join(', ') || 'nothing' }}.
-              <template v-if="restorePlan.skipped.length">
-                Skipped: {{ restorePlan.skipped.join(', ') }}.
-              </template>
-              <template v-if="restorePlan.restartRequired">
-                The panel's own settings differ, so restart the panel afterwards.
-              </template>
-              <template v-else-if="restoringConfig">
-                Restored servers are reloaded immediately; entries marked autostart start on their own.
-              </template>
-            </p>
-            <div class="mt-2">
-              <AppButton
-                size="sm"
-                variant="danger"
-                :disabled="busy || selectedCount === 0"
-                :loading="busy"
-                @click="applyRestore"
-              >
-                {{ restoreTarget?.kind === 'stored' ? 'Apply this restore' : 'Restore the upload' }}
-              </AppButton>
-            </div>
-          </template>
-        </Notice>
-      </div>
 
       <div v-if="error || message" class="space-y-2 sm:col-span-2">
         <Notice v-if="error" tone="danger">
@@ -443,5 +239,8 @@ async function applyRestore(): Promise<void> {
         </Notice>
       </div>
     </FieldGroup>
+
+    <BackupDialog v-model:open="createOpen" :state="props.state" @created="onCreated" />
+    <RestoreDialog v-model:open="restoreOpen" :files="files" :initial="restoreSource" @applied="onRestored" />
   </div>
 </template>

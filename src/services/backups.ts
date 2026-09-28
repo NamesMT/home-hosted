@@ -309,12 +309,15 @@ export class BackupService {
   }
 
   /** `password` encrypts the archive; it is never stored anywhere. */
-  async create(options: { password?: string } = {}): Promise<{ ok: boolean, file?: BackupFile, error?: string }> {
+  async create(options: { password?: string, include?: string[] } = {}): Promise<{ ok: boolean, file?: BackupFile, error?: string }> {
     const config = this.options.getConfig()
     if (!config.enabled)
       return { ok: false, error: 'backups are disabled' }
 
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
+    // Omitted means everything; an id that names nothing is ignored, as on the restore side.
+    const wanted = options.include === undefined ? null : new Set(options.include)
+    const captures = (id: string): boolean => wanted === null || wanted.has(id)
 
     const dir = this.resolveDir()
     const sources = this.options.getSources()
@@ -326,19 +329,28 @@ export class BackupService {
 
     try {
       fs.mkdirSync(staging, { recursive: true })
-      this.copyInto(staging, 'config/servers.config.json', sources.configPath)
-      this.copyInto(staging, 'secrets/control-secrets.json', sources.secretsPath)
-      this.copyInto(staging, 'tls', sources.tlsDir)
+      if (captures('config'))
+        this.copyInto(staging, 'config/servers.config.json', sources.configPath)
+      if (captures('secrets'))
+        this.copyInto(staging, 'secrets/control-secrets.json', sources.secretsPath)
+      if (captures('tls'))
+        this.copyInto(staging, 'tls', sources.tlsDir)
 
       const data: BackupManifest['data'] = []
       for (const declared of this.paths) {
-        if (!declared.included || !fs.existsSync(declared.path))
+        if (!captures(`data:${declared.path}`) || !declared.included || !fs.existsSync(declared.path))
           continue
         const slug = slugifyPath(declared.path)
         if (data.some(entry => entry.slug === slug))
           continue
         this.copyInto(staging, path.join('data', slug), declared.path, declared.ignoreGenerated === true)
         data.push({ slug, path: declared.path, origin: declared.origin })
+      }
+
+      // A selection that captured nothing would only produce a manifest.
+      if (wanted !== null && fs.readdirSync(staging).length === 0) {
+        fs.rmSync(staging, { recursive: true, force: true })
+        return { ok: false, error: 'nothing was selected to back up' }
       }
 
       const manifest: BackupManifest = { version: 1, createdAt, hostname: os.hostname(), data }
@@ -488,14 +500,35 @@ export class BackupService {
       // instance restorable: the backup's own `servers.config.json` names its data
       // directories, so restoring the config restores the whole setup.
       const fromArchive = archiveTargets(restoredConfig)
-      const candidates: DeclaredTarget[] = [
-        // The restored config wins, because it is the one that will be live.
-        ...(actions.has('config') ? fromArchive : []),
-        ...this.paths.filter(entry => entry.included).map(entry => ({ path: entry.path, origin: entry.origin })),
-      ]
+      // The restored config wins, because it is the one that will be live.
+      const archiveCandidates = actions.has('config') ? fromArchive : []
+      const instanceCandidates: DeclaredTarget[] = this.paths
+        .filter(entry => entry.included)
+        .map(entry => ({ path: entry.path, origin: entry.origin }))
+      const candidates: DeclaredTarget[] = [...archiveCandidates, ...instanceCandidates]
+
+      // A `global` include path and a second `backupPaths` value share one origin, so an
+      // origin match alone would write both to the first candidate. Pair same-origin
+      // declarations by order instead — the archive wrote them in the same resolve order.
+      const cursors = { archive: new Map<string, number>(), instance: new Map<string, number>() }
+      const matchByOrigin = (
+        list: DeclaredTarget[],
+        cursor: Map<string, number>,
+        origin: string | undefined,
+      ): DeclaredTarget | undefined => {
+        if (origin === undefined)
+          return undefined
+        const same = list.filter(candidate => candidate.origin === origin)
+        if (same.length === 0)
+          return undefined
+        const used = cursor.get(origin) ?? 0
+        cursor.set(origin, used + 1)
+        return same[used] ?? same[0]
+      }
 
       for (const entry of manifest.data ?? []) {
-        const target = candidates.find(candidate => entry.origin !== undefined && candidate.origin === entry.origin)
+        const target = matchByOrigin(archiveCandidates, cursors.archive, entry.origin)
+          ?? matchByOrigin(instanceCandidates, cursors.instance, entry.origin)
           ?? candidates.find(candidate => candidate.path === entry.path)
         const from = path.join(staging, 'data', safeSlug(entry.slug) ?? slugifyPath(entry.path))
         const common = {

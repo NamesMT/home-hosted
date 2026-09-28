@@ -47,7 +47,7 @@ export function createBackupsRoute(deps: AppDeps) {
       validate('json', backupCreateSchema),
       async (c) => {
         const body: BackupCreate = c.req.valid('json')
-        const result = await deps.backups.create({ password: body.password })
+        const result = await deps.backups.create({ password: body.password, include: body.include })
         if (!result.ok)
           throw backupFailed(result.error)
         return c.json({ file: result.file, files: deps.backups.list() })

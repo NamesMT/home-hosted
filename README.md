@@ -405,9 +405,11 @@ tokens stay in the secrets file. **Providers and the config shape: [DDNS.md](./d
 ## 💾 Backups
 
 **Settings → Backups** archives the config, secrets, TLS pair and every data directory your entries
-declare — an ordinary `.zip`, or WinZip AES-256 with a password, restored per path. Known build output
-and dependency directories (`node_modules`, `dist`, `.next`, framework caches) are skipped per entry;
-`backupIgnoreGenerated: false` captures them anyway.
+declare — an ordinary `.zip`, or WinZip AES-256 with a password, restored per path. *Create backup…*
+lists what the archive will hold and lets you drop any item; *Restore…* shows the same list from an
+archive before anything is written. Known build output and dependency directories (`node_modules`,
+`dist`, `.next`, framework caches) are skipped per entry; `backupIgnoreGenerated: false` captures them
+anyway.
 
 <details>
 <summary><b>🚚 One archive is a whole setup</b></summary>
@@ -418,7 +420,9 @@ archive and restore. Definitions come back, data lands where *this* machine's co
 
 It works because an archive carries its own `servers.config.json` and paths are matched by the
 **declaration** (`omniroute:DATA_DIR`), not by an absolute path from the source machine. A restore never
-writes where no config declares.
+writes where no config declares. A declaration using `{projectDir}`, `{dataRoot}` or `{home}` follows
+the restoring panel (`{projectDir}` is `HHOSTED_PROJECT` or the panel's cwd, not `HHOSTED_HOME`); a
+literal absolute path is restored to that same path.
 
 </details>
 

@@ -76,7 +76,8 @@ export function buildBackupsView(store: ConfigStore, backups: BackupService): Ba
     dir: backups.directory,
     keep: store.config.backups.keep,
     includePaths: store.config.backups.includePaths,
-    paths: backups.paths,
+    // The id a create request selects this path by; the restore plan already reads `data:<path>`.
+    paths: backups.paths.map(entry => ({ ...entry, id: `data:${entry.path}` })),
     files: backups.list(),
   }
 }

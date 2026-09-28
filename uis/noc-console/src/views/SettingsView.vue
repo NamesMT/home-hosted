@@ -2,13 +2,15 @@
 import type { AuthStatus, ControlView, DdnsConfig, LogsConfig, ServerDefaults, SettingsPatch, TelegramStatus } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 
-import type { BackupsState, RestoreOptions, RestorePlan, SettingsView } from '@/lib/api'
+import type { BackupsState, SettingsView } from '@/lib/api'
 import type { DraftConfig } from '@/lib/ddns'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import BackupDialog from '@/components/BackupDialog.vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import DdnsPanel from '@/components/DdnsPanel.vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
+import RestoreDialog from '@/components/RestoreDialog.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
 import { changesOpen } from '@/composables/useUi'
@@ -587,43 +589,30 @@ async function clearPassword(): Promise<void> {
 const backupBusy = ref(false)
 const backupMessage = ref<string | null>(null)
 const backupError = ref<string | null>(null)
-/** Optional: encrypts the next archive. Never stored anywhere. */
-const backupPassword = ref('')
-const restorePlan = ref<RestorePlan | null>(null)
-const restoreFile = ref<File | null>(null)
-const restorePassword = ref('')
-/** What the shown plan refers to, so "apply" cannot target the wrong archive. */
-const restoreTarget = ref<{ kind: 'stored', name: string } | { kind: 'upload' } | null>(null)
+const createBackupOpen = ref(false)
+const restoreOpen = ref(false)
+/** Which archive the restore dialog starts on; `null` lets it pick. */
+const restoreSource = ref<{ kind: 'stored', name: string } | null>(null)
 
 const backupPaths = computed(() => state.value?.backups.paths ?? [])
 const backupFiles = computed(() => state.value?.backups.files ?? [])
 const backupsView = computed<BackupsState | null>(() => settings.value?.backups ?? null)
-const selectedCount = computed(() => restorePlan.value?.items.filter(item => item.selected).length ?? 0)
-const restoringConfig = computed(() => restorePlan.value?.items.some(item => item.id === 'config' && item.selected) ?? false)
 
-function selectAllRestorable(selected: boolean): void {
-  for (const item of restorePlan.value?.items ?? []) {
-    if (item.restorable)
-      item.selected = selected
-  }
+function openRestore(name?: string): void {
+  restoreSource.value = name === undefined ? null : { kind: 'stored', name }
+  restoreOpen.value = true
 }
 
-async function runBackup(): Promise<void> {
-  backupBusy.value = true
+function onBackupDone(result: string): void {
   backupError.value = null
-  backupMessage.value = null
-  try {
-    await api.createBackup(backupPassword.value)
-    backupPassword.value = ''
-    backupMessage.value = 'backup created'
-    await control.refresh()
-  }
-  catch (caught) {
-    backupError.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    backupBusy.value = false
-  }
+  backupMessage.value = result
+  void control.refresh()
+}
+
+function onRestoreDone(result: string): void {
+  backupError.value = null
+  backupMessage.value = result
+  void control.refresh()
 }
 
 async function removeBackup(name: string): Promise<void> {
@@ -631,102 +620,6 @@ async function removeBackup(name: string): Promise<void> {
   backupError.value = null
   try {
     await api.deleteBackup(name)
-    await control.refresh()
-  }
-  catch (caught) {
-    backupError.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    backupBusy.value = false
-  }
-}
-
-function pickRestoreFile(event: Event): void {
-  restoreFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
-  restorePlan.value = null
-  restoreTarget.value = null
-}
-
-function restoreOptions(): RestoreOptions {
-  return restorePassword.value.length > 0 ? { password: restorePassword.value } : {}
-}
-
-/** `name` selects a stored archive; without it the picked upload is used. */
-async function planRestore(name?: string): Promise<void> {
-  backupBusy.value = true
-  backupError.value = null
-  backupMessage.value = null
-  restorePlan.value = null
-  try {
-    if (name !== undefined) {
-      restoreTarget.value = { kind: 'stored', name }
-      restorePlan.value = await api.restoreStoredBackup(name, false, restoreOptions())
-    }
-    else if (restoreFile.value !== null) {
-      restoreTarget.value = { kind: 'upload' }
-      restorePlan.value = await api.restoreUploadedBackup(restoreFile.value, false, restoreOptions())
-    }
-    else {
-      restoreTarget.value = null
-    }
-
-    if (restorePlan.value === null)
-      backupError.value = 'choose a stored archive or upload one first'
-  }
-  catch (caught) {
-    restoreTarget.value = null
-    backupError.value = caught instanceof Error ? caught.message : String(caught)
-  }
-  finally {
-    backupBusy.value = false
-  }
-}
-
-/** Re-reads the same archive, now with whatever the password field holds. */
-async function replanRestore(): Promise<void> {
-  const target = restoreTarget.value
-  if (target === null)
-    return
-  await planRestore(target.kind === 'stored' ? target.name : undefined)
-}
-
-async function applyRestore(): Promise<void> {
-  const target = restoreTarget.value
-  const plan = restorePlan.value
-  if (target === null || plan === null) {
-    backupError.value = 'check an archive first'
-    return
-  }
-
-  backupBusy.value = true
-  backupError.value = null
-  const options: RestoreOptions = {
-    ...restoreOptions(),
-    include: plan.items.filter(item => item.restorable && item.selected).map(item => item.id),
-  }
-
-  try {
-    const result = target.kind === 'stored'
-      ? await api.restoreStoredBackup(target.name, true, options)
-      : restoreFile.value !== null
-        ? await api.restoreUploadedBackup(restoreFile.value, true, options)
-        : null
-
-    restorePlan.value = null
-    restoreTarget.value = null
-    restoreFile.value = null
-    restorePassword.value = ''
-
-    const notes: string[] = []
-    if (result?.reloaded)
-      notes.push('the restored servers are live, autostart entries starting')
-    if (result?.restartRequired)
-      notes.push('restart home-hosted to apply the panel settings')
-    backupMessage.value = result === null
-      ? 'restore failed'
-      : `restored ${result.applied.length} item(s)${notes.length === 0 ? '' : ` — ${notes.join('; ')}`}`
-    if (result !== null && result.skipped.length > 0)
-      backupMessage.value += ` · skipped: ${result.skipped.join(', ')}`
     await control.refresh()
   }
   catch (caught) {
@@ -1444,9 +1337,9 @@ async function revertUi(): Promise<void> {
               </label>
             </div>
             <p class="note">
-              Config, secrets and TLS are always included. Data paths come from each entry's
-              <code>dataEnvs</code> (see the server editor) and <code>backupPaths</code>;
-              a path already covered by a declared parent is skipped.
+              Config, secrets and TLS are captured unless a backup leaves them out. Data paths come
+              from each entry's <code>dataEnvs</code> (see the server editor) and
+              <code>backupPaths</code>; a path already covered by a declared parent is skipped.
               <template v-if="backupPaths.length > 0">
                 <br>Declared:
                 <template v-for="entry in backupPaths" :key="`${entry.origin}:${entry.path}`">
@@ -1461,17 +1354,16 @@ async function revertUi(): Promise<void> {
           <div v-if="form.backups.enabled" class="group">
             <div class="group__head">
               <span class="group__title">create</span>
-              <span class="group__note">the password encrypts this archive only; restoring asks for it</span>
-            </div>
-            <div class="grid grid--wide">
-              <label class="field">
-                <span class="field__label">password (optional)</span>
-                <input v-model="backupPassword" type="password" autocomplete="new-password">
-              </label>
+              <span class="group__note">pick what the archive captures before it is written</span>
             </div>
             <div class="actions actions--start">
-              <button type="button" class="btn btn--sm btn--primary" :disabled="backupBusy" @click="runBackup">
-                Create backup now
+              <button
+                type="button"
+                class="btn btn--sm btn--primary"
+                :disabled="backupsView === null"
+                @click="createBackupOpen = true"
+              >
+                create backup…
               </button>
             </div>
           </div>
@@ -1521,7 +1413,7 @@ async function revertUi(): Promise<void> {
                     <td class="tbl__actions">
                       <span class="rowbtns">
                         <a class="btn btn--xs" :href="api.backupDownloadUrl(file.name)">download</a>
-                        <button type="button" class="btn btn--xs" :disabled="backupBusy" @click="planRestore(file.name)">
+                        <button type="button" class="btn btn--xs" :disabled="backupBusy" @click="openRestore(file.name)">
                           restore
                         </button>
                         <ConfirmButton
@@ -1545,103 +1437,21 @@ async function revertUi(): Promise<void> {
           <div class="group">
             <div class="group__head">
               <span class="group__title">restore</span>
-              <span class="group__note">a dry run lists what the archive holds before anything is written</span>
-            </div>
-            <div class="grid grid--wide">
-              <label class="field">
-                <span class="field__label">upload an archive (.zip)</span>
-                <input type="file" accept=".zip,application/zip" @change="pickRestoreFile">
-              </label>
+              <span class="group__note">a plan lists what the archive holds before anything is written</span>
             </div>
             <div class="actions actions--start">
-              <button type="button" class="btn btn--sm" :disabled="backupBusy || restoreFile === null" @click="planRestore()">
-                Check upload
+              <button type="button" class="btn btn--sm" :disabled="backupsView === null" @click="openRestore()">
+                restore from an archive…
               </button>
             </div>
-
-            <div v-if="restorePlan" class="stack">
-              <p class="note note--warn">
-                <strong>{{ restorePlan.dryRun ? 'Nothing changed yet.' : 'Applied.' }}</strong>
-                <template v-if="restoreTarget?.kind === 'stored'">
-                  Archive {{ restoreTarget.name }}.
-                </template>
-              </p>
-
-              <template v-if="restorePlan.needsPassword">
-                <p class="note note--error">
-                  {{ restorePlan.error ?? 'This backup is password-protected.' }}
-                </p>
-                <label class="field">
-                  <span class="field__label">password</span>
-                  <input v-model="restorePassword" type="password" autocomplete="off">
-                </label>
-                <div class="actions actions--start">
-                  <button type="button" class="btn btn--sm" :disabled="backupBusy" @click="replanRestore()">
-                    Check again with the password
-                  </button>
-                </div>
-              </template>
-
-              <template v-else>
-                <p class="note">
-                  Choose what to restore — {{ selectedCount }} of {{ restorePlan.items.length }} selected.
-                </p>
-                <div class="stack">
-                  <label
-                    v-for="item in restorePlan.items"
-                    :key="item.id"
-                    class="field field--check"
-                    :class="{ faint: !item.restorable }"
-                  >
-                    <input v-model="item.selected" type="checkbox" :disabled="!item.restorable">
-                    <span class="field__label">
-                      {{ item.label }}
-                      <span class="faint">· {{ item.kind }}</span>
-                      <em v-if="item.note" class="dim">— {{ item.note }}</em>
-                    </span>
-                  </label>
-                </div>
-                <div class="actions actions--start">
-                  <button type="button" class="btn btn--sm btn--ghost" :disabled="backupBusy" @click="selectAllRestorable(true)">
-                    Select all
-                  </button>
-                  <button type="button" class="btn btn--sm btn--ghost" :disabled="backupBusy" @click="selectAllRestorable(false)">
-                    Select none
-                  </button>
-                </div>
-
-                <p class="note">
-                  Will restore: {{ restorePlan.applied.join(', ') || 'nothing' }}.
-                  <template v-if="restorePlan.skipped.length">
-                    Skipped: {{ restorePlan.skipped.join(', ') }}.
-                  </template>
-                  <template v-if="restorePlan.restartRequired">
-                    The panel settings differ, so restart home-hosted afterwards.
-                  </template>
-                  <template v-else-if="restoringConfig">
-                    The restored servers are reloaded immediately; entries marked autostart start on their own.
-                  </template>
-                </p>
-                <div class="actions actions--start">
-                  <button
-                    type="button"
-                    class="btn btn--sm btn--danger"
-                    :disabled="backupBusy || selectedCount === 0"
-                    @click="applyRestore()"
-                  >
-                    {{ restoreTarget?.kind === 'stored' ? 'Apply this restore' : 'Restore the upload' }}
-                  </button>
-                </div>
-              </template>
-            </div>
-
-            <p v-if="backupError" class="note note--error">
-              {{ backupError }}
-            </p>
-            <p v-if="backupMessage" class="note note--ok">
-              {{ backupMessage }}
-            </p>
           </div>
+
+          <p v-if="backupError" class="note note--error">
+            {{ backupError }}
+          </p>
+          <p v-if="backupMessage" class="note note--ok">
+            {{ backupMessage }}
+          </p>
         </div>
       </section>
 
@@ -1808,6 +1618,20 @@ async function revertUi(): Promise<void> {
       </div>
     </div>
   </div>
+
+  <BackupDialog
+    :open="createBackupOpen"
+    :state="backupsView"
+    @close="createBackupOpen = false"
+    @done="onBackupDone"
+  />
+  <RestoreDialog
+    :open="restoreOpen"
+    :files="backupFiles"
+    :initial="restoreSource"
+    @close="restoreOpen = false"
+    @done="onRestoreDone"
+  />
 </template>
 
 <style scoped>

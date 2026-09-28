@@ -789,6 +789,8 @@ export type BackupFile = typeof backupFileSchema.infer
 /** One declared data path, with the reason it will (or will not) be captured. */
 export const backupPathSchema = type({
   path: 'string',
+  /** Which item this path is in a backup's `include`; `data:<path>`. */
+  id: 'string?',
   /** Who declared it: `global`, `<serverId>:backupPaths` or `<serverId>:<ENV>`. */
   origin: 'string',
   /** false when a parent path already covers it, or it would swallow the archive dir. */
@@ -844,6 +846,8 @@ export type RestorePlan = typeof restorePlanSchema.infer
 export const backupCreateSchema = type({
   /** Optional: encrypts the archive. Never stored. */
   password: passwordValueSchema.optional(),
+  /** Item ids to capture (`config`, `secrets`, `tls`, `data:<path>`); omitted means everything. */
+  include: type('string[] >= 1').optional(),
 }).onUndeclaredKey('reject')
 export type BackupCreate = typeof backupCreateSchema.infer
 

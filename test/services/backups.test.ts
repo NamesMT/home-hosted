@@ -219,6 +219,32 @@ describe('backup service', () => {
     expect(result.error).toContain('disabled')
   })
 
+  it('captures only the items `include` names', async () => {
+    const fixture = await makeFixture()
+    const configOnly = await fixture.service.create({ include: ['config'] })
+
+    expect(configOnly.ok).toBe(true)
+    const names = (await listZip(path.join(fixture.service.directory, configOnly.file!.name))).map(entry => entry.name)
+    expect(names).toContain('config/servers.config.json')
+    expect(names).not.toContain('secrets/control-secrets.json')
+    expect(names.some(entry => entry.startsWith('tls/'))).toBe(false)
+    expect(names.some(entry => entry.startsWith('data/'))).toBe(false)
+
+    const dataOnly = await fixture.service.create({ include: [`data:${fixture.dataDir}`] })
+    const dataNames = (await listZip(path.join(fixture.service.directory, dataOnly.file!.name))).map(entry => entry.name)
+    expect(dataNames).toContain(`data/${slugifyPath(fixture.dataDir)}/db.sqlite`)
+    expect(dataNames).not.toContain('config/servers.config.json')
+  })
+
+  it('refuses a selection that would capture nothing', async () => {
+    const fixture = await makeFixture()
+    const result = await fixture.service.create({ include: ['nope', 'data:/nowhere'] })
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('nothing was selected')
+    expect(fixture.service.list()).toHaveLength(0)
+  })
+
   it('refuses a declared path that would swallow the archive directory', async () => {
     const fixture = await makeFixture()
     const config = backupsSchema({ dir: '.backups' })
@@ -435,6 +461,71 @@ describe('backup service', () => {
     expect(fs.readFileSync(path.join(targetDir, 'db.sqlite'), 'utf8')).toBe('RESTORED\n')
     expect(JSON.parse(fs.readFileSync(fixture.configPath, 'utf8'))).toMatchObject({ control: { port: 4123 } })
     expect(fs.readFileSync(fixture.secretsPath, 'utf8')).toContain('hash')
+  })
+
+  it('resolves the backup\'s `{projectDir}` declaration against this instance', async () => {
+    const fixture = await makeFixture()
+    const archive = path.join(fixture.root, 'templated.zip')
+    await makeZip(archive, {
+      'manifest.json': JSON.stringify({
+        version: 1,
+        createdAt: Date.now(),
+        hostname: 'somewhere-else',
+        data: [{ slug: 'old-app', path: '/home/someone/old-project/data/.9router', origin: 'app:DATA_DIR' }],
+      }),
+      'config/servers.config.json': JSON.stringify({
+        servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: '{projectDir}/data/.9router' } }],
+      }),
+      'data/old-app/db.sqlite': 'RESTORED\n',
+    })
+
+    // Dry run: the target is this instance's `projectDir`, never the archived absolute path.
+    const plan = await fixture.service.restore(archive, { confirm: false })
+    expect(plan.items.find(item => item.id === 'data:/home/someone/old-project/data/.9router')).toMatchObject({
+      label: path.join(projectDir, 'data', '.9router'),
+      restorable: true,
+    })
+  })
+
+  it('keeps same-origin declarations apart instead of writing both to the first', async () => {
+    const fixture = await makeFixture()
+    const first = path.join(fixture.root, 'first')
+    const second = path.join(fixture.root, 'second')
+    const config = backupsSchema({ dir: '.backups' })
+    if (config instanceof type.errors)
+      throw new Error(config.summary)
+
+    const service = new BackupService({
+      dataRoot: fixture.root,
+      getConfig: () => config,
+      getSources: () => ({
+        configPath: fixture.configPath,
+        secretsPath: fixture.secretsPath,
+        tlsDir: fixture.tlsDir,
+        paths: [first, second].map(target => ({ path: target, origin: 'global', included: true, note: null })),
+      }),
+    })
+
+    const archive = path.join(fixture.root, 'two-globals.zip')
+    await makeZip(archive, {
+      'manifest.json': JSON.stringify({
+        version: 1,
+        createdAt: Date.now(),
+        hostname: 'elsewhere',
+        data: [
+          { slug: 'old-first', path: '/old/first', origin: 'global' },
+          { slug: 'old-second', path: '/old/second', origin: 'global' },
+        ],
+      }),
+      'data/old-first/one.txt': 'FIRST\n',
+      'data/old-second/two.txt': 'SECOND\n',
+    })
+
+    const applied = await service.restore(archive, { confirm: true })
+    expect(applied.applied).toEqual([first, second])
+    expect(fs.readFileSync(path.join(first, 'one.txt'), 'utf8')).toBe('FIRST\n')
+    expect(fs.readFileSync(path.join(second, 'two.txt'), 'utf8')).toBe('SECOND\n')
+    expect(fs.existsSync(path.join(first, 'two.txt'))).toBe(false)
   })
 
   it('refuses the archive\'s paths when its config is not part of the restore', async () => {

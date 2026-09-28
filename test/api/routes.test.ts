@@ -578,11 +578,19 @@ describe('server event stream', () => {
 describe('backups route: archives', () => {
   it('reports a created archive and the list it belongs to', async () => {
     const created = await fixture()
-    created.backups.create = async () => ({ ok: true, file: { name: 'x.zip', sizeBytes: 12, createdAt: 1, encrypted: false } })
+    const seen: unknown[] = []
+    created.backups.create = async (options) => {
+      seen.push(options)
+      return { ok: true, file: { name: 'x.zip', sizeBytes: 12, createdAt: 1, encrypted: false } }
+    }
 
     const response = await request(created.app, '/api/backups', 'POST', {})
     expect(response.status).toBe(200)
     expect(await response.json()).toMatchObject({ file: { name: 'x.zip' } })
+
+    const selected = await request(created.app, '/api/backups', 'POST', { include: ['config', 'data:/srv/a'] })
+    expect(selected.status).toBe(200)
+    expect(seen.at(-1)).toMatchObject({ include: ['config', 'data:/srv/a'] })
   })
 
   it('downloads and deletes a real archive on disk', async () => {

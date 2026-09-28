@@ -126,6 +126,9 @@ describe('patch surface', () => {
     expect(backupCreateSchema({}) instanceof type.errors).toBe(false)
     expect(backupCreateSchema({ password: 'hunter2' }) instanceof type.errors).toBe(false)
     expect(backupCreateSchema({ password: '' }) instanceof type.errors).toBe(true)
+    expect(backupCreateSchema({ include: ['config', 'data:/srv/a'] }) instanceof type.errors).toBe(false)
+    expect(backupCreateSchema({ include: [] }) instanceof type.errors).toBe(true)
+    expect(backupCreateSchema({ include: 'config' } as unknown) instanceof type.errors).toBe(true)
   })
 
   it('requires id and command to create', () => {

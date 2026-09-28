@@ -119,7 +119,7 @@ responses at runtime. Either style is fine.
 | `GET` / `PATCH /api/settings` | the panel's own config (`control.label`, host thresholds, backups, …) |
 | `POST` / `DELETE /api/settings/ui` | install or revert a UI — what the settings page calls |
 | `POST` / `DELETE /api/settings/tls` | upload or clear a PEM pair |
-| `GET` / `POST /api/backups`, `/api/backups/restore`, `/api/backups/:name/download` | archives |
+| `GET` / `POST /api/backups`, `/api/backups/restore`, `/api/backups/:name/download` | archives; a create body may carry `include` (item ids `config`, `secrets`, `tls`, `data:<path>`, from `GET /api/backups`), and a restore body `include` selects what to apply |
 | `POST` / `DELETE /api/notifications/token`, `/api/notifications/test`, `/detect-chats` | Telegram |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | the session |
 | `GET /healthz` | liveness — **no session**, and `503` when an autostart server has crashed |

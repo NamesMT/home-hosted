@@ -67,6 +67,8 @@ export interface BackupEntry {
 
 export interface BackupPathEntry {
   path: string
+  /** Which item this path is in a backup's `include`; older panels omit it. */
+  id?: string
   origin: string
   included: boolean
   note: string | null
@@ -242,11 +244,13 @@ export function fetchBackups(): Promise<BackupsState> {
 }
 
 /** The caller re-reads `/api/state` afterwards, which carries the fresh list. */
-export function createBackup(password?: string): Promise<unknown> {
-  return request('/api/backups', {
-    method: 'POST',
-    body: JSON.stringify(password === undefined || password.length === 0 ? {} : { password }),
-  })
+export function createBackup(password?: string, include?: string[]): Promise<unknown> {
+  const body: Record<string, unknown> = {}
+  if (password !== undefined && password.length > 0)
+    body.password = password
+  if (include !== undefined)
+    body.include = include
+  return request('/api/backups', { method: 'POST', body: JSON.stringify(body) })
 }
 
 export function deleteBackup(name: string): Promise<unknown> {
