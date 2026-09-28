@@ -37,6 +37,8 @@ interface SecretsFile {
   password: PasswordRecord | null
   apiToken: ApiTokenRecord | null
   telegram: { botToken: string } | null
+  /** Per-DDNS-account provider credentials, keyed by the account id in the config. */
+  ddns: Record<string, Record<string, string>>
 }
 
 export interface ScryptCost { N: number, r: number, p: number }
@@ -103,6 +105,28 @@ export function apiTokenRecord(token: string, now = Date.now()): ApiTokenRecord 
     hint: token.slice(0, API_TOKEN_HINT_CHARS),
     updatedAt: now,
   }
+}
+
+/**
+ * Only account → string map → string survives; a hand-edited file with a number
+ * or a nested object in there reads as "no credentials" instead of throwing.
+ */
+function readDdnsCredentials(value: unknown): Record<string, Record<string, string>> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    return {}
+  const out: Record<string, Record<string, string>> = {}
+  for (const [accountId, fields] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof fields !== 'object' || fields === null || Array.isArray(fields))
+      continue
+    const record: Record<string, string> = {}
+    for (const [key, field] of Object.entries(fields as Record<string, unknown>)) {
+      if (typeof field === 'string' && field.length > 0)
+        record[key] = field
+    }
+    if (Object.keys(record).length > 0)
+      out[accountId] = record
+  }
+  return out
 }
 
 /**
@@ -212,9 +236,36 @@ export class SecretsStore {
     this.save({ ...this.load(), telegram: trimmed.length > 0 ? { botToken: trimmed } : null })
   }
 
+  getDdnsCredentials(accountId: string): Record<string, string> | null {
+    return this.load().ddns[accountId] ?? null
+  }
+
+  get ddnsAccountIds(): string[] {
+    return Object.keys(this.load().ddns)
+  }
+
+  /** An empty field is dropped, so clearing every field forgets the account. */
+  setDdnsCredentials(accountId: string, credentials: Record<string, string>): void {
+    const entries = Object.entries(credentials)
+      .map(([key, value]) => [key, value.trim()] as const)
+      .filter(([, value]) => value.length > 0)
+    const ddns = { ...this.load().ddns }
+    if (entries.length === 0)
+      delete ddns[accountId]
+    else
+      ddns[accountId] = Object.fromEntries(entries)
+    this.save({ ...this.load(), ddns })
+  }
+
+  clearDdnsCredentials(accountId: string): void {
+    const ddns = { ...this.load().ddns }
+    delete ddns[accountId]
+    this.save({ ...this.load(), ddns })
+  }
+
   private read(): SecretsFile {
     if (!fs.existsSync(this.file))
-      return { version: 3, password: null, apiToken: null, telegram: null }
+      return { version: 3, password: null, apiToken: null, telegram: null, ddns: {} }
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<SecretsFile>
       return {
@@ -223,11 +274,12 @@ export class SecretsStore {
         password: parsed?.password ?? null,
         apiToken: parsed?.apiToken?.hash ? parsed.apiToken : null,
         telegram: parsed?.telegram?.botToken ? { botToken: parsed.telegram.botToken } : null,
+        ddns: readDdnsCredentials(parsed?.ddns),
       }
     }
     catch {
       // A corrupt secrets file must not silently authenticate anyone.
-      return { version: 3, password: null, apiToken: null, telegram: null }
+      return { version: 3, password: null, apiToken: null, telegram: null, ddns: {} }
     }
   }
 

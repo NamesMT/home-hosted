@@ -1,4 +1,5 @@
 import type { AppDeps } from '#src/app'
+import type { DdnsFetch } from '#src/providers/ddns/types'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { AppState, Bind, FreePortResult, LogLine, ServerConfig, ServerView } from '#src/shared/contracts'
 import fs from 'node:fs'
@@ -11,6 +12,7 @@ import { ConfigStore } from '#src/config/store'
 import { emptyHostView } from '#src/providers/host'
 import { AuthService } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
+import { DdnsService } from '#src/services/ddns'
 import { EventHub } from '#src/services/events'
 import { LogFiles } from '#src/services/log-files'
 import { NotificationService } from '#src/services/notifications'
@@ -53,6 +55,7 @@ export interface Fixture {
   ui: UiService
   hub: EventHub
   notifications: NotificationService
+  ddns: DdnsService
   supervisor: FakeSupervisor
   controlServer: { endpoint: ControlEndpoint, rebind: (next: { host: Bind, port: number }) => Promise<{ ok: boolean, error?: string }>, restart: () => Promise<{ ok: boolean, error?: string }> }
   shutdownCalls: () => number
@@ -83,6 +86,8 @@ export interface FixtureOptions {
   password?: string
   /** Peer address the routes observe. */
   ip?: string | null
+  /** Replaces the DDNS service's outbound fetch, so a pass can be exercised offline. */
+  ddnsFetch?: DdnsFetch
 }
 
 export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture> {
@@ -106,6 +111,13 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
   const logFiles = new LogFiles(logsDir, () => store.config.logs)
   const notifications = new NotificationService(secrets, () => store.config.notifications, () => store.config.logs)
   const hub = new EventHub()
+  const ddns = new DdnsService({
+    getConfig: () => store.config.ddns,
+    getCredentials: accountId => secrets.getDdnsCredentials(accountId),
+    notifications,
+    statePath: path.join(dir, '.state', 'ddns.json'),
+    ...(options.ddnsFetch === undefined ? {} : { fetchImpl: options.ddnsFetch }),
+  })
 
   const stockDir = path.join(dir, 'stock')
   fs.mkdirSync(stockDir, { recursive: true })
@@ -137,6 +149,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       notifications,
       hostMonitor: { view: emptyHostView(store.config.host) } as never,
       backups,
+      ddns,
       logsDir,
       views,
     }),
@@ -168,6 +181,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     logFiles,
     notifications,
     backups,
+    ddns,
     ui,
     runtimeToken: 'runtime-token',
     onShutdown: async () => {
@@ -195,6 +209,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     ui,
     hub,
     notifications,
+    ddns,
     supervisor,
     controlServer,
     shutdownCalls: () => shutdowns,

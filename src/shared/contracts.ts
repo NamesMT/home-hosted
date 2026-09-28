@@ -172,6 +172,8 @@ export const telegramSchema = type({
   onRecovered: 'boolean = false',
   /** Host vitals breaches (disk, memory, swap, load, temperature). */
   onHost: 'boolean = true',
+  /** Dynamic DNS changes and failures. */
+  onDdns: 'boolean = true',
   /** Per server *and* reason, so a flapping server cannot spam the chat. */
   cooldownMs: 'number >= 0 = 120000',
 }).onUndeclaredKey('reject')
@@ -210,6 +212,143 @@ export const hostSchema = type({
   tempCelsius: 'number >= 0 = 85',
 }).onUndeclaredKey('reject')
 export type HostConfig = typeof hostSchema.infer
+
+/** A record family the DDNS engine can point at this host. */
+export const ddnsRecordTypeSchema = type.enumerated('A', 'AAAA')
+export type DdnsRecordType = typeof ddnsRecordTypeSchema.infer
+
+/**
+ * One DNS provider account. Its credentials are secrets and live in the secrets
+ * file keyed by this `id`, never in the config.
+ */
+export const ddnsAccountSchema = type({
+  id: '/^[a-z0-9][a-z0-9_-]*$/',
+  provider: 'string >= 1',
+  label: 'string = ""',
+}).onUndeclaredKey('reject')
+export type DdnsAccount = typeof ddnsAccountSchema.infer
+
+/**
+ * A hostname to keep pointed at this machine. That list is the whole user-facing
+ * setup: the provider account it belongs to, and (optionally) which families.
+ */
+export const ddnsDomainSchema = type({
+  host: '/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/',
+  account: 'string >= 1',
+  /** Records to keep current; `A` unless the host needs IPv6 too. */
+  types: ddnsRecordTypeSchema.array().default(() => ['A' as const]),
+  /**
+   * The registered domain (apex) this host sits in. Only needed where a
+   * provider cannot look it up and the guess is wrong (three-label suffixes).
+   */
+  zone: 'string?',
+  /** Seconds; `1` means "automatic" where the provider supports it. */
+  ttl: 'number.integer >= 1?',
+  /** Cloudflare only. */
+  proxied: 'boolean?',
+  enabled: 'boolean = true',
+}).onUndeclaredKey('reject')
+export type DdnsDomain = typeof ddnsDomainSchema.infer
+
+/** Which public IP families to detect; a provider is only called for the ones declared. */
+export const ddnsIpv4Schema = type({
+  enabled: 'boolean = true',
+  /** Override the public-IP endpoint; empty uses the built-in list. */
+  url: 'string = ""',
+}).onUndeclaredKey('reject')
+
+export const ddnsIpv6Schema = type({
+  enabled: 'boolean = false',
+  url: 'string = ""',
+}).onUndeclaredKey('reject')
+
+/**
+ * Dynamic DNS: keep a list of hostnames pointed at this machine's public IP.
+ * Probing is cheap and constant; a provider is only called when the address it
+ * last confirmed differs, which is what keeps simple endpoints (FreeDNS, No-IP)
+ * inside their rate limits.
+ */
+export const ddnsConfigSchema = type({
+  enabled: 'boolean = false',
+  /** How often the public address is re-checked. */
+  intervalMs: 'number >= 60000 = 300000',
+  ipv4: ddnsIpv4Schema.default(() => ({})),
+  ipv6: ddnsIpv6Schema.default(() => ({})),
+  /** Default TTL for the records that accept one. */
+  ttl: 'number.integer >= 1 = 1',
+  /** Default proxy flag, where the provider has one (Cloudflare). */
+  proxied: 'boolean = false',
+  /** Tell Telegram about a change, and about an update that failed. */
+  notify: 'boolean = true',
+  accounts: ddnsAccountSchema.array().default(() => []),
+  domains: ddnsDomainSchema.array().default(() => []),
+}).onUndeclaredKey('reject')
+export type DdnsConfig = typeof ddnsConfigSchema.infer
+
+export const ddnsRecordStateSchema = type('"pending" | "ok" | "unchanged" | "error" | "skipped"')
+export type DdnsRecordState = typeof ddnsRecordStateSchema.infer
+
+/** What happened to one hostname on the last pass. */
+export const ddnsRecordViewSchema = type({
+  host: 'string',
+  account: 'string',
+  provider: 'string',
+  type: ddnsRecordTypeSchema,
+  ip: 'string | null',
+  state: ddnsRecordStateSchema,
+  message: 'string | null',
+  updatedAt: 'number | null',
+})
+export type DdnsRecordView = typeof ddnsRecordViewSchema.infer
+
+/** Live DDNS state, as the state frame and the settings page read it. */
+export const ddnsStatusSchema = type({
+  enabled: 'boolean',
+  running: 'boolean',
+  lastRunAt: 'number | null',
+  lastResult: 'string | null',
+  ipv4: 'string | null',
+  ipv6: 'string | null',
+  records: ddnsRecordViewSchema.array(),
+})
+export type DdnsStatus = typeof ddnsStatusSchema.infer
+
+/** What a provider needs from the person configuring it. */
+export const ddnsProviderFieldSchema = type({
+  key: 'string',
+  label: 'string',
+  hint: 'string = ""',
+  optional: 'boolean = false',
+})
+export type DdnsProviderField = typeof ddnsProviderFieldSchema.infer
+
+/** Provider capabilities, so the UI knows which options to show. */
+export const ddnsProviderInfoSchema = type({
+  id: 'string',
+  label: 'string',
+  docsUrl: 'string',
+  families: ddnsRecordTypeSchema.array(),
+  fields: ddnsProviderFieldSchema.array(),
+  ttl: 'boolean',
+  proxied: 'boolean',
+})
+export type DdnsProviderInfo = typeof ddnsProviderInfoSchema.infer
+
+/** `GET /api/ddns`: the policy, the live state, and the providers this build knows. */
+export const ddnsViewSchema = type({
+  config: ddnsConfigSchema,
+  status: ddnsStatusSchema,
+  providers: ddnsProviderInfoSchema.array(),
+  /** Account ids whose credentials are stored. */
+  credentials: type('string[]'),
+})
+export type DdnsView = typeof ddnsViewSchema.infer
+
+/** `PUT /api/ddns/credentials/:id`: the secret fields that provider declares. */
+export const ddnsCredentialsSchema = type({
+  credentials: type('Record<string, string>'),
+}).onUndeclaredKey('reject')
+export type DdnsCredentials = typeof ddnsCredentialsSchema.infer
 
 /** Tar archives of config, secrets, TLS and declared data paths. */
 export const backupsSchema = type({
@@ -304,6 +443,7 @@ const telegramPatchSchema = type({
   onForcedRestart: 'boolean?',
   onRecovered: 'boolean?',
   onHost: 'boolean?',
+  onDdns: 'boolean?',
   cooldownMs: 'number >= 0?',
 }).onUndeclaredKey('reject')
 
@@ -499,6 +639,8 @@ export const telegramStatusSchema = type({
   onRecovered: 'boolean',
   /** Host vitals breaches (disk, memory, swap, load, temperature). */
   onHost: 'boolean',
+  /** Dynamic DNS, when this panel knows about it (optional for an older panel). */
+  onDdns: 'boolean?',
   cooldownMs: 'number',
   /** Last delivery outcome, for the settings page. */
   lastResult: 'string | null',
@@ -752,6 +894,11 @@ export const appStateSchema = type({
   /** `HHOSTED_HOME`: every file home-hosted owns lives under here. */
   'dataRoot': 'string',
   'logsDir': 'string',
+  /**
+   * Dynamic DNS state. Optional so a newer UI still frames a state a panel from
+   * before this field served: the app would blank on a required key.
+   */
+  'ddns?': ddnsStatusSchema,
   /** The release this panel is running. Optional: an older panel does not send one. */
   'version?': 'string',
   'servers': serverViewSchema.array(),

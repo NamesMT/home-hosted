@@ -4,6 +4,7 @@ import type { ConfigStore } from '#src/config/store'
 import type { TemplateVars } from '#src/helpers/template'
 import type { SpawnInfo } from '#src/providers/identity'
 import type { ControlEndpoint } from '#src/services/control-server'
+import type { DdnsService } from '#src/services/ddns'
 import type { EventHub } from '#src/services/events'
 import type { HistoryStore } from '#src/services/history'
 import type { HostMonitor } from '#src/services/host-monitor'
@@ -65,6 +66,8 @@ export interface SupervisorOptions {
   logFiles: LogFiles
   notifications: NotificationService
   hostMonitor: HostMonitor
+  /** Dynamic DNS rides the same tick as host vitals; it throttles itself. */
+  ddns: DdnsService
   /** Where a persistent entry's nanny keeps its state; injected for the same reason. */
   nannyDir: string
 }
@@ -1372,6 +1375,9 @@ export class Supervisor {
     const now = Date.now()
 
     await this.options.hostMonitor.tick(now)
+    // Deliberately not awaited: a provider that is slow to answer must not hold
+    // up the health probes below.
+    this.options.ddns.tick(now)
     await this.sampleResources(now)
 
     // Probes run concurrently: one slow server must not delay the others' health.
@@ -1562,8 +1568,12 @@ export class Supervisor {
 
   private publishState(): void {
     const state = this.getState()
+    const ddns = state.ddns
     const signature = [
       state.configError ?? '',
+      // DDNS only changes on its own schedule, so it needs its own component or a
+      // panel with no running server would never frame the result of a pass.
+      ddns === undefined ? '' : [ddns.running, ddns.lastRunAt, ddns.ipv4, ddns.ipv6, ...ddns.records.map(record => `${record.host}:${record.type}:${record.state}:${record.ip}`)].join(':'),
       ...state.servers.map(server => [
         server.id,
         server.status,

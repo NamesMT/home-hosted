@@ -1,6 +1,8 @@
 import type {
   AppState,
   ControlView,
+  DdnsConfig,
+  DdnsView,
   HostConfig,
   LogHistoryView,
   LogsConfig,
@@ -14,6 +16,7 @@ import type {
 } from '@shared/contracts'
 import {
   appStateSchema,
+  ddnsViewSchema,
   logHistoryViewSchema,
   loginSchema,
   logServersViewSchema,
@@ -297,6 +300,35 @@ export function sendTelegramTest(payload: { botToken?: string, chatId?: string }
 
 export function detectTelegramChats(payload: { botToken?: string }): Promise<{ chats: Array<{ id: number | string, title: string }> }> {
   return request('/api/notifications/detect-chats', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+/** Dynamic DNS, validated at the boundary like the rest of the settings payloads. */
+async function ddnsView(payload: unknown): Promise<DdnsView> {
+  const parsed = ddnsViewSchema(payload)
+  if (parsed instanceof type.errors)
+    throw new Error(`ddns contract mismatch: ${parsed.summary}`)
+  return parsed as DdnsView
+}
+
+export async function fetchDdns(): Promise<DdnsView> {
+  return ddnsView(await request<unknown>('/api/ddns'))
+}
+
+export async function saveDdns(config: DdnsConfig): Promise<DdnsView> {
+  return ddnsView(await request<unknown>('/api/ddns', { method: 'PUT', body: JSON.stringify(config) }))
+}
+
+export async function saveDdnsCredentials(id: string, credentials: Record<string, string>): Promise<DdnsView> {
+  return ddnsView(await request<unknown>(`/api/ddns/credentials/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ credentials }) }))
+}
+
+export async function clearDdnsCredentials(id: string): Promise<DdnsView> {
+  return ddnsView(await request<unknown>(`/api/ddns/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' }))
+}
+
+/** Runs a pass now; the answer carries the fresh status. */
+export async function checkDdns(): Promise<DdnsView> {
+  return ddnsView(await request<unknown>('/api/ddns/check', { method: 'POST' }))
 }
 
 /** Replace the panel UI with an uploaded static build (a zip); a refresh shows it. */

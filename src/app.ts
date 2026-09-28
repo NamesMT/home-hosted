@@ -3,6 +3,7 @@ import type { ConfigStore } from '#src/config/store'
 import type { AuthService } from '#src/services/auth'
 import type { BackupService } from '#src/services/backups'
 import type { ControlServer } from '#src/services/control-server'
+import type { DdnsService } from '#src/services/ddns'
 import type { EventHub } from '#src/services/events'
 import type { LogFiles } from '#src/services/log-files'
 import type { NotificationService } from '#src/services/notifications'
@@ -12,6 +13,7 @@ import type { UiService } from '#src/services/ui'
 import { createAuthRoute } from '#src/api/auth/$.routes'
 import { createBackupsRoute } from '#src/api/backups'
 import { createControlRoute } from '#src/api/control'
+import { createDdnsRoute } from '#src/api/ddns'
 import { createEventsRoute } from '#src/api/events'
 import { createHealthRoute } from '#src/api/health'
 import { createLogsRoute } from '#src/api/logs'
@@ -39,6 +41,7 @@ export interface AppDeps {
   logFiles: LogFiles
   notifications: NotificationService
   backups: BackupService
+  ddns: DdnsService
   ui: UiService
   /** Token for the local `down` command, and the graceful stop it asks for. */
   runtimeToken: string
@@ -75,6 +78,7 @@ export function createRootApp(deps: AppDeps) {
     .route('/api', createTlsRoute(deps))
     .route('/api', createLogsRoute(deps))
     .route('/api', createNotificationsRoute(deps))
+    .route('/api', createDdnsRoute(deps))
     .route('/api', createMetricsRoute(deps))
     .route('/api', createBackupsRoute(deps))
     .route('/api/servers', createServersRoute(deps))

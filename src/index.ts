@@ -16,6 +16,7 @@ import {
   daemonLogPath,
   dataRoot,
   defaultConfigPath,
+  defaultDdnsStatePath,
   defaultHistoryPath,
   defaultLogsDir,
   defaultNannyDir,
@@ -31,6 +32,7 @@ import { AuthService, DEFAULT_PASSWORD } from '#src/services/auth'
 import { BackupService, resolveBackupPaths } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
 import { ControlServer } from '#src/services/control-server'
+import { DdnsService } from '#src/services/ddns'
 import { EventHub } from '#src/services/events'
 import { checkExposure } from '#src/services/exposure'
 import { HistoryStore } from '#src/services/history'
@@ -124,6 +126,14 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     target => resolveUserPath(resolveTemplate(target, { projectDir, dataRoot, home: os.homedir() })),
     notifications,
   )
+  // Built before the app so the settings page can read live state, and driven by
+  // the supervisor's tick so the panel keeps exactly one timer.
+  const ddns = new DdnsService({
+    getConfig: () => store.config.ddns,
+    getCredentials: accountId => secrets.getDdnsCredentials(accountId),
+    notifications,
+    statePath: defaultDdnsStatePath,
+  })
   // Restoring a backup replaces the config file, which no store write covers: the
   // hook below re-reads it and brings the restored autostart entries up, so a
   // blank instance ends up running the setup the archive carried.
@@ -217,6 +227,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
       notifications,
       hostMonitor,
       backups,
+      ddns,
       logsDir: logFiles.directory,
       views,
     }),
@@ -224,6 +235,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     logFiles,
     notifications,
     hostMonitor,
+    ddns,
     nannyDir: defaultNannyDir,
   })
 
@@ -288,6 +300,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     clearRuntime()
     configWatch.dispose()
     auth.dispose()
+    ddns.dispose()
     await supervisor.dispose()
     logFiles.dispose()
     history.dispose()
@@ -306,6 +319,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     logFiles,
     notifications,
     backups,
+    ddns,
     ui,
     runtimeToken: token,
     onShutdown: () => shutdown('shutdown requested locally'),

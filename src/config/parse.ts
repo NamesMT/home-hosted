@@ -7,6 +7,7 @@ import {
   backupsSchema,
   CONFIG_KEYS,
   controlSchema,
+  ddnsConfigSchema,
   defaultsSchema,
   hostSchema,
   logsSchema,
@@ -45,6 +46,7 @@ const GROUPS: ReadonlyArray<readonly [string, Validator]> = [
   ['notifications', notificationsSchema as unknown as Validator],
   ['host', hostSchema as unknown as Validator],
   ['backups', backupsSchema as unknown as Validator],
+  ['ddns', ddnsConfigSchema as unknown as Validator],
 ]
 
 /** ArkType reports an unrecognized key with this problem, carrying its path. */
@@ -190,6 +192,7 @@ export function parseConfig(raw: unknown, options: MigrationOptions = {}): Confi
     notifications: groups.notifications as ResolvedConfig['notifications'],
     host: groups.host as ResolvedConfig['host'],
     backups: groups.backups as ResolvedConfig['backups'],
+    ddns: groups.ddns as ResolvedConfig['ddns'],
     servers,
   } as ResolvedConfig
 

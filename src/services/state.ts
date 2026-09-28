@@ -2,6 +2,7 @@ import type { ConfigStore } from '#src/config/store'
 import type { AuthService } from '#src/services/auth'
 import type { BackupService } from '#src/services/backups'
 import type { ControlEndpoint } from '#src/services/control-server'
+import type { DdnsService } from '#src/services/ddns'
 import type { HostMonitor } from '#src/services/host-monitor'
 import type { NotificationService } from '#src/services/notifications'
 import type { TlsStore } from '#src/services/tls'
@@ -18,6 +19,7 @@ export interface BuildStateDeps {
   notifications: NotificationService
   hostMonitor: HostMonitor
   backups: BackupService
+  ddns: DdnsService
   logsDir: string
   views: ServerView[]
 }
@@ -91,6 +93,7 @@ export function buildAppState(deps: BuildStateDeps): AppState {
     notifications: { telegram: deps.notifications.status() },
     host: buildHostView(deps.hostMonitor),
     backups: buildBackupsView(deps.store, deps.backups),
+    ddns: deps.ddns.view,
     configPath: deps.store.path,
     configError: deps.store.configError,
     projectDir,

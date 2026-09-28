@@ -14,6 +14,7 @@ import { nannySpecPath, nannyStatePath, readNannyState, writeNannySpec, writeNan
 import { isPortFree } from '#src/providers/port'
 import { AuthService } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
+import { DdnsService } from '#src/services/ddns'
 import { EventHub } from '#src/services/events'
 import { HistoryStore } from '#src/services/history'
 import { HostMonitor } from '#src/services/host-monitor'
@@ -85,6 +86,12 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
   const notifications = new NotificationService(secrets, () => store.config.notifications, () => store.config.logs)
   const history = new HistoryStore(path.join(dir, 'history.json'))
   const hostMonitor = new HostMonitor(() => store.config.host, target => path.resolve(dir, target), notifications)
+  const ddns = new DdnsService({
+    getConfig: () => store.config.ddns,
+    getCredentials: accountId => secrets.getDdnsCredentials(accountId),
+    notifications,
+    statePath: path.join(dir, 'ddns.json'),
+  })
   const backups = new BackupService({
     dataRoot: dir,
     getConfig: () => store.config.backups,
@@ -108,6 +115,7 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
       notifications,
       hostMonitor,
       backups,
+      ddns,
       logsDir: logFiles.directory,
       views,
     }),
@@ -115,6 +123,7 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
     logFiles,
     notifications,
     hostMonitor,
+    ddns,
     nannyDir,
   })
 

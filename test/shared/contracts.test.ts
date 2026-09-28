@@ -8,6 +8,9 @@ import {
   authSchema,
   backupCreateSchema,
   bootstrapOrNullSchema,
+  ddnsConfigSchema,
+  ddnsDomainSchema,
+  ddnsStatusSchema,
   defaultsSchema,
   healthSchema,
   logBufferLinesSchema,
@@ -21,6 +24,8 @@ import {
   serverPatchSchema,
   serverSchema,
   serverViewSchema,
+  settingsPatchSchema,
+  telegramSchema,
 } from '#src/shared/contracts'
 
 const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -349,5 +354,47 @@ describe('numeric bounds', () => {
     expect(passwordValueSchema('y'.repeat(512))).toHaveLength(512)
     expect(ok(passwordValueSchema, '')).toBe(false)
     expect(ok(passwordValueSchema, 'y'.repeat(513))).toBe(false)
+  })
+})
+
+describe('dynamic DNS schema', () => {
+  const ok = (schema: (input: unknown) => unknown, input: unknown): boolean => !(schema(input) instanceof type.errors)
+
+  it('defaults every new block, and keeps IPv6 off until asked for', () => {
+    const parsed = unwrap(ddnsConfigSchema({}))
+    expect(parsed).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1, proxied: false, notify: true })
+    expect(parsed.ipv4).toEqual({ enabled: true, url: '' })
+    expect(parsed.ipv6).toEqual({ enabled: false, url: '' })
+    expect(parsed.accounts).toEqual([])
+    expect(parsed.domains).toEqual([])
+  })
+
+  it('defaults a hostname to an A record', () => {
+    const parsed = unwrap(ddnsConfigSchema({ accounts: [{ id: 'cf', provider: 'cloudflare' }], domains: [{ host: 'home.example.com', account: 'cf' }] }))
+    expect(parsed.domains[0]).toMatchObject({ types: ['A'], enabled: true })
+  })
+
+  it('rejects a hostname that is not one, and an unknown record family', () => {
+    expect(ok(ddnsDomainSchema, { host: 'not a host', account: 'cf' })).toBe(false)
+    expect(ok(ddnsDomainSchema, { host: 'home', account: 'cf' })).toBe(false)
+    expect(ok(ddnsConfigSchema, { domains: [{ host: 'home.example.com', account: 'cf', types: ['TXT'] }] })).toBe(false)
+  })
+
+  it('keeps the interval sane', () => {
+    expect(ok(ddnsConfigSchema, { intervalMs: 60000 })).toBe(true)
+    expect(ok(ddnsConfigSchema, { intervalMs: 59999 })).toBe(false)
+    expect(ok(ddnsConfigSchema, { ttl: 0 })).toBe(false)
+  })
+
+  it('carries DDNS into the Telegram policy, defaulting on', () => {
+    expect(unwrap(telegramSchema({})).onDdns).toBe(true)
+    const patch = unwrap(settingsPatchSchema({ notifications: { telegram: { onDdns: false } } }))
+    expect(patch.notifications?.telegram?.onDdns).toBe(false)
+  })
+
+  it('lets a state frame from a panel without DDNS still parse', () => {
+    const withDdns = unwrap(ddnsStatusSchema({ enabled: true, running: false, lastRunAt: null, lastResult: null, ipv4: '203.0.113.7', ipv6: null, records: [] }))
+    expect(withDdns.records).toEqual([])
+    expect('ddns' in properties(appStateSchema)).toBe(true)
   })
 })

@@ -47,8 +47,11 @@ curl -X POST http://127.0.0.1:3999/api/notifications/test \
 | a server was force-restarted (health timeout) | `onForcedRestart` | ✅ |
 | a server recovered | `onRecovered` | ⬜ |
 | host thresholds breached, and recovered | `onHost` | ✅ |
+| a dynamic DNS record changed, or a pass failed | `onDdns` | ✅ |
 
 Host thresholds themselves — disk, memory, swap, load, temperature — are **Settings → Host**.
+Dynamic DNS carries one message per pass that changed a record, and one per failed pass — see
+[DDNS.md](./DDNS.md).
 
 ## Quiet periods
 

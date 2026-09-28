@@ -400,6 +400,7 @@ describe('openapi document', () => {
       '/api/servers',
       '/api/servers/{id}',
       '/api/settings',
+      '/api/ddns',
       '/api/logs',
       '/api/backups',
       '/healthz',

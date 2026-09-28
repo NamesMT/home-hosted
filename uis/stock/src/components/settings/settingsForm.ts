@@ -76,6 +76,7 @@ export interface TelegramForm {
   onForcedRestart: boolean
   onRecovered: boolean
   onHost: boolean
+  onDdns: boolean
 }
 
 export interface DefaultsForm {
@@ -168,6 +169,7 @@ export function createSettingsForm(): SettingsForm {
       onForcedRestart: true,
       onRecovered: false,
       onHost: true,
+      onDdns: true,
     },
   }
 }
@@ -187,6 +189,7 @@ export function listenerBaseline(view: ControlView): ListenerForm {
   return { label: view.label, port: view.port, host: view.host, openBrowser: view.openBrowser, tlsEnabled: view.tls.enabled }
 }
 
+/** A panel from before DDNS sends no flag; the form treats that as "on". */
 export function telegramBaseline(status: TelegramStatus): TelegramForm {
   return {
     enabled: status.enabled,
@@ -197,6 +200,7 @@ export function telegramBaseline(status: TelegramStatus): TelegramForm {
     onForcedRestart: status.onForcedRestart,
     onRecovered: status.onRecovered,
     onHost: status.onHost,
+    onDdns: status.onDdns ?? true,
   }
 }
 

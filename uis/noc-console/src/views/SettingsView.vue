@@ -6,6 +6,7 @@ import type { BackupsState, RestoreOptions, RestorePlan, SettingsView } from '@/
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
+import DdnsPanel from '@/components/DdnsPanel.vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
@@ -68,6 +69,7 @@ const form = reactive({
       onForcedRestart: true,
       onRecovered: false,
       onHost: true,
+      onDdns: true,
       cooldownMs: 120000,
     },
   },
@@ -130,6 +132,8 @@ function telegramConfig(status: TelegramPolicy): Record<string, unknown> {
     onForcedRestart: status.onForcedRestart,
     onRecovered: status.onRecovered,
     onHost: status.onHost === true,
+    // A panel from before DDNS sends no flag; absent means "on".
+    onDdns: status.onDdns !== false,
     cooldownMs: status.cooldownMs,
   }
 }
@@ -1325,6 +1329,10 @@ async function revertUi(): Promise<void> {
                 <input v-model="form.notifications.telegram.onHost" type="checkbox">
                 <span class="field__label">host thresholds</span>
               </label>
+              <label class="field field--check">
+                <input v-model="form.notifications.telegram.onDdns" type="checkbox">
+                <span class="field__label">dynamic DNS changes and failures</span>
+              </label>
             </div>
             <p class="note">
               Policy above lives in <code>servers.config.json</code>; the bot token is a
@@ -1383,6 +1391,17 @@ async function revertUi(): Promise<void> {
               {{ tokenMessage }}
             </p>
           </div>
+        </div>
+      </section>
+
+      <section id="ddns" class="pane">
+        <div class="pane__head">
+          <span class="pane__title">dynamic dns</span>
+          <span class="view__spacer" />
+          <span class="faint">provider tokens stay in the secrets file</span>
+        </div>
+        <div class="pane__body">
+          <DdnsPanel />
         </div>
       </section>
 

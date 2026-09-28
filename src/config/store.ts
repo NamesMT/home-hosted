@@ -3,6 +3,7 @@ import type { RawConfig, ResolvedConfig, ServerConfig } from '#src/config/schema
 import type {
   BackupsConfig,
   ControlConfig,
+  DdnsConfig,
   HostConfig,
   LogsConfig,
   NotificationsConfig,
@@ -19,6 +20,7 @@ import {
   backupsSchema,
   configSchema,
   controlSchema,
+  ddnsConfigSchema,
   defaultsSchema,
   hostSchema,
   logsSchema,
@@ -309,6 +311,21 @@ export class ConfigStore {
     return backups
   }
 
+  /**
+   * The DDNS block is replaced as a whole: its accounts and domains are lists,
+   * and a key-by-key merge would leave a removed account or hostname behind.
+   */
+  updateDdns(config: DdnsConfig): DdnsConfig {
+    const parsed = ddnsConfigSchema(config)
+    if (parsed instanceof type.errors)
+      throw new ConfigError(`ddns: ${formatErrors(parsed)}`)
+
+    const draft = structuredClone(this.raw)
+    draft.ddns = parsed as unknown as Record<string, unknown>
+    this.commit(draft)
+    return parsed
+  }
+
   updateDefaults(patch: NonNullable<SettingsPatch['defaults']>): ServerDefaults {
     const draft = structuredClone(this.raw)
     draft.defaults = { ...(draft.defaults ?? {}) }
@@ -381,10 +398,11 @@ export class ConfigStore {
     const notifications = notificationsSchema({})
     const host = hostSchema({})
     const backups = backupsSchema({})
-    if (logs instanceof type.errors || notifications instanceof type.errors || host instanceof type.errors || backups instanceof type.errors) {
+    const ddns = ddnsConfigSchema({})
+    if (logs instanceof type.errors || notifications instanceof type.errors || host instanceof type.errors || backups instanceof type.errors || ddns instanceof type.errors) {
       throw new ConfigError('internal: default settings failed validation')
     }
-    return { control, defaults, logs, notifications, host, backups, servers: [] }
+    return { control, defaults, logs, notifications, host, backups, ddns, servers: [] }
   }
 
   private apply(raw: RawConfig): void {

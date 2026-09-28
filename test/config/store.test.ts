@@ -511,6 +511,54 @@ describe('settings updates', () => {
   })
 })
 
+describe('dynamic DNS config', () => {
+  it('defaults to off, and a config from before the block still reads', async () => {
+    const file = await writeConfig({ control: { port: 3999 }, servers: [] })
+    const store = new ConfigStore(file)
+    store.load()
+
+    expect(store.config.ddns).toMatchObject({ enabled: false, intervalMs: 300000, ttl: 1, proxied: false, notify: true })
+    expect(store.config.ddns.ipv4.enabled).toBe(true)
+    expect(store.config.ddns.ipv6.enabled).toBe(false)
+    expect(store.config.ddns.accounts).toEqual([])
+  })
+
+  it('replaces the block as a whole, so a removed hostname really goes', async () => {
+    const file = await writeConfig({
+      ddns: {
+        enabled: true,
+        accounts: [{ id: 'cf', provider: 'cloudflare' }],
+        domains: [
+          { host: 'a.example.com', account: 'cf' },
+          { host: 'b.example.com', account: 'cf' },
+        ],
+      },
+      servers: [],
+    })
+    const store = new ConfigStore(file)
+    store.load()
+
+    store.updateDdns({
+      ...store.config.ddns,
+      domains: [{ host: 'a.example.com', account: 'cf', types: ['A'], enabled: true }],
+    })
+
+    expect(store.config.ddns.domains.map(domain => domain.host)).toEqual(['a.example.com'])
+    const written = JSON.parse(await fs.promises.readFile(file, 'utf8'))
+    expect(written.ddns.domains).toHaveLength(1)
+  })
+
+  it('refuses a block this release cannot read, and leaves the file alone', async () => {
+    const file = await writeConfig({ servers: [] })
+    const before = await fs.promises.readFile(file, 'utf8')
+    const store = new ConfigStore(file)
+    store.load()
+
+    expect(() => store.updateDdns({ enabled: true, intervalMs: 10 } as never)).toThrow(ConfigError)
+    expect(await fs.promises.readFile(file, 'utf8')).toBe(before)
+  })
+})
+
 describe('logs, notifications and dependencies', () => {
   it('updates log retention and notification policy', async () => {
     const file = await writeConfig({ servers: [] })

@@ -255,7 +255,8 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 📈 **Resources** | CPU and RSS of the whole process tree, with an optional memory ceiling that triggers a restart. |
 | 🌡️ **Host vitals** | Load, memory, swap, disk and CPU temperature, with thresholds that notify once and again on recovery. |
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
-| 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery and host thresholds — [setup here](./docs/NOTIFICATIONS.md). |
+| 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes — [setup here](./docs/NOTIFICATIONS.md). |
+| 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
 | 💾 **Backups** | One click for config, secrets, TLS and your declared data directories — plain `.zip`, or AES-256 with a password, restored per path. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
@@ -384,9 +385,18 @@ Everything binds `127.0.0.1` until you say otherwise.
 ## 🔔 Notifications
 
 Telegram, when something happens while you are not looking: a server that gave up restarting, a
-failing health check, a forced restart, a recovery, or a host threshold (disk, memory, swap, load,
-temperature). Opt-in, rate-limited per server *and* reason, and the bot token stays in the secrets
-file. **Two minutes of setup: [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md).**
+failing health check, a forced restart, a recovery, a host threshold (disk, memory, swap, load,
+temperature), or a dynamic DNS change. Opt-in, rate-limited per server *and* reason, and the bot token
+stays in the secrets file. **Two minutes of setup: [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md).**
+
+---
+
+## 🌐 Dynamic DNS
+
+**Settings → Dynamic DNS** keeps a list of hostnames pointed at this machine's public IP — add an
+account, paste its credentials, add hostnames. The panel checks the address on an interval and calls a
+provider only when it actually changed, and the last confirmed address survives a restart. Provider
+tokens stay in the secrets file. **Providers and the config shape: [DDNS.md](./docs/DDNS.md).**
 
 ---
 

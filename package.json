@@ -55,6 +55,7 @@
     "README.md",
     "bin",
     "dist",
+    "docs/DDNS.md",
     "docs/NOTIFICATIONS.md",
     "docs/SERVERS.md",
     "docs/UI_CREATION.md",

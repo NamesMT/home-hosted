@@ -7,6 +7,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 import AuthenticationSection from '@/components/settings/AuthenticationSection.vue'
 import BackupsSection from '@/components/settings/BackupsSection.vue'
+import DdnsSection from '@/components/settings/DdnsSection.vue'
 import DefaultsSection from '@/components/settings/DefaultsSection.vue'
 import HostSection from '@/components/settings/HostSection.vue'
 import InterfaceSection from '@/components/settings/InterfaceSection.vue'
@@ -51,6 +52,7 @@ const SECTIONS = [
   { id: 'defaults', title: 'Server defaults' },
   { id: 'logs', title: 'Logs' },
   { id: 'notifications', title: 'Notifications' },
+  { id: 'ddns', title: 'Dynamic DNS' },
   { id: 'host', title: 'Host vitals' },
   { id: 'backups', title: 'Backups' },
   { id: 'tls', title: 'TLS' },
@@ -522,6 +524,18 @@ onBeforeUnmount(() => observer?.disconnect())
               :dirty="telegramDirty"
               @reset="resetTelegram"
             />
+          </section>
+
+          <section id="ddns" class="scroll-mt-5">
+            <header class="mb-3">
+              <h2 class="text-lg font-semibold text-ink">
+                Dynamic DNS
+              </h2>
+              <p class="mt-0.5 text-xs text-muted">
+                Keep hostnames pointed at this machine's public address, whichever registrar holds them.
+              </p>
+            </header>
+            <DdnsSection />
           </section>
 
           <section id="host" class="scroll-mt-5">

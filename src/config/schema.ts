@@ -3,6 +3,7 @@ import { type } from 'arktype'
 import {
   backupsSchema,
   controlSchema,
+  ddnsConfigSchema,
   defaultsSchema,
   hostSchema,
   logsSchema,
@@ -10,7 +11,7 @@ import {
   serverSchema,
 } from '#src/shared/contracts'
 
-export { backupsSchema, controlSchema, defaultsSchema, hostSchema, logsSchema, notificationsSchema, serverSchema }
+export { backupsSchema, controlSchema, ddnsConfigSchema, defaultsSchema, hostSchema, logsSchema, notificationsSchema, serverSchema }
 export type { ServerConfig } from '#src/shared/contracts'
 
 /**
@@ -33,6 +34,7 @@ export const configSchema = type({
   notifications: notificationsSchema.default(() => ({})),
   host: hostSchema.default(() => ({})),
   backups: backupsSchema.default(() => ({})),
+  ddns: ddnsConfigSchema.default(() => ({})),
   servers: serverSchema.array().default(() => []),
 }).onUndeclaredKey('reject')
 
@@ -40,7 +42,7 @@ export const configSchema = type({
 export type ResolvedConfig = Omit<typeof configSchema.infer, 'servers'> & { servers: ServerConfig[] }
 
 /** Every key `configSchema` knows, for reporting blocks a newer release added. */
-export const CONFIG_KEYS = ['$schema', 'meta', 'control', 'defaults', 'logs', 'notifications', 'host', 'backups', 'servers'] as const
+export const CONFIG_KEYS = ['$schema', 'meta', 'control', 'defaults', 'logs', 'notifications', 'host', 'backups', 'ddns', 'servers'] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -77,5 +79,6 @@ export interface RawConfig {
   notifications?: Record<string, unknown>
   host?: Record<string, unknown>
   backups?: Record<string, unknown>
+  ddns?: Record<string, unknown>
   servers?: Record<string, unknown>[]
 }

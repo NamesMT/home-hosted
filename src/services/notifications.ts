@@ -3,7 +3,7 @@ import type { LogsConfig, NotificationsConfig, TelegramStatus } from '#src/share
 import { logger } from '#src/helpers/logger'
 import { formatTelegramMessage, listTelegramChats, sendTelegramMessage, verifyTelegramToken } from '#src/providers/telegram'
 
-export type NotificationReason = 'crash' | 'unhealthy' | 'forced-restart' | 'recovered' | 'rss' | 'host' | 'host-recovered'
+export type NotificationReason = 'crash' | 'unhealthy' | 'forced-restart' | 'recovered' | 'rss' | 'host' | 'host-recovered' | 'ddns' | 'ddns-error'
 
 export interface NotificationEvent {
   serverId: string
@@ -20,6 +20,8 @@ const REASON_LABEL: Record<NotificationReason, string> = {
   'rss': 'exceeded its memory limit',
   'host': 'host thresholds breached',
   'host-recovered': 'host thresholds recovered',
+  'ddns': 'updated a dynamic DNS record',
+  'ddns-error': 'hit a dynamic DNS error',
 }
 
 const TITLE: Record<NotificationReason, string> = {
@@ -30,6 +32,8 @@ const TITLE: Record<NotificationReason, string> = {
   'rss': '🔴 server over its memory limit',
   'host': '🟠 host warning',
   'host-recovered': '🟢 host recovered',
+  'ddns': '🌐 DNS updated',
+  'ddns-error': '🌐 DNS update failed',
 }
 
 /**
@@ -65,6 +69,7 @@ export class NotificationService {
       onForcedRestart: telegram.onForcedRestart,
       onRecovered: telegram.onRecovered,
       onHost: telegram.onHost,
+      onDdns: telegram.onDdns,
       cooldownMs: telegram.cooldownMs,
       lastResult: this.lastResult,
       lastResultAt: this.lastResultAt,
@@ -85,6 +90,8 @@ export class NotificationService {
       'rss': telegram.onCrash,
       'host': telegram.onHost,
       'host-recovered': telegram.onHost,
+      'ddns': telegram.onDdns,
+      'ddns-error': telegram.onDdns,
     }[event.reason]
     if (!reasonEnabled)
       return false

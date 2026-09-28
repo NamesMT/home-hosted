@@ -152,6 +152,12 @@ async function sendTest(): Promise<void> {
       hint="Disk, memory, swap, load and CPU temperature, per the thresholds under Host vitals."
       wide
     />
+    <ToggleSwitch
+      v-model="telegram.onDdns"
+      label="Dynamic DNS changed or failed"
+      hint="One message per pass that changed a record, and one for a pass that failed."
+      wide
+    />
 
     <div class="flex items-center gap-2 border-t border-line-soft pt-3 sm:col-span-2">
       <span class="text-xs font-medium text-muted">Bot token</span>

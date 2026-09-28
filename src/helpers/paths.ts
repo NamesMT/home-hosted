@@ -45,6 +45,8 @@ export const defaultHistoryPath = path.join(dataRoot, '.logs', 'history.json')
 export const defaultTlsDir = path.join(dataRoot, '.tls')
 /** Per-entry nanny state and spawn specs — how a persistent server survives a restart. */
 export const defaultNannyDir = path.join(dataRoot, '.state')
+/** The last public address each DDNS target was confirmed to serve. */
+export const defaultDdnsStatePath = path.join(dataRoot, '.state', 'ddns.json')
 /** `run.json` records the live control plane; the log captures its console. */
 export const runtimePath = path.join(dataRoot, 'run.json')
 export const daemonLogPath = path.join(dataRoot, '.logs', 'home-hosted.log')
