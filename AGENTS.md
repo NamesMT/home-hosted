@@ -6,11 +6,12 @@ and serves a UI. User docs: `README.md`, `docs/SERVERS.md` (entries and port con
 `docs/NOTIFICATIONS.md`, `docs/DDNS.md`; UI authors: `docs/UI_CREATION.md`.
 
 State lives only in `$HHOSTED_HOME` (default `~/.home-hosted`): `servers.config.json`,
-`.control-secrets.json` (0600: password hash, API token hash, Telegram bot token, DDNS credentials),
-`.logs/`, `.tls/`, `.backups/`, `.ui/`, `.state/` (a persistent entry's nanny state, plus its 0600
-spawn spec until the nanny reads it, plus `ddns.json` — the last address each target confirmed), and
-`run.json` — the live daemon's pid/url/token, 0600. The package ships **no servers**: never commit a
-config, a seed entry, or a path that names one.
+`.control-secrets.json` (0600: password hash, API token hash, Telegram bot token, and DDNS
+credentials sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET`), `.logs/`, `.tls/`, `.backups/`,
+`.ui/`, `.state/` (a persistent entry's nanny state, plus its 0600 spawn spec until the nanny reads
+it, plus `ddns.json` — the last address each target confirmed), and `run.json` — the live daemon's
+pid/url/token, 0600. The package ships **no servers**: never commit a config, a seed entry, or a path
+that names one.
 
 ## Commands
 
@@ -165,6 +166,12 @@ a minor without one.
 - A destructive action that is one click away confirms in a **popover** (`KillPortButton.vue`),
   never by arming the same button for a second press: an impatient double click on an arming
   button fires it. Keep the safe choice first in the popover's tab order.
+- **Docs ship with the change.** A user-visible change updates the docs that describe it
+  (`README.md`, `docs/*.md`) in the same commit — do not forget them; a stale doc is a bug like
+  stale code.
+- **UIs move together.** `uis/stock` is not the only client: a change to it — or to a shared
+  contract it reads — lands in every other UI under `uis/`, and each altered UI bumps its
+  `ui.json` per the rule above.
 
 ## Compatibility
 
@@ -348,7 +355,8 @@ either is a last resort, and never an accidental one.
 - **Server field**: `serverSchema` + its patch in contracts, merge keys in `config/store.ts` when
   nested, the form in `uis/stock/src/components/settings/`, and the contract tests.
 - **UI**: a new `uis/<name>/` with a `vite.config.ts` from the shared factory;
-  `node scripts/build-uis.mjs <name> --zip`. The contract is `docs/UI_CREATION.md`.
+  `node scripts/build-uis.mjs <name> --zip`. The contract is `docs/UI_CREATION.md`. A change to one
+  UI (`stock`, `noc-console`) is carried to the others in the same commit.
 - **Capability**: a stateless `src/providers/*` returning plain data; a DDNS provider is one file plus
   a registry line (`src/providers/ddns/index.ts`), and the settings form, credentials and validation
   follow from its metadata — see `docs/DDNS.md`.

@@ -375,8 +375,10 @@ Everything binds `127.0.0.1` until you say otherwise.
   never taken from the message, and anything the panel supervises is refused, not killed. A server
   that [restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced
   with a supervised copy.
-- **Secrets never enter the config**: the password hash, the API token hash and the Telegram bot
-  token live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`; the TLS pair in `.tls/`.
+- **Secrets never enter the config**: the password hash, the API token hash, the Telegram bot
+  token and the DDNS credentials live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`; the
+  TLS pair in `.tls/`. DDNS credentials are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET`
+  (default `hh` — set your own).
 - **Behind a proxy** turn on `trustProxy` and let `cookieSecure: auto` add `Secure` on https, or
   upload a PEM pair and let home-hosted terminate TLS itself.
 

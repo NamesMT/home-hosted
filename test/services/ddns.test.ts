@@ -54,7 +54,7 @@ async function harness(config: DdnsConfig, options: { credentials?: Record<strin
   const credentials = options.credentials ?? { cf: { apiToken: 'tok' } }
   const service = new DdnsService({
     getConfig: () => config,
-    getCredentials: id => credentials[id] ?? null,
+    getCredentials: (id: string) => credentials[id] ?? null,
     notifications: { notify } as unknown as NotificationService,
     statePath,
     fetchImpl,

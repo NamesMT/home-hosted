@@ -66,3 +66,7 @@ dist/
 # config, password hash, logs, TLS keys and backups all live there
 state/
 .dev-state/
+# ...but a state directory can be named anything, so the two files that must never
+# be committed are ignored wherever they land. `servers.config.json` stays
+# trackable on purpose: versioning your server definitions is a real workflow.
+.control-secrets.json

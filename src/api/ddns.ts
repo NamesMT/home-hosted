@@ -5,6 +5,7 @@ import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { ConfigError } from '#src/config/store'
 import { appFactory } from '#src/helpers/factory'
+import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { ddnsProvider, ddnsProviderInfos, validateDdnsConfig } from '#src/providers/ddns'
@@ -19,12 +20,21 @@ const accountParam = type({ id: '/^[a-z0-9][a-z0-9_-]*$/' })
  * the view only says which accounts have them.
  */
 export function createDdnsRoute(deps: AppDeps) {
-  const view = () => ({
-    config: deps.store.config.ddns,
-    status: deps.ddns.view,
-    providers: ddnsProviderInfos(),
-    credentials: deps.secrets.ddnsAccountIds,
-  })
+  const view = () => {
+    const config = deps.store.config.ddns
+    return {
+      config,
+      status: deps.ddns.view,
+      providers: ddnsProviderInfos(),
+      // An id with a stored secret counts as saved even before the account itself is
+      // — that is the draft flow. Once the config declares it, the provider has to
+      // match the entry, or the badge would claim credentials that cannot be used.
+      credentials: deps.secrets.ddnsAccountIds.filter((id) => {
+        const account = config.accounts.find(entry => entry.id === id)
+        return account === undefined || deps.secrets.getDdnsCredentials(id, account.provider) !== null
+      }),
+    }
+  }
 
   return appFactory.createApp()
     .get(
@@ -60,6 +70,12 @@ export function createDdnsRoute(deps: AppDeps) {
           throw error
         }
 
+        // A removed account takes its stored secret with it; without this, a token
+        // typed for a draft that was never saved would sit in the file forever.
+        const pruned = deps.secrets.pruneDdnsCredentials(config.accounts.map(account => account.id))
+        if (pruned > 0)
+          logger.info(`ddns: dropped stored credentials for ${pruned} account(s) the config no longer declares`)
+
         // A config edit is a reason to look again now, not on the next interval.
         deps.ddns.refresh()
         return c.json(view())
@@ -77,20 +93,18 @@ export function createDdnsRoute(deps: AppDeps) {
       validate('json', ddnsCredentialsSchema),
       (c) => {
         const { id } = c.req.valid('param')
-        const account = deps.store.config.ddns.accounts.find(entry => entry.id === id)
-        if (account === undefined)
-          throw new DetailedError(`unknown DDNS account "${id}"`, { statusCode: 400, code: 'UNKNOWN_DDNS_ACCOUNT' })
+        const { provider: providerId, credentials } = c.req.valid('json')
 
-        const provider = ddnsProvider(account.provider)
+        // The account itself may still be an unsaved draft; only its provider is needed.
+        const provider = ddnsProvider(providerId)
         if (provider === null)
-          throw new DetailedError(`unknown DDNS provider "${account.provider}"`, { statusCode: 400, code: 'UNKNOWN_DDNS_PROVIDER' })
+          throw new DetailedError(`unknown DDNS provider "${providerId}"`, { statusCode: 400, code: 'UNKNOWN_DDNS_PROVIDER' })
 
-        const { credentials } = c.req.valid('json')
         const problem = provider.validate(credentials)
         if (problem !== null)
           throw new DetailedError(`${provider.label}: ${problem}`, { statusCode: 400, code: 'INVALID_DDNS_CREDENTIALS' })
 
-        deps.secrets.setDdnsCredentials(id, credentials)
+        deps.secrets.setDdnsCredentials(id, providerId, credentials)
         deps.ddns.refresh()
         return c.json(view())
       },

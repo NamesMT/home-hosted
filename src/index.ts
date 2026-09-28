@@ -130,7 +130,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // the supervisor's tick so the panel keeps exactly one timer.
   const ddns = new DdnsService({
     getConfig: () => store.config.ddns,
-    getCredentials: accountId => secrets.getDdnsCredentials(accountId),
+    getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,
     notifications,
     statePath: defaultDdnsStatePath,
   })

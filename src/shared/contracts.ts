@@ -344,8 +344,14 @@ export const ddnsViewSchema = type({
 })
 export type DdnsView = typeof ddnsViewSchema.infer
 
-/** `PUT /api/ddns/credentials/:id`: the secret fields that provider declares. */
+/**
+ * `PUT /api/ddns/credentials/:id`: the secret fields that provider declares.
+ *
+ * The provider travels with the request because the account may still be an
+ * unsaved draft — the server needs its field list, not a config entry.
+ */
 export const ddnsCredentialsSchema = type({
+  provider: 'string >= 1',
   credentials: type('Record<string, string>'),
 }).onUndeclaredKey('reject')
 export type DdnsCredentials = typeof ddnsCredentialsSchema.infer

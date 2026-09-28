@@ -89,7 +89,7 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
   const hostMonitor = new HostMonitor(() => store.config.host, target => path.resolve(dir, target), notifications)
   const ddns = new DdnsService({
     getConfig: () => store.config.ddns,
-    getCredentials: accountId => secrets.getDdnsCredentials(accountId),
+    getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,
     notifications,
     statePath: path.join(dir, 'ddns.json'),
   })

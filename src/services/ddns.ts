@@ -34,8 +34,8 @@ interface ResultEntry {
 
 export interface DdnsDeps {
   getConfig: () => DdnsConfig
-  /** Provider credentials for one account, or null when none are stored yet. */
-  getCredentials: (accountId: string) => Record<string, string> | null
+  /** Provider credentials for one account, or null when none are stored for that provider. */
+  getCredentials: (accountId: string, provider: string) => Record<string, string> | null
   notifications: NotificationService
   statePath: string
   fetchImpl?: DdnsFetch
@@ -187,7 +187,7 @@ export class DdnsService {
           continue
         const account = config.accounts.find(entry => entry.id === domain.account)
         const provider = account === undefined ? null : ddnsProvider(account.provider)
-        const credentials = account === undefined ? null : this.deps.getCredentials(account.id)
+        const credentials = account === undefined ? null : this.deps.getCredentials(account.id, account.provider)
 
         for (const type of domain.types) {
           const key = cacheKey(domain.host, type)

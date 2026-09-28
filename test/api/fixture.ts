@@ -113,7 +113,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
   const hub = new EventHub()
   const ddns = new DdnsService({
     getConfig: () => store.config.ddns,
-    getCredentials: accountId => secrets.getDdnsCredentials(accountId),
+    getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,
     notifications,
     statePath: path.join(dir, '.state', 'ddns.json'),
     ...(options.ddnsFetch === undefined ? {} : { fetchImpl: options.ddnsFetch }),

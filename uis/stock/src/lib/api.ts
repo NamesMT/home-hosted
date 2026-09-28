@@ -321,8 +321,9 @@ export async function saveDdns(config: DdnsConfig): Promise<DdnsView> {
   return ddnsView(await request<unknown>('/api/ddns', { method: 'PUT', body: JSON.stringify(config) }))
 }
 
-export async function saveDdnsCredentials(id: string, credentials: Record<string, string>): Promise<DdnsView> {
-  return ddnsView(await request<unknown>(`/api/ddns/credentials/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ credentials }) }))
+/** The provider travels with the request: the account may still be an unsaved draft. */
+export async function saveDdnsCredentials(id: string, provider: string, credentials: Record<string, string>): Promise<DdnsView> {
+  return ddnsView(await request<unknown>(`/api/ddns/credentials/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ provider, credentials }) }))
 }
 
 export async function clearDdnsCredentials(id: string): Promise<DdnsView> {

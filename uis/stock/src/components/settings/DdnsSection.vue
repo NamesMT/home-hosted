@@ -215,7 +215,7 @@ async function saveCredentials(): Promise<void> {
   credentialBusy.value = true
   credentialError.value = null
   try {
-    apply(await api.saveDdnsCredentials(account.id, credentialDraft.value), true)
+    apply(await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value), true)
     toasts.success(`Credentials saved for ${account.label || account.id}`)
     credentialAccount.value = null
   }

@@ -40,7 +40,7 @@ async function makeApp(): Promise<Fixture> {
   const notifications = new NotificationService(secrets, () => store.config.notifications, () => store.config.logs)
   const ddns = new DdnsService({
     getConfig: () => store.config.ddns,
-    getCredentials: accountId => secrets.getDdnsCredentials(accountId),
+    getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,
     notifications,
     statePath: path.join(dir, 'ddns.json'),
     fetchImpl: async (url) => {
@@ -127,43 +127,76 @@ describe('pUT /api/ddns', () => {
 })
 
 describe('credentials', () => {
-  it('stores them in the secrets file, never in the config', async () => {
+  it('seals them in the secrets file, and never puts them in the config', async () => {
     const { app, file, secretsFile, secrets } = await makeApp()
     await app.request('/api/ddns', put(configWithAccount))
 
-    const response = await app.request('/api/ddns/credentials/cf', put({ credentials: { apiToken: 'super-secret' } }))
+    const response = await app.request('/api/ddns/credentials/cf', put({ provider: 'cloudflare', credentials: { apiToken: 'super-secret' } }))
     expect(response.status).toBe(200)
     expect((await body<DdnsBody>(response)).credentials).toEqual(['cf'])
-    expect(secrets.getDdnsCredentials('cf')).toEqual({ apiToken: 'super-secret' })
+    expect(secrets.getDdnsCredentials('cf', 'cloudflare')).toEqual({ provider: 'cloudflare', values: { apiToken: 'super-secret' } })
 
-    expect(fs.readFileSync(secretsFile, 'utf8')).toContain('super-secret')
+    // The one credential the panel must replay to a registrar is unreadable at rest.
+    const sealed = fs.readFileSync(secretsFile, 'utf8')
+    expect(sealed).not.toContain('super-secret')
+    expect(JSON.parse(sealed).ddns.cf.algo).toBe('aes-256-gcm')
     expect(fs.readFileSync(file, 'utf8')).not.toContain('super-secret')
   })
 
-  it('refuses credentials for an account that does not exist', async () => {
+  it('accepts credentials for an account that is not saved yet', async () => {
+    const { app, secrets } = await makeApp()
+
+    // Exactly the reported flow: the account is still a draft in the UI.
+    const response = await app.request('/api/ddns/credentials/cf-main', put({ provider: 'cloudflare', credentials: { apiToken: 'draft-token' } }))
+    expect(response.status).toBe(200)
+    expect((await body<DdnsBody>(response)).credentials).toEqual(['cf-main'])
+    expect(secrets.getDdnsCredentials('cf-main', 'cloudflare')?.values).toEqual({ apiToken: 'draft-token' })
+  })
+
+  it('refuses an unknown provider', async () => {
     const { app } = await makeApp()
-    const response = await app.request('/api/ddns/credentials/ghost', put({ credentials: { apiToken: 'x' } }))
+    const response = await app.request('/api/ddns/credentials/cf', put({ provider: 'nope', credentials: { apiToken: 'x' } }))
     expect(response.status).toBe(400)
-    expect((await body<DdnsBody>(response)).code).toBe('UNKNOWN_DDNS_ACCOUNT')
+    expect((await body<DdnsBody>(response)).code).toBe('UNKNOWN_DDNS_PROVIDER')
   })
 
   it('refuses an incomplete credential set', async () => {
     const { app } = await makeApp()
     await app.request('/api/ddns', put(configWithAccount))
-    const response = await app.request('/api/ddns/credentials/cf', put({ credentials: { email: 'a@b.c' } }))
+    const response = await app.request('/api/ddns/credentials/cf', put({ provider: 'cloudflare', credentials: { email: 'a@b.c' } }))
     expect(response.status).toBe(400)
     expect((await body<DdnsBody>(response)).code).toBe('INVALID_DDNS_CREDENTIALS')
+  })
+
+  it('does not advertise an entry stored for another provider', async () => {
+    const { app, secrets } = await makeApp()
+    await app.request('/api/ddns', put(configWithAccount))
+
+    // `cf` is a cloudflare account; a namecheap secret under that id is not usable.
+    const response = await app.request('/api/ddns/credentials/cf', put({ provider: 'namecheap', credentials: { password: 'pw' } }))
+    expect((await body<DdnsBody>(response)).credentials).toEqual([])
+    expect(secrets.getDdnsCredentials('cf', 'cloudflare')).toBeNull()
+  })
+
+  it('drops the secret of an account the config no longer declares', async () => {
+    const { app, secrets } = await makeApp()
+    await app.request('/api/ddns', put(configWithAccount))
+    await app.request('/api/ddns/credentials/cf', put({ provider: 'cloudflare', credentials: { apiToken: 'x' } }))
+
+    const response = await app.request('/api/ddns', put({ enabled: true, accounts: [], domains: [] }))
+    expect((await body<DdnsBody>(response)).credentials).toEqual([])
+    expect(secrets.getDdnsCredentials('cf', 'cloudflare')).toBeNull()
   })
 
   it('forgets them on delete', async () => {
     const { app, secrets } = await makeApp()
     await app.request('/api/ddns', put(configWithAccount))
-    await app.request('/api/ddns/credentials/cf', put({ credentials: { apiToken: 'x' } }))
+    await app.request('/api/ddns/credentials/cf', put({ provider: 'cloudflare', credentials: { apiToken: 'x' } }))
 
     const response = await app.request('/api/ddns/credentials/cf', { method: 'DELETE' })
     expect(response.status).toBe(200)
     expect((await body<DdnsBody>(response)).credentials).toEqual([])
-    expect(secrets.getDdnsCredentials('cf')).toBeNull()
+    expect(secrets.getDdnsCredentials('cf', 'cloudflare')).toBeNull()
   })
 })
 
@@ -171,7 +204,7 @@ describe('pOST /api/ddns/check', () => {
   it('runs a pass and reports each record', async () => {
     const { app } = await makeApp()
     await app.request('/api/ddns', put(configWithAccount))
-    await app.request('/api/ddns/credentials/cf', put({ credentials: { apiToken: 'x' } }))
+    await app.request('/api/ddns/credentials/cf', put({ provider: 'cloudflare', credentials: { apiToken: 'x' } }))
 
     const response = await app.request('/api/ddns/check', { method: 'POST' })
     expect(response.status).toBe(200)

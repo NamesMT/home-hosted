@@ -193,7 +193,7 @@ async function saveCredentials(account: DraftAccount): Promise<void> {
   credentialBusy.value = true
   error.value = null
   try {
-    apply(await api.saveDdnsCredentials(account.id, credentialDraft.value), true)
+    apply(await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value), true)
     message.value = `credentials saved for ${account.label || account.id}`
     editing.value = null
   }

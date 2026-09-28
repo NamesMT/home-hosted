@@ -28,7 +28,13 @@ Nothing else is required, and provider credentials never enter `servers.config.j
 }
 ```
 
-Credentials live in `.control-secrets.json` (0600), keyed by the account `id`. Header fields:
+Credentials live in `.control-secrets.json` (0600), keyed by the account `id` and sealed with
+AES-256-GCM under `HHOSTED_DDNS_SECRET` — set your own, or the default `hh` only stops a casual
+read. The account does not have to be saved first, and the provider is stored with the entry, so an
+id that later changes provider does not silently keep the old secret. Removing an account drops its
+credentials on the next save.
+
+Header fields:
 
 | Field | Default | Notes |
 | --- | --- | --- |
