@@ -6,6 +6,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SecretsStore } from '#src/config/secrets'
 import { ConfigStore } from '#src/config/store'
@@ -148,6 +149,22 @@ function httpServerConfig(port: number, overrides: Record<string, unknown> = {})
     restart: { maxRetries: 3, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
     ...overrides,
   }
+}
+
+/**
+ * `spawnNanny()` re-runs this process's own entry point (`nannyEntryPoint()`), which
+ * under vitest is the test worker. Pointing both at what `up` uses in production makes
+ * the nanny a real one: this CLI, through tsx.
+ */
+function armRealNannySpawn(): void {
+  const argv1 = process.argv[1] ?? ''
+  const execArgv = process.execArgv
+  process.argv[1] = fileURLToPath(new URL('../../src/cli.ts', import.meta.url))
+  process.execArgv = ['--import=tsx']
+  cleanups.push(() => {
+    process.argv[1] = argv1
+    process.execArgv = execArgv
+  })
 }
 
 function view(supervisor: Supervisor, id: string): ServerView {
@@ -856,6 +873,24 @@ describe('persistent entries', () => {
     expect(supervisor.logLines('keep').some(line => line.text.startsWith('start'))).toBe(false)
   })
 
+  it('fills the live buffer from the log file when it reattaches', async () => {
+    // A reattached entry writes nothing new on its own, so without this the Logs page's
+    // live view stays blank until the server happens to print something.
+    const { supervisor, nannyDir, logDir } = await makeSupervisor([persistentConfig()])
+    await fakeNanny(nannyDir, 'keep')
+    fs.mkdirSync(logDir, { recursive: true })
+    const file = path.join(logDir, 'keep.log')
+    for (const text of ['old one', 'old two', 'old three'])
+      fs.appendFileSync(file, `${JSON.stringify({ ts: Date.now(), stream: 'stdout', text })}\n`)
+
+    await supervisor.startAll({ autostartOnly: true })
+
+    const texts = supervisor.logLines('keep').map(line => line.text)
+    expect(texts.slice(0, 3)).toEqual(['old one', 'old two', 'old three'])
+    // History first, the panel's own attach line last: the buffer stays in order.
+    expect(texts[3]).toContain('reattached')
+  })
+
   it('leaves a persistent entry running through stop-all, and stops it explicitly', async () => {
     const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
     const pid = await fakeNanny(nannyDir, 'keep')
@@ -997,6 +1032,30 @@ describe('persistent entries', () => {
 
     expect(view(supervisor, 'keep').status).toBe('stopped')
     expect(view(supervisor, 'keep').pid).toBeNull()
+  })
+
+  it('surfaces a persistent entry\'s crash output, not only its exit code', async () => {
+    // A nanny writes the child's last lines and exits in the same breath, so the panel
+    // can learn of the exit between two relay polls. Those lines are the whole reason a
+    // person opens the panel; they must not depend on winning that race.
+    armRealNannySpawn()
+    const detail = 'boom: the entry refuses to start'
+    const { supervisor } = await makeSupervisor([
+      persistentConfig({
+        args: ['-e', `console.error(${JSON.stringify(detail)}); process.exit(1)`],
+        health: { enabled: false },
+        restart: { maxRetries: 0, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+      }),
+    ])
+
+    await supervisor.start('keep')
+    await waitFor(() => view(supervisor, 'keep').status === 'crashed')
+
+    const texts = supervisor.logLines('keep').map(line => line.text)
+    expect(texts.some(text => text.includes(detail))).toBe(true)
+    // The panel's own start line reaches the same file the relay reads: an echo it
+    // reads back is not a second start.
+    expect(texts.filter(text => text.startsWith('start (persistent)'))).toHaveLength(1)
   })
 })
 

@@ -57,10 +57,21 @@ export class LogRelay {
     return history
   }
 
-  unfollow(serverId: string): void {
+  /**
+   * Stops following and hands back whatever the file still held unread.
+   *
+   * A nanny writes its last lines and exits in the same breath, so the tailer can be
+   * dropped between two polls with its final lines — the child's crash output — still
+   * on disk. Losing them here is what made a persistent entry's crash silent in the
+   * panel, so the caller gets them to ingest rather than an empty hand.
+   */
+  unfollow(serverId: string): LogLine[] {
+    const current = this.followed.get(serverId)
+    const rest = current === undefined ? [] : current.tailer.read()
     this.followed.delete(serverId)
     if (this.followed.size === 0)
       this.stopTimer()
+    return rest
   }
 
   followedIds(): string[] {

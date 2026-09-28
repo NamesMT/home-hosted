@@ -118,6 +118,11 @@ interface Entry {
   stopping: boolean
   bootstrapDone: boolean
   logs: LogBuffer
+  /**
+   * Identity of the lines this panel wrote itself for a persistent entry. Its nanny
+   * appends to the same file, so the relay reads them back and must not push them twice.
+   */
+  echoed: Set<string>
   responseMs: number | null
   resources: ProcessResources | null
   resourcesSampledAt: number
@@ -131,6 +136,25 @@ const RESOURCE_SAMPLE_INTERVAL_MS = 5000
 
 /** History a panel attaches with, so a persistent entry's live view is not blank. */
 const PERSISTENT_BACKFILL_LINES = 200
+
+/** Echoes are read within a poll or two of being written; a bounded set is plenty. */
+const ECHOED_LINE_LIMIT = 100
+
+/** One line's exact identity: a timestamp this panel minted, its stream and its text. */
+function echoedKey(line: LogLine): string {
+  return `${line.ts}\u0000${line.stream}\u0000${line.text}`
+}
+
+function rememberEchoedLine(set: Set<string>, line: LogLine): void {
+  set.add(echoedKey(line))
+  while (set.size > ECHOED_LINE_LIMIT)
+    set.delete(set.values().next().value as string)
+}
+
+/** True when this line is this panel's own echo, so it is only ever reported once. */
+function forgetEchoedLine(set: Set<string>, line: LogLine): boolean {
+  return set.delete(echoedKey(line))
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -584,7 +608,8 @@ export class Supervisor {
       else {
         this.log(entry, 'system', `pid ${survivor} is still alive after the stop — its state file is kept`)
       }
-      this.relay.unfollow(entry.config.id)
+      // A stop is the last chance to read what the nanny wrote on its way out.
+      this.drainRelay(entry)
     }
 
     entry.stopping = false
@@ -628,6 +653,7 @@ export class Supervisor {
       stopping: false,
       bootstrapDone: !config.bootstrap,
       logs: new LogBuffer(config.logBufferLines),
+      echoed: new Set(),
       responseMs: null,
       resources: null,
       resourcesSampledAt: 0,
@@ -649,11 +675,12 @@ export class Supervisor {
         continue
       }
       const bufferChanged = entry.config.logBufferLines !== config.logBufferLines
-      entry.config = config
       // The flag decides how the entry is *run*, so it takes effect on the next start;
-      // what must not linger is a tailer for an entry that is no longer persistent.
-      if (!config.persistent)
-        this.relay.unfollow(id)
+      // what must not linger is a tailer for an entry that is no longer persistent —
+      // and whatever it had not read yet still belongs to this entry.
+      if (entry.config.persistent && !config.persistent)
+        this.drainRelay(entry)
+      entry.config = config
       if (bufferChanged) {
         const kept = entry.logs.list(config.logBufferLines)
         entry.logs = new LogBuffer(config.logBufferLines)
@@ -855,9 +882,11 @@ export class Supervisor {
     entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
     entry.startedAt = Date.now()
     entry.lastError = null
-    this.log(entry, 'system', `adopted pid ${pid}: a detached restart of this entry is already serving port ${entry.config.port}`)
+    // The history comes first, and logging last, so the buffer stays in order: an
+    // attach fills an empty buffer, so its own line has to be written after it.
     if (entry.config.persistent)
-      this.followPersistent(entry)
+      this.followPersistent(entry, true)
+    this.log(entry, 'system', `adopted pid ${pid}: a detached restart of this entry is already serving port ${entry.config.port}`)
     this.publishServer(entry)
     return { ok: true }
   }
@@ -1130,10 +1159,25 @@ export class Supervisor {
     if (entry === undefined || !entry.config.persistent || lines.length === 0)
       return
 
-    for (const line of lines) entry.logs.push(line)
+    // This panel's own lines live in that file too: an echo is not news.
+    const kept = lines.filter(line => !forgetEchoedLine(entry.echoed, line))
+    if (kept.length === 0)
+      return
+
+    for (const line of kept) entry.logs.push(line)
     // One frame per batch: this is a file tail, and a burst of lines would otherwise
     // become a burst of frames.
-    this.hub.publish({ type: 'log', ts: lines[lines.length - 1]!.ts, serverId, lines })
+    this.hub.publish({ type: 'log', ts: kept[kept.length - 1]!.ts, serverId, lines: kept })
+  }
+
+  /**
+   * Whatever the relay had not read yet, ingested before its tailer goes: a nanny's
+   * exit and a stop both end with lines the panel has never seen.
+   */
+  private drainRelay(entry: Entry): void {
+    const rest = this.relay.unfollow(entry.config.id)
+    if (rest.length > 0)
+      this.ingestExternalLines(entry.config.id, rest)
   }
 
   /**
@@ -1143,11 +1187,17 @@ export class Supervisor {
    * offset: reading it from `LogFiles` first and seeking to EOF second would either
    * replay a line as news or skip one as history, depending on which order the two
    * syscalls happen to land in.
+   *
+   * `attach` is the caller's word for "this entry is already running, and its history is
+   * new to this panel": only then is the file's tail history. The buffer itself cannot
+   * answer that — spawn, adopt and reattach all log a line of their own — which is why a
+   * `logs.size === 0` test left this backfill dead. An empty buffer is still required, so
+   * a second attach to an entry we already hold lines for cannot replay older ones on top.
    */
-  private followPersistent(entry: Entry): void {
+  private followPersistent(entry: Entry, attach = false): void {
     const id = entry.config.id
     // `logs.persist: false` means that history is not served, and the backfill follows suit.
-    const backfill = entry.logs.size === 0 && this.options.logFiles.config.persist
+    const backfill = attach && entry.logs.size === 0 && this.options.logFiles.config.persist
       ? PERSISTENT_BACKFILL_LINES
       : 0
 
@@ -1176,8 +1226,8 @@ export class Supervisor {
       entry.lastError = null
       entry.nannyExit = null
       const child = state.childPid === null ? '' : `, server pid ${state.childPid}`
+      this.followPersistent(entry, true)
       this.log(entry, 'system', `persistent: still running (nanny pid ${state.nannyPid}${child}) — reattached`)
-      this.followPersistent(entry)
       this.publishServer(entry)
       return true
     }
@@ -1218,7 +1268,10 @@ export class Supervisor {
     if (state?.lastExit !== undefined)
       entry.nannyExit = state.lastExit
     clearNannyState(statePath)
-    this.relay.unfollow(entry.config.id)
+    // A nanny writes its last lines and exits in one breath, so its final output is
+    // read here rather than left between two relay polls. A crash on start is exactly
+    // the case that fits in that gap — and the lines are the only explanation.
+    this.drainRelay(entry)
   }
 
   /** One probe using the configured mode (TCP or HTTP), with timing. */
@@ -1550,6 +1603,10 @@ export class Supervisor {
     const line: LogLine = { ts: Date.now(), stream, text }
     entry.logs.push(line)
     this.options.logFiles.append(entry.config.id, line)
+    // The relay reads that same file back, so this line has to be recognizable later
+    // as ours. Only a persistent entry's log is a file the panel both writes and tails.
+    if (entry.config.persistent && this.options.logFiles.config.persist)
+      rememberEchoedLine(entry.echoed, line)
     this.hub.publish({ type: 'log', ts: line.ts, serverId: entry.config.id, lines: [line] })
     if (stream === 'system')
       logger.debug(`[${entry.config.id}] ${text}`)
