@@ -8,7 +8,7 @@
 
 Point it at the things you run — a gateway, a media server, a bot, a database — and it starts
 them, watches them, restarts what dies, and shows you one page of what is going on. Split them into
-[workspaces](#-workspaces) when one panel holds more than one setup. Or
+[workspaces](#-workspaces) when one panel holds more than one setup. And
 [BYOU](#-bring-your-own-ui-byou), for a specialized UI that fits you exactly.
 
 [![npm](https://img.shields.io/npm/v/home-hosted.svg)](https://www.npmjs.com/package/home-hosted)
