@@ -20,8 +20,9 @@ import {
   formatUptime,
   relativeFrom,
 } from '@/lib/format'
+import { workspacePath } from '@/router'
 
-const props = defineProps<{ server: ServerView, now: number }>()
+const props = defineProps<{ server: ServerView, workspaceId: string, now: number }>()
 
 const control = useControlPlane()
 const router = useRouter()
@@ -29,17 +30,17 @@ const { drawerOpen } = useUi()
 
 const config = computed(() => props.server.config)
 const label = computed(() => (config.value.label && config.value.label.length > 0 ? config.value.label : props.server.id))
-const series = computed(() => control.seriesOf(props.server.id))
+const series = computed(() => control.seriesOf(props.workspaceId, props.server.id))
 const lines = ref<LogLine[]>([])
 const busy = ref(false)
 
-watch(() => props.server.id, (id, previous) => {
+watch(() => [props.workspaceId, props.server.id] as const, ([workspaceId, id], previous) => {
   if (previous !== undefined)
-    unwatchLogs(previous)
-  lines.value = watchLogs(id)
+    unwatchLogs(previous[0], previous[1])
+  lines.value = watchLogs(workspaceId, id)
 }, { immediate: true })
 
-onScopeDispose(() => unwatchLogs(props.server.id))
+onScopeDispose(() => unwatchLogs(props.workspaceId, props.server.id))
 
 const commandLine = computed(() => `${config.value.command} ${config.value.args.join(' ')}`.trim())
 
@@ -96,7 +97,7 @@ function toneClass(value: number | null, warn: number, danger: number): string {
 async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
   busy.value = true
   try {
-    await control.act(props.server.id, action)
+    await control.act(props.workspaceId, props.server.id, action)
   }
   finally {
     busy.value = false
@@ -104,34 +105,34 @@ async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
 }
 
 async function toggleEnabled(event: Event): Promise<void> {
-  await control.setEnabled(props.server.id, (event.target as HTMLInputElement).checked)
+  await control.setEnabled(props.workspaceId, props.server.id, (event.target as HTMLInputElement).checked)
 }
 
 async function toggleAutostart(event: Event): Promise<void> {
-  await control.setAutostart(props.server.id, (event.target as HTMLInputElement).checked)
+  await control.setAutostart(props.workspaceId, props.server.id, (event.target as HTMLInputElement).checked)
 }
 
 async function changeBind(event: Event): Promise<void> {
   const bind: Bind | null = parseBind((event.target as HTMLSelectElement).value)
   if (bind === null)
     return
-  await control.setBind(props.server.id, bind)
+  await control.setBind(props.workspaceId, props.server.id, bind)
 }
 
 async function remove(): Promise<void> {
   const id = props.server.id
-  await control.remove(id)
+  await control.remove(props.workspaceId, id)
   if (control.lastError.value === null)
     flash(`removed ${id}`)
 }
 
 function edit(): void {
-  void router.push({ name: 'server-config', params: { id: props.server.id } })
+  void router.push(workspacePath(props.workspaceId, 'servers', props.server.id))
 }
 
 async function clearBuffer(): Promise<void> {
   const id = props.server.id
-  await control.clearLogs(id)
+  await control.clearLogs(props.workspaceId, id)
   flash(`${id}: buffered logs cleared`)
 }
 

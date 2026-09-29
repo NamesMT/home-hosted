@@ -4,6 +4,7 @@ import type { DraftAccount, DraftConfig, DraftDomain } from '@/lib/ddns'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@/lib/ddns'
 import { formatAgo } from '@/lib/format'
@@ -24,6 +25,7 @@ const RECORD_CHIP: Record<DdnsRecordState, { label: string, chip: string }> = {
 }
 
 const control = useControlPlane()
+const workspace = useWorkspaces()
 
 const view = ref<Awaited<ReturnType<typeof api.fetchDdns>> | null>(null)
 const draft = ref<DraftConfig | null>(null)
@@ -48,7 +50,7 @@ const providerOptions = computed(() => providers.value.map(provider => ({ value:
 const accountOptions = computed(() => accounts.value.map(account => ({ value: account.id, label: account.id })))
 
 /** Live state from the SSE frame; the fetch is only the fallback before one lands. */
-const status = computed(() => control.ddns.value ?? view.value?.status ?? null)
+const status = computed(() => workspace.ddns.value ?? view.value?.status ?? null)
 const dirty = computed(() => draft.value !== null && baseline.value !== null && !ddnsConfigEquals(draft.value, baseline.value))
 const canAddAccount = computed(() => /^[a-z0-9][a-z0-9_-]*$/.test(newAccount.id) && !accounts.value.some(account => account.id === newAccount.id))
 const canAddDomain = computed(() => newDomain.host.includes('.') && newDomain.account.length > 0 && !domains.value.some(domain => domain.host.toLowerCase() === newDomain.host.trim().toLowerCase()))
@@ -105,7 +107,7 @@ function apply(next: Awaited<ReturnType<typeof api.fetchDdns>>, keepDraft = fals
 async function load(): Promise<void> {
   loadError.value = null
   try {
-    apply(await api.fetchDdns())
+    apply(await api.fetchDdns(workspace.activeId.value))
     newAccount.provider = providerOptions.value[0]?.value ?? 'cloudflare'
     newDomain.account = accounts.value[0]?.id ?? ''
   }
@@ -175,7 +177,7 @@ async function updateNow(): Promise<void> {
   error.value = null
   try {
     // Keeps an unsaved draft: a pass does not change the policy.
-    apply(await api.checkDdns(), true)
+    apply(await api.checkDdns(workspace.activeId.value), true)
     message.value = status.value?.lastResult ?? 'dynamic DNS pass finished'
   }
   catch (caught) {
@@ -192,7 +194,7 @@ async function saveCredentials(account: DraftAccount): Promise<void> {
   credentialBusy.value = true
   error.value = null
   try {
-    apply(await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value), true)
+    apply(await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value, workspace.activeId.value), true)
     message.value = `credentials saved for ${account.id}`
     editing.value = null
   }
@@ -213,7 +215,7 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
   credentialBusy.value = true
   error.value = null
   try {
-    apply(await api.clearDdnsCredentials(account.id), true)
+    apply(await api.clearDdnsCredentials(account.id, workspace.activeId.value), true)
     message.value = `credentials removed for ${account.id}`
   }
   catch (caught) {

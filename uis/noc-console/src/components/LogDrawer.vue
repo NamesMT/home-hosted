@@ -6,20 +6,20 @@ import StatusChip from '@/components/StatusChip.vue'
 import { unwatchLogs, useControlPlane, watchLogs } from '@/composables/useControlPlane'
 import { useUi } from '@/composables/useUi'
 
-const props = defineProps<{ serverId: string }>()
+const props = defineProps<{ serverId: string, workspaceId: string }>()
 
 const control = useControlPlane()
 const { drawerOpen } = useUi()
 const lines = ref<LogLine[]>([])
-const server = computed(() => control.serverById(props.serverId))
+const server = computed(() => control.serverById(props.workspaceId, props.serverId))
 
-watch(() => props.serverId, (id, previous) => {
+watch(() => [props.workspaceId, props.serverId] as const, ([workspaceId, id], previous) => {
   if (previous !== undefined)
-    unwatchLogs(previous)
-  lines.value = watchLogs(id)
+    unwatchLogs(previous[0], previous[1])
+  lines.value = watchLogs(workspaceId, id)
 }, { immediate: true })
 
-onScopeDispose(() => unwatchLogs(props.serverId))
+onScopeDispose(() => unwatchLogs(props.workspaceId, props.serverId))
 </script>
 
 <template>
@@ -27,6 +27,7 @@ onScopeDispose(() => unwatchLogs(props.serverId))
     <div class="drawer__head">
       <span class="led" :class="`led--${server?.status === 'running' ? 'running' : 'stopped'}`" />
       <span class="accent">{{ serverId }}</span>
+      <span class="faint mono">{{ workspaceId }}</span>
       <StatusChip v-if="server" :status="server.status" />
       <span class="faint">{{ lines.length }} ln</span>
       <span class="view__spacer" />

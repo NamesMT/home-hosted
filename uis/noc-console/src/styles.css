@@ -2024,6 +2024,121 @@ button.nav__item {
   text-align: left;
 }
 
+/* ---- workspace switcher -------------------------------------------------- */
+
+.ws__trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0.4rem 0.2rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--text-hi);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  max-width: calc(var(--nav-w) - 0.8rem);
+  text-align: left;
+}
+
+.ws__trigger:hover {
+  border-color: var(--accent-deep);
+}
+
+.ws__trigger:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.ws__mark {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.ws__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.ws__count {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.ws__panel {
+  width: min(92vw, 30rem);
+}
+
+.ws__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ws__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid transparent;
+  color: var(--dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ws__row:hover {
+  background: var(--panel);
+  color: var(--text-hi);
+}
+
+.ws__row--active {
+  color: var(--text-hi);
+  border-left-color: var(--accent);
+  background: var(--panel-2);
+}
+
+.ws__check {
+  width: 0.7rem;
+  flex: none;
+  color: var(--accent);
+}
+
+.ws__rowlabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.ws__rowid {
+  flex: 0 1 9rem;
+  min-width: 0;
+  color: var(--faint);
+  font-size: var(--fs-xs);
+}
+
+.ws__rowcount {
+  flex: none;
+  color: var(--faint);
+  font-size: var(--fs-xs);
+}
+
+.ws__actions {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line-soft);
+}
+
 .keys__combo .kbd + .kbd {
   margin-left: 3px;
 }
@@ -2092,6 +2207,38 @@ button.nav__item {
 
   .nav__key {
     display: none;
+  }
+
+  .ws__trigger {
+    flex: none;
+    margin: 0;
+    max-width: 11rem;
+  }
+
+  /* A dense header wraps on a phone so no control sits off the right edge. */
+  .view__head {
+    flex-wrap: wrap;
+    row-gap: 0.35rem;
+    padding: 0.35rem 0.5rem;
+  }
+
+  .view__head .view__spacer {
+    display: none;
+  }
+
+  .view__head .search {
+    order: 10;
+    flex: 1 1 100%;
+  }
+
+  .view__head .search input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .pane__head {
+    flex-wrap: wrap;
+    row-gap: 0.25rem;
   }
 
   .rail {

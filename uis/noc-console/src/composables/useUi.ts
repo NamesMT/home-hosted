@@ -10,6 +10,8 @@ export const filter = ref('')
 export const helpOpen = ref(false)
 export const addOpen = ref(false)
 export const drawerOpen = ref(false)
+/** The workspace switcher overlay: pick, create, rename or delete. */
+export const workspaceOpen = ref(false)
 /** The settings change review and the server-config save review. */
 export const changesOpen = ref(false)
 export const configChangesOpen = ref(false)
@@ -36,6 +38,7 @@ export function closeOverlays(): void {
   helpOpen.value = false
   addOpen.value = false
   drawerOpen.value = false
+  workspaceOpen.value = false
   changesOpen.value = false
   configChangesOpen.value = false
   keyPrefix.value = null
@@ -48,6 +51,7 @@ export function useUi() {
     helpOpen,
     addOpen,
     drawerOpen,
+    workspaceOpen,
     changesOpen,
     configChangesOpen,
     keyPrefix,

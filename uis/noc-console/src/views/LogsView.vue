@@ -8,11 +8,15 @@ import StatusChip from '@/components/StatusChip.vue'
 import { resetLogs, unwatchLogs, watchLogs } from '@/composables/useControlPlane'
 import { useKeyHandler } from '@/composables/useKeymap'
 import { flash, useUi } from '@/composables/useUi'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import { formatBytes } from '@/lib/format'
+import { serverKey } from '@/lib/servers'
 
+const workspace = useWorkspaces()
 const { selectedId } = useUi()
 
+const activeId = computed(() => workspace.activeId.value)
 const servers = ref<LogServerInfo[]>([])
 const mode = ref<'disk' | 'live'>('disk')
 const tail = ref(500)
@@ -24,7 +28,8 @@ const searched = ref<number | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-let liveId: string | null = null
+/** The workspace/server pair behind the open live stream. */
+let liveRef: { workspaceId: string, serverId: string } | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const current = computed(() => servers.value.find(server => server.serverId === selectedId.value) ?? null)
@@ -34,10 +39,19 @@ function message(caught: unknown): string {
 }
 
 async function loadServers(): Promise<void> {
+  const workspaceId = activeId.value
+  if (workspaceId.length === 0) {
+    servers.value = []
+    return
+  }
   try {
-    servers.value = await api.fetchLogServers()
-    if (selectedId.value === null || !servers.value.some(server => server.serverId === selectedId.value))
-      selectedId.value = servers.value[0]?.serverId ?? null
+    const list = await api.fetchLogServers(workspaceId)
+    // A late answer for a workspace we already left must not overwrite the list.
+    if (workspaceId !== activeId.value)
+      return
+    servers.value = list
+    if (selectedId.value === null || !list.some(server => server.serverId === selectedId.value))
+      selectedId.value = list[0]?.serverId ?? null
   }
   catch (caught) {
     error.value = message(caught)
@@ -46,7 +60,7 @@ async function loadServers(): Promise<void> {
 
 async function loadTail(): Promise<void> {
   const id = selectedId.value
-  if (id === null)
+  if (id === null || activeId.value.length === 0)
     return
   loading.value = true
   error.value = null
@@ -55,7 +69,7 @@ async function loadTail(): Promise<void> {
       tail: tail.value,
       search: search.value,
       ...(stream.value.length > 0 ? { stream: stream.value } : {}),
-    })
+    }, activeId.value)
     diskLines.value = history.lines
     searched.value = history.searched
   }
@@ -76,12 +90,12 @@ async function refresh(): Promise<void> {
 
 async function clearFile(): Promise<void> {
   const id = selectedId.value
-  if (id === null)
+  if (id === null || activeId.value.length === 0)
     return
   try {
-    await api.clearLogHistory(id)
+    await api.clearLogHistory(id, activeId.value)
     diskLines.value = []
-    resetLogs(id)
+    resetLogs(activeId.value, id)
     await loadServers()
     flash(`${id}: stored logs cleared`)
   }
@@ -90,7 +104,7 @@ async function clearFile(): Promise<void> {
   }
 }
 
-function togglemode(): void {
+function toggleMode(): void {
   mode.value = mode.value === 'disk' ? 'live' : 'disk'
 }
 
@@ -113,15 +127,29 @@ watch(mode, (next) => {
     void loadTail()
 })
 
-watch([selectedId, mode], ([id, next]) => {
-  const previous = liveId
-  if (previous !== null && (next !== 'live' || previous !== id)) {
-    unwatchLogs(previous)
-    liveId = null
+// A workspace switch swaps the server list under the selection; drop the old
+// stream and start the new workspace's own server list from scratch.
+watch(activeId, () => {
+  servers.value = []
+  diskLines.value = []
+  selectedId.value = null
+  void (async () => {
+    await loadServers()
+    if (mode.value === 'disk')
+      await loadTail()
+  })()
+})
+
+watch([activeId, selectedId, mode], ([workspaceId, id, next]) => {
+  const previous = liveRef
+  const wanted = next === 'live' && id !== null && workspaceId.length > 0 ? { workspaceId, serverId: id } : null
+  if (previous !== null && (wanted === null || serverKey(previous.workspaceId, previous.serverId) !== serverKey(wanted.workspaceId, wanted.serverId))) {
+    unwatchLogs(previous.workspaceId, previous.serverId)
+    liveRef = null
   }
-  if (next === 'live' && id !== null && liveId !== id) {
-    liveLines.value = watchLogs(id)
-    liveId = id
+  if (wanted !== null && liveRef === null) {
+    liveLines.value = watchLogs(wanted.workspaceId, wanted.serverId)
+    liveRef = wanted
   }
 }, { immediate: true })
 
@@ -140,7 +168,7 @@ useKeyHandler((key) => {
     }
     case 'v':
     case 'Enter':
-      togglemode()
+      toggleMode()
       return true
     case 'R':
       void refresh()
@@ -156,8 +184,8 @@ onMounted(async () => {
 })
 
 onScopeDispose(() => {
-  if (liveId !== null)
-    unwatchLogs(liveId)
+  if (liveRef !== null)
+    unwatchLogs(liveRef.workspaceId, liveRef.serverId)
   if (searchTimer)
     clearTimeout(searchTimer)
 })
@@ -167,6 +195,7 @@ onScopeDispose(() => {
   <div class="view">
     <div class="view__head">
       <span class="view__title">logs</span>
+      <span class="view__count">{{ workspace.selected.value?.label ?? '—' }} · <span class="mono">{{ activeId || '—' }}</span></span>
       <span class="view__count">{{ servers.length }} server(s)</span>
 
       <select v-model="mode" title="source">
@@ -253,12 +282,12 @@ onScopeDispose(() => {
             <span v-if="loading">· loading…</span>
           </template>
           <span class="view__spacer" />
-          <a v-if="current?.enabled" :href="api.logDownloadUrl(current.serverId, `${current.serverId}.log`)">download {{ current.serverId }}.log</a>
+          <a v-if="current?.enabled" :href="api.logDownloadUrl(current.serverId, `${current.serverId}.log`, activeId)">download {{ current.serverId }}.log</a>
         </div>
 
         <div v-if="current && current.files.length > 0" class="filelist">
           <div v-for="file in current.files" :key="file.name" class="filelist__row">
-            <a :href="api.logDownloadUrl(current.serverId, file.name)">{{ file.name }}</a>
+            <a :href="api.logDownloadUrl(current.serverId, file.name, activeId)">{{ file.name }}</a>
             <span class="size">{{ formatBytes(file.sizeBytes) }}</span>
           </div>
         </div>

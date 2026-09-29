@@ -9,6 +9,7 @@ import { briefBytes, formatRatio, formatUptime } from '@/lib/format'
 const props = defineProps<{
   servers: ServerView[]
   total: number
+  workspaceId: string
   configPath: string | null
 }>()
 
@@ -144,13 +145,13 @@ function cpuColor(server: ServerView): string {
             </td>
             <td>
               <span class="row" style="gap: 0.35rem">
-                <Sparkline :values="control.seriesOf(server.id).cpu" :color="cpuColor(server)" :width="54" :height="13" />
+                <Sparkline :values="control.seriesOf(workspaceId, server.id).cpu" :color="cpuColor(server)" :width="54" :height="13" />
                 <span class="num mono">{{ cpuText(server) }}</span>
               </span>
             </td>
             <td>
               <span class="row" style="gap: 0.35rem">
-                <Sparkline :values="control.seriesOf(server.id).rss" color="var(--accent)" :width="54" :height="13" />
+                <Sparkline :values="control.seriesOf(workspaceId, server.id).rss" color="var(--accent)" :width="54" :height="13" />
                 <span class="num mono">{{ briefBytes(server.resources?.rssBytes ?? null) }}</span>
               </span>
             </td>

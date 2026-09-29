@@ -3,11 +3,15 @@
 An alternate UI for keyboard- and TUI-style operation, aimed at shortcuts wizards.
 
 Actions are single keys, the shell keeps a help overlay behind `?`, and navigation uses `g`-prefixed
-chords (`g s`, `g l`, `g v`, `g t`). The layout is a rail plus panes: servers, per-server config,
-disk logs, host vitals, settings.
+chords. Two groups sit in the rail: **global** (`g o` global overview, `g g` global settings) and the
+selected **workspace** (`g s` servers, `g l` logs, `g t` workspace settings), with a workspace
+switcher that creates, renames and deletes workspaces. Routes mirror the stock UI —
+`/global/overview`, `/global/settings`, and `/w/<workspaceId>/servers|logs|settings` — and the
+pre-workspace paths (`/servers`, `/logs`, `/settings`, `/vitals`) redirect to the canonical URL under
+the selected workspace.
 
 It ships as a release asset, not inside the npm package. `public/ui.json` names it `noc-console`
-version `1.0.0`, what Settings shows once installed, and declares `repo`/`tag`/`asset` so the panel
+with the version Settings shows once installed, and declares `repo`/`tag`/`asset` so the panel
 can re-install the matching build on an upgrade. `../../docs/media/tour.gif` shows both UIs.
 
 **Editing this UI means bumping that file**: raise `version` (patch for a fix, minor for a feature,

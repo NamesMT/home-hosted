@@ -1,112 +1,157 @@
-import type { AppState, ServerView, WorkspaceView } from '@shared/contracts'
-import { computed, readonly, ref } from 'vue'
+import type { Bind, LogsConfig, NotificationView, ServerDefaults, ServerView, WorkspaceSettingsPatch, WorkspaceView } from '@shared/contracts'
+import { computed, readonly, ref, watch } from 'vue'
+import { useControlPlane } from '@/composables/useControlPlane'
+import { flash } from '@/composables/useUi'
+import * as api from '@/lib/api'
+import { rememberWorkspace, selectedWorkspaceId } from '@/lib/selection'
+import { toServerView } from '@/lib/servers'
 
 /**
- * The workspace compatibility layer.
+ * The workspace a person is looking at. One selection is shared by the whole
+ * shell so the header picker, the pages and the API defaults agree, and it is
+ * persisted per browser so a reload lands where it left off.
  *
- * The panel is workspace-aware now — every server, log, DDNS and notification
- * route is scoped by `?workspace=<id>` — while this UI was written when a panel
- * had exactly one config, one set of defaults and one server list. Rather than
- * restyle every view, the console pins ONE workspace (the first the panel
- * reports, which is the panel default for a single-workspace instance) and the
- * old flattened shape is derived from it.
- *
- * A workspace selector is deliberately not part of this UI; `activeWorkspaceId`
- * is the single place a future one would write.
+ * The stored id is only a preference: a workspace can be deleted from another
+ * tab (or another browser), so the selection always falls back to the panel's
+ * own default — the first workspace it lists.
  */
+const creating = ref(false)
 
-/** The workspace this UI acts on: the first one the panel reports. */
-export const activeWorkspaceId = ref<string | null>(null)
+export function useWorkspaces() {
+  const control = useControlPlane()
 
-/** Keeps the pin on a workspace that still exists, preferring the first. */
-export function setActiveWorkspaceId(id: string | null | undefined): void {
-  if (id !== null && id !== undefined && id.length > 0 && id !== activeWorkspaceId.value)
-    activeWorkspaceId.value = id
-}
+  const workspaces = computed<WorkspaceView[]>(() => control.workspaces.value)
 
-/** The active workspace subtree, or null before the first state frame lands. */
-export function activeWorkspace(state: AppState | null): WorkspaceView | null {
-  if (state === null)
-    return null
-  const preferred = activeWorkspaceId.value
-  const pinned = preferred === null ? undefined : state.workspaces.find(workspace => workspace.id === preferred)
-  return pinned ?? state.workspaces[0] ?? null
-}
+  const selected = computed<WorkspaceView | null>(() => {
+    const list = workspaces.value
+    return list.find(workspace => workspace.id === selectedWorkspaceId.value) ?? list[0] ?? null
+  })
 
-/**
- * The flattened snapshot the console's views already expect. `servers` is every
- * server of every workspace — each one carries its `workspaceId` — while the
- * single-workspace fields come from the pinned workspace.
- */
-export interface FlatAppState {
-  control: AppState['control']
-  host: AppState['host']
-  backups: AppState['backups']
-  ui: AppState['ui']
-  workspaces: AppState['workspaces']
-  projectDir: string
-  dataRoot: string
-  version?: string
-  servers: ServerView[]
-  configError: string | null
-  configPath: string | null
-  defaults: WorkspaceView['defaults'] | null
-  logs: WorkspaceView['logs'] | null
-  notifications: WorkspaceView['notifications'] | null
-  ddns: WorkspaceView['ddns'] | null
-  logsDir: string | null
-  workspaceId: string | null
-}
+  const activeId = computed(() => selected.value?.id ?? '')
 
-/**
- * The state frame's servers are typed from the request-shaped schema, where
- * `port` may be absent; the panel always sends the normalized `number | null`
- * that `ServerView` describes, so the two are reconciled here once.
- */
-export function toServerView(server: WorkspaceView['servers'][number], workspaceId: string): ServerView {
-  return {
-    ...server,
-    config: { ...server.config, port: server.config.port ?? null },
-    workspaceId: server.workspaceId ?? workspaceId,
+  // Resolution lands on a different id than the stored one only when that id no
+  // longer exists; keep the persisted preference and the API default in step.
+  watch(activeId, (id) => {
+    if (id.length > 0 && id !== selectedWorkspaceId.value)
+      rememberWorkspace(id)
+  }, { immediate: true })
+
+  function select(id: string): void {
+    rememberWorkspace(id)
   }
-}
 
-function flattenServers(state: AppState): ServerView[] {
-  return state.workspaces.flatMap(workspace =>
-    workspace.servers.map(server => toServerView(server, workspace.id)),
+  const servers = computed<ServerView[]>(() =>
+    (selected.value?.servers ?? []).map(server => toServerView(server, activeId.value)),
   )
-}
+  const defaults = computed<ServerDefaults | null>(() => selected.value?.defaults ?? null)
+  const logsConfig = computed<LogsConfig | null>(() => selected.value?.logs ?? null)
+  const notifications = computed<NotificationView | null>(() => selected.value?.notifications ?? null)
+  const ddns = computed(() => selected.value?.ddns ?? null)
+  const configError = computed(() => selected.value?.configError ?? null)
+  const configWarnings = computed(() => selected.value?.configWarnings ?? [])
+  const configPath = computed(() => selected.value?.configPath ?? null)
+  const settingsPath = computed(() => selected.value?.settingsPath ?? null)
+  const logsDir = computed(() => selected.value?.logsDir ?? null)
+  const serverCount = computed(() => selected.value?.serverCount ?? 0)
+  const runningCount = computed(() => selected.value?.runningCount ?? 0)
+  const crashedCount = computed(() => selected.value?.crashedCount ?? 0)
 
-export function flattenState(state: AppState): FlatAppState {
-  const workspace = activeWorkspace(state)
-  return {
-    control: state.control,
-    host: state.host,
-    backups: state.backups,
-    ui: state.ui,
-    workspaces: state.workspaces,
-    projectDir: state.projectDir,
-    dataRoot: state.dataRoot,
-    ...(state.version === undefined ? {} : { version: state.version }),
-    servers: flattenServers(state),
-    configError: workspace?.configError ?? null,
-    configPath: workspace?.configPath ?? null,
-    defaults: workspace?.defaults ?? null,
-    logs: workspace?.logs ?? null,
-    notifications: workspace?.notifications ?? null,
-    ddns: workspace?.ddns ?? null,
-    logsDir: workspace?.logsDir ?? null,
-    workspaceId: workspace?.id ?? null,
+  function serverById(id: string | null): ServerView | null {
+    if (id === null)
+      return null
+    return servers.value.find(server => server.id === id) ?? null
   }
-}
 
-/** Reactive flattened snapshot, for a caller that wants it on its own. */
-export function useWorkspaces(state: () => AppState | null) {
+  function seriesOf(id: string) {
+    return control.seriesOf(activeId.value, id)
+  }
+
+  /** Workspace CRUD; every call re-reads the frame so the rest of the shell follows. */
+  async function create(label: string): Promise<WorkspaceView | undefined> {
+    creating.value = true
+    try {
+      const workspace = await api.createWorkspace(label.trim().length > 0 ? { label: label.trim() } : {})
+      await control.refresh()
+      select(workspace.id)
+      flash(`workspace “${workspace.label}” created`)
+      return workspace
+    }
+    catch (error) {
+      flash(error instanceof Error ? error.message : String(error), 'error')
+      return undefined
+    }
+    finally {
+      creating.value = false
+    }
+  }
+
+  async function rename(id: string, label: string): Promise<boolean> {
+    try {
+      await api.renameWorkspace(id, label.trim())
+      await control.refresh()
+      flash('workspace renamed')
+      return true
+    }
+    catch (error) {
+      flash(error instanceof Error ? error.message : String(error), 'error')
+      return false
+    }
+  }
+
+  async function remove(id: string): Promise<boolean> {
+    try {
+      await api.removeWorkspace(id)
+      await control.refresh()
+      flash('workspace deleted')
+      return true
+    }
+    catch (error) {
+      flash(error instanceof Error ? error.message : String(error), 'error')
+      return false
+    }
+  }
+
   return {
-    flat: computed(() => {
-      const current = state()
-      return current === null ? null : flattenState(current)
-    }),
-    activeId: readonly(activeWorkspaceId),
+    workspaces,
+    selected,
+    activeId,
+    creating: readonly(creating),
+    select,
+    create,
+    rename,
+    remove,
+
+    servers,
+    serverById,
+    seriesOf,
+    defaults,
+    logsConfig,
+    notifications,
+    ddns,
+    configError,
+    configWarnings,
+    configPath,
+    settingsPath,
+    logsDir,
+    serverCount,
+    runningCount,
+    crashedCount,
+    lastError: control.lastError,
+
+    refresh: control.refresh,
+    start: (id: string) => control.start(activeId.value, id),
+    stop: (id: string) => control.stop(activeId.value, id),
+    restart: (id: string) => control.restart(activeId.value, id),
+    startAll: () => control.startAll(activeId.value),
+    stopAll: () => control.stopAll(activeId.value),
+    setEnabled: (id: string, enabled: boolean) => control.setEnabled(activeId.value, id, enabled),
+    setAutostart: (id: string, autostart: boolean) => control.setAutostart(activeId.value, id, autostart),
+    setBind: (id: string, bind: Bind) => control.setBind(activeId.value, id, bind),
+    clearLogs: (id: string) => control.clearLogs(activeId.value, id),
+    saveConfig: (id: string, patch: api.ServerPatchPayload) => control.saveConfig(activeId.value, id, patch),
+    saveSettings: (patch: WorkspaceSettingsPatch) => control.saveWorkspaceSettings(activeId.value, patch),
+    createServer: (payload: api.CreateServerPayload) => control.create(activeId.value, payload),
+    removeServer: (id: string) => control.remove(activeId.value, id),
+    act: (id: string, action: 'start' | 'stop' | 'restart') => control.act(activeId.value, id, action),
   }
 }

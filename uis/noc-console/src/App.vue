@@ -1,35 +1,71 @@
 <script setup lang="ts">
+import type { WorkspacePage } from '@/router'
 import { computed, onMounted, onScopeDispose, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AddServerDialog from '@/components/AddServerDialog.vue'
 import HelpOverlay from '@/components/HelpOverlay.vue'
 import HostRail from '@/components/HostRail.vue'
 import LogDrawer from '@/components/LogDrawer.vue'
+import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { connect, disconnect, useControlPlane } from '@/composables/useControlPlane'
 import { isTyping, runKeyHandlers } from '@/composables/useKeymap'
 import { streamDecision, useSession } from '@/composables/useSession'
 import { useUi } from '@/composables/useUi'
+import { useWorkspaces } from '@/composables/useWorkspaces'
+import { workspacePath } from '@/router'
 
 const router = useRouter()
 const control = useControlPlane()
+const workspace = useWorkspaces()
 const { session, logout } = useSession()
-const { selectedId, drawerOpen, helpOpen, addOpen, changesOpen, configChangesOpen, keyPrefix, toast } = useUi()
+const { selectedId, drawerOpen, helpOpen, addOpen, workspaceOpen, changesOpen, configChangesOpen, keyPrefix, toast } = useUi()
 
-const servers = computed(() => control.servers.value)
+const servers = computed(() => workspace.servers.value)
+const activeId = computed(() => workspace.activeId.value)
+const workspaceLabel = computed(() => workspace.selected.value?.label ?? '—')
 const connectionLabel = computed(() => ({
   connecting: 'connecting',
   open: 'live',
   closed: 'reconnecting',
 }[control.connection.value]))
 
-const selected = computed(() => control.serverById(selectedId.value))
+const selected = computed(() => workspace.serverById(selectedId.value))
 const authenticated = computed(() => session.value?.authenticated === true)
 const authRequired = computed(() => session.value?.authRequired === true)
-const dataRoot = computed(() => control.appState.value?.dataRoot ?? '')
+const dataRoot = computed(() => control.dataRoot.value)
+
+/** Falls back to the global overview until the first frame names a workspace. */
+function path(page: WorkspacePage): string {
+  return activeId.value.length > 0 ? workspacePath(activeId.value, page) : '/global/overview'
+}
+
+const serversPath = computed(() => path('servers'))
+const logsPath = computed(() => path('logs'))
+const settingsPath = computed(() => path('settings'))
 
 let prefixTimer: ReturnType<typeof setTimeout> | null = null
 
-const goto: Record<string, string> = { s: 'servers', l: 'logs', v: 'vitals', t: 'settings' }
+function go(page: 'overview' | 'global-settings' | WorkspacePage): void {
+  if (page === 'overview') {
+    void router.push('/global/overview')
+    return
+  }
+  if (page === 'global-settings') {
+    void router.push('/global/settings')
+    return
+  }
+  if (activeId.value.length === 0)
+    return
+  void router.push(workspacePath(activeId.value, page))
+}
+
+const GOTO: Record<string, 'overview' | 'global-settings' | WorkspacePage> = {
+  o: 'overview',
+  g: 'global-settings',
+  s: 'servers',
+  l: 'logs',
+  t: 'settings',
+}
 
 function focusFilter(): void {
   const field = document.querySelector<HTMLInputElement>('[data-filter]')
@@ -37,42 +73,43 @@ function focusFilter(): void {
   field?.select()
 }
 
+function closeOverlays(): void {
+  if (helpOpen.value) {
+    helpOpen.value = false
+    return
+  }
+  if (addOpen.value) {
+    addOpen.value = false
+    return
+  }
+  if (drawerOpen.value) {
+    drawerOpen.value = false
+    return
+  }
+  if (workspaceOpen.value) {
+    workspaceOpen.value = false
+    return
+  }
+  if (changesOpen.value) {
+    changesOpen.value = false
+    return
+  }
+  if (configChangesOpen.value)
+    configChangesOpen.value = false
+}
+
 function onKeydown(event: KeyboardEvent): void {
   const key = event.key
 
   if (key === 'Escape') {
-    if (helpOpen.value) {
-      helpOpen.value = false
-      event.preventDefault()
-      return
-    }
-    if (addOpen.value) {
-      addOpen.value = false
-      event.preventDefault()
-      return
-    }
-    if (drawerOpen.value) {
-      drawerOpen.value = false
-      event.preventDefault()
-      return
-    }
-    if (changesOpen.value) {
-      changesOpen.value = false
-      event.preventDefault()
-      return
-    }
-    if (configChangesOpen.value) {
-      configChangesOpen.value = false
-      event.preventDefault()
-      return
-    }
+    closeOverlays()
     if (isTyping(event))
       (event.target as HTMLElement).blur()
     keyPrefix.value = null
     return
   }
 
-  if (helpOpen.value || addOpen.value || changesOpen.value || configChangesOpen.value || isTyping(event))
+  if (helpOpen.value || addOpen.value || workspaceOpen.value || changesOpen.value || configChangesOpen.value || isTyping(event))
     return
   if (event.metaKey || event.ctrlKey || event.altKey)
     return
@@ -81,10 +118,10 @@ function onKeydown(event: KeyboardEvent): void {
     keyPrefix.value = null
     if (prefixTimer)
       clearTimeout(prefixTimer)
-    const target = goto[key]
+    const target = GOTO[key]
     if (target) {
       event.preventDefault()
-      void router.push({ name: target })
+      go(target)
     }
     return
   }
@@ -159,22 +196,31 @@ onScopeDispose(() => {
 
     <nav class="nav">
       <div class="nav__group">
-        console
+        global
       </div>
-      <RouterLink to="/" class="nav__item" active-class="nav__item--active" exact-active-class="nav__item--active">
+      <RouterLink to="/global/overview" class="nav__item" active-class="nav__item--active">
+        overview
+        <span class="nav__key">g o</span>
+      </RouterLink>
+      <RouterLink to="/global/settings" class="nav__item" active-class="nav__item--active">
+        global settings
+        <span class="nav__key">g g</span>
+      </RouterLink>
+
+      <div class="nav__group">
+        workspace · {{ workspaceLabel }}
+      </div>
+      <WorkspaceSwitcher />
+      <RouterLink :to="serversPath" class="nav__item" active-class="nav__item--active">
         servers
         <span class="nav__key">g s</span>
       </RouterLink>
-      <RouterLink to="/logs" class="nav__item" active-class="nav__item--active">
+      <RouterLink :to="logsPath" class="nav__item" active-class="nav__item--active">
         logs
         <span class="nav__key">g l</span>
       </RouterLink>
-      <RouterLink to="/vitals" class="nav__item" active-class="nav__item--active">
-        host vitals
-        <span class="nav__key">g v</span>
-      </RouterLink>
-      <RouterLink to="/settings" class="nav__item" active-class="nav__item--active">
-        settings
+      <RouterLink :to="settingsPath" class="nav__item" active-class="nav__item--active">
+        workspace settings
         <span class="nav__key">g t</span>
       </RouterLink>
 
@@ -195,7 +241,7 @@ onScopeDispose(() => {
 
     <div class="main">
       <RouterView />
-      <LogDrawer v-if="drawerOpen && selectedId" :server-id="selectedId" />
+      <LogDrawer v-if="drawerOpen && selectedId && activeId" :server-id="selectedId" :workspace-id="activeId" />
     </div>
 
     <footer class="status">
@@ -204,8 +250,12 @@ onScopeDispose(() => {
         <span class="status__v" :class="{ 'status__v--danger': control.connection.value === 'closed' }">{{ connectionLabel }}</span>
       </span>
       <span class="status__seg">
+        <span class="status__k">ws</span>
+        <span class="status__v status__v--accent">{{ workspaceLabel }}</span>
+      </span>
+      <span class="status__seg">
         <span class="status__k">run</span>
-        <span class="status__v">{{ control.runningCount.value }}/{{ servers.length }}</span>
+        <span class="status__v">{{ workspace.runningCount.value }}/{{ servers.length }}</span>
       </span>
       <span class="status__seg">
         <span class="status__k">sel</span>

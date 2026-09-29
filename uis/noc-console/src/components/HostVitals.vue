@@ -50,15 +50,15 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
 </script>
 
 <template>
-  <div class="view">
-    <div class="view__head">
-      <span class="view__title">host vitals</span>
-      <span class="view__count">
-        {{ host?.enabled ? `${host.cpus} cpus` : 'sampling off' }}
-      </span>
-      <span v-if="host?.sampledAt" class="view__count">sampled {{ formatAgo(host.sampledAt, control.now.value) }}</span>
+  <section class="pane">
+    <div class="pane__head">
+      <span class="pane__title">host vitals</span>
+      <span class="faint">{{ host?.enabled ? `${host.cpus} cpus` : 'sampling off' }}</span>
+      <span v-if="host?.sampledAt" class="faint">sampled {{ formatAgo(host.sampledAt, control.now.value) }}</span>
       <span class="view__spacer" />
-      <RouterLink to="/settings" class="btn btn--sm btn--ghost">
+      <span v-if="alerts.length > 0" class="chip chip--danger">{{ alerts.length }} alert{{ alerts.length === 1 ? '' : 's' }}</span>
+      <span v-else class="chip chip--ok">quiet</span>
+      <RouterLink to="/global/settings" class="btn btn--xs btn--ghost">
         thresholds →
       </RouterLink>
     </div>
@@ -66,9 +66,6 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
     <p v-if="alerts.length > 0" class="banner banner--error">
       <span class="led led--unhealthy" />
       <span>{{ alerts.join(' · ') }}</span>
-    </p>
-    <p v-else-if="host?.enabled" class="banner" style="color: var(--dim)">
-      no active alerts
     </p>
 
     <div class="metrics">
@@ -149,12 +146,12 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
       </div>
     </div>
 
-    <div class="pane">
-      <div class="pane__head">
-        <span class="pane__title">filesystems</span>
+    <div class="hostvitals__disks">
+      <div class="group__head">
+        <span class="group__title">filesystems</span>
         <span class="faint mono">{{ disks.length }} configured path(s)</span>
       </div>
-      <div class="pane__body">
+      <div class="tblwrap">
         <table class="tbl">
           <thead>
             <tr>
@@ -192,23 +189,15 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
           </tbody>
         </table>
         <p v-if="disks.length === 0" class="empty">
-          no disk paths configured — add them under host vitals thresholds in settings
+          no disk paths configured — add them under global settings → host vitals
         </p>
       </div>
     </div>
-
-    <div v-if="alerts.length > 0" class="pane">
-      <div class="pane__head">
-        <span class="pane__title">active alerts</span>
-      </div>
-      <div class="pane__body" style="padding: 0.5rem 0.75rem">
-        <ul class="stack" style="list-style: none; padding: 0">
-          <li v-for="alert in alerts" :key="alert" class="row">
-            <span class="led led--unhealthy" />
-            <span class="mono">{{ alert }}</span>
-          </li>
-        </ul>
-      </div>
-    </div>
-  </div>
+  </section>
 </template>
+
+<style scoped>
+.hostvitals__disks {
+  padding: 0.5rem 0.75rem 0.75rem;
+}
+</style>

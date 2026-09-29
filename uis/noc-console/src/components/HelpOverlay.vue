@@ -12,10 +12,11 @@ const groups: Array<{ title: string, rows: Row[] }> = [
   {
     title: 'navigate',
     rows: [
+      { combo: 'g o', label: 'global overview' },
+      { combo: 'g g', label: 'global settings' },
       { combo: 'g s', label: 'servers' },
       { combo: 'g l', label: 'logs' },
-      { combo: 'g v', label: 'host vitals' },
-      { combo: 'g t', label: 'settings' },
+      { combo: 'g t', label: 'workspace settings' },
       { combo: 'j / k', label: 'move selection' },
       { combo: 'Home / G', label: 'first / last' },
       { combo: '/', label: 'filter the list' },

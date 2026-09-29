@@ -5,13 +5,13 @@ import { diffFields } from '@shared/patch-diff'
 import { type } from 'arktype'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
-import { useControlPlane } from '@/composables/useControlPlane'
 import { flash, selectedId } from '@/composables/useUi'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
-const control = useControlPlane()
+const workspace = useWorkspaces()
 const error = ref<string | null>(null)
 const busy = ref(false)
 const idField = ref<HTMLInputElement | null>(null)
@@ -67,10 +67,10 @@ function blank(defaults: ServerDefaults | null) {
   }
 }
 
-const form = reactive(blank(control.defaults.value))
+const form = reactive(blank(workspace.defaults.value))
 
 /** What a blank buffer field inherits, so the hint cannot lie about the number. */
-const inheritedLogLines = computed(() => control.defaults.value?.logBufferLines ?? 500)
+const inheritedLogLines = computed(() => workspace.defaults.value?.logBufferLines ?? 500)
 
 function linesToArray(value: string): string[] {
   return value.split('\n').map(entry => entry.trim()).filter(entry => entry.length > 0)
@@ -88,7 +88,7 @@ function textToEnv(value: string): Record<string, string> {
 }
 
 function reset(): void {
-  Object.assign(form, blank(control.defaults.value))
+  Object.assign(form, blank(workspace.defaults.value))
 }
 
 watch(() => props.open, async (open) => {
@@ -131,7 +131,7 @@ function buildPayload(): Record<string, unknown> {
   const rssMb = form.maxRssMb.trim()
   const bufferLines = form.logBufferLines.trim()
   const bootstrapMs = Number(form.bootstrapTimeoutMs)
-  const defaults = control.defaults.value
+  const defaults = workspace.defaults.value
   const baseline = inheritBaseline(defaults)
 
   const flat = diffFields(baseline, {
@@ -216,10 +216,10 @@ async function submit(): Promise<void> {
 
   busy.value = true
   try {
-    await control.create(parsed)
+    await workspace.createServer(parsed)
 
-    if (control.lastError.value !== null) {
-      error.value = control.lastError.value
+    if (workspace.lastError.value !== null) {
+      error.value = workspace.lastError.value
       return
     }
 

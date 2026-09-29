@@ -9,12 +9,16 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import { useKeyHandler } from '@/composables/useKeymap'
 import { useMediaQuery } from '@/composables/useMediaQuery'
 import { addOpen, flash, helpOpen, useUi } from '@/composables/useUi'
+import { useWorkspaces } from '@/composables/useWorkspaces'
+import { workspacePath } from '@/router'
 
 const control = useControlPlane()
+const workspace = useWorkspaces()
 const router = useRouter()
 const { selectedId, filter, drawerOpen } = useUi()
 
-const servers = computed<ServerView[]>(() => control.servers.value)
+const activeId = computed(() => workspace.activeId.value)
+const servers = computed<ServerView[]>(() => workspace.servers.value)
 
 const visible = computed<ServerView[]>(() => {
   const needle = filter.value.trim().toLowerCase()
@@ -26,7 +30,7 @@ const visible = computed<ServerView[]>(() => {
   )
 })
 
-const selected = computed(() => control.serverById(selectedId.value))
+const selected = computed(() => workspace.serverById(selectedId.value))
 
 watch(visible, (list) => {
   if (list.length === 0)
@@ -34,6 +38,11 @@ watch(visible, (list) => {
   if (selectedId.value === null || !list.some(server => server.id === selectedId.value))
     selectedId.value = list[0]?.id ?? null
 }, { immediate: true })
+
+// A server id is only unique inside its workspace: re-resolve on a switch.
+watch(activeId, () => {
+  selectedId.value = visible.value[0]?.id ?? null
+})
 
 /** The split is wrong on a phone; the same content stacks and the page scrolls instead. */
 const isNarrow = useMediaQuery('(width <= 860px)')
@@ -93,7 +102,9 @@ function move(delta: number): void {
 }
 
 function editTo(id: string): void {
-  void router.push({ name: 'server-config', params: { id } })
+  if (activeId.value.length === 0)
+    return
+  void router.push(workspacePath(activeId.value, 'servers', id))
 }
 
 function edit(): void {
@@ -103,7 +114,7 @@ function edit(): void {
 }
 
 function actOn(id: string, action: 'start' | 'stop' | 'restart'): void {
-  void control.act(id, action)
+  void workspace.act(id, action)
 }
 
 function act(action: 'start' | 'stop' | 'restart'): void {
@@ -113,7 +124,7 @@ function act(action: 'start' | 'stop' | 'restart'): void {
 }
 
 async function clearServer(id: string): Promise<void> {
-  await control.clearLogs(id)
+  await workspace.clearLogs(id)
   flash(`${id}: buffered logs cleared`)
 }
 
@@ -173,7 +184,8 @@ useKeyHandler((key) => {
   <div class="view">
     <div class="view__head">
       <span class="view__title">servers</span>
-      <span class="view__count">{{ control.runningCount.value }}/{{ servers.length }} running</span>
+      <span class="view__count">{{ workspace.selected.value?.label ?? '—' }} · <span class="mono">{{ activeId || '—' }}</span></span>
+      <span class="view__count">{{ workspace.runningCount.value }}/{{ servers.length }} running</span>
 
       <label class="search">
         <span class="search__icon">/</span>
@@ -186,10 +198,10 @@ useKeyHandler((key) => {
       <button type="button" class="btn btn--sm" title="keyboard shortcuts" @click="helpOpen = true">
         keys <kbd class="kbd">?</kbd>
       </button>
-      <button type="button" class="btn btn--sm" @click="control.startAll()">
+      <button type="button" class="btn btn--sm" @click="workspace.startAll()">
         start all
       </button>
-      <button type="button" class="btn btn--sm" @click="control.stopAll()">
+      <button type="button" class="btn btn--sm" @click="workspace.stopAll()">
         stop all
       </button>
       <button type="button" class="btn btn--sm btn--primary" @click="addOpen = true">
@@ -197,11 +209,15 @@ useKeyHandler((key) => {
       </button>
     </div>
 
-    <p v-if="control.configError.value" class="banner banner--warn">
+    <p v-if="workspace.configError.value" class="banner banner--warn">
       <strong>config problem</strong>
-      <span>{{ control.configError.value }}</span>
-      <code>{{ control.configPath.value }}</code>
+      <span>{{ workspace.configError.value }}</span>
+      <code>{{ workspace.configPath.value }}</code>
       <span class="faint">running the last good config; fixing the file reloads it</span>
+    </p>
+    <p v-for="warning in workspace.configWarnings.value" :key="warning" class="banner banner--warn">
+      <strong>config warning</strong>
+      <span>{{ warning }}</span>
     </p>
 
     <Splitpanes
@@ -214,7 +230,8 @@ useKeyHandler((key) => {
         <ServerList
           :servers="visible"
           :total="servers.length"
-          :config-path="control.configPath.value"
+          :workspace-id="activeId"
+          :config-path="workspace.configPath.value"
           @select="selectedId = $event"
           @edit="editTo"
           @act="actOn"
@@ -222,7 +239,7 @@ useKeyHandler((key) => {
         />
       </Pane>
       <Pane :size="sizes.detail" :min-size="15" :max-size="85">
-        <ServerDetail v-if="selected" :server="selected" :now="control.now.value" />
+        <ServerDetail v-if="selected" :server="selected" :workspace-id="activeId" :now="control.now.value" />
         <p v-else class="empty">
           select a server to see its detail
         </p>
@@ -233,13 +250,14 @@ useKeyHandler((key) => {
       <ServerList
         :servers="visible"
         :total="servers.length"
-        :config-path="control.configPath.value"
+        :workspace-id="activeId"
+        :config-path="workspace.configPath.value"
         @select="selectedId = $event"
         @edit="editTo"
         @act="actOn"
         @clear="clearServer"
       />
-      <ServerDetail v-if="selected" :server="selected" :now="control.now.value" />
+      <ServerDetail v-if="selected" :server="selected" :workspace-id="activeId" :now="control.now.value" />
       <p v-else class="empty">
         select a server to see its detail
       </p>

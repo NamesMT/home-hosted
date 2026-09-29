@@ -8,18 +8,20 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { useControlPlane } from '@/composables/useControlPlane'
 import { configChangesOpen, flash, selectedId } from '@/composables/useUi'
+import { useWorkspaces } from '@/composables/useWorkspaces'
+import { workspacePath } from '@/router'
 
 const props = defineProps<{ id: string }>()
 
-const control = useControlPlane()
+const workspace = useWorkspaces()
 const router = useRouter()
 
 const error = ref<string | null>(null)
 const saving = ref(false)
 
-const server = computed(() => control.serverById(props.id))
+const activeId = computed(() => workspace.activeId.value)
+const server = computed(() => workspace.serverById(props.id))
 const config = computed<ServerConfig | null>(() => server.value?.config ?? null)
 
 function linesToArray(value: string): string[] {
@@ -228,7 +230,7 @@ function buildPayload(): Record<string, unknown> {
 }
 
 function back(): void {
-  void router.push({ name: 'servers' })
+  void router.push(workspacePath(activeId.value, 'servers'))
 }
 
 const payload = computed(() => buildPayload())
@@ -291,9 +293,9 @@ async function save(): Promise<void> {
 
   saving.value = true
   try {
-    await control.saveConfig(props.id, patch.value)
-    if (control.lastError.value !== null) {
-      error.value = control.lastError.value
+    await workspace.saveConfig(props.id, patch.value)
+    if (workspace.lastError.value !== null) {
+      error.value = workspace.lastError.value
       return
     }
     selectedId.value = props.id
@@ -306,8 +308,8 @@ async function save(): Promise<void> {
 }
 
 async function remove(): Promise<void> {
-  await control.remove(props.id)
-  if (control.lastError.value === null) {
+  await workspace.removeServer(props.id)
+  if (workspace.lastError.value === null) {
     flash(`removed ${props.id}`)
     back()
   }
@@ -317,7 +319,7 @@ async function remove(): Promise<void> {
 <template>
   <div class="view">
     <div class="view__head">
-      <RouterLink to="/" class="btn btn--sm btn--ghost">
+      <RouterLink :to="workspacePath(activeId, 'servers')" class="btn btn--sm btn--ghost">
         ← servers
       </RouterLink>
       <span class="view__title">{{ id }} · config</span>

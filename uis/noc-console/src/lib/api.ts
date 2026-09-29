@@ -37,7 +37,7 @@ import {
   workspaceViewSchema,
 } from '@shared/contracts'
 import { type } from 'arktype'
-import { activeWorkspaceId } from '@/composables/useWorkspaces'
+import { selectedWorkspaceId } from '@/lib/selection'
 
 export type {
   BackupEntry,
@@ -108,11 +108,11 @@ export class AuthRequiredError extends Error {
 
 /**
  * Every server, log, DDNS and notification route is workspace-scoped; omitting
- * the parameter means the panel's own default workspace. The console pins one
- * workspace per session, so the scoped calls default to it.
+ * the parameter means the panel's own default workspace. The shell keeps the
+ * selected workspace in `selectedWorkspaceId`, so the scoped calls default to it.
  */
 function scoped(path: string, workspace?: string | null): string {
-  const id = workspace ?? activeWorkspaceId.value
+  const id = workspace ?? selectedWorkspaceId.value
   if (id === null || id === undefined || id.length === 0)
     return path
   const separator = path.includes('?') ? '&' : '?'
@@ -122,7 +122,7 @@ function scoped(path: string, workspace?: string | null): string {
 /** Appends the workspace to a URLSearchParams body for the streaming routes. */
 function scopedParams(workspace?: string | null): URLSearchParams {
   const params = new URLSearchParams()
-  const id = workspace ?? activeWorkspaceId.value
+  const id = workspace ?? selectedWorkspaceId.value
   if (id !== null && id !== undefined && id.length > 0)
     params.set('workspace', id)
   return params
