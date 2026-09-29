@@ -17,23 +17,25 @@ opt-in, and the bot token never leaves the secrets file.
 
 ```bash
 TOKEN='123456:ABC...'
+WS='?workspace=default'   # every notifications route is workspace-scoped; omit for the default one
 
-curl -X POST http://127.0.0.1:3999/api/notifications/token \
+curl -X POST "http://127.0.0.1:3999/api/notifications/token$WS" \
   -H 'content-type: application/json' -H "Authorization: Bearer $HH_TOKEN" \
   -d "{\"botToken\":\"$TOKEN\"}"
 
 # which chats can this bot see (after you message it once)?
-curl -X POST http://127.0.0.1:3999/api/notifications/detect-chats \
+curl -X POST "http://127.0.0.1:3999/api/notifications/detect-chats$WS" \
   -H 'content-type: application/json' -H "Authorization: Bearer $HH_TOKEN" \
   -d "{\"botToken\":\"$TOKEN\"}"
 
-curl -X POST http://127.0.0.1:3999/api/notifications/test \
+curl -X POST "http://127.0.0.1:3999/api/notifications/test$WS" \
   -H 'content-type: application/json' -H "Authorization: Bearer $HH_TOKEN" \
   -d '{"chatId":"123456789"}'
 ```
 
 `detect-chats` and `test` accept an override, so a token can be tried before it is saved.
-`DELETE /api/notifications/token` removes it.
+`DELETE /api/notifications/token` removes it. Each workspace keeps its own token and target; the
+panel-wide host alerts use every workspace's own settings.
 
 </details>
 

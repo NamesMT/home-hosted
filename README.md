@@ -213,19 +213,26 @@ default workspace.
 <details>
 <summary><b>🌐 The endpoints worth knowing</b></summary>
 
-| | |
-| --- | --- |
-| `GET /api/state` | the full snapshot: global settings, every workspace with its servers, host vitals |
-| `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the registry: list, create, rename, remove |
-| `GET /api/events` | SSE: the live state, plus logs (`?logs=0`, `?serverId=…`; a `server` payload carries its `workspaceId`) |
-| `GET /api/servers/:id/stream` | SSE: one server's state and logs (`?workspace=…`) |
-| `POST /api/servers/:id/{start,stop,restart}` | lifecycle (workspace-scoped) |
-| `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop |
-| `PATCH /api/servers/:id`, `PATCH /api/settings`, `PATCH /api/settings/workspace` | edit configuration |
-| `GET /api/logs`, `/api/backups` | history and archives |
-| `PUT`/`DELETE /api/notifications/token`, `POST /api/notifications/{test,detect-chats}` | the bot credential, a test send |
-| `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) |
-| `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) |
+| | | `?workspace` |
+| --- | --- | --- |
+| `GET /api/state` | the full snapshot: global settings, every workspace with its servers, host vitals | ❌ |
+| `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the registry: list, create, rename, remove | ❌ |
+| `GET /api/events` | SSE: the live state, plus logs (`?logs=0`, `?serverId=…`; a `server` payload carries its `workspaceId`) | ❌ |
+| `GET`/`POST /api/servers`, `POST /api/servers/{start,stop}-all` | that workspace's entries, and its lifecycle for all of them | ✅ |
+| `GET`/`PATCH`/`DELETE /api/servers/:id` | one entry | ✅ |
+| `POST /api/servers/:id/{start,stop,restart}`, `POST /api/servers/:id/free-port` | one entry's lifecycle, and freeing its port | ✅ |
+| `GET /api/servers/:id/logs`, `GET /api/servers/:id/stream` | that entry's buffered lines, and its SSE | ✅ |
+| `GET /api/logs` | persisted history and files | ✅ |
+| `GET`/`PUT /api/ddns`, `/api/ddns/credentials/:id`, `/api/ddns/check` | that workspace's Dynamic DNS policy, credentials and a check | ✅ |
+| `PUT`/`DELETE /api/notifications/token`, `POST /api/notifications/{test,detect-chats}` | that workspace's bot credential and a test send | ✅ |
+| `GET`/`PATCH /api/settings/workspace` | server defaults, logs, notifications | ✅ |
+| `GET`/`PATCH /api/settings` | panel-wide: listener, authentication, TLS, host vitals, backups | ❌ |
+| `GET`/`POST /api/backups`, restore | archives | ❌ |
+| `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) | ❌ |
+| `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) | ❌ |
+
+✅ takes `?workspace=<id>`; ❌ is panel-wide. Omitting it means the panel's default workspace — never
+another one.
 
 `GET /openapi/spec.json` describes all of it, `/openapi/ui` is the browsable version, and every error
 comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on.
