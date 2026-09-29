@@ -119,6 +119,21 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   let app: AppType | undefined
   const token = newToken()
 
+  const configured = settings.control
+  const intendedHost = options.host === undefined ? configured.host : parseBind(options.host)
+  if (intendedHost === null) {
+    logger.error(`invalid control host: ${String(options.host)} (expected local, lan or an ipv4 address)`)
+    process.exit(1)
+  }
+
+  // `--port`/`--host` move the *listener*, so the server is built from them rather
+  // than from what is on disk — the persisted value only follows the port preflight.
+  const intended = { host: intendedHost, port: options.port ?? configured.port }
+  if (!Number.isInteger(intended.port) || intended.port <= 0 || intended.port > 65535) {
+    logger.error(`invalid control port: ${String(options.port)}`)
+    process.exit(1)
+  }
+
   const controlServer = new ControlServer(
     {
       fetch: (request) => {
@@ -129,7 +144,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
       trustProxy: () => settings.control.auth.trustProxy,
       tls: () => (settings.control.tls.enabled ? tls.load() : null),
     },
-    { host: settings.control.host, port: settings.control.port, tls: settings.control.tls.enabled },
+    { host: intended.host, port: intended.port, tls: settings.control.tls.enabled },
   )
 
   // Auth is on by default, so a first boot needs *a* password; the default is
@@ -138,19 +153,6 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   if (!auth.passwordSet) {
     auth.ensureDefaultPassword(DEFAULT_PASSWORD)
     logger.warn(`no password was set — created the default "${DEFAULT_PASSWORD}"; change it in Global Settings → Authentication`)
-  }
-
-  const configured = settings.control
-  const intendedHost = options.host === undefined ? configured.host : parseBind(options.host)
-  if (intendedHost === null) {
-    logger.error(`invalid control host: ${String(options.host)} (expected local, lan or an ipv4 address)`)
-    process.exit(1)
-  }
-
-  const intended = { host: intendedHost, port: options.port ?? configured.port }
-  if (!Number.isInteger(intended.port) || intended.port <= 0 || intended.port > 65535) {
-    logger.error(`invalid control port: ${String(options.port)}`)
-    process.exit(1)
   }
 
   // Never serve the panel beyond loopback without a password behind it.
