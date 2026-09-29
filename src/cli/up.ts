@@ -16,7 +16,7 @@ const DEFAULT_PORT = 3999
 const LOG_ROTATE_BYTES = 5 * 1024 * 1024
 
 export const upArgs = {
-  config: { type: 'string', alias: 'c', description: 'servers config (default: <state>/servers.config.json)' },
+  config: { type: 'string', alias: 'c', description: 'the default workspace\'s servers config (default: <state>/.hh/default/servers.config.json)' },
   port: { type: 'string', alias: 'p', description: `control panel port (default: ${DEFAULT_PORT})` },
   host: { type: 'string', description: 'local | lan | an ipv4 address (default: local)' },
   autostart: { type: 'boolean', default: true, negativeDescription: 'do not start the entries marked autostart' },

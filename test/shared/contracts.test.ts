@@ -26,6 +26,8 @@ import {
   serverViewSchema,
   settingsPatchSchema,
   telegramSchema,
+  workspaceSettingsPatchSchema,
+  workspaceViewSchema,
 } from '#src/shared/contracts'
 
 const packageRoot = fileURLToPath(new URL('../../', import.meta.url))
@@ -175,6 +177,41 @@ describe('view contracts', () => {
     }
 
     expect(serverViewSchema(view) instanceof type.errors).toBe(false)
+
+    // Everything a workspace owns now lives under `workspaces`, not at the top.
+    const workspace = {
+      id: 'default',
+      label: 'Default',
+      configPath: '/repo/.home-hosted/.hh/default/servers.config.json',
+      settingsPath: '/repo/.home-hosted/.hh/default/settings.json',
+      configError: null,
+      logsDir: '/repo/.home-hosted/.hh/default/.logs',
+      defaults: unwrap(defaultsSchema({})),
+      logs: unwrap(logsSchema({})),
+      notifications: {
+        telegram: {
+          enabled: false,
+          tokenSet: false,
+          chatId: '',
+          onCrash: true,
+          onUnhealthy: true,
+          onForcedRestart: true,
+          onRecovered: false,
+          onHost: true,
+          onDdns: true,
+          cooldownMs: 120000,
+          lastResult: null,
+          lastResultAt: null,
+        },
+      },
+      serverCount: 1,
+      runningCount: 0,
+      crashedCount: 0,
+      servers: [view],
+    }
+
+    expect(workspaceViewSchema(workspace) instanceof type.errors).toBe(false)
+
     const state = appStateSchema({
       control: {
         label: 'Stock UI',
@@ -212,8 +249,6 @@ describe('view contracts', () => {
         },
         protocol: 'http',
       },
-      defaults: unwrap(defaultsSchema({})),
-      logs: unwrap(logsSchema({})),
       host: {
         enabled: true,
         cpus: 4,
@@ -226,28 +261,11 @@ describe('view contracts', () => {
         alerts: [],
         sampledAt: null,
       },
-      backups: { enabled: true, dir: '/repo/.backups', keep: 5, includePaths: [], paths: [], files: [] },
-      notifications: {
-        telegram: {
-          enabled: false,
-          tokenSet: false,
-          chatId: '',
-          onCrash: true,
-          onUnhealthy: true,
-          onForcedRestart: true,
-          onRecovered: false,
-          onHost: true,
-          cooldownMs: 120000,
-          lastResult: null,
-          lastResultAt: null,
-        },
-      },
-      configPath: '/tmp/servers.config.json',
-      configError: null,
+      backups: { enabled: true, dir: '/repo/.backups', keep: 5, includePaths: [], entries: [], files: [] },
+      ui: { custom: false, dir: '/repo/.home-hosted/.hh/.ui', meta: null },
+      workspaces: [workspace],
       projectDir: '/repo',
       dataRoot: '/repo/.home-hosted',
-      logsDir: '/repo/.logs',
-      servers: [view],
     })
     // No `version`: a panel from before the field still frames a state the UI accepts.
     expect(state instanceof type.errors).toBe(false)
@@ -393,13 +411,17 @@ describe('dynamic DNS schema', () => {
 
   it('carries DDNS into the Telegram policy, defaulting on', () => {
     expect(unwrap(telegramSchema({})).onDdns).toBe(true)
-    const patch = unwrap(settingsPatchSchema({ notifications: { telegram: { onDdns: false } } }))
+    const patch = unwrap(workspaceSettingsPatchSchema({ notifications: { telegram: { onDdns: false } } }))
     expect(patch.notifications?.telegram?.onDdns).toBe(false)
+    // Notifications belong to a workspace now: the global patch rejects the block.
+    expect(settingsPatchSchema({ notifications: { telegram: {} } } as unknown) instanceof type.errors).toBe(true)
   })
 
   it('lets a state frame from a panel without DDNS still parse', () => {
     const withDdns = unwrap(ddnsStatusSchema({ enabled: true, running: false, lastRunAt: null, lastResult: null, ipv4: '203.0.113.7', ipv6: null, records: [] }))
     expect(withDdns.records).toEqual([])
-    expect('ddns' in properties(appStateSchema)).toBe(true)
+    // DDNS moved into the workspace subtree, and stays optional there.
+    expect('ddns' in properties(workspaceViewSchema)).toBe(true)
+    expect('ddns' in properties(appStateSchema)).toBe(false)
   })
 })

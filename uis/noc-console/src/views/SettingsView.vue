@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import type { AuthStatus, ControlView, DdnsConfig, LogsConfig, ServerDefaults, SettingsPatch, TelegramStatus } from '@shared/contracts'
+import type { AuthStatus, BackupsView, ControlView, DdnsConfig, LogsConfig, ServerDefaults, SettingsPatch, TelegramStatus, WorkspaceSettingsPatch } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 
-import type { BackupsState, SettingsView } from '@/lib/api'
+import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView, WorkspaceSettings } from '@/lib/api'
 import type { DraftConfig } from '@/lib/ddns'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -27,7 +27,9 @@ type TelegramPolicy = TelegramStatus & { onHost?: boolean }
 const state = computed(() => control.appState.value)
 const controlView = computed<ControlView | null>(() => control.control.value)
 const defaultsView = computed<ServerDefaults | null>(() => control.defaults.value)
-const telegram = computed<TelegramPolicy | null>(() => state.value?.notifications.telegram ?? null)
+/** The pinned workspace's own groups: server defaults, logs and notifications. */
+const workspace = computed<WorkspaceSettings | null>(() => control.workspaceSettings.value)
+const telegram = computed<TelegramPolicy | null>(() => workspace.value?.notifications.telegram ?? null)
 
 /** The panel's own *config* (not the derived view) drives the host/backups forms. */
 const settings = ref<SettingsView | null>(null)
@@ -203,7 +205,7 @@ function fillDefaults(): boolean {
 }
 
 function fillLogs(): boolean {
-  const logs: LogsConfig | undefined = state.value?.logs
+  const logs: LogsConfig | undefined = workspace.value?.logs
   if (!logs)
     return false
   Object.assign(form.logs, logs)
@@ -211,7 +213,7 @@ function fillLogs(): boolean {
 }
 
 function fillTelegram(): boolean {
-  const status = state.value?.notifications.telegram
+  const status = workspace.value?.notifications.telegram
   if (!status)
     return false
   Object.assign(form.notifications.telegram, telegramConfig(status))
@@ -314,7 +316,7 @@ function applySettings(): void {
 
 onMounted(loadSettings)
 
-watch([controlView, defaultsView, settings, state], () => {
+watch([controlView, defaultsView, settings, workspace, state], () => {
   syncFromLive()
 }, { immediate: true })
 
@@ -357,7 +359,12 @@ const exposed = computed(() => controlView.value?.auth.exposed === true)
 const usingDefaultPassword = computed(() => controlView.value?.auth.usingDefaultPassword === true)
 const authEnabledWithoutPassword = computed(() => form.auth.enabled && !passwordSet.value)
 
-function buildPatch(view: ControlView, defaults: ServerDefaults): SettingsPatch {
+/**
+ * The panel-wide patch: listener, auth, TLS, host vitals, backups. Server
+ * defaults, log retention and notifications now belong to the workspace and
+ * travel in `buildWorkspacePatch` — the panel rejects them here.
+ */
+function buildGlobalPatch(view: ControlView): SettingsPatch {
   const patch: SettingsPatch = {}
 
   const controlPatch = diffFields(
@@ -382,28 +389,8 @@ function buildPatch(view: ControlView, defaults: ServerDefaults): SettingsPatch 
   if (Object.keys(controlPatch).length > 0)
     patch.control = controlPatch as SettingsPatch['control']
 
-  const defaultsPatch = diffFields(
-    defaults as unknown as Patch,
-    { ...form.defaults } as unknown as Patch,
-    ['restart', 'health', 'stop'],
-  )
-  if (Object.keys(defaultsPatch).length > 0)
-    patch.defaults = defaultsPatch as SettingsPatch['defaults']
-
   const configured = settings.value
   if (configured) {
-    const logsPatch = diffFields(configured.logs as unknown as Patch, { ...form.logs } as unknown as Patch)
-    if (Object.keys(logsPatch).length > 0)
-      patch.logs = logsPatch as SettingsPatch['logs']
-
-    const notificationsPatch = diffFields(
-      configured.notifications as unknown as Patch,
-      { telegram: { ...form.notifications.telegram } } as unknown as Patch,
-      ['telegram'],
-    )
-    if (Object.keys(notificationsPatch).length > 0)
-      patch.notifications = notificationsPatch as SettingsPatch['notifications']
-
     const hostPatch = diffFields(
       { ...configured.host, diskPaths: configured.host.diskPaths } as unknown as Patch,
       { ...form.host, diskPaths: splitList(form.host.diskPaths) } as unknown as Patch,
@@ -419,28 +406,60 @@ function buildPatch(view: ControlView, defaults: ServerDefaults): SettingsPatch 
       patch.backups = backupsPatch as SettingsPatch['backups']
   }
 
-  // The DDNS panel owns its own draft and publishes what would change, so the one
-  // Save at the top of this page writes it with everything else.
-  if (ddnsPatch.value !== null)
-    patch.ddns = ddnsPatch.value
-
   return patch
 }
 
-const pendingPatch = computed<SettingsPatch | null>(() => {
+/** The workspace-scoped patch: server defaults, log retention, notifications, DDNS. */
+function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
+  const patch: WorkspaceSettingsPatch = {}
+
+  const defaultsPatch = diffFields(
+    defaults as unknown as Patch,
+    { ...form.defaults } as unknown as Patch,
+    ['restart', 'health', 'stop'],
+  )
+  if (Object.keys(defaultsPatch).length > 0)
+    patch.defaults = defaultsPatch as WorkspaceSettingsPatch['defaults']
+
+  const configured = workspace.value
+  if (configured) {
+    const logsPatch = diffFields(configured.logs as unknown as Patch, { ...form.logs } as unknown as Patch)
+    if (Object.keys(logsPatch).length > 0)
+      patch.logs = logsPatch as WorkspaceSettingsPatch['logs']
+
+    const notificationsPatch = diffFields(
+      configured.notifications as unknown as Patch,
+      { telegram: { ...form.notifications.telegram } } as unknown as Patch,
+      ['telegram'],
+    )
+    if (Object.keys(notificationsPatch).length > 0)
+      patch.notifications = notificationsPatch as WorkspaceSettingsPatch['notifications']
+  }
+
+  // The DDNS panel owns its own draft and publishes what would change. DDNS is
+  // workspace-scoped like defaults/logs/notifications, but it has its own route
+  // (`PUT /api/ddns`), so the panel's draft is flushed from `saveSettings`, not
+  // carried inside this patch.
+  return patch
+}
+
+const pendingPatch = computed(() => {
   const view = controlView.value
   const defaults = defaultsView.value
   if (!view || !defaults)
     return null
-  return buildPatch(view, defaults)
+  return { global: buildGlobalPatch(view), workspace: buildWorkspacePatch(defaults) }
 })
 
-const changedCount = computed(() => (pendingPatch.value === null ? 0 : countLeaves(pendingPatch.value as Patch)))
+const changedCount = computed(() => (pendingPatch.value === null
+  ? 0
+  : countLeaves(pendingPatch.value.global as Patch) + countLeaves(pendingPatch.value.workspace as Patch)))
 
 /** What every patched field is compared against, keyed the way the patch is. */
 const currentSnapshot = computed<Patch>(() => {
   const view = controlView.value
   const configured = settings.value
+  const scoped = workspace.value
   return {
     control: view === null
       ? {}
@@ -453,8 +472,8 @@ const currentSnapshot = computed<Patch>(() => {
           auth: authConfig(view.auth),
         },
     defaults: defaultsView.value ?? {},
-    logs: configured?.logs ?? {},
-    notifications: configured === null ? {} : { telegram: configured.notifications.telegram },
+    logs: scoped?.logs ?? {},
+    notifications: scoped === null ? {} : { telegram: scoped.notifications.telegram },
     ddns: ddnsBaseline.value ?? {},
     host: configured === null ? {} : { ...configured.host, diskPaths: configured.host.diskPaths },
     backups: configured === null
@@ -463,9 +482,15 @@ const currentSnapshot = computed<Patch>(() => {
   }
 })
 
-const changes = computed(() => (pendingPatch.value === null
-  ? []
-  : describeChanges(pendingPatch.value as Patch, currentSnapshot.value)))
+const changes = computed(() => {
+  const pending = pendingPatch.value
+  if (pending === null)
+    return []
+  return [
+    ...describeChanges(pending.global as Patch, currentSnapshot.value),
+    ...describeChanges(pending.workspace as Patch, currentSnapshot.value),
+  ]
+})
 
 function formatChangeValue(value: unknown): string {
   if (value === undefined)
@@ -499,33 +524,42 @@ async function saveSettings(): Promise<void> {
       return
     }
 
-    const patch = buildPatch(view, defaults)
-    if (Object.keys(patch).length === 0) {
+    const globalPatch = buildGlobalPatch(view)
+    const workspacePatch = buildWorkspacePatch(defaults)
+    if (Object.keys(globalPatch).length === 0 && Object.keys(workspacePatch).length === 0) {
       settingsMessage.value = 'nothing changed'
       return
     }
 
-    const result = await control.saveSettings(patch)
-    if (!result) {
+    const saved: SettingsSaveResult | null = Object.keys(globalPatch).length === 0 ? null : (await control.saveSettings(globalPatch) ?? null)
+    if (Object.keys(globalPatch).length > 0 && !saved) {
       settingsError.value = control.lastError.value ?? 'the settings could not be saved'
       return
     }
+    if (Object.keys(workspacePatch).length > 0) {
+      const scoped = await control.saveWorkspaceSettings(workspacePatch)
+      if (!scoped) {
+        settingsError.value = control.lastError.value ?? 'the workspace settings could not be saved'
+        return
+      }
+    }
 
-    settings.value = result
+    if (saved)
+      settings.value = saved
     // What was saved is what live state holds now, so every block may follow it
     // again — including the ones this save just brought back in sync.
     forgetSnapshots()
     applySettings()
     await ddnsSection.value?.reload()
 
-    if (!result.rebinding) {
+    if (saved === null || !saved.rebinding) {
       settingsMessage.value = 'saved'
       return
     }
 
     // The panel is moving: this page is talking to a stale origin now.
-    const target = result.targetUrl
-    settingsMessage.value = `saved — moving the control panel to ${result.control.url}`
+    const target = saved.targetUrl
+    settingsMessage.value = `saved — moving the control panel to ${saved.control.url}`
     if (target === null || target === window.location.origin) {
       settingsMessage.value = 'saved — the control panel restarted on the same address'
       return
@@ -594,9 +628,23 @@ const restoreOpen = ref(false)
 /** Which archive the restore dialog starts on; `null` lets it pick. */
 const restoreSource = ref<{ kind: 'stored', name: string } | null>(null)
 
-const backupPaths = computed(() => state.value?.backups.paths ?? [])
-const backupFiles = computed(() => state.value?.backups.files ?? [])
-const backupsView = computed<BackupsState | null>(() => settings.value?.backups ?? null)
+const backupsView = computed<BackupsView | null>(() => control.backups.value)
+
+/** Every declared data path, flattened out of the two-level entry tree. */
+const backupPaths = computed<BackupPathEntry[]>(() =>
+  (backupsView.value?.entries ?? []).flatMap(entry =>
+    entry.items
+      .filter(item => item.kind === 'data')
+      .map<BackupPathEntry>(item => ({
+        id: item.id,
+        path: item.path ?? item.label,
+        origin: item.origin ?? entry.label,
+        included: item.included,
+        note: item.note,
+      })),
+  ),
+)
+const backupFiles = computed<BackupFile[]>(() => backupsView.value?.files ?? [])
 
 function openRestore(name?: string): void {
   restoreSource.value = name === undefined ? null : { kind: 'stored', name }
@@ -755,10 +803,10 @@ async function removeCertificate(): Promise<void> {
 const paths = computed(() => {
   const current = state.value
   return [
-    { label: 'config', value: current?.configPath ?? '—' },
+    { label: 'config', value: control.configPath.value ?? '—' },
     { label: 'project', value: current?.projectDir ?? '—' },
     { label: 'data root', value: current?.dataRoot ?? '—' },
-    { label: 'logs', value: current?.logsDir ?? '—' },
+    { label: 'logs', value: control.logsDir.value ?? '—' },
   ]
 })
 
@@ -914,7 +962,7 @@ async function revertUi(): Promise<void> {
               <span class="mono">{{ uiStatus.meta.name }}</span>
               <span class="faint">v{{ uiStatus.meta.version ?? '—' }}</span>
               <span class="faint">· {{ uiStatus.meta.files }} files</span>
-              <span class="faint">· {{ formatDateTime(uiStatus.meta.uploadedAt) }}</span>
+              <span class="faint">· {{ formatDateTime(uiStatus.meta.uploadedAt ?? 0) }}</span>
             </div>
             <p v-if="uiError" class="note note--error">
               {{ uiError }}
@@ -1124,7 +1172,7 @@ async function revertUi(): Promise<void> {
               </label>
               <label class="field">
                 <span class="field__label">directory</span>
-                <input :value="state?.logsDir ?? '—'" disabled>
+                <input :value="control.logsDir.value ?? '—'" disabled>
               </label>
             </div>
             <p class="note">
@@ -1141,7 +1189,7 @@ async function revertUi(): Promise<void> {
         <div class="pane__head">
           <span class="pane__title">host vitals thresholds</span>
           <span class="view__spacer" />
-          <span v-if="state?.host.alerts.length" class="chip chip--danger">{{ state?.host.alerts.length }} alert(s)</span>
+          <span v-if="control.host.value?.alerts.length" class="chip chip--danger">{{ control.host.value?.alerts.length }} alert(s)</span>
           <span v-else class="chip chip--ok">quiet</span>
         </div>
         <div class="pane__body">
@@ -1182,8 +1230,8 @@ async function revertUi(): Promise<void> {
             </div>
             <p class="note">
               A threshold of 0 disables that alert. Breaches notify once (and once on recovery).
-              <template v-if="state?.host.alerts.length">
-                <br>Now: <span class="warn">{{ state?.host.alerts.join(' · ') }}</span>
+              <template v-if="control.host.value?.alerts.length">
+                <br>Now: <span class="warn">{{ control.host.value?.alerts.join(' · ') }}</span>
               </template>
             </p>
           </div>
@@ -1318,7 +1366,7 @@ async function revertUi(): Promise<void> {
         <div class="pane__head">
           <span class="pane__title">backups</span>
           <span class="view__spacer" />
-          <span class="mono faint">{{ backupsView?.dir ?? state?.backups.dir ?? '—' }}</span>
+          <span class="mono faint">{{ backupsView?.dir ?? '—' }}</span>
         </div>
         <div class="pane__body">
           <div class="group">

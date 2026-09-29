@@ -34,7 +34,7 @@ export function createBackupsRoute(deps: AppDeps) {
         summary: 'Archives on disk, and the paths a backup would capture',
         responses: { 200: { description: 'Backups', content: jsonBody(backupsViewSchema) } },
       }),
-      c => c.json(buildBackupsView(deps.store, deps.backups)),
+      c => c.json(buildBackupsView(deps.backups)),
     )
 
     .post(

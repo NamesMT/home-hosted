@@ -18,8 +18,8 @@ import { tlsUploadSchema } from '#src/shared/contracts'
  */
 export function createTlsRoute(deps: AppDeps) {
   const review = () => ({
-    control: buildControlView(deps.store, deps.auth, deps.controlServer.endpoint, deps.tls),
-    rebinding: deps.store.config.control.tls.enabled,
+    control: buildControlView(deps.panel.settings, deps.auth, deps.controlServer.endpoint, deps.tls),
+    rebinding: deps.panel.settings.control.tls.enabled,
     targetUrl: deps.controlServer.endpoint.url,
   })
 
@@ -38,7 +38,7 @@ export function createTlsRoute(deps: AppDeps) {
         if (!saved.ok)
           throw new DetailedError(saved.error ?? 'the certificate pair was rejected', { statusCode: 400, code: 'INVALID_CERTIFICATE' })
 
-        if (deps.store.config.control.tls.enabled) {
+        if (deps.panel.settings.control.tls.enabled) {
           afterResponse(async () => {
             const result = await deps.controlServer.restart()
             if (!result.ok)
@@ -60,7 +60,7 @@ export function createTlsRoute(deps: AppDeps) {
       }),
       (c) => {
         deps.tls.clear()
-        if (deps.store.config.control.tls.enabled) {
+        if (deps.panel.settings.control.tls.enabled) {
           afterResponse(async () => {
             await deps.controlServer.restart()
           }, error => logger.error('tls reload failed', error))

@@ -1,21 +1,21 @@
 // @vitest-environment happy-dom
-import type { BackupEntry, RestorePlan } from '../src/lib/api'
+import type { BackupFile, RestorePlan } from '@shared/contracts'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import RestoreDialog from '../src/components/settings/RestoreDialog.vue'
 import * as api from '../src/lib/api'
 
-const archive: BackupEntry = { name: 'backup-1.zip', sizeBytes: 100, createdAt: 1, encrypted: false }
+const archive: BackupFile = { name: 'backup-1.zip', sizeBytes: 100, createdAt: 1, encrypted: false }
 
 const plan: RestorePlan = {
   dryRun: true,
   encrypted: false,
   needsPassword: false,
   items: [
-    { id: 'config', label: 'config/servers.config.json', kind: 'config', restorable: true, selected: true, note: null },
+    { id: 'global:settings', label: 'global/settings.json', kind: 'settings', restorable: true, selected: true, note: null },
     { id: 'data:/srv/app', label: '/srv/app', kind: 'data', restorable: true, selected: true, note: 'restored from /old/app' },
   ],
-  applied: ['config/servers.config.json', '/srv/app'],
+  applied: ['global/settings.json', '/srv/app'],
   skipped: [],
   restartRequired: false,
   reloaded: true,
@@ -54,7 +54,7 @@ describe('restoreDialog', () => {
     await button(wrapper, 'Apply this restore').trigger('click')
     await flushPromises()
 
-    expect(spy).toHaveBeenLastCalledWith(archive.name, true, { include: ['config'] })
+    expect(spy).toHaveBeenLastCalledWith(archive.name, true, { include: ['global:settings'] })
     expect(wrapper.emitted('applied')?.[0]).toEqual(['Restored 2 item(s) — the restored servers are live, autostart entries starting.'])
   })
 

@@ -27,12 +27,15 @@ const source = computed(() => {
   if (!ui.custom)
     return 'stock'
   const meta = ui.meta
-  return meta === null ? 'custom' : `custom · ${meta.name}${meta.version === null ? '' : ` ${meta.version}`}`
+  return meta === null ? 'custom' : `custom · ${meta.name ?? 'unnamed'}${meta.version == null ? '' : ` ${meta.version}`}`
 })
 
 const uploaded = computed(() => {
   const meta = props.ui?.meta
-  return meta == null ? null : `${meta.files} files · ${new Date(meta.uploadedAt).toLocaleString()}`
+  if (meta == null)
+    return null
+  const when = meta.uploadedAt === undefined ? null : new Date(meta.uploadedAt).toLocaleString()
+  return `${meta.files ?? 0} files${when === null ? '' : ` · ${when}`}`
 })
 
 function pick(event: Event): void {

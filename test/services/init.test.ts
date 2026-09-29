@@ -51,11 +51,16 @@ describe('scaffold contents', () => {
       expect(command).toContain('--home ./state')
   })
 
-  it('ignores state and data, but never the server definitions', () => {
+  it('ignores state and data, but never the workspace definitions', () => {
     const ignore = projectGitignore()
 
-    expect(ignore).toContain('state/*')
-    expect(ignore).toContain('!state/servers.config.json')
+    expect(ignore).toContain('state/.hh/*')
+    // The registry and the global settings stay tracked, so a clone knows its workspaces.
+    expect(ignore).toContain('!state/.hh/settings.json')
+    expect(ignore).toContain('!state/.hh/workspaces.json')
+    // Each workspace's settings and servers stay tracked too; its secrets and logs do not.
+    expect(ignore).toContain('!state/.hh/*/settings.json')
+    expect(ignore).toContain('!state/.hh/*/servers.config.json')
     expect(ignore).toContain('data/')
   })
 

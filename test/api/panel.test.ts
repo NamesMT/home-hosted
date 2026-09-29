@@ -1,3 +1,4 @@
+import type { AppState } from '#src/shared/contracts'
 import type { Fixture } from './fixture'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -106,7 +107,10 @@ describe('auth routes', () => {
     const response = await created.app.request('/api/state', { headers: { cookie } })
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ configPath: created.store.path })
+    // The config path is per workspace now; the default workspace is the one named.
+    const state = await response.json() as AppState
+    expect(state.dataRoot).toBe(created.dir)
+    expect(state.workspaces.map(workspace => workspace.configPath)).toEqual([created.store.path])
   })
 
   it('clears the cookie on logout', async () => {
@@ -127,7 +131,7 @@ describe('auth routes', () => {
   it('refuses to clear a password while the panel is bound beyond loopback', async () => {
     const created = await fixture({ password: 'correct horse' })
     // Binding the LAN with no password is exactly what must stay impossible.
-    created.store.updateControl({ host: 'lan', auth: { enabled: false } })
+    created.settings.updateControl({ host: 'lan', auth: { enabled: false } })
     const cookie = await signIn(created, 'correct horse')
 
     const response = await created.app.request('/api/auth/password', { method: 'DELETE', headers: { cookie } })
@@ -217,16 +221,17 @@ describe('metrics', () => {
     const text = await response.text()
     expect(text).toContain('hh_control_up 1')
     expect(text).toContain('hh_servers_total 2')
-    expect(text).toContain('hh_server_up{server="web"} 1')
-    expect(text).toContain('hh_server_up{server="idle"} 0')
-    expect(text).toContain('hh_server_restarts_total{server="web"} 2')
-    expect(text).toContain('hh_server_response_ms{server="web"} 12')
-    expect(text).toContain('hh_server_rss_bytes{server="web"} 1024')
-    expect(text).toContain('hh_server_cpu_percent{server="web"} 3.5')
+    // A server id repeats across workspaces, so every sample names both.
+    expect(text).toContain('hh_server_up{server="web",workspace="default"} 1')
+    expect(text).toContain('hh_server_up{server="idle",workspace="default"} 0')
+    expect(text).toContain('hh_server_restarts_total{server="web",workspace="default"} 2')
+    expect(text).toContain('hh_server_response_ms{server="web",workspace="default"} 12')
+    expect(text).toContain('hh_server_rss_bytes{server="web",workspace="default"} 1024')
+    expect(text).toContain('hh_server_cpu_percent{server="web",workspace="default"} 3.5')
 
     // No reading means no series at all, not a zero that reads as "healthy".
-    expect(text).not.toContain('hh_server_response_ms{server="idle"}')
-    expect(text).not.toContain('hh_server_rss_bytes{server="idle"}')
+    expect(text).not.toContain('hh_server_response_ms{server="idle"')
+    expect(text).not.toContain('hh_server_rss_bytes{server="idle"')
     expect(text).not.toContain('hh_server_uptime_ratio_24h')
   })
 })
@@ -484,11 +489,11 @@ describe('auth: cookies and first-time setup', () => {
   it('honours an explicit cookie policy instead of the request protocol', async () => {
     const created = await fixture({ password: 'correct horse' })
 
-    created.store.updateControl({ auth: { cookieSecure: 'always' } })
+    created.settings.updateControl({ auth: { cookieSecure: 'always' } })
     const always = await form(created.app, '/api/auth/login', 'POST', { password: 'correct horse' })
     expect(always.headers.get('set-cookie')).toMatch(/;\s*Secure/i)
 
-    created.store.updateControl({ auth: { cookieSecure: 'never' } })
+    created.settings.updateControl({ auth: { cookieSecure: 'never' } })
     const never = await form(created.app, '/api/auth/login', 'POST', { password: 'correct horse' })
     expect(never.headers.get('set-cookie')).not.toMatch(/;\s*Secure/i)
   })
@@ -513,5 +518,29 @@ describe('auth: cookies and first-time setup', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
     expect(created.auth.passwordSet).toBe(false)
+  })
+})
+
+describe('workspace scoping', () => {
+  it('resolves ?workspace= to that workspace, and 404s one that does not exist', async () => {
+    const created = await fixture({
+      views: [makeView('web')],
+      workspaces: [{ id: 'staging' }],
+      workspaceViews: { staging: [makeView('api')] },
+    })
+
+    const state = await (await created.app.request('/api/state')).json() as AppState
+    expect(state.workspaces.map(workspace => workspace.id)).toEqual(['default', 'staging'])
+
+    // Names the workspace it asked for, never the default's servers.
+    const staging = await (await created.app.request('/api/servers?workspace=staging')).json() as { servers: Array<{ id: string }> }
+    expect(staging.servers.map(server => server.id)).toEqual(['api'])
+    const fallback = await (await created.app.request('/api/servers')).json() as { servers: Array<{ id: string }> }
+    expect(fallback.servers.map(server => server.id)).toEqual(['web'])
+
+    const unknown = await created.app.request('/api/servers?workspace=ghost')
+    expect(unknown.status).toBe(404)
+    expect(await unknown.json()).toMatchObject({ code: 'UNKNOWN_WORKSPACE' })
+    expect((await created.app.request('/api/servers/ghost/start?workspace=ghost', { method: 'POST' })).status).toBe(404)
   })
 })

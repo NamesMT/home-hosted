@@ -16,6 +16,7 @@ import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@/lib/ddns'
 import { formatAgo } from '@/lib/format'
@@ -36,6 +37,7 @@ const RECORD_STATE: Record<DdnsRecordState, { label: string, tone: Tone }> = {
 }
 
 const control = useControlPlane()
+const workspace = useWorkspaces()
 const toasts = useToasts()
 
 const view = ref<Awaited<ReturnType<typeof api.fetchDdns>> | null>(null)
@@ -61,7 +63,7 @@ const providerOptions = computed(() => providers.value.map(provider => ({ value:
 const accountOptions = computed(() => accounts.value.map(account => ({ value: account.id, label: account.id })))
 
 /** Live state from the SSE frame; the fetch is only the fallback before one lands. */
-const status = computed(() => control.appState.value?.ddns ?? view.value?.status ?? null)
+const status = computed(() => workspace.selected.value?.ddns ?? view.value?.status ?? null)
 
 const dirty = computed(() => draft.value !== null && baseline.value !== null && !ddnsConfigEquals(draft.value, baseline.value))
 const canAddAccount = computed(() => /^[a-z0-9][a-z0-9_-]*$/.test(newAccount.id) && !accounts.value.some(account => account.id === newAccount.id))
@@ -129,7 +131,7 @@ function apply(next: Awaited<ReturnType<typeof api.fetchDdns>>, keepDraft = fals
 async function load(): Promise<void> {
   loadError.value = null
   try {
-    apply(await api.fetchDdns())
+    apply(await api.fetchDdns(workspace.activeId.value))
     newAccount.provider = providerOptions.value[0]?.value ?? 'cloudflare'
     newDomain.account = accounts.value[0]?.id ?? ''
   }
@@ -140,6 +142,12 @@ async function load(): Promise<void> {
 
 onMounted(() => {
   void load()
+})
+
+// The section belongs to the selected workspace; a switch re-reads its policy.
+watch(() => workspace.activeId.value, (id, previous) => {
+  if (id !== previous && id.length > 0)
+    void load()
 })
 
 // A draft edit is news for the page: it owns the Save that will write it.
@@ -191,7 +199,7 @@ async function updateNow(): Promise<void> {
   actionError.value = null
   try {
     // Keeps an unsaved draft: a pass does not change the policy.
-    apply(await api.checkDdns(), true)
+    apply(await api.checkDdns(workspace.activeId.value), true)
     toasts.success(status.value?.lastResult ?? 'Dynamic DNS pass finished')
   }
   catch (caught) {
@@ -215,7 +223,7 @@ async function saveCredentials(): Promise<void> {
   credentialBusy.value = true
   credentialError.value = null
   try {
-    apply(await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value), true)
+    apply(await api.saveDdnsCredentials(workspace.activeId.value, account.id, account.provider, credentialDraft.value), true)
     toasts.success(`Credentials saved for ${account.id}`)
     credentialAccount.value = null
   }
@@ -234,7 +242,7 @@ async function clearCredentials(): Promise<void> {
   credentialBusy.value = true
   credentialError.value = null
   try {
-    apply(await api.clearDdnsCredentials(account.id), true)
+    apply(await api.clearDdnsCredentials(workspace.activeId.value, account.id), true)
     toasts.success(`Credentials removed for ${account.id}`)
     credentialAccount.value = null
   }

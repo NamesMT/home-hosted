@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BackupEntry, RestorePlan } from '@/lib/api'
+import type { BackupFile, RestorePlan } from '@/lib/api'
 import { computed, ref, watch } from 'vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -20,7 +20,7 @@ interface RestoreSource {
 type RestoreTarget = RestoreSource | { kind: 'upload' }
 
 const props = withDefaults(defineProps<{
-  files: BackupEntry[]
+  files: BackupFile[]
   initial?: RestoreTarget | null
 }>(), {
   initial: null,
@@ -40,7 +40,7 @@ const target = ref<RestoreTarget>({ kind: 'upload' })
 const sourceValue = ref<string>(UPLOAD)
 
 const selectedCount = computed(() => plan.value?.items.filter(item => item.selected).length ?? 0)
-const restoringConfig = computed(() => plan.value?.items.some(item => item.id === 'config' && item.selected) ?? false)
+const restoringGlobal = computed(() => plan.value?.items.some(item => item.id === 'global:settings' && item.selected) ?? false)
 const needsPassword = computed(() => plan.value?.needsPassword === true)
 const canApply = computed(() => plan.value !== null && !needsPassword.value && selectedCount.value > 0 && !busy.value)
 const sourceOptions = computed(() => [
@@ -219,7 +219,7 @@ watch(open, (isOpen) => {
               <CheckField
                 v-model="item.selected"
                 :label="item.label"
-                :hint="[item.kind, item.note].filter(Boolean).join(' · ')"
+                :hint="[item.kind, item.workspaceId, item.note].filter(Boolean).join(' · ')"
                 :disabled="!item.restorable || busy"
               />
             </li>
@@ -241,8 +241,8 @@ watch(open, (isOpen) => {
             <template v-if="plan.restartRequired">
               The panel's own settings differ, so restart the panel afterwards.
             </template>
-            <template v-else-if="restoringConfig">
-              Restored servers are reloaded immediately; entries marked autostart start on their own.
+            <template v-else-if="restoringGlobal">
+              Restored workspaces are reloaded immediately; entries marked autostart start on their own.
             </template>
           </p>
         </template>

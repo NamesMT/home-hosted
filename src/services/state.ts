@@ -1,27 +1,29 @@
-import type { ConfigStore } from '#src/config/store'
+import type { GlobalSettingsStore } from '#src/config/settings'
 import type { AuthService } from '#src/services/auth'
 import type { BackupService } from '#src/services/backups'
 import type { ControlEndpoint } from '#src/services/control-server'
-import type { DdnsService } from '#src/services/ddns'
 import type { HostMonitor } from '#src/services/host-monitor'
-import type { NotificationService } from '#src/services/notifications'
 import type { TlsStore } from '#src/services/tls'
-import type { AppState, BackupsView, ControlConfig, ControlView, HostView, ServerDefaults, ServerView } from '#src/shared/contracts'
+import type { ControlConfig, ControlView, DdnsStatus, HostView, LogsConfig, ServerDefaults, ServerView, TelegramStatus, WorkspaceView } from '#src/shared/contracts'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { checkExposure } from '#src/services/exposure'
 
-export interface BuildStateDeps {
-  store: ConfigStore
-  auth: AuthService
-  control: ControlEndpoint
-  tls: TlsStore
-  notifications: NotificationService
-  hostMonitor: HostMonitor
-  backups: BackupService
-  ddns: DdnsService
+export interface WorkspaceViewSource {
+  id: string
+  label: string
+  store: {
+    path: string
+    settingsPath: string
+    configError: string | null
+    configWarnings: string[]
+    defaults: ServerDefaults
+    logs: LogsConfig
+  }
   logsDir: string
-  views: ServerView[]
+  notifications: { status: () => TelegramStatus }
+  ddns: { view: DdnsStatus }
+  supervisor: { views: () => ServerView[] }
 }
 
 /**
@@ -31,12 +33,12 @@ export interface BuildStateDeps {
  * differences.
  */
 export function buildControlView(
-  store: ConfigStore,
+  settings: GlobalSettingsStore,
   auth: AuthService,
   control: ControlEndpoint,
   tls: TlsStore,
 ): ControlView {
-  const config: ControlConfig = store.config.control
+  const config: ControlConfig = settings.control
   const exposure = checkExposure(config, auth.passwordSet, auth.usingDefaultPassword)
 
   return {
@@ -66,41 +68,34 @@ export function buildControlView(
   }
 }
 
-export function buildDefaults(store: ConfigStore): ServerDefaults {
-  return store.defaults
-}
-
-export function buildBackupsView(store: ConfigStore, backups: BackupService): BackupsView {
-  return {
-    enabled: store.config.backups.enabled,
-    dir: backups.directory,
-    keep: store.config.backups.keep,
-    includePaths: store.config.backups.includePaths,
-    // The id a create request selects this path by; the restore plan already reads `data:<path>`.
-    paths: backups.paths.map(entry => ({ ...entry, id: `data:${entry.path}` })),
-    files: backups.list(),
-  }
+export function buildBackupsView(backups: BackupService): ReturnType<BackupService['view']> {
+  return backups.view()
 }
 
 export function buildHostView(hostMonitor: HostMonitor): HostView {
   return hostMonitor.view
 }
 
-export function buildAppState(deps: BuildStateDeps): AppState {
+/** One workspace's subtree of the state frame. */
+export function buildWorkspaceView(source: WorkspaceViewSource): WorkspaceView {
+  const servers = source.supervisor.views()
   return {
-    control: buildControlView(deps.store, deps.auth, deps.control, deps.tls),
-    defaults: buildDefaults(deps.store),
-    logs: deps.store.config.logs,
-    notifications: { telegram: deps.notifications.status() },
-    host: buildHostView(deps.hostMonitor),
-    backups: buildBackupsView(deps.store, deps.backups),
-    ddns: deps.ddns.view,
-    configPath: deps.store.path,
-    configError: deps.store.configError,
-    projectDir,
-    dataRoot,
-    logsDir: deps.logsDir,
-    version: appVersion(),
-    servers: deps.views,
+    id: source.id,
+    label: source.label,
+    configPath: source.store.path,
+    settingsPath: source.store.settingsPath,
+    configError: source.store.configError,
+    configWarnings: source.store.configWarnings,
+    logsDir: source.logsDir,
+    defaults: source.store.defaults,
+    logs: source.store.logs,
+    notifications: { telegram: source.notifications.status() },
+    ddns: source.ddns.view,
+    serverCount: servers.length,
+    runningCount: servers.filter(server => server.status === 'running').length,
+    crashedCount: servers.filter(server => server.status === 'crashed').length,
+    servers,
   }
 }
+
+export { appVersion, dataRoot, projectDir }

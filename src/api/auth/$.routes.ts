@@ -14,7 +14,7 @@ import { loginSchema, passwordSchema, sessionViewSchema } from '#src/shared/cont
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
 function secureCookie(c: Context, deps: AppDeps): boolean {
-  const mode = deps.store.config.control.auth.cookieSecure
+  const mode = deps.panel.settings.control.auth.cookieSecure
   if (mode === 'always')
     return true
   if (mode === 'never')
@@ -122,9 +122,9 @@ export function createAuthRoute(deps: AppDeps) {
         deps.auth.setPassword(body.newPassword, { keepToken: identity.session?.token ?? null })
 
         // A password that is not enforced protects nothing, so the first setup enables it.
-        let enabled = deps.store.config.control.auth.enabled
+        let enabled = deps.panel.settings.control.auth.enabled
         if (!enabled) {
-          deps.store.updateControl({ auth: { enabled: true } })
+          deps.panel.settings.updateControl({ auth: { enabled: true } })
           enabled = true
         }
 
@@ -143,7 +143,7 @@ export function createAuthRoute(deps: AppDeps) {
         if (!requestIdentity(c, deps.auth).authenticated)
           throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
 
-        const exposure = checkExposure(deps.store.config.control, false)
+        const exposure = checkExposure(deps.panel.settings.control, false)
         if (exposure.exposed) {
           throw new DetailedError('refusing to clear the password while the control panel is bound beyond loopback — set the bind back to local first', {
             statusCode: 400,
@@ -152,7 +152,7 @@ export function createAuthRoute(deps: AppDeps) {
         }
 
         deps.auth.clearPassword()
-        deps.store.updateControl({ auth: { enabled: false } })
+        deps.panel.settings.updateControl({ auth: { enabled: false } })
         return c.json({ ok: true })
       },
     )

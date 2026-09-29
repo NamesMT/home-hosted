@@ -1,7 +1,13 @@
 # Servers
 
-Every supervised process is one entry in `$HHOSTED_HOME/servers.config.json`. Add it with **➕ Add
-server** in the panel, or write it by hand — the panel writes the same file.
+Every supervised process is one entry in a **workspace**'s `servers.config.json` —
+`$HHOSTED_HOME/.hh/<workspace-id>/servers.config.json`, default `~/.home-hosted/.hh/default/…`.
+Add it with **➕ Add server** in the panel, or write it by hand — the panel writes the same file.
+
+<sub>A workspace is the ownership boundary: its servers, secrets, logs and nanny state are its own.
+Pick one in the header; the workspace's server defaults and log retention sit in
+**Workspace Settings**. Panel-wide things (listener, auth, TLS, host vitals, backups, UI) stay in
+**Global settings**.</sub>
 
 ```json
 {
@@ -140,14 +146,14 @@ holder it cannot prove is yours.
 ## Persistent entries
 
 `"persistent": true` means "keep this running whatever happens to the panel". It is off by default,
-it is per entry (not a `Settings → Server defaults` field), and it covers the three ways the panel can
-go away: `down`, a restart, or being killed outright.
+it is per entry (not a **Workspace Settings → Server defaults** field), and it covers the three ways
+the panel can go away: `down`, a restart, or being killed outright.
 
 How it works: the panel does not run the entry directly. It spawns a **nanny** — the same CLI, hidden
 `__nanny` mode — which starts the entry, owns its pipes and writes its output to the entry's own log
 file. The nanny is what survives; the panel reattaches to it on the next boot through
-`$HHOSTED_HOME/.state/<id>.json`, and a stale file is how it learns how a child ended while nobody was
-watching.
+`.hh/<workspace>/.state/<id>.json`, and a stale file is how it learns how a child ended while nobody
+was watching.
 
 What that changes:
 
@@ -157,8 +163,8 @@ What that changes:
   that is already running is adopted, because leaving it unmanaged would make the panel treat its own
   server as a stranger on the port.
 - **Logs keep flowing.** The panel tails the nanny's file, so history survives the panel being down;
-  `logs.persist: false` still keeps it out of the Logs page — but a file has to exist in
-  `.logs/`, because there is no pipe to carry the output.
+  `logs.persist: false` still keeps it out of the Logs page — but a file has to exist in the
+  workspace's `.logs/`, because there is no pipe to carry the output.
 - **A crash while the panel is away is reported, not restarted.** Retries and backoff remain the
   panel's job, so an entry that dies with nobody watching shows up as **crashed** on the next boot
   with the exit code in its log.

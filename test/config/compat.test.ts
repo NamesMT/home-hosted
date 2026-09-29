@@ -1,103 +1,145 @@
 import type { ConfigMigration } from '#src/config/migrations'
-import type { RawConfig } from '#src/config/schema'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
-import { parseConfig, stampConfig } from '#src/config/parse'
-import { ConfigStore } from '#src/config/store'
+import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { appVersion } from '#src/helpers/version'
 
 const fixtures = fileURLToPath(new URL('../fixtures/config/', import.meta.url))
-const dirs: string[] = []
 
-afterEach(async () => {
-  await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
-})
-
-/** A released config must keep loading, forever: this is the guard, not a hope. */
-function fixture(name: string): RawConfig {
-  return JSON.parse(fs.readFileSync(path.join(fixtures, name), 'utf8')) as RawConfig
+/**
+ * A released config must keep loading, forever. The old all-in-one file is now
+ * split three ways by the layout migration, so each released shape is read through
+ * the reader that owns it — the end-to-end version of this (a real legacy home
+ * migrated, then loaded) lives in `layout.test.ts`.
+ */
+function fixture(name: string): Record<string, any> {
+  return JSON.parse(fs.readFileSync(path.join(fixtures, name), 'utf8')) as Record<string, any>
 }
 
-async function tempStore(contents: RawConfig): Promise<{ store: ConfigStore, file: string }> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-compat-'))
-  dirs.push(dir)
-  const file = path.join(dir, 'servers.config.json')
-  await fs.promises.writeFile(file, `${JSON.stringify(contents, null, 2)}\n`)
-  const store = new ConfigStore(file)
-  store.load()
-  return { store, file }
+function pick(raw: Record<string, any>, keys: readonly string[]): Record<string, any> {
+  const out: Record<string, any> = {}
+  for (const key of keys) {
+    if (raw[key] !== undefined)
+      out[key] = raw[key]
+  }
+  return out
 }
+
+const GLOBAL_KEYS = ['$schema', 'meta', 'control', 'host', 'backups'] as const
+const WORKSPACE_KEYS = ['$schema', 'meta', 'defaults', 'logs', 'notifications', 'ddns'] as const
+const SERVERS_KEYS = ['$schema', 'meta', 'servers'] as const
 
 describe('reading configs from other releases', () => {
   it('loads a config written by the last release, unchanged', () => {
-    // Fixtures for each released shape live in test/fixtures/config/: a shape that
-    // stops loading here is a breaking change, and this is where that shows up.
-    const parsed = parseConfig(fixture('v0.3.0.json'))
+    const raw = fixture('v0.3.0.json')
 
-    expect(parsed.errors).toEqual([])
-    expect(parsed.warnings).toEqual([])
-    expect(parsed.unknownKeys).toEqual([])
-    expect(parsed.schemaVersion).toBe(CONFIG_SCHEMA)
-    expect(parsed.config?.control.port).toBe(3999)
-    expect(parsed.config?.servers.map(server => server.id)).toEqual(['omniroute', 'static'])
-    expect(parsed.config?.servers[1]?.port).toBe(4010)
+    const global = parseGlobalSettings(pick(raw, GLOBAL_KEYS))
+    expect(global.errors).toEqual([])
+    expect(global.warnings).toEqual([])
+    expect(global.unknownKeys).toEqual([])
+    expect(global.schemaVersion).toBe(CONFIG_SCHEMA)
+    expect(global.config?.control.port).toBe(3999)
+    expect(global.config?.control.label).toBe('Home server')
+
+    const workspace = parseWorkspaceSettings(pick(raw, WORKSPACE_KEYS))
+    expect(workspace.errors).toEqual([])
+    expect(workspace.config?.defaults.bind).toBe('local')
+    expect(workspace.config?.logs.keep).toBe(3)
+
+    const servers = parseServersFile(pick(raw, SERVERS_KEYS), workspace.config?.defaults as unknown as Record<string, unknown> ?? {})
+    expect(servers.errors).toEqual([])
+    expect(servers.servers.map(server => server.id)).toEqual(['omniroute', 'static'])
+    expect(servers.servers[1]?.port).toBe(4010)
+    // The workspace's own default reached the entry that did not decide it.
+    expect(servers.servers[1]?.bind).toBe('local')
   })
 
-  it('treats an unstamped file as the current schema', async () => {
-    const parsed = parseConfig(fixture('v0.3.0.json'))
+  it('treats an unstamped file as the current schema', () => {
+    const parsed = parseGlobalSettings({ control: { port: 3999 } })
+
     expect(parsed.writtenBy).toBeNull()
     expect(parsed.schemaVersion).toBe(CONFIG_SCHEMA)
     expect(parsed.config?.meta).toEqual({ writtenBy: '', schema: CONFIG_SCHEMA })
+    expect(parsed.config?.control.port).toBe(3999)
   })
 
   it('keeps what it knows of a config from a newer release, and lists the rest', () => {
-    const parsed = parseConfig(fixture('newer-release.json'))
+    const raw = fixture('newer-release.json')
 
-    expect(parsed.errors).toEqual([])
-    expect(parsed.writtenBy).toBe('0.4.0')
+    const global = parseGlobalSettings(pick(raw, GLOBAL_KEYS))
+    expect(global.errors).toEqual([])
+    expect(global.writtenBy).toBe('0.4.0')
     // The values around the unknown keys survived, including nested groups.
-    expect(parsed.config?.control.port).toBe(4123)
-    expect(parsed.config?.control.auth.enabled).toBe(true)
-    expect(parsed.config?.servers[0]?.port).toBe(4200)
-    expect(parsed.config?.servers[0]?.health.enabled).toBe(true)
-
-    expect(parsed.unknownKeys).toEqual(expect.arrayContaining([
+    expect(global.config?.control.port).toBe(4123)
+    expect(global.config?.control.auth.enabled).toBe(true)
+    expect(global.unknownKeys).toEqual(expect.arrayContaining([
       'control.futurePanelFlag',
       'control.auth.futureAuthField',
+    ]))
+
+    const servers = parseServersFile(pick(raw, SERVERS_KEYS), {})
+    expect(servers.errors).toEqual([])
+    expect(servers.servers[0]?.port).toBe(4200)
+    expect(servers.servers[0]?.health.enabled).toBe(true)
+    expect(servers.unknownKeys).toEqual(expect.arrayContaining([
       'servers[0].futureEntryField',
       'servers[0].health.futureHealthField',
-      'futureTopLevelBlock',
     ]))
   })
 
-  it('refuses a config from a release it cannot understand', () => {
-    const parsed = parseConfig(fixture('from-the-future.json'))
+  it('reports a top-level key a newer release added instead of failing the file', () => {
+    const global = parseGlobalSettings({ control: { port: 4123 }, futureTopLevelBlock: { anything: true } })
 
-    expect(parsed.config).toBeNull()
-    expect(parsed.schemaVersion).toBe(99)
-    expect(parsed.errors.join(' ')).toContain('9.9.9')
-    expect(parsed.errors.join(' ')).toContain('schema 99')
+    expect(global.errors).toEqual([])
+    expect(global.unknownKeys).toContain('futureTopLevelBlock')
+    expect(global.config?.control.port).toBe(4123)
+
+    const workspace = parseWorkspaceSettings({ defaults: { autostart: true }, futureWorkspaceBlock: 1 })
+    expect(workspace.errors).toEqual([])
+    expect(workspace.unknownKeys).toContain('futureWorkspaceBlock')
+    expect(workspace.config?.defaults.autostart).toBe(true)
+  })
+
+  it('refuses a config from a release it cannot understand', () => {
+    const global = parseGlobalSettings(fixture('from-the-future.json'))
+    expect(global.config).toBeNull()
+    expect(global.schemaVersion).toBe(99)
+    expect(global.errors.join(' ')).toContain('9.9.9')
+    expect(global.errors.join(' ')).toContain('schema 99')
+
+    const servers = parseServersFile(fixture('from-the-future.json'), {})
+    expect(servers.servers).toEqual([])
+    expect(servers.errors.join(' ')).toContain('schema 99')
   })
 
   it('refuses a config that needs a migration, before running one', () => {
     // A synthetic step stands in for the first real migration this project ships.
-    const parsed = parseConfig({ meta: { schema: 1 }, servers: [] }, {
+    const options = {
       to: 2,
-      migrations: [{ to: 2, describe: 'add the thing', apply: config => config }],
-    })
+      migrations: [{ to: 2, describe: 'add the thing', apply: (config: Record<string, unknown>) => config }] as ConfigMigration[],
+    }
+    const global = parseGlobalSettings({ meta: { schema: 1 }, control: { port: 3999 } }, options)
+    expect(global.config).toBeNull()
+    expect(global.errors.join(' ')).toContain('needs 1 migration')
 
-    expect(parsed.config).toBeNull()
-    expect(parsed.errors.join(' ')).toContain('needs 1 migration')
+    const servers = parseServersFile({ meta: { schema: 1 }, servers: [] }, {}, options)
+    expect(servers.servers).toEqual([])
+    expect(servers.errors.join(' ')).toContain('needs 1 migration')
+  })
+
+  it('refuses a file that is not an object at all', () => {
+    expect(parseGlobalSettings(null).errors.join(' ')).toContain('must contain a JSON object')
+    expect(parseWorkspaceSettings([]).errors.join(' ')).toContain('must contain a JSON object')
+    expect(parseServersFile('nope', {}).errors.join(' ')).toContain('must contain a JSON object')
   })
 })
 
 describe('stamping', () => {
   it('records what wrote the file', () => {
-    const stamped = stampConfig({ control: { port: 4123 }, servers: [] })
+    const stamped = stampConfig({ control: { port: 4123 }, servers: [] } as { $schema?: string, meta?: unknown, control: unknown, servers: unknown[] })
 
     expect(stamped.meta).toEqual({ writtenBy: appVersion(), schema: CONFIG_SCHEMA })
     expect(Object.keys(stamped)).toEqual(['meta', 'control', 'servers'])
@@ -110,24 +152,12 @@ describe('stamping', () => {
     expect(stamped.meta?.writtenBy).toBe(appVersion())
     expect(Object.keys(stamped).indexOf('$schema')).toBeLessThan(Object.keys(stamped).indexOf('meta'))
   })
-
-  it('writes the stamp on every store write, so the next release can tell', async () => {
-    const { store, file } = await tempStore({ control: { port: 3999 }, servers: [] })
-    expect(store.configSchemaVersion).toBe(CONFIG_SCHEMA)
-    expect(store.pendingMigrations).toEqual([])
-
-    store.updateControl({ label: 'Stamped' })
-
-    const raw = JSON.parse(await fs.promises.readFile(file, 'utf8')) as RawConfig
-    expect(raw.meta).toEqual({ writtenBy: appVersion(), schema: CONFIG_SCHEMA })
-    expect(raw.control).toMatchObject({ label: 'Stamped' })
-  })
 })
 
 describe('migration runner', () => {
   const migrations: ConfigMigration[] = [
-    { to: 3, describe: 'third', apply: config => ({ ...config, control: { ...config.control, port: 4321 } }) },
-    { to: 2, describe: 'second', apply: config => ({ ...config, control: { ...config.control, label: 'migrated' } }) },
+    { to: 3, describe: 'third', apply: config => ({ ...config, control: { ...(config.control as Record<string, unknown>), port: 4321 } }) },
+    { to: 2, describe: 'second', apply: config => ({ ...config, control: { ...(config.control as Record<string, unknown>), label: 'migrated' } }) },
   ]
 
   it('plans only the steps that are still pending, in ascending order', () => {
@@ -147,8 +177,8 @@ describe('migration runner', () => {
   it('applies every step in order, leaving later steps to see earlier ones', () => {
     // Each step proves it ran after the previous one: step 3 reads step 2's value.
     const ordered: ConfigMigration[] = [
-      { to: 2, describe: 'two', apply: config => ({ ...config, control: { ...config.control, label: 'two' } }) },
-      { to: 3, describe: 'three', apply: config => ({ ...config, control: { ...config.control, port: config.control?.label === 'two' ? 4333 : 0 } }) },
+      { to: 2, describe: 'two', apply: config => ({ ...config, control: { ...(config.control as Record<string, unknown>), label: 'two' } }) },
+      { to: 3, describe: 'three', apply: config => ({ ...config, control: { ...(config.control as Record<string, unknown>), port: (config.control as Record<string, unknown> | undefined)?.label === 'two' ? 4333 : 0 } }) },
     ]
 
     const { config, applied } = applyConfigMigrations({ servers: [] }, 1, { migrations: ordered, to: 3 })

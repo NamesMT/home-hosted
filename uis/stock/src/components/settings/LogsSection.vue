@@ -7,6 +7,8 @@ import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
+import { useWorkspaces } from '@/composables/useWorkspaces'
+import { workspacePath } from '@/router'
 
 const props = defineProps<{
   logsDir: string | null
@@ -16,6 +18,8 @@ const props = defineProps<{
 const emit = defineEmits<{ reset: [] }>()
 
 const logs = defineModel<LogsForm>('logs', { required: true })
+
+const workspace = useWorkspaces()
 
 const maxBytes = numberModel(() => logs.value.maxBytes, value => (logs.value.maxBytes = value), 2_000_000)
 const keep = numberModel(() => logs.value.keep, value => (logs.value.keep = value), 3)
@@ -51,7 +55,7 @@ const directory = computed(() => props.logsDir ?? '—')
       </div>
       <p class="text-2xs leading-4 text-faint">
         Browse and download these files on the
-        <RouterLink to="/logs" class="text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent">
+        <RouterLink :to="workspacePath(workspace.activeId.value, 'logs')" class="text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent">
           Logs
         </RouterLink>
         page.

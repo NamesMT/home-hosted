@@ -11,7 +11,7 @@ export const statusArgs = {
 export async function runStatus(json: boolean): Promise<void> {
   const { isProcessAlive, probeRuntime, readRuntime } = await import('#src/helpers/daemon')
   const { UiService } = await import('#src/services/ui')
-  const { dataRoot } = await import('#src/helpers/paths')
+  const { hhDir: dataRoot } = await import('#src/helpers/paths')
   const runtime = readRuntime()
 
   if (runtime === null) {
@@ -50,7 +50,7 @@ export async function runStatus(json: boolean): Promise<void> {
     ['version', runtime.version],
     ['project', runtime.projectDir],
     ['state', runtime.dataRoot],
-    ['config', runtime.configPath],
+    ['internal', runtime.configPath],
     ['log', runtime.logFile],
     ['ui', ui.custom ? `custom — ${ui.status().meta?.name ?? 'installed'} (revert with \`home-hosted ui-revert\`)` : 'stock'],
   ]

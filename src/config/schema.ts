@@ -12,7 +12,6 @@ import {
 } from '#src/shared/contracts'
 
 export { backupsSchema, controlSchema, ddnsConfigSchema, defaultsSchema, hostSchema, logsSchema, notificationsSchema, serverSchema }
-export type { ServerConfig } from '#src/shared/contracts'
 
 /**
  * Which release wrote the file, and the config shape it wrote. Optional so a
@@ -24,35 +23,57 @@ export const metaSchema = type({
   schema: 'number.integer >= 1 = 1',
 }).onUndeclaredKey('reject')
 
-/** The shape of `servers.config.json`: control panel settings, defaults, servers. */
-export const configSchema = type({
+/**
+ * `$HHOSTED_HOME/.hh/settings.json`: the settings that belong to the panel
+ * itself — its listener, authentication, TLS policy, host vitals and backups.
+ * Nothing here is per workspace.
+ */
+export const globalSettingsSchema = type({
   $schema: 'string?',
   meta: metaSchema.optional(),
   control: controlSchema.default(() => ({})),
+  host: hostSchema.default(() => ({})),
+  backups: backupsSchema.default(() => ({})),
+}).onUndeclaredKey('reject')
+
+/** `$HHOSTED_HOME/.hh/<id>/settings.json`: what one workspace owns on its own. */
+export const workspaceSettingsSchema = type({
+  $schema: 'string?',
+  meta: metaSchema.optional(),
   defaults: defaultsSchema.default(() => ({})),
   logs: logsSchema.default(() => ({})),
   notifications: notificationsSchema.default(() => ({})),
-  host: hostSchema.default(() => ({})),
-  backups: backupsSchema.default(() => ({})),
   ddns: ddnsConfigSchema.default(() => ({})),
+}).onUndeclaredKey('reject')
+
+/** `$HHOSTED_HOME/.hh/<id>/servers.config.json`: the entries this workspace supervises. */
+export const serversFileSchema = type({
+  $schema: 'string?',
+  meta: metaSchema.optional(),
   servers: serverSchema.array().default(() => []),
 }).onUndeclaredKey('reject')
 
-/** Same shape as the schema output, with each server `port` normalized to `null` when unset. */
-export type ResolvedConfig = Omit<typeof configSchema.infer, 'servers'> & { servers: ServerConfig[] }
+export type ResolvedGlobalConfig = typeof globalSettingsSchema.infer
+export type ResolvedWorkspaceSettings = typeof workspaceSettingsSchema.infer
+export type ResolvedServersFile = typeof serversFileSchema.infer
 
-/** Every key `configSchema` knows, for reporting blocks a newer release added. */
-export const CONFIG_KEYS = ['$schema', 'meta', 'control', 'defaults', 'logs', 'notifications', 'host', 'backups', 'ddns', 'servers'] as const
+/** Same shape as the settings output, with each server `port` normalized to `null` when unset. */
+export type ResolvedWorkspaceConfig = ResolvedWorkspaceSettings & { servers: ServerConfig[] }
+
+/** Every key `globalSettingsSchema` knows, for reporting blocks a newer release added. */
+export const GLOBAL_SETTINGS_KEYS = ['$schema', 'meta', 'control', 'host', 'backups'] as const
+export const WORKSPACE_SETTINGS_KEYS = ['$schema', 'meta', 'defaults', 'logs', 'notifications', 'ddns'] as const
+export const SERVERS_FILE_KEYS = ['$schema', 'meta', 'servers'] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
- * Resolves one entry against the panel's server defaults. A group (`restart`,
+ * Resolves one entry against the workspace's server defaults. A group (`restart`,
  * `health`, `health.http`, `stop`) merges key by key, so an entry that decides one
  * member does not silently fall back to the *schema* default for the others — which
- * is the whole point of the panel having defaults at all.
+ * is the whole point of the workspace having defaults at all.
  */
 export function mergeDefaults(
   defaults: Record<string, unknown>,
@@ -67,18 +88,4 @@ export function mergeDefaults(
       merged[key] = mergeDefaults(value, current)
   }
   return merged
-}
-
-/** The on-disk shape: everything optional except `servers`, defaults applied per entry. */
-export interface RawConfig {
-  $schema?: string
-  meta?: { writtenBy?: string, schema?: number }
-  control?: Record<string, unknown>
-  defaults?: Record<string, unknown>
-  logs?: Record<string, unknown>
-  notifications?: Record<string, unknown>
-  host?: Record<string, unknown>
-  backups?: Record<string, unknown>
-  ddns?: Record<string, unknown>
-  servers?: Record<string, unknown>[]
 }

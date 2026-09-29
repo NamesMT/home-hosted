@@ -1,4 +1,5 @@
 import type { AppDeps } from '#src/app'
+import type { WorkspaceRuntime } from '#src/services/panel'
 import type { SettingsPatch } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
@@ -12,9 +13,17 @@ import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
+import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { checkExposure } from '#src/services/exposure'
-import { buildBackupsView, buildControlView } from '#src/services/state'
-import { settingsPatchSchema, settingsSavedSchema, settingsViewSchema } from '#src/shared/contracts'
+import { buildControlView } from '#src/services/state'
+import {
+  settingsPatchSchema,
+  settingsSavedSchema,
+  settingsViewSchema,
+  workspaceSettingsPatchSchema,
+  workspaceSettingsSavedSchema,
+  workspaceSettingsViewSchema,
+} from '#src/shared/contracts'
 
 /** Uploads are buffered in memory by `parseBody`, so they get a hard ceiling. */
 const MAX_UI_UPLOAD_BYTES = 128 * 1024 * 1024
@@ -25,33 +34,46 @@ function sanitizeName(name: string): string {
   return cleaned.length > 0 ? cleaned.slice(0, 60) : 'custom-ui'
 }
 
+/** What a workspace owns and can change on its own — never the panel-wide settings. */
+function buildWorkspaceSettings(runtime: WorkspaceRuntime) {
+  return {
+    id: runtime.id,
+    label: runtime.label,
+    settingsPath: runtime.store.settingsPath,
+    configPath: runtime.store.path,
+    configError: runtime.store.configError,
+    defaults: runtime.store.defaults,
+    logs: runtime.store.logs,
+    notifications: { telegram: runtime.notifications.status() },
+  }
+}
+
 export function createSettingsRoute(deps: AppDeps) {
+  const settings = deps.panel.settings
+
   return appFactory.createApp()
     .get(
       '/settings',
       describeRoute({
         tags: ['panel'],
-        summary: 'The panel, server defaults, logs, notifications, host and backups',
+        summary: 'The panel-wide settings: listener, host vitals, backups and UI',
         responses: { 200: { description: 'The settings', content: jsonBody(settingsViewSchema) } },
       }),
       c => c.json({
-        control: buildControlView(deps.store, deps.auth, deps.controlServer.endpoint, deps.tls),
-        defaults: deps.store.defaults,
-        logs: deps.store.config.logs,
-        notifications: { telegram: deps.notifications.status() },
-        host: deps.store.config.host,
-        backups: buildBackupsView(deps.store, deps.backups),
+        control: buildControlView(settings, deps.auth, deps.controlServer.endpoint, deps.tls),
+        host: settings.host,
+        backups: deps.backups.view(),
         ui: deps.ui.status(),
       }),
     )
 
     .patch('/settings', describeRoute({
       tags: ['panel'],
-      summary: 'Edit the panel, server defaults, logs, notifications, host and backups',
+      summary: 'Edit the panel-wide settings: listener, host vitals and backups',
       responses: { 200: { description: 'Saved; the listener may be moving', content: jsonBody(settingsSavedSchema) }, 400: ERROR_RESPONSES[400] },
     }), validate('json', settingsPatchSchema), async (c) => {
       const patch: SettingsPatch = c.req.valid('json')
-      const current = deps.store.config.control
+      const current = settings.control
 
       // Refuse an exposure that is not backed by a password before writing anything.
       const exposure = checkExposure(
@@ -68,20 +90,12 @@ export function createSettingsRoute(deps: AppDeps) {
 
       const previous = { trustProxy: current.auth.trustProxy, tlsEnabled: current.tls.enabled }
       try {
-        if (patch.defaults !== undefined)
-          deps.store.updateDefaults(patch.defaults)
-        if (patch.logs !== undefined)
-          deps.store.updateLogs(patch.logs)
-        if (patch.notifications !== undefined)
-          deps.store.updateNotifications(patch.notifications)
         if (patch.host !== undefined)
-          deps.store.updateHost(patch.host)
+          settings.updateHost(patch.host)
         if (patch.backups !== undefined)
-          deps.store.updateBackups(patch.backups)
-        if (patch.ddns !== undefined)
-          deps.store.updateDdns(patch.ddns)
+          settings.updateBackups(patch.backups)
         if (patch.control !== undefined)
-          deps.store.updateControl(patch.control)
+          settings.updateControl(patch.control)
       }
       catch (error) {
         if (error instanceof ConfigError)
@@ -89,11 +103,7 @@ export function createSettingsRoute(deps: AppDeps) {
         throw error
       }
 
-      // An edit to the DDNS block is a reason to look again now, not next interval.
-      if (patch.ddns !== undefined)
-        deps.ddns.refresh()
-
-      const next = deps.store.config.control
+      const next = settings.control
       const endpointChanged = next.host !== deps.controlServer.endpoint.host || next.port !== deps.controlServer.endpoint.port
       const proxyChanged = next.auth.trustProxy !== previous.trustProxy
       const tlsChanged = next.tls.enabled !== previous.tlsEnabled
@@ -117,7 +127,7 @@ export function createSettingsRoute(deps: AppDeps) {
           }
 
           logger.error(`could not move the control panel: ${result.error ?? 'unknown error'}`)
-          deps.store.updateControl({
+          settings.updateControl({
             host: deps.controlServer.endpoint.host,
             port: deps.controlServer.endpoint.port,
             ...(proxyChanged ? { auth: { trustProxy: previous.trustProxy } } : {}),
@@ -129,12 +139,9 @@ export function createSettingsRoute(deps: AppDeps) {
       return c.json({
       // `control` describes the listener that is live *right now*; `targetUrl`
       // is where it is about to be, which is what the client should open.
-        control: buildControlView(deps.store, deps.auth, deps.controlServer.endpoint, deps.tls),
-        defaults: deps.store.defaults,
-        logs: deps.store.config.logs,
-        notifications: { telegram: deps.notifications.status() },
-        host: deps.store.config.host,
-        backups: buildBackupsView(deps.store, deps.backups),
+        control: buildControlView(settings, deps.auth, deps.controlServer.endpoint, deps.tls),
+        host: settings.host,
+        backups: deps.backups.view(),
         ui: deps.ui.status(),
         rebinding: endpointChanged || proxyChanged || tlsChanged,
         targetUrl,
@@ -186,4 +193,48 @@ export function createSettingsRoute(deps: AppDeps) {
       logger.info(removed ? 'custom UI removed — the stock panel is back' : 'no custom UI was installed')
       return c.json({ ok: true, removed, ui: deps.ui.status() })
     })
+
+    .get(
+      '/settings/workspace',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'One workspace\'s own settings: server defaults, logs and notifications',
+        responses: { 200: { description: 'The workspace settings', content: jsonBody(workspaceSettingsViewSchema) } },
+      }),
+      validate('query', workspaceQuerySchema),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        return c.json(buildWorkspaceSettings(runtime))
+      },
+    )
+
+    .patch(
+      '/settings/workspace',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Edit one workspace\'s server defaults, logs and notifications',
+        responses: { 200: { description: 'Saved', content: jsonBody(workspaceSettingsSavedSchema) }, 400: ERROR_RESPONSES[400] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('json', workspaceSettingsPatchSchema),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const patch = c.req.valid('json')
+        try {
+          if (patch.defaults !== undefined)
+            runtime.store.updateDefaults(patch.defaults)
+          if (patch.logs !== undefined)
+            runtime.store.updateLogs(patch.logs)
+          if (patch.notifications !== undefined)
+            runtime.store.updateNotifications(patch.notifications)
+        }
+        catch (error) {
+          if (error instanceof ConfigError)
+            throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_SETTINGS' })
+          throw error
+        }
+
+        return c.json(buildWorkspaceSettings(runtime))
+      },
+    )
 }

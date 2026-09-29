@@ -270,7 +270,7 @@ async function ownTag(): Promise<string> {
 
 /** What a successful install leaves behind, under the temp `HHOSTED_HOME`. */
 function installedHome(): { dir: string, meta: Record<string, unknown> } {
-  const dir = path.join(home, '.ui')
+  const dir = path.join(home, '.hh', '.ui')
   return { dir, meta: JSON.parse(fs.readFileSync(path.join(dir, 'ui.json'), 'utf8')) as Record<string, unknown> }
 }
 
@@ -314,7 +314,7 @@ describe('uiSwitch --file', () => {
         .toThrow('--file installs a zip directly; it cannot be combined with --repo, --tag, --asset or --list')
     }
 
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
   })
 
   it('fails clearly for a missing path and for a directory', async () => {
@@ -335,7 +335,7 @@ describe('uiSwitch --file', () => {
     fs.writeFileSync(bare, await writer.close())
 
     await expect(runSwitch(['--file', bare], io.io)).rejects.toThrow(/nothing was installed: the archive has no index\.html at its root/)
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
     expect(zip).toContain('ui.zip')
   })
 })
@@ -357,7 +357,7 @@ describe('uiSwitch release listing', () => {
     expect(io.out).toContain(`<b>${DEFAULT_REPO}@v1.2.3</b> — 1 usable UI asset(s)`)
     expect(io.out).toContain('  home-hosted-ui-stock.zip')
     expect(io.out).toContain('<d>  skipped (not a .zip): notes.txt, SHA256SUMS</d>')
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
     expect(io.prompts).toEqual([])
   })
 
@@ -377,7 +377,7 @@ describe('uiSwitch release listing', () => {
     await expect(runSwitch(['--tag', 'v1.2.3'], io.io))
       .rejects
       .toThrow(noAssetsMessage(`${DEFAULT_REPO}@v1.2.3`, ['notes.txt'], 'v1.2.3'))
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
   })
 
   it('asks for this panel\'s own tag by default', async () => {
@@ -398,7 +398,7 @@ describe('uiSwitch release listing', () => {
     // Installing a nameless asset is the same path: it is never a candidate.
     await expect(runSwitch(['--tag', 'v1.2.3', '--asset', 'stock'], io.io)).rejects.toThrow(/the upload is not a zip archive/)
     expect(calls.filter(call => call.url === 'https://api.github.com/asset/1')).toHaveLength(1)
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
   })
 
   it('runs through the citty entry the CLI dispatches to', async () => {
@@ -421,7 +421,7 @@ describe('uiSwitch release listing', () => {
 
     expect(calls[0]!.url).toBe(releaseUrl('v1.2.3'))
     expect(written.join('')).toContain('ui.zip')
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
   })
 
   it('rejects an invalid --repo before any request', async () => {
@@ -507,7 +507,7 @@ describe('uiSwitch asset selection', () => {
     await expect(runSwitch(['--tag', 'v1.2.3', '--asset', 'ghost'], io.io))
       .rejects
       .toThrow(/no asset matches "ghost" \(available: home-hosted-ui-stock\.zip, home-hosted-ui-noc-console\.zip\)/)
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
   })
 
   it('will not guess between several assets when it cannot ask', async () => {
@@ -590,7 +590,7 @@ describe('uiSwitch asset selection', () => {
     expect(io.out).toContain('cancelled — nothing was installed\n')
     expect(io.prompts).toHaveLength(1)
     expect(calls.filter(call => !call.url.startsWith('https://api.github.com/repos/'))).toEqual([])
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
   })
 
   it('treats a whitespace-only answer as a cancel too', async () => {
@@ -683,6 +683,6 @@ describe('uiSwitch installFromUrl', () => {
       .rejects
       .toThrow(/nothing is served at that URL \(HTTP 404\)/)
     expect(calls).toHaveLength(1)
-    expect(fs.existsSync(path.join(home, '.ui'))).toBe(false)
+    expect(fs.existsSync(path.join(home, '.hh', '.ui'))).toBe(false)
   })
 })

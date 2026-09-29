@@ -1,17 +1,20 @@
 # AGENTS.md
 
 `home-hosted` is a Node 24 / TypeScript harness for self-hosted servers: `up` starts a Hono/srvx
-panel (default `127.0.0.1:3999`) that supervises the entries in `$HHOSTED_HOME/servers.config.json`
-and serves a UI. User docs: `README.md`, `docs/SERVERS.md` (entries and port conflicts),
-`docs/NOTIFICATIONS.md`, `docs/DDNS.md`; UI authors: `docs/UI_CREATION.md`.
+panel (default `127.0.0.1:3999`) that supervises the entries in each workspace's
+`servers.config.json` and serves a UI. User docs: `README.md`, `docs/SERVERS.md` (entries and port
+conflicts), `docs/NOTIFICATIONS.md`, `docs/DDNS.md`; UI authors: `docs/UI_CREATION.md`.
 
-State lives only in `$HHOSTED_HOME` (default `~/.home-hosted`): `servers.config.json`,
-`.control-secrets.json` (0600: password hash, API token hash, Telegram bot token, and DDNS
-credentials sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET`), `.logs/`, `.tls/`, `.backups/`,
-`.ui/`, `.state/` (a persistent entry's nanny state, plus its 0600 spawn spec until the nanny reads
-it, plus `ddns.json` — the last address each target confirmed), and `run.json` — the live daemon's
-pid/url/token, 0600. The package ships **no servers**: never commit a config, a seed entry, or a path
-that names one.
+State lives only in `$HHOSTED_HOME/.hh` (default `~/.home-hosted/.hh`). Global files sit at its top
+level: `settings.json` (listener, auth, TLS policy, host vitals, backups), `workspaces.json`,
+`.control-secrets.json` (0600: password hash, API token hash), `.tls/`, `.backups/`, `.ui/`, `.logs/`
+(the panel console), and `run.json` — the live daemon's pid/url/token, 0600. Every workspace owns
+`.hh/<id>/`: `settings.json` (server defaults, log retention, notifications, DDNS), `servers.config.json`,
+`.secrets.json` (0600: Telegram bot token and DDNS credentials sealed with AES-256-GCM under
+`HHOSTED_DDNS_SECRET`), `.logs/`, and `.state/` (a persistent entry's nanny state plus its 0600 spawn
+spec until the nanny reads it, plus `ddns.json`). A pre-`.hh` instance is relocated automatically by
+`ensureLayout()` (`src/config/layout.ts`). The package ships **no servers**: never commit a config, a
+seed entry, or a path that names one.
 
 ## Commands
 
@@ -84,10 +87,15 @@ a minor without one.
 - `src/api/**` — one file per URL group (`$.routes.ts` = several routes), mirroring the path.
 - `src/shared/contracts.ts` — every ArkType schema (config, API and SSE DTOs), shared with the UIs;
   the OpenAPI spec is generated from it, never hand-written.
-- `src/config/` — `schema.ts` (on-disk shape, including the `meta` stamp), `parse.ts` (the tolerant
-  reader: unknown keys are reported and kept, everything else blocking), `store.ts` (validate/merge/
-  atomic commit, reports `configError`/`configWarnings` instead of throwing on a bad file),
-  `migrations.ts` (the schema constant and the ordered step registry), `secrets.ts`, `seed.ts`.
+- `src/config/` — split by scope. `settings.ts` (`GlobalSettingsStore`: `.hh/settings.json` — listener,
+  auth, TLS policy, host vitals, backups) and `store.ts` (`WorkspaceStore`: a workspace's
+  `settings.json` + `servers.config.json`, validate/merge/atomic commit, reporting
+  `configError`/`configWarnings` instead of throwing on a bad file). `workspaces.ts` is the registry
+  (`workspaces.json`), `layout.ts` the one-time relocation of a pre-workspace `$HHOSTED_HOME`.
+  `schema.ts` holds the three on-disk shapes plus the `meta` stamp, `parse.ts` the tolerant readers
+  (`parseGlobalSettings`/`parseWorkspaceSettings`/`parseServersFile`: unknown keys are reported and
+  kept, everything else blocking), `patch.ts` the merge helpers, `migrations.ts` the schema constant
+  and ordered step registry, and `secrets.ts`/`seed.ts` the two secret scopes and the seeds.
 - `src/providers/` — stateless leaves: `process` (spawn, `terminate`, `terminatePid` for a process we
   adopted), `port` (probe, holder lookup, `terminatePids`), `proc` (the sampler, plus
   `processCarriesServerId` for the environment marker and `processTreePids` for tree ownership),
@@ -96,12 +104,13 @@ a minor without one.
   `log-tail` (an offset reader that survives rotation and truncation), `ddns/` (one `DdnsProvider` per
   registrar over one HTTP call each, plus `ip` and `zone` helpers), health-check, host, telegram,
   archive.
-- `src/services/` — stateful orchestration: supervisor, control-server, config-watch, state,
-  auth + exposure, dependencies, history, log-buffer/log-files, notifications, host-monitor, ddns,
-  backups, tls, ui, plus `init` (the scaffold behind `home-hosted init`: a manifest, a `.gitignore`,
-  and the prompts stay in the CLI), `nanny` (the process a persistent entry runs under) and
-  `log-relay` (the tailer that feeds its lines to the supervisor). It names no server — the scaffold
-  must stay as neutral as the supervisor.
+- `src/services/` — stateful orchestration: `panel` (one `WorkspaceRuntime` per workspace, workspace
+  CRUD, and the single aggregate state frame — every per-workspace service hangs off it), supervisor,
+  control-server, config-watch, state, auth + exposure, dependencies, history, log-buffer/log-files,
+  notifications, host-monitor, ddns, backups, tls, ui, plus `init` (the scaffold behind
+  `home-hosted init`: a manifest, a `.gitignore`, and the prompts stay in the CLI), `nanny` (the
+  process a persistent entry runs under) and `log-relay` (the tailer that feeds its lines to the
+  supervisor). It names no server — the scaffold must stay as neutral as the supervisor.
 - `src/middleware/auth.ts` — the `/api/*` guard, and `requestIdentity()`, the one place a request's
   credentials are read: the `hh_session` cookie or `Authorization: Bearer <api token>`. A token is
   a first-class credential (same authority as a signed-in browser) and is verified from the secrets
@@ -112,7 +121,7 @@ a minor without one.
 - `uis/<name>/` — each UI is a Vite app (Vue 3 + Tailwind v4) built through `uis/vite.shared.ts`;
   `stock` is the one shipped inside the package. Aliases: `@` → that UI's `src`, `@shared` →
   `src/shared`, `@server` → `src` (**types only** — never import runtime server code into a UI).
-  Its `public/ui.json` is the UI's identity: `name` and `version` (what Settings shows),
+  Its `public/ui.json` is the UI's identity: `name` and `version` (what Global Settings → Interface shows),
   `repo`/`tag`/`asset` (which release carries it, for `ui-update`) and `unix` (when it was built).
   `UiService` carries those fields into the installed `$HHOSTED_HOME/.ui/ui.json` unchanged and adds
   `uploadedAt`/`files` of its own.
@@ -141,7 +150,7 @@ a minor without one.
 - A single on/off setting is a `ToggleSwitch`; `CheckField` is only for picking items out of a set
   (the restore plan). A checkbox in a `FieldGroup` grid reads as misaligned next to the inputs.
 - A create body carries only what differs from what the entry would inherit — the schema's defaults
-  with the panel's `Settings → Server defaults` on top (`inheritBaseline` + `diffFields` in both
+  with `Workspace Settings → Server defaults` on top (`inheritBaseline` + `diffFields` in both
   UIs). A value written into `servers.config.json` stops following those defaults, so anything the
   person did not decide stays out; the editor applies the same rule to an edit.
 - ArkType at every runtime boundary: routes use `validate('json'|'query'|'param', schema)` then
@@ -207,9 +216,10 @@ either is a last resort, and never an accidental one.
   release does not know never blocks a save — removing a key from a schema must not brick the page
   that writes it.
 - **Migrations ship inside the package** (`src/config/migrations.ts`), are ordered, idempotent and
-  described in one line each. `home-hosted migrate` prints the plan, keeps `servers.config.json.bak`,
-  refuses to write a config it cannot read, and needs consent: `--yes`, `HHOSTED_MIGRATE=allow`, or a
-  person at a terminal. A detached daemon never migrates on its own. Starting a fetch of migration
+  described in one line each. `home-hosted migrate` prints the plan, keeps a `.bak` beside each file it
+  rewrites, refuses to write a config it cannot read, and needs consent: `--yes`, `HHOSTED_MIGRATE=allow`,
+  or a person at a terminal. The layout relocation is not a schema change: it runs automatically from
+  the CLI pre-pass (`ensureLayout()`), so an upgrade never starts against a half-moved directory. Starting a fetch of migration
   code from GitHub was considered and rejected: the panel supervises processes, so remote code is an
   RCE surface, and a migration would age against a newer store API anyway.
 
@@ -217,11 +227,13 @@ either is a last resort, and never an accidental one.
 
 - **Server-agnostic.** No blessed ids, no `dataDir`-style globals: a server gets only its own
   `command`/`args`/`env`/`dataEnvs`/`envFile`/`bootstrap`. A test fails if a core file learns one.
-- **Paths.** `dataRoot` is state; `projectDir` is the base for relative entry paths. `{id}{port}`
+- **Paths.** `dataRoot` is state, and the state itself lives under `dataRoot/.hh` (global files plus
+  one directory per workspace); `projectDir` is the base for relative entry paths. `{id}{port}`
   `{host}{bind}{cwd}{projectDir}{dataRoot}{home}` and `${ENV}` expand in config; there is no
   package-relative state.
-- **Secrets never enter the config.** The password hash, API token hash and bot token live in the
-  0600 secrets file, and the TLS pair in `.tls/`; the config holds policy.
+- **Secrets never enter the config.** Global `.hh/.control-secrets.json` holds the password hash and
+  API token hash, each workspace's `.secrets.json` holds its Telegram token and DDNS credentials, and
+  the TLS pair sits in `.hh/.tls/`; every one is 0600 and the config holds only policy.
 - **A port holder that is this entry's own successor is not a stranger.** A program that restarts
   itself leaves a detached process behind; with `follow` the panel adopts it as-is (pid, liveness,
   health, resources, stop — but not its output); with `reclaim` it stops that successor and starts a
@@ -264,8 +276,14 @@ either is a last resort, and never an accidental one.
 - **The CLI drives a running panel through `/_hh`, never `/api`.** `down` and `start`/`stop` read
   run.json's token and speak over loopback through one guard (`assertLocalCall`), so they need no
   session, password or API token — and a new local command must not open an unauthenticated `/api` route.
+- **A server id is only unique inside its workspace.** Anything keyed by id alone — SSE
+  (`EventHub` scopes on `serverKey(workspaceId, serverId)`), log buffers, series, route params — must key
+  on the pair, or two workspaces' same-named servers mix frames.
+- **A workspace is the ownership boundary.** Servers, secrets, logs and nanny state belong to exactly
+  one workspace; only listener, auth, TLS, host vitals, backups, UI and `run.json` are panel-wide.
+  A per-workspace service is reached through `PanelService.requireWorkspace(id)`, never a module global.
 - **UIs are external clients.** Nothing in `src/**` may know a UI's markup or files;
-  `$HHOSTED_HOME/.ui` overrides the packaged UI at runtime.
+  `$HHOSTED_HOME/.hh/.ui` overrides the packaged UI at runtime.
 - **A restore writes only where a config says** — archive allowlist, `origin` matching first,
   symlinks never recreated.
 - **Cross-platform.** Linux/macOS/Windows: `/proc` vs `ps` vs Win32_Process, process groups vs
@@ -275,7 +293,11 @@ either is a last resort, and never an accidental one.
 ## Gotchas
 
 - `run.json` is the daemon's identity and `down`'s credential; keep `runtimeSchema` in sync with the
-  `Runtime` written in `src/index.ts`.
+  `Runtime` written in `src/index.ts`. It now lives at `.hh/run.json`.
+- **`ensureLayout()` runs before any command resolves a state path** (the CLI pre-pass) and is
+  idempotent. It moves rather than copies, never overwrites an existing `.hh` file, and removes a
+  legacy directory only when every entry in it actually moved — a refused move must not become a
+  delete.
 - Moving the listener (host/port/TLS) kills the connection answering that request, so
   `PATCH /api/settings`, the TLS routes and `/_hh/shutdown` defer with `afterResponse()`.
 - `Supervisor.start()` sets `starting` synchronously before its first await, and `stop()` sets
@@ -285,15 +307,15 @@ either is a last resort, and never an accidental one.
   is true, one Stop on an already-stopped server made that entry unstartable until a daemon restart.
 - Timers and `void`-ed promises in the supervisor carry a `.catch`: a throw in the tick or in a retry
   is an unhandled rejection, and Node 24 ends the process on one.
-- **`Settings → Server defaults` merge into the nested groups key by key** (`mergeDefaults` in
-  `src/config/schema.ts`, used by both the config parser and `validateServer`). A shallow
+- **`Workspace Settings → Server defaults` merge into the nested groups key by key** (`mergeDefaults`
+  in `src/config/schema.ts`, used by the servers parser and `validateServer`). A shallow
   `{ ...defaults, ...entry }` lets an entry that decides `restart.maxRetries` silently drop the
-  panel's `restart.baseDelayMs` — and the create/edit diff flow depends on inheriting exactly that.
+  workspace's `restart.baseDelayMs` — and the create/edit diff flow depends on inheriting exactly that.
 - The curated CLI dispatch reads only the **flag** forms (`--help`/`-h`, `--version`/`-v`) after a
   command name, never a bare `help`/`version`: that is an option's value (`init --name help`).
 - Port preflight re-probes after 300 ms — a just-closed listener can still complete a handshake.
-- **The config is re-read whenever the file changes on disk** (`src/services/config-watch.ts` →
-  `ConfigStore.reloadFromDisk()`, wired in `src/index.ts`). The watch is on the *directory*, because
+- **A workspace's config is re-read whenever its files change on disk** (`src/services/config-watch.ts`
+  → `WorkspaceStore.reloadFromDisk()`, wired per workspace in `src/services/panel.ts`). The watch is on the *directory*, because
   an editor's save is a temporary file renamed over the target — the inode changes, the name does not
   — and a two-second poll backs it up where `fs.watch` is undependable (network mounts). The store
   compares the bytes it last read and the bytes it wrote, so the panel's own saves never reload
@@ -356,8 +378,10 @@ either is a last resort, and never an accidental one.
 ## Where to extend
 
 - **Route**: `src/api/<x>.ts` (chained factory) → mount in `src/app.ts` → schemas in
-  `src/shared/contracts.ts` → `describeRoute` + `jsonBody`.
-- **Server field**: `serverSchema` + its patch in contracts, merge keys in `config/store.ts` when
+  `src/shared/contracts.ts` → `describeRoute` + `jsonBody`. A workspace-scoped route takes
+  `?workspace=<id>` (`workspaceQuerySchema` + `requireWorkspace` in `src/helpers/workspace.ts`); an
+  omitted id means the default workspace, never another one.
+- **Server field**: `serverSchema` + its patch in contracts, merge keys in `config/patch.ts` when
   nested, the form in `uis/stock/src/components/settings/`, and the contract tests.
 - **UI**: a new `uis/<name>/` with a `vite.config.ts` from the shared factory;
   `node scripts/build-uis.mjs <name> --zip`. The contract is `docs/UI_CREATION.md`. A change to one

@@ -1,10 +1,12 @@
-import type { AppState, Bind, LogLine, ServerView, SettingsPatch } from '@shared/contracts'
-import type { ActionResult } from '@/lib/api'
+import type { Bind, LogLine, ServerView, SettingsPatch, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { FlatAppState } from '@/composables/useWorkspaces'
+import type { ActionResult, BackupsView, WorkspaceSettings } from '@/lib/api'
 import { sseMessageSchema } from '@shared/contracts'
 import { type } from 'arktype'
 import { computed, onScopeDispose, reactive, readonly, ref } from 'vue'
 import { useSession } from '@/composables/useSession'
 import { flash } from '@/composables/useUi'
+import { activeWorkspace, flattenState, setActiveWorkspaceId, toServerView } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 
 export { AuthRequiredError } from '@/lib/api'
@@ -21,7 +23,8 @@ export interface ServerSeries {
 const MAX_CLIENT_LINES = 1000
 const SERIES_LENGTH = 48
 
-const appState = ref<AppState | null>(null)
+const appState = ref<FlatAppState | null>(null)
+const workspaceSettings = ref<WorkspaceSettings | null>(null)
 const connection = ref<ConnectionState>('connecting')
 const lastError = ref<string | null>(null)
 const now = ref(Date.now())
@@ -33,6 +36,11 @@ const lastSample = new Map<string, number>()
 
 let globalSource: EventSource | null = null
 let clock: ReturnType<typeof setInterval> | null = null
+
+/** The pinned workspace, or null before the first frame lands. */
+function pinnedWorkspace(): string | null {
+  return appState.value?.workspaceId ?? null
+}
 
 function pushCapped(ring: number[], value: number): void {
   ring.push(value)
@@ -62,14 +70,49 @@ function appendLines(serverId: string, lines: LogLine[]): void {
     bucket.splice(0, bucket.length - MAX_CLIENT_LINES)
 }
 
+/**
+ * Replaces the flat snapshot from a raw `AppState`, re-deriving every flattened
+ * field. `activeWorkspaceId` is synced first so the scoped API calls this frame
+ * triggers (log streams, settings writes) target the same workspace the UI shows.
+ */
+function setRawState(state: Parameters<typeof flattenState>[0]): void {
+  setActiveWorkspaceId(state.workspaces[0]?.id)
+  const flat = flattenState(state)
+  setActiveWorkspaceId(flat.workspaceId)
+  appState.value = flat
+  for (const server of flat.servers)
+    sampleServer(server)
+}
+
 function upsertServer(server: ServerView): void {
   const current = appState.value
   if (!current)
     return
-  const index = current.servers.findIndex(entry => entry.id === server.id)
-  if (index === -1)
-    current.servers.push(server)
-  else current.servers[index] = server
+  const workspaceId = server.workspaceId ?? current.workspaceId
+  // The raw workspaces are the source of truth; the flat list is derived from them.
+  const target = current.workspaces.find(workspace => workspace.id === workspaceId)
+  if (target) {
+    const index = target.servers.findIndex(entry => entry.id === server.id)
+    if (index === -1)
+      target.servers.push(server)
+    else target.servers[index] = server
+    if (workspaceId === current.workspaceId) {
+      current.servers = current.workspaces.flatMap(workspace =>
+        workspace.servers.map(entry => toServerView(entry, workspace.id)),
+      )
+    }
+  }
+  else {
+    const index = current.servers.findIndex(entry => entry.id === server.id)
+    if (index === -1) {
+      current.servers = [...current.servers, { ...server, workspaceId: workspaceId ?? undefined }]
+    }
+    else {
+      current.servers = current.servers.map(entry =>
+        entry.id === server.id ? { ...server, workspaceId: workspaceId ?? entry.workspaceId } : entry,
+      )
+    }
+  }
   sampleServer(server)
 }
 
@@ -89,11 +132,8 @@ function handleMessage(raw: string): void {
   }
 
   if (parsed.type === 'hello' || parsed.type === 'state') {
-    if (parsed.state) {
-      appState.value = parsed.state as AppState
-      for (const server of appState.value.servers)
-        sampleServer(server)
-    }
+    if (parsed.state)
+      setRawState(parsed.state)
     return
   }
 
@@ -141,12 +181,12 @@ export function disconnect(): void {
 }
 
 /** Lazily opens a per-server stream; the server replays its ring buffer first. */
-export function watchLogs(serverId: string): LogLine[] {
+export function watchLogs(serverId: string, workspace?: string | null): LogLine[] {
   const refs = (streamRefs.get(serverId) ?? 0) + 1
   streamRefs.set(serverId, refs)
   if (refs === 1 && !streams.has(serverId)) {
     logLines[serverId] ??= []
-    const source = new EventSource(`/api/servers/${encodeURIComponent(serverId)}/stream`)
+    const source = new EventSource(api.serverStreamUrl(serverId, workspace ?? pinnedWorkspace()))
     const listener = (message: MessageEvent<string>): void => handleMessage(message.data)
     for (const event of ['log', 'server'] as const) source.addEventListener(event, listener)
     source.onerror = () => {
@@ -179,16 +219,31 @@ export function resetLogs(serverId: string): void {
 export function useControlPlane() {
   const servers = computed<ServerView[]>(() => appState.value?.servers ?? [])
   const configError = computed(() => appState.value?.configError ?? null)
+  const configPath = computed(() => appState.value?.configPath ?? null)
+  const logsDir = computed(() => appState.value?.logsDir ?? null)
+  const workspaceId = computed(() => appState.value?.workspaceId ?? null)
   const control = computed(() => appState.value?.control ?? null)
   const defaults = computed(() => appState.value?.defaults ?? null)
+  const logs = computed(() => workspaceSettings.value?.logs ?? appState.value?.logs ?? null)
+  const notifications = computed(() => workspaceSettings.value?.notifications ?? appState.value?.notifications ?? null)
+  const ddns = computed(() => appState.value?.ddns ?? null)
   const host = computed(() => appState.value?.host ?? null)
+  const backups = computed<BackupsView | null>(() => appState.value?.backups ?? null)
   const runningCount = computed(() => servers.value.filter(server => server.status === 'running').length)
+
+  async function readState(): Promise<void> {
+    const raw = await api.fetchState()
+    setRawState(raw)
+    const workspace = activeWorkspace(raw)
+    if (workspace)
+      workspaceSettings.value = await api.fetchWorkspaceSettings(workspace.id).catch(() => null)
+  }
 
   async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
     lastError.value = null
     try {
       const result = await action()
-      appState.value = await api.fetchState()
+      await readState()
       return result
     }
     catch (error) {
@@ -221,8 +276,16 @@ export function useControlPlane() {
     servers,
     control,
     defaults,
+    logs,
+    notifications,
+    ddns,
+    backups,
     host,
     configError,
+    configPath,
+    logsDir,
+    workspaceId,
+    workspaceSettings: readonly(workspaceSettings),
     connection: readonly(connection),
     lastError: readonly(lastError),
     now: readonly(now),
@@ -239,7 +302,10 @@ export function useControlPlane() {
     setBind: (id: string, bind: Bind) => run(() => api.patchServer(id, { bind })),
     setEnabled: (id: string, enabled: boolean) => run(() => api.patchServer(id, { enabled })),
     saveConfig: (id: string, patch: api.ServerPatchPayload) => run(() => api.patchServer(id, patch)),
+    /** The panel-wide groups: listener, auth, TLS, host vitals, backups. */
     saveSettings: (patch: SettingsPatch) => run(() => api.patchSettings(patch)),
+    /** The pinned workspace's own groups: server defaults, logs, notifications. */
+    saveWorkspaceSettings: (patch: WorkspaceSettingsPatch) => run(() => api.patchWorkspaceSettings(patch)),
     clearLogs: (id: string) => run(async () => {
       await api.clearLogs(id)
       resetLogs(id)

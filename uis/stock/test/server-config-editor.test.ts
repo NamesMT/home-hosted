@@ -6,6 +6,9 @@ import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import ServerConfigEditor from '../src/components/server/ServerConfigEditor.vue'
 
+/** The workspace an entry belongs to; every action is scoped to it. */
+const workspaceId = 'default'
+
 /**
  * The editor keeps its own copy of the entry so a live state frame does not wipe
  * unsaved edits. A *shallow* copy of `health` left its nested `http` aliased to
@@ -44,7 +47,7 @@ function valueOf(wrapper: ReturnType<typeof mount>, label: string): string {
 describe('server config editor', () => {
   it('never writes into the live config it was given', async () => {
     const config = demoConfig()
-    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', config } })
+    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', workspaceId, config } })
 
     await inputFor(wrapper, 'Healthy below status').setValue('500')
 
@@ -53,7 +56,7 @@ describe('server config editor', () => {
   })
 
   it('keeps every edit when the same config is re-sent', async () => {
-    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', config: demoConfig() } })
+    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', workspaceId, config: demoConfig() } })
 
     await inputFor(wrapper, 'Healthy below status').setValue('500')
     await inputFor(wrapper, 'Label').setValue('renamed')
@@ -66,7 +69,7 @@ describe('server config editor', () => {
   })
 
   it('takes a real server-side change as one', async () => {
-    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', config: demoConfig() } })
+    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', workspaceId, config: demoConfig() } })
 
     await wrapper.setProps({ config: { ...demoConfig(), label: 'renamed-elsewhere' } })
 
@@ -74,7 +77,7 @@ describe('server config editor', () => {
   })
 
   it('lists a health edit among what Save would write', async () => {
-    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', config: demoConfig() } })
+    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', workspaceId, config: demoConfig() } })
 
     await inputFor(wrapper, 'Healthy below status').setValue('500')
 

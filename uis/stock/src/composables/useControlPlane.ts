@@ -1,5 +1,6 @@
-import type { AppState, LogLine, ServerView, SettingsPatch } from '@shared/contracts'
+import type { LogLine, ServerView, SettingsPatch, WorkspaceSettingsPatch } from '@shared/contracts'
 import type { MaybeRefOrGetter, Ref } from 'vue'
+import type { AppStateView } from '@/lib/api'
 import type { ServerSeries } from '@/lib/telemetry'
 import { parseBind, sseMessageSchema } from '@shared/contracts'
 import { type } from 'arktype'
@@ -14,12 +15,18 @@ export type ConnectionState = 'connecting' | 'open' | 'closed'
 /** Lines kept per server client-side; the disk tail holds the archive. */
 export const MAX_CLIENT_LINES = 8000
 
-const appState = ref<AppState | null>(null)
+const appState = ref<AppStateView | null>(null)
 const connection = ref<ConnectionState>('connecting')
 const lastError = ref<string | null>(null)
 const now = ref(Date.now())
+/** Server ids repeat across workspaces, so every per-server map is keyed by both. */
 const series = new Map<string, ServerSeries>()
 const notifier = useToasts()
+
+/** The composite key every per-server buffer and series is stored under. */
+export function serverKey(workspaceId: string, serverId: string): string {
+  return `${workspaceId}/${serverId}`
+}
 
 interface LogBuffer {
   lines: LogLine[]
@@ -42,17 +49,17 @@ const logRevision = ref(0)
 let globalSource: EventSource | null = null
 let clock: ReturnType<typeof setInterval> | null = null
 
-function bufferFor(serverId: string): LogBuffer {
-  const existing = buffers.get(serverId)
+function bufferFor(key: string): LogBuffer {
+  const existing = buffers.get(key)
   if (existing)
     return existing
   const created: LogBuffer = { lines: [], version: ref(0), refs: 0, source: null }
-  buffers.set(serverId, created)
+  buffers.set(key, created)
   return created
 }
 
-function appendLines(serverId: string, batch: LogLine[]): void {
-  const buffer = bufferFor(serverId)
+function appendLines(key: string, batch: LogLine[]): void {
+  const buffer = bufferFor(key)
   // A new array per batch, never a push. A computed is only re-read by its
   // subscribers when its own recomputed value *differs*, and Vue compares with
   // Object.is — an array mutated in place is always equal to itself, so a viewer's
@@ -64,12 +71,12 @@ function appendLines(serverId: string, batch: LogLine[]): void {
   logRevision.value += 1
 }
 
-export function liveLines(serverId: string): LogLine[] {
-  return buffers.get(serverId)?.lines ?? []
+export function liveLines(key: string): LogLine[] {
+  return buffers.get(key)?.lines ?? []
 }
 
-export function resetLogs(serverId: string): void {
-  const buffer = buffers.get(serverId)
+export function resetLogs(key: string): void {
+  const buffer = buffers.get(key)
   if (!buffer)
     return
   buffer.lines = []
@@ -77,27 +84,45 @@ export function resetLogs(serverId: string): void {
   logRevision.value += 1
 }
 
-function seriesFor(serverId: string): ServerSeries {
-  const existing = series.get(serverId)
+function seriesFor(key: string): ServerSeries {
+  const existing = series.get(key)
   if (existing)
     return existing
   const created = createSeries()
-  series.set(serverId, created)
+  series.set(key, created)
   return created
 }
 
 function trackServer(server: ServerView): void {
-  recordSample(seriesFor(server.id), server, Date.now())
+  if (server.workspaceId === undefined)
+    return
+  recordSample(seriesFor(serverKey(server.workspaceId, server.id)), server, Date.now())
 }
 
+/**
+ * Replaces one entry in the frame. A `server` frame may omit `workspaceId` (an
+ * older panel), so an id that exists in exactly one workspace is unambiguous;
+ * anything else is dropped rather than guessed at.
+ */
 function upsertServer(server: ServerView): void {
   const current = appState.value
   if (!current)
     return
-  const index = current.servers.findIndex(entry => entry.id === server.id)
-  if (index === -1)
-    current.servers.push(server)
-  else current.servers[index] = server
+
+  const explicit = server.workspaceId
+  const target = explicit === undefined
+    ? current.workspaces.filter(workspace => workspace.servers.some(entry => entry.id === server.id))
+    : current.workspaces.filter(workspace => workspace.id === explicit)
+  if (target.length !== 1)
+    return
+
+  const workspace = target[0]!
+  const nested = workspace.servers.find(entry => entry.id === server.id)
+  const withWorkspace: ServerView = explicit === undefined ? { ...server, workspaceId: workspace.id } : server
+  if (nested === undefined)
+    workspace.servers = [...workspace.servers, withWorkspace]
+  else
+    workspace.servers = workspace.servers.map(entry => (entry.id === server.id ? withWorkspace : entry))
 }
 
 function handleMessage(raw: string): void {
@@ -117,8 +142,11 @@ function handleMessage(raw: string): void {
 
   if (parsed.type === 'hello' || parsed.type === 'state') {
     if (parsed.state) {
-      appState.value = parsed.state as AppState
-      for (const server of appState.value.servers) trackServer(server)
+      appState.value = parsed.state as AppStateView
+      for (const workspace of appState.value.workspaces) {
+        for (const server of workspace.servers)
+          trackServer(server)
+      }
     }
     return
   }
@@ -130,13 +158,38 @@ function handleMessage(raw: string): void {
     return
   }
 
-  if (parsed.type === 'log' && parsed.serverId && parsed.lines)
-    appendLines(parsed.serverId, parsed.lines)
+  if (parsed.type === 'log' && parsed.serverId && parsed.lines) {
+    const workspaceId = parsed.workspaceId
+    if (workspaceId === undefined)
+      return
+    appendLines(serverKey(workspaceId, parsed.serverId), parsed.lines)
+  }
 }
 
-function openServerStream(serverId: string, buffer: LogBuffer): void {
-  const source = new EventSource(`/api/servers/${encodeURIComponent(serverId)}/stream`)
-  const listener = (event: Event): void => handleMessage((event as MessageEvent<string>).data)
+function openServerStream(workspaceId: string, serverId: string, buffer: LogBuffer): void {
+  const key = serverKey(workspaceId, serverId)
+  const source = new EventSource(`/api/servers/${encodeURIComponent(serverId)}/stream${api.workspaceQuery(workspaceId)}`)
+  const listener = (event: Event): void => {
+    const message = event as MessageEvent<string>
+    let payload: unknown
+    try {
+      payload = JSON.parse(message.data)
+    }
+    catch {
+      return
+    }
+    const parsed = sseMessageSchema(payload)
+    if (parsed instanceof type.errors) {
+      console.warn('[home-hosted] ignored malformed SSE frame', parsed.summary)
+      return
+    }
+    if (parsed.type === 'log' && parsed.lines) {
+      appendLines(key, parsed.lines)
+      return
+    }
+    if (parsed.type === 'server' && parsed.server)
+      upsertServer(parsed.server as ServerView)
+  }
   for (const event of ['log', 'server'] as const)
     source.addEventListener(event, listener)
   source.onerror = () => {
@@ -145,15 +198,15 @@ function openServerStream(serverId: string, buffer: LogBuffer): void {
   buffer.source = source
 }
 
-function acquireServerStream(serverId: string): void {
-  const buffer = bufferFor(serverId)
+function acquireServerStream(workspaceId: string, serverId: string): void {
+  const buffer = bufferFor(serverKey(workspaceId, serverId))
   buffer.refs += 1
   if (!buffer.source)
-    openServerStream(serverId, buffer)
+    openServerStream(workspaceId, serverId, buffer)
 }
 
-function releaseServerStream(serverId: string): void {
-  const buffer = buffers.get(serverId)
+function releaseServerStream(workspaceId: string, serverId: string): void {
+  const buffer = buffers.get(serverKey(workspaceId, serverId))
   if (!buffer)
     return
   buffer.refs = Math.max(0, buffer.refs - 1)
@@ -200,67 +253,106 @@ export function disconnect(): void {
  * Live log subscription for one server, refcounted so several widgets can watch
  * the same stream. The control plane replays its ring buffer on connect.
  */
-export function useServerLogs(serverId: MaybeRefOrGetter<string | null>) {
-  const current = computed(() => toValue(serverId))
+export function useServerLogs(workspaceId: MaybeRefOrGetter<string | null>, serverId: MaybeRefOrGetter<string | null>) {
+  const current = computed(() => {
+    const workspace = toValue(workspaceId)
+    const server = toValue(serverId)
+    return workspace === null || server === null ? null : serverKey(workspace, server)
+  })
   let held: string | null = null
 
-  watch(current, (id) => {
-    if (held !== null && held !== id)
-      releaseServerStream(held)
-    held = id
-    if (id !== null && id.length > 0)
-      acquireServerStream(id)
+  watch(current, (key) => {
+    if (held !== null && held !== key) {
+      const [workspace, server] = held.split('/')
+      if (workspace !== undefined && server !== undefined)
+        releaseServerStream(workspace, server)
+    }
+    held = key
+    if (key !== null) {
+      const [workspace, server] = key.split('/')
+      if (workspace !== undefined && server !== undefined)
+        acquireServerStream(workspace, server)
+    }
   }, { immediate: true })
 
   onScopeDispose(() => {
-    if (held !== null)
-      releaseServerStream(held)
+    if (held !== null) {
+      const [workspace, server] = held.split('/')
+      if (workspace !== undefined && server !== undefined)
+        releaseServerStream(workspace, server)
+    }
     held = null
   })
 
   const version = computed(() => {
-    const id = current.value
+    const key = current.value
     // `logRevision` is the dependency that always exists; the per-buffer counter
     // is only the value, so the first append still invalidates this.
     void logRevision.value
-    return id === null ? 0 : buffers.get(id)?.version.value ?? 0
+    return key === null ? 0 : buffers.get(key)?.version.value ?? 0
   })
 
   return {
     version,
     lines(): LogLine[] {
-      const id = current.value
-      return id === null ? [] : liveLines(id)
+      const key = current.value
+      return key === null ? [] : liveLines(key)
     },
     count: computed(() => {
-      const id = current.value
+      const key = current.value
       void logRevision.value
-      return id === null ? 0 : buffers.get(id)?.lines.length ?? 0
+      return key === null ? 0 : buffers.get(key)?.lines.length ?? 0
     }),
     clear(): void {
-      const id = current.value
-      if (id !== null)
-        resetLogs(id)
+      const key = current.value
+      if (key !== null)
+        resetLogs(key)
     },
   }
 }
 
+/**
+ * The panel-wide state stream plus the low-level, explicitly workspace-scoped
+ * actions. Views that work on "the selected workspace" should use
+ * `useWorkspaces()` instead — it binds these to the selection.
+ */
 export function useControlPlane() {
-  const servers = computed(() => appState.value?.servers ?? [])
+  const workspaces = computed(() => appState.value?.workspaces ?? [])
+  const allServers = computed(() => workspaces.value.flatMap(workspace =>
+    workspace.servers.map(server => ({ workspace, server }))))
   const control = computed(() => appState.value?.control ?? null)
-  const defaults = computed(() => appState.value?.defaults ?? null)
   const host = computed(() => appState.value?.host ?? null)
   const backups = computed(() => appState.value?.backups ?? null)
-  const notifications = computed(() => appState.value?.notifications ?? null)
-  const logsConfig = computed(() => appState.value?.logs ?? null)
-  const configError = computed(() => appState.value?.configError ?? null)
+  const projectDir = computed(() => appState.value?.projectDir ?? null)
+  const dataRoot = computed(() => appState.value?.dataRoot ?? null)
+  const version = computed(() => appState.value?.version ?? null)
 
-  function serverById(id: string): ServerView | undefined {
-    return appState.value?.servers.find(server => server.id === id)
+  function workspaceById(id: string) {
+    return appState.value?.workspaces.find(workspace => workspace.id === id)
   }
 
-  function seriesOf(id: string): ServerSeries {
-    return seriesFor(id)
+  function serverById(workspaceId: string, id: string): ServerView | undefined {
+    return workspaceById(workspaceId)?.servers.find(server => server.id === id)
+  }
+
+  function seriesOf(workspaceId: string, id: string): ServerSeries {
+    return seriesFor(serverKey(workspaceId, id))
+  }
+
+  /**
+   * Reads the frame once when nothing is loaded yet. The router guard needs the
+   * workspace list to canonicalize a URL, and it runs before the shell mounts.
+   */
+  async function ensureState(): Promise<void> {
+    if (appState.value !== null)
+      return
+    try {
+      appState.value = await api.fetchState()
+    }
+    catch (error) {
+      if (error instanceof api.AuthRequiredError)
+        useSession().requireLogin()
+    }
   }
 
   async function run<T>(
@@ -289,59 +381,63 @@ export function useControlPlane() {
   }
 
   return {
-    appState: readonly(appState),
-    servers,
+    appState: appState as Readonly<Ref<AppStateView | null>>,
+    workspaces,
+    allServers,
     control,
-    defaults,
     host,
     backups,
-    notifications,
-    logsConfig,
-    configError,
+    projectDir,
+    dataRoot,
+    version,
     connection: readonly(connection),
     lastError: readonly(lastError),
     now: readonly(now),
+    workspaceById,
+    ensureState,
     serverById,
     seriesOf,
 
     refresh: (title = 'Refresh failed') => run(async () => {}, { title }),
-    start: (id: string) => run(() => api.serverAction(id, 'start'), { title: `Could not start ${id}` }),
-    stop: (id: string) => run(() => api.serverAction(id, 'stop'), { title: `Could not stop ${id}` }),
-    restart: (id: string) => run(() => api.serverAction(id, 'restart'), { title: `Could not restart ${id}` }),
-    startAll: () => run(() => api.startAll(), { title: 'Could not start every server', success: 'Starting every enabled server' }),
-    stopAll: () => run(() => api.stopAll(), { title: 'Could not stop every server', success: 'Stopping every server' }),
-    setAutostart: (id: string, autostart: boolean) => run(() => api.patchServer(id, { autostart }), { title: `Could not change autostart for ${id}` }),
-    setEnabled: (id: string, enabled: boolean) => run(() => api.patchServer(id, { enabled }), { title: `Could not change ${id}` }),
+
+    start: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'start'), { title: `Could not start ${id}` }),
+    stop: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'stop'), { title: `Could not stop ${id}` }),
+    restart: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'restart'), { title: `Could not restart ${id}` }),
+    startAll: (workspaceId: string) => run(() => api.startAll(workspaceId), { title: 'Could not start every server', success: 'Starting every enabled server' }),
+    stopAll: (workspaceId: string) => run(() => api.stopAll(workspaceId), { title: 'Could not stop every server', success: 'Stopping every server' }),
+    setAutostart: (workspaceId: string, id: string, autostart: boolean) => run(() => api.patchServer(workspaceId, id, { autostart }), { title: `Could not change autostart for ${id}` }),
+    setEnabled: (workspaceId: string, id: string, enabled: boolean) => run(() => api.patchServer(workspaceId, id, { enabled }), { title: `Could not change ${id}` }),
     /**
      * Frees the port a blocked entry wants. The endpoint reports what it did, so
      * the toast can say whether the port actually came free.
      */
-    freePort: (id: string) => run(() => api.freePort(id), {
+    freePort: (workspaceId: string, id: string) => run(() => api.freePort(workspaceId, id), {
       title: `Could not free the port for ${id}`,
       success: result => (result.free
         ? `Port ${result.port} is free — start ${id} now`
         : `Port ${result.port} is still held`),
     }),
-    setBind: (id: string, bind: string) => {
+    setBind: (workspaceId: string, id: string, bind: string) => {
       const parsed = parseBind(bind)
       if (parsed === null) {
         notifier.failure(`Could not change the bind for ${id}`, `"${bind}" is not a bind value`)
         return Promise.resolve(undefined)
       }
-      return run(() => api.patchServer(id, { bind: parsed }), { title: `Could not change the bind for ${id}` })
+      return run(() => api.patchServer(workspaceId, id, { bind: parsed }), { title: `Could not change the bind for ${id}` })
     },
-    saveConfig: (id: string, patch: Record<string, unknown>) => run(() => api.patchServer(id, patch), { title: `Could not save ${id}`, success: `${id} updated` }),
-    saveSettings: (patch: SettingsPatch) => run(() => api.patchSettings(patch), { title: 'Could not save the settings' }),
-    clearLogs: (id: string) => run(async () => {
-      await api.clearLogs(id)
-      resetLogs(id)
+    saveConfig: (workspaceId: string, id: string, patch: Record<string, unknown>) => run(() => api.patchServer(workspaceId, id, patch), { title: `Could not save ${id}`, success: `${id} updated` }),
+    saveGlobalSettings: (patch: SettingsPatch) => run(() => api.patchSettings(patch), { title: 'Could not save the settings' }),
+    saveWorkspaceSettings: (workspaceId: string, patch: WorkspaceSettingsPatch) => run(() => api.patchWorkspaceSettings(workspaceId, patch), { title: 'Could not save the settings' }),
+    clearLogs: (workspaceId: string, id: string) => run(async () => {
+      await api.clearLogs(workspaceId, id)
+      resetLogs(serverKey(workspaceId, id))
     }, { title: `Could not clear the logs for ${id}`, success: 'Buffer cleared' }),
-    create: (payload: api.CreateServerPayload) => run(() => api.createServer(payload), { title: 'Could not add the server', success: 'Server added' }),
-    remove: (id: string) => run(async () => {
-      await api.removeServer(id)
-      releaseServerStream(id)
-      buffers.delete(id)
-      series.delete(id)
+    create: (workspaceId: string, payload: api.CreateServerPayload) => run(() => api.createServer(workspaceId, payload), { title: 'Could not add the server', success: 'Server added' }),
+    remove: (workspaceId: string, id: string) => run(async () => {
+      await api.removeServer(workspaceId, id)
+      releaseServerStream(workspaceId, id)
+      buffers.delete(serverKey(workspaceId, id))
+      series.delete(serverKey(workspaceId, id))
     }, { title: `Could not remove ${id}`, success: `${id} removed` }),
   }
 }

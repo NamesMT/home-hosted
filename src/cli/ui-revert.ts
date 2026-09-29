@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { green } from '#src/cli/io'
-import { dataRoot } from '#src/helpers/paths'
+import { hhDir as dataRoot } from '#src/helpers/paths'
 import { UiService } from '#src/services/ui'
 
 /** `ui-revert` drops a user-installed UI so the stock panel serves again. */

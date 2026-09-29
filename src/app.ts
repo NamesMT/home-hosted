@@ -1,13 +1,9 @@
 import type { SecretsStore } from '#src/config/secrets'
-import type { ConfigStore } from '#src/config/store'
 import type { AuthService } from '#src/services/auth'
 import type { BackupService } from '#src/services/backups'
 import type { ControlServer } from '#src/services/control-server'
-import type { DdnsService } from '#src/services/ddns'
 import type { EventHub } from '#src/services/events'
-import type { LogFiles } from '#src/services/log-files'
-import type { NotificationService } from '#src/services/notifications'
-import type { Supervisor } from '#src/services/supervisor'
+import type { PanelService } from '#src/services/panel'
 import type { TlsStore } from '#src/services/tls'
 import type { UiService } from '#src/services/ui'
 import { createAuthRoute } from '#src/api/auth/$.routes'
@@ -24,24 +20,26 @@ import { createSettingsRoute } from '#src/api/settings'
 import { createStateRoute } from '#src/api/state'
 import { createStaticRoute } from '#src/api/static'
 import { createTlsRoute } from '#src/api/tls'
+import { createWorkspacesRoute } from '#src/api/workspaces/$.routes'
 import { errorHandler } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { createAuthGuard } from '#src/middleware/auth'
 import { setupOpenAPI } from '#src/openapi'
 
+/**
+ * What the routes are handed. Only the panel-wide services live here; anything a
+ * workspace owns (its store, secrets, logs, notifications, DDNS, supervisor) is
+ * resolved per request from `panel.requireWorkspace(...)`.
+ */
 export interface AppDeps {
-  store: ConfigStore
-  supervisor: Supervisor
+  panel: PanelService
   hub: EventHub
   auth: AuthService
   secrets: SecretsStore
   controlServer: ControlServer
   tls: TlsStore
-  logFiles: LogFiles
-  notifications: NotificationService
   backups: BackupService
-  ddns: DdnsService
   ui: UiService
   /** Token for the local `down` command, and the graceful stop it asks for. */
   runtimeToken: string
@@ -81,6 +79,7 @@ export function createRootApp(deps: AppDeps) {
     .route('/api', createDdnsRoute(deps))
     .route('/api', createMetricsRoute(deps))
     .route('/api', createBackupsRoute(deps))
+    .route('/api/workspaces', createWorkspacesRoute(deps))
     .route('/api/servers', createServersRoute(deps))
 
     .route('/', createHealthRoute(deps))

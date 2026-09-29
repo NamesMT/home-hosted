@@ -1,18 +1,20 @@
 import type { ControlView } from '@shared/contracts'
-import type { FormSnapshots } from '../src/components/settings/settingsForm'
+import type { GlobalSettingsForm, WorkspaceSettingsForm } from '../src/components/settings/settingsForm'
 import { defaultsSchema } from '@shared/contracts'
 import { countLeaves } from '@shared/patch-diff'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import {
   authBaseline,
-  blockSnapshot,
   controlPatch,
-  createSettingsForm,
+  createGlobalForm,
+  createWorkspaceForm,
   defaultsPatch,
+  globalBlockSnapshot,
   isBlockEdited,
   listenerBaseline,
   numberModel,
+  workspaceBlockSnapshot,
 } from '../src/components/settings/settingsForm'
 
 /** A control view as the state frame carries it; only `auth.enabled` varies here. */
@@ -56,7 +58,7 @@ function controlView(enabled: boolean): ControlView {
 }
 
 /** Fills the form the way `syncFromLive()` does once a frame has arrived. */
-function hydrate(form: ReturnType<typeof createSettingsForm>, view: ControlView): void {
+function hydrate(form: GlobalSettingsForm, view: ControlView): void {
   Object.assign(form.control, listenerBaseline(view))
   Object.assign(form.auth, authBaseline(view.auth))
 }
@@ -68,7 +70,7 @@ describe('settings form versus the live config', () => {
    * edit — the page showed the toggle off and claimed one field had changed.
    */
   it('shows the mismatch an un-hydrated form would offer to revert', () => {
-    const form = createSettingsForm()
+    const form = createGlobalForm()
     // Only the auth flag is under test, so the view's label starts from the form's own
     // default instead of a copy of it that drifts whenever that default changes.
     const view = controlView(true)
@@ -79,7 +81,7 @@ describe('settings form versus the live config', () => {
   })
 
   it('has nothing pending once the frame has filled the form', () => {
-    const form = createSettingsForm()
+    const form = createGlobalForm()
     hydrate(form, controlView(true))
 
     expect(controlPatch(controlView(true), form)).toEqual({})
@@ -87,7 +89,7 @@ describe('settings form versus the live config', () => {
   })
 
   it('still offers the change when the user actually flips the toggle', () => {
-    const form = createSettingsForm()
+    const form = createGlobalForm()
     hydrate(form, controlView(true))
     form.auth.enabled = false
 
@@ -96,19 +98,18 @@ describe('settings form versus the live config', () => {
 
   it('reports to the shell whether it may be overwritten', () => {
     const view = controlView(true)
-    const form = createSettingsForm()
-    const snapshots: FormSnapshots = {}
+    const form = createGlobalForm()
 
     // Never filled: the defaults differ from the config (`auth.enabled`), and
     // that must not be mistaken for an edit that blocks the first fill.
-    expect(isBlockEdited(form, snapshots, 'control')).toBe(false)
+    expect(isBlockEdited(undefined, globalBlockSnapshot(form, 'control'))).toBe(false)
 
     hydrate(form, view)
-    snapshots.control = blockSnapshot(form, 'control')
-    expect(isBlockEdited(form, snapshots, 'control')).toBe(false)
+    const snapshot = globalBlockSnapshot(form, 'control')
+    expect(isBlockEdited(snapshot, globalBlockSnapshot(form, 'control'))).toBe(false)
 
     form.auth.enabled = false
-    expect(isBlockEdited(form, snapshots, 'control')).toBe(true)
+    expect(isBlockEdited(snapshot, globalBlockSnapshot(form, 'control'))).toBe(true)
   })
 
   /**
@@ -117,13 +118,43 @@ describe('settings form versus the live config', () => {
    * toggle flipped back to the schema default on every reload.
    */
   it('fills each block on its own, whatever another block is doing', () => {
-    const form = createSettingsForm()
-    const snapshots: FormSnapshots = { backups: blockSnapshot(form, 'backups') }
+    const form = createGlobalForm()
+    const control = globalBlockSnapshot(form, 'control')
+    const backups = globalBlockSnapshot(form, 'backups')
     form.backups.enabled = false
 
-    expect(isBlockEdited(form, snapshots, 'backups')).toBe(true)
-    expect(isBlockEdited(form, snapshots, 'host')).toBe(false)
-    expect(isBlockEdited(form, snapshots, 'control')).toBe(false)
+    expect(isBlockEdited(backups, globalBlockSnapshot(form, 'backups'))).toBe(true)
+    expect(isBlockEdited(undefined, globalBlockSnapshot(form, 'host'))).toBe(false)
+    expect(isBlockEdited(control, globalBlockSnapshot(form, 'control'))).toBe(false)
+  })
+
+  /**
+   * The split behind the same rule: the per-workspace blocks (`defaults`, `logs`,
+   * `telegram`) are filled and guarded independently of the panel-wide ones, so an
+   * untouched workspace block must never look edited, and a global edit must not
+   * leak into it.
+   */
+  it('guards the workspace blocks separately from the global ones', () => {
+    const global = createGlobalForm()
+    const workspace: WorkspaceSettingsForm = createWorkspaceForm()
+
+    // Never filled: the defaults differ from what a live workspace would send, and
+    // that must not be mistaken for an edit that blocks the first fill.
+    expect(isBlockEdited(undefined, workspaceBlockSnapshot(workspace, 'defaults'))).toBe(false)
+
+    // Filled from live state, then left alone: still not an edit.
+    const defaults = workspaceBlockSnapshot(workspace, 'defaults')
+    expect(isBlockEdited(defaults, workspaceBlockSnapshot(workspace, 'defaults'))).toBe(false)
+
+    // A panel-wide edit leaves the workspace snapshots alone.
+    global.backups.enabled = false
+    expect(isBlockEdited(defaults, workspaceBlockSnapshot(workspace, 'defaults'))).toBe(false)
+    expect(isBlockEdited(undefined, workspaceBlockSnapshot(workspace, 'logs'))).toBe(false)
+
+    // Only the workspace block that was actually edited reports as edited.
+    workspace.defaults.health.intervalMs = 1234
+    expect(isBlockEdited(defaults, workspaceBlockSnapshot(workspace, 'defaults'))).toBe(true)
+    expect(isBlockEdited(undefined, workspaceBlockSnapshot(workspace, 'logs'))).toBe(false)
   })
 })
 
@@ -164,7 +195,9 @@ describe('numberModel', () => {
 /**
  * The health group is the one place a patch has an object to compare: comparing
  * its members by reference reported the whole group as changed on a form nobody
- * had touched, which is the "4 fields changed" phantom.
+ * had touched, which is the "4 fields changed" phantom. The same detachment is
+ * what `workspaceBlockSnapshot` has to keep, or an edit to a nested member would
+ * mutate the very snapshot the frame guard compares against (`cloneHealth`).
  */
 describe('nested policy groups', () => {
   function liveDefaults() {
@@ -176,27 +209,40 @@ describe('nested policy groups', () => {
 
   it('reports nothing for an untouched group, object member included', () => {
     const live = liveDefaults()
-    const form = {
-      ...createSettingsForm().defaults,
+    const form: WorkspaceSettingsForm = createWorkspaceForm()
+    form.defaults = {
+      ...form.defaults,
       ...live,
       restart: { ...live.restart },
       health: { ...live.health, http: { ...live.health.http } },
       stop: { ...live.stop },
     }
 
-    expect(defaultsPatch(live, form)).toEqual({})
+    expect(defaultsPatch(live, form.defaults)).toEqual({})
   })
 
   it('reports the sub-key that changed', () => {
     const live = liveDefaults()
-    const form = {
-      ...createSettingsForm().defaults,
+    const form: WorkspaceSettingsForm = createWorkspaceForm()
+    form.defaults = {
+      ...form.defaults,
       ...live,
       restart: { ...live.restart },
       health: { ...live.health, intervalMs: 1234, http: { ...live.health.http } },
       stop: { ...live.stop },
     }
 
-    expect(defaultsPatch(live, form)).toEqual({ health: { intervalMs: 1234 } })
+    expect(defaultsPatch(live, form.defaults)).toEqual({ health: { intervalMs: 1234 } })
+  })
+
+  it('keeps a snapshot detached from the nested group it was taken from', () => {
+    const form = createWorkspaceForm()
+    const snapshot = workspaceBlockSnapshot(form, 'defaults') as { health: { http: { expectStatusBelow: number } } }
+
+    form.defaults.health.http.expectStatusBelow = 500
+
+    // A shallow copy would have aliased `http`, so the snapshot would have moved too.
+    expect(snapshot.health.http.expectStatusBelow).toBe(400)
+    expect(isBlockEdited(snapshot, workspaceBlockSnapshot(form, 'defaults'))).toBe(true)
   })
 })

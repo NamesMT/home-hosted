@@ -6,7 +6,7 @@ opt-in, and the bot token never leaves the secrets file.
 ## Setup
 
 1. Talk to [@BotFather](https://t.me/BotFather), run `/newbot`, and copy the token it prints.
-2. In the panel: **Settings → Notifications**, paste the token, press **Detect chats**.
+2. In the panel: **Workspace Settings → Notifications**, paste the token, press **Detect chats**.
 3. Send your bot a message from the chat you want the alerts in — a bot cannot open a conversation —
    then pick that chat from the list (or paste its id).
 4. Press **Test**: the chat gets a message, and the panel shows the result and its timestamp.
@@ -49,9 +49,9 @@ curl -X POST http://127.0.0.1:3999/api/notifications/test \
 | host thresholds breached, and recovered | `onHost` | ✅ |
 | a dynamic DNS record changed, or a pass failed | `onDdns` | ✅ |
 
-Host thresholds themselves — disk, memory, swap, load, temperature — are **Settings → Host**.
-Dynamic DNS carries one message per pass that changed a record, and one per failed pass — see
-[DDNS.md](./DDNS.md).
+Host thresholds themselves — disk, memory, swap, load, temperature — are **Global settings → Host
+vitals**. Dynamic DNS carries one message per pass that changed a record, and one per failed pass —
+see [DDNS.md](./DDNS.md).
 
 ## Quiet periods
 
@@ -61,12 +61,14 @@ disables the throttle.
 
 ## Where the token lives
 
-`$HHOSTED_HOME/.control-secrets.json`, mode `0600`, next to the password and API-token hashes. It is
-never written into `servers.config.json`, so committing or sharing a config cannot leak it — and
-`GET /api/settings` reports `tokenSet: true|false`, never the token itself.
+The workspace's `.hh/<workspace>/.secrets.json`, mode `0600`, next to that workspace's DDNS
+credentials. The password and API-token hashes are panel-wide and live in
+`.hh/.control-secrets.json`. The token is never written into `servers.config.json`, so committing or
+sharing a config cannot leak it — and `GET /api/settings/workspace` reports `tokenSet: true|false`,
+never the token itself.
 
 ## Delivery failures
 
 Sends are fire-and-forget: supervision never waits on a chat API. A failure is logged and the last
-result is shown in **Settings → Notifications** (`lastResult`, `lastResultAt`), so a wrong chat id is
-visible there instead of silently swallowing alerts.
+result is shown in **Workspace Settings → Notifications** (`lastResult`, `lastResultAt`), so a wrong
+chat id is visible there instead of silently swallowing alerts.

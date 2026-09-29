@@ -38,6 +38,9 @@ afterAll(async () => {
   await fs.promises.rm(home, { recursive: true, force: true })
 })
 
+/** `run.json` lives under `.hh` now; the schema itself is unchanged. */
+const runFile = path.join(home, '.hh', 'run.json')
+
 function validRuntime(overrides: Partial<Runtime> = {}): Runtime {
   return {
     version: '0.6.2',
@@ -50,8 +53,8 @@ function validRuntime(overrides: Partial<Runtime> = {}): Runtime {
     startedAt: Date.now(),
     projectDir: home,
     dataRoot: home,
-    configPath: path.join(home, 'servers.config.json'),
-    logFile: path.join(home, 'home-hosted.log'),
+    configPath: path.join(home, '.hh', 'default', 'servers.config.json'),
+    logFile: path.join(home, '.hh', '.logs', 'home-hosted.log'),
     token: 'a-token',
     ...overrides,
   }
@@ -104,18 +107,19 @@ describe('run.json round trip', () => {
     // Windows has no POSIX mode bits: `chmod` there only toggles the read-only flag, and
     // `stat` reports 0o666 for any writable file, so the mode is a POSIX-only assertion.
     if (process.platform !== 'win32')
-      expect(fs.statSync(path.join(home, 'run.json')).mode & 0o777).toBe(0o600)
+      expect(fs.statSync(runFile).mode & 0o777).toBe(0o600)
 
     clearRuntime()
     expect(readRuntime()).toBeNull()
-    expect(fs.existsSync(path.join(home, 'run.json'))).toBe(false)
+    expect(fs.existsSync(runFile)).toBe(false)
   })
 
   it('reads a corrupt or foreign file as "no daemon" instead of throwing', () => {
-    fs.writeFileSync(path.join(home, 'run.json'), 'not json')
+    fs.mkdirSync(path.dirname(runFile), { recursive: true })
+    fs.writeFileSync(runFile, 'not json')
     expect(readRuntime()).toBeNull()
 
-    fs.writeFileSync(path.join(home, 'run.json'), JSON.stringify({ pid: 1 }))
+    fs.writeFileSync(runFile, JSON.stringify({ pid: 1 }))
     expect(readRuntime()).toBeNull()
   })
 

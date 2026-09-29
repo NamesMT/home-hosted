@@ -18,7 +18,7 @@ interface ActionBody {
   message?: string
 }
 
-export async function runServerAction(action: ServerAction, id: string): Promise<void> {
+export async function runServerAction(action: ServerAction, id: string, workspace?: string): Promise<void> {
   const { clearRuntime, isProcessAlive, readRuntime, requestControl } = await import('#src/helpers/daemon')
 
   const runtime = readRuntime()
@@ -28,7 +28,8 @@ export async function runServerAction(action: ServerAction, id: string): Promise
     fail('home-hosted is not running — start it with `home-hosted up`')
   }
 
-  const answer = await requestControl(runtime, `/_hh/servers/${encodeURIComponent(id)}/${action}`)
+  const query = workspace === undefined || workspace.length === 0 ? '' : `?workspace=${encodeURIComponent(workspace)}`
+  const answer = await requestControl(runtime, `/_hh/servers/${encodeURIComponent(id)}/${action}${query}`)
   if (answer === null)
     fail(`the control panel is not answering on ${runtime.probeUrl}`)
 
@@ -44,7 +45,7 @@ export async function runServerAction(action: ServerAction, id: string): Promise
     fail(`the panel answered ${answer.status}`)
   }
 
-  process.stdout.write(`${green(action === 'start' ? 'started' : 'stopped')} ${id}\n`)
+  process.stdout.write(`${green(action === 'start' ? 'started' : 'stopped')} ${workspace === undefined ? '' : `${workspace}/`}${id}\n`)
 }
 
 function serverCommand(action: ServerAction) {
@@ -56,13 +57,15 @@ function serverCommand(action: ServerAction) {
     args: {
       // `required: false` keeps citty's own refusal out of the way: the message below
       // names the id and where to find it.
-      id: { type: 'positional', required: false, description: 'the server id from servers.config.json' },
+      id: { type: 'positional', required: false, description: 'the server id from the workspace\'s servers.config.json' },
+      workspace: { type: 'string', alias: 'w', description: 'the workspace to act in (default: the panel\'s default workspace)' },
     },
     run: async ({ args }) => {
       const id = typeof args.id === 'string' ? args.id.trim() : ''
       if (id.length === 0)
-        fail(`${action} needs a server id — see \`home-hosted status\` or servers.config.json`)
-      await runServerAction(action, id)
+        fail(`${action} needs a server id — see \`home-hosted status\` or the workspace's servers.config.json`)
+      const workspace = typeof args.workspace === 'string' ? args.workspace.trim() : undefined
+      await runServerAction(action, id, workspace)
     },
   })
 }

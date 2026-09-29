@@ -2,7 +2,7 @@ import process from 'node:process'
 import { defineCommand } from 'citty'
 import { dim, fail, green, promptHidden } from '#src/cli/io'
 import { SecretsStore } from '#src/config/secrets'
-import { defaultSecretsPath } from '#src/helpers/paths'
+import { globalSecretsPath as secretsPath } from '#src/helpers/paths'
 
 /** `set-password` sets the panel password without the API. */
 
@@ -11,11 +11,11 @@ export const setPasswordArgs = {
 } as const
 
 export async function runSetPassword(clear: boolean): Promise<void> {
-  const store = new SecretsStore(defaultSecretsPath)
+  const store = new SecretsStore(secretsPath, undefined, 'global')
 
   if (clear) {
     store.clearPassword()
-    process.stdout.write(`cleared the control panel password in ${defaultSecretsPath}\n`)
+    process.stdout.write(`cleared the control panel password in ${secretsPath}\n`)
     process.stdout.write(`${dim('authentication stays disabled until you enable it again in the settings page')}\n`)
     return
   }
@@ -35,7 +35,7 @@ export async function runSetPassword(clear: boolean): Promise<void> {
   }
 
   store.setPassword(password)
-  process.stdout.write(`${green('password stored')} in ${defaultSecretsPath} (mode 0600)\n`)
+  process.stdout.write(`${green('password stored')} in ${secretsPath} (mode 0600)\n`)
   if (password.length < 8)
     process.stdout.write(`${dim(`"${password}" is short — easy to guess if the panel is reachable beyond loopback`)}\n`)
   process.stdout.write(`${dim('restart the panel for it to take effect: home-hosted restart')}\n`)

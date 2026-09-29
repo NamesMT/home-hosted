@@ -2,11 +2,12 @@
 
 Keep a list of hostnames pointed at this machine's public IP. The panel checks the address on an
 interval and calls a provider only when it actually changed — restart-safe, because the last
-confirmed address per hostname is kept in `$HHOSTED_HOME/.state/ddns.json`.
+confirmed address per hostname is kept in the workspace's `.hh/<workspace>/.state/ddns.json`.
 
-**Settings → Dynamic DNS** is the whole setup: add an account, paste its credentials, add hostnames.
-The block is saved by the page's own **Save settings**, like every other section on it; the credentials
-button saves on its own, being a secret. Provider credentials never enter `servers.config.json`.
+**Workspace Settings → Dynamic DNS** is the whole setup: add an account, paste its credentials, add
+hostnames. The block is saved by the page's own **Save settings**, like every other section on it; the
+credentials button saves on its own, being a secret. Provider credentials never enter
+`servers.config.json`.
 
 ```json
 {
@@ -27,11 +28,13 @@ button saves on its own, being a secret. Provider credentials never enter `serve
 }
 ```
 
-Credentials live in `.control-secrets.json` (0600), keyed by the account `id` and sealed with
+Credentials live in the workspace's `.secrets.json` (0600), keyed by the account `id` and sealed with
 AES-256-GCM under `HHOSTED_DDNS_SECRET` — set your own, or the default `hh` only stops a casual
-read. The account does not have to be saved first, and the provider is stored with the entry, so an
-id that later changes provider does not silently keep the old secret. Removing an account drops its
-credentials on the next save.
+read. The block above is the workspace's `.hh/<workspace>/settings.json`; the credentials are cached
+separately in `.secrets.json`, both beside that workspace's `servers.config.json`. The account does
+not have to be saved first, and the provider is stored with the entry, so an id that later changes
+provider does not silently keep the old secret. Removing an account drops its credentials on the next
+save.
 
 Header fields:
 
@@ -72,7 +75,7 @@ DNS API), and the Namecheap XML API (a full zone rewrite per update).
 ## Notifications
 
 Telegram carries one message per pass that changed a record, and one for a pass that failed — the
-same switch as every other event, under Settings → Notifications → *Dynamic DNS changes and
+same switch as every other event, under Workspace Settings → Notifications → *Dynamic DNS changes and
 failures* (`telegram.onDdns`). There is no second switch in this section.
 
 ## Adding a provider

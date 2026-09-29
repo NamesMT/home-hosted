@@ -1,6 +1,11 @@
-import type { NotificationService } from '#src/services/notifications'
+import type { NotificationEvent } from '#src/services/notifications'
 import type { HostConfig, HostView } from '#src/shared/contracts'
 import { emptyHostView, sampleHost } from '#src/providers/host'
+
+/** Anything that can receive a host-vitals notification; `NotificationService` qualifies. */
+export interface HostNotifier {
+  notify: (event: NotificationEvent) => void
+}
 
 /**
  * Samples host vitals on their own (slower) interval and turns threshold
@@ -14,13 +19,22 @@ export class HostMonitor {
   constructor(
     private readonly getConfig: () => HostConfig,
     private readonly resolvePath: (target: string) => string,
-    private readonly notifications: NotificationService,
+    /**
+     * Every workspace's notification service: host vitals are panel-wide, so a
+     * breach reaches each workspace that asked for host alerts.
+     */
+    private readonly notifications: HostNotifier | HostNotifier[],
   ) {
     this.current = emptyHostView(getConfig())
   }
 
   get view(): HostView {
     return this.current
+  }
+
+  private notify(event: NotificationEvent): void {
+    const targets = Array.isArray(this.notifications) ? this.notifications : [this.notifications]
+    for (const service of targets) service.notify(event)
   }
 
   /** Cheap when the interval has not elapsed; safe to call every tick. */
@@ -40,7 +54,7 @@ export class HostMonitor {
     if (this.current.alerts.length > 0) {
       if (!this.alerting) {
         this.alerting = true
-        this.notifications.notify({
+        this.notify({
           serverId: 'host',
           label: 'Host',
           reason: 'host',
@@ -52,7 +66,7 @@ export class HostMonitor {
 
     if (this.alerting) {
       this.alerting = false
-      this.notifications.notify({
+      this.notify({
         serverId: 'host',
         label: 'Host',
         reason: 'host-recovered',

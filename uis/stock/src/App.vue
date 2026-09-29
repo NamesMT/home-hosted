@@ -9,11 +9,13 @@ import ToastStack from '@/components/shell/ToastStack.vue'
 import TopBar from '@/components/shell/TopBar.vue'
 import { connect, disconnect, useControlPlane } from '@/composables/useControlPlane'
 import { streamDecision, useSession } from '@/composables/useSession'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import { cn } from '@/lib/cn'
 
 const route = useRoute()
 const router = useRouter()
 const control = useControlPlane()
+const workspace = useWorkspaces()
 const { session, logout } = useSession()
 
 const paletteOpen = ref(false)
@@ -24,14 +26,16 @@ const authRequired = computed(() => session.value?.authRequired === true)
 const isLogin = computed(() => route.name === 'login')
 const isLogs = computed(() => route.name === 'logs')
 
-const servers = computed(() => control.servers.value)
-const running = computed(() => servers.value.filter(server => server.status === 'running').length)
+const running = computed(() => workspace.runningCount.value)
+const total = computed(() => workspace.serverCount.value)
 const panelUrl = computed(() => control.control.value?.url ?? '—')
 const host = computed(() => control.host.value)
 /** The panel's own name, from its config; a custom UI is free to ignore it. */
 const panelLabel = computed(() => control.control.value?.label ?? 'home-hosted')
 /** The release the panel is running; absent from a panel that predates the field. */
-const panelVersion = computed(() => control.appState.value?.version ?? null)
+const panelVersion = computed(() => control.version.value)
+const workspaceLabel = computed(() => workspace.selected.value?.label ?? 'none')
+const workspaceId = computed(() => workspace.activeId.value)
 
 // A dropped session (or a 401 from any call) must land on the login view, and the
 // event stream follows the session arriving — see `streamDecision` for why this
@@ -74,8 +78,10 @@ onScopeDispose(() => disconnect())
           :panel-label="panelLabel"
           :panel-version="panelVersion"
           :plan-label="panelUrl"
+          :workspace-id="workspaceId"
+          :workspace-label="workspaceLabel"
           :running="running"
-          :total="servers.length"
+          :total="total"
         />
       </aside>
 
@@ -100,8 +106,10 @@ onScopeDispose(() => disconnect())
             :panel-label="panelLabel"
             :panel-version="panelVersion"
             :plan-label="panelUrl"
+            :workspace-id="workspaceId"
+            :workspace-label="workspaceLabel"
             :running="running"
-            :total="servers.length"
+            :total="total"
             @navigate="sidebarOpen = false"
             @close="sidebarOpen = false"
           />
@@ -124,8 +132,8 @@ onScopeDispose(() => disconnect())
         <SystemNotices
           v-if="!isLogin"
           :control="control.control.value"
-          :config-error="control.configError.value"
-          :config-path="control.appState.value?.configPath"
+          :config-error="workspace.configError.value"
+          :config-path="workspace.selected.value?.configPath"
         />
 
         <main :class="cn('min-h-0 flex-1', isLogs ? 'overflow-hidden' : 'overflow-y-auto')">

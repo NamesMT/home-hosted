@@ -33,8 +33,10 @@ export function createHealthRoute(deps: AppDeps) {
         },
       }),
       (c) => {
-        const state = deps.supervisor.getState()
-        const broken = state.servers.filter(server => server.config.autostart && server.status === 'crashed')
+        const state = deps.panel.getState()
+        // Every workspace's servers, so a crash anywhere degrades the panel.
+        const servers = state.workspaces.flatMap(workspace => workspace.servers)
+        const broken = servers.filter(server => server.config.autostart && server.status === 'crashed')
         // Detail is for a signed-in browser or an API token; the status line itself
         // stays public, which is the whole point of a monitor endpoint.
         const authenticated = requestIdentity(c, deps.auth).authenticated
@@ -45,10 +47,10 @@ export function createHealthRoute(deps: AppDeps) {
           ...(authenticated
             ? {
                 servers: {
-                  total: state.servers.length,
-                  running: state.servers.filter(server => server.status === 'running').length,
-                  crashed: state.servers.filter(server => server.status === 'crashed').length,
-                  unhealthy: state.servers.filter(server => server.health === 'unhealthy').length,
+                  total: servers.length,
+                  running: servers.filter(server => server.status === 'running').length,
+                  crashed: servers.filter(server => server.status === 'crashed').length,
+                  unhealthy: servers.filter(server => server.health === 'unhealthy').length,
                 },
                 hostAlerts: state.host.alerts,
               }

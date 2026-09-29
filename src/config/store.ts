@@ -1,144 +1,155 @@
 import type { ConfigMigration } from '#src/config/migrations'
-import type { RawConfig, ResolvedConfig, ServerConfig } from '#src/config/schema'
+import type { ResolvedServersFile, ResolvedWorkspaceConfig, ResolvedWorkspaceSettings } from '#src/config/schema'
 import type {
-  BackupsConfig,
-  ControlConfig,
   DdnsConfig,
   DdnsPatch,
-  HostConfig,
   LogsConfig,
   NotificationsConfig,
+  ServerConfig,
   ServerDefaults,
   ServerPatch,
-  SettingsPatch,
+  WorkspaceSettingsPatch,
 } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
 import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
-import { parseConfig, parseTolerant, stampConfig } from '#src/config/parse'
+import { parseServersFile, parseTolerant, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
+import { applyPatch, DDNS_MERGE_KEYS, EMPTY_MERGE_KEYS, NOTIFICATION_MERGE_KEYS, SERVER_MERGE_KEYS } from '#src/config/patch'
 import {
-  backupsSchema,
-  configSchema,
-  controlSchema,
   ddnsConfigSchema,
   defaultsSchema,
-  hostSchema,
   logsSchema,
   mergeDefaults,
   notificationsSchema,
   serverSchema,
+  serversFileSchema,
+  workspaceSettingsSchema,
 } from '#src/config/schema'
-import { SEED_CONFIG } from '#src/config/seed'
+import { SEED_SERVERS_FILE, SEED_WORKSPACE_SETTINGS } from '#src/config/seed'
+import { ConfigError } from '#src/config/settings'
 import { writeFileAtomic } from '#src/helpers/atomic'
-import { configSchemaPath } from '#src/helpers/paths'
 import { validateDdnsConfig } from '#src/providers/ddns'
 
-/** Nested groups a patch merges into instead of replacing. */
-const SERVER_MERGE_KEYS = new Set(['restart', 'health', 'stop'])
-const CONTROL_MERGE_KEYS = new Set(['auth', 'tls'])
-const NOTIFICATION_MERGE_KEYS = new Set(['telegram'])
-/** The DDNS lists are replaced; only its two IP-family groups merge. */
-const DDNS_MERGE_KEYS = new Set(['ipv4', 'ipv6'])
-const EMPTY_MERGE_KEYS = new Set<string>()
+export { ConfigError }
+export type { ResolvedServersFile, ResolvedWorkspaceSettings }
 
-export class ConfigError extends Error {
-  override name = 'ConfigError'
+interface ReadResult {
+  text: string | null
+  parsed: unknown
+  missing: boolean
+  /** Set when the file is there but not JSON; `parsed` is null then. */
+  parseError: string | null
 }
 
-function formatErrors(errors: type.errors): string {
-  return errors.summary
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function applyPatch(target: Record<string, unknown>, patch: Record<string, unknown>, mergeKeys: Set<string>): void {
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined)
-      continue
-    if (mergeKeys.has(key) && isRecord(value) && isRecord(target[key])) {
-      target[key] = mergeGroup(target[key], value)
-      continue
-    }
-    target[key] = value
+function readFile(file: string): ReadResult {
+  let text: string
+  try {
+    text = fs.readFileSync(file, 'utf8')
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return { text: null, parsed: null, missing: true, parseError: null }
+    return { text: null, parsed: null, missing: false, parseError: (error as Error).message }
+  }
+  try {
+    return { text, parsed: JSON.parse(text), missing: false, parseError: null }
+  }
+  catch (error) {
+    return { text, parsed: null, missing: false, parseError: (error as Error).message }
   }
 }
 
 /**
- * Merges one nested group recursively — `health.http` is a group of its own, and
- * replacing it wholesale would silently reset the siblings a partial patch never
- * mentioned. An explicit `null` removes a key, which is how a schema-optional
- * field is cleared.
+ * One workspace's state: its settings file (`defaults`, `logs`, `notifications`,
+ * `ddns`) and its servers file, kept apart because they are written by different
+ * pages and read by different parts of the panel.
+ *
+ * Reads stay tolerant in both: an unknown key is reported and skipped, never
+ * fatal, so a file written by a newer release still opens the page that edits it.
+ * A file this release cannot even parse never replaces what is already running —
+ * neither the resolved config nor the `raw` every write patches.
  */
-function mergeGroup(target: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
-  const merged = { ...target }
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined)
-      continue
-    if (value === null) {
-      delete merged[key]
-      continue
-    }
-    if (isRecord(value) && isRecord(merged[key])) {
-      merged[key] = mergeGroup(merged[key] as Record<string, unknown>, value)
-      continue
-    }
-    merged[key] = value
-  }
-  return merged
-}
-
-export class ConfigStore {
-  private raw: RawConfig = {}
-  /** The bytes behind the live config, so a watcher can tell a real edit from our own write. */
-  private lastText: string | null = null
-  private resolvedConfig!: ResolvedConfig
-  private error: string | null = null
+export class WorkspaceStore {
+  private rawSettings: Record<string, unknown> = {}
+  private rawServers: Record<string, unknown> = {}
+  private liveSettings: unknown = null
+  private liveServers: unknown = null
+  private lastSettingsText: string | null = null
+  private lastServersText: string | null = null
+  private resolvedConfig!: ResolvedWorkspaceConfig
+  /** A JSON parse failure, kept apart from a schema problem so `apply()` cannot clear it. */
+  private settingsParseError: string | null = null
+  private serversParseError: string | null = null
+  private settingsError: string | null = null
+  private serversError: string | null = null
   private warnings: string[] = []
-  private schemaVersion = CONFIG_SCHEMA
+  private settingsSchemaVersion = CONFIG_SCHEMA
+  private serversSchemaVersion = CONFIG_SCHEMA
   private readonly listeners = new Set<() => void>()
 
-  constructor(private readonly file: string, private readonly seed: RawConfig = SEED_CONFIG) {}
+  constructor(
+    private readonly workspaceId: string,
+    private readonly settingsFile: string,
+    private readonly serversFile: string,
+    private readonly seedSettings: Record<string, unknown> = SEED_WORKSPACE_SETTINGS,
+    private readonly seedServers: Record<string, unknown> = SEED_SERVERS_FILE,
+  ) {}
 
+  get id(): string {
+    return this.workspaceId
+  }
+
+  /** The servers config; the runtime, the watcher and the docs call it that. */
   get path(): string {
-    return this.file
+    return this.serversFile
   }
 
-  get config(): ResolvedConfig {
+  get settingsPath(): string {
+    return this.settingsFile
+  }
+
+  get config(): ResolvedWorkspaceConfig {
     return this.resolvedConfig
-  }
-
-  get configError(): string | null {
-    return this.error
-  }
-
-  /** Keys a newer release wrote that this one ignores; nothing to refuse over. */
-  get configWarnings(): string[] {
-    return [...this.warnings]
-  }
-
-  /** The shape the file declares, as last read. */
-  get configSchemaVersion(): number {
-    return this.schemaVersion
-  }
-
-  /** Steps that would have to run before this release could use the file. */
-  get pendingMigrations(): ConfigMigration[] {
-    return planConfigMigrations(this.schemaVersion).steps
   }
 
   get servers(): ServerConfig[] {
     return this.resolvedConfig.servers
   }
 
-  get defaults(): ResolvedConfig['defaults'] {
+  get defaults(): ServerDefaults {
     return this.resolvedConfig.defaults
   }
 
-  get rawConfig(): RawConfig {
-    return structuredClone(this.raw)
+  get logs(): LogsConfig {
+    return this.resolvedConfig.logs
+  }
+
+  get notifications(): NotificationsConfig {
+    return this.resolvedConfig.notifications
+  }
+
+  get ddns(): DdnsConfig {
+    return this.resolvedConfig.ddns
+  }
+
+  get configError(): string | null {
+    return [
+      this.settingsParseError ?? this.settingsError,
+      this.serversParseError ?? this.serversError,
+    ].filter(error => error !== null).join('; ') || null
+  }
+
+  get configWarnings(): string[] {
+    return [...this.warnings]
+  }
+
+  get configSchemaVersion(): number {
+    return Math.max(this.settingsSchemaVersion, this.serversSchemaVersion)
+  }
+
+  get pendingMigrations(): ConfigMigration[] {
+    return planConfigMigrations(this.configSchemaVersion).steps
   }
 
   onChange(listener: () => void): () => void {
@@ -150,85 +161,110 @@ export class ConfigStore {
     return this.servers.find(server => server.id === id)
   }
 
-  /**
-   * Reads the file and tells the listeners, so whatever wrote it — the settings
-   * page, a restored backup, or the file watcher — becomes the live config.
-   */
   load(): void {
     this.read()
+    this.apply()
     this.notify()
   }
 
   /**
-   * The watcher's entry point: re-reads the file only when its bytes changed.
+   * The watcher's entry point: re-reads the files only when their bytes changed.
    *
-   * `changed` means the file on disk is different from what the live config was
-   * read from, `applied` means that difference was accepted — a file this release
-   * cannot read is reported and the config already running is left alone, which is
-   * what keeps an editor's typo from stopping every server.
+   * `changed` means the bytes on disk differ from the last trusted read, `applied`
+   * means that difference produced a usable config. A revision this release cannot
+   * parse is reported in the state frame while the running config is kept, which is
+   * what stops an editor's typo from stopping every server — or from bricking the
+   * next Save, which patches the raw object this method must therefore leave alone.
    */
   reloadFromDisk(): { changed: boolean, applied: boolean, error: string | null } {
-    let text: string
-    try {
-      text = fs.readFileSync(this.file, 'utf8')
-    }
-    catch {
-      // Deleting the file is not an edit of it: the seed is written on a first
-      // load, never under a running panel.
-      this.error = `${path.basename(this.file)} is gone`
-      return { changed: false, applied: false, error: this.error }
+    const settings = readFile(this.settingsFile)
+    const servers = readFile(this.serversFile)
+    if (settings.missing || servers.missing) {
+      this.markGone(settings.missing ? this.settingsFile : this.serversFile)
+      return { changed: false, applied: false, error: this.configError }
     }
 
-    if (text === this.lastText) {
-      // These are the bytes the live config came from, so whatever went wrong in
-      // between (the file was gone, or was edited into something unusable and then
-      // put back) is over. The listeners have to hear about it: the error is part of
-      // the state they publish, and a notice for a file that is fine again is a lie.
-      if (this.error !== null) {
-        this.error = null
-        this.load()
+    let changed = false
+    let applied = false
+
+    for (const side of ['settings', 'servers'] as const) {
+      const read = side === 'settings' ? settings : servers
+      const lastText = side === 'settings' ? this.lastSettingsText : this.lastServersText
+      const file = side === 'settings' ? this.settingsFile : this.serversFile
+
+      if (read.text !== lastText) {
+        changed = true
+        if (side === 'settings')
+          this.lastSettingsText = read.text
+        else
+          this.lastServersText = read.text
       }
-      return { changed: false, applied: false, error: null }
+
+      if (read.parseError !== null) {
+        const message = `cannot parse ${path.basename(file)}: ${read.parseError}`
+        if (side === 'settings')
+          this.settingsParseError = message
+        else
+          this.serversParseError = message
+        // The live/raw values stay on the last trusted read.
+        continue
+      }
+
+      if (read.text !== lastText) {
+        if (side === 'settings') {
+          this.settingsParseError = null
+          this.liveSettings = read.parsed
+        }
+        else {
+          this.serversParseError = null
+          this.liveServers = read.parsed
+        }
+        applied = true
+      }
     }
 
-    const before = this.resolvedConfig
-    this.load()
-    return { changed: true, applied: this.resolvedConfig !== before, error: this.error }
+    if (!changed && !applied && this.configError === null)
+      return { changed: false, applied: false, error: null }
+
+    this.apply()
+    this.notify()
+    return { changed, applied, error: this.configError }
+  }
+
+  private markGone(file: string): void {
+    const message = `${path.basename(file)} is gone`
+    if (file === this.settingsFile)
+      this.settingsError = message
+    else
+      this.serversError = message
   }
 
   private read(): void {
-    if (!fs.existsSync(this.file)) {
-      // A missing file gets the seed, stamped and written out for the user to edit.
-      const seed = stampConfig(structuredClone(this.seed))
+    let settings = readFile(this.settingsFile)
+    if (settings.missing) {
+      const seed = stampConfig(structuredClone(this.seedSettings))
       const text = `${JSON.stringify(seed, null, 2)}\n`
-      writeFileAtomic(this.file, text)
-      this.lastText = text
-      this.raw = seed
-      this.apply(seed)
-      return
+      writeFileAtomic(this.settingsFile, text)
+      settings = { text, parsed: seed, missing: false, parseError: null }
+    }
+    let servers = readFile(this.serversFile)
+    if (servers.missing) {
+      const seed = stampConfig(structuredClone(this.seedServers))
+      const text = `${JSON.stringify(seed, null, 2)}\n`
+      writeFileAtomic(this.serversFile, text)
+      servers = { text, parsed: seed, missing: false, parseError: null }
     }
 
-    let text: string
-    let parsed: unknown
-    try {
-      text = fs.readFileSync(this.file, 'utf8')
-      parsed = JSON.parse(text)
-    }
-    catch (error) {
-      this.error = `cannot parse ${path.basename(this.file)}: ${(error as Error).message}`
-      // The same rule `apply` follows for a value it rejects: a file that cannot be
-      // trusted never replaces a config this process is already running — neither the
-      // running one nor the `raw` one every write patches, or the next settings save
-      // would write a config with no servers in it. Only a first load has nothing to keep.
-      if (this.resolvedConfig === undefined) {
-        this.raw = {}
-        this.resolvedConfig = this.resolveFallback()
-      }
-      return
-    }
-
-    this.lastText = text
-    this.apply(parsed as RawConfig)
+    this.lastSettingsText = settings.text
+    this.lastServersText = servers.text
+    this.liveSettings = settings.parsed
+    this.liveServers = servers.parsed
+    this.settingsParseError = settings.parseError === null ? null : `cannot parse ${path.basename(this.settingsFile)}: ${settings.parseError}`
+    this.serversParseError = servers.parseError === null ? null : `cannot parse ${path.basename(this.serversFile)}: ${servers.parseError}`
+    if (settings.parseError === null)
+      this.liveSettings = settings.parsed
+    if (servers.parseError === null)
+      this.liveServers = servers.parsed
   }
 
   private notify(): void {
@@ -236,73 +272,51 @@ export class ConfigStore {
   }
 
   updateServer(id: string, patch: ServerPatch): ServerConfig {
-    const index = this.raw.servers?.findIndex(entry => entry.id === id) ?? -1
+    const list = (this.rawServers.servers as Record<string, unknown>[] | undefined) ?? []
+    const index = list.findIndex(entry => entry.id === id)
     if (index < 0)
       throw new ConfigError(`unknown server "${id}"`)
 
-    const draft = structuredClone(this.raw)
-    const entry = draft.servers![index]!
-
+    const draft = structuredClone(this.rawServers)
+    const entry = (draft.servers as Record<string, unknown>[])[index]!
     applyPatch(entry, patch as Record<string, unknown>, SERVER_MERGE_KEYS)
 
     const validated = this.validateServer(entry, `servers[${index}]`)
-    this.commit(draft)
+    this.commitServers(draft)
     return validated
   }
 
-  updateControl(patch: NonNullable<SettingsPatch['control']>): ControlConfig {
-    const draft = structuredClone(this.raw)
-    draft.control = { ...(draft.control ?? {}) }
-    applyPatch(draft.control, patch as Record<string, unknown>, CONTROL_MERGE_KEYS)
+  updateDefaults(patch: NonNullable<WorkspaceSettingsPatch['defaults']>): ServerDefaults {
+    const draft = structuredClone(this.rawSettings)
+    draft.defaults = { ...(draft.defaults as Record<string, unknown> ?? {}) }
+    applyPatch(draft.defaults as Record<string, unknown>, patch as Record<string, unknown>, SERVER_MERGE_KEYS)
 
-    const control = this.parseGroup<ControlConfig>(controlSchema as unknown as (input: unknown) => unknown, draft.control, 'control')
+    const defaults = this.parseGroup<ServerDefaults>(defaultsSchema as unknown as (input: unknown) => unknown, draft.defaults as Record<string, unknown>, 'defaults')
 
-    this.commit(draft)
-    return control
+    this.commitSettings(draft)
+    return defaults
   }
 
-  updateLogs(patch: NonNullable<SettingsPatch['logs']>): LogsConfig {
-    const draft = structuredClone(this.raw)
-    draft.logs = { ...(draft.logs ?? {}) }
-    applyPatch(draft.logs, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
+  updateLogs(patch: NonNullable<WorkspaceSettingsPatch['logs']>): LogsConfig {
+    const draft = structuredClone(this.rawSettings)
+    draft.logs = { ...(draft.logs as Record<string, unknown> ?? {}) }
+    applyPatch(draft.logs as Record<string, unknown>, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
 
-    const logs = this.parseGroup<LogsConfig>(logsSchema as unknown as (input: unknown) => unknown, draft.logs, 'logs')
+    const logs = this.parseGroup<LogsConfig>(logsSchema as unknown as (input: unknown) => unknown, draft.logs as Record<string, unknown>, 'logs')
 
-    this.commit(draft)
+    this.commitSettings(draft)
     return logs
   }
 
-  updateNotifications(patch: NonNullable<SettingsPatch['notifications']>): NotificationsConfig {
-    const draft = structuredClone(this.raw)
-    draft.notifications = { ...(draft.notifications ?? {}) }
-    applyPatch(draft.notifications, patch as Record<string, unknown>, NOTIFICATION_MERGE_KEYS)
+  updateNotifications(patch: NonNullable<WorkspaceSettingsPatch['notifications']>): NotificationsConfig {
+    const draft = structuredClone(this.rawSettings)
+    draft.notifications = { ...(draft.notifications as Record<string, unknown> ?? {}) }
+    applyPatch(draft.notifications as Record<string, unknown>, patch as Record<string, unknown>, NOTIFICATION_MERGE_KEYS)
 
-    const notifications = this.parseGroup<NotificationsConfig>(notificationsSchema as unknown as (input: unknown) => unknown, draft.notifications, 'notifications')
+    const notifications = this.parseGroup<NotificationsConfig>(notificationsSchema as unknown as (input: unknown) => unknown, draft.notifications as Record<string, unknown>, 'notifications')
 
-    this.commit(draft)
+    this.commitSettings(draft)
     return notifications
-  }
-
-  updateHost(patch: NonNullable<SettingsPatch['host']>): HostConfig {
-    const draft = structuredClone(this.raw)
-    draft.host = { ...(draft.host ?? {}) }
-    applyPatch(draft.host, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
-
-    const host = this.parseGroup<HostConfig>(hostSchema as unknown as (input: unknown) => unknown, draft.host, 'host')
-
-    this.commit(draft)
-    return host
-  }
-
-  updateBackups(patch: NonNullable<SettingsPatch['backups']>): BackupsConfig {
-    const draft = structuredClone(this.raw)
-    draft.backups = { ...(draft.backups ?? {}) }
-    applyPatch(draft.backups, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
-
-    const backups = this.parseGroup<BackupsConfig>(backupsSchema as unknown as (input: unknown) => unknown, draft.backups, 'backups')
-
-    this.commit(draft)
-    return backups
   }
 
   /**
@@ -311,67 +325,60 @@ export class ConfigStore {
    * hostname. A whole-block patch (the `PUT /api/ddns` route) lands the same way.
    */
   updateDdns(patch: DdnsPatch): DdnsConfig {
-    const draft = structuredClone(this.raw)
-    draft.ddns = { ...(draft.ddns ?? {}) }
-    applyPatch(draft.ddns, patch as Record<string, unknown>, DDNS_MERGE_KEYS)
+    const draft = structuredClone(this.rawSettings)
+    draft.ddns = { ...(draft.ddns as Record<string, unknown> ?? {}) }
+    applyPatch(draft.ddns as Record<string, unknown>, patch as Record<string, unknown>, DDNS_MERGE_KEYS)
 
-    const parsed = this.parseGroup<DdnsConfig>(ddnsConfigSchema as unknown as (input: unknown) => unknown, draft.ddns, 'ddns')
+    const parsed = this.parseGroup<DdnsConfig>(ddnsConfigSchema as unknown as (input: unknown) => unknown, draft.ddns as Record<string, unknown>, 'ddns')
 
     const problems = validateDdnsConfig(parsed)
     if (problems.length > 0)
       throw new ConfigError(`ddns: ${problems.join('; ')}`)
 
-    this.commit(draft)
+    this.commitSettings(draft)
     return parsed
   }
 
-  updateDefaults(patch: NonNullable<SettingsPatch['defaults']>): ServerDefaults {
-    const draft = structuredClone(this.raw)
-    draft.defaults = { ...(draft.defaults ?? {}) }
-    applyPatch(draft.defaults, patch as Record<string, unknown>, SERVER_MERGE_KEYS)
-
-    const defaults = this.parseGroup<ServerDefaults>(defaultsSchema as unknown as (input: unknown) => unknown, draft.defaults, 'defaults')
-
-    this.commit(draft)
-    return defaults
-  }
-
   addServer(input: Record<string, unknown>): ServerConfig {
-    const draft = structuredClone(this.raw)
-    draft.servers ??= []
-    if (draft.servers.some(entry => entry.id === input.id)) {
+    const draft = structuredClone(this.rawServers)
+    const list = (draft.servers as Record<string, unknown>[] | undefined) ?? (draft.servers = [])
+    if (list.some(entry => entry.id === input.id))
       throw new ConfigError(`server "${String(input.id)}" already exists`)
-    }
 
-    const index = draft.servers.length
-    draft.servers.push(structuredClone(input))
-    const validated = this.validateServer(draft.servers[index]!, `servers[${index}]`)
-    this.commit(draft)
+    const index = list.length
+    list.push(structuredClone(input))
+    const validated = this.validateServer(list[index]!, `servers[${index}]`)
+    this.commitServers(draft)
     return validated
   }
 
   removeServer(id: string): void {
-    const draft = structuredClone(this.raw)
-    const before = draft.servers?.length ?? 0
-    draft.servers = (draft.servers ?? []).filter(entry => entry.id !== id)
-    if (draft.servers.length === before)
+    const draft = structuredClone(this.rawServers)
+    const list = (draft.servers as Record<string, unknown>[] | undefined) ?? []
+    const before = list.length
+    draft.servers = list.filter(entry => entry.id !== id)
+    if ((draft.servers as unknown[]).length === before)
       throw new ConfigError(`unknown server "${id}"`)
-    this.commit(draft)
-  }
-
-  /** Regenerates `servers.config.schema.json` for editor autocomplete. */
-  writeJsonSchema(): void {
-    const schema = JSON.stringify(configSchema.toJsonSchema(), null, 2)
-    const current = fs.existsSync(configSchemaPath) ? fs.readFileSync(configSchemaPath, 'utf8') : null
-    if (current !== schema)
-      writeFileAtomic(configSchemaPath, schema)
+    this.commitServers(draft)
   }
 
   /**
-   * Validates one group the way the reader does: a key this release does not know
-   * is reported and skipped, never fatal. Without this, a config carrying a key a
-   * newer release added — or an older one removed — could not be saved at all.
+   * Regenerates both JSON schemas for editor autocomplete, beside the files they
+   * describe — derived from this store's own paths, never from a module-level
+   * default, so a store over a custom root cannot write into `$HHOSTED_HOME`.
    */
+  writeJsonSchema(): void {
+    this.writeSchema(path.join(path.dirname(this.settingsFile), 'settings.schema.json'), workspaceSettingsSchema)
+    this.writeSchema(path.join(path.dirname(this.serversFile), `${path.basename(this.serversFile, '.json')}.schema.json`), serversFileSchema)
+  }
+
+  private writeSchema(file: string, schema: { toJsonSchema: () => unknown }): void {
+    const text = JSON.stringify(schema.toJsonSchema(), null, 2)
+    const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+    if (current !== text)
+      writeFileAtomic(file, text)
+  }
+
   private parseGroup<T>(schema: (input: unknown) => unknown, value: Record<string, unknown>, label: string): T {
     const parsed = parseTolerant(value, schema, label, [])
     if (parsed.error !== null)
@@ -380,57 +387,80 @@ export class ConfigStore {
   }
 
   private validateServer(entry: Record<string, unknown>, label: string): ServerConfig {
-    const parsed = serverSchema(mergeDefaults(this.defaults, entry))
+    const parsed = serverSchema(mergeDefaults(this.defaults as unknown as Record<string, unknown>, entry))
     if (parsed instanceof type.errors)
-      throw new ConfigError(`${label}: ${formatErrors(parsed)}`)
+      throw new ConfigError(`${label}: ${parsed.summary}`)
     return { ...parsed, port: parsed.port ?? null }
   }
 
-  private commit(draft: RawConfig): void {
-    // Every write carries the stamp, so the next release can tell what wrote it.
+  private commitSettings(draft: Record<string, unknown>): void {
     const stamped = stampConfig(draft)
     const text = `${JSON.stringify(stamped, null, 2)}\n`
-    writeFileAtomic(this.file, text)
-    this.lastText = text
-    this.raw = stamped
-    this.apply(stamped)
+    writeFileAtomic(this.settingsFile, text)
+    this.lastSettingsText = text
+    this.liveSettings = stamped
+    this.settingsParseError = null
+    this.apply()
     this.notify()
   }
 
-  private resolveFallback(): ResolvedConfig {
-    const control = controlSchema({})
-    const defaults = defaultsSchema({})
-    if (control instanceof type.errors || defaults instanceof type.errors) {
-      throw new ConfigError('internal: default config failed validation')
-    }
-    const logs = logsSchema({})
-    const notifications = notificationsSchema({})
-    const host = hostSchema({})
-    const backups = backupsSchema({})
-    const ddns = ddnsConfigSchema({})
-    if (logs instanceof type.errors || notifications instanceof type.errors || host instanceof type.errors || backups instanceof type.errors || ddns instanceof type.errors) {
-      throw new ConfigError('internal: default settings failed validation')
-    }
-    return { control, defaults, logs, notifications, host, backups, ddns, servers: [] }
+  private commitServers(draft: Record<string, unknown>): void {
+    const stamped = stampConfig(draft)
+    const text = `${JSON.stringify(stamped, null, 2)}\n`
+    writeFileAtomic(this.serversFile, text)
+    this.lastServersText = text
+    this.liveServers = stamped
+    this.serversParseError = null
+    this.apply()
+    this.notify()
   }
 
-  private apply(raw: RawConfig): void {
-    this.raw = raw
-    const parsed = parseConfig(raw)
-    this.error = parsed.errors.length > 0 ? parsed.errors.join('; ') : null
-    this.schemaVersion = parsed.schemaVersion
+  private apply(): void {
+    const settings = parseWorkspaceSettings(this.liveSettings)
+    const servers = parseServersFile(this.liveServers, settings.config?.defaults as unknown as Record<string, unknown> ?? {})
+    const haveResolved = this.resolvedConfig !== undefined
+
+    this.settingsError = this.settingsParseError ?? (settings.errors.length > 0 ? settings.errors.join('; ') : null)
+    this.serversError = this.serversParseError ?? (servers.errors.length > 0 ? servers.errors.join('; ') : null)
+    this.settingsSchemaVersion = settings.schemaVersion
+    this.serversSchemaVersion = servers.schemaVersion
     this.warnings = [
-      ...parsed.warnings,
-      ...(parsed.unknownKeys.length === 0
+      ...settings.warnings,
+      ...servers.warnings,
+      ...(settings.unknownKeys.length === 0 && servers.unknownKeys.length === 0
         ? []
-        : [`${path.basename(this.file)} carries ${parsed.unknownKeys.length} unrecognized key(s) this release ignores: ${parsed.unknownKeys.join(', ')}`]),
+        : [`this workspace carries ${settings.unknownKeys.length + servers.unknownKeys.length} unrecognized key(s) this release ignores: ${[...settings.unknownKeys, ...servers.unknownKeys].join(', ')}`]),
     ]
-    // A file that cannot be trusted never replaces a config this process is already
-    // running: a bad edit must not disturb supervision or blank the panel. It only
-    // falls back to defaults when there is nothing good to keep (a first load).
-    if (parsed.config !== null)
-      this.resolvedConfig = parsed.config
-    else if (this.resolvedConfig === undefined)
-      this.resolvedConfig = this.resolveFallback()
+
+    // A side this release cannot read keeps the values already running; only a
+    // first load falls back to the schema defaults.
+    const settingsConfig: ResolvedWorkspaceSettings = settings.config ?? (haveResolved
+      ? {
+          defaults: this.resolvedConfig.defaults,
+          logs: this.resolvedConfig.logs,
+          notifications: this.resolvedConfig.notifications,
+          ddns: this.resolvedConfig.ddns,
+        }
+      : this.resolveSettingsFallback())
+    const nextServers = servers.errors.length === 0
+      ? servers.servers
+      : haveResolved ? this.resolvedConfig.servers : []
+    this.resolvedConfig = { ...settingsConfig, servers: nextServers }
+
+    // The raw objects every write patches follow the last trusted read only.
+    if (settings.config !== null)
+      this.rawSettings = structuredClone(this.liveSettings) as Record<string, unknown>
+    if (servers.errors.length === 0)
+      this.rawServers = structuredClone(this.liveServers) as Record<string, unknown>
+  }
+
+  private resolveSettingsFallback(): ResolvedWorkspaceSettings {
+    const defaults = defaultsSchema({})
+    const logs = logsSchema({})
+    const notifications = notificationsSchema({})
+    const ddns = ddnsConfigSchema({})
+    if (defaults instanceof type.errors || logs instanceof type.errors || notifications instanceof type.errors || ddns instanceof type.errors)
+      throw new ConfigError('internal: default workspace settings failed validation')
+    return { defaults, logs, notifications, ddns }
   }
 }

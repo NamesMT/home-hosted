@@ -1,19 +1,24 @@
 import type {
   AppState,
-  ControlView,
+  BackupsView,
   DdnsConfig,
   DdnsView,
   FreePortResult,
-  HostConfig,
   LogHistoryView,
-  LogsConfig,
   LogServerView,
-  NotificationView,
+  RestorePlan,
   ServerCreate,
-  ServerDefaults,
   ServerPatch,
+  ServerView,
   SessionView,
   SettingsPatch,
+  SettingsSaved,
+  SettingsView,
+  UiStatus,
+  WorkspaceCreate,
+  WorkspaceSettingsPatch,
+  WorkspaceSettingsView,
+  WorkspaceView,
 } from '@shared/contracts'
 import {
   appStateSchema,
@@ -23,32 +28,32 @@ import {
   logServersViewSchema,
   passwordSchema,
   settingsPatchSchema,
+  workspaceSettingsPatchSchema,
+  workspaceSettingsViewSchema,
+  workspaceViewSchema,
 } from '@shared/contracts'
 import { type } from 'arktype'
 import { rpc } from '@/lib/rpc'
+
+export type { BackupFile, BackupsView, RestoreItem, RestorePlan, SettingsView, UiStatus, WorkspaceSettingsView, WorkspaceView } from '@shared/contracts'
+
+/**
+ * The schema accepts a request-shaped `port` (possibly absent); the panel always
+ * emits the normalized `number | null` form. These view types carry that one
+ * narrowing through the whole UI.
+ */
+export type WorkspaceState = Omit<WorkspaceView, 'servers'> & { servers: ServerView[] }
+export type AppStateView = Omit<AppState, 'workspaces'> & { workspaces: WorkspaceState[] }
 
 export interface ActionResult {
   ok: boolean
   error?: string
 }
 
-export interface UiStatus {
-  /** A user-supplied UI is being served instead of the stock one. */
-  custom: boolean
-  dir: string
-  meta: { name: string, version: string | null, uploadedAt: number, files: number } | null
-}
-
-export interface SettingsView {
-  control: ControlView
-  defaults: ServerDefaults
-  logs: LogsConfig
-  notifications: NotificationView
-  host: HostConfig
-  backups: BackupsState
-  /** Which panel UI is being served, and how to put the stock one back. */
-  ui: UiStatus
-}
+/** `GET /api/workspaces` and the single-workspace CRUD answers. */
+const workspacesViewSchema = type({ workspaces: workspaceViewSchema.array() })
+const workspaceAnswerSchema = type({ workspace: workspaceViewSchema })
+const workspaceRemovedSchema = type({ ok: 'boolean', removed: 'unknown' })
 
 export interface LogServerInfo extends LogServerView {}
 
@@ -58,64 +63,15 @@ export interface LogQuery {
   stream?: string
 }
 
-export interface BackupEntry {
-  name: string
-  sizeBytes: number
-  createdAt: number
-  encrypted: boolean
-}
-
-export interface BackupPathEntry {
-  path: string
-  /** Which item this path is in a backup's `include`; older panels omit it. */
-  id?: string
-  origin: string
-  included: boolean
-  note: string | null
-}
-
-export interface BackupsState {
-  enabled: boolean
-  dir: string
-  keep: number
-  includePaths: string[]
-  paths: BackupPathEntry[]
-  files: BackupEntry[]
-}
-
-export interface RestoreItem {
-  id: string
-  label: string
-  kind: 'config' | 'secrets' | 'tls' | 'data'
-  restorable: boolean
-  selected: boolean
-  note: string | null
-}
-
-export interface RestorePlan {
-  dryRun: boolean
-  encrypted: boolean
-  needsPassword: boolean
-  items: RestoreItem[]
-  applied: string[]
-  skipped: string[]
-  restartRequired: boolean
-  /** The panel re-read the restored servers, and started the autostart ones. */
-  reloaded: boolean
-  error?: string
-}
-
 export interface RestoreOptions {
   password?: string
-  /** Item ids to restore; omitted means every restorable item. */
+  /** Leaf/entry item ids to restore; omitted means every restorable item. */
   include?: string[]
 }
 
-export interface SettingsSaveResult extends SettingsView {
-  /** The listener is being moved; wait for `targetUrl` before redirecting. */
-  rebinding: boolean
-  /** The address the panel is moving to, or null when it stays put. */
-  targetUrl: string | null
+export interface WorkspaceRemoved {
+  ok: boolean
+  removed: unknown
 }
 
 /** Raised when the control plane wants a login before it will answer. */
@@ -131,6 +87,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+/** One `?workspace=<id>` qualifier; omitted lets the panel pick its default. */
+export function workspaceQuery(workspace?: string | null): string {
+  return workspace === undefined || workspace === null || workspace.length === 0
+    ? ''
+    : `?workspace=${encodeURIComponent(workspace)}`
+}
+
+/** The typed RPC arguments for a workspace-scoped server route; empty means "default". */
+function rpcArgs(workspace: string, id: string): { param: { id: string }, query: { workspace?: string } } {
+  return { param: { id }, query: workspace.length > 0 ? { workspace } : {} }
+}
+
+function scoped(path: string, workspace: string, extra?: URLSearchParams): string {
+  const params = extra ?? new URLSearchParams()
+  if (workspace.length > 0)
+    params.set('workspace', workspace)
+  const query = params.toString()
+  return query.length > 0 ? `${path}?${query}` : path
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -141,9 +117,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const payload: unknown = text.length > 0 ? JSON.parse(text) : null
 
   if (!response.ok) {
-    if (response.status === 401 && isRecord(payload) && payload.code === 'AUTH_REQUIRED') {
+    if (response.status === 401 && isRecord(payload) && payload.code === 'AUTH_REQUIRED')
       throw new AuthRequiredError()
-    }
     const message = isRecord(payload) && typeof payload.message === 'string'
       ? payload.message
       : isRecord(payload) && 'error' in payload
@@ -156,14 +131,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Validated at the boundary: contract drift fails loudly here, not in the UI. */
-export async function fetchState(): Promise<AppState> {
+export async function fetchState(): Promise<AppStateView> {
   const payload = await request<unknown>('/api/state')
   const parsed = appStateSchema(payload)
   if (parsed instanceof type.errors)
     throw new Error(`state contract mismatch: ${parsed.summary}`)
   // The schema accepts both `port` forms; the control plane always sends the
-  // normalized one (`number | null`), which is what AppState describes.
-  return parsed as AppState
+  // normalized one (`number | null`), which is what AppStateView describes.
+  return parsed as AppStateView
 }
 
 export function fetchSession(): Promise<SessionView> {
@@ -195,26 +170,85 @@ export function clearPassword(): Promise<unknown> {
   return request('/api/auth/password', { method: 'DELETE' })
 }
 
+/** Every workspace the panel serves, in panel order; the first is the default. */
+export async function fetchWorkspaces(): Promise<WorkspaceState[]> {
+  const payload = await request<unknown>('/api/workspaces')
+  const parsed = workspacesViewSchema(payload)
+  if (parsed instanceof type.errors)
+    throw new Error(`workspaces contract mismatch: ${parsed.summary}`)
+  return parsed.workspaces as WorkspaceState[]
+}
+
+async function workspaceAnswer(payload: unknown): Promise<WorkspaceState> {
+  const parsed = workspaceAnswerSchema(payload)
+  if (parsed instanceof type.errors)
+    throw new Error(`workspace contract mismatch: ${parsed.summary}`)
+  return parsed.workspace as WorkspaceState
+}
+
+export async function createWorkspace(input: WorkspaceCreate): Promise<WorkspaceState> {
+  return workspaceAnswer(await request<unknown>('/api/workspaces', { method: 'POST', body: JSON.stringify(input) }))
+}
+
+export async function renameWorkspace(id: string, label: string): Promise<WorkspaceState> {
+  return workspaceAnswer(await request<unknown>(`/api/workspaces/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ label }),
+  }))
+}
+
+export async function deleteWorkspace(id: string): Promise<WorkspaceRemoved> {
+  const payload = await request<unknown>(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const parsed = workspaceRemovedSchema(payload)
+  if (parsed instanceof type.errors)
+    throw new Error(`workspace removal contract mismatch: ${parsed.summary}`)
+  return parsed as WorkspaceRemoved
+}
+
+/** `GET /api/settings`: the panel-wide configuration (listener, auth, host, backups, UI). */
 export function fetchSettings(): Promise<SettingsView> {
   return request<SettingsView>('/api/settings')
 }
 
-export function patchSettings(patch: SettingsPatch): Promise<SettingsSaveResult> {
+export function patchSettings(patch: SettingsPatch): Promise<SettingsSaved> {
   const parsed = settingsPatchSchema(patch)
   if (parsed instanceof type.errors)
     throw new Error(parsed.summary)
-  return request<SettingsSaveResult>('/api/settings', { method: 'PATCH', body: JSON.stringify(parsed) })
+  return request<SettingsSaved>('/api/settings', { method: 'PATCH', body: JSON.stringify(parsed) })
 }
 
-export async function fetchLogServers(): Promise<LogServerInfo[]> {
-  const payload = await request<unknown>('/api/logs')
+/** `GET /api/settings/workspace?workspace=<id>`: defaults, logs and notifications. */
+export async function fetchWorkspaceSettings(workspace: string): Promise<WorkspaceSettingsView> {
+  const payload = await request<unknown>(scoped('/api/settings/workspace', workspace))
+  const parsed = workspaceSettingsViewSchema(payload)
+  if (parsed instanceof type.errors)
+    throw new Error(`workspace settings contract mismatch: ${parsed.summary}`)
+  return parsed as WorkspaceSettingsView
+}
+
+export async function patchWorkspaceSettings(workspace: string, patch: WorkspaceSettingsPatch): Promise<WorkspaceSettingsView> {
+  const parsed = workspaceSettingsPatchSchema(patch)
+  if (parsed instanceof type.errors)
+    throw new Error(parsed.summary)
+  const payload = await request<unknown>(scoped('/api/settings/workspace', workspace), {
+    method: 'PATCH',
+    body: JSON.stringify(parsed),
+  })
+  const view = workspaceSettingsViewSchema(payload)
+  if (view instanceof type.errors)
+    throw new Error(`workspace settings contract mismatch: ${view.summary}`)
+  return view as WorkspaceSettingsView
+}
+
+export async function fetchLogServers(workspace: string): Promise<LogServerInfo[]> {
+  const payload = await request<unknown>(scoped('/api/logs', workspace))
   const parsed = logServersViewSchema(payload)
   if (parsed instanceof type.errors)
     throw new Error(`logs contract mismatch: ${parsed.summary}`)
   return parsed.servers as LogServerInfo[]
 }
 
-export async function fetchLogHistory(id: string, query: LogQuery): Promise<LogHistoryView> {
+export async function fetchLogHistory(workspace: string, id: string, query: LogQuery): Promise<LogHistoryView> {
   const params = new URLSearchParams()
   if (query.tail !== undefined)
     params.set('tail', String(query.tail))
@@ -223,28 +257,37 @@ export async function fetchLogHistory(id: string, query: LogQuery): Promise<LogH
   if (query.stream !== undefined && query.stream.length > 0)
     params.set('stream', query.stream)
 
-  const payload = await request<unknown>(`/api/logs/${encodeURIComponent(id)}?${params.toString()}`)
+  const payload = await request<unknown>(scoped(`/api/logs/${encodeURIComponent(id)}`, workspace, params))
   const parsed = logHistoryViewSchema(payload)
   if (parsed instanceof type.errors)
     throw new Error(`log history contract mismatch: ${parsed.summary}`)
   return parsed as LogHistoryView
 }
 
-export function clearLogHistory(id: string): Promise<unknown> {
-  return request(`/api/logs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export function clearLogHistory(workspace: string, id: string): Promise<unknown> {
+  return request(scoped(`/api/logs/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' })
 }
 
 /** Direct link; the session cookie is sent by the browser. */
-export function logDownloadUrl(id: string, file: string): string {
-  return `/api/logs/${encodeURIComponent(id)}/download?file=${encodeURIComponent(file)}`
+export function logDownloadUrl(workspace: string, id: string, file: string): string {
+  return scoped(`/api/logs/${encodeURIComponent(id)}/download`, workspace, new URLSearchParams({ file }))
 }
 
-export function fetchBackups(): Promise<BackupsState> {
-  return request<BackupsState>('/api/backups')
+/** Backups are panel-wide: every workspace is a selectable entry in the archive. */
+export function fetchBackups(): Promise<BackupsView> {
+  return request<BackupsView>('/api/backups')
 }
 
-/** The caller re-reads `/api/state` afterwards, which carries the fresh list. */
+/**
+ * The caller re-reads `/api/state` afterwards, which carries the fresh list.
+ * An explicitly empty `include` is refused rather than dropped: omitting the key
+ * means "capture everything" to the server, so silently widening a selection of
+ * nothing into a full archive is the one outcome that must never happen.
+ */
 export function createBackup(password?: string, include?: string[]): Promise<unknown> {
+  if (include !== undefined && include.length === 0)
+    throw new Error('nothing is selected: omit `include` to capture everything, or select at least one item')
+
   const body: Record<string, unknown> = {}
   if (password !== undefined && password.length > 0)
     body.password = password
@@ -293,20 +336,20 @@ export async function restoreUploadedBackup(file: File, confirm: boolean, option
   return payload as RestorePlan
 }
 
-export function saveTelegramToken(botToken: string): Promise<{ ok: boolean, username: string | null }> {
-  return request('/api/notifications/token', { method: 'PUT', body: JSON.stringify({ botToken }) })
+export function saveTelegramToken(workspace: string, botToken: string): Promise<{ ok: boolean, username: string | null }> {
+  return request(scoped('/api/notifications/token', workspace), { method: 'PUT', body: JSON.stringify({ botToken }) })
 }
 
-export function clearTelegramToken(): Promise<unknown> {
-  return request('/api/notifications/token', { method: 'DELETE' })
+export function clearTelegramToken(workspace: string): Promise<unknown> {
+  return request(scoped('/api/notifications/token', workspace), { method: 'DELETE' })
 }
 
-export function sendTelegramTest(payload: { botToken?: string, chatId?: string }): Promise<{ ok: boolean, error?: string }> {
-  return request('/api/notifications/test', { method: 'POST', body: JSON.stringify(payload) })
+export function sendTelegramTest(workspace: string, payload: { botToken?: string, chatId?: string }): Promise<{ ok: boolean, error?: string }> {
+  return request(scoped('/api/notifications/test', workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
-export function detectTelegramChats(payload: { botToken?: string }): Promise<{ chats: Array<{ id: number | string, title: string }> }> {
-  return request('/api/notifications/detect-chats', { method: 'POST', body: JSON.stringify(payload) })
+export function detectTelegramChats(workspace: string, payload: { botToken?: string }): Promise<{ chats: Array<{ id: number | string, title: string }> }> {
+  return request(scoped('/api/notifications/detect-chats', workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
 /** Dynamic DNS, validated at the boundary like the rest of the settings payloads. */
@@ -317,26 +360,29 @@ async function ddnsView(payload: unknown): Promise<DdnsView> {
   return parsed as DdnsView
 }
 
-export async function fetchDdns(): Promise<DdnsView> {
-  return ddnsView(await request<unknown>('/api/ddns'))
+export async function fetchDdns(workspace: string): Promise<DdnsView> {
+  return ddnsView(await request<unknown>(scoped('/api/ddns', workspace)))
 }
 
-export async function saveDdns(config: DdnsConfig): Promise<DdnsView> {
-  return ddnsView(await request<unknown>('/api/ddns', { method: 'PUT', body: JSON.stringify(config) }))
+export async function saveDdns(workspace: string, config: DdnsConfig): Promise<DdnsView> {
+  return ddnsView(await request<unknown>(scoped('/api/ddns', workspace), { method: 'PUT', body: JSON.stringify(config) }))
 }
 
 /** The provider travels with the request: the account may still be an unsaved draft. */
-export async function saveDdnsCredentials(id: string, provider: string, credentials: Record<string, string>): Promise<DdnsView> {
-  return ddnsView(await request<unknown>(`/api/ddns/credentials/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ provider, credentials }) }))
+export async function saveDdnsCredentials(workspace: string, id: string, provider: string, credentials: Record<string, string>): Promise<DdnsView> {
+  return ddnsView(await request<unknown>(scoped(`/api/ddns/credentials/${encodeURIComponent(id)}`, workspace), {
+    method: 'PUT',
+    body: JSON.stringify({ provider, credentials }),
+  }))
 }
 
-export async function clearDdnsCredentials(id: string): Promise<DdnsView> {
-  return ddnsView(await request<unknown>(`/api/ddns/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' }))
+export async function clearDdnsCredentials(workspace: string, id: string): Promise<DdnsView> {
+  return ddnsView(await request<unknown>(scoped(`/api/ddns/credentials/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' }))
 }
 
 /** Runs a pass now; the answer carries the fresh status. */
-export async function checkDdns(): Promise<DdnsView> {
-  return ddnsView(await request<unknown>('/api/ddns/check', { method: 'POST' }))
+export async function checkDdns(workspace: string): Promise<DdnsView> {
+  return ddnsView(await request<unknown>(scoped('/api/ddns/check', workspace), { method: 'POST' }))
 }
 
 /** Replace the panel UI with a static build (a zip); the next refresh shows it. */
@@ -355,67 +401,68 @@ export function revertUi(): Promise<{ ok: boolean, removed: boolean, ui: UiStatu
   return request('/api/settings/ui', { method: 'DELETE' })
 }
 
-export function uploadTls(certificate: string, privateKey: string): Promise<SettingsSaveResult> {
-  return request('/api/settings/tls', { method: 'POST', body: JSON.stringify({ certificate, privateKey }) })
+export function uploadTls(certificate: string, privateKey: string): Promise<SettingsSaved> {
+  return request<SettingsSaved>('/api/settings/tls', { method: 'POST', body: JSON.stringify({ certificate, privateKey }) })
 }
 
-export function clearTls(): Promise<SettingsSaveResult> {
-  return request('/api/settings/tls', { method: 'DELETE' })
+export function clearTls(): Promise<SettingsSaved> {
+  return request<SettingsSaved>('/api/settings/tls', { method: 'DELETE' })
 }
 
 /**
  * Lifecycle calls go through the typed RPC client: the route, its parameter and
  * the result shape are inferred from the server app, so a renamed route or a
- * changed DTO fails the build instead of the click.
+ * changed DTO fails the build instead of the click. An empty workspace id is
+ * omitted so the panel resolves its own default.
  */
-export async function serverAction(id: string, action: 'start' | 'stop' | 'restart'): Promise<ActionResult> {
-  const response = await rpc.api.servers[':id'][action].$post({ param: { id } })
+export async function serverAction(workspace: string, id: string, action: 'start' | 'stop' | 'restart'): Promise<ActionResult> {
+  const response = await rpc.api.servers[':id'][action].$post(rpcArgs(workspace, id))
   const payload = await response.json().catch(() => null) as (ActionResult & { message?: string }) | null
   if (!response.ok)
     throw new Error(payload?.message ?? `request failed with ${response.status}`)
   return payload ?? { ok: true }
 }
 
-export function startAll(): Promise<unknown> {
-  return request('/api/servers/start-all', { method: 'POST' })
+export function startAll(workspace: string): Promise<unknown> {
+  return request(scoped('/api/servers/start-all', workspace), { method: 'POST' })
 }
 
 /**
  * Frees a server's port by asking the listener holding it to stop. The server
  * re-lists the holders itself, so this never kills a pid quoted in an old banner.
  */
-export async function freePort(id: string): Promise<FreePortResult> {
-  const response = await rpc.api.servers[':id']['free-port'].$post({ param: { id } })
+export async function freePort(workspace: string, id: string): Promise<FreePortResult> {
+  const response = await rpc.api.servers[':id']['free-port'].$post(rpcArgs(workspace, id))
   const payload = await response.json().catch(() => null) as (FreePortResult & { message?: string }) | null
   if (!response.ok)
     throw new Error(payload?.message ?? `request failed with ${response.status}`)
   return payload ?? { ok: true, port: null, terminated: [], forced: [], skipped: [], free: false }
 }
 
-export function stopAll(): Promise<unknown> {
-  return request('/api/servers/stop-all', { method: 'POST' })
+export function stopAll(workspace: string): Promise<unknown> {
+  return request(scoped('/api/servers/stop-all', workspace), { method: 'POST' })
 }
 
-export function clearLogs(id: string): Promise<unknown> {
-  return request(`/api/servers/${encodeURIComponent(id)}/clear-logs`, { method: 'POST' })
+export function clearLogs(workspace: string, id: string): Promise<unknown> {
+  return request(scoped(`/api/servers/${encodeURIComponent(id)}/clear-logs`, workspace), { method: 'POST' })
 }
 
 export type ServerPatchPayload = Partial<ServerPatch> & Record<string, unknown>
 
-export function patchServer(id: string, patch: ServerPatchPayload): Promise<unknown> {
-  return request(`/api/servers/${encodeURIComponent(id)}`, {
+export function patchServer(workspace: string, id: string, patch: ServerPatchPayload): Promise<unknown> {
+  return request(scoped(`/api/servers/${encodeURIComponent(id)}`, workspace), {
     method: 'PATCH',
     body: JSON.stringify(patch),
   })
 }
 
-export function removeServer(id: string): Promise<unknown> {
-  return request(`/api/servers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export function removeServer(workspace: string, id: string): Promise<unknown> {
+  return request(scoped(`/api/servers/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' })
 }
 
 /** The create body is exactly the strict, defaulted schema the route validates. */
 export type CreateServerPayload = ServerCreate
 
-export function createServer(payload: CreateServerPayload): Promise<unknown> {
-  return request('/api/servers', { method: 'POST', body: JSON.stringify(payload) })
+export function createServer(workspace: string, payload: CreateServerPayload): Promise<unknown> {
+  return request(scoped('/api/servers', workspace), { method: 'POST', body: JSON.stringify(payload) })
 }

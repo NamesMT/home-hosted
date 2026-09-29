@@ -1,12 +1,17 @@
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 
 /**
- * Where home-hosted keeps everything it owns: the servers config, the secrets
- * file, logs, TLS material, backups and the runtime file. `HHOSTED_HOME`
- * overrides it — which is how a project repo keeps its own state directory
- * while the package itself ships no configuration at all.
+ * Where home-hosted keeps everything it owns. `HHOSTED_HOME` overrides it —
+ * which is how a project repo keeps its own state directory while the package
+ * itself ships no configuration at all.
+ *
+ * Everything below `dataRoot/.hh`: the global panel state at its top level, and
+ * one directory per workspace. A workspace owns its settings, servers, secrets,
+ * logs and nanny state; only what is genuinely panel-wide (listener, auth,
+ * host vitals, backups, TLS, UI, run.json) stays global.
  */
 export function resolveDataRoot(): string {
   const override = process.env.HHOSTED_HOME
@@ -32,24 +37,120 @@ export function resolveProjectDir(): string {
 
 export const projectDir = resolveProjectDir()
 
-export const defaultConfigPath = path.join(dataRoot, 'servers.config.json')
-/** Regenerated for editor autocomplete; kept beside the config it describes. */
-export const configSchemaPath = path.join(dataRoot, 'servers.config.schema.json')
-/** Password hash + bot token; written with mode 0600. */
-export const defaultSecretsPath = path.join(dataRoot, '.control-secrets.json')
-/** Rotated per-server JSONL logs. */
-export const defaultLogsDir = path.join(dataRoot, '.logs')
-/** Persisted restart/crash history. */
-export const defaultHistoryPath = path.join(dataRoot, '.logs', 'history.json')
+/** The internal state root: global files here, one directory per workspace. */
+export const hhDir = path.join(dataRoot, '.hh')
+
+export const DEFAULT_WORKSPACE_ID = 'default'
+
+// ---------------------------------------------------------------- global state
+
+/** Panel-wide settings: listener, auth, TLS policy, host vitals, backups. */
+export const globalSettingsPath = path.join(hhDir, 'settings.json')
+/** Regenerated for editor autocomplete; kept beside the file it describes. */
+export const globalSettingsSchemaPath = path.join(hhDir, 'settings.schema.json')
+/** Password hash + API token hash; written with mode 0600. */
+export const globalSecretsPath = path.join(hhDir, '.control-secrets.json')
+/** The workspace registry: ids and labels. */
+export const workspacesPath = path.join(hhDir, 'workspaces.json')
+export const workspacesSchemaPath = path.join(hhDir, 'workspaces.schema.json')
 /** Uploaded TLS PEM pair (the key is written 0600). */
-export const defaultTlsDir = path.join(dataRoot, '.tls')
+export const tlsDir = path.join(hhDir, '.tls')
+/** Default archive directory; `backups.dir` resolves against `hhDir`. */
+export const defaultBackupsDirName = '.backups'
+/** The panel's own console log. */
+export const daemonLogPath = path.join(hhDir, '.logs', 'home-hosted.log')
+/** `run.json` records the live control plane. */
+export const runtimePath = path.join(hhDir, 'run.json')
+/** The installed UI; `UiService` owns everything under it. */
+export const uiDir = path.join(hhDir, '.ui')
+
+// ------------------------------------------------------------- workspace state
+
+export function workspaceDir(id: string): string {
+  return path.join(hhDir, id)
+}
+
+/** Workspace-scoped settings: server defaults, logs, notifications, DDNS. */
+export function workspaceSettingsPath(id: string): string {
+  return path.join(workspaceDir(id), 'settings.json')
+}
+
+export function workspaceSettingsSchemaPath(id: string): string {
+  return path.join(workspaceDir(id), 'settings.schema.json')
+}
+
+/** The servers a workspace supervises. */
+export function workspaceServersPath(id: string): string {
+  return path.join(workspaceDir(id), 'servers.config.json')
+}
+
+export function workspaceServersSchemaPath(id: string): string {
+  return path.join(workspaceDir(id), 'servers.config.schema.json')
+}
+
+/** Workspace secrets: Telegram bot token and DDNS credentials. Mode 0600. */
+export function workspaceSecretsPath(id: string): string {
+  return path.join(workspaceDir(id), '.secrets.json')
+}
+
+/** Rotated per-server JSONL logs. */
+export function workspaceLogsDir(id: string): string {
+  return path.join(workspaceDir(id), '.logs')
+}
+
+/** Persisted restart/crash history for one workspace. */
+export function workspaceHistoryPath(id: string): string {
+  return path.join(workspaceLogsDir(id), 'history.json')
+}
+
 /** Per-entry nanny state and spawn specs — how a persistent server survives a restart. */
-export const defaultNannyDir = path.join(dataRoot, '.state')
+export function workspaceStateDir(id: string): string {
+  return path.join(workspaceDir(id), '.state')
+}
+
 /** The last public address each DDNS target was confirmed to serve. */
-export const defaultDdnsStatePath = path.join(dataRoot, '.state', 'ddns.json')
-/** `run.json` records the live control plane; the log captures its console. */
-export const runtimePath = path.join(dataRoot, 'run.json')
-export const daemonLogPath = path.join(dataRoot, '.logs', 'home-hosted.log')
+export function workspaceDdnsStatePath(id: string): string {
+  return path.join(workspaceStateDir(id), 'ddns.json')
+}
+
+/** Every directory a nanny state file may sit in, across all workspaces. */
+export function workspaceIdsOnDisk(): string[] {
+  try {
+    return fs.readdirSync(hhDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map(entry => entry.name)
+      .filter(id => /^[a-z0-9][a-z0-9_-]*$/.test(id))
+  }
+  catch {
+    return []
+  }
+}
+
+// -------------------------------------------------------------------- legacy
+
+/**
+ * Where state lived before workspaces: directly under `HHOSTED_HOME`. Kept only
+ * so the one-time layout migration can find it; nothing reads these at runtime.
+ */
+export const legacy = {
+  configPath: path.join(dataRoot, 'servers.config.json'),
+  configSchemaPath: path.join(dataRoot, 'servers.config.schema.json'),
+  secretsPath: path.join(dataRoot, '.control-secrets.json'),
+  tlsDir: path.join(dataRoot, '.tls'),
+  logsDir: path.join(dataRoot, '.logs'),
+  historyPath: path.join(dataRoot, '.logs', 'history.json'),
+  stateDir: path.join(dataRoot, '.state'),
+  backupsDir: path.join(dataRoot, '.backups'),
+  uiDir: path.join(dataRoot, '.ui'),
+  runtimePath: path.join(dataRoot, 'run.json'),
+} as const
+
+/** True when a pre-workspace instance left state at the old paths. */
+export function hasLegacyLayout(): boolean {
+  if (fs.existsSync(workspacesPath))
+    return false
+  return fs.existsSync(legacy.configPath) || fs.existsSync(legacy.secretsPath)
+}
 
 /** Expands `~` and resolves relative paths against `base`, for config-declared paths. */
 export function resolveUserPath(target: string, base = projectDir): string {

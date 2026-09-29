@@ -77,7 +77,9 @@ async function panel(status: number, body: string, contentType = 'application/js
 /** A run.json the CLI accepts, pointing at `url` and claiming `version`. */
 function writeRuntime(url: string, version = '0.9.9'): void {
   const address = new URL(url)
-  fs.writeFileSync(path.join(home, 'run.json'), `${JSON.stringify({
+  const file = path.join(home, '.hh', 'run.json')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, `${JSON.stringify({
     version,
     // This process is alive, which is what `isProcessAlive` asks about.
     pid: process.pid,
@@ -89,8 +91,8 @@ function writeRuntime(url: string, version = '0.9.9'): void {
     startedAt: Date.now(),
     projectDir: home,
     dataRoot: home,
-    configPath: path.join(home, 'servers.config.json'),
-    logFile: path.join(home, 'home-hosted.log'),
+    configPath: path.join(home, '.hh', 'default', 'servers.config.json'),
+    logFile: path.join(home, '.hh', '.logs', 'home-hosted.log'),
     token: 'local-token',
   }, null, 2)}\n`)
 }

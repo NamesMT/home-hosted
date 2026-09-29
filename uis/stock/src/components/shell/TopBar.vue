@@ -3,6 +3,7 @@ import { Command, LogOut, Menu, Monitor, Moon, Search, Sun } from 'lucide-vue-ne
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import WorkspaceSwitcher from '@/components/shell/WorkspaceSwitcher.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Tip from '@/components/ui/Tip.vue'
 import { useTheme } from '@/composables/useTheme'
@@ -53,11 +54,11 @@ const connectionLabel = computed(() => ({
       <Menu class="size-4" />
     </button>
 
-    <h1 class="truncate text-sm font-semibold tracking-tight text-ink">
+    <h1 class="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight text-ink">
       {{ title }}
     </h1>
 
-    <div class="ml-auto flex items-center gap-1.5">
+    <div class="flex shrink-0 items-center gap-1.5">
       <button
         type="button"
         :class="cn(
@@ -121,6 +122,9 @@ const connectionLabel = computed(() => ({
           <Command class="size-4" />
         </AppButton>
       </Tip>
+
+      <!-- Right-most: the unit every workspace-scoped page belongs to. -->
+      <WorkspaceSwitcher />
     </div>
   </header>
 </template>

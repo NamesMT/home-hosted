@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
-import { LayoutDashboard, ScrollText, Server, SlidersHorizontal, X } from 'lucide-vue-next'
+import { Globe, LayoutDashboard, ScrollText, Server, Settings2, SlidersHorizontal, X } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import InstrumentCluster from '@/components/shell/InstrumentCluster.vue'
 import { cn } from '@/lib/cn'
+import { workspacePath } from '@/router'
 
 const props = defineProps<{
   host: HostView | null
@@ -14,6 +15,9 @@ const props = defineProps<{
   /** The release the panel is running; `null` on a panel that predates the field. */
   panelVersion: string | null
   planLabel: string
+  /** The workspace the workspace-scoped entries below belong to. */
+  workspaceId: string
+  workspaceLabel: string
   running: number
   total: number
 }>()
@@ -22,14 +26,21 @@ const emit = defineEmits<{ navigate: [], close: [] }>()
 
 const route = useRoute()
 
-const items = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard, exact: true },
-  { to: '/servers', label: 'Servers', icon: Server, exact: false },
-  { to: '/logs', label: 'Logs', icon: ScrollText, exact: false },
-  { to: '/settings', label: 'Settings', icon: SlidersHorizontal, exact: false },
+/** Pages that belong to the workspace picked in the header; the id is in the URL. */
+const workspaceItems = computed(() => [
+  { to: workspacePath(props.workspaceId, 'overview'), label: 'Overview', icon: LayoutDashboard, exact: true, servers: false },
+  { to: workspacePath(props.workspaceId, 'servers'), label: 'Servers', icon: Server, exact: false, servers: true },
+  { to: workspacePath(props.workspaceId, 'logs'), label: 'Logs', icon: ScrollText, exact: false, servers: false },
+  { to: workspacePath(props.workspaceId, 'settings'), label: 'Workspace settings', icon: Settings2, exact: false, servers: false },
+])
+
+/** Panel-wide pages: they read every workspace. */
+const globalItems = [
+  { to: '/global/overview', label: 'Global Overview', icon: Globe, exact: true, servers: false },
+  { to: '/global/settings', label: 'Global settings', icon: SlidersHorizontal, exact: false, servers: false },
 ]
 
-function isActive(item: typeof items[number]): boolean {
+function isActive(item: { to: string, exact: boolean }): boolean {
   return item.exact ? route.path === item.to : route.path === item.to || route.path.startsWith(`${item.to}/`)
 }
 
@@ -70,27 +81,54 @@ const connectionMeta = computed(() => ({
       </button>
     </div>
 
-    <nav class="flex flex-col gap-0.5">
-      <RouterLink
-        v-for="item in items"
-        :key="item.to"
-        :to="item.to"
-        :class="cn(
-          'group flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm transition-colors duration-150',
-          isActive(item)
-            ? 'bg-accent-soft font-medium text-accent'
-            : 'text-muted hover:bg-hover hover:text-ink',
-        )"
-        @click="emit('navigate')"
-      >
-        <component :is="item.icon" class="size-4 shrink-0" :stroke-width="isActive(item) ? 2.1 : 1.8" />
-        {{ item.label }}
-        <span
-          v-if="item.to === '/servers'"
-          class="ml-auto font-mono text-2xs tabular-nums"
-          :class="isActive(item) ? 'text-accent' : 'text-faint'"
-        >{{ props.running }}/{{ props.total }}</span>
-      </RouterLink>
+    <nav class="flex flex-col gap-3" aria-label="Navigation">
+      <div class="flex min-h-0 flex-col gap-0.5">
+        <p class="truncate px-2.5 pb-1 text-2xs font-medium text-faint">
+          Workspace · <span class="text-muted">{{ props.workspaceLabel }}</span>
+        </p>
+        <RouterLink
+          v-for="item in workspaceItems"
+          :key="item.to"
+          :to="item.to"
+          :class="cn(
+            'group flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm transition-colors duration-150',
+            isActive(item)
+              ? 'bg-accent-soft font-medium text-accent'
+              : 'text-muted hover:bg-hover hover:text-ink',
+          )"
+          @click="emit('navigate')"
+        >
+          <component :is="item.icon" class="size-4 shrink-0" :stroke-width="isActive(item) ? 2.1 : 1.8" />
+          {{ item.label }}
+          <span
+            v-if="item.servers"
+            class="ml-auto font-mono text-2xs tabular-nums"
+            :class="isActive(item) ? 'text-accent' : 'text-faint'"
+          >{{ props.running }}/{{ props.total }}</span>
+        </RouterLink>
+      </div>
+
+      <div class="flex flex-col gap-0.5">
+        <p class="flex items-center gap-1 px-2.5 pb-1 text-2xs font-medium text-faint">
+          <Globe class="size-3" />
+          Global
+        </p>
+        <RouterLink
+          v-for="item in globalItems"
+          :key="item.to"
+          :to="item.to"
+          :class="cn(
+            'group flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm transition-colors duration-150',
+            isActive(item)
+              ? 'bg-accent-soft font-medium text-accent'
+              : 'text-muted hover:bg-hover hover:text-ink',
+          )"
+          @click="emit('navigate')"
+        >
+          <component :is="item.icon" class="size-4 shrink-0" :stroke-width="isActive(item) ? 2.1 : 1.8" />
+          {{ item.label }}
+        </RouterLink>
+      </div>
     </nav>
 
     <div class="mt-auto flex flex-col gap-3">

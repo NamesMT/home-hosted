@@ -1,46 +1,39 @@
 import type { AppType } from '#src/app'
 import type { Runtime } from '#src/helpers/daemon'
+import type { NotificationEvent } from '#src/services/notifications'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { createRootApp } from '#src/app'
+import { ensureLayout } from '#src/config/layout'
 import { SecretsStore } from '#src/config/secrets'
-import { SEED_CONFIG } from '#src/config/seed'
-import { ConfigStore } from '#src/config/store'
+import { GlobalSettingsStore } from '#src/config/settings'
+import { WorkspaceRegistry } from '#src/config/workspaces'
 import { clearRuntime, isProcessAlive, newToken, readRuntime, writeRuntime } from '#src/helpers/daemon'
 import { logger } from '#src/helpers/logger'
 import { openBrowser } from '#src/helpers/open'
 import {
   daemonLogPath,
   dataRoot,
-  defaultConfigPath,
-  defaultDdnsStatePath,
-  defaultHistoryPath,
-  defaultLogsDir,
-  defaultNannyDir,
-  defaultSecretsPath,
-  defaultTlsDir,
+  globalSecretsPath,
+  hhDir,
   projectDir,
   resolveUserPath,
+  tlsDir,
 } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { isPortFree } from '#src/providers/port'
 import { AuthService, DEFAULT_PASSWORD } from '#src/services/auth'
-import { BackupService, resolveBackupPaths } from '#src/services/backups'
+import { BackupService } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
 import { ControlServer } from '#src/services/control-server'
-import { DdnsService } from '#src/services/ddns'
 import { EventHub } from '#src/services/events'
 import { checkExposure } from '#src/services/exposure'
-import { HistoryStore } from '#src/services/history'
 import { HostMonitor } from '#src/services/host-monitor'
-import { LogFiles } from '#src/services/log-files'
-import { NotificationService } from '#src/services/notifications'
-import { buildAppState } from '#src/services/state'
-import { Supervisor } from '#src/services/supervisor'
+import { PanelService } from '#src/services/panel'
 import { TlsStore } from '#src/services/tls'
 import { UiService } from '#src/services/ui'
 import { autoUpdateOfficialUi } from '#src/services/ui-update'
@@ -60,14 +53,14 @@ function packageVersion(): string {
 }
 
 export interface ControlPlaneOptions {
-  /** `--config`, or `$HHOSTED_HOME/servers.config.json`. */
+  /** `--config`, or the default workspace's `servers.config.json`. */
   configPath?: string
   /** One-off overrides, persisted only after every guard below passes. */
   port?: number
   host?: string
   autostart: boolean
   open: boolean
-  /** Print the effective config and exit without starting anything. */
+  /** Print the effective settings and workspaces and exit without starting anything. */
   printConfig: boolean
 }
 
@@ -82,6 +75,9 @@ function probeHostFor(bindHost: string): string {
  * directly.
  */
 export async function runControlPlane(options: ControlPlaneOptions): Promise<void> {
+  // A pre-workspace `$HHOSTED_HOME` is relocated before anything reads a path.
+  ensureLayout()
+
   const existing = readRuntime()
   if (existing !== null && existing.pid !== process.pid && isProcessAlive(existing.pid)) {
     logger.error(`already running (pid ${existing.pid}) at ${existing.url} — run \`home-hosted down\` first`)
@@ -90,75 +86,61 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   if (existing !== null)
     clearRuntime()
 
-  const configPath = options.configPath ?? defaultConfigPath
-  const store = new ConfigStore(configPath, SEED_CONFIG)
-  store.load()
-  store.writeJsonSchema()
+  const settings = new GlobalSettingsStore()
+  settings.load()
+  settings.writeJsonSchema()
 
-  // A config this release cannot read is refused rather than run with defaults: the
-  // groups would fall back silently, and for `control` that means a different port,
-  // bind and auth policy than the file asked for. Pinning the release that wrote it,
-  // or migrating, is the way forward — see the Compatibility section of AGENTS.md.
-  // Nothing is written before this point, so a refused start leaves the file alone.
-  if (store.configError !== null) {
-    logger.error(`refusing to start: ${store.configError}`)
-    logger.info(`fix ${store.path}, or install the release that wrote it`)
+  // A settings file this release cannot read is refused rather than run with
+  // defaults: for `control` that would mean a different port, bind and auth policy
+  // than the file asked for.
+  if (settings.configError !== null) {
+    logger.error(`refusing to start: ${settings.configError}`)
+    logger.info(`fix ${settings.path}, or install the release that wrote it`)
     process.exit(1)
   }
-  if (store.pendingMigrations.length > 0) {
-    logger.error(`refusing to start: ${store.path} needs ${store.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
+  if (settings.pendingMigrations.length > 0) {
+    logger.error(`refusing to start: ${settings.path} needs ${settings.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
     logger.info('run `home-hosted migrate` to see and apply them')
     process.exit(1)
   }
 
-  const secrets = new SecretsStore(defaultSecretsPath)
-  const auth = new AuthService(secrets, () => store.config.control.auth)
-  const tls = new TlsStore(defaultTlsDir)
-  const logFiles = new LogFiles(defaultLogsDir, () => store.config.logs)
-  const history = new HistoryStore(defaultHistoryPath)
-  const notifications = new NotificationService(
-    secrets,
-    () => store.config.notifications,
-    () => store.config.logs,
+  const registry = new WorkspaceRegistry()
+  registry.load()
+  if (registry.configError !== null) {
+    logger.error(`refusing to start: ${registry.configError}`)
+    process.exit(1)
+  }
+
+  const secrets = new SecretsStore(globalSecretsPath, undefined, 'global')
+  const auth = new AuthService(secrets, () => settings.control.auth)
+  const tls = new TlsStore(tlsDir)
+  const hub = new EventHub()
+
+  let app: AppType | undefined
+  const token = newToken()
+
+  const controlServer = new ControlServer(
+    {
+      fetch: (request) => {
+        if (!app)
+          throw new Error('the control app is not ready yet')
+        return app.fetch(request)
+      },
+      trustProxy: () => settings.control.auth.trustProxy,
+      tls: () => (settings.control.tls.enabled ? tls.load() : null),
+    },
+    { host: settings.control.host, port: settings.control.port, tls: settings.control.tls.enabled },
   )
-  const hostMonitor = new HostMonitor(
-    () => store.config.host,
-    target => resolveUserPath(resolveTemplate(target, { projectDir, dataRoot, home: os.homedir() })),
-    notifications,
-  )
-  // Built before the app so the settings page can read live state, and driven by
-  // the supervisor's tick so the panel keeps exactly one timer.
-  const ddns = new DdnsService({
-    getConfig: () => store.config.ddns,
-    getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,
-    notifications,
-    statePath: defaultDdnsStatePath,
-  })
-  // Restoring a backup replaces the config file, which no store write covers: the
-  // hook below re-reads it and brings the restored autostart entries up, so a
-  // blank instance ends up running the setup the archive carried.
-  let onConfigRestored: (() => void) | undefined
-  const backups = new BackupService({
-    dataRoot,
-    getConfig: () => store.config.backups,
-    getSources: () => ({
-      configPath: store.path,
-      secretsPath: secrets.path,
-      tlsDir: tls.directory,
-      paths: resolveBackupPaths(store.servers, store.config.backups.includePaths),
-    }),
-    onConfigRestored: () => onConfigRestored?.(),
-  })
 
   // Auth is on by default, so a first boot needs *a* password; the default is
   // deliberately weak and flagged, which keeps LAN/exposure binding blocked (and
   // is announced on the login page) until it is changed.
   if (!auth.passwordSet) {
     auth.ensureDefaultPassword(DEFAULT_PASSWORD)
-    logger.warn(`no password was set — created the default "${DEFAULT_PASSWORD}"; change it in Settings → Authentication`)
+    logger.warn(`no password was set — created the default "${DEFAULT_PASSWORD}"; change it in Global Settings → Authentication`)
   }
 
-  const configured = store.config.control
+  const configured = settings.control
   const intendedHost = options.host === undefined ? configured.host : parseBind(options.host)
   if (intendedHost === null) {
     logger.error(`invalid control host: ${String(options.host)} (expected local, lan or an ipv4 address)`)
@@ -171,17 +153,17 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     process.exit(1)
   }
 
-  if (options.printConfig) {
-    process.stdout.write(`${JSON.stringify(store.config, null, 2)}\n`)
-    return
-  }
-
   // Never serve the panel beyond loopback without a password behind it.
   const exposure = checkExposure({ ...configured, host: intended.host }, auth.passwordSet, auth.usingDefaultPassword)
   if (exposure.blockedReason !== null) {
     logger.error(`refusing to start: ${exposure.blockedReason}`)
-    logger.info('bind the panel back to `local`, or set a password with `home-hosted set-password` and enable auth in the settings page')
+    logger.info('bind the panel back to `local`, or set a password with `home-hosted set-password` and enable auth in Global Settings')
     process.exit(1)
+  }
+
+  if (options.printConfig) {
+    printEffectiveConfig(settings, registry, options)
+    return
   }
 
   if (!(await isPortFree(intended.port))) {
@@ -190,136 +172,91 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   }
 
   if (intended.host !== configured.host || intended.port !== configured.port)
-    store.updateControl({ host: intended.host, port: intended.port })
+    settings.updateControl({ host: intended.host, port: intended.port })
 
-  const ui = new UiService({ dataRoot, stockDir: path.join(packageRoot, 'uis', 'stock', 'dist') })
+  const ui = new UiService({ dataRoot: hhDir, stockDir: path.join(packageRoot, 'uis', 'stock', 'dist') })
   // An install killed between its two renames leaves `.ui` missing and the user's copy in
-  // a backup; put that back before anything reads the directory, or the panel would serve
-  // the stock UI forever with the real one sitting right beside it.
+  // a backup; put that back before anything reads the directory.
   const uiRecovery = ui.recover()
   if (uiRecovery.restored !== null)
     logger.warn(`ui:      restored the installed UI from ${uiRecovery.restored} — an earlier update was interrupted`)
-  const hub = new EventHub()
-  let app: AppType | undefined
-  const token = newToken()
 
-  const controlServer = new ControlServer(
+  // The panel owns the aggregate state; host vitals fan out to every workspace's
+  // notification service, so a host alert reaches whichever chats asked for one.
+  let panel: PanelService | undefined
+  const hostMonitor = new HostMonitor(
+    () => settings.host,
+    target => resolveUserPath(resolveTemplate(target, { projectDir, dataRoot, home: os.homedir() })),
     {
-      fetch: (request) => {
-        if (!app)
-          throw new Error('the control app is not ready yet')
-        return app.fetch(request)
+      notify: (event: NotificationEvent) => {
+        for (const workspace of panel?.workspaces() ?? []) workspace.notifications.notify(event)
       },
-      trustProxy: () => store.config.control.auth.trustProxy,
-      tls: () => (store.config.control.tls.enabled ? tls.load() : null),
     },
-    { host: intended.host, port: intended.port, tls: store.config.control.tls.enabled },
   )
 
-  const supervisor = new Supervisor(store, hub, {
-    configPath: store.path,
-    control: controlServer.endpoint,
-    buildState: views => buildAppState({
-      store,
-      auth,
-      control: controlServer.endpoint,
-      tls,
-      notifications,
-      hostMonitor,
-      backups,
-      ddns,
-      logsDir: logFiles.directory,
-      views,
-    }),
-    history,
-    logFiles,
-    notifications,
+  // The backups service needs the panel's sources, and the panel needs the
+  // backups service for its state frame — one closure bridges the pair.
+  const backups = new BackupService({
+    dataRoot: hhDir,
+    getConfig: () => settings.backups,
+    getSources: () => panel!.backupSources(),
+    onRestored: () => panel?.reloadAll(),
+  })
+
+  panel = new PanelService({
+    registry,
+    settings,
+    secrets,
+    auth,
+    tls,
+    backups,
+    ui,
     hostMonitor,
-    ddns,
-    nannyDir: defaultNannyDir,
+    hub,
+    control: () => controlServer.endpoint,
+    autostart: options.autostart,
+    ...(options.configPath === undefined ? {} : { defaultServersPath: options.configPath }),
   })
 
-  /**
-   * A config edited by hand — a text editor, a `git checkout`, a config-management
-   * tool — is picked up without a restart. A revision this release cannot read is
-   * reported in the state frame and the panel keeps running what it had, so a typo
-   * never stops a server. A definition that *did* change takes effect on that
-   * entry's next start; a newly added entry with `autostart` starts now, the way it
-   * would after a restart, and a removed one is stopped and forgotten.
-   */
-  let lastConfigError: string | null = store.configError
-  const configWatch = new ConfigWatch({
-    file: store.path,
-    onChange: () => {
-      const before = new Set(store.servers.map(server => server.id))
-      const result = store.reloadFromDisk()
-
-      // One line per change of state, not one per poll: the file stays bad until
-      // somebody fixes it.
-      if (store.configError !== lastConfigError) {
-        if (store.configError === null)
-          logger.info('the config file is readable again')
-        else
-          logger.error(`${store.configError} — keeping the config already running`)
-        lastConfigError = store.configError
-      }
-
-      if (!result.applied) {
-        if (result.changed && result.error === null)
-          logger.info('the config file changed, but not in a way that changes the config')
-        return
-      }
-
-      const added = store.servers.filter(server => !before.has(server.id))
-      const removed = [...before].filter(id => !store.getServer(id))
-      logger.info(`config reloaded from disk — ${store.servers.length} server(s)${added.length === 0 ? '' : `, ${added.length} added`}${removed.length === 0 ? '' : `, ${removed.length} removed`}`)
-
-      // `--no-autostart` means "do not start anything on your own", and a reload is
-      // not an exception to that.
-      if (!options.autostart)
-        return
-      for (const server of added) {
-        // A disabled entry is left alone even when the file says autostart.
-        if (!server.enabled || !server.autostart)
-          continue
-        void supervisor.start(server.id).catch((error: unknown) => {
-          logger.error(`could not start the added server ${server.id}`, error)
-        })
-      }
-    },
-    onError: error => logger.warn(`cannot watch ${path.basename(store.path)} for changes: ${error instanceof Error ? error.message : String(error)}`),
-  })
-  configWatch.start()
+  // A workspace's files are configs like any other, so a bad one refuses the
+  // start too — the same rule the global settings and the registry just obeyed.
+  // Checked before the listener binds or `run.json` exists, so a refused start
+  // leaves no trace of a panel that pretends to supervise nothing.
+  for (const workspace of panel.workspaces()) {
+    const store = workspace.store
+    if (store.configError !== null) {
+      logger.error(`refusing to start: workspace "${workspace.id}": ${store.configError}`)
+      logger.info(`fix ${store.path} and ${store.settingsPath}, or install the release that wrote them`)
+      process.exit(1)
+    }
+    if (store.pendingMigrations.length > 0) {
+      logger.error(`refusing to start: workspace "${workspace.id}" needs ${store.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
+      logger.info('run `home-hosted migrate` to see and apply them')
+      process.exit(1)
+    }
+  }
 
   let shuttingDown = false
   const shutdown = async (reason: string): Promise<void> => {
     if (shuttingDown)
       return
     shuttingDown = true
-    logger.info(`${reason} — stopping ${supervisor.views().length} server(s)`)
+    logger.info(`${reason} — stopping ${panel!.serverViews().length} server(s) across ${panel!.workspaces().length} workspace(s)`)
     clearRuntime()
-    configWatch.dispose()
     auth.dispose()
-    ddns.dispose()
-    await supervisor.dispose()
-    logFiles.dispose()
-    history.dispose()
+    await panel!.dispose()
     await controlServer.close(true)
     process.exit(0)
   }
 
   app = createRootApp({
-    store,
-    supervisor,
+    panel,
     hub,
     auth,
     secrets,
     controlServer,
     tls,
-    logFiles,
-    notifications,
     backups,
-    ddns,
     ui,
     runtimeToken: token,
     onShutdown: () => shutdown('shutdown requested locally'),
@@ -342,56 +279,40 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     startedAt: Date.now(),
     projectDir,
     dataRoot,
-    configPath: store.path,
+    configPath: hhDir,
     logFile: daemonLogPath,
     token,
   }
   writeRuntime(runtime)
 
   logger.box(`home-hosted ${runtime.version}\n${endpoint.url}`)
-  logger.info(`config:  ${store.path}`)
-  logger.info(`secrets: ${secrets.path}${auth.passwordSet ? '' : ' (no password set)'}`)
+  logger.info(`state:   ${hhDir}`)
+  logger.info(`settings: ${settings.path}${auth.passwordSet ? '' : ' (no password set)'}`)
   logger.info(`auth:    ${auth.isRequired() ? 'required' : 'disabled'}${auth.usingDefaultPassword ? ' (default password)' : ''}${auth.apiTokenSet ? ' · API token set' : ''}${exposure.exposed ? ' · exposed beyond loopback' : ''}`)
-  logger.info(`logs:    ${store.config.logs.persist ? `${logFiles.directory} (max ${store.config.logs.maxBytes} B x ${store.config.logs.keep})` : 'memory only'}`)
   logger.info(`project: ${projectDir}`)
+  for (const workspace of panel.workspaces()) {
+    logger.info(`workspace ${workspace.id} "${workspace.label}" — ${workspace.store.servers.length} server(s) · ${workspace.logsDir}`)
+    if (workspace.store.configError !== null)
+      logger.error(`workspace ${workspace.id}: ${workspace.store.configError}`)
+    for (const warning of workspace.store.configWarnings) logger.warn(`workspace ${workspace.id}: ${warning}`)
+  }
+  for (const warning of settings.configWarnings) logger.warn(warning)
   if (ui.custom) {
     const meta = ui.status().meta
     logger.warn(`custom UI in use${meta === null ? '' : ` (${meta.name}${meta.version === null ? '' : ` ${meta.version}`})`} — if it breaks, run \`home-hosted ui-revert\``)
-    // An official UI is paired with a release, so a panel upgrade re-pairs it without
-    // asking. Never awaited: the UI already on disk keeps serving until it lands.
     autoUpdateOfficialUi(ui, runtime.version)
   }
-  for (const warning of store.configWarnings)
-    logger.warn(warning)
-  for (const entry of supervisor.views())
-    logger.info(`  ${entry.id.padEnd(12)} ${entry.config.command} ${entry.config.args.join(' ')}`.trimEnd())
+  for (const workspace of panel.workspaces()) {
+    for (const entry of workspace.supervisor.views())
+      logger.info(`  ${`${workspace.id}/${entry.id}`.padEnd(24)} ${entry.config.command} ${entry.config.args.join(' ')}`.trimEnd())
+  }
 
   if (configured.openBrowser || options.open)
     openBrowser(endpoint.url)
 
   if (options.autostart) {
-    void supervisor.startAll({ autostartOnly: true }).catch((error: unknown) => {
+    void panel.startAll().catch((error: unknown) => {
       logger.error('autostart failed', error)
-    })
-  }
-
-  onConfigRestored = () => {
-    store.load()
-
-    // The restored config is a config write like any other, so the exposure rule
-    // applies: a backup taken from a local instance must not open a LAN panel.
-    const exposure = checkExposure(store.config.control, auth.passwordSet, auth.usingDefaultPassword)
-    if (exposure.blockedReason !== null) {
-      logger.warn(`the restored config would expose the panel (${exposure.blockedReason}) — forcing authentication on`)
-      store.updateControl({ auth: { enabled: true } })
-    }
-
-    logger.info(`config restored — ${store.servers.length} server(s) reloaded`)
-    // `--no-autostart` means "do not start anything on your own", restores included.
-    if (!options.autostart)
-      return
-    void supervisor.startAll({ autostartOnly: true }).catch((error: unknown) => {
-      logger.error('could not start the restored servers', error)
     })
   }
 
@@ -406,3 +327,33 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   process.on('SIGINT', () => onSignal('SIGINT'))
   process.on('SIGTERM', () => onSignal('SIGTERM'))
 }
+
+/** `--print-config`: the global settings and every workspace, without starting anything. */
+function printEffectiveConfig(settings: GlobalSettingsStore, registry: WorkspaceRegistry, options: ControlPlaneOptions): void {
+  const workspaces = registry.all().map((workspace) => {
+    const dir = path.join(hhDir, workspace.id)
+    const read = (name: string): unknown => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
+      }
+      catch {
+        return null
+      }
+    }
+    const serversFile = workspace.id === registry.defaultId && options.configPath !== undefined
+      ? options.configPath
+      : path.join(dir, 'servers.config.json')
+    let servers: unknown = null
+    try {
+      servers = JSON.parse(fs.readFileSync(serversFile, 'utf8'))
+    }
+    catch {
+      servers = null
+    }
+    return { id: workspace.id, label: workspace.label, settings: read('settings.json'), servers }
+  })
+
+  process.stdout.write(`${JSON.stringify({ settings: settings.rawConfig, workspaces }, null, 2)}\n`)
+}
+
+export { ConfigWatch }

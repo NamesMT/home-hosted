@@ -16,6 +16,8 @@ import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 
+const props = defineProps<{ workspaceId: string }>()
+
 const emit = defineEmits<{ created: [] }>()
 
 const open = defineModel<boolean>('open', { default: false })
@@ -28,8 +30,9 @@ const formError = ref<string | null>(null)
 /** Placeholders the supervisor substitutes in `args` (and in paths). */
 const PLACEHOLDERS = ['{port}', '{host}', '{home}', '{projectDir}', '{dataRoot}', '{id}', '{label}', '{cwd}', '{bind}', '{lanIp}']
 
-/** What an entry would inherit; a policy group is only sent when it differs. */
-const panelDefaults = computed(() => control.defaults.value ?? undefined)
+/** What an entry would inherit from the workspace it is added to. */
+const panelDefaults = computed(() => control.workspaceById(props.workspaceId)?.defaults)
+const workspaceLabel = computed(() => control.workspaceById(props.workspaceId)?.label ?? 'this workspace')
 
 const form = reactive<AddServerForm>(blankAddServerForm(panelDefaults.value))
 const portError = computed(() => addServerPortError(form.port))
@@ -61,7 +64,7 @@ async function submit(): Promise<void> {
 
   creating.value = true
   try {
-    await control.create(parsed)
+    await control.create(props.workspaceId, parsed)
     if (control.lastError.value !== null) {
       formError.value = control.lastError.value
       return
@@ -80,7 +83,7 @@ async function submit(): Promise<void> {
   <Modal
     v-model:open="open"
     title="Add a server"
-    description="Appends an entry to servers.config.json; every policy you leave out is inherited from the defaults."
+    :description="`Appends an entry to ${workspaceLabel}'s servers.config.json; every policy you leave out is inherited from its defaults.`"
     width="w-[min(94vw,40rem)]"
   >
     <form id="add-server-form" class="flex flex-col gap-3" @submit.prevent="submit">

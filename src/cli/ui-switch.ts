@@ -187,7 +187,7 @@ async function installFromUrl(url: string, fallbackName: string, context: Switch
 
 async function installArchive(archivePath: string, fallbackName: string, context: SwitchContext): Promise<void> {
   const { UiService } = await import('#src/services/ui')
-  const { dataRoot } = await import('#src/helpers/paths')
+  const { hhDir: dataRoot } = await import('#src/helpers/paths')
   const ui = new UiService({ dataRoot })
   const result = await ui.install(archivePath, fallbackName)
 

@@ -200,6 +200,66 @@ describe('servers route', () => {
 
     expect((await request(created.app, '/api/servers/web', 'DELETE')).status).toBe(404)
   })
+
+  it('resolves a server id within the workspace the request names', async () => {
+    const created = await fixture({
+      views: [makeView('web')],
+      workspaces: [{ id: 'staging', servers: [{ id: 'api', command: 'node' }] }],
+      workspaceViews: { staging: [makeView('api')] },
+    })
+
+    expect((await request(created.app, '/api/servers/web?workspace=staging')).status).toBe(404)
+    const scoped = await request(created.app, '/api/servers/api?workspace=staging')
+    expect(scoped.status).toBe(200)
+    expect(await scoped.json()).toMatchObject({ server: { id: 'api' } })
+
+    // The same id in another workspace is that workspace's server, not this one's.
+    expect((await request(created.app, '/api/servers/api')).status).toBe(404)
+  })
+})
+
+describe('workspaces route', () => {
+  it('lists, creates, renames and removes a workspace through the registry', async () => {
+    const created = await fixture()
+
+    const initial = await (await request(created.app, '/api/workspaces')).json() as { workspaces: Array<{ id: string, label: string }> }
+    expect(initial.workspaces.map(workspace => ({ id: workspace.id, label: workspace.label }))).toEqual([{ id: 'default', label: 'Default' }])
+
+    const createdResponse = await request(created.app, '/api/workspaces', 'POST', { id: 'staging', label: 'Staging' })
+    expect(createdResponse.status).toBe(201)
+    expect(await createdResponse.json()).toMatchObject({ workspace: { id: 'staging', label: 'Staging' } })
+    expect(created.registry.has('staging')).toBe(true)
+
+    const renamed = await request(created.app, '/api/workspaces/staging', 'PATCH', { label: 'Stage' })
+    expect(renamed.status).toBe(200)
+    expect(await renamed.json()).toMatchObject({ workspace: { id: 'staging', label: 'Stage' } })
+
+    const removed = await request(created.app, '/api/workspaces/staging', 'DELETE')
+    expect(removed.status).toBe(200)
+    expect(await removed.json()).toEqual({ ok: true, removed: { id: 'staging', label: 'Stage' } })
+    expect(created.registry.has('staging')).toBe(false)
+  })
+
+  it('409s a duplicate id and 400s one that is not a valid slug', async () => {
+    const created = await fixture()
+
+    const duplicate = await request(created.app, '/api/workspaces', 'POST', { id: 'default', label: 'Default' })
+    expect(duplicate.status).toBe(409)
+    expect(await duplicate.json()).toMatchObject({ code: 'WORKSPACE_EXISTS' })
+
+    expect((await request(created.app, '/api/workspaces', 'POST', { id: 'Bad Id' })).status).toBe(400)
+  })
+
+  it('refuses to remove the last workspace, and 404s an unknown one', async () => {
+    const created = await fixture()
+
+    const last = await request(created.app, '/api/workspaces/default', 'DELETE')
+    expect(last.status).toBe(400)
+    expect(await last.json()).toMatchObject({ code: 'INVALID_WORKSPACE' })
+
+    expect((await request(created.app, '/api/workspaces/ghost', 'DELETE')).status).toBe(404)
+    expect((await request(created.app, '/api/workspaces/ghost', 'PATCH', { label: 'x' })).status).toBe(404)
+  })
 })
 
 describe('logs route', () => {
@@ -420,7 +480,7 @@ describe('tls route', () => {
       return
 
     const created = await fixture()
-    created.store.updateControl({ tls: { enabled: true } })
+    created.settings.updateControl({ tls: { enabled: true } })
     let restarts = 0
     created.controlServer.restart = async () => {
       restarts += 1
@@ -458,12 +518,12 @@ describe('settings route: listener and UI upload', () => {
 
   it('refuses to move the panel beyond loopback without a password', async () => {
     const created = await fixture()
-    created.store.updateControl({ auth: { enabled: false } })
+    created.settings.updateControl({ auth: { enabled: false } })
 
     const response = await request(created.app, '/api/settings', 'PATCH', { control: { host: 'lan' } })
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ code: 'EXPOSURE_BLOCKED' })
-    expect(created.store.config.control.host).toBe('local')
+    expect(created.settings.control.host).toBe('local')
   })
 
   it('rejects a UI upload with no file field', async () => {

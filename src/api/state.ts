@@ -14,6 +14,6 @@ export function createStateRoute(deps: AppDeps) {
         summary: 'Full snapshot of the panel',
         responses: { 200: { description: 'The snapshot', content: jsonBody(appStateSchema) } },
       }),
-      c => c.json(deps.supervisor.getState()),
+      c => c.json(deps.panel.getState()),
     )
 }

@@ -1,3 +1,5 @@
+import type { BackupSources } from '#src/services/backups'
+import type { BackupsConfig } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -28,7 +30,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
 })
 
-/** A parsed server entry, for the pure path-resolution tests. */
+/** A parsed server entry, for the pure path-resolution tests and the fixtures. */
 function serverConfig(overrides: Record<string, unknown>) {
   const parsed = serverSchema({ id: 'app', command: 'node', ...overrides })
   if (parsed instanceof type.errors)
@@ -39,54 +41,115 @@ function serverConfig(overrides: Record<string, unknown>) {
 interface Fixture {
   service: BackupService
   root: string
-  configPath: string
-  secretsPath: string
+  dataRoot: string
+  globalSettingsPath: string
+  globalSecretsPath: string
   tlsDir: string
+  workspaceSettingsPath: string
+  serversPath: string
+  workspaceSecretsPath: string
   dataDir: string
+  config: BackupsConfig
+  sources: BackupSources
 }
 
+/**
+ * A realistic two-level instance: the global `.hh` files, one `default`
+ * workspace beside them, and a declared data directory. The backup directory
+ * (`backups.dir`, relative to `dataRoot`) lives under `.hh` and is created on
+ * demand by the service, never by the fixture.
+ */
 async function makeFixture(
-  options: { keep?: number, enabled?: boolean, dataPaths?: string[], ignoreGenerated?: boolean, onConfigRestored?: () => void } = {},
+  options: {
+    keep?: number
+    enabled?: boolean
+    /** Paths the workspace's server declares as `dataEnvs`; defaults to the data directory. */
+    dataPaths?: string[]
+    /** Extra global `backups.includePaths`. */
+    includePaths?: string[]
+    ignoreGenerated?: boolean
+    onRestored?: () => void
+  } = {},
 ): Promise<Fixture> {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-backup-'))
   dirs.push(root)
 
-  const configPath = path.join(root, 'servers.config.json')
-  const secretsPath = path.join(root, '.control-secrets.json')
-  const tlsDir = path.join(root, '.tls')
+  const dataRoot = path.join(root, '.hh')
+  const globalSettingsPath = path.join(dataRoot, 'settings.json')
+  const globalSecretsPath = path.join(dataRoot, '.control-secrets.json')
+  const tlsDir = path.join(dataRoot, '.tls')
+  const workspaceDir = path.join(dataRoot, 'default')
+  const workspaceSettingsPath = path.join(workspaceDir, 'settings.json')
+  const serversPath = path.join(workspaceDir, 'servers.config.json')
+  const workspaceSecretsPath = path.join(workspaceDir, '.secrets.json')
   const dataDir = path.join(root, 'data')
 
-  fs.writeFileSync(configPath, '{ "servers": [] }\n')
-  fs.writeFileSync(secretsPath, '{ "password": null }\n', { mode: 0o600 })
+  fs.mkdirSync(workspaceDir, { recursive: true })
   fs.mkdirSync(tlsDir, { recursive: true })
   fs.writeFileSync(path.join(tlsDir, 'control.crt.pem'), 'CERT\n')
+  fs.writeFileSync(path.join(tlsDir, 'control.key.pem'), 'KEY\n')
   fs.mkdirSync(dataDir, { recursive: true })
   fs.writeFileSync(path.join(dataDir, 'db.sqlite'), 'ORIGINAL\n')
   fs.writeFileSync(path.join(dataDir, 'empty.txt'), '')
+  fs.writeFileSync(globalSecretsPath, '{ "password": null }\n', { mode: 0o600 })
+  fs.writeFileSync(workspaceSecretsPath, '{ "telegram": null }\n', { mode: 0o600 })
+  fs.writeFileSync(workspaceSettingsPath, '{ "logs": {} }\n')
 
-  const parsed = backupsSchema({ dir: '.backups', keep: options.keep ?? 5, enabled: options.enabled ?? true })
+  const parsed = backupsSchema({ dir: '.backups', keep: options.keep ?? 5, enabled: options.enabled ?? true, includePaths: options.includePaths ?? [] })
   if (parsed instanceof type.errors)
     throw new Error(parsed.summary)
 
+  fs.writeFileSync(globalSettingsPath, `${JSON.stringify({
+    backups: { dir: parsed.dir, keep: parsed.keep, enabled: parsed.enabled, includePaths: parsed.includePaths },
+  }, null, 2)}\n`)
+
+  const dataEnvs: Record<string, string> = {}
+  ;(options.dataPaths ?? [dataDir]).forEach((target, index) => {
+    dataEnvs[index === 0 ? 'DATA_DIR' : `DATA_DIR_${index}`] = target
+  })
+  const servers = [serverConfig({
+    id: 'app',
+    dataEnvs,
+    ...(options.ignoreGenerated === undefined ? {} : { backupIgnoreGenerated: options.ignoreGenerated }),
+  })]
+  fs.writeFileSync(serversPath, `${JSON.stringify({ servers }, null, 2)}\n`)
+
+  const sources: BackupSources = {
+    globalSettingsPath,
+    globalSecretsPath,
+    tlsDir,
+    includePaths: parsed.includePaths,
+    workspaces: [{
+      id: 'default',
+      label: 'Default',
+      settingsPath: workspaceSettingsPath,
+      serversPath,
+      secretsPath: workspaceSecretsPath,
+      servers,
+    }],
+  }
+
   const service = new BackupService({
-    dataRoot: root,
-    onConfigRestored: options.onConfigRestored,
+    dataRoot,
+    onRestored: options.onRestored,
     getConfig: () => parsed,
-    getSources: () => ({
-      configPath,
-      secretsPath,
-      tlsDir,
-      paths: (options.dataPaths ?? [dataDir]).map(target => ({
-        path: target,
-        origin: 'test',
-        included: true,
-        note: null,
-        ...(options.ignoreGenerated === undefined ? {} : { ignoreGenerated: options.ignoreGenerated }),
-      })),
-    }),
+    getSources: () => sources,
   })
 
-  return { service, root, configPath, secretsPath, tlsDir, dataDir }
+  return {
+    service,
+    root,
+    dataRoot,
+    globalSettingsPath,
+    globalSecretsPath,
+    tlsDir,
+    workspaceSettingsPath,
+    serversPath,
+    workspaceSecretsPath,
+    dataDir,
+    config: parsed,
+    sources,
+  }
 }
 
 describe('slugifyPath', () => {
@@ -161,7 +224,43 @@ describe('resolveBackupPaths', () => {
 })
 
 describe('backup service', () => {
-  it('creates an archive with config, secrets, tls and declared data', async () => {
+  it('exposes the three global leaves and the default workspace tree', async () => {
+    const fixture = await makeFixture()
+    const view = fixture.service.view()
+
+    expect(view.includePaths).toEqual([])
+    expect(view.entries.map(entry => entry.id)).toEqual([
+      'global:settings',
+      'global:secrets',
+      'global:tls',
+      'workspace:default',
+    ])
+    expect(view.entries.slice(0, 3).map(entry => entry.kind)).toEqual(['settings', 'secrets', 'tls'])
+    expect(view.entries.slice(0, 3).every(entry => entry.items.length === 0)).toBe(true)
+
+    const workspace = view.entries.find(entry => entry.id === 'workspace:default')!
+    expect(workspace).toMatchObject({ kind: 'workspace', workspaceId: 'default' })
+    expect(workspace.items.map(item => item.id)).toEqual([
+      'workspace:default:settings',
+      'workspace:default:servers',
+      'workspace:default:secrets',
+      `workspace:default:data:${fixture.dataDir}`,
+    ])
+    expect(workspace.items.filter(item => item.kind !== 'data').every(item => item.included)).toBe(true)
+  })
+
+  it('lists a global include path as a data leaf of every workspace', async () => {
+    const extra = path.join(fixtureRoot, 'extra')
+    const fixture = await makeFixture({ includePaths: [extra] })
+
+    const view = fixture.service.view()
+    expect(view.includePaths).toEqual([extra])
+    const data = view.entries.find(entry => entry.id === 'workspace:default')!.items.filter(item => item.kind === 'data')
+    expect(data.map(item => item.origin).sort()).toEqual(['app:DATA_DIR', 'global'])
+    expect(data.find(item => item.origin === 'global')).toMatchObject({ path: extra, included: true })
+  })
+
+  it('creates an archive with global and workspace state plus declared data', async () => {
     const fixture = await makeFixture()
     const result = await fixture.service.create()
 
@@ -171,10 +270,13 @@ describe('backup service', () => {
     expect(result.file?.sizeBytes).toBeGreaterThan(0)
 
     const names = (await listZip(path.join(fixture.service.directory, result.file!.name))).map(entry => entry.name)
-    expect(names).toContain('config/servers.config.json')
-    expect(names).toContain('secrets/control-secrets.json')
-    expect(names).toContain('tls/control.crt.pem')
     expect(names).toContain('manifest.json')
+    expect(names).toContain('global/settings.json')
+    expect(names).toContain('global/secrets.json')
+    expect(names).toContain('global/tls/control.crt.pem')
+    expect(names).toContain('workspaces/default/settings.json')
+    expect(names).toContain('workspaces/default/servers.config.json')
+    expect(names).toContain('workspaces/default/secrets.json')
     expect(names).toContain(`data/${slugifyPath(fixture.dataDir)}/db.sqlite`)
   })
 
@@ -219,51 +321,76 @@ describe('backup service', () => {
     expect(result.error).toContain('disabled')
   })
 
-  it('captures only the items `include` names', async () => {
+  it('captures only the leaves `include` names', async () => {
     const fixture = await makeFixture()
-    const configOnly = await fixture.service.create({ include: ['config'] })
+    const serversOnly = await fixture.service.create({ include: ['workspace:default:servers'] })
 
-    expect(configOnly.ok).toBe(true)
-    const names = (await listZip(path.join(fixture.service.directory, configOnly.file!.name))).map(entry => entry.name)
-    expect(names).toContain('config/servers.config.json')
-    expect(names).not.toContain('secrets/control-secrets.json')
-    expect(names.some(entry => entry.startsWith('tls/'))).toBe(false)
+    expect(serversOnly.ok).toBe(true)
+    const names = (await listZip(path.join(fixture.service.directory, serversOnly.file!.name))).map(entry => entry.name)
+    expect(names).toContain('workspaces/default/servers.config.json')
+    expect(names).not.toContain('workspaces/default/settings.json')
+    expect(names).not.toContain('workspaces/default/secrets.json')
+    expect(names).not.toContain('global/settings.json')
+    expect(names).not.toContain('global/secrets.json')
+    expect(names.some(entry => entry.startsWith('global/tls'))).toBe(false)
     expect(names.some(entry => entry.startsWith('data/'))).toBe(false)
 
-    const dataOnly = await fixture.service.create({ include: [`data:${fixture.dataDir}`] })
+    const dataOnly = await fixture.service.create({ include: [`workspace:default:data:${fixture.dataDir}`] })
     const dataNames = (await listZip(path.join(fixture.service.directory, dataOnly.file!.name))).map(entry => entry.name)
     expect(dataNames).toContain(`data/${slugifyPath(fixture.dataDir)}/db.sqlite`)
-    expect(dataNames).not.toContain('config/servers.config.json')
+    expect(dataNames).not.toContain('workspaces/default/servers.config.json')
+  })
+
+  it('captures every leaf of a workspace when only the workspace id is named', async () => {
+    const fixture = await makeFixture()
+    const result = await fixture.service.create({ include: ['workspace:default'] })
+
+    expect(result.ok).toBe(true)
+    const names = (await listZip(path.join(fixture.service.directory, result.file!.name))).map(entry => entry.name)
+    expect(names).toContain('workspaces/default/settings.json')
+    expect(names).toContain('workspaces/default/servers.config.json')
+    expect(names).toContain('workspaces/default/secrets.json')
+    expect(names).toContain(`data/${slugifyPath(fixture.dataDir)}/db.sqlite`)
+    expect(names).not.toContain('global/settings.json')
+    expect(names).not.toContain('global/secrets.json')
+    expect(names.some(entry => entry.startsWith('global/tls'))).toBe(false)
   })
 
   it('refuses a selection that would capture nothing', async () => {
     const fixture = await makeFixture()
-    const result = await fixture.service.create({ include: ['nope', 'data:/nowhere'] })
+    const result = await fixture.service.create({ include: ['nope', 'workspace:ghost'] })
 
     expect(result.ok).toBe(false)
-    expect(result.error).toContain('nothing was selected')
+    expect(result.error).toBe('nothing was selected to back up')
     expect(fixture.service.list()).toHaveLength(0)
   })
 
   it('refuses a declared path that would swallow the archive directory', async () => {
-    const fixture = await makeFixture()
+    const fixture = await makeFixture({ dataPaths: [] })
     const config = backupsSchema({ dir: '.backups' })
     if (config instanceof type.errors)
       throw new Error(config.summary)
 
+    const sources: BackupSources = {
+      ...fixture.sources,
+      workspaces: [{
+        ...fixture.sources.workspaces[0]!,
+        servers: [serverConfig({ id: 'app', backupPaths: [fixture.root] })],
+      }],
+    }
     const service = new BackupService({
-      dataRoot: fixture.root,
+      dataRoot: fixture.dataRoot,
       getConfig: () => config,
-      getSources: () => ({
-        configPath: fixture.configPath,
-        secretsPath: fixture.secretsPath,
-        tlsDir: fixture.tlsDir,
-        paths: [{ path: fixture.root, origin: 'test', included: true, note: null }],
-      }),
+      getSources: () => sources,
     })
 
-    expect(service.paths[0]).toMatchObject({ included: false, note: 'contains the backup directory' })
-    expect(service.dataPaths).toEqual([])
+    const workspace = service.view().entries.find(entry => entry.id === 'workspace:default')!
+    expect(workspace.items.find(item => item.path === fixture.root))
+      .toMatchObject({ included: false, note: 'contains the backup directory' })
+
+    const created = await service.create({ include: ['workspace:default'] })
+    const names = (await listZip(path.join(service.directory, created.file!.name))).map(entry => entry.name)
+    expect(names.some(entry => entry.startsWith('data/'))).toBe(false)
   })
 
   it('lists newest first and prunes beyond `keep`', async () => {
@@ -288,25 +415,26 @@ describe('backup service', () => {
     const created = await fixture.service.create()
     const archive = path.join(fixture.service.directory, created.file!.name)
 
-    fs.writeFileSync(`${fixture.dataDir}/db.sqlite`, 'CHANGED\n')
-    fs.writeFileSync(fixture.configPath, '{ "servers": ["changed"] }\n')
+    fs.writeFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'CHANGED\n')
+    fs.writeFileSync(fixture.serversPath, '{ "servers": ["changed"] }\n')
 
     const dryRun = await fixture.service.restore(archive, { confirm: false })
     expect(dryRun.dryRun).toBe(true)
-    expect(dryRun.applied).toContain('config/servers.config.json')
+    expect(dryRun.items.find(item => item.id === 'workspace:default:servers')).toMatchObject({ restorable: true, selected: true })
+    expect(dryRun.applied).toContain('Default: Servers')
     // Only the panel's own listener needs a restart; the servers are reloaded live.
     expect(dryRun.restartRequired).toBe(false)
-    expect(fs.readFileSync(fixture.configPath, 'utf8')).toContain('changed')
+    expect(fs.readFileSync(fixture.serversPath, 'utf8')).toContain('changed')
     expect(fs.readFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'utf8')).toBe('CHANGED\n')
 
     const applied = await fixture.service.restore(archive, { confirm: true, password: undefined })
     expect(applied.dryRun).toBe(false)
-    expect(fs.readFileSync(fixture.configPath, 'utf8')).toContain('"servers": []')
+    expect(fs.readFileSync(fixture.serversPath, 'utf8')).toContain('"id": "app"')
     expect(fs.readFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'utf8')).toBe('ORIGINAL\n')
-    expect(fs.readFileSync(fixture.secretsPath, 'utf8')).toContain('"password"')
+    expect(fs.readFileSync(fixture.globalSecretsPath, 'utf8')).toContain('"password"')
     // Restoring re-tightens the secrets file where the platform has POSIX modes.
     if (process.platform !== 'win32')
-      expect(fs.statSync(fixture.secretsPath).mode & 0o777).toBe(0o600)
+      expect(fs.statSync(fixture.globalSecretsPath).mode & 0o777).toBe(0o600)
   })
 
   it('password-protects an archive, and only opens it with the right password', async () => {
@@ -323,7 +451,7 @@ describe('backup service', () => {
     expect(fixture.service.list()[0]?.encrypted).toBe(true)
     expect(isZipArchive(archive)).toBe(true)
 
-    fs.writeFileSync(fixture.configPath, '{ "servers": ["changed"] }\n')
+    fs.writeFileSync(fixture.serversPath, '{ "servers": ["changed"] }\n')
     fs.writeFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'CHANGED\n')
 
     const locked = await fixture.service.restore(archive, { confirm: false })
@@ -333,16 +461,16 @@ describe('backup service', () => {
     const wrong = await fixture.service.restore(archive, { confirm: true, password: 'nope' })
     expect(wrong.needsPassword).toBe(true)
     expect(wrong.applied).toHaveLength(0)
-    expect(fs.readFileSync(fixture.configPath, 'utf8')).toContain('changed')
+    expect(fs.readFileSync(fixture.serversPath, 'utf8')).toContain('changed')
 
     const plan = await fixture.service.restore(archive, { confirm: false, password: 'hunter2' })
     expect(plan.error).toBeUndefined()
     expect(plan.encrypted).toBe(true)
-    expect(plan.applied).toContain('config/servers.config.json')
+    expect(plan.applied).toContain('Default: Servers')
 
     const applied = await fixture.service.restore(archive, { confirm: true, password: 'hunter2' })
     expect(applied.applied).toContain(fixture.dataDir)
-    expect(fs.readFileSync(fixture.configPath, 'utf8')).toContain('"servers": []')
+    expect(fs.readFileSync(fixture.serversPath, 'utf8')).toContain('"id": "app"')
     expect(fs.readFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'utf8')).toBe('ORIGINAL\n')
   })
 
@@ -367,16 +495,16 @@ describe('backup service', () => {
     const created = await fixture.service.create()
     const archive = path.join(fixture.service.directory, created.file!.name)
 
-    fs.writeFileSync(fixture.configPath, '{ "servers": ["changed"] }\n')
+    fs.writeFileSync(fixture.globalSettingsPath, '{ "backups": { "keep": 99 } }\n')
     fs.writeFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'CHANGED\n')
 
     const plan = await fixture.service.restore(archive, { confirm: true, include: ['config'] })
-    expect(plan.applied).toEqual(['config/servers.config.json'])
-    expect(plan.items.find(item => item.id === 'secrets')).toMatchObject({ restorable: true, selected: false })
-    expect(plan.items.find(item => item.id === `data:${fixture.dataDir}`)).toMatchObject({ kind: 'data', selected: false })
+    expect(plan.applied).toEqual(['Global settings'])
+    expect(plan.items.find(item => item.id === 'global:secrets')).toMatchObject({ restorable: true, selected: false })
+    expect(plan.items.find(item => item.id === `workspace:default:data:${fixture.dataDir}`)).toMatchObject({ kind: 'data', selected: false })
     expect(plan.skipped.some(entry => entry.includes('not selected'))).toBe(true)
 
-    expect(fs.readFileSync(fixture.configPath, 'utf8')).toContain('"servers": []')
+    expect(JSON.parse(fs.readFileSync(fixture.globalSettingsPath, 'utf8'))).toMatchObject({ backups: { keep: 5 } })
     expect(fs.readFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'utf8')).toBe('CHANGED\n')
   })
 
@@ -390,32 +518,37 @@ describe('backup service', () => {
     expect(plan.items.every(item => !item.selected)).toBe(true)
   })
 
-  it('skips a data path the current config no longer declares', async () => {
+  it('skips a data path neither the current config nor the backup declares', async () => {
     const fixture = await makeFixture()
-    const created = await fixture.service.create()
-    const archive = path.join(fixture.service.directory, created.file!.name)
+    const slug = slugifyPath(fixture.dataDir)
+    const archive = path.join(fixture.root, 'data-only.zip')
+    await makeZip(archive, {
+      'manifest.json': JSON.stringify({
+        version: 1,
+        createdAt: Date.now(),
+        hostname: 'elsewhere',
+        data: [{ slug, path: fixture.dataDir, origin: 'app:DATA_DIR', workspace: 'default' }],
+      }),
+      'workspaces/default/servers.config.json': JSON.stringify({ servers: [] }),
+      [`data/${slug}/db.sqlite`]: 'RESTORED\n',
+    })
 
-    const config = backupsSchema({ dir: '.backups' })
-    if (config instanceof type.errors)
-      throw new Error(config.summary)
-
-    const undeclared = new BackupService({
-      dataRoot: fixture.root,
-      getConfig: () => config,
+    const bare = new BackupService({
+      dataRoot: fixture.dataRoot,
+      getConfig: () => fixture.config,
       getSources: () => ({
-        configPath: fixture.configPath,
-        secretsPath: fixture.secretsPath,
-        tlsDir: fixture.tlsDir,
-        paths: [],
+        ...fixture.sources,
+        workspaces: [{ ...fixture.sources.workspaces[0]!, servers: [] }],
       }),
     })
 
-    const plan = await undeclared.restore(archive, { confirm: false })
+    const plan = await bare.restore(archive, { confirm: false })
     expect(plan.skipped.some(entry => entry.includes('not declared by this config'))).toBe(true)
+    expect(plan.items.some(item => item.kind === 'data' && item.restorable)).toBe(false)
     expect(plan.applied).not.toContain(fixture.dataDir)
   })
 
-  it('restores a whole setup onto a blank instance, following the backup\'s own config', async () => {
+  it('restores a whole setup onto a workspace that declares nothing, following the backup\'s own config', async () => {
     const fixture = await makeFixture()
     const targetDir = path.join(fixture.root, 'restored-app')
     const otherDir = path.join(fixture.root, 'other-secrets')
@@ -430,8 +563,9 @@ describe('backup service', () => {
         hostname: 'somewhere-else',
         data: [{ slug: 'home-someone-app', path: '/home/someone/.app', origin: 'app:DATA_DIR' }],
       }),
-      'config/servers.config.json': JSON.stringify({
-        control: { port: 4123 },
+      'global/settings.json': JSON.stringify({ control: { port: 4123 }, backups: { includePaths: [] } }),
+      'global/secrets.json': '{"password":"hash"}\n',
+      'workspaces/default/servers.config.json': JSON.stringify({
         servers: [{
           id: 'app',
           command: 'node',
@@ -440,40 +574,49 @@ describe('backup service', () => {
           backupPaths: [otherDir],
         }],
       }),
-      'secrets/control-secrets.json': '{"password":"hash"}\n',
       'data/home-someone-app/db.sqlite': 'RESTORED\n',
     })
 
-    // The instance is blank: it declares nothing at all.
-    const plan = await fixture.service.restore(archive, { confirm: false })
+    // The workspace exists but declares nothing at all.
+    const blank = new BackupService({
+      dataRoot: fixture.dataRoot,
+      getConfig: () => fixture.config,
+      getSources: () => ({
+        ...fixture.sources,
+        workspaces: [{ ...fixture.sources.workspaces[0]!, servers: [] }],
+      }),
+    })
+
+    const plan = await blank.restore(archive, { confirm: false })
     expect(plan.error).toBeUndefined()
     expect(plan.restartRequired).toBe(true)
-    expect(plan.items.find(item => item.id === 'config')).toMatchObject({ restorable: true, selected: true })
-    expect(plan.items.find(item => item.id === `data:${'/home/someone/.app'}`)).toMatchObject({
+    expect(plan.items.find(item => item.id === 'global:settings')).toMatchObject({ restorable: true, selected: true })
+    expect(plan.items.find(item => item.id === `workspace:default:data:${targetDir}`)).toMatchObject({
       label: targetDir,
       restorable: true,
       selected: true,
       note: 'restored from /home/someone/.app',
     })
 
-    const applied = await fixture.service.restore(archive, { confirm: true })
+    const applied = await blank.restore(archive, { confirm: true })
     expect(applied.applied).toContain(targetDir)
     expect(fs.readFileSync(path.join(targetDir, 'db.sqlite'), 'utf8')).toBe('RESTORED\n')
-    expect(JSON.parse(fs.readFileSync(fixture.configPath, 'utf8'))).toMatchObject({ control: { port: 4123 } })
-    expect(fs.readFileSync(fixture.secretsPath, 'utf8')).toContain('hash')
+    expect(JSON.parse(fs.readFileSync(fixture.globalSettingsPath, 'utf8'))).toMatchObject({ control: { port: 4123 } })
+    expect(fs.readFileSync(fixture.globalSecretsPath, 'utf8')).toContain('hash')
   })
 
   it('resolves the backup\'s `{projectDir}` declaration against this instance', async () => {
     const fixture = await makeFixture()
+    const declared = path.join(projectDir, 'data', '.9router')
     const archive = path.join(fixture.root, 'templated.zip')
     await makeZip(archive, {
       'manifest.json': JSON.stringify({
         version: 1,
         createdAt: Date.now(),
         hostname: 'somewhere-else',
-        data: [{ slug: 'old-app', path: '/home/someone/old-project/data/.9router', origin: 'app:DATA_DIR' }],
+        data: [{ slug: 'old-app', path: '/home/someone/old-project/data/.9router', origin: 'app:DATA_DIR', workspace: 'default' }],
       }),
-      'config/servers.config.json': JSON.stringify({
+      'workspaces/default/servers.config.json': JSON.stringify({
         servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: '{projectDir}/data/.9router' } }],
       }),
       'data/old-app/db.sqlite': 'RESTORED\n',
@@ -481,29 +624,25 @@ describe('backup service', () => {
 
     // Dry run: the target is this instance's `projectDir`, never the archived absolute path.
     const plan = await fixture.service.restore(archive, { confirm: false })
-    expect(plan.items.find(item => item.id === 'data:/home/someone/old-project/data/.9router')).toMatchObject({
-      label: path.join(projectDir, 'data', '.9router'),
+    expect(plan.items.find(item => item.id === `workspace:default:data:${declared}`)).toMatchObject({
+      label: declared,
       restorable: true,
     })
   })
 
   it('keeps same-origin declarations apart instead of writing both to the first', async () => {
-    const fixture = await makeFixture()
+    const fixture = await makeFixture({ dataPaths: [] })
     const first = path.join(fixture.root, 'first')
     const second = path.join(fixture.root, 'second')
-    const config = backupsSchema({ dir: '.backups' })
-    if (config instanceof type.errors)
-      throw new Error(config.summary)
-
+    const sources: BackupSources = {
+      ...fixture.sources,
+      includePaths: [first, second],
+      workspaces: [{ ...fixture.sources.workspaces[0]!, servers: [] }],
+    }
     const service = new BackupService({
-      dataRoot: fixture.root,
-      getConfig: () => config,
-      getSources: () => ({
-        configPath: fixture.configPath,
-        secretsPath: fixture.secretsPath,
-        tlsDir: fixture.tlsDir,
-        paths: [first, second].map(target => ({ path: target, origin: 'global', included: true, note: null })),
-      }),
+      dataRoot: fixture.dataRoot,
+      getConfig: () => fixture.config,
+      getSources: () => sources,
     })
 
     const archive = path.join(fixture.root, 'two-globals.zip')
@@ -529,22 +668,22 @@ describe('backup service', () => {
   })
 
   it('refuses the archive\'s paths when its config is not part of the restore', async () => {
-    const fixture = await makeFixture()
+    const fixture = await makeFixture({ dataPaths: [] })
     const archive = path.join(fixture.root, 'shared.zip')
     await makeZip(archive, {
       'manifest.json': JSON.stringify({
         version: 1,
         createdAt: Date.now(),
         hostname: 'elsewhere',
-        data: [{ slug: 'x', path: '/home/someone/.app', origin: 'app:DATA_DIR' }],
+        data: [{ slug: 'x', path: '/home/someone/.app', origin: 'app:DATA_DIR', workspace: 'default' }],
       }),
-      'config/servers.config.json': JSON.stringify({
+      'workspaces/default/servers.config.json': JSON.stringify({
         servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: path.join(fixture.root, 'app') } }],
       }),
       'data/x/db.sqlite': 'RESTORED\n',
     })
 
-    const plan = await fixture.service.restore(archive, { confirm: false, include: ['secrets'] })
+    const plan = await fixture.service.restore(archive, { confirm: false, include: ['global:secrets'] })
     expect(plan.items.find(item => item.id === 'data:/home/someone/.app')).toMatchObject({
       restorable: false,
       selected: false,
@@ -555,7 +694,7 @@ describe('backup service', () => {
 
   it('tells its owner when the restored config was reloaded', async () => {
     let reloaded = 0
-    const fixture = await makeFixture({ onConfigRestored: () => { reloaded++ } })
+    const fixture = await makeFixture({ onRestored: () => { reloaded++ } })
     const created = await fixture.service.create()
     const archive = path.join(fixture.service.directory, created.file!.name)
 
@@ -567,7 +706,7 @@ describe('backup service', () => {
     expect(reloaded).toBe(1)
 
     // Selecting everything but the config leaves the running setup alone.
-    await fixture.service.restore(archive, { confirm: true, include: ['secrets'] })
+    await fixture.service.restore(archive, { confirm: true, include: ['global:secrets'] })
     expect(reloaded).toBe(1)
   })
 
@@ -583,7 +722,7 @@ describe('backup service', () => {
 
     // A `..` segment is refused even earlier, by zip.js itself.
     const traversal = path.join(fixture.root, 'traversal.zip')
-    await makeZip(traversal, { 'config/../../evil.txt': 'evil\n' })
+    await makeZip(traversal, { 'global/../../evil.txt': 'evil\n' })
     expect((await fixture.service.restore(traversal, { confirm: true })).error).toBeDefined()
     expect(fs.existsSync(path.join(fixture.root, '..', 'evil.txt'))).toBe(false)
   })
@@ -596,7 +735,7 @@ describe('backup service', () => {
     expect((await fixture.service.restore(junk, { confirm: false })).error).toContain('not a home-hosted backup')
 
     const noManifest = path.join(fixture.root, 'nomanifest.zip')
-    await makeZip(noManifest, { 'config/servers.config.json': '{}\n' })
+    await makeZip(noManifest, { 'global/settings.json': '{}\n' })
     expect((await fixture.service.restore(noManifest, { confirm: false })).error).toContain('no manifest')
   })
 

@@ -18,9 +18,11 @@ import { computed } from 'vue'
 import { waitForEndpoint } from '@/lib/endpoint'
 
 /**
- * Editable form shapes for the settings blocks the panel actually writes.
- * Everything a server can be trusted with is derived from `AppState`, so the
- * form is a plain, independent copy: a live SSE frame must never edit it.
+ * Editable form shapes for the settings the panel actually writes, split the way
+ * the API is: the panel-wide blocks (listener, auth, host vitals, backups) and the
+ * per-workspace blocks (server defaults, logs, notifications). Everything is
+ * derived from live state, so the form is a plain, independent copy: an SSE frame
+ * must never edit it.
  */
 
 export interface ListenerForm {
@@ -42,12 +44,6 @@ export interface AuthForm {
   lockoutMs: number
 }
 
-export interface LogsForm {
-  persist: boolean
-  maxBytes: number
-  keep: number
-}
-
 /** Thresholds for this machine, with the disk paths as the text a person types. */
 export interface HostForm {
   enabled: boolean
@@ -60,11 +56,35 @@ export interface HostForm {
   tempCelsius: number
 }
 
-/** The backups policy the panel owns; `dir` stays a file-level decision. */
+/** The panel-wide backups policy; `dir` stays a file-level decision. */
 export interface BackupsForm {
   enabled: boolean
   keep: number
   includePaths: string
+}
+
+export interface GlobalSettingsForm {
+  control: ListenerForm
+  auth: AuthForm
+  host: HostForm
+  backups: BackupsForm
+}
+
+export interface LogsForm {
+  persist: boolean
+  maxBytes: number
+  keep: number
+}
+
+export interface DefaultsForm {
+  enabled: boolean
+  autostart: boolean
+  bind: string
+  onPortConflict: OnPortConflict
+  logBufferLines: number
+  restart: RestartConfig
+  health: HealthConfig
+  stop: StopConfig
 }
 
 export interface TelegramForm {
@@ -79,24 +99,9 @@ export interface TelegramForm {
   onDdns: boolean
 }
 
-export interface DefaultsForm {
-  enabled: boolean
-  autostart: boolean
-  bind: string
-  onPortConflict: OnPortConflict
-  logBufferLines: number
-  restart: RestartConfig
-  health: HealthConfig
-  stop: StopConfig
-}
-
-export interface SettingsForm {
-  control: ListenerForm
-  auth: AuthForm
+export interface WorkspaceSettingsForm {
   defaults: DefaultsForm
   logs: LogsForm
-  host: HostForm
-  backups: BackupsForm
   telegram: TelegramForm
 }
 
@@ -133,22 +138,11 @@ export function cloneHealth(health: HealthConfig): HealthConfig {
   return { ...health, http: { ...health.http } }
 }
 
-/** Schema defaults, used only until the first SSE frame fills the form in. */
-export function createSettingsForm(): SettingsForm {
+/** Schema defaults, used only until the first frame fills each block in. */
+export function createGlobalForm(): GlobalSettingsForm {
   return {
     control: { label: 'home-hosted', port: 3999, host: 'local', openBrowser: false, tlsEnabled: false },
     auth: { enabled: false, sessionTtlMs: 604_800_000, cookieSecure: 'auto', trustProxy: false, maxLoginAttempts: 5, lockoutMs: 60_000 },
-    defaults: {
-      enabled: true,
-      autostart: false,
-      bind: 'local',
-      onPortConflict: 'block',
-      logBufferLines: 500,
-      restart: { ...SCHEMA_RESTART },
-      health: cloneHealth(SCHEMA_HEALTH),
-      stop: { ...SCHEMA_STOP },
-    },
-    logs: { persist: true, maxBytes: 2_000_000, keep: 3 },
     host: {
       enabled: true,
       intervalMs: 15_000,
@@ -160,6 +154,23 @@ export function createSettingsForm(): SettingsForm {
       tempCelsius: 85,
     },
     backups: { enabled: true, keep: 5, includePaths: '' },
+  }
+}
+
+/** Schema defaults for the per-workspace blocks. */
+export function createWorkspaceForm(): WorkspaceSettingsForm {
+  return {
+    defaults: {
+      enabled: true,
+      autostart: false,
+      bind: 'local',
+      onPortConflict: 'block',
+      logBufferLines: 500,
+      restart: { ...SCHEMA_RESTART },
+      health: cloneHealth(SCHEMA_HEALTH),
+      stop: { ...SCHEMA_STOP },
+    },
+    logs: { persist: true, maxBytes: 2_000_000, keep: 3 },
     telegram: {
       enabled: false,
       chatId: '',
@@ -241,7 +252,7 @@ export function backupsPatch(current: Pick<BackupsConfig, 'enabled' | 'keep' | '
 }
 
 /** Listener, auth and TLS in one `control` block; only changed keys survive. */
-export function controlPatch(view: ControlView, form: SettingsForm): Patch {
+export function controlPatch(view: ControlView, form: GlobalSettingsForm): Patch {
   const current = {
     label: view.label,
     port: view.port,
@@ -272,30 +283,33 @@ export function logsPatch(current: LogsConfig, form: LogsForm): Patch {
 
 /** Telegram policy only — the bot token is a secret with its own endpoint. */
 export function telegramPatch(current: TelegramStatus, form: TelegramForm): Patch {
-  const patch = diffFields({ telegram: telegramBaseline(current) }, { telegram: { ...form } }, ['telegram'])
-  return patch
+  return diffFields({ telegram: telegramBaseline(current) }, { telegram: { ...form } }, ['telegram'])
 }
 
 /**
- * The independently filled groups of the form.
+ * The independently filled blocks of each form.
  *
  * A live frame arrives in pieces: the control view comes from the state stream
  * while the host thresholds and the backups policy come from `/api/settings`,
- * which lands later. Each group is therefore filled on its own, and the one the
+ * which lands later. Each block is therefore filled on its own, and the one the
  * user is editing is the one that must not be overwritten.
  */
-export type FormBlock = 'control' | 'defaults' | 'logs' | 'telegram' | 'host' | 'backups'
+export type GlobalFormBlock = 'control' | 'host' | 'backups'
+export type WorkspaceFormBlock = 'defaults' | 'logs' | 'telegram'
 
-/** What each block held when it was last filled; absent means "never filled". */
-export type FormSnapshots = Partial<Record<FormBlock, unknown>>
+/** What a block held when it was last filled; absent means "never filled". */
+export type FormSnapshots = Partial<Record<GlobalFormBlock | WorkspaceFormBlock, unknown>>
 
-/** The block's current value, stable enough to compare with `JSON.stringify`. */
-export function blockSnapshot(form: SettingsForm, block: FormBlock): unknown {
+export function globalBlockSnapshot(form: GlobalSettingsForm, block: GlobalFormBlock): unknown {
   switch (block) {
-    case 'control': return {
-      ...form.control,
-      auth: { ...form.auth },
-    }
+    case 'control': return { ...form.control, auth: { ...form.auth } }
+    case 'host': return { ...form.host }
+    case 'backups': return { ...form.backups }
+  }
+}
+
+export function workspaceBlockSnapshot(form: WorkspaceSettingsForm, block: WorkspaceFormBlock): unknown {
+  switch (block) {
     case 'defaults': return {
       ...form.defaults,
       restart: { ...form.defaults.restart },
@@ -304,8 +318,6 @@ export function blockSnapshot(form: SettingsForm, block: FormBlock): unknown {
     }
     case 'logs': return { ...form.logs }
     case 'telegram': return { ...form.telegram }
-    case 'host': return { ...form.host }
-    case 'backups': return { ...form.backups }
   }
 }
 
@@ -316,23 +328,22 @@ export function blockSnapshot(form: SettingsForm, block: FormBlock): unknown {
  * places (`auth.enabled`, `backups.enabled`) and would otherwise look like a
  * pending edit that blocks its own first fill.
  */
-export function isBlockEdited(form: SettingsForm, snapshots: FormSnapshots, block: FormBlock): boolean {
-  const snapshot = snapshots[block]
-  return snapshot !== undefined && JSON.stringify(snapshot) !== JSON.stringify(blockSnapshot(form, block))
+export function isBlockEdited(snapshot: unknown, current: unknown): boolean {
+  return snapshot !== undefined && JSON.stringify(snapshot) !== JSON.stringify(current)
 }
 
-export function listenerChanged(view: ControlView, form: SettingsForm): boolean {
+export function listenerChanged(view: ControlView, form: GlobalSettingsForm): boolean {
   return view.label !== form.control.label
     || view.port !== form.control.port
     || view.host !== form.control.host
     || view.openBrowser !== form.control.openBrowser
 }
 
-export function tlsChanged(view: ControlView, form: SettingsForm): boolean {
+export function tlsChanged(view: ControlView, form: GlobalSettingsForm): boolean {
   return view.tls.enabled !== form.control.tlsEnabled
 }
 
-export function authChanged(view: ControlView, form: SettingsForm): boolean {
+export function authChanged(view: ControlView, form: GlobalSettingsForm): boolean {
   return countLeaves(diffFields({ ...authBaseline(view.auth) }, { ...form.auth })) > 0
 }
 

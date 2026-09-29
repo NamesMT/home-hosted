@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BackupEntry, RestorePlan } from '@/lib/api'
+import type { BackupFile, RestorePlan } from '@shared/contracts'
 import { computed, ref, watch } from 'vue'
 import * as api from '@/lib/api'
 
@@ -12,7 +12,7 @@ type RestoreTarget = RestoreSource | { kind: 'upload' }
 
 const props = withDefaults(defineProps<{
   open: boolean
-  files: readonly BackupEntry[]
+  files: readonly BackupFile[]
   initial?: RestoreTarget | null
 }>(), {
   initial: null,
@@ -31,7 +31,7 @@ const target = ref<RestoreTarget>({ kind: 'upload' })
 const sourceValue = ref<string>(UPLOAD)
 
 const selectedCount = computed(() => plan.value?.items.filter(item => item.selected).length ?? 0)
-const restoringConfig = computed(() => plan.value?.items.some(item => item.id === 'config' && item.selected) ?? false)
+const restoringConfig = computed(() => plan.value?.items.some(item => item.id === 'global:settings' && item.selected) ?? false)
 const needsPassword = computed(() => plan.value?.needsPassword === true)
 const canApply = computed(() => plan.value !== null && !needsPassword.value && selectedCount.value > 0 && !busy.value)
 const sourceOptions = computed(() => [

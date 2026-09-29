@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { BackupsState } from '@/lib/api'
+import type { BackupsView } from '@shared/contracts'
 import type { CaptureChoice } from '@/lib/backupSelection'
 import { computed, ref, watch } from 'vue'
 import * as api from '@/lib/api'
 import { captureItems, includeIds } from '@/lib/backupSelection'
 
-const props = defineProps<{ open: boolean, state: BackupsState | null }>()
+const props = defineProps<{ open: boolean, state: BackupsView | null }>()
 const emit = defineEmits<{ close: [], done: [message: string] }>()
 
 const busy = ref(false)
@@ -15,14 +15,14 @@ const choices = ref<CaptureChoice[]>([])
 
 function rebuild(preserve: boolean): void {
   const previous = new Map(choices.value.map(choice => [choice.id, choice.selected]))
-  choices.value = captureItems(props.state?.paths ?? []).map(item => ({
+  choices.value = captureItems(props.state).map(item => ({
     ...item,
     selected: preserve ? previous.get(item.id) ?? true : true,
   }))
 }
 
 const selectedCount = computed(() => choices.value.filter(choice => choice.selected).length)
-const configSelected = computed(() => choices.value.find(choice => choice.id === 'config')?.selected ?? false)
+const configSelected = computed(() => choices.value.find(choice => choice.id === 'global:settings')?.selected ?? false)
 const canCreate = computed(() => props.state !== null && selectedCount.value > 0 && !busy.value)
 
 watch(() => props.open, (isOpen) => {

@@ -71,14 +71,15 @@ describe('useServerLogs', () => {
   it('opens a stream once the server id is known, and closes it when it goes away', async () => {
     const id = ref<string | null>(null)
     const scope = effectScope()
-    scope.run(() => useServerLogs(id))
+    scope.run(() => useServerLogs(() => 'default', id))
 
     expect(FakeEventSource.instances).toHaveLength(0)
 
     id.value = 'demo'
     await nextTick()
     expect(FakeEventSource.instances).toHaveLength(1)
-    expect(latest().url).toBe('/api/servers/demo/stream')
+    // The stream is workspace-scoped now: the same server id can exist twice.
+    expect(latest().url).toBe('/api/servers/demo/stream?workspace=default')
 
     id.value = null
     await nextTick()
@@ -87,10 +88,25 @@ describe('useServerLogs', () => {
     scope.stop()
   })
 
+  it('opens nothing until a workspace is selected too', async () => {
+    const workspace = ref<string | null>(null)
+    const scope = effectScope()
+    scope.run(() => useServerLogs(workspace, () => 'demo'))
+
+    // A server id alone is not enough: without a workspace there is no stream to open.
+    expect(FakeEventSource.instances).toHaveLength(0)
+
+    workspace.value = 'work'
+    await nextTick()
+    expect(latest().url).toBe('/api/servers/demo/stream?workspace=work')
+
+    scope.stop()
+  })
+
   it('invalidates on the first batch, so a cached view shows it without a remount', async () => {
     const id = ref<string | null>(null)
     const scope = effectScope()
-    const logs = scope.run(() => useServerLogs(id))!
+    const logs = scope.run(() => useServerLogs(() => 'default', id))!
 
     // A view that evaluated its lines while the panel was still loading state.
     const liveLines = computed(() => {
@@ -122,7 +138,7 @@ describe('useServerLogs', () => {
     // batch is what makes derived values (count, matches, window) update, and the
     // version is what makes the views re-read at all.
     const scope = effectScope()
-    const logs = scope.run(() => useServerLogs(() => 'gamma'))!
+    const logs = scope.run(() => useServerLogs(() => 'default', () => 'gamma'))!
     await nextTick()
 
     const first = logs.lines()
@@ -148,7 +164,7 @@ describe('useServerLogs', () => {
 
   it('bumps the same signal when the buffer is cleared', async () => {
     const scope = effectScope()
-    const logs = scope.run(() => useServerLogs(() => 'beta'))!
+    const logs = scope.run(() => useServerLogs(() => 'default', () => 'beta'))!
     await nextTick()
 
     latest().emit('log', logFrame([line('something')], 'beta'))

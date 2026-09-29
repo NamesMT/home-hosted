@@ -8,6 +8,8 @@ import { statusForAction } from '#src/helpers/action-result'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
+import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
+import { serverKey } from '#src/services/events'
 import { freePortResultSchema, logQuerySchema, serverCreateSchema, serverPatchSchema, serverViewSchema } from '#src/shared/contracts'
 
 const idParam = type({ id: 'string >= 1' })
@@ -16,6 +18,7 @@ const MAX_PENDING_WRITES = 200
 const serverResponse = type({ server: serverViewSchema })
 const serversResponse = type({ servers: serverViewSchema.array() })
 const okResponse = type({ ok: 'boolean' })
+const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
 
 function unknownServer(id: string): DetailedError {
   return new DetailedError(`unknown server "${id}"`, { statusCode: 404, code: 'UNKNOWN_SERVER' })
@@ -27,27 +30,32 @@ export function createServersRoute(deps: AppDeps) {
       '/',
       describeRoute({
         tags: ['servers'],
-        summary: 'Every supervised server, with its live state',
+        summary: 'Every supervised server in one workspace, with its live state',
         responses: { 200: { description: 'The servers', content: jsonBody(serversResponse) } },
       }),
-      c => c.json({ servers: deps.supervisor.views() }),
+      validate('query', workspaceQuerySchema),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        return c.json({ servers: runtime.supervisor.views() })
+      },
     )
 
     .post(
       '/',
       describeRoute({
         tags: ['servers'],
-        summary: 'Add a server',
+        summary: 'Add a server to a workspace',
         responses: {
           201: { description: 'Created', content: jsonBody(serverResponse) },
           400: ERROR_RESPONSES[400],
         },
       }),
+      validate('query', workspaceQuerySchema),
       validate('json', serverCreateSchema),
       (c) => {
-        const body = c.req.valid('json')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         try {
-          return c.json({ server: deps.store.addServer(body) }, 201)
+          return c.json({ server: runtime.store.addServer(c.req.valid('json')) }, 201)
         }
         catch (error) {
           if (error instanceof ConfigError)
@@ -60,29 +68,35 @@ export function createServersRoute(deps: AppDeps) {
     // Registered before `/:id` so the literal segments always win.
     .post(
       '/start-all',
-      describeRoute({ tags: ['servers'], summary: 'Start every enabled server', responses: { 200: { description: 'The servers', content: jsonBody(serversResponse) } } }),
+      describeRoute({ tags: ['servers'], summary: 'Start every enabled server in a workspace', responses: { 200: { description: 'The servers', content: jsonBody(serversResponse) } } }),
+      validate('query', workspaceQuerySchema),
       async (c) => {
-        await deps.supervisor.startAll()
-        return c.json({ servers: deps.supervisor.views() })
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        await runtime.supervisor.startAll()
+        return c.json({ servers: runtime.supervisor.views() })
       },
     )
 
     .post(
       '/stop-all',
-      describeRoute({ tags: ['servers'], summary: 'Stop every server', responses: { 200: { description: 'The servers', content: jsonBody(serversResponse) } } }),
+      describeRoute({ tags: ['servers'], summary: 'Stop every server in a workspace', responses: { 200: { description: 'The servers', content: jsonBody(serversResponse) } } }),
+      validate('query', workspaceQuerySchema),
       async (c) => {
-        await deps.supervisor.stopAll()
-        return c.json({ servers: deps.supervisor.views() })
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        await runtime.supervisor.stopAll()
+        return c.json({ servers: runtime.supervisor.views() })
       },
     )
 
     .get(
       '/:id',
       describeRoute({ tags: ['servers'], summary: 'One server', responses: { 200: { description: 'The server', content: jsonBody(serverResponse) }, 404: ERROR_RESPONSES[404] } }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
-        const server = deps.supervisor.views().find(entry => entry.id === id)
+        const server = runtime.supervisor.views().find(entry => entry.id === id)
         if (!server)
           throw unknownServer(id)
         return c.json({ server })
@@ -92,28 +106,31 @@ export function createServersRoute(deps: AppDeps) {
     .get(
       '/:id/logs',
       describeRoute({ tags: ['servers'], summary: 'Buffered log lines from memory', responses: { 200: { description: 'Lines' }, 404: ERROR_RESPONSES[404] } }),
+      validate('query', bufferedLogsQuery),
       validate('param', idParam),
-      validate('query', logQuerySchema),
       (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
-        if (!deps.store.getServer(id))
+        if (!runtime.store.getServer(id))
           throw unknownServer(id)
 
         const { limit } = c.req.valid('query')
         const parsed = limit === undefined ? Number.NaN : Number.parseInt(limit, 10)
         // Clamped: a negative or huge value must not slice from the wrong end.
         const bounded = Number.isNaN(parsed) ? undefined : Math.min(Math.max(parsed, 1), 100_000)
-        return c.json({ lines: deps.supervisor.logLines(id, bounded) })
+        return c.json({ lines: runtime.supervisor.logLines(id, bounded) })
       },
     )
 
     .get(
       '/:id/stream',
       describeRoute({ tags: ['servers'], summary: 'Server state and logs as server-sent events', responses: { 200: { description: 'text/event-stream' }, 404: ERROR_RESPONSES[404] } }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
-        if (!deps.store.getServer(id))
+        if (!runtime.store.getServer(id))
           throw unknownServer(id)
 
         return streamSSE(c, async (stream) => {
@@ -135,7 +152,7 @@ export function createServersRoute(deps: AppDeps) {
             })
           }
 
-          const unsubscribe = deps.hub.subscribe(id, (message) => {
+          const unsubscribe = deps.hub.subscribe(serverKey(runtime.id, id), (message) => {
             send(JSON.stringify(message), message.type)
           })
           stream.onAbort(() => {
@@ -143,13 +160,14 @@ export function createServersRoute(deps: AppDeps) {
             unsubscribe()
           })
 
-          const server = deps.supervisor.views().find(entry => entry.id === id)
-          send(JSON.stringify({ type: 'server', ts: Date.now(), serverId: id, server }), 'server')
+          const server = runtime.supervisor.views().find(entry => entry.id === id)
+          send(JSON.stringify({ type: 'server', ts: Date.now(), workspaceId: runtime.id, serverId: id, server }), 'server')
           send(JSON.stringify({
             type: 'log',
             ts: Date.now(),
+            workspaceId: runtime.id,
             serverId: id,
-            lines: deps.supervisor.logLines(id, 200),
+            lines: runtime.supervisor.logLines(id, 200),
           }), 'log')
 
           while (true) {
@@ -165,9 +183,11 @@ export function createServersRoute(deps: AppDeps) {
     .post(
       '/:id/start',
       describeRoute({ tags: ['servers'], summary: 'Start a server', responses: { 200: { description: 'Result' }, 404: ERROR_RESPONSES[404] } }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
-        const result = await deps.supervisor.start(c.req.valid('param').id)
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.start(c.req.valid('param').id)
         return c.json(result, statusForAction(result))
       },
     )
@@ -175,9 +195,11 @@ export function createServersRoute(deps: AppDeps) {
     .post(
       '/:id/stop',
       describeRoute({ tags: ['servers'], summary: 'Stop a server', responses: { 200: { description: 'Result' }, 404: ERROR_RESPONSES[404] } }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
-        const result = await deps.supervisor.stop(c.req.valid('param').id)
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.stop(c.req.valid('param').id)
         return c.json(result, result.ok ? 200 : 404)
       },
     )
@@ -185,9 +207,11 @@ export function createServersRoute(deps: AppDeps) {
     .post(
       '/:id/restart',
       describeRoute({ tags: ['servers'], summary: 'Restart a server', responses: { 200: { description: 'Result' }, 404: ERROR_RESPONSES[404] } }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
-        const result = await deps.supervisor.restart(c.req.valid('param').id)
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.restart(c.req.valid('param').id)
         return c.json(result, statusForAction(result))
       },
     )
@@ -195,9 +219,11 @@ export function createServersRoute(deps: AppDeps) {
     .post(
       '/:id/clear-logs',
       describeRoute({ tags: ['servers'], summary: 'Forget the buffered log lines', responses: { 200: { description: 'Cleared', content: jsonBody(okResponse) } } }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       (c) => {
-        deps.supervisor.clearLogs(c.req.valid('param').id)
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        runtime.supervisor.clearLogs(c.req.valid('param').id)
         return c.json({ ok: true })
       },
     )
@@ -218,10 +244,12 @@ export function createServersRoute(deps: AppDeps) {
           409: { description: 'Nothing to free, or the holder is supervised by this panel' },
         },
       }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
-        const result = await deps.supervisor.freePort(id)
+        const result = await runtime.supervisor.freePort(id)
         if (!result.ok)
           throw new DetailedError(result.error ?? `could not free the port for "${id}"`, { statusCode: statusForAction(result), code: 'FREE_PORT_FAILED' })
         return c.json(result)
@@ -231,11 +259,13 @@ export function createServersRoute(deps: AppDeps) {
     .patch(
       '/:id',
       describeRoute({ tags: ['servers'], summary: 'Edit a server', responses: { 200: { description: 'The server', content: jsonBody(serverResponse) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404] } }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       validate('json', serverPatchSchema),
       (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         try {
-          return c.json({ server: deps.store.updateServer(c.req.valid('param').id, c.req.valid('json')) })
+          return c.json({ server: runtime.store.updateServer(c.req.valid('param').id, c.req.valid('json')) })
         }
         catch (error) {
           if (error instanceof ConfigError) {
@@ -250,12 +280,14 @@ export function createServersRoute(deps: AppDeps) {
     .delete(
       '/:id',
       describeRoute({ tags: ['servers'], summary: 'Stop and remove a server', responses: { 200: { description: 'Removed', content: jsonBody(okResponse) }, 404: ERROR_RESPONSES[404] } }),
+      validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
         try {
-          await deps.supervisor.stop(id)
-          deps.store.removeServer(id)
+          await runtime.supervisor.stop(id)
+          runtime.store.removeServer(id)
           return c.json({ ok: true })
         }
         catch (error) {

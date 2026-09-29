@@ -5,6 +5,7 @@ import { describeRoute } from 'hono-openapi'
 import { streamSSE } from 'hono/streaming'
 import { appFactory } from '#src/helpers/factory'
 import { validate } from '#src/helpers/validator'
+import { serverKey } from '#src/services/events'
 
 const MAX_PENDING_WRITES = 200
 const PING_INTERVAL_MS = 15000
@@ -12,13 +13,16 @@ const PING_INTERVAL_MS = 15000
 const eventsQuery = type({
   /** Only this server's frames. */
   'serverId?': 'string',
+  /** The workspace that server belongs to; without it a repeated id matches every workspace. */
+  'workspace?': 'string',
   /** `logs=0` drops log frames; the first frame is always the full state. */
   'logs?': 'string',
 })
 
 /**
- * One SSE stream per subscriber. Pass `?serverId=<id>` to receive only that
- * server's messages; the first frame always carries the full state snapshot.
+ * One SSE stream per subscriber. Pass `?workspace=<id>&serverId=<id>` to receive
+ * only that server's messages; the first frame always carries the full state
+ * snapshot.
  */
 export function createEventsRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -33,6 +37,7 @@ export function createEventsRoute(deps: AppDeps) {
       (c) => {
         const query = c.req.valid('query')
         const serverId = query.serverId ?? null
+        const workspaceId = query.workspace ?? null
         const logOnly = query.logs !== '0'
 
         return streamSSE(c, async (stream) => {
@@ -59,8 +64,16 @@ export function createEventsRoute(deps: AppDeps) {
             return queue
           }
 
-          const unsubscribe = deps.hub.subscribe(serverId, (message) => {
+          // A named workspace scopes the subscription to one `workspaceId/serverId`;
+          // a bare id keeps working but can only be filtered, because the same id may
+          // exist in several workspaces.
+          const subscription = workspaceId !== null && serverId !== null
+            ? serverKey(workspaceId, serverId)
+            : null
+          const unsubscribe = deps.hub.subscribe(subscription, (message) => {
             if (!logOnly && message.type === 'log')
+              return
+            if (subscription === null && serverId !== null && message.serverId !== serverId)
               return
             void send(message)
           })
@@ -70,7 +83,7 @@ export function createEventsRoute(deps: AppDeps) {
             unsubscribe()
           })
 
-          await send({ type: 'hello', ts: Date.now(), state: deps.supervisor.getState() })
+          await send({ type: 'hello', ts: Date.now(), state: deps.panel.getState() })
 
           while (true) {
             await stream.sleep(PING_INTERVAL_MS)

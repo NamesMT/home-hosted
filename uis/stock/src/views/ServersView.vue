@@ -9,9 +9,12 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import { inputClass } from '@/lib/ui'
 
-const { servers, appState, now, seriesOf, startAll, stopAll } = useControlPlane()
+const control = useControlPlane()
+const workspace = useWorkspaces()
+const { servers } = workspace
 
 const showAdd = ref(false)
 const query = ref('')
@@ -25,7 +28,7 @@ const FILTERS = [
   { value: 'disabled', label: 'Disabled' },
 ]
 
-const loading = computed(() => appState.value === null)
+const loading = computed(() => control.appState.value === null)
 
 const visible = computed(() => {
   const needle = query.value.trim().toLowerCase()
@@ -59,13 +62,13 @@ const counts = computed(() => ({
   <div class="mx-auto max-w-7xl space-y-5 p-4 sm:p-5">
     <PageHeader
       title="Servers"
-      description="Every entry in servers.config.json, with live resources, health and history."
+      :description="`Every entry in ${workspace.selected.value?.label ?? 'this workspace'}'s servers.config.json, with live resources, health and history.`"
     >
       <template #actions>
-        <AppButton variant="ghost" @click="startAll()">
+        <AppButton variant="ghost" @click="workspace.startAll()">
           <Play class="size-3.5" />Start all
         </AppButton>
-        <AppButton variant="ghost" @click="stopAll()">
+        <AppButton variant="ghost" @click="workspace.stopAll()">
           <Square class="size-3.5" />Stop all
         </AppButton>
         <AppButton variant="primary" @click="showAdd = true">
@@ -137,11 +140,12 @@ const counts = computed(() => ({
         v-for="server in visible"
         :key="server.id"
         :server="server"
-        :series="seriesOf(server.id)"
-        :now="now"
+        :workspace-id="workspace.activeId.value"
+        :series="workspace.seriesOf(server.id)"
+        :now="control.now.value"
       />
     </div>
 
-    <AddServerDialog v-model:open="showAdd" />
+    <AddServerDialog v-model:open="showAdd" :workspace-id="workspace.activeId.value" />
   </div>
 </template>

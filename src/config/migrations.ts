@@ -1,15 +1,19 @@
-import type { RawConfig } from '#src/config/schema'
-
 /**
- * The config shape this release understands. Bump it only for a change that an
- * older release cannot simply ignore, and add the step that lifts the previous
- * shape to it in `configMigrations` — then a config that needs it refuses to
- * start until `home-hosted migrate` has run.
+ * The config shape this release understands. It is shared by every file that
+ * carries a `meta` stamp (the global settings, each workspace's settings and its
+ * servers config), because a migration has to be able to lift any of them.
  *
- * 1 — the shape that has been in use up to and including 0.3.0, plus the `meta`
+ * Bump it only for a change that an older release cannot simply ignore, and add
+ * the step that lifts the previous shape to it in `configMigrations` — then a
+ * config that needs it refuses to start until `home-hosted migrate` has run.
+ *
+ * 1 — the shape that has been in use up to and including 0.6.x, plus the `meta`
  *     block this constant was introduced with. Unstamped files are schema 1.
  */
 export const CONFIG_SCHEMA = 1
+
+/** A settings or servers file, as read: whatever keys it carries. */
+export type RawConfig = Record<string, unknown>
 
 export interface ConfigMigration {
   /** The schema this step produces; steps run in ascending order. */

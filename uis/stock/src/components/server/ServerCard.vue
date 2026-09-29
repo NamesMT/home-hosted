@@ -23,12 +23,15 @@ import Modal from '@/components/ui/Modal.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import Tip from '@/components/ui/Tip.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatBytesShort, formatCpuPercent, formatDuration, formatRatio, relativeFrom } from '@/lib/format'
 import { HISTORY_TYPE_LABEL, HISTORY_TYPE_TONE, serverTone, TONE_TEXT } from '@/lib/status'
 
 const props = withDefaults(defineProps<{
   server: ServerView
+  /** The workspace that owns this entry; every action is scoped to it. */
+  workspaceId: string
   series: ServerSeries | undefined
   now: number
   /** `compact` drops the trend charts — used where space is tight. */
@@ -47,6 +50,7 @@ const EVENT_ICONS = {
 } as const
 
 const control = useControlPlane()
+const workspace = useWorkspaces()
 const busy = ref(false)
 const confirmRemove = ref(false)
 
@@ -98,7 +102,7 @@ const meta = computed(() => {
 async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
   busy.value = true
   try {
-    await control[action](props.server.id)
+    await control[action](props.workspaceId, props.server.id)
   }
   finally {
     busy.value = false
@@ -109,7 +113,7 @@ async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
 async function killPortHolder(): Promise<void> {
   busy.value = true
   try {
-    await control.freePort(props.server.id)
+    await control.freePort(props.workspaceId, props.server.id)
   }
   finally {
     busy.value = false
@@ -119,14 +123,19 @@ async function killPortHolder(): Promise<void> {
 async function toggle(flag: 'enabled' | 'autostart'): Promise<void> {
   const next = !(flag === 'enabled' ? config.value.enabled : config.value.autostart)
   if (flag === 'enabled')
-    await control.setEnabled(props.server.id, next)
+    await control.setEnabled(props.workspaceId, props.server.id, next)
   else
-    await control.setAutostart(props.server.id, next)
+    await control.setAutostart(props.workspaceId, props.server.id, next)
 }
 
 async function remove(): Promise<void> {
   confirmRemove.value = false
-  await control.remove(props.server.id)
+  await control.remove(props.workspaceId, props.server.id)
+}
+
+/** A detail page is workspace-scoped, so opening a card picks its workspace first. */
+function openDetail(): void {
+  workspace.select(props.workspaceId)
 }
 </script>
 
@@ -155,6 +164,7 @@ async function remove(): Promise<void> {
           <RouterLink
             :to="`/servers/${server.id}`"
             class="truncate text-sm font-semibold tracking-tight text-ink hover:text-accent"
+            @click="openDetail"
           >
             {{ label }}
           </RouterLink>
@@ -289,7 +299,7 @@ async function remove(): Promise<void> {
       </AppButton>
 
       <Tip label="Live logs and full telemetry">
-        <RouterLink :to="`/servers/${server.id}`">
+        <RouterLink :to="`/servers/${server.id}`" @click="openDetail">
           <AppButton size="xs" variant="ghost">
             <ScrollText class="size-3" />Details
           </AppButton>
@@ -324,7 +334,7 @@ async function remove(): Promise<void> {
             </DropdownMenuItem>
             <DropdownMenuItem
               class="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-xs text-muted outline-none data-[highlighted]:bg-hover data-[highlighted]:text-ink"
-              @select="control.clearLogs(server.id)"
+              @select="control.clearLogs(workspaceId, server.id)"
             >
               <ScrollText class="size-3.5" />
               Clear log buffer

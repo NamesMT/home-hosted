@@ -1,26 +1,27 @@
 import type { MigrationOptions } from '#src/config/migrations'
-import type { RawConfig, ResolvedConfig } from '#src/config/schema'
+import type { ResolvedGlobalConfig, ResolvedWorkspaceSettings } from '#src/config/schema'
 import type { ServerConfig } from '#src/shared/contracts'
 import { type } from 'arktype'
 import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
 import {
   backupsSchema,
-  CONFIG_KEYS,
   controlSchema,
   ddnsConfigSchema,
   defaultsSchema,
+  GLOBAL_SETTINGS_KEYS,
   hostSchema,
   logsSchema,
   mergeDefaults,
   notificationsSchema,
-
+  SERVERS_FILE_KEYS,
   serverSchema,
+  WORKSPACE_SETTINGS_KEYS,
 } from '#src/config/schema'
 import { appVersion } from '#src/helpers/version'
 
-export interface ConfigParse {
-  /** Null when something made the config unusable; `errors` says why. */
-  config: ResolvedConfig | null
+export interface ConfigParse<T> {
+  /** Null when something made the file unusable; `errors` says why. */
+  config: T | null
   /** Blocking problems: what the panel must not start on. */
   errors: string[]
   /** Keys a newer release wrote that this one does not know, by path. */
@@ -38,16 +39,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 type Validator = (input: unknown) => unknown
-
-const GROUPS: ReadonlyArray<readonly [string, Validator]> = [
-  ['control', controlSchema as unknown as Validator],
-  ['defaults', defaultsSchema as unknown as Validator],
-  ['logs', logsSchema as unknown as Validator],
-  ['notifications', notificationsSchema as unknown as Validator],
-  ['host', hostSchema as unknown as Validator],
-  ['backups', backupsSchema as unknown as Validator],
-  ['ddns', ddnsConfigSchema as unknown as Validator],
-]
 
 /** ArkType reports an unrecognized key with this problem, carrying its path. */
 const UNDECLARED = 'must be removed'
@@ -109,19 +100,24 @@ export function parseTolerant(
   return { value: null, error: 'too many unrecognized keys to ignore' }
 }
 
+interface GroupedParse<T> {
+  keys: readonly string[]
+  groups: ReadonlyArray<readonly [string, Validator]>
+  build: (meta: { writtenBy: string, schema: number }, groups: Record<string, unknown>) => T
+}
+
 /**
- * Reads a `servers.config.json` from any release. Unrecognized keys are reported
- * and left on disk; blocking problems — including a file this release cannot
- * understand — land in `errors` and leave `config` null.
+ * Reads one settings file from any release: schema guard, unrecognized keys
+ * reported and left on disk, blocking problems returned for the caller to refuse on.
  */
-export function parseConfig(raw: unknown, options: MigrationOptions = {}): ConfigParse {
+function parseGrouped<T>(raw: unknown, label: string, definition: GroupedParse<T>, options: MigrationOptions): ConfigParse<T> {
   const unknownKeys: string[] = []
   const errors: string[] = []
   const warnings: string[] = []
-  const result: ConfigParse = { config: null, errors, unknownKeys, warnings, schemaVersion: CONFIG_SCHEMA, writtenBy: null }
+  const result: ConfigParse<T> = { config: null, errors, unknownKeys, warnings, schemaVersion: CONFIG_SCHEMA, writtenBy: null }
 
   if (!isRecord(raw)) {
-    errors.push('the config must contain a JSON object')
+    errors.push(`the ${label} must contain a JSON object`)
     return result
   }
 
@@ -143,20 +139,109 @@ export function parseConfig(raw: unknown, options: MigrationOptions = {}): Confi
   }
 
   for (const key of Object.keys(raw)) {
-    if (!(CONFIG_KEYS as readonly string[]).includes(key))
+    if (!definition.keys.includes(key))
       unknownKeys.push(key)
   }
 
   const groups: Record<string, unknown> = {}
-  for (const [name, schema] of GROUPS) {
+  for (const [name, schema] of definition.groups) {
     const parsed = parseTolerant(raw[name] ?? {}, schema, name, unknownKeys)
     if (parsed.error !== null)
       errors.push(`${name}: ${parsed.error}`)
     groups[name] = parsed.value ?? schema({})
   }
 
-  const defaults = groups.defaults as ResolvedConfig['defaults']
-  const servers: ServerConfig[] = []
+  if (errors.length > 0)
+    return result
+
+  result.config = definition.build({ writtenBy: writtenBy ?? '', schema: schemaVersion }, groups)
+  return result
+}
+
+/** `$HHOSTED_HOME/.hh/settings.json`. */
+export function parseGlobalSettings(raw: unknown, options: MigrationOptions = {}): ConfigParse<ResolvedGlobalConfig> {
+  return parseGrouped(raw, 'settings file', {
+    keys: GLOBAL_SETTINGS_KEYS,
+    groups: [
+      ['control', controlSchema as unknown as Validator],
+      ['host', hostSchema as unknown as Validator],
+      ['backups', backupsSchema as unknown as Validator],
+    ],
+    build: (meta, groups) => ({
+      meta,
+      control: groups.control as ResolvedGlobalConfig['control'],
+      host: groups.host as ResolvedGlobalConfig['host'],
+      backups: groups.backups as ResolvedGlobalConfig['backups'],
+    }),
+  }, options)
+}
+
+/** `$HHOSTED_HOME/.hh/<id>/settings.json`. */
+export function parseWorkspaceSettings(raw: unknown, options: MigrationOptions = {}): ConfigParse<ResolvedWorkspaceSettings> {
+  return parseGrouped(raw, 'workspace settings file', {
+    keys: WORKSPACE_SETTINGS_KEYS,
+    groups: [
+      ['defaults', defaultsSchema as unknown as Validator],
+      ['logs', logsSchema as unknown as Validator],
+      ['notifications', notificationsSchema as unknown as Validator],
+      ['ddns', ddnsConfigSchema as unknown as Validator],
+    ],
+    build: (meta, groups) => ({
+      meta,
+      defaults: groups.defaults as ResolvedWorkspaceSettings['defaults'],
+      logs: groups.logs as ResolvedWorkspaceSettings['logs'],
+      notifications: groups.notifications as ResolvedWorkspaceSettings['notifications'],
+      ddns: groups.ddns as ResolvedWorkspaceSettings['ddns'],
+    }),
+  }, options)
+}
+
+export interface ServersParse {
+  servers: ServerConfig[]
+  errors: string[]
+  unknownKeys: string[]
+  warnings: string[]
+  schemaVersion: number
+  writtenBy: string | null
+}
+
+/**
+ * `$HHOSTED_HOME/.hh/<id>/servers.config.json`: just the entries, each resolved
+ * against the workspace's defaults.
+ */
+export function parseServersFile(raw: unknown, defaults: Record<string, unknown>, options: MigrationOptions = {}): ServersParse {
+  const unknownKeys: string[] = []
+  const errors: string[] = []
+  const warnings: string[] = []
+  const result: ServersParse = { servers: [], errors, unknownKeys, warnings, schemaVersion: CONFIG_SCHEMA, writtenBy: null }
+
+  if (!isRecord(raw)) {
+    errors.push('the servers config must contain a JSON object')
+    return result
+  }
+
+  const meta = isRecord(raw.meta) ? raw.meta : null
+  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : CONFIG_SCHEMA
+  const writtenBy = typeof meta?.writtenBy === 'string' && meta.writtenBy.length > 0 ? meta.writtenBy : null
+  result.schemaVersion = schemaVersion
+  result.writtenBy = writtenBy
+
+  if (schemaVersion > CONFIG_SCHEMA) {
+    errors.push(`written by home-hosted ${writtenBy ?? 'a newer release'} (config schema ${schemaVersion}); this release understands schema ${CONFIG_SCHEMA}`)
+    return result
+  }
+
+  const { steps } = planConfigMigrations(schemaVersion, options)
+  if (steps.length > 0) {
+    errors.push(`config schema ${schemaVersion} needs ${steps.length} migration${steps.length === 1 ? '' : 's'} before this release can use it`)
+    return result
+  }
+
+  for (const key of Object.keys(raw)) {
+    if (!(SERVERS_FILE_KEYS as readonly string[]).includes(key))
+      unknownKeys.push(key)
+  }
+
   const seen = new Set<string>()
   const rawServers = Array.isArray(raw.servers) ? raw.servers : []
 
@@ -175,26 +260,11 @@ export function parseConfig(raw: unknown, options: MigrationOptions = {}): Confi
       return
     }
     seen.add(server.id)
-    servers.push({ ...server, port: server.port ?? null })
+    result.servers.push({ ...server, port: server.port ?? null })
   })
 
   // Dangling dependencies and cycles are reported, never fatal: supervision still runs.
-  warnings.push(...validateDependencies(servers))
-
-  if (errors.length > 0)
-    return result
-
-  result.config = {
-    meta: { writtenBy: writtenBy ?? '', schema: schemaVersion },
-    control: groups.control as ResolvedConfig['control'],
-    defaults,
-    logs: groups.logs as ResolvedConfig['logs'],
-    notifications: groups.notifications as ResolvedConfig['notifications'],
-    host: groups.host as ResolvedConfig['host'],
-    backups: groups.backups as ResolvedConfig['backups'],
-    ddns: groups.ddns as ResolvedConfig['ddns'],
-    servers,
-  } as ResolvedConfig
+  warnings.push(...validateDependencies(result.servers))
 
   return result
 }
@@ -234,11 +304,11 @@ function validateDependencies(servers: ServerConfig[]): string[] {
 }
 
 /** Adds the stamp every write carries, so the next release can tell what wrote the file. */
-export function stampConfig(draft: RawConfig): RawConfig {
+export function stampConfig<T extends { $schema?: string, meta?: unknown }>(draft: T): T {
   const { $schema, meta: _meta, ...rest } = draft
   return {
     ...($schema === undefined ? {} : { $schema }),
     meta: { writtenBy: appVersion(), schema: CONFIG_SCHEMA },
     ...rest,
-  }
+  } as T
 }

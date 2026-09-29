@@ -2,7 +2,7 @@
 import type { ServerView } from '@shared/contracts'
 import { Code2, ExternalLink, MoreHorizontal, Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-vue-next'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import LogViewer from '@/components/log/LogViewer.vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
@@ -19,6 +19,7 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import Tip from '@/components/ui/Tip.vue'
 import { useControlPlane, useServerLogs } from '@/composables/useControlPlane'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import {
   formatAgo,
@@ -28,12 +29,25 @@ import {
   formatRatio,
   relativeFrom,
 } from '@/lib/format'
+import { workspacePath } from '@/router'
 
 const route = useRoute()
-const { serverById, now, seriesOf, start, stop, restart, setEnabled, setAutostart, setBind, clearLogs, freePort, remove } = useControlPlane()
+const control = useControlPlane()
+const workspace = useWorkspaces()
 
 const serverId = computed(() => String(route.params.id ?? ''))
-const server = computed<ServerView | undefined>(() => serverById(serverId.value))
+
+/** Ids repeat across workspaces, so a deep link into another scope follows it. */
+watch([serverId, () => control.appState.value], () => {
+  const id = serverId.value
+  if (id.length === 0 || workspace.serverById(id) !== undefined)
+    return
+  const owners = control.workspaces.value.filter(entry => entry.servers.some(server => server.id === id))
+  if (owners.length === 1)
+    workspace.select(owners[0]!.id)
+}, { immediate: true })
+
+const server = computed<ServerView | undefined>(() => workspace.serverById(serverId.value))
 const config = computed(() => server.value?.config)
 const label = computed(() => {
   const value = config.value
@@ -46,7 +60,7 @@ const showRaw = ref(false)
 const confirmRemove = ref(false)
 const busy = ref(false)
 
-const logs = useServerLogs(() => (server.value ? serverId.value : null))
+const logs = useServerLogs(workspace.activeId, () => (server.value ? serverId.value : null))
 
 // `version` changes on every flushed batch (and on clear), which is what tells the
 // viewer its in-place line array gained content.
@@ -56,7 +70,8 @@ const liveLines = computed(() => {
   return logs.lines()
 })
 
-const series = computed(() => seriesOf(serverId.value))
+const series = computed(() => workspace.seriesOf(serverId.value))
+const now = control.now
 
 const cpuValues = computed(() => series.value.cpu)
 const rssValues = computed(() => series.value.rss)
@@ -113,7 +128,7 @@ const bindOptions = computed(() => {
 async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
   busy.value = true
   try {
-    await { start, stop, restart }[action](serverId.value)
+    await control[action](workspace.activeId.value, serverId.value)
   }
   finally {
     busy.value = false
@@ -122,7 +137,7 @@ async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
 
 async function removeServer(): Promise<void> {
   confirmRemove.value = false
-  await remove(serverId.value)
+  await workspace.removeServer(serverId.value)
 }
 
 /**
@@ -135,14 +150,14 @@ async function killPortHolder(): Promise<void> {
     return
   busy.value = true
   try {
-    await freePort(value.id)
+    await workspace.freePort(value.id)
   }
   finally {
     busy.value = false
   }
 }
 
-const downloadUrl = computed(() => api.logDownloadUrl(serverId.value, `${serverId.value}.log`))
+const downloadUrl = computed(() => api.logDownloadUrl(workspace.activeId.value, serverId.value, `${serverId.value}.log`))
 
 const SECTIONS = [
   { value: 'output', label: 'Live output' },
@@ -158,7 +173,7 @@ const SECTIONS = [
       :description="`${serverId} is not in servers.config.json any more. It may have been removed from another tab.`"
     >
       <template #action>
-        <RouterLink to="/servers">
+        <RouterLink :to="workspacePath(workspace.activeId.value, 'servers')">
           <AppButton variant="primary">
             Back to servers
           </AppButton>
@@ -168,7 +183,7 @@ const SECTIONS = [
   </div>
 
   <div v-else class="mx-auto max-w-7xl space-y-5 p-4 sm:p-5">
-    <PageHeader :title="label" back-to="/servers" back-label="All servers">
+    <PageHeader :title="label" :back-to="workspacePath(workspace.activeId.value, 'servers')" back-label="All servers">
       <template #badges>
         <StatusPill :status="server.status" :health="server.health" />
         <Tip
@@ -228,13 +243,13 @@ const SECTIONS = [
             >
               <DropdownMenuItem
                 class="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-xs text-muted outline-none data-[highlighted]:bg-hover data-[highlighted]:text-ink"
-                @select="setEnabled(server.id, !server.config.enabled)"
+                @select="workspace.setEnabled(server.id, !server.config.enabled)"
               >
                 {{ config?.enabled ? 'Disable server' : 'Enable server' }}
               </DropdownMenuItem>
               <DropdownMenuItem
                 class="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-xs text-muted outline-none data-[highlighted]:bg-hover data-[highlighted]:text-ink"
-                @select="setAutostart(server.id, !server.config.autostart)"
+                @select="workspace.setAutostart(server.id, !server.config.autostart)"
               >
                 {{ config?.autostart ? 'Remove from autostart' : 'Autostart with the panel' }}
               </DropdownMenuItem>
@@ -250,7 +265,7 @@ const SECTIONS = [
                     type="button"
                     class="rounded-control px-2 py-1 text-left font-mono text-2xs transition-colors duration-150 hover:bg-hover"
                     :class="option.value === config?.bind ? 'text-accent' : 'text-muted'"
-                    @click="setBind(server.id, option.value)"
+                    @click="workspace.setBind(server.id, option.value)"
                   >
                     {{ option.label }}
                   </button>
@@ -342,13 +357,14 @@ const SECTIONS = [
       :download-name="`${server.id}.log`"
       :empty-hint="isRunning ? 'Waiting for the first line…' : 'This server has not written anything yet.'"
       min-height="22rem"
-      @clear="clearLogs(server.id)"
+      @clear="workspace.clearLogs(server.id)"
     />
 
     <div v-else-if="section === 'config'" class="space-y-4">
       <ServerConfigEditor
         v-if="editing"
         :server-id="server.id"
+        :workspace-id="workspace.activeId.value"
         :config="server.config"
         @saved="editing = false"
         @cancel="editing = false"

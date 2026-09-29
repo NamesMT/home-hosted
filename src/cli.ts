@@ -39,8 +39,8 @@ const SYNOPSIS: Record<string, string> = {
   'down': 'home-hosted down',
   'restart': 'home-hosted restart [options]',
   'status': 'home-hosted status [--json]',
-  'start': 'home-hosted start <id>',
-  'stop': 'home-hosted stop <id>',
+  'start': 'home-hosted start <id> [--workspace <id>]',
+  'stop': 'home-hosted stop <id> [--workspace <id>]',
   'set-password': 'home-hosted set-password',
   'set-token': 'home-hosted set-token',
   'migrate': 'home-hosted migrate',
@@ -81,7 +81,7 @@ const OPTION_WIDTH = 19
 const UP_SECTION: OptionSection = {
   heading: 'Options for up/restart',
   lines: [
-    ['-c, --config <file>', 'servers config (default: <state>/servers.config.json)'],
+    ['-c, --config <file>', 'default workspace servers config (default: <state>/.hh/default/servers.config.json)'],
     ['-p, --port <port>', 'control panel port (default: 3999)'],
     ['--host <bind>', 'local | lan | an ipv4 address (default: local)'],
     ['--open', 'open the panel in a browser once it is up'],
@@ -365,6 +365,12 @@ async function main(): Promise<void> {
     process.stderr.write(`unknown command: ${invocation.command}\n\n${USAGE}`)
     process.exit(1)
   }
+
+  // A pre-workspace `$HHOSTED_HOME` is relocated before any command resolves a
+  // state path, so an existing instance keeps working after the upgrade without
+  // anyone having to run `migrate` first. It is a no-op once `workspaces.json` exists.
+  const { ensureLayout } = await import('#src/config/layout')
+  ensureLayout()
 
   // citty parses permissively, so the refusal of a mistyped flag is asked of
   // citty's own definitions first; a command that declares none (ui-switch) keeps

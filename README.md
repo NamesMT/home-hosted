@@ -7,7 +7,8 @@
 <sub>The harness for your servers.</sub>
 
 Point it at the things you run — a gateway, a media server, a bot, a database — and it starts
-them, watches them, restarts what dies, and shows you one page of what is going on. Or
+them, watches them, restarts what dies, and shows you one page of what is going on. Split them into
+[workspaces](#-workspaces) when one panel holds more than one setup. Or
 [BYOU](#-bring-your-own-ui-byou), for a specialized UI that fits you exactly.
 
 [![npm](https://img.shields.io/npm/v/home-hosted.svg)](https://www.npmjs.com/package/home-hosted)
@@ -16,7 +17,7 @@ them, watches them, restarts what dies, and shows you one page of what is going 
 [![License](https://img.shields.io/npm/l/home-hosted.svg)](./LICENSE)
 [![Node](https://img.shields.io/node/v/home-hosted.svg)](https://nodejs.org)
 
-[🚀 Quick start](#-quick-start) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🧩 Servers](./docs/SERVERS.md) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🎨 BYOU](#-bring-your-own-ui-byou)
+[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🎨 BYOU](#-bring-your-own-ui-byou)
 
 </div>
 
@@ -101,7 +102,7 @@ npx home-hosted down       # stops the panel *and* everything it started
 
 > [!NOTE]
 > The first boot writes a default password (`hh`) so the panel is never unprotected. Change
-> it under **Settings → Authentication** — binding beyond `127.0.0.1` stays refused until you do.
+> it under **Global settings → Authentication** — binding beyond `127.0.0.1` stays refused until you do.
 
 <details>
 <summary><b>📦 Install it instead of npx-ing it</b></summary>
@@ -111,8 +112,8 @@ npm install -g home-hosted      # or: pnpm add -g home-hosted
 home-hosted up                  # `hh up` does the same
 ```
 
-Everything it owns — config, secrets, logs, TLS, backups — lives in `$HHOSTED_HOME`, default
-`~/.home-hosted`. Delete that and nothing of yours is left behind.
+Everything it owns — workspaces, settings, secrets, logs, TLS, backups — lives under
+`$HHOSTED_HOME/.hh`, default `~/.home-hosted/.hh`. Delete that and nothing of yours is left behind.
 
 <sub>An installed home-hosted answers to **`hh`** too — `hh up`, `hh status`, `hh down`. Only the
 installed form gets it; npx stays `npx home-hosted …`.</sub>
@@ -146,9 +147,13 @@ It writes a manifest whose scripts all pass `--home ./state`:
 
 ```gitignore
 node_modules/
-state/*                       # secrets, logs, TLS keys and archives stay local…
-!state/servers.config.json    # …but the server definitions are committed
-data/                         # per-server data directories, declared through dataEnvs
+state/.hh/*                             # secrets, logs, TLS keys and archives stay local…
+!state/.hh/settings.json                 # …but the workspace definitions are committed
+!state/.hh/workspaces.json
+state/.hh/*/*
+!state/.hh/*/settings.json
+!state/.hh/*/servers.config.json
+data/                                   # per-server data directories, declared through dataEnvs
 ```
 
 One clone, `pnpm install --frozen-lockfile`, `pnpm run up` — the setup is up on any machine with Node.
@@ -196,25 +201,27 @@ home-hosted set-token --generate
 #   hh_9uA2…                     (printed once; only its hash is kept, mode 0600)
 
 curl -H "Authorization: Bearer hh_9uA2…" http://127.0.0.1:3999/api/state
-curl -H "Authorization: Bearer hh_9uA2…" -X POST http://127.0.0.1:3999/api/servers/omniroute/restart
-curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/events?serverId=omniroute'   # SSE
+curl -H "Authorization: Bearer hh_9uA2…" -X POST 'http://127.0.0.1:3999/api/servers/omniroute/restart?workspace=default'
+curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/servers/omniroute/stream?workspace=default'   # SSE
 home-hosted status --json        # machine-readable: pid, url, health, paths
 ```
 
 A token has the same authority as a signed-in browser and outlives restarts; `set-token --clear`
-revokes it instantly.
+revokes it instantly. Workspace-scoped routes take `?workspace=<id>`; omitting it means the panel's
+default workspace.
 
 <details>
 <summary><b>🌐 The endpoints worth knowing</b></summary>
 
 | | |
 | --- | --- |
-| `GET /api/state` | the full snapshot: config, live status, host vitals |
-| `GET /api/events` | SSE: the live state, plus logs (`?logs=0`, `?serverId=…`) |
-| `GET /api/servers/:id/stream` | SSE: one server's state and logs |
-| `POST /api/servers/:id/{start,stop,restart}` | lifecycle |
+| `GET /api/state` | the full snapshot: global settings, every workspace with its servers, host vitals |
+| `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the registry: list, create, rename, remove |
+| `GET /api/events` | SSE: the live state, plus logs (`?logs=0`, `?serverId=…`; a `server` payload carries its `workspaceId`) |
+| `GET /api/servers/:id/stream` | SSE: one server's state and logs (`?workspace=…`) |
+| `POST /api/servers/:id/{start,stop,restart}` | lifecycle (workspace-scoped) |
 | `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop |
-| `PATCH /api/servers/:id`, `PATCH /api/settings` | edit configuration |
+| `PATCH /api/servers/:id`, `PATCH /api/settings`, `PATCH /api/settings/workspace` | edit configuration |
 | `GET /api/logs`, `/api/backups` | history and archives |
 | `PUT`/`DELETE /api/notifications/token`, `POST /api/notifications/{test,detect-chats}` | the bot credential, a test send |
 | `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) |
@@ -246,8 +253,9 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 
 | | |
 | --- | --- |
+| 🗂 **Workspaces** | One panel, many scopes: pick a workspace in the header and it owns its servers, secrets, logs and settings. Create, rename and delete them there. Panel-wide things — listener, auth, host vitals, backups, TLS, UI — stay in **Global settings**. |
 | 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. |
-| 📝 **Hand edits welcome** | Change `servers.config.json` in an editor, a `git checkout` or a config tool: the panel notices within seconds, no restart. A file it cannot read is reported in the panel, and the running servers are left alone. |
+| 📝 **Hand edits welcome** | Change a workspace's `servers.config.json` in an editor, a `git checkout` or a config tool: the panel notices within seconds, no restart. A file it cannot read is reported in the panel, and the running servers are left alone. |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. |
 | 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, check ports before starting — and [follow or replace](./docs/SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned — and stops in reverse. |
@@ -257,7 +265,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
 | 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes — [setup here](./docs/NOTIFICATIONS.md). |
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
-| 💾 **Backups** | One click for config, secrets, TLS and your declared data directories — plain `.zip`, or AES-256 with a password, restored per path. |
+| 💾 **Backups** | Two levels: pick global settings, global secrets, TLS or a whole workspace at the top, then the pieces inside it (settings, servers, secrets, data directories) — plain `.zip`, or AES-256 with a password, restored per path. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
 | 🧩 **No special treatment** | A server is `command` + `args` + `env` + `cwd`; nothing is built in for any particular app. |
@@ -265,9 +273,45 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 
 ---
 
+## 🗂 Workspaces
+
+A workspace is the ownership boundary: its own servers, secrets, logs, nanny state and settings. The
+header picker is the whole control — choose one, create one, rename it, or delete it (which stops
+what it supervises first). The first boot creates a `default` workspace; a pre-workspaces instance is
+relocated into one automatically.
+
+> [!IMPORTANT]
+> **Upgrading from before workspaces (0.6 → 0.7)?** That release is breaking: state moves under
+> `$HHOSTED_HOME/.hh`, settings split global vs. per-workspace, and backups become two-level. The
+> relocation runs on the next command — `home-hosted migrate` reports it and stamps every file. See
+> [Upgrading](#-cli).
+
+| page | url | scope |
+| --- | --- | --- |
+| **Overview** | `/w/<workspace>` | the selected workspace: its servers, counts and live status |
+| **Servers** · **Logs** · **Workspace settings** | `/w/<workspace>/servers` · `/w/<workspace>/logs` · `/w/<workspace>/settings` | the selected workspace |
+| **Global Overview** | `/global/overview` | host vitals plus every server from every workspace |
+| **Global settings** | `/global/settings` | Listener, Authentication, Host vitals, Backups, TLS, Interface, Paths |
+
+Every page is bookmarked by its own URL: the workspace id is part of it, so a link opens the same
+workspace even in a browser that never selected it.
+
+<details>
+<summary><b>🗂 What lives where</b></summary>
+
+| | |
+| --- | --- |
+| global — `$HHOSTED_HOME/.hh/` | `settings.json` (listener, auth, TLS, host vitals, backups), `workspaces.json`, `.control-secrets.json` (password + API token, 0600), `.tls/`, `.ui/`, `.backups/`, `.logs/`, `run.json` |
+| workspace — `.hh/<id>/` | `settings.json` (server defaults, logs, notifications, DDNS), `servers.config.json`, `.secrets.json` (Telegram + DDNS credentials, 0600), `.logs/`, `.state/` |
+
+</details>
+
+---
+
 ## 🧩 Servers
 
-An entry is a few lines. Add one with **➕ Add server**, or write it into `servers.config.json`:
+An entry is a few lines. Add one with **➕ Add server**, or write it into the selected workspace's
+`servers.config.json` (`$HHOSTED_HOME/.hh/<workspace>/servers.config.json`):
 
 ```json
 {
@@ -294,11 +338,11 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
 | `home-hosted restart` | `down`, then `up` |
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts) |
-| `home-hosted start <id>` | start one server — and anything it `dependsOn` |
-| `home-hosted stop <id>` | stop one server, nothing else |
+| `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`) |
+| `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
-| `home-hosted migrate` | bring `servers.config.json` up to this release's schema (`--dry-run`, `--yes`) |
+| `home-hosted migrate` | relocate a pre-workspaces state directory and stamp every config for this release (`--dry-run`, `--yes`) |
 | `home-hosted init` | scaffold a project that keeps `state/` and its data in the repo |
 | `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (interactive) |
 | `home-hosted ui-update` | bring an installed UI up to date, or pick a release (`--old`, `--check`) |
@@ -314,7 +358,7 @@ up, restart       -c/--config -p/--port --host --open --no-autostart --foregroun
 
 down              (no flags)
 status            --json
-start, stop       <id>   (the server's id in servers.config.json; both need the panel up)
+start, stop       <id> [-w/--workspace <id>]   (both need the panel up)
 init              --dir --name --pm --no-install -y/--yes
 set-password      --clear
 set-token         --generate --clear
@@ -328,14 +372,34 @@ env vars          HHOSTED_PASSWORD, HHOSTED_MIGRATE=allow, HHOSTED_TOKEN, GITHUB
 ```
 
 `up` and `restart` share the same flags: `restart` is `down`, then `up` with exactly what it was given.
+`-c/--config` is the **default workspace's** servers file (`<state>/.hh/default/servers.config.json`),
+for a launcher that pins one; a workspace picked in the UI keeps its own. `start`/`stop` omit
+`--workspace` to act in the panel's default workspace.
 
 </details>
 
 <details>
 <summary><b>🧭 Upgrading, and why the panel sometimes refuses to start</b></summary>
 
-`servers.config.json` records what wrote it: `meta.writtenBy` (the release) and `meta.schema` (the
-config shape). That buys two guarantees:
+> **Breaking in 0.7 — workspaces.** State moved under `$HHOSTED_HOME/.hh`: global files at its top
+> level, one directory per workspace. Settings split into panel-wide **Global settings** and
+> per-workspace **Workspace settings**, backups became two-level, and `--config` now points at the
+> default workspace's servers file. The old `servers.config.json` becomes
+> `.hh/default/servers.config.json`.
+
+Relocation is automatic: the CLI relocates a pre-`.hh` `$HHOSTED_HOME` before any command runs, so an
+existing instance keeps working after the upgrade. `home-hosted migrate` reports what it moved and
+stamps every file for this release:
+
+```bash
+home-hosted migrate --dry-run   # print the steps, write nothing
+home-hosted migrate             # ask, then write — keeps a .bak beside each rewritten file
+```
+
+Unattended, consent comes from `--yes` or `HHOSTED_MIGRATE=allow`; without it the command stops.
+
+Each config records what wrote it: `meta.writtenBy` (the release) and `meta.schema` (the shape). That
+buys two guarantees:
 
 - **A newer home-hosted always reads an older config** — every existing key keeps its meaning.
 - **Keys a newer release added are ignored, not fatal.** The panel names them in its log, leaves them
@@ -345,15 +409,6 @@ What it will not do is run a config it cannot read. A wrong value, a duplicate i
 or a config whose schema is newer than the running release stops `up` with the exact problem, rather
 than starting with defaults that quietly differ from your file. Fix the file, or install the release
 that wrote it.
-
-When a release changes the shape itself, `home-hosted migrate` applies the steps it ships:
-
-```bash
-home-hosted migrate --dry-run   # print the steps, write nothing
-home-hosted migrate             # ask, then write — keeps servers.config.json.bak
-```
-
-Unattended, consent comes from `--yes` or `HHOSTED_MIGRATE=allow`; without it the command stops.
 
 </details>
 
@@ -375,10 +430,10 @@ Everything binds `127.0.0.1` until you say otherwise.
   never taken from the message, and anything the panel supervises is refused, not killed. A server
   that [restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced
   with a supervised copy.
-- **Secrets never enter the config**: the password hash, the API token hash, the Telegram bot
-  token and the DDNS credentials live in `$HHOSTED_HOME/.control-secrets.json` with mode `0600`; the
-  TLS pair in `.tls/`. DDNS credentials are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET`
-  (default `hh` — set your own).
+- **Secrets never enter the config**: the password hash and API token hash live in the global
+  `.hh/.control-secrets.json`, each workspace's Telegram bot token and DDNS credentials in its own
+  `.hh/<workspace>/.secrets.json`, all mode `0600`; the TLS pair sits in `.hh/.tls/`. DDNS credentials
+  are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET` (default `hh` — set your own).
 - **Behind a proxy** turn on `trustProxy` and let `cookieSecure: auto` add `Secure` on https, or
   upload a PEM pair and let home-hosted terminate TLS itself.
 
@@ -395,21 +450,23 @@ stays in the secrets file. **Two minutes of setup: [NOTIFICATIONS.md](./docs/NOT
 
 ## 🌐 Dynamic DNS
 
-**Settings → Dynamic DNS** keeps a list of hostnames pointed at this machine's public IP — add an
-account, paste its credentials, add hostnames. The panel checks the address on an interval and calls a
-provider only when it actually changed, and the last confirmed address survives a restart. Provider
-tokens stay in the secrets file. **Providers and the config shape: [DDNS.md](./docs/DDNS.md).**
+**Workspace Settings → Dynamic DNS** keeps a list of hostnames pointed at this machine's public IP —
+add an account, paste its credentials, add hostnames. The panel checks the address on an interval and
+calls a provider only when it actually changed, and the last confirmed address survives a restart.
+Provider tokens stay in the workspace's secrets file. **Providers and the config shape:
+[DDNS.md](./docs/DDNS.md).**
 
 ---
 
 ## 💾 Backups
 
-**Settings → Backups** archives the config, secrets, TLS pair and every data directory your entries
-declare — an ordinary `.zip`, or WinZip AES-256 with a password, restored per path. *Create backup…*
-lists what the archive will hold and lets you drop any item; *Restore…* shows the same list from an
-archive before anything is written. Known build output and dependency directories (`node_modules`,
-`dist`, `.next`, framework caches) are skipped per entry; `backupIgnoreGenerated: false` captures them
-anyway.
+**Global settings → Backups** archives the panel's own settings, its secrets and the TLS pair — plus
+every workspace you pick. It is two-level: the top of *Create backup…* lists the global items and
+each workspace; opening a workspace lists its **settings**, **servers**, **secrets** and every data
+directory its entries declare, and you can drop any single piece. *Restore…* shows the same list from
+an archive before anything is written. Either way it is an ordinary `.zip`, or WinZip AES-256 with a
+password, restored per path. Known build output and dependency directories (`node_modules`, `dist`,
+`.next`, framework caches) are skipped per entry; `backupIgnoreGenerated: false` captures them anyway.
 
 <details>
 <summary><b>🚚 One archive is a whole setup</b></summary>
@@ -418,11 +475,11 @@ Start a **blank** home-hosted anywhere — another machine, another user, a fres
 archive and restore. Definitions come back, data lands where *this* machine's config says, and
 `autostart` entries come up immediately.
 
-It works because an archive carries its own `servers.config.json` and paths are matched by the
-**declaration** (`omniroute:DATA_DIR`), not by an absolute path from the source machine. A restore never
-writes where no config declares. A declaration using `{projectDir}`, `{dataRoot}` or `{home}` follows
-the restoring panel (`{projectDir}` is `HHOSTED_PROJECT` or the panel's cwd, not `HHOSTED_HOME`); a
-literal absolute path is restored to that same path.
+It works because an archive carries each workspace's `settings.json` and `servers.config.json`, and
+paths are matched by the **declaration** (`omniroute:DATA_DIR`), not by an absolute path from the
+source machine. A restore never writes where no config declares. A declaration using `{projectDir}`,
+`{dataRoot}` or `{home}` follows the restoring panel (`{projectDir}` is `HHOSTED_PROJECT` or the
+panel's cwd, not `HHOSTED_HOME`); a literal absolute path is restored to that same path.
 
 </details>
 
@@ -430,9 +487,9 @@ literal absolute path is restored to that same path.
 
 ## 🎨 Bring your own UI (BYOU)
 
-The panel is a static site: `$HHOSTED_HOME/.ui` overrides the packaged one, and **Settings →
-Interface** takes a zip. No restart, no fork — and `home-hosted ui-revert` brings back the stock
-panel if yours breaks.
+The panel is a static site: `$HHOSTED_HOME/.hh/.ui` overrides the packaged one, and **Global
+settings → Interface** takes a zip. No restart, no fork — and `home-hosted ui-revert` brings back the
+stock panel if yours breaks.
 
 Two ship in this repo: `uis/stock`, and `uis/noc-console` for TUI and shortcuts wizards; a release
 attaches both as `home-hosted-ui-<name>.zip`. Yours can be anything that compiles to static files —
@@ -492,16 +549,24 @@ opened.
 <details>
 <summary><b>Where is my state?</b></summary>
 
-`$HHOSTED_HOME`, default `~/.home-hosted`:
+`$HHOSTED_HOME/.hh`, default `~/.home-hosted/.hh`. Global files at the top level, one directory per
+workspace:
 
 ```text
-servers.config.json          your servers, plus meta: which release and schema wrote it
-servers.config.schema.json   regenerated on every start, for editor autocomplete
-.control-secrets.json        password hash + API token hash + Telegram token (mode 0600)
-.logs/                       rotated per-server logs + history
+settings.json                panel-wide: listener, auth, TLS policy, host vitals, backups
+workspaces.json              the registry: ids and labels, in selector order
+.control-secrets.json        password hash + API token hash (mode 0600)
 .tls/                        an uploaded PEM pair
+.ui/                         an installed custom UI
 .backups/                    zip archives
+.logs/                       the panel's own console log
 run.json                     the running panel (pid, url, token, mode 0600)
+
+<workspace>/settings.json    server defaults, log retention, notifications, DDNS
+<workspace>/servers.config.json  your servers, plus meta: which release and schema wrote it
+<workspace>/.secrets.json    Telegram token + DDNS credentials (mode 0600)
+<workspace>/.logs/           rotated per-server logs + history
+<workspace>/.state/          persistent entries' nanny state
 ```
 
 `home-hosted status` prints the paths.

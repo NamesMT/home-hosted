@@ -11,6 +11,30 @@ import { type } from 'arktype'
 export const bindSchema = type('"local" | "lan" | /^\\d{1,3}(?:\\.\\d{1,3}){3}$/')
 export type Bind = typeof bindSchema.infer
 
+/**
+ * A top-level unit: its own settings, servers, secrets, logs and nanny state
+ * under `$HHOSTED_HOME/.hh/<id>/`. The id is the directory name and never
+ * changes; the label is what a person reads and may rename at will.
+ */
+export const workspaceIdSchema = type('/^[a-z0-9][a-z0-9_-]*$/')
+export const workspaceSchema = type({
+  id: workspaceIdSchema,
+  label: '1 <= string <= 60',
+}).onUndeclaredKey('reject')
+export type Workspace = typeof workspaceSchema.infer
+
+/** `id` is optional; when omitted it is derived from the label. */
+export const workspaceCreateSchema = type({
+  'id?': workspaceIdSchema,
+  'label?': '1 <= string <= 60',
+}).onUndeclaredKey('reject')
+export type WorkspaceCreate = typeof workspaceCreateSchema.infer
+
+export const workspaceRenameSchema = type({
+  label: '1 <= string <= 60',
+}).onUndeclaredKey('reject')
+export type WorkspaceRename = typeof workspaceRenameSchema.infer
+
 /** Parses a bind value (`local` | `lan` | ipv4); null when it is not one. */
 export function parseBind(value: string): Bind | null {
   const parsed = bindSchema(value)
@@ -597,18 +621,21 @@ export const nannyStateSchema = type({
 }).onUndeclaredKey('reject')
 export type NannyState = typeof nannyStateSchema.infer
 
-/** Edits to the panel's own control block and to the global server defaults. */
+/** Edits to the panel-wide settings: listener, auth, TLS policy, host vitals, backups. */
 export const settingsPatchSchema = type({
   control: controlPatchSchema.optional(),
+  host: hostPatchSchema.optional(),
+  backups: backupsPatchSchema.optional(),
+}).onUndeclaredKey('reject')
+export type SettingsPatch = typeof settingsPatchSchema.infer
+
+/** Edits to one workspace's settings: server defaults, log retention, notifications. */
+export const workspaceSettingsPatchSchema = type({
   defaults: defaultsPatchSchema.optional(),
   logs: logsPatchSchema.optional(),
   notifications: notificationsPatchSchema.optional(),
-  host: hostPatchSchema.optional(),
-  backups: backupsPatchSchema.optional(),
-  /** Replaces the DDNS lists; see `ddnsPatchSchema`. */
-  ddns: ddnsPatchSchema.optional(),
 }).onUndeclaredKey('reject')
-export type SettingsPatch = typeof settingsPatchSchema.infer
+export type WorkspaceSettingsPatch = typeof workspaceSettingsPatchSchema.infer
 
 export const authStatusSchema = type({
   enabled: 'boolean',
@@ -783,44 +810,58 @@ export const backupFileSchema = type({
 
 export type BackupFile = typeof backupFileSchema.infer
 
-/** One declared data path, with the reason it will (or will not) be captured. */
-export const backupPathSchema = type({
-  path: 'string',
-  /** Which item this path is in a backup's `include`; `data:<path>`. */
-  id: 'string?',
-  /** Who declared it: `global`, `<serverId>:backupPaths` or `<serverId>:<ENV>`. */
-  origin: 'string',
-  /** false when a parent path already covers it, or it would swallow the archive dir. */
-  included: 'boolean',
-  note: 'string | null',
-  /** The declaring entry asked for generated directories to be skipped. */
-  ignoreGenerated: 'boolean?',
+/**
+ * One selectable entry in a backup: a global item (`global:settings`,
+ * `global:secrets`, `global:tls`) or a workspace, whose `items` are the
+ * sub-choices a per-workspace dialog offers.
+ */
+export const backupEntrySchema = type({
+  /** `global:settings` | `global:secrets` | `global:tls` | `workspace:<id>`. */
+  'id': 'string',
+  'label': 'string',
+  'kind': '"settings" | "secrets" | "tls" | "workspace"',
+  'workspaceId?': 'string',
+  'note': 'string | null',
+  /** What this entry would capture; a workspace carries several leaves. */
+  'items': type({
+    'id': 'string',
+    'label': 'string',
+    /** `settings`/`servers`/`secrets` for a workspace, `data` for a declared path. */
+    'kind': '"settings" | "servers" | "secrets" | "data"',
+    'path?': 'string',
+    /** Who declared a data path: `global`, `<serverId>:backupPaths` or `<serverId>:<ENV>`. */
+    'origin?': 'string',
+    'included': 'boolean',
+    'note': 'string | null',
+    'ignoreGenerated?': 'boolean',
+  }).array(),
 })
-export type BackupPath = typeof backupPathSchema.infer
+export type BackupEntry = typeof backupEntrySchema.infer
 
 export const backupsViewSchema = type({
   enabled: 'boolean',
   dir: 'string',
   keep: 'number',
-  /** Extra paths from the config, in addition to each server's own. */
+  /** Extra paths from the global config, in addition to each server's own. */
   includePaths: type('string[]'),
-  /** Every declared path that will be picked up, for the UI to show. */
-  paths: backupPathSchema.array(),
+  /** Every selectable entry, global first, then each workspace. */
+  entries: backupEntrySchema.array(),
   files: backupFileSchema.array(),
 })
 export type BackupsView = typeof backupsViewSchema.infer
 
-/** One restorable slice of an archive: the panel's own state or a data path. */
+/** One restorable slice of an archive: a global item, a workspace item, or a data path. */
 export const restoreItemSchema = type({
-  /** `config` | `secrets` | `tls`, or the data path itself. */
-  id: 'string',
-  label: 'string',
-  kind: '"config" | "secrets" | "tls" | "data"',
-  /** false when the current config does not declare it, or it is not in the archive. */
-  restorable: 'boolean',
+  /** A backup entry or leaf id (`workspace:<id>:servers`, `data:<path>`, ...). */
+  'id': 'string',
+  'label': 'string',
+  'kind': '"settings" | "secrets" | "servers" | "tls" | "data"',
+  'workspaceId?': 'string',
+  /** false when the current instance does not declare it, or it is not in the archive. */
+  'restorable': 'boolean',
   /** Echo of the request's selection, so the checkboxes round-trip. */
-  selected: 'boolean',
-  note: 'string | null',
+  'selected': 'boolean',
+  'note': 'string | null',
 })
 export type RestoreItem = typeof restoreItemSchema.infer
 
@@ -843,7 +884,7 @@ export type RestorePlan = typeof restorePlanSchema.infer
 export const backupCreateSchema = type({
   /** Optional: encrypts the archive. Never stored. */
   password: passwordValueSchema.optional(),
-  /** Item ids to capture (`config`, `secrets`, `tls`, `data:<path>`); omitted means everything. */
+  /** Leaf ids to capture (`global:settings`, `workspace:<id>:servers`, `data:<path>`, ...); omitted means everything. */
   include: type('string[] >= 1').optional(),
 }).onUndeclaredKey('reject')
 export type BackupCreate = typeof backupCreateSchema.infer
@@ -858,29 +899,31 @@ export type RestoreRequest = typeof restoreRequestSchema.infer
 
 /** Runtime view of a server: its effective config plus everything observed. */
 export const serverViewSchema = type({
-  id: 'string',
-  config: serverSchema,
-  bindHost: 'string',
-  url: 'string | null',
-  status: serverStatusSchema,
-  health: healthStateSchema,
-  portState: portStateSchema,
-  pid: 'number | null',
+  'id': 'string',
+  /** The workspace that owns it; optional so an older panel's frame still parses. */
+  'workspaceId?': 'string',
+  'config': serverSchema,
+  'bindHost': 'string',
+  'url': 'string | null',
+  'status': serverStatusSchema,
+  'health': healthStateSchema,
+  'portState': portStateSchema,
+  'pid': 'number | null',
   /** True when the process serving this entry was adopted, not spawned by the panel. */
-  adopted: 'boolean?',
-  startedAt: 'number | null',
-  exitCode: 'number | null',
-  exitSignal: 'string | null',
-  restarts: 'number',
-  maxRetries: 'number',
-  lastError: 'string | null',
-  nextRetryAt: 'number | null',
-  unhealthySince: 'number | null',
-  bufferedLines: 'number',
-  history: serverHistorySchema,
+  'adopted': 'boolean?',
+  'startedAt': 'number | null',
+  'exitCode': 'number | null',
+  'exitSignal': 'string | null',
+  'restarts': 'number',
+  'maxRetries': 'number',
+  'lastError': 'string | null',
+  'nextRetryAt': 'number | null',
+  'unhealthySince': 'number | null',
+  'bufferedLines': 'number',
+  'history': serverHistorySchema,
   /** Last health probe latency (TCP connect or HTTP request). */
-  responseMs: 'number | null',
-  resources: processResourcesSchema.or(type('null')),
+  'responseMs': 'number | null',
+  'resources': processResourcesSchema.or(type('null')),
 })
 // `config` is emitted normalized (port is always `number | null`, never absent),
 // while the schema accepts both forms so a hand-written payload still validates.
@@ -904,38 +947,92 @@ export const controlViewSchema = type({
 })
 export type ControlView = typeof controlViewSchema.infer
 
-export const appStateSchema = type({
-  'control': controlViewSchema,
+/** Everything one workspace owns, plus the live state of its servers. */
+/**
+ * A user-supplied UI, as the settings page shows it.
+ *
+ * Every field is optional, and none of them is a fallback: a `ui.json` may be written by
+ * the panel (which adds `uploadedAt`/`files`) **or dropped in by hand** following
+ * `docs/UI_CREATION.md`, which documents only the author-facing fields. Requiring ours
+ * meant a hand-written file parsed to nothing at all, taking `repo`/`tag` with it and
+ * silently disabling `ui-update` for exactly the UI that declared itself.
+ */
+export const uiMetaSchema = type({
+  'name?': 'string',
+  'version?': 'string | null',
+  /** Set by the panel, not by the author. */
+  'uploadedAt?': 'number',
+  /** Counted by the panel, not declared. */
+  'files?': 'number.integer >= 1',
+  /** `owner/name` of the UI's own repository, for `ui-update`. */
+  'repo?': 'string',
+  /** The release tag this build came from, e.g. `v0.6.0`. */
+  'tag?': 'string',
+  /** The release asset name, e.g. `home-hosted-ui-noc-console`. */
+  'asset?': 'string',
+  /** When the UI was built, in unix epoch seconds. */
+  'unix?': 'number.integer >= 0',
+})
+export type UiMeta = typeof uiMetaSchema.infer
+
+export const uiStatusSchema = type({
+  /** A user-supplied UI is being served instead of the stock one. */
+  custom: 'boolean',
+  /** Where that UI lives, whether or not it exists yet. */
+  dir: 'string',
+  meta: uiMetaSchema.or(type('null')),
+})
+export type UiStatus = typeof uiStatusSchema.infer
+
+export const workspaceViewSchema = type({
+  'id': 'string',
+  'label': 'string',
+  /** The workspace's servers config; the settings file sits beside it. */
+  'configPath': 'string',
+  'settingsPath': 'string',
+  'configError': 'string | null',
+  /** Keys a newer release wrote that this one ignores. */
+  'configWarnings?': type('string[]'),
+  'logsDir': 'string',
   'defaults': defaultsSchema,
   'logs': logsSchema,
   'notifications': notificationViewSchema,
+  /** Dynamic DNS state. Optional so a newer UI still frames an older payload. */
+  'ddns?': ddnsStatusSchema,
+  'serverCount': 'number',
+  'runningCount': 'number',
+  'crashedCount': 'number',
+  'servers': serverViewSchema.array(),
+})
+export type WorkspaceView = typeof workspaceViewSchema.infer
+
+/**
+ * The whole panel in one frame: global state plus every workspace. Workspace
+ * pages read their own subtree; the global pages read across all of them.
+ */
+export const appStateSchema = type({
+  'control': controlViewSchema,
   'host': hostViewSchema,
   'backups': backupsViewSchema,
-  'configPath': 'string',
-  'configError': 'string | null',
+  'ui': uiStatusSchema,
+  'workspaces': workspaceViewSchema.array(),
   /** The directory the panel was started from; relative entry paths use it. */
   'projectDir': 'string',
   /** `HHOSTED_HOME`: every file home-hosted owns lives under here. */
   'dataRoot': 'string',
-  'logsDir': 'string',
-  /**
-   * Dynamic DNS state. Optional so a newer UI still frames a state a panel from
-   * before this field served: the app would blank on a required key.
-   */
-  'ddns?': ddnsStatusSchema,
   /** The release this panel is running. Optional: an older panel does not send one. */
   'version?': 'string',
-  'servers': serverViewSchema.array(),
 })
-export type AppState = Omit<typeof appStateSchema.infer, 'servers'> & { servers: ServerView[] }
+export type AppState = typeof appStateSchema.infer
 
 export const sseMessageSchema = type({
-  type: '"hello" | "state" | "log" | "server"',
-  ts: 'number',
-  serverId: 'string?',
-  state: appStateSchema.optional(),
-  server: serverViewSchema.optional(),
-  lines: logLineSchema.array().optional(),
+  'type': '"hello" | "state" | "log" | "server"',
+  'ts': 'number',
+  'workspaceId?': 'string',
+  'serverId': 'string?',
+  'state': appStateSchema.optional(),
+  'server': serverViewSchema.optional(),
+  'lines': logLineSchema.array().optional(),
 })
 export type SseMessage = typeof sseMessageSchema.infer
 
@@ -1020,54 +1117,15 @@ export const apiErrorSchema = type({
 }).onUndeclaredKey('reject')
 export type ApiError = typeof apiErrorSchema.infer
 
-/**
- * A user-supplied UI, as the settings page shows it.
- *
- * Every field is optional, and none of them is a fallback: a `ui.json` may be written by
- * the panel (which adds `uploadedAt`/`files`) **or dropped in by hand** following
- * `docs/UI_CREATION.md`, which documents only the author-facing fields. Requiring ours
- * meant a hand-written file parsed to nothing at all, taking `repo`/`tag` with it and
- * silently disabling `ui-update` for exactly the UI that declared itself.
- */
-export const uiMetaSchema = type({
-  'name?': 'string',
-  'version?': 'string | null',
-  /** Set by the panel, not by the author. */
-  'uploadedAt?': 'number',
-  /** Counted by the panel, not declared. */
-  'files?': 'number.integer >= 1',
-  /** `owner/name` of the UI's own repository, for `ui-update`. */
-  'repo?': 'string',
-  /** The release tag this build came from, e.g. `v0.6.0`. */
-  'tag?': 'string',
-  /** The release asset name, e.g. `home-hosted-ui-noc-console`. */
-  'asset?': 'string',
-  /** When the UI was built, in unix epoch seconds. */
-  'unix?': 'number.integer >= 0',
-})
-export type UiMeta = typeof uiMetaSchema.infer
-
-export const uiStatusSchema = type({
-  /** A user-supplied UI is being served instead of the stock one. */
-  custom: 'boolean',
-  /** Where that UI lives, whether or not it exists yet. */
-  dir: 'string',
-  meta: uiMetaSchema.or(type('null')),
-})
-export type UiStatus = typeof uiStatusSchema.infer
-
 export const tlsUploadSchema = type({
   certificate: 'string >= 1',
   privateKey: 'string >= 1',
 }).onUndeclaredKey('reject')
 export type TlsUpload = typeof tlsUploadSchema.infer
 
-/** `GET /api/settings`: the panel's own configuration, as the settings page reads it. */
+/** `GET /api/settings`: the panel-wide configuration, as Global Settings reads it. */
 export const settingsViewSchema = type({
   control: controlViewSchema,
-  defaults: defaultsSchema,
-  logs: logsSchema,
-  notifications: notificationViewSchema,
   host: hostSchema,
   backups: backupsViewSchema,
   ui: uiStatusSchema,
@@ -1081,3 +1139,23 @@ export const settingsSavedSchema = settingsViewSchema.and(type({
   targetUrl: 'string | null',
 }))
 export type SettingsSaved = typeof settingsSavedSchema.infer
+
+/**
+ * `GET /api/settings/workspace?workspace=<id>`: what a workspace owns and can
+ * change on its own. Global things (listener, auth, host, backups, TLS) are not
+ * here — they belong to the panel, not to any workspace.
+ */
+export const workspaceSettingsViewSchema = type({
+  id: 'string',
+  label: 'string',
+  settingsPath: 'string',
+  configPath: 'string',
+  configError: 'string | null',
+  defaults: defaultsSchema,
+  logs: logsSchema,
+  notifications: notificationViewSchema,
+})
+export type WorkspaceSettingsView = typeof workspaceSettingsViewSchema.infer
+
+export const workspaceSettingsSavedSchema = workspaceSettingsViewSchema
+export type WorkspaceSettingsSaved = WorkspaceSettingsView

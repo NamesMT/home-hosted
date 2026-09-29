@@ -4,27 +4,38 @@ export type EventListener = (message: SseMessage) => void
 
 const ALL = '*'
 
-/** Fan-out for SSE subscribers, optionally scoped to a single server. */
+/**
+ * Fan-out for SSE subscribers, optionally scoped to one server.
+ *
+ * The scope is `workspaceId/serverId`, never the bare id: server ids are only
+ * unique *within* a workspace, so keying on the id alone would deliver one
+ * workspace's log lines to a subscriber watching another workspace's server of
+ * the same name.
+ */
+export function serverKey(workspaceId: string, serverId: string): string {
+  return `${workspaceId}/${serverId}`
+}
+
 export class EventHub {
   private readonly listeners = new Map<string, Set<EventListener>>()
 
-  subscribe(serverId: string | null, listener: EventListener): () => void {
-    const key = serverId ?? ALL
-    const bucket = this.listeners.get(key) ?? new Set<EventListener>()
+  subscribe(key: string | null, listener: EventListener): () => void {
+    const bucketKey = key ?? ALL
+    const bucket = this.listeners.get(bucketKey) ?? new Set<EventListener>()
     bucket.add(listener)
-    this.listeners.set(key, bucket)
+    this.listeners.set(bucketKey, bucket)
 
     return () => {
       bucket.delete(listener)
       if (bucket.size === 0)
-        this.listeners.delete(key)
+        this.listeners.delete(bucketKey)
     }
   }
 
   publish(message: SseMessage): void {
     this.dispatch(ALL, message)
-    if (message.serverId)
-      this.dispatch(message.serverId, message)
+    if (message.serverId && message.workspaceId)
+      this.dispatch(serverKey(message.workspaceId, message.serverId), message)
   }
 
   get subscriberCount(): number {

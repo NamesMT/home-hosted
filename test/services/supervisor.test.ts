@@ -1,5 +1,5 @@
 import type { ControlEndpoint } from '#src/services/control-server'
-import type { NannyState, ServerView, SseMessage } from '#src/shared/contracts'
+import type { NannyState, ServerView } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -9,19 +9,18 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SecretsStore } from '#src/config/secrets'
-import { ConfigStore } from '#src/config/store'
+import { GlobalSettingsStore } from '#src/config/settings'
+import { WorkspaceStore } from '#src/config/store'
 import { projectDir } from '#src/helpers/paths'
 import { nannySpecPath, nannyStatePath, readNannyState, writeNannySpec, writeNannyState } from '#src/providers/nanny'
 import { isPortFree } from '#src/providers/port'
 import { AuthService } from '#src/services/auth'
-import { BackupService } from '#src/services/backups'
 import { DdnsService } from '#src/services/ddns'
 import { EventHub } from '#src/services/events'
 import { HistoryStore } from '#src/services/history'
-import { HostMonitor } from '#src/services/host-monitor'
 import { LogFiles } from '#src/services/log-files'
 import { NotificationService } from '#src/services/notifications'
-import { buildAppState } from '#src/services/state'
+import { buildControlView, buildWorkspaceView } from '#src/services/state'
 import { Supervisor } from '#src/services/supervisor'
 import { TlsStore } from '#src/services/tls'
 
@@ -68,63 +67,69 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs = 10000): Promis
   }
 }
 
-async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir: string) => void | Promise<void>): Promise<{ supervisor: Supervisor, store: ConfigStore, hub: EventHub, nannyDir: string, logDir: string }> {
+interface SupervisorHarness {
+  supervisor: Supervisor
+  store: WorkspaceStore
+  hub: EventHub
+  settings: GlobalSettingsStore
+  auth: AuthService
+  control: ControlEndpoint
+  tls: TlsStore
+  notifications: NotificationService
+  ddns: DdnsService
+  nannyDir: string
+  logDir: string
+  /** How many times the supervisor has told the panel that something may have moved. */
+  stateChanges: () => number
+}
+
+/**
+ * A workspace's own state lives under one directory now: a `WorkspaceStore` for
+ * its servers plus workspace settings, and a `GlobalSettingsStore` for the
+ * panel-wide listener/auth policy. The supervisor itself only takes the pieces
+ * it owns — it no longer builds the state frame (the panel does).
+ */
+async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir: string) => void | Promise<void>): Promise<SupervisorHarness> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-sup-'))
   // State that must exist *before* the supervisor is constructed (a boot sweep, say).
   if (prepare !== undefined)
     await prepare(dir)
+  const workspaceId = 'default'
   const file = path.join(dir, 'servers.config.json')
-  await fs.promises.writeFile(file, JSON.stringify({ control: { port: 3999 }, servers }, null, 2))
+  await fs.promises.writeFile(file, JSON.stringify({ servers }, null, 2))
 
-  const store = new ConfigStore(file)
+  const store = new WorkspaceStore(workspaceId, path.join(dir, 'settings.json'), file)
   store.load()
+
+  const settings = new GlobalSettingsStore(path.join(dir, 'global-settings.json'))
+  settings.load()
   const secrets = new SecretsStore(path.join(dir, 'secrets.json'))
-  const auth = new AuthService(secrets, () => store.config.control.auth)
+  const auth = new AuthService(secrets, () => settings.control.auth)
   const control: ControlEndpoint = { host: 'local', port: 3999, bindHost: '127.0.0.1', url: 'http://127.0.0.1:3999', protocol: 'http' }
   const tls = new TlsStore(path.join(dir, 'tls'))
-  const logFiles = new LogFiles(path.join(dir, 'logs'), () => store.config.logs)
+  const logFiles = new LogFiles(path.join(dir, 'logs'), () => store.logs)
   const nannyDir = path.join(dir, 'state')
-  const notifications = new NotificationService(secrets, () => store.config.notifications, () => store.config.logs)
+  const notifications = new NotificationService(secrets, () => store.notifications, () => store.logs)
   const history = new HistoryStore(path.join(dir, 'history.json'))
-  const hostMonitor = new HostMonitor(() => store.config.host, target => path.resolve(dir, target), notifications)
   const ddns = new DdnsService({
-    getConfig: () => store.config.ddns,
+    getConfig: () => store.ddns,
     getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,
     notifications,
     statePath: path.join(dir, 'ddns.json'),
   })
-  const backups = new BackupService({
-    dataRoot: dir,
-    getConfig: () => store.config.backups,
-    getSources: () => ({
-      configPath: file,
-      secretsPath: path.join(dir, 'secrets.json'),
-      tlsDir: path.join(dir, 'tls'),
-      paths: [],
-    }),
-  })
 
   const hub = new EventHub()
+  let stateChanges = 0
   const supervisor = new Supervisor(store, hub, {
+    workspaceId,
     configPath: file,
     control,
-    buildState: views => buildAppState({
-      store,
-      auth,
-      control,
-      tls,
-      notifications,
-      hostMonitor,
-      backups,
-      ddns,
-      logsDir: logFiles.directory,
-      views,
-    }),
     history,
     logFiles,
     notifications,
-    hostMonitor,
-    ddns,
+    onStateChange: () => {
+      stateChanges += 1
+    },
     nannyDir,
   })
 
@@ -135,7 +140,20 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
     await fs.promises.rm(dir, { recursive: true, force: true })
   })
 
-  return { supervisor, store, hub, nannyDir, logDir: logFiles.directory }
+  return {
+    supervisor,
+    store,
+    hub,
+    settings,
+    auth,
+    control,
+    tls,
+    notifications,
+    ddns,
+    nannyDir,
+    logDir: logFiles.directory,
+    stateChanges: () => stateChanges,
+  }
 }
 
 function httpServerConfig(port: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -501,17 +519,26 @@ describe('supervisor', () => {
     expect(view(supervisor, 'tree').status).toBe('stopped')
   })
 
-  it('exposes config and state through getState', async () => {
+  it('exposes config and state through the control and workspace views', async () => {
     const port = await freePort()
-    const { supervisor, store } = await makeSupervisor([httpServerConfig(port)])
+    const { supervisor, store, settings, auth, control, tls, notifications, ddns, logDir } = await makeSupervisor([httpServerConfig(port)])
 
-    const state = supervisor.getState()
-    expect(state.control.port).toBe(3999)
-    expect(state.configPath).toBe(store.path)
-    expect(state.projectDir).toBe(projectDir)
-    expect(state.servers).toHaveLength(1)
-    expect(state.servers[0]?.status).toBe('stopped')
-    expect(state.configError).toBeNull()
+    const controlView = buildControlView(settings, auth, control, tls)
+    expect(controlView.port).toBe(3999)
+
+    const workspace = buildWorkspaceView({
+      id: 'default',
+      label: 'default',
+      store,
+      logsDir: logDir,
+      notifications,
+      ddns,
+      supervisor,
+    })
+    expect(workspace.configPath).toBe(store.path)
+    expect(workspace.servers).toHaveLength(1)
+    expect(workspace.servers[0]?.status).toBe('stopped')
+    expect(workspace.configError).toBeNull()
   })
 
   it('adds and removes runtime entries when the config changes on disk', async () => {
@@ -782,30 +809,37 @@ describe('supervisor', () => {
     // nothing moved emitted no frames at all. The UI builds its telemetry by sampling
     // those frames, so every graph stayed empty until a server was poked into
     // changing something.
-    const { supervisor, hub } = await makeSupervisor([{
+    //
+    // The supervisor no longer builds the aggregate frame — the panel does, and it
+    // dedupes on a signature that includes `resources.sampledAt`. What this pins is
+    // the supervisor's half of that contract: for an idle running server it keeps
+    // signalling the panel and keeps handing over a fresh resource sample, so the
+    // panel's signature does move and a frame is emitted.
+    const harness = await makeSupervisor([{
       id: 'idle',
       command: process.execPath,
       args: ['-e', 'setInterval(() => {}, 1000)'],
       health: { enabled: false },
     }])
-
-    const sampledAt: number[] = []
-    cleanups.push(hub.subscribe(null, (message: SseMessage) => {
-      if (message.type === 'state')
-        sampledAt.push(message.state?.servers[0]?.resources?.sampledAt ?? 0)
-    }))
+    const { supervisor } = harness
 
     await supervisor.start('idle')
     await waitForStatus(supervisor, 'idle', 'running')
+    const signalsAtStart = harness.stateChanges()
 
-    // Resources are sampled every 5 s; two distinct samples prove the frames flow.
+    const sampledAt: number[] = []
+    // Resources are sampled every 5 s; two distinct samples prove they keep moving.
     const deadline = Date.now() + 14000
-    while (new Set(sampledAt.filter(value => value > 0)).size < 2 && Date.now() < deadline)
+    while (new Set(sampledAt.filter(value => value > 0)).size < 2 && Date.now() < deadline) {
+      sampledAt.push(view(supervisor, 'idle').resources?.sampledAt ?? 0)
       await new Promise(resolve => setTimeout(resolve, 200))
+    }
 
     const distinct = new Set(sampledAt.filter(value => value > 0))
     expect(distinct.size).toBeGreaterThanOrEqual(2)
-    // Nothing structural moved to earn those frames.
+    // The panel is told at every tick, not only when something structural changed.
+    expect(harness.stateChanges()).toBeGreaterThan(signalsAtStart)
+    // Nothing structural moved to earn those samples.
     expect(view(supervisor, 'idle').status).toBe('running')
     expect(view(supervisor, 'idle').health).toBe('disabled')
   })

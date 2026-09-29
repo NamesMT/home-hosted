@@ -12,6 +12,7 @@ import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import { formatAgo } from '@/lib/format'
 
@@ -25,6 +26,7 @@ const emit = defineEmits<{ reset: [] }>()
 const telegram = defineModel<TelegramForm>('telegram', { required: true })
 
 const control = useControlPlane()
+const workspace = useWorkspaces()
 
 const cooldownMs = numberModel(() => telegram.value.cooldownMs, value => (telegram.value.cooldownMs = value), 120_000)
 
@@ -44,7 +46,7 @@ async function saveToken(): Promise<void> {
   tokenError.value = null
   tokenMessage.value = null
   try {
-    const result = await api.saveTelegramToken(tokenInput.value.trim())
+    const result = await api.saveTelegramToken(workspace.activeId.value, tokenInput.value.trim())
     tokenInput.value = ''
     tokenMessage.value = `Token saved${result.username ? ` for @${result.username}` : ''}.`
     await control.refresh()
@@ -62,7 +64,7 @@ async function removeToken(): Promise<void> {
   tokenError.value = null
   tokenMessage.value = null
   try {
-    await api.clearTelegramToken()
+    await api.clearTelegramToken(workspace.activeId.value)
     tokenMessage.value = 'Token removed.'
     await control.refresh()
   }
@@ -80,7 +82,7 @@ async function detectChats(): Promise<void> {
   tokenMessage.value = null
   try {
     const override = tokenInput.value.trim()
-    const result = await api.detectTelegramChats(override.length > 0 ? { botToken: override } : {})
+    const result = await api.detectTelegramChats(workspace.activeId.value, override.length > 0 ? { botToken: override } : {})
     detectedChats.value = result.chats
     if (result.chats.length === 0)
       tokenError.value = 'No chats found. Send /start to the bot first, then detect again.'
@@ -99,7 +101,7 @@ async function sendTest(): Promise<void> {
   tokenMessage.value = null
   try {
     const override = tokenInput.value.trim()
-    const result = await api.sendTelegramTest({
+    const result = await api.sendTelegramTest(workspace.activeId.value, {
       chatId: telegram.value.chatId.length > 0 ? telegram.value.chatId : undefined,
       ...(override.length > 0 ? { botToken: override } : {}),
     })

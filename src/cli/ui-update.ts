@@ -144,7 +144,7 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
   })
 
   const { appVersion } = await import('#src/helpers/version')
-  const { dataRoot } = await import('#src/helpers/paths')
+  const { hhDir: dataRoot } = await import('#src/helpers/paths')
   const { UiService } = await import('#src/services/ui')
 
   const context: UpdateContext = {
@@ -361,7 +361,7 @@ async function installTag(
 
   try {
     const { UiService } = await import('#src/services/ui')
-    const { dataRoot } = await import('#src/helpers/paths')
+    const { hhDir: dataRoot } = await import('#src/helpers/paths')
     const result = await new UiService({ dataRoot }).install(download.file, assetName)
 
     if (!result.ok)

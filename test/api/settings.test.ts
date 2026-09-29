@@ -1,147 +1,156 @@
-import type { AppDeps } from '#src/app'
-import type { ControlEndpoint } from '#src/services/control-server'
+import type { Fixture } from './fixture'
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { type } from 'arktype'
-import { Hono } from 'hono'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createSettingsRoute } from '#src/api/settings'
-import { SecretsStore } from '#src/config/secrets'
-import { ConfigStore } from '#src/config/store'
-import { errorHandler } from '#src/helpers/error'
-import { AuthService } from '#src/services/auth'
-import { BackupService } from '#src/services/backups'
-import { NotificationService } from '#src/services/notifications'
-import { TlsStore } from '#src/services/tls'
-import { UiService } from '#src/services/ui'
-import { settingsSavedSchema, settingsViewSchema } from '#src/shared/contracts'
-
-const dirs: string[] = []
-
-afterEach(async () => {
-  await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
-})
+import { settingsSavedSchema, settingsViewSchema, workspaceSettingsSavedSchema, workspaceSettingsViewSchema } from '#src/shared/contracts'
+import { makeFixture } from './fixture'
 
 /**
- * The settings route only reaches for these, so the rest of `AppDeps` is left
- * out on purpose: a patch that keeps the listener where it is never rebinds.
+ * Two settings surfaces now: `/api/settings` is panel-wide (listener, auth policy,
+ * host vitals, backups) and `/api/settings/workspace` is one workspace's own
+ * (server defaults, log retention, notifications), resolved by `?workspace=<id>`.
  */
-async function makeApp(): Promise<{ app: Hono, file: string, store: ConfigStore }> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-settings-'))
-  dirs.push(dir)
 
-  const file = path.join(dir, 'servers.config.json')
-  const store = new ConfigStore(file)
-  store.load()
+const fixtures: Fixture[] = []
 
-  const secrets = new SecretsStore(path.join(dir, '.control-secrets.json'))
-  const auth = new AuthService(secrets, () => store.config.control.auth)
-  const tls = new TlsStore(path.join(dir, 'tls'))
-  const notifications = new NotificationService(secrets, () => store.config.notifications, () => store.config.logs)
-  const backups = new BackupService({
-    dataRoot: dir,
-    getConfig: () => store.config.backups,
-    getSources: () => ({ configPath: file, secretsPath: secrets.path, tlsDir: tls.directory, paths: [] }),
-  })
-  const ui = new UiService({ dataRoot: dir, stockDir: path.join(dir, 'web') })
-  const endpoint: ControlEndpoint = {
-    host: 'local',
-    port: 3999,
-    bindHost: '127.0.0.1',
-    url: 'http://127.0.0.1:3999',
-    protocol: 'http',
-  }
-
-  const deps = { store, auth, controlServer: { endpoint }, tls, notifications, backups, ui, ddns: { refresh: () => {} } } as unknown as AppDeps
-  // Failures are thrown, so the app needs the same error handler as the real one.
-  const app = new Hono().onError(errorHandler).route('/api', createSettingsRoute(deps))
-  return { app, file, store }
+async function app(): Promise<Fixture> {
+  const created = await makeFixture()
+  fixtures.push(created)
+  return created
 }
 
-function patch(app: Hono, body: Record<string, unknown>): Promise<Response> {
-  return Promise.resolve(app.request('/api/settings', {
+afterEach(async () => {
+  for (const created of fixtures.splice(0).reverse()) await created.cleanup()
+})
+
+function patch(created: Fixture, body: Record<string, unknown>, url = '/api/settings'): Promise<Response> {
+  return Promise.resolve(created.app.request(url, {
     method: 'PATCH',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   }))
 }
 
-describe('settings route', () => {
-  it('writes every settings block a PATCH accepts', async () => {
-    const { app, file, store } = await makeApp()
+describe('global settings route', () => {
+  it('writes the panel-wide blocks a PATCH accepts', async () => {
+    const created = await app()
 
-    const response = await patch(app, {
-      logs: { keep: 7 },
+    const response = await patch(created, {
       host: { diskUsedPercent: 42 },
       backups: { keep: 9 },
-      notifications: { telegram: { onHost: false } },
+      control: { label: 'Homelab' },
     })
 
     expect(response.status).toBe(200)
-    const written = JSON.parse(fs.readFileSync(file, 'utf8')) as {
-      logs: { keep: number }
+    const written = JSON.parse(fs.readFileSync(created.settings.path, 'utf8')) as {
       host: { diskUsedPercent: number }
       backups: { keep: number }
-      notifications: { telegram: { onHost: boolean } }
+      control: { label: string }
     }
-    expect(written.logs.keep).toBe(7)
     expect(written.host.diskUsedPercent).toBe(42)
     expect(written.backups.keep).toBe(9)
-    expect(written.notifications.telegram.onHost).toBe(false)
-    expect(store.config.host.diskUsedPercent).toBe(42)
-    expect(store.config.backups.keep).toBe(9)
+    expect(written.control.label).toBe('Homelab')
+    expect(created.settings.host.diskUsedPercent).toBe(42)
+    expect(created.settings.backups.keep).toBe(9)
+    expect(created.settings.control.label).toBe('Homelab')
   })
 
   it('leaves the file alone when a block is rejected', async () => {
-    const { app, file } = await makeApp()
-    const before = fs.readFileSync(file, 'utf8')
+    const created = await app()
+    const before = fs.readFileSync(created.settings.path, 'utf8')
 
-    expect((await patch(app, { logs: { keep: 99 } })).status).toBe(400)
-    expect(fs.readFileSync(file, 'utf8')).toBe(before)
+    expect((await patch(created, { host: { diskUsedPercent: -1 } })).status).toBe(400)
+    expect(fs.readFileSync(created.settings.path, 'utf8')).toBe(before)
   })
 
-  it('writes the DDNS block through the same PATCH, replacing its lists', async () => {
-    const { app, store } = await makeApp()
+  it('refuses a block that belongs to a workspace', async () => {
+    const created = await app()
+    const before = fs.readFileSync(created.settings.path, 'utf8')
 
-    const first = await patch(app, {
-      ddns: {
-        enabled: true,
-        accounts: [{ id: 'cf', provider: 'cloudflare' }, { id: 'nc', provider: 'namecheap' }],
-        domains: [
-          { host: 'a.example.com', account: 'cf', types: ['A'] },
-          { host: 'b.example.com', account: 'nc', types: ['A'] },
-        ],
-      },
-    })
-    expect(first.status).toBe(200)
-    expect(store.config.ddns.domains).toHaveLength(2)
-
-    // A patch merges the nested groups, but a list it sends is the whole list.
-    const second = await patch(app, { ddns: { domains: [{ host: 'a.example.com', account: 'cf', types: ['A'] }] } })
-    expect(second.status).toBe(200)
-    expect(store.config.ddns.domains.map(domain => domain.host)).toEqual(['a.example.com'])
-    expect(store.config.ddns.accounts.map(account => account.id)).toEqual(['cf', 'nc'])
-    expect(store.config.ddns.enabled).toBe(true)
-  })
-
-  it('refuses a DDNS block whose hostnames point at nothing', async () => {
-    const { app, file } = await makeApp()
-    const before = fs.readFileSync(file, 'utf8')
-
-    const response = await patch(app, { ddns: { accounts: [], domains: [{ host: 'a.example.com', account: 'ghost' }] } })
-    expect(response.status).toBe(400)
-    expect((await response.json() as { code?: string }).code).toBe('INVALID_SETTINGS')
-    expect(fs.readFileSync(file, 'utf8')).toBe(before)
+    // Logs, notifications and DDNS are a workspace's; the global schema rejects them
+    // rather than silently dropping a page's save.
+    expect((await patch(created, { logs: { keep: 7 } })).status).toBe(400)
+    expect((await patch(created, { notifications: { telegram: { onHost: false } } })).status).toBe(400)
+    expect((await patch(created, { ddns: { enabled: true } })).status).toBe(400)
+    expect(fs.readFileSync(created.settings.path, 'utf8')).toBe(before)
   })
 
   it('answers the shapes the OpenAPI document describes', async () => {
-    const { app } = await makeApp()
+    const created = await app()
 
-    const read = settingsViewSchema(await (await app.request('/api/settings')).json())
+    const read = settingsViewSchema(await (await created.app.request('/api/settings')).json())
     expect(read instanceof type.errors ? read.summary : 'ok').toBe('ok')
 
-    const saved = settingsSavedSchema(await (await patch(app, { logs: { keep: 7 } })).json())
+    const saved = settingsSavedSchema(await (await patch(created, { backups: { keep: 7 } })).json())
+    expect(saved instanceof type.errors ? saved.summary : 'ok').toBe('ok')
+  })
+})
+
+describe('workspace settings route', () => {
+  it('writes one workspace\'s own blocks, into that workspace\'s file', async () => {
+    const created = await app()
+    const globalBefore = fs.readFileSync(created.settings.path, 'utf8')
+
+    const response = await patch(created, {
+      logs: { keep: 7 },
+      notifications: { telegram: { onHost: false } },
+      defaults: { autostart: true },
+    }, '/api/settings/workspace')
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      id: 'default',
+      settingsPath: created.store.settingsPath,
+      logs: { keep: 7 },
+      defaults: { autostart: true },
+    })
+
+    const written = JSON.parse(fs.readFileSync(created.store.settingsPath, 'utf8')) as {
+      logs: { keep: number }
+      defaults: { autostart: boolean }
+      notifications: { telegram: { onHost: boolean } }
+    }
+    expect(written.logs.keep).toBe(7)
+    expect(written.defaults.autostart).toBe(true)
+    expect(written.notifications.telegram.onHost).toBe(false)
+    expect(created.store.logs.keep).toBe(7)
+    expect(created.store.notifications.telegram.onHost).toBe(false)
+    // Never the panel-wide file.
+    expect(fs.readFileSync(created.settings.path, 'utf8')).toBe(globalBefore)
+  })
+
+  it('leaves the workspace file alone when a block is rejected', async () => {
+    const created = await app()
+    const before = fs.readFileSync(created.store.settingsPath, 'utf8')
+
+    expect((await patch(created, { logs: { keep: 99 } }, '/api/settings/workspace')).status).toBe(400)
+    expect(fs.readFileSync(created.store.settingsPath, 'utf8')).toBe(before)
+  })
+
+  it('resolves the workspace it names, and 404s one that does not exist', async () => {
+    const created = await makeFixture({ workspaces: [{ id: 'staging', label: 'Staging' }] })
+    fixtures.push(created)
+
+    const staging = await (await created.app.request('/api/settings/workspace?workspace=staging')).json() as { id: string }
+    expect(staging.id).toBe('staging')
+
+    const patched = await patch(created, { logs: { keep: 2 } }, '/api/settings/workspace?workspace=staging')
+    expect(patched.status).toBe(200)
+    expect(created.workspaces.get('staging')!.store.logs.keep).toBe(2)
+    expect(created.store.logs.keep).toBe(3)
+
+    const unknown = await created.app.request('/api/settings/workspace?workspace=ghost')
+    expect(unknown.status).toBe(404)
+    expect(await unknown.json()).toMatchObject({ code: 'UNKNOWN_WORKSPACE' })
+  })
+
+  it('answers the shapes the OpenAPI document describes', async () => {
+    const created = await app()
+
+    const read = workspaceSettingsViewSchema(await (await created.app.request('/api/settings/workspace')).json())
+    expect(read instanceof type.errors ? read.summary : 'ok').toBe('ok')
+
+    const saved = workspaceSettingsSavedSchema(await (await patch(created, { logs: { keep: 7 } }, '/api/settings/workspace')).json())
     expect(saved instanceof type.errors ? saved.summary : 'ok').toBe('ok')
   })
 })

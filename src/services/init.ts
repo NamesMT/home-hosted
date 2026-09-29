@@ -50,15 +50,20 @@ export function projectManifest(name: string): string {
 }
 
 /**
- * State is generated, so it stays out — except the file that declares the servers,
- * which is the one thing worth committing.
+ * State is generated, so it stays out. The workspace definitions worth committing
+ * (`.hh/settings.json`, `.hh/workspaces.json`, and each workspace's
+ * `settings.json` + `servers.config.json`) are un-ignored explicitly.
  */
 export function projectGitignore(): string {
   return `node_modules/
 
-# home-hosted: state is local, the server definitions are tracked
-state/*
-!state/servers.config.json
+# home-hosted: state is local, the workspace definitions are tracked
+state/.hh/*
+!state/.hh/settings.json
+!state/.hh/workspaces.json
+state/.hh/*/*
+!state/.hh/*/settings.json
+!state/.hh/*/servers.config.json
 data/
 `
 }

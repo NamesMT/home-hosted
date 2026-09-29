@@ -38,7 +38,7 @@ const notices = computed<Notice[]>(() => {
         id: 'default-password',
         tone: 'warn',
         text: 'This panel is still on its default password.',
-        hint: 'Change it in Settings — binding beyond 127.0.0.1 stays refused until you do.',
+        hint: 'Change it in Global settings — binding beyond 127.0.0.1 stays refused until you do.',
       })
     }
     else if (auth.enabled && !auth.passwordSet) {
@@ -46,7 +46,7 @@ const notices = computed<Notice[]>(() => {
         id: 'no-password',
         tone: 'warn',
         text: 'Authentication is on but no password is set, so nothing is being asked for.',
-        hint: 'Set one in Settings to actually lock the panel.',
+        hint: 'Set one in Global settings to actually lock the panel.',
       })
     }
     if (auth.exposed) {

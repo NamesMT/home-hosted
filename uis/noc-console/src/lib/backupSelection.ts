@@ -1,4 +1,4 @@
-import type { BackupPathEntry } from '@/lib/api'
+import type { BackupsView } from '@shared/contracts'
 
 /** One thing a backup can capture, as the dialog offers it. */
 export interface CaptureItem {
@@ -11,24 +11,46 @@ export interface CaptureChoice extends CaptureItem {
   selected: boolean
 }
 
-/** `data:<path>` for this instance, whether or not the panel names it. */
-export function dataId(entry: BackupPathEntry): string {
-  return entry.id ?? `data:${entry.path}`
-}
+/**
+ * The panel's own global slices carry stable ids. A workspace contributes its
+ * own leaf ids (`workspace:<id>:servers`, …) and each declared data path as
+ * `workspace:<id>:data:<path>` — exactly what `createBackup`'s `include` takes.
+ */
+const GLOBAL_ITEMS: CaptureItem[] = [
+  { id: 'global:settings', label: 'global settings', hint: 'listener, auth, TLS policy, host vitals, backups' },
+  { id: 'global:secrets', label: 'global secrets', hint: 'password hash and API token' },
+  { id: 'global:tls', label: 'tls/', hint: 'the panel\'s own certificate pair' },
+]
 
-/** The panel's own state, then every declared path a backup would capture. */
-export function captureItems(paths: BackupPathEntry[]): CaptureItem[] {
-  const items: CaptureItem[] = [
-    { id: 'config', label: 'config/servers.config.json', hint: 'the panel and its servers' },
-    { id: 'secrets', label: 'secrets/control-secrets.json', hint: 'password hash, API token and Telegram credentials' },
-    { id: 'tls', label: 'tls/', hint: 'the panel\'s own certificate pair' },
-  ]
+/**
+ * What a backup would capture, flattened from the view's two levels: the global
+ * slices first, then every workspace's own leaves and data paths. A data path
+ * the panel reports as not included is left out, exactly as before.
+ */
+export function captureItems(view: BackupsView | null): CaptureItem[] {
+  if (view === null)
+    return []
 
-  for (const entry of paths) {
-    if (entry.included)
-      items.push({ id: dataId(entry), label: entry.path, hint: `from ${entry.origin}` })
+  const items: CaptureItem[] = [...GLOBAL_ITEMS]
+  for (const entry of view.entries) {
+    for (const item of entry.items) {
+      if (item.kind === 'data') {
+        if (!item.included)
+          continue
+        items.push({
+          id: item.id,
+          label: item.path ?? item.label,
+          hint: `from ${item.origin ?? entry.label}`,
+        })
+        continue
+      }
+      items.push({
+        id: item.id,
+        label: item.path ?? item.label,
+        hint: `${entry.label} — ${item.label.toLowerCase()}`,
+      })
+    }
   }
-
   return items
 }
 

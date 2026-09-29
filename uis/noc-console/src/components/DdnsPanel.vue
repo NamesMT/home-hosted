@@ -48,7 +48,7 @@ const providerOptions = computed(() => providers.value.map(provider => ({ value:
 const accountOptions = computed(() => accounts.value.map(account => ({ value: account.id, label: account.id })))
 
 /** Live state from the SSE frame; the fetch is only the fallback before one lands. */
-const status = computed(() => control.appState.value?.ddns ?? view.value?.status ?? null)
+const status = computed(() => control.ddns.value ?? view.value?.status ?? null)
 const dirty = computed(() => draft.value !== null && baseline.value !== null && !ddnsConfigEquals(draft.value, baseline.value))
 const canAddAccount = computed(() => /^[a-z0-9][a-z0-9_-]*$/.test(newAccount.id) && !accounts.value.some(account => account.id === newAccount.id))
 const canAddDomain = computed(() => newDomain.host.includes('.') && newDomain.account.length > 0 && !domains.value.some(domain => domain.host.toLowerCase() === newDomain.host.trim().toLowerCase()))

@@ -21,6 +21,8 @@ import { formatChangeValue } from '@/lib/format'
 
 const props = defineProps<{
   serverId: string
+  /** The workspace that owns the entry; the patch is scoped to it. */
+  workspaceId: string
   config: ServerConfig
 }>()
 
@@ -231,7 +233,7 @@ async function save(): Promise<void> {
       return
     }
 
-    await control.saveConfig(props.serverId, pending)
+    await control.saveConfig(props.workspaceId, props.serverId, pending)
     if (control.lastError.value !== null) {
       error.value = control.lastError.value
       return

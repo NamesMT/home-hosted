@@ -22,15 +22,15 @@ care what your UI looks like.
 ## Install it
 
 ```text
-$HHOSTED_HOME/.ui/            ← where your build lives
+$HHOSTED_HOME/.hh/.ui/        ← where your build lives
   index.html                  ← required, at the root
   assets/…
   ui.json                     ← optional, but see below
 ```
 
-**Settings → Interface** → pick a `.zip` → *Install UI* (refresh to see it). Or drop the files into
-`$HHOSTED_HOME/.ui` yourself. The zip may hold the files at its root or inside one wrapper directory
-(`zip -r ui.zip dist` works too).
+**Global settings → Interface** → pick a `.zip` → *Install UI* (refresh to see it). Or drop the files
+into `$HHOSTED_HOME/.hh/.ui` yourself. The zip may hold the files at its root or inside one wrapper
+directory (`zip -r ui.zip dist` works too).
 
 Without the settings page, `home-hosted ui-switch` installs one from a GitHub release asset (its
 default), from a local `.zip` (`--file ./ui.zip`), or from a URL (`--file https://…/ui.zip`).
@@ -53,7 +53,7 @@ installed, and what lets it offer you the next version:
 
 | field | |
 | --- | --- |
-| `name`, `version` | what Settings shows as installed |
+| `name`, `version` | what Global settings → Interface shows as installed |
 | `repo` | `owner/name` the releases come from — the one field `ui-update` needs |
 | `tag` | the release this build came from, so an update can tell newer from older |
 | `asset` | the release asset name, when a release carries more than one UI |
@@ -71,8 +71,8 @@ Nothing is built on the server side: whatever you upload is served as-is, so shi
 HTML/JS/CSS or the output of your own Vite/Next/Astro build with relative asset paths.
 
 **If it breaks:** `home-hosted ui-revert` puts the stock panel back (or *Revert to stock* in
-Settings). The CLI also prints a reminder at startup while a custom UI is active — a broken UI must
-never lock you out of your own machine.
+Global settings). The CLI also prints a reminder at startup while a custom UI is active — a broken UI
+must never lock you out of your own machine.
 
 ## Rules of the road
 
@@ -107,26 +107,35 @@ responses at runtime. Either style is fine.
 
 ### Endpoints you will actually use
 
+Workspace-scoped routes take `?workspace=<id>`. Omitting it means the panel's default workspace;
+naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fallback.
+
 | endpoint | what it gives you |
 | --- | --- |
-| `GET /api/state` | everything: panel settings, servers with live status, host vitals |
+| `GET /api/state` | everything: global settings, every workspace with its servers and live status, host vitals |
+| `GET` / `POST /api/workspaces`, `PATCH` / `DELETE /api/workspaces/:id` | the registry: list, create, rename, remove (removal stops and disposes that workspace's servers) |
 | `GET /api/events` | **the live feed**: `hello` carries the full state, then `state`, `server`, `log` |
 | `GET /api/servers/:id/stream` | one server's `server` + `log` frames |
-| `POST /api/servers/:id/{start,stop,restart}`, `/api/servers/{start-all,stop-all}` | lifecycle |
+| `POST /api/servers/:id/{start,stop,restart}`, `/api/servers/{start-all,stop-all}` | lifecycle (workspace-scoped) |
 | `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop (`403`-safe: supervised listeners are refused) |
-| `GET` / `POST /api/servers`, `PATCH` / `DELETE /api/servers/:id` | the entries themselves |
-| `GET /api/logs`, `/api/logs/:id?tail=&search=`, `/api/logs/:id/download?file=` | persisted logs |
-| `GET` / `PATCH /api/settings` | the panel's own config (`control.label`, host thresholds, backups, …) |
-| `POST` / `DELETE /api/settings/ui` | install or revert a UI — what the settings page calls |
+| `GET` / `POST /api/servers`, `PATCH` / `DELETE /api/servers/:id` | the entries themselves, in one workspace |
+| `GET /api/logs`, `/api/logs/:id?tail=&search=`, `/api/logs/:id/download?file=` | persisted logs, for one workspace |
+| `GET` / `PATCH /api/settings` | the panel-wide settings (`control.label`, host thresholds, backups, UI) |
+| `GET` / `PATCH /api/settings/workspace` | one workspace's settings: server defaults, log retention, notifications |
+| `POST` / `DELETE /api/settings/ui` | install or revert a UI — what Global settings calls |
 | `POST` / `DELETE /api/settings/tls` | upload or clear a PEM pair |
-| `GET` / `POST /api/backups`, `/api/backups/restore`, `/api/backups/:name/download` | archives; a create body may carry `include` (item ids `config`, `secrets`, `tls`, `data:<path>`, from `GET /api/backups`), and a restore body `include` selects what to apply |
-| `POST` / `DELETE /api/notifications/token`, `/api/notifications/test`, `/detect-chats` | Telegram |
+| `GET` / `POST /api/backups`, `/api/backups/restore`, `/api/backups/:name/download` | archives; entries are global (`global:settings`, `global:secrets`, `global:tls`) or per workspace, whose leaves are `workspace:<id>:settings`, `:servers`, `:secrets` plus `data:<path>`; a create/restore body `include` selects them |
+| `POST` / `DELETE /api/notifications/token`, `/api/notifications/test`, `/detect-chats` | Telegram, per workspace |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | the session |
 | `GET /healthz` | liveness — **no session**, and `503` when an autostart server has crashed |
 | `GET /api/metrics` | Prometheus text (needs a session) |
 
 `GET /healthz` and `GET /openapi/*` are the only unauthenticated reads; the SPA shell itself is
 public, so your app can load before a session exists.
+
+A `ServerView` carries `workspaceId` — the same server id can exist in two workspaces, so key a list
+by the pair, not by `serverId` alone. A `server` frame embeds that view; a `log` frame carries only
+`serverId`, so match it against the workspace's servers.
 
 Anything calling the API from outside a browser — a script, a test, an agent, a native shell — can
 skip the login dance with an API token: `home-hosted set-token --generate` prints one once, and
@@ -137,7 +146,7 @@ Two settings worth reflecting: `control.label` is the panel's own name (the stoc
 and `GET /api/settings` includes `ui` — which UI is being served, and its metadata.
 
 An entry body is partial by design: `POST /api/servers` and `PATCH /api/servers/:id` take only the
-fields the person decided, and the panel's **Server defaults** fill the rest. Sending a value the
+fields the person decided, and the workspace's **Server defaults** fill the rest. Sending a value the
 person never chose freezes it against those defaults, so build the body as a diff
 (`inheritBaseline` and `diffFields` in `src/shared/patch-diff.ts`).
 
@@ -158,14 +167,16 @@ session, 403 bad token or origin, 404 unknown id, 409 conflict, 413 too large.
 | `event:` | `data:` |
 | --- | --- |
 | `hello` | `{ ts, state }` — the first frame, the complete snapshot |
-| `state` | `{ ts, state }` — anything changed: a status, a resource sample, host vitals |
-| `server` | `{ ts, serverId, server }` — one entry, after an action or a probe |
+| `state` | `{ ts, state }` — anything changed: a status, a resource sample, host vitals, a workspace |
+| `server` | `{ ts, serverId, server }` — one entry, `server.workspaceId` says which workspace |
 | `log` | `{ ts, serverId, lines }` — new output (dropped under backpressure, never state) |
 | `ping` | the current time, every 15 s |
 
-Send `?logs=0` to skip log frames, or `?serverId=<id>` to follow one server. The exact shapes are
-`sseMessageSchema` in `src/shared/contracts.ts` — the server validates against it before writing, so
-that schema is also your best type source.
+`GET /api/events` takes `?logs=0` to skip log frames and `?serverId=<id>` to follow one server — but
+it matches on the id alone, so an id used in two workspaces mixes their frames. Use
+`GET /api/servers/:id/stream?workspace=<id>` for one server: it validates the pair and replays the
+current state first. The exact shapes are `sseMessageSchema` in `src/shared/contracts.ts` — the
+server validates against it before writing, so that schema is also your best type source.
 
 ## Editing settings without fighting the stream
 
@@ -203,7 +214,8 @@ node scripts/build-uis.mjs <name> --zip   # builds it, writes uis/dist/home-host
 pnpm run build:uis                        # every UI, zipped; releases attach them as assets
 ```
 
-Only `stock` ships inside the npm package; the rest are release assets you install from Settings.
+Only `stock` ships inside the npm package; the rest are release assets you install from Global
+settings.
 `pnpm run quickcheck` type-checks every UI, and `pnpm test` picks up any `test/*.test.ts` you add
 (use relative imports — the `@` alias points at `stock`).
 
@@ -218,7 +230,7 @@ pnpm run build                      # → dist/
 # 2. keep the API base relative, then zip the build
 cd dist && zip -r ../my-panel.zip . && cd ..
 
-# 3. Settings → Interface → Install UI, then refresh
+# 3. Global settings → Interface → Install UI, then refresh
 ```
 
 Your client needs the session cookie, which the browser sends automatically once you log in on that
@@ -235,4 +247,4 @@ the panel on 3999 and a Vite dev server on 3998 with `/api` proxied — point yo
 - [ ] deep links render (the server falls back to `index.html`)
 - [ ] assets self-hosted, no CDN
 - [ ] works over plain http on a LAN
-- [ ] `ui.json` with a name and version, so Settings can tell you what is installed — plus `repo`/`tag`/`asset` if you want `ui-update` to follow your releases
+- [ ] `ui.json` with a name and version, so Global settings can tell you what is installed — plus `repo`/`tag`/`asset` if you want `ui-update` to follow your releases

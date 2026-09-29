@@ -11,6 +11,7 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import { useServerLogs } from '@/composables/useControlPlane'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatBytes } from '@/lib/format'
@@ -18,6 +19,7 @@ import { STATUS_META, TONE_DOT } from '@/lib/status'
 
 const route = useRoute()
 const router = useRouter()
+const workspace = useWorkspaces()
 
 const servers = ref<api.LogServerInfo[]>([])
 const selected = ref<string | null>(null)
@@ -32,7 +34,7 @@ const listLoading = ref(true)
 
 const current = computed(() => servers.value.find(server => server.serverId === selected.value) ?? null)
 
-const logs = useServerLogs(() => (mode.value === 'live' ? selected.value : null))
+const logs = useServerLogs(workspace.activeId, () => (mode.value === 'live' ? selected.value : null))
 // The buffer is mutated in place, so the viewer invalidates on this counter — which
 // the composable bumps for every batch, including the first lines after connect.
 const liveVersion = logs.version
@@ -57,7 +59,7 @@ const persistedCount = computed(() => servers.value.filter(server => server.file
 async function loadServers(): Promise<void> {
   listLoading.value = true
   try {
-    servers.value = await api.fetchLogServers()
+    servers.value = await api.fetchLogServers(workspace.activeId.value)
     const fromQuery = typeof route.query.server === 'string' ? route.query.server : null
     const candidate = fromQuery && servers.value.some(server => server.serverId === fromQuery)
       ? fromQuery
@@ -81,7 +83,7 @@ async function loadTail(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const history = await api.fetchLogHistory(id, { tail: Number(tail.value) })
+    const history = await api.fetchLogHistory(workspace.activeId.value, id, { tail: Number(tail.value) })
     diskLines.value = history.lines
     diskVersion.value += 1
   }
@@ -99,7 +101,7 @@ async function clearFile(): Promise<void> {
     return
   confirmClear.value = false
   try {
-    await api.clearLogHistory(id)
+    await api.clearLogHistory(workspace.activeId.value, id)
     diskLines.value = []
     diskVersion.value += 1
     await loadServers()
@@ -121,6 +123,14 @@ watch([selected, tail, mode], () => {
     void loadTail()
 }, { immediate: false })
 
+// Switching workspace changes the whole set of log files under the same ids.
+watch(() => workspace.activeId.value, () => {
+  selected.value = null
+  diskLines.value = []
+  mode.value = 'disk'
+  void loadServers().then(() => loadTail())
+})
+
 onMounted(async () => {
   await loadServers()
   if (mode.value === 'disk')
@@ -136,7 +146,7 @@ onMounted(async () => {
           Persisted logs
         </p>
         <p class="mt-0.5 text-2xs text-faint">
-          {{ persistedCount }} of {{ servers.length }} servers on disk · {{ formatBytes(totalPersisted) }}
+          {{ workspace.selected.value?.label ?? 'Workspace' }} · {{ persistedCount }} of {{ servers.length }} servers on disk · {{ formatBytes(totalPersisted) }}
         </p>
       </div>
 
@@ -178,7 +188,7 @@ onMounted(async () => {
 
       <div class="border-t border-line p-2.5">
         <p class="text-2xs leading-4 text-faint">
-          Rotation and retention are set under Settings → Log storage.
+          Rotation and retention are set under Workspace settings → Logs.
         </p>
       </div>
     </aside>
@@ -230,7 +240,7 @@ onMounted(async () => {
           <a
             v-for="file in current.files"
             :key="file.name"
-            :href="api.logDownloadUrl(current.serverId, file.name)"
+            :href="api.logDownloadUrl(workspace.activeId.value, current.serverId, file.name)"
             :download="file.name"
             class="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 font-mono text-2xs text-muted transition-colors duration-150 hover:border-accent/40 hover:text-accent"
           >

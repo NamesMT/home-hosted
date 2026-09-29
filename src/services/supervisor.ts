@@ -1,28 +1,13 @@
 import type { ChildProcess } from 'node:child_process'
-import type { ServerConfig } from '#src/config/schema'
-import type { ConfigStore } from '#src/config/store'
+import type { WorkspaceStore } from '#src/config/store'
 import type { TemplateVars } from '#src/helpers/template'
 import type { SpawnInfo } from '#src/providers/identity'
 import type { ControlEndpoint } from '#src/services/control-server'
-import type { DdnsService } from '#src/services/ddns'
 import type { EventHub } from '#src/services/events'
 import type { HistoryStore } from '#src/services/history'
-import type { HostMonitor } from '#src/services/host-monitor'
 import type { LogFiles } from '#src/services/log-files'
 import type { NotificationReason, NotificationService } from '#src/services/notifications'
-import type {
-  AppState,
-  FreePortResult,
-  HealthState,
-  LogLine,
-  LogStream,
-  NannyExit,
-  NannySpec,
-  PortState,
-  ProcessResources,
-  ServerStatus,
-  ServerView,
-} from '#src/shared/contracts'
+import type { FreePortResult, HealthState, LogLine, LogStream, NannyExit, NannySpec, PortState, ProcessResources, ServerConfig, ServerStatus, ServerView } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
@@ -57,17 +42,20 @@ import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
 import { LogRelay } from '#src/services/log-relay'
 
 export interface SupervisorOptions {
+  /** The workspace this supervisor supervises; every view is tagged with it. */
+  workspaceId: string
   configPath: string
   /** Live listener info, mutated by the control server when it rebinds. */
   control: ControlEndpoint
-  /** Injected so SSE state frames carry the same view the API serves. */
-  buildState: (views: ServerView[]) => AppState
   history: HistoryStore
   logFiles: LogFiles
   notifications: NotificationService
-  hostMonitor: HostMonitor
-  /** Dynamic DNS rides the same tick as host vitals; it throttles itself. */
-  ddns: DdnsService
+  /**
+   * Called when this workspace's state would have changed. The panel owns the
+   * aggregate frame (it is the only thing that can see every workspace), so the
+   * supervisor only signals — it never builds or publishes the snapshot itself.
+   */
+  onStateChange: () => void
   /** Where a persistent entry's nanny keeps its state; injected for the same reason. */
   nannyDir: string
 }
@@ -190,10 +178,9 @@ export class Supervisor {
   private readonly entries = new Map<string, Entry>()
   private readonly tickTimer: NodeJS.Timeout
   private disposed = false
-  private lastStateSignature = ''
 
   constructor(
-    private readonly store: ConfigStore,
+    private readonly store: WorkspaceStore,
     private readonly hub: EventHub,
     private readonly options: SupervisorOptions,
   ) {
@@ -211,10 +198,6 @@ export class Supervisor {
       void this.tick().catch((error: unknown) => logger.error('the supervisor tick failed', error))
     }, TICK_INTERVAL_MS)
     this.tickTimer.unref()
-  }
-
-  getState(): AppState {
-    return this.options.buildState(this.views())
   }
 
   views(): ServerView[] {
@@ -1167,7 +1150,7 @@ export class Supervisor {
     for (const line of kept) entry.logs.push(line)
     // One frame per batch: this is a file tail, and a burst of lines would otherwise
     // become a burst of frames.
-    this.hub.publish({ type: 'log', ts: kept[kept.length - 1]!.ts, serverId, lines: kept })
+    this.hub.publish({ type: 'log', ts: kept[kept.length - 1]!.ts, workspaceId: this.options.workspaceId, serverId, lines: kept })
   }
 
   /**
@@ -1427,10 +1410,6 @@ export class Supervisor {
       return
     const now = Date.now()
 
-    await this.options.hostMonitor.tick(now)
-    // Deliberately not awaited: a provider that is slow to answer must not hold
-    // up the health probes below.
-    this.options.ddns.tick(now)
     await this.sampleResources(now)
 
     // Probes run concurrently: one slow server must not delay the others' health.
@@ -1575,6 +1554,7 @@ export class Supervisor {
     const host = displayHost(config.bind)
     return {
       id: config.id,
+      workspaceId: this.options.workspaceId,
       config,
       bindHost: bindHost(config.bind),
       url: config.port === undefined || config.port === null ? null : `http://${host}:${config.port}`,
@@ -1607,7 +1587,7 @@ export class Supervisor {
     // as ours. Only a persistent entry's log is a file the panel both writes and tails.
     if (entry.config.persistent && this.options.logFiles.config.persist)
       rememberEchoedLine(entry.echoed, line)
-    this.hub.publish({ type: 'log', ts: line.ts, serverId: entry.config.id, lines: [line] })
+    this.hub.publish({ type: 'log', ts: line.ts, workspaceId: this.options.workspaceId, serverId: entry.config.id, lines: [line] })
     if (stream === 'system')
       logger.debug(`[${entry.config.id}] ${text}`)
   }
@@ -1618,41 +1598,18 @@ export class Supervisor {
     this.hub.publish({
       type: 'server',
       ts: Date.now(),
+      workspaceId: this.options.workspaceId,
       serverId: entry.config.id,
       server: this.view(entry),
     })
   }
 
+  /**
+   * Hand the panel the signal that something moved. The panel diffs the whole
+   * aggregate state — every workspace's servers, DDNS and host vitals — and
+   * publishes at most one frame, so a noisy workspace cannot multiply frames.
+   */
   private publishState(): void {
-    const state = this.getState()
-    const ddns = state.ddns
-    const signature = [
-      state.configError ?? '',
-      // DDNS only changes on its own schedule, so it needs its own component or a
-      // panel with no running server would never frame the result of a pass.
-      ddns === undefined ? '' : [ddns.running, ddns.lastRunAt, ddns.ipv4, ddns.ipv6, ...ddns.records.map(record => `${record.host}:${record.type}:${record.state}:${record.ip}`)].join(':'),
-      ...state.servers.map(server => [
-        server.id,
-        server.status,
-        server.health,
-        server.portState,
-        server.pid,
-        server.restarts,
-        server.nextRetryAt,
-        server.lastError,
-        server.bufferedLines,
-        // A new resource sample *is* news: the UI builds its charts by sampling
-        // these frames, so leaving them out of the signature means a fleet where
-        // nothing structural changes emits no frames at all — and every graph
-        // stays empty until something else moves.
-        server.responseMs,
-        server.resources?.sampledAt,
-      ].join(':')),
-    ].join('|')
-
-    if (signature === this.lastStateSignature)
-      return
-    this.lastStateSignature = signature
-    this.hub.publish({ type: 'state', ts: Date.now(), state })
+    this.options.onStateChange()
   }
 }

@@ -1,21 +1,24 @@
-import type { BackupFile, BackupPath, BackupsConfig, ServerConfig } from '#src/shared/contracts'
+import type { TemplateVars } from '#src/helpers/template'
+import type { BackupEntry, BackupFile, BackupsConfig, BackupsView, RestoreItem, RestorePlan, ServerConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { parseConfig } from '#src/config/parse'
+import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings } from '#src/config/parse'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
-import { dataRoot, projectDir, resolveUserPath } from '#src/helpers/paths'
+import { projectDir, resolveUserPath } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { serverTemplateVars } from '#src/services/supervisor'
 import { isGeneratedPath } from '#src/shared/generated'
 
 const MANIFEST = 'manifest.json'
-const ALLOWED_ROOTS = new Set(['config', 'secrets', 'tls', 'data'])
+const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data'])
 /** Every archive this service writes is a zip, encrypted or not. */
 const SUFFIX = '.zip'
+/** A workspace leaf that carries state the panel re-reads after a restore. */
+const RELOADABLE = /^global:settings$|^workspace:[^:]+:(?:settings|servers)$/
 
 /**
  * Structural allowlist for archive entries. A regex alone is not enough: `..`
@@ -29,7 +32,7 @@ export function isSafeArchiveEntry(entry: string): boolean {
   const cleaned = entry.replace(/^\.\//, '').replace(/\/+$/, '')
   if (cleaned.length === 0)
     return true
-  if (cleaned === 'manifest.json')
+  if (cleaned === MANIFEST)
     return true
 
   const segments = cleaned.split('/')
@@ -50,6 +53,22 @@ export function isInside(parent: string, child: string): boolean {
   return !path.isAbsolute(relative) && (relative.length === 0 || !relative.startsWith('..'))
 }
 
+/** One declared data path, with the verdict the UI shows. */
+export interface BackupPath {
+  path: string
+  origin: string
+  included: boolean
+  note: string | null
+  ignoreGenerated: boolean
+}
+
+/** The `{…}` placeholders a *global* declared path may use. */
+export interface BackupVars {
+  projectDir: string
+  dataRoot: string
+  home: string
+}
+
 interface DeclaredPath {
   path: string
   origin: string
@@ -63,17 +82,26 @@ interface DeclaredPath {
  * `backupPaths` and the values of its `dataEnvs`. A path already covered by a
  * declared parent is reported but not captured, so an entry only has to name
  * the shallowest directory it cares about.
+ *
+ * `vars` only feeds the global list; a server's own placeholders come from its
+ * resolved config, exactly as the supervisor expands them.
  */
-export function resolveBackupPaths(servers: ServerConfig[], includePaths: string[] = []): BackupPath[] {
+export function resolveBackupPaths(servers: ServerConfig[], includePaths: string[] = [], vars?: Partial<BackupVars>): BackupPath[] {
   const declared: DeclaredPath[] = []
-  const globalVars = { projectDir, dataRoot, home: os.homedir() }
+  const globalVars: TemplateVars = {
+    projectDir: vars?.projectDir ?? projectDir,
+    // A server carries the panel's real `dataRoot`; the fallback keeps this
+    // function usable on its own when nothing declared a server path.
+    dataRoot: vars?.dataRoot ?? (servers[0] === undefined ? projectDir : String(serverTemplateVars(servers[0]).dataRoot ?? projectDir)),
+    home: vars?.home ?? os.homedir(),
+  }
 
-  const add = (value: string, origin: string, vars: Record<string, string | number>, ignoreGenerated: boolean): void => {
+  const add = (value: string, origin: string, templateVars: TemplateVars, ignoreGenerated: boolean): void => {
     if (value.trim().length === 0)
       return
     // Normalized, so a trailing slash or a doubled one cannot defeat the
     // parent/child comparison below.
-    const resolved = path.normalize(resolveUserPath(expandEnv(resolveTemplate(value, vars), process.env)))
+    const resolved = path.normalize(resolveUserPath(expandEnv(resolveTemplate(value, templateVars), process.env)))
     declared.push({
       path: resolved,
       origin,
@@ -87,10 +115,10 @@ export function resolveBackupPaths(servers: ServerConfig[], includePaths: string
   for (const value of includePaths) add(value, 'global', globalVars, false)
 
   for (const config of servers) {
-    const vars = serverTemplateVars(config)
+    const templateVars = serverTemplateVars(config)
     const ignoreGenerated = config.backupIgnoreGenerated !== false
-    for (const [name, value] of Object.entries(config.dataEnvs)) add(value, `${config.id}:${name}`, vars, ignoreGenerated)
-    for (const value of config.backupPaths) add(value, `${config.id}:backupPaths`, vars, ignoreGenerated)
+    for (const [name, value] of Object.entries(config.dataEnvs)) add(value, `${config.id}:${name}`, templateVars, ignoreGenerated)
+    for (const value of config.backupPaths) add(value, `${config.id}:backupPaths`, templateVars, ignoreGenerated)
   }
 
   // Shallowest first, so a parent always absorbs its descendants whatever order
@@ -108,20 +136,31 @@ export function resolveBackupPaths(servers: ServerConfig[], includePaths: string
   })
 }
 
-export interface BackupSources {
-  configPath: string
+/** One workspace's state, as the backup and restore sides both read it. */
+export interface BackupWorkspaceSource {
+  id: string
+  label: string
+  settingsPath: string
+  serversPath: string
   secretsPath: string
+  servers: ServerConfig[]
+}
+
+export interface BackupSources {
+  globalSettingsPath: string
+  globalSecretsPath: string
   tlsDir: string
-  /** Declared paths, resolved, with their origin and inclusion verdict. */
-  paths: BackupPath[]
+  /** Extra paths in every backup, in addition to each server's own. */
+  includePaths: string[]
+  workspaces: BackupWorkspaceSource[]
 }
 
 export interface BackupManifest {
   version: 1
   createdAt: number
   hostname: string
-  /** `origin` is what lets a restore land under *this* machine's paths. */
-  data: Array<{ slug: string, path: string, origin?: string }>
+  /** `origin` and `workspace` are what let a restore land under *this* machine's paths. */
+  data: Array<{ slug: string, path: string, origin?: string, workspace?: string }>
 }
 
 export interface RestoreOptions {
@@ -132,76 +171,28 @@ export interface RestoreOptions {
   include?: string[]
 }
 
-export interface RestorePlan {
-  dryRun: boolean
-  encrypted: boolean
-  needsPassword: boolean
-  items: Array<{
-    id: string
-    label: string
-    kind: 'config' | 'secrets' | 'tls' | 'data'
-    restorable: boolean
-    selected: boolean
-    note: string | null
-  }>
-  applied: string[]
-  skipped: string[]
-  restartRequired: boolean
-  /** The panel re-read the restored config in this same run. */
-  reloaded: boolean
-  error?: string
-}
+export type { RestorePlan }
 
 /** One place a restore may write a data path to, and what declared it. */
-interface DeclaredTarget {
+interface DataTarget {
+  workspace: string
   path: string
   origin: string
 }
 
-/** The panel's own listener is the only thing a restart is needed for. */
-function controlBlock(configText: string | null): unknown {
-  try {
-    return (JSON.parse(configText ?? '{}') as { control?: unknown }).control ?? null
-  }
-  catch {
-    return null
-  }
-}
-
 /**
- * A restored config is accepted when this release can read it — through the same
- * tolerant parser the store uses, so an archive from a newer release keeps only
- * the keys this one understands instead of being refused outright.
+ * A restored settings file is accepted when this release can read it — through
+ * the same tolerant parser the stores use, so an archive from a newer release
+ * keeps only the keys this one understands instead of being refused outright.
  */
-function isUsableConfig(text: string | null): boolean {
+function readableGlobalSettings(text: string | null): boolean {
   if (text === null)
     return false
   try {
-    return parseConfig(JSON.parse(text)).config !== null
+    return parseGlobalSettings(JSON.parse(text)).config !== null
   }
   catch {
     return false
-  }
-}
-
-/**
- * The data paths the archive's own config declares, resolved against *this*
- * machine — so a backup made with `{home}` templates restores under this user's
- * paths, and one restored onto a blank instance brings its servers with it.
- */
-function archiveTargets(configText: string | null): DeclaredTarget[] {
-  if (configText === null)
-    return []
-  try {
-    const parsed = parseConfig(JSON.parse(configText)).config
-    if (parsed === null)
-      return []
-    return resolveBackupPaths(parsed.servers, parsed.backups.includePaths)
-      .filter(entry => entry.included)
-      .map(entry => ({ path: entry.path, origin: entry.origin }))
-  }
-  catch {
-    return []
   }
 }
 
@@ -228,11 +219,24 @@ export function slugifyPath(target: string): string {
   return cleaned.length > 0 ? cleaned.slice(-80) : 'path'
 }
 
+function readText(file: string): string | null {
+  try {
+    return fs.readFileSync(file, 'utf8')
+  }
+  catch {
+    return null
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /**
- * Archives of the control plane's own state plus whatever paths the config
- * declares. Two rules keep restore safe: the archive layout is an allowlist, and
- * a data path is only written back when the *current* config still declares it —
- * an uploaded archive can never choose where to write.
+ * Archives of the control plane's own state plus whatever paths the configs
+ * declare. Two rules keep restore safe: the archive layout is an allowlist, and
+ * a data path is only written back when a *config* still declares it — a current
+ * one, or a workspace's servers file the same restore is about to apply.
  *
  * A backup is always a zip; a password makes it a WinZip-AES one, so the same
  * file opens in any archive manager either way.
@@ -248,12 +252,12 @@ export class BackupService {
 
   constructor(
     private readonly options: {
-      /** Relative `backups.dir` values resolve against it. */
+      /** Relative `backups.dir` values resolve against it (the panel passes `$HHOSTED_HOME/.hh`). */
       dataRoot: string
       getConfig: () => BackupsConfig
       getSources: () => BackupSources
-      /** Called after this instance's own config was overwritten by a restore. */
-      onConfigRestored?: () => void
+      /** Called after a restore wrote settings/server files; the panel re-reads everything. */
+      onRestored?: () => void
     },
   ) {}
 
@@ -266,21 +270,18 @@ export class BackupService {
     return this.resolveDir()
   }
 
-  /** Declared paths with their verdict, as the UI shows them. */
-  get paths(): BackupPath[] {
-    const dir = path.resolve(this.resolveDir())
-    return this.options.getSources().paths.map((entry) => {
-      // Capturing a directory that contains the archive directory would make the
-      // archive contain itself.
-      if (isInside(entry.path, dir))
-        return { ...entry, included: false, note: 'contains the backup directory' }
-      return entry
-    })
-  }
-
-  /** Only what actually goes into a backup. */
-  get dataPaths(): string[] {
-    return this.paths.filter(entry => entry.included).map(entry => entry.path)
+  /** The whole two-level selection model the backup dialog reads. */
+  view(): BackupsView {
+    const config = this.options.getConfig()
+    const sources = this.options.getSources()
+    return {
+      enabled: config.enabled,
+      dir: this.directory,
+      keep: config.keep,
+      includePaths: [...sources.includePaths],
+      entries: this.entries(sources),
+      files: this.list(),
+    }
   }
 
   list(): BackupFile[] {
@@ -317,7 +318,10 @@ export class BackupService {
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
     // Omitted means everything; an id that names nothing is ignored, as on the restore side.
     const wanted = options.include === undefined ? null : new Set(options.include)
-    const captures = (id: string): boolean => wanted === null || wanted.has(id)
+    const capturesGlobal = (id: string): boolean => wanted === null || wanted.has(id)
+    // A workspace id alone means every leaf of that workspace.
+    const capturesWorkspace = (id: string, suffix: string): boolean =>
+      wanted === null || wanted.has(`workspace:${id}`) || wanted.has(`workspace:${id}:${suffix}`)
 
     const dir = this.resolveDir()
     const sources = this.options.getSources()
@@ -329,26 +333,48 @@ export class BackupService {
 
     try {
       fs.mkdirSync(staging, { recursive: true })
-      if (captures('config'))
-        this.copyInto(staging, 'config/servers.config.json', sources.configPath)
-      if (captures('secrets'))
-        this.copyInto(staging, 'secrets/control-secrets.json', sources.secretsPath)
-      if (captures('tls'))
-        this.copyInto(staging, 'tls', sources.tlsDir)
+      let captured = 0
+      const copy = (relative: string, source: string, ignoreGenerated = false): void => {
+        if (this.copyInto(staging, relative, source, ignoreGenerated))
+          captured++
+      }
+
+      if (capturesGlobal('global:settings'))
+        copy('global/settings.json', sources.globalSettingsPath)
+      if (capturesGlobal('global:secrets'))
+        copy('global/secrets.json', sources.globalSecretsPath)
+      if (capturesGlobal('global:tls'))
+        copy('global/tls', sources.tlsDir)
 
       const data: BackupManifest['data'] = []
-      for (const declared of this.paths) {
-        if (!captures(`data:${declared.path}`) || !declared.included || !fs.existsSync(declared.path))
-          continue
-        const slug = slugifyPath(declared.path)
-        if (data.some(entry => entry.slug === slug))
-          continue
-        this.copyInto(staging, path.join('data', slug), declared.path, declared.ignoreGenerated === true)
-        data.push({ slug, path: declared.path, origin: declared.origin })
+      for (const workspace of sources.workspaces) {
+        const root = `workspaces/${workspace.id}`
+        if (capturesWorkspace(workspace.id, 'settings'))
+          copy(`${root}/settings.json`, workspace.settingsPath)
+        if (capturesWorkspace(workspace.id, 'servers'))
+          copy(`${root}/servers.config.json`, workspace.serversPath)
+        if (capturesWorkspace(workspace.id, 'secrets'))
+          copy(`${root}/secrets.json`, workspace.secretsPath)
+
+        for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
+          if (!declared.included)
+            continue
+          if (!capturesWorkspace(workspace.id, `data:${declared.path}`))
+            continue
+          if (!fs.existsSync(declared.path))
+            continue
+          const slug = slugifyPath(declared.path)
+          if (data.some(entry => entry.slug === slug))
+            continue
+          if (!this.copyInto(staging, path.join('data', slug), declared.path, declared.ignoreGenerated))
+            continue
+          captured++
+          data.push({ slug, path: declared.path, origin: declared.origin, workspace: workspace.id })
+        }
       }
 
       // A selection that captured nothing would only produce a manifest.
-      if (wanted !== null && fs.readdirSync(staging).length === 0) {
+      if (wanted !== null && captured === 0) {
         fs.rmSync(staging, { recursive: true, force: true })
         return { ok: false, error: 'nothing was selected to back up' }
       }
@@ -383,8 +409,9 @@ export class BackupService {
 
   /**
    * Validates an archive, then (unless `confirm` is false) applies whichever of
-   * its items were selected. Data paths come from the *current* config, never
-   * from the archive's manifest.
+   * its items were selected. Data paths come from the *current* sources, or from
+   * a workspace's servers file that is itself being restored — never from the
+   * archive's manifest alone.
    */
   async restore(archivePath: string, options: RestoreOptions): Promise<RestorePlan> {
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
@@ -443,148 +470,243 @@ export class BackupService {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as BackupManifest
 
       const sources = this.options.getSources()
-      const configInArchive = path.join(staging, 'config', 'servers.config.json')
-      const secretsInArchive = path.join(staging, 'secrets', 'control-secrets.json')
-      const tlsInArchive = path.join(staging, 'tls')
-
       const selectedIds = options.include === undefined ? null : new Set(options.include)
       const actions = new Map<string, () => void>()
 
-      const addItem = (item: RestorePlan['items'][number], apply: (() => void) | null): void => {
+      const addItem = (item: Omit<RestoreItem, 'selected'>, apply: (() => void) | null, aliases: string[] = []): void => {
         if (apply === null) {
           plan.items.push({ ...item, selected: false })
           plan.skipped.push(`${item.label}${item.note === null ? '' : ` (${item.note})`}`)
           return
         }
-        const selected = selectedIds === null || selectedIds.has(item.id)
+        const selected = selectedIds === null
+          || selectedIds.has(item.id)
+          || aliases.some(alias => selectedIds.has(alias))
         plan.items.push({ ...item, selected })
-        if (selected) {
+        if (selected)
           actions.set(item.id, apply)
-        }
-        else {
+        else
           plan.skipped.push(`${item.label} (not selected)`)
-        }
       }
 
-      const archivedConfig = fs.existsSync(configInArchive) ? fs.readFileSync(configInArchive, 'utf8') : null
-      // A config from an archive replaces the live one, so it has to validate
-      // first — otherwise a malformed upload silently removes every server.
-      const restoredConfig = isUsableConfig(archivedConfig) ? archivedConfig : null
-      if (archivedConfig !== null && restoredConfig === null)
-        plan.skipped.push('config/servers.config.json (the archive\'s config is not valid)')
-      if (restoredConfig !== null) {
-        addItem({ id: 'config', label: 'config/servers.config.json', kind: 'config', restorable: true, selected: false, note: null }, () => {
-          writeFileAtomic(sources.configPath, restoredConfig)
-        })
+      // ---------------------------------------------------------------- global
+      const settingsText = readText(path.join(staging, 'global', 'settings.json'))
+      const parsedGlobal = readableGlobalSettings(settingsText) ? parseGlobalSettings(JSON.parse(settingsText!)).config : null
+      if (settingsText !== null && parsedGlobal === null)
+        plan.skipped.push('Global settings (the archive\'s settings are not valid)')
+      if (parsedGlobal !== null && settingsText !== null) {
+        addItem({ id: 'global:settings', label: 'Global settings', kind: 'settings', restorable: true, note: null }, () => {
+          writeFileAtomic(sources.globalSettingsPath, settingsText)
+        }, ['config'])
       }
-      if (fs.existsSync(secretsInArchive)) {
-        const restored = fs.readFileSync(secretsInArchive, 'utf8')
-        addItem({ id: 'secrets', label: 'secrets/control-secrets.json', kind: 'secrets', restorable: true, selected: false, note: null }, () => {
-          writeFileAtomic(sources.secretsPath, restored, { mode: 0o600 })
-        })
+
+      const globalSecrets = readText(path.join(staging, 'global', 'secrets.json'))
+      if (globalSecrets !== null) {
+        addItem({ id: 'global:secrets', label: 'Global secrets (password, API token)', kind: 'secrets', restorable: true, note: null }, () => {
+          writeFileAtomic(sources.globalSecretsPath, globalSecrets, { mode: 0o600 })
+        }, ['secrets'])
       }
+
+      const tlsInArchive = path.join(staging, 'global', 'tls')
       if (fs.existsSync(tlsInArchive)) {
         const files = fs.readdirSync(tlsInArchive).filter(file => fs.statSync(path.join(tlsInArchive, file)).isFile())
-        addItem({ id: 'tls', label: 'tls/', kind: 'tls', restorable: true, selected: false, note: null }, () => {
+        addItem({ id: 'global:tls', label: 'TLS certificate', kind: 'tls', restorable: true, note: null }, () => {
           fs.mkdirSync(sources.tlsDir, { recursive: true })
           for (const file of files) {
-            const from = path.join(tlsInArchive, file)
             const mode = file.endsWith('.key.pem') ? { mode: 0o600 } : {}
-            writeFileAtomic(path.join(sources.tlsDir, file), fs.readFileSync(from, 'utf8'), mode)
+            writeFileAtomic(path.join(sources.tlsDir, file), fs.readFileSync(path.join(tlsInArchive, file), 'utf8'), mode)
           }
-        })
+        }, ['tls'])
       }
 
-      // A data path is written to a path a *config* declares — this instance's, or
-      // the one the archive brings. That second source is what makes a blank
-      // instance restorable: the backup's own `servers.config.json` names its data
-      // directories, so restoring the config restores the whole setup.
-      const fromArchive = archiveTargets(restoredConfig)
-      // The restored config wins, because it is the one that will be live.
-      const archiveCandidates = actions.has('config') ? fromArchive : []
-      const instanceCandidates: DeclaredTarget[] = this.paths
-        .filter(entry => entry.included)
-        .map(entry => ({ path: entry.path, origin: entry.origin }))
-      const candidates: DeclaredTarget[] = [...archiveCandidates, ...instanceCandidates]
+      // ------------------------------------------------------------ workspaces
+      /** Every archived servers file this release can read, selected or not. */
+      const archivedServers = new Map<string, ServerConfig[]>()
+
+      const archiveWorkspaces = path.join(staging, 'workspaces')
+      if (fs.existsSync(archiveWorkspaces)) {
+        for (const entry of fs.readdirSync(archiveWorkspaces, { withFileTypes: true })) {
+          if (!entry.isDirectory())
+            continue
+          const id = entry.name
+          const dir = path.join(archiveWorkspaces, id)
+          const workspace = sources.workspaces.find(candidate => candidate.id === id)
+          const settings = readText(path.join(dir, 'settings.json'))
+          const servers = readText(path.join(dir, 'servers.config.json'))
+          const secrets = readText(path.join(dir, 'secrets.json'))
+
+          if (workspace === undefined) {
+            const leaves = [['settings', 'Settings', settings], ['servers', 'Servers', servers], ['secrets', 'Secrets', secrets]] as const
+            for (const [suffix, label, text] of leaves) {
+              if (text === null)
+                continue
+              addItem({
+                id: `workspace:${id}:${suffix}`,
+                label: `${id}: ${label}`,
+                kind: suffix,
+                workspaceId: id,
+                restorable: false,
+                note: 'unknown workspace',
+              }, null)
+            }
+            continue
+          }
+
+          if (settings !== null) {
+            if (readableWorkspaceSettings(settings)) {
+              addItem({ id: `workspace:${id}:settings`, label: `${workspace.label}: Settings`, kind: 'settings', workspaceId: id, restorable: true, note: null }, () => {
+                writeFileAtomic(workspace.settingsPath, settings)
+              })
+            }
+            else {
+              plan.skipped.push(`${workspace.label}: Settings (the archive's settings are not valid)`)
+            }
+          }
+
+          if (servers !== null) {
+            const parsed = readableServersFile(servers)
+            if (parsed !== null) {
+              archivedServers.set(id, parsed)
+              addItem({ id: `workspace:${id}:servers`, label: `${workspace.label}: Servers`, kind: 'servers', workspaceId: id, restorable: true, note: null }, () => {
+                writeFileAtomic(workspace.serversPath, servers)
+              })
+            }
+            else {
+              plan.skipped.push(`${workspace.label}: Servers (the archive's servers are not valid)`)
+            }
+          }
+
+          if (secrets !== null) {
+            addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, kind: 'secrets', workspaceId: id, restorable: true, note: null }, () => {
+              writeFileAtomic(workspace.secretsPath, secrets, { mode: 0o600 })
+            })
+          }
+        }
+      }
+
+      // ------------------------------------------------------------------ data
+      // A data path is written to a path a *config* declares — this instance's,
+      // or the servers file the archive brings and the restore is about to apply.
+      const instanceTargets: DataTarget[] = []
+      for (const workspace of sources.workspaces) {
+        for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
+          if (!declared.included)
+            continue
+          instanceTargets.push({ workspace: workspace.id, path: declared.path, origin: declared.origin })
+        }
+      }
+
+      const archivedIncludePaths = actions.has('global:settings') && parsedGlobal !== null
+        ? parsedGlobal.backups.includePaths
+        : sources.includePaths
+      const archiveAll: DataTarget[] = []
+      const archiveTargets: DataTarget[] = []
+      for (const [id, servers] of archivedServers) {
+        for (const declared of this.declaredData(servers, archivedIncludePaths)) {
+          if (!declared.included)
+            continue
+          const target = { workspace: id, path: declared.path, origin: declared.origin }
+          archiveAll.push(target)
+          // Only a servers file this restore is applying may name a destination.
+          if (actions.has(`workspace:${id}:servers`))
+            archiveTargets.push(target)
+        }
+      }
 
       // A `global` include path and a second `backupPaths` value share one origin, so an
       // origin match alone would write both to the first candidate. Pair same-origin
       // declarations by order instead — the archive wrote them in the same resolve order.
-      const cursors = { archive: new Map<string, number>(), instance: new Map<string, number>() }
-      const matchByOrigin = (
-        list: DeclaredTarget[],
-        cursor: Map<string, number>,
-        origin: string | undefined,
-      ): DeclaredTarget | undefined => {
-        if (origin === undefined)
+      const usedArchive = new Set<DataTarget>()
+      const usedInstance = new Set<DataTarget>()
+      const take = (list: DataTarget[], used: Set<DataTarget>, test: (target: DataTarget) => boolean): DataTarget | undefined => {
+        const found = list.find(target => !used.has(target) && test(target))
+        if (found === undefined)
           return undefined
-        const same = list.filter(candidate => candidate.origin === origin)
-        if (same.length === 0)
-          return undefined
-        const used = cursor.get(origin) ?? 0
-        cursor.set(origin, used + 1)
-        return same[used] ?? same[0]
+        used.add(found)
+        return found
+      }
+      const matchTarget = (origin: string | undefined, workspace: string | undefined, archivedPath: string): DataTarget | undefined => {
+        if (origin !== undefined) {
+          if (workspace !== undefined) {
+            const scoped = take(archiveTargets, usedArchive, target => target.origin === origin && target.workspace === workspace)
+              ?? take(instanceTargets, usedInstance, target => target.origin === origin && target.workspace === workspace)
+            if (scoped !== undefined)
+              return scoped
+          }
+          return take(archiveTargets, usedArchive, target => target.origin === origin)
+            ?? take(instanceTargets, usedInstance, target => target.origin === origin)
+            ?? take(archiveTargets, usedArchive, target => target.path === archivedPath)
+            ?? take(instanceTargets, usedInstance, target => target.path === archivedPath)
+        }
+        return take(archiveTargets, usedArchive, target => target.path === archivedPath)
+          ?? take(instanceTargets, usedInstance, target => target.path === archivedPath)
       }
 
-      for (const entry of manifest.data ?? []) {
-        const target = matchByOrigin(archiveCandidates, cursors.archive, entry.origin)
-          ?? matchByOrigin(instanceCandidates, cursors.instance, entry.origin)
-          ?? candidates.find(candidate => candidate.path === entry.path)
-        const from = path.join(staging, 'data', safeSlug(entry.slug) ?? slugifyPath(entry.path))
-        const common = {
-          id: `data:${entry.path}`,
-          label: target?.path ?? entry.path,
-          kind: 'data' as const,
+      const archivedEntries = Array.isArray(manifest.data) ? manifest.data.filter(isRecord) : []
+      for (const entry of archivedEntries) {
+        const archivedPath = typeof entry.path === 'string' ? entry.path : ''
+        const origin = typeof entry.origin === 'string' ? entry.origin : undefined
+        const workspace = typeof entry.workspace === 'string' ? entry.workspace : undefined
+        const from = path.join(staging, 'data', safeSlug(entry.slug) ?? slugifyPath(archivedPath))
+        const target = matchTarget(origin, workspace, archivedPath)
+        const targetWorkspace = target?.workspace ?? workspace
+        const base: Omit<RestoreItem, 'selected'> = {
+          id: target === undefined ? `data:${archivedPath}` : `workspace:${target.workspace}:data:${target.path}`,
+          label: target?.path ?? archivedPath,
+          kind: 'data',
           restorable: false,
-          selected: false,
           note: null,
+          ...(targetWorkspace === undefined ? {} : { workspaceId: targetWorkspace }),
         }
+        const aliases = [`data:${archivedPath}`]
 
         if (target === undefined) {
-          const archiveOnly = fromArchive.some(candidate => candidate.origin === entry.origin)
+          const declaredByBackup = archiveAll.some(candidate => candidate.origin === origin && (workspace === undefined || candidate.workspace === workspace))
           addItem({
-            ...common,
-            note: archiveOnly && !actions.has('config')
+            ...base,
+            note: declaredByBackup
               ? 'declared by the backup\'s config, which is not being restored'
               : 'not declared by this config, nor by the backup',
-          }, null)
+          }, null, aliases)
           continue
         }
         if (!fs.existsSync(from)) {
-          addItem({ ...common, note: 'missing from the archive' }, null)
+          addItem({ ...base, note: 'missing from the archive' }, null, aliases)
           continue
         }
 
         addItem(
-          { ...common, restorable: true, note: target.path === entry.path ? null : `restored from ${entry.path}` },
+          { ...base, restorable: true, note: target.path === archivedPath ? null : `restored from ${archivedPath}` },
           () => fs.cpSync(from, target.path, { recursive: true, force: true }),
+          aliases,
         )
       }
 
       // The plan has to say whether a restart is needed even in a dry run: only
-      // the panel's own listener does, the servers are re-read from the file.
-      if (restoredConfig !== null && actions.has('config')) {
-        const current = fs.existsSync(sources.configPath) ? fs.readFileSync(sources.configPath, 'utf8') : null
-        plan.restartRequired = JSON.stringify(controlBlock(restoredConfig)) !== JSON.stringify(controlBlock(current))
+      // the panel's own listener does, its servers are re-read from the file.
+      if (parsedGlobal !== null && actions.has('global:settings') && settingsText !== null) {
+        const currentText = readText(sources.globalSettingsPath)
+        const current = readableGlobalSettings(currentText) ? parseGlobalSettings(JSON.parse(currentText!)).config : null
+        plan.restartRequired = JSON.stringify(parsedGlobal.control) !== JSON.stringify(current?.control ?? null)
       }
 
       if (!options.confirm) {
         // A dry run reports what *would* happen, so the UI can show the plan
         // and the selection before anything is written.
-        plan.applied = [...actions.keys()].map(id => plan.items.find(item => item.id === id)!.label)
+        plan.applied = [...actions.keys()].map(id => labelOf(plan, id))
         return plan
       }
 
       for (const [id, apply] of actions) {
         apply()
-        plan.applied.push(plan.items.find(item => item.id === id)!.label)
+        plan.applied.push(labelOf(plan, id))
       }
 
-      if (actions.has('config') && this.options.onConfigRestored !== undefined) {
+      if (this.options.onRestored !== undefined && [...actions.keys()].some(id => RELOADABLE.test(id))) {
         plan.reloaded = true
-        // The panel re-reads the restored file here, so the servers it declares
-        // exist immediately instead of after a restart.
-        this.options.onConfigRestored()
+        // The panel re-reads the restored settings and servers here, so what the
+        // archive brought exists immediately instead of after a restart.
+        this.options.onRestored()
       }
 
       return plan
@@ -601,6 +723,80 @@ export class BackupService {
     }
     finally {
       fs.rmSync(staging, { recursive: true, force: true })
+    }
+  }
+
+  /** Selectable entries: the three global slices, then one per workspace. */
+  private entries(sources: BackupSources): BackupEntry[] {
+    const entries: BackupEntry[] = [
+      { id: 'global:settings', label: 'Global settings', kind: 'settings', note: this.missingNote(sources.globalSettingsPath), items: [] },
+      { id: 'global:secrets', label: 'Global secrets (password, API token)', kind: 'secrets', note: this.missingNote(sources.globalSecretsPath), items: [] },
+      { id: 'global:tls', label: 'TLS certificate', kind: 'tls', note: this.missingNote(sources.tlsDir), items: [] },
+    ]
+
+    for (const workspace of sources.workspaces) {
+      entries.push({
+        id: `workspace:${workspace.id}`,
+        label: workspace.label,
+        kind: 'workspace',
+        workspaceId: workspace.id,
+        note: null,
+        items: this.workspaceItems(workspace, sources.includePaths),
+      })
+    }
+
+    return entries
+  }
+
+  private workspaceItems(workspace: BackupWorkspaceSource, includePaths: string[]): BackupEntry['items'] {
+    const id = workspace.id
+    const items: BackupEntry['items'] = [
+      { id: `workspace:${id}:settings`, label: 'Settings', kind: 'settings', included: true, note: this.missingNote(workspace.settingsPath) },
+      { id: `workspace:${id}:servers`, label: 'Servers', kind: 'servers', included: true, note: this.missingNote(workspace.serversPath) },
+      { id: `workspace:${id}:secrets`, label: 'Secrets', kind: 'secrets', included: true, note: this.missingNote(workspace.secretsPath) },
+    ]
+
+    for (const declared of this.declaredData(workspace.servers, includePaths)) {
+      items.push({
+        id: `workspace:${id}:data:${declared.path}`,
+        label: declared.path,
+        kind: 'data',
+        path: declared.path,
+        origin: declared.origin,
+        included: declared.included,
+        note: declared.note,
+        ignoreGenerated: declared.ignoreGenerated,
+      })
+    }
+
+    return items
+  }
+
+  /**
+   * Declared data paths with the archive-directory veto applied: capturing a
+   * directory that contains the archive directory would make the archive
+   * contain itself.
+   */
+  private declaredData(servers: ServerConfig[], includePaths: string[]): BackupPath[] {
+    const archiveDir = path.resolve(this.resolveDir())
+    return resolveBackupPaths(servers, includePaths, this.backupVars(servers)).map((entry) => {
+      if (entry.included && isInside(entry.path, archiveDir))
+        return { ...entry, included: false, note: 'contains the backup directory' }
+      return entry
+    })
+  }
+
+  /** The `{dataRoot}` a config expands to, without a module-level state root. */
+  private backupVars(servers: ServerConfig[]): BackupVars {
+    const first = servers[0]
+    return {
+      projectDir,
+      // A server carries the panel's real `dataRoot`; the `.hh` directory the
+      // panel hands us for `backups.dir` sits directly under it.
+      dataRoot: first === undefined
+        ? path.dirname(path.resolve(this.options.dataRoot))
+        : String(serverTemplateVars(first).dataRoot ?? projectDir),
+      home: os.homedir(),
     }
   }
 
@@ -662,9 +858,14 @@ export class BackupService {
     }
   }
 
-  private copyInto(staging: string, relative: string, source: string, ignoreGenerated = false): void {
+  private missingNote(target: string): string | null {
+    return fs.existsSync(target) ? null : 'does not exist yet'
+  }
+
+  /** Copies one source into the staging tree; false when there was nothing there. */
+  private copyInto(staging: string, relative: string, source: string, ignoreGenerated = false): boolean {
     if (!fs.existsSync(source))
-      return
+      return false
     const target = path.join(staging, relative)
     fs.mkdirSync(path.dirname(target), { recursive: true })
     // Never copy the archive directory into itself, however broad a declared
@@ -683,6 +884,7 @@ export class BackupService {
         return !isGeneratedPath(path.relative(root, resolved))
       },
     })
+    return true
   }
 
   private prune(): void {
@@ -693,5 +895,35 @@ export class BackupService {
   private resolveDir(): string {
     const configured = this.options.getConfig().dir
     return path.isAbsolute(configured) ? configured : path.resolve(this.options.dataRoot, configured)
+  }
+}
+
+/** The label of one item, for `applied`; items are built before actions run. */
+function labelOf(plan: RestorePlan, id: string): string {
+  return plan.items.find(item => item.id === id)?.label ?? id
+}
+
+/**
+ * `servers.config.json` is only a readability gate here: the store applies the
+ * workspace's own defaults on the next load, and an archive from another machine
+ * need not match this one's default shapes exactly.
+ */
+function readableServersFile(text: string): ServerConfig[] | null {
+  try {
+    const result = parseServersFile(JSON.parse(text), {})
+    return result.errors.length === 0 ? result.servers : null
+  }
+  catch {
+    return null
+  }
+}
+
+/** A workspace settings file is adopted only when this release can read it. */
+function readableWorkspaceSettings(text: string): boolean {
+  try {
+    return parseWorkspaceSettings(JSON.parse(text)).config !== null
+  }
+  catch {
+    return false
   }
 }

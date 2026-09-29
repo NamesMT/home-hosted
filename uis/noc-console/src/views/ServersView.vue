@@ -200,7 +200,7 @@ useKeyHandler((key) => {
     <p v-if="control.configError.value" class="banner banner--warn">
       <strong>config problem</strong>
       <span>{{ control.configError.value }}</span>
-      <code>{{ control.appState.value?.configPath }}</code>
+      <code>{{ control.configPath.value }}</code>
       <span class="faint">running the last good config; fixing the file reloads it</span>
     </p>
 
@@ -214,7 +214,7 @@ useKeyHandler((key) => {
         <ServerList
           :servers="visible"
           :total="servers.length"
-          :config-path="control.appState.value?.configPath ?? null"
+          :config-path="control.configPath.value"
           @select="selectedId = $event"
           @edit="editTo"
           @act="actOn"
@@ -233,7 +233,7 @@ useKeyHandler((key) => {
       <ServerList
         :servers="visible"
         :total="servers.length"
-        :config-path="control.appState.value?.configPath ?? null"
+        :config-path="control.configPath.value"
         @select="selectedId = $event"
         @edit="editTo"
         @act="actOn"

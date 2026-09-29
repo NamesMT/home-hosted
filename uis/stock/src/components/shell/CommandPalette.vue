@@ -4,6 +4,8 @@ import type { Component } from 'vue'
 import type { ThemePreference } from '@/composables/useTheme'
 import {
   ChevronRight,
+  Globe,
+  Layers,
   LayoutDashboard,
   Monitor,
   Moon,
@@ -12,6 +14,7 @@ import {
   ScrollText,
   Search,
   Server,
+  Settings2,
   SlidersHorizontal,
   Square,
   Sun,
@@ -22,8 +25,10 @@ import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useTheme } from '@/composables/useTheme'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import { cn } from '@/lib/cn'
 import { STATUS_META } from '@/lib/status'
+import { workspacePath } from '@/router'
 
 interface PaletteCommand {
   id: string
@@ -39,6 +44,7 @@ const open = defineModel<boolean>('open', { default: false })
 
 const router = useRouter()
 const control = useControlPlane()
+const workspace = useWorkspaces()
 const theme = useTheme()
 
 const query = ref('')
@@ -48,6 +54,16 @@ const list = ref<HTMLElement | null>(null)
 
 function go(to: string): void {
   void router.push(to)
+}
+
+/** Picking a workspace keeps the page and swaps the id, exactly like the header. */
+function switchWorkspace(id: string): void {
+  workspace.select(id)
+  const name = String(router.currentRoute.value.name ?? '')
+  if (name === 'overview' || name === 'servers' || name === 'logs' || name === 'settings')
+    go(workspacePath(id, name))
+  else if (name === 'server-detail')
+    go(workspacePath(id, 'servers'))
 }
 
 function act(run: () => void): void {
@@ -60,93 +76,130 @@ const STOPPABLE: ServerStatus[] = ['running', 'starting', 'backoff']
 
 const commands = computed<PaletteCommand[]>(() => {
   const out: PaletteCommand[] = []
-  const servers = control.appState.value?.servers ?? []
+  const entries = control.allServers.value
 
-  for (const server of servers) {
+  /** Server routes carry the workspace id, so switch scope and go in one step. */
+  function inWorkspace(workspaceId: string, to: string): void {
+    workspace.select(workspaceId)
+    go(to)
+  }
+  /** The page the palette is open on, for the workspace-scoped "Go to …" entries. */
+  const here = (page: 'overview' | 'servers' | 'logs' | 'settings'): string =>
+    workspacePath(workspace.activeId.value, page)
+
+  for (const { workspace: owner, server } of entries) {
     const label = server.config.label ?? server.id
     const status = STATUS_META[server.status].label
     out.push({
-      id: `open:${server.id}`,
+      id: `open:${owner.id}:${server.id}`,
       title: `Open ${label}`,
       group: 'Servers',
       icon: Server,
-      detail: `${server.id} · ${status}`,
-      keywords: `server detail ${server.id} show`,
-      run: () => go(`/servers/${server.id}`),
+      detail: `${owner.label} · ${server.id} · ${status}`,
+      keywords: `server detail ${server.id} ${owner.label} show`,
+      run: () => inWorkspace(owner.id, workspacePath(owner.id, 'servers', server.id)),
     })
     out.push({
-      id: `logs:${server.id}`,
+      id: `logs:${owner.id}:${server.id}`,
       title: `Logs for ${label}`,
       group: 'Servers',
       icon: Terminal,
-      detail: server.id,
-      keywords: `log tail output ${server.id}`,
-      run: () => go(`/logs?server=${encodeURIComponent(server.id)}`),
+      detail: `${owner.label} · ${server.id}`,
+      keywords: `log tail output ${server.id} ${owner.label}`,
+      run: () => inWorkspace(owner.id, `${workspacePath(owner.id, 'logs')}?server=${encodeURIComponent(server.id)}`),
     })
     if (STARTABLE.includes(server.status) && server.config.enabled) {
       out.push({
-        id: `start:${server.id}`,
+        id: `start:${owner.id}:${server.id}`,
         title: `Start ${label}`,
         group: 'Actions',
         icon: Play,
-        detail: server.id,
-        keywords: `run launch ${server.id}`,
-        run: () => act(() => void control.start(server.id)),
+        detail: `${owner.label} · ${server.id}`,
+        keywords: `run launch ${server.id} ${owner.label}`,
+        run: () => act(() => void control.start(owner.id, server.id)),
       })
     }
     if (STOPPABLE.includes(server.status)) {
       out.push({
-        id: `stop:${server.id}`,
+        id: `stop:${owner.id}:${server.id}`,
         title: `Stop ${label}`,
         group: 'Actions',
         icon: Square,
-        detail: server.id,
-        keywords: `halt kill ${server.id}`,
-        run: () => act(() => void control.stop(server.id)),
+        detail: `${owner.label} · ${server.id}`,
+        keywords: `halt kill ${server.id} ${owner.label}`,
+        run: () => act(() => void control.stop(owner.id, server.id)),
       })
     }
     if (server.config.enabled) {
       out.push({
-        id: `restart:${server.id}`,
+        id: `restart:${owner.id}:${server.id}`,
         title: `Restart ${label}`,
         group: 'Actions',
         icon: RotateCw,
-        detail: server.id,
-        keywords: `bounce reload ${server.id}`,
-        run: () => act(() => void control.restart(server.id)),
+        detail: `${owner.label} · ${server.id}`,
+        keywords: `bounce reload ${server.id} ${owner.label}`,
+        run: () => act(() => void control.restart(owner.id, server.id)),
       })
     }
   }
 
   out.push(
-    { id: 'nav:overview', title: 'Go to Overview', group: 'Navigate', icon: LayoutDashboard, keywords: 'dashboard home', run: () => go('/') },
-    { id: 'nav:servers', title: 'Go to Servers', group: 'Navigate', icon: Server, keywords: 'processes list', run: () => go('/servers') },
-    { id: 'nav:logs', title: 'Go to Logs', group: 'Navigate', icon: ScrollText, keywords: 'output files tail', run: () => go('/logs') },
-    { id: 'nav:settings', title: 'Go to Settings', group: 'Navigate', icon: SlidersHorizontal, keywords: 'config panel', run: () => go('/settings') },
-    { id: 'act:start-all', title: 'Start every enabled server', group: 'Actions', icon: Play, keywords: 'boot all', run: () => act(() => void control.startAll()) },
-    { id: 'act:stop-all', title: 'Stop every server', group: 'Actions', icon: Square, keywords: 'halt all', run: () => act(() => void control.stopAll()) },
+    { id: 'nav:overview', title: 'Go to Overview', group: 'Navigate', icon: LayoutDashboard, keywords: 'dashboard home workspace', run: () => go(here('overview')) },
+    { id: 'nav:global', title: 'Go to Global Overview', group: 'Navigate', icon: Globe, keywords: 'dashboard home host vitals every workspace', run: () => go('/global/overview') },
+    { id: 'nav:global-settings', title: 'Go to Global settings', group: 'Navigate', icon: SlidersHorizontal, keywords: 'panel listener auth tls backups host', run: () => go('/global/settings') },
+    { id: 'nav:servers', title: 'Go to Servers', group: 'Navigate', icon: Server, keywords: 'processes list workspace', run: () => go(here('servers')) },
+    { id: 'nav:logs', title: 'Go to Logs', group: 'Navigate', icon: ScrollText, keywords: 'output files tail workspace', run: () => go(here('logs')) },
+    { id: 'nav:settings', title: 'Go to Workspace settings', group: 'Navigate', icon: Settings2, keywords: 'defaults notifications ddns config workspace', run: () => go(here('settings')) },
+    { id: 'act:start-all', title: 'Start every enabled server here', group: 'Actions', icon: Play, keywords: 'boot all workspace', run: () => act(() => void control.startAll(workspace.activeId.value)) },
+    { id: 'act:stop-all', title: 'Stop every server here', group: 'Actions', icon: Square, keywords: 'halt all workspace', run: () => act(() => void control.stopAll(workspace.activeId.value)) },
   )
 
-  const sections = [
+  for (const owner of workspace.workspaces.value) {
+    out.push({
+      id: `ws:${owner.id}`,
+      title: `Switch to ${owner.label}`,
+      group: 'Workspaces',
+      icon: Layers,
+      detail: owner.id,
+      keywords: `workspace switch scope ${owner.label}`,
+      run: () => act(() => switchWorkspace(owner.id)),
+    })
+  }
+
+  const globalSections = [
     ['listener', 'Listener'],
     ['authentication', 'Authentication'],
-    ['password', 'Password'],
-    ['defaults', 'Server defaults'],
-    ['logs', 'Log storage'],
-    ['notifications', 'Telegram notifications'],
     ['host', 'Host vitals'],
     ['backups', 'Backups'],
     ['tls', 'TLS'],
+    ['interface', 'Interface'],
     ['paths', 'Paths'],
   ] as const
-  for (const [id, label] of sections) {
+  for (const [id, label] of globalSections) {
     out.push({
-      id: `set:${id}`,
-      title: `Setting: ${label}`,
-      group: 'Settings',
-      icon: SlidersHorizontal,
-      keywords: `configure ${id}`,
-      run: () => go(`/settings?section=${id}`),
+      id: `gset:${id}`,
+      title: `Global setting: ${label}`,
+      group: 'Global settings',
+      icon: Globe,
+      keywords: `configure panel ${id}`,
+      run: () => go(`/global/settings?section=${id}`),
+    })
+  }
+
+  const workspaceSections = [
+    ['defaults', 'Server defaults'],
+    ['logs', 'Log storage'],
+    ['notifications', 'Telegram notifications'],
+    ['ddns', 'Dynamic DNS'],
+  ] as const
+  for (const [id, label] of workspaceSections) {
+    out.push({
+      id: `wset:${id}`,
+      title: `Workspace setting: ${label}`,
+      group: 'Workspace settings',
+      icon: Settings2,
+      keywords: `configure workspace ${id}`,
+      run: () => go(`${workspacePath(workspace.activeId.value, 'settings')}?section=${id}`),
     })
   }
 

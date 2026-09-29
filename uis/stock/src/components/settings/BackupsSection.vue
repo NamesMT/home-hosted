@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BackupsConfig, BackupsView } from '@shared/contracts'
+import type { BackupsConfig, BackupsView, WorkspaceView } from '@shared/contracts'
 import type { BackupsForm } from '@/components/settings/settingsForm'
 import { Archive, Download, RotateCcw } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
@@ -26,7 +26,9 @@ import { focusRing } from '@/lib/ui'
 const props = defineProps<{
   state: BackupsView | null
   policy: BackupsConfig | null
+  /** The panel's global settings file; the archive directory is a file-level decision. */
   configPath: string | null
+  workspaces: WorkspaceView[]
   dirty: boolean
 }>()
 
@@ -48,7 +50,15 @@ const restoreOpen = ref(false)
 const restoreSource = ref<{ kind: 'stored', name: string } | null>(null)
 
 const files = computed(() => props.state?.files ?? [])
-const paths = computed(() => props.state?.paths ?? [])
+const entries = computed(() => props.state?.entries ?? [])
+
+const KIND_LABEL: Record<string, string> = {
+  settings: 'settings',
+  servers: 'servers',
+  secrets: 'secrets',
+  tls: 'tls',
+  data: 'data',
+}
 
 const downloadClass = cn(
   'inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-line bg-raise px-2 text-2xs font-medium text-ink',
@@ -93,7 +103,7 @@ async function removeBackup(name: string): Promise<void> {
 
 <template>
   <div class="space-y-3">
-    <FieldGroup title="Policy" description="What a backup captures, and how many archives are kept.">
+    <FieldGroup title="Policy" description="How many archives the panel keeps, and the extra paths every one of them captures.">
       <template #actions>
         <AppButton size="xs" variant="ghost" :disabled="!props.dirty" @click="emit('reset')">
           Reset
@@ -115,7 +125,7 @@ async function removeBackup(name: string): Promise<void> {
       <TextField
         v-model="form.includePaths"
         label="Extra paths"
-        hint="Comma separated, in addition to every entry's data directories."
+        hint="Comma separated, captured in every archive on top of what each workspace declares."
         placeholder="{home}/myapp-data"
       />
       <div v-if="props.policy !== null" class="flex min-w-0 flex-col gap-1 sm:col-span-2">
@@ -125,36 +135,63 @@ async function removeBackup(name: string): Promise<void> {
           <CopyButton :value="props.policy.dir" label="Copy the archive directory" />
         </div>
         <p class="text-2xs leading-4 text-faint">
-          Changing it is a file-level decision: edit <code>{{ props.configPath ?? 'the config file' }}</code>.
+          Changing it is a file-level decision: edit <code>{{ props.configPath ?? 'the settings file' }}</code>.
         </p>
       </div>
     </FieldGroup>
 
-    <FieldGroup title="Declared paths" description="Config, secrets and TLS are captured unless a backup leaves them out. A path already covered by a declared parent is skipped.">
+    <FieldGroup
+      title="What a backup captures"
+      description="Pick these in the create dialog. A workspace can be taken whole or only its settings, servers, secrets and declared data paths."
+    >
       <div v-if="props.state === null" class="space-y-2 sm:col-span-2">
         <Skeleton class="h-4 w-full" />
+        <Skeleton class="h-4 w-2/3" />
       </div>
-      <p v-else-if="paths.length === 0" class="text-xs text-muted sm:col-span-2">
-        No data paths are declared yet. Add <code>dataEnvs</code> or <code>backupPaths</code> to a server to capture its data.
+      <p v-else-if="entries.length === 0" class="text-xs text-muted sm:col-span-2">
+        Nothing is selectable yet.
       </p>
       <ul v-else class="divide-y divide-line-soft sm:col-span-2">
-        <li v-for="entry in paths" :key="`${entry.origin}:${entry.path}`" class="flex items-start justify-between gap-3 py-1.5">
-          <div class="min-w-0">
-            <p class="truncate font-mono text-xs text-ink">
-              {{ entry.path }}
+        <li v-for="entry in entries" :key="entry.id" class="py-2 first:pt-0">
+          <div class="flex items-center gap-2">
+            <p class="min-w-0 flex-1 truncate text-xs font-medium text-ink">
+              {{ entry.label }}
             </p>
-            <p class="mt-0.5 text-2xs leading-4 text-muted">
-              {{ entry.included ? `from ${entry.origin}` : entry.note ?? 'not captured' }}
-              <template v-if="entry.included && entry.ignoreGenerated">
-                · generated directories skipped
-              </template>
-            </p>
+            <ToneBadge tone="neutral" plain>
+              {{ KIND_LABEL[entry.kind] ?? entry.kind }}
+            </ToneBadge>
+            <span v-if="entry.workspaceId" class="font-mono text-2xs text-faint">{{ entry.workspaceId }}</span>
           </div>
-          <ToneBadge :tone="entry.included ? 'ok' : 'neutral'" plain>
-            {{ entry.included ? 'included' : 'skipped' }}
-          </ToneBadge>
+          <p v-if="entry.note" class="mt-0.5 text-2xs leading-4 text-muted">
+            {{ entry.note }}
+          </p>
+          <ul v-if="entry.items.length > 0" class="mt-1 space-y-1">
+            <li
+              v-for="item in entry.items"
+              :key="item.id"
+              class="flex items-start justify-between gap-3 rounded-control bg-panel-2/40 px-2 py-1"
+            >
+              <div class="min-w-0">
+                <p class="truncate font-mono text-2xs text-ink">
+                  {{ item.path ?? item.label }}
+                </p>
+                <p class="mt-0.5 text-2xs leading-4 text-faint">
+                  {{ item.included ? (item.origin ? `from ${item.origin}` : item.note ?? 'included') : item.note ?? 'not captured' }}
+                  <template v-if="item.included && item.ignoreGenerated">
+                    · generated directories skipped
+                  </template>
+                </p>
+              </div>
+              <ToneBadge :tone="item.included ? 'ok' : 'neutral'" plain>
+                {{ item.included ? 'included' : 'skipped' }}
+              </ToneBadge>
+            </li>
+          </ul>
         </li>
       </ul>
+      <p v-if="props.workspaces.length > 1" class="text-2xs leading-4 text-faint sm:col-span-2">
+        This panel serves {{ props.workspaces.length }} workspaces; each is its own selectable entry.
+      </p>
     </FieldGroup>
 
     <FieldGroup title="Archives" description="Stored in the backup directory and downloadable at any time.">
@@ -182,7 +219,7 @@ async function removeBackup(name: string): Promise<void> {
           compact
           title="No archives yet"
           :description="form.enabled
-            ? 'Create one now to capture the config, secrets and every declared data path.'
+            ? 'Create one now to capture the panel and whichever workspaces you pick.'
             : 'Nothing has been archived yet, and backups are off.'"
         >
           <template #icon>

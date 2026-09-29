@@ -2,7 +2,7 @@ import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, dim, fail, green, promptHidden } from '#src/cli/io'
 import { generateApiToken, SecretsStore } from '#src/config/secrets'
-import { defaultSecretsPath } from '#src/helpers/paths'
+import { globalSecretsPath as secretsPath } from '#src/helpers/paths'
 
 /** `set-token` sets the bearer credential scripts and agents use. */
 
@@ -17,7 +17,7 @@ export async function runSetToken(generate: boolean, clear: boolean): Promise<vo
   if (generate && clear)
     fail('use either --generate or --clear, not both')
 
-  const store = new SecretsStore(defaultSecretsPath)
+  const store = new SecretsStore(secretsPath, undefined, 'global')
 
   if (clear) {
     if (!store.apiTokenSet) {
@@ -25,7 +25,7 @@ export async function runSetToken(generate: boolean, clear: boolean): Promise<vo
       return
     }
     store.clearApiToken()
-    process.stdout.write(`${green('API token cleared')} in ${defaultSecretsPath} — it stops working immediately\n`)
+    process.stdout.write(`${green('API token cleared')} in ${secretsPath} — it stops working immediately\n`)
     return
   }
 
@@ -41,7 +41,7 @@ export async function runSetToken(generate: boolean, clear: boolean): Promise<vo
   }
 
   store.setApiToken(token)
-  process.stdout.write(`${green(generate ? 'token generated' : 'token stored')} in ${defaultSecretsPath} (mode 0600)\n`)
+  process.stdout.write(`${green(generate ? 'token generated' : 'token stored')} in ${secretsPath} (mode 0600)\n`)
   if (generate) {
     process.stdout.write(`  ${bold(token)}\n`)
     process.stdout.write(`${dim('  shown once — only its SHA-256 is kept on disk, so copy it now')}\n`)

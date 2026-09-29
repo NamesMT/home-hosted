@@ -162,3 +162,94 @@ describe('ddns credentials from an older file', () => {
     expect(new SecretsStore(file, 'different').passwordSet).toBe(true)
   })
 })
+
+/**
+ * The two scopes are the split the layout migration makes: the password hash and
+ * the API token hash are panel-wide; the Telegram bot token and DDNS credentials
+ * belong to exactly one workspace. A scoped store neither reads nor writes the
+ * other half, so a workspace file can never carry the panel's password.
+ */
+describe('secret scopes', () => {
+  it('a global store never persists the workspace half', async () => {
+    const file = await tempFile()
+    const store = new SecretsStore(file, 's', 'global')
+
+    store.setPassword('a-password')
+    store.setApiToken('hh_a-token')
+    store.setTelegramToken('bot-token')
+    store.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
+
+    // The panel-wide secrets are there…
+    expect(store.passwordSet).toBe(true)
+    expect(store.apiTokenSet).toBe(true)
+    // …and the workspace half was dropped, even from the write.
+    expect(store.telegramToken).toBeNull()
+    expect(store.ddnsAccountIds).toEqual([])
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('bot-token')
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('cf-token-value')
+    expect(read(file).telegram).toBeNull()
+    expect(read(file).ddns).toEqual({})
+    expect(read(file).ddnsKdf).toBeNull()
+  })
+
+  it('a workspace store never persists the global half', async () => {
+    const file = await tempFile()
+    const store = new SecretsStore(file, 's', 'workspace')
+
+    store.setTelegramToken('bot-token')
+    store.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
+    store.setPassword('a-password')
+    store.setApiToken('hh_a-token')
+
+    // The workspace's own secrets are there…
+    expect(store.telegramToken).toBe('bot-token')
+    expect(store.getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'cf-token-value' })
+    // …and the panel-wide half was dropped, never written into the workspace file.
+    expect(store.passwordSet).toBe(false)
+    expect(store.apiTokenSet).toBe(false)
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('a-password')
+    expect(read(file).password).toBeNull()
+    expect(read(file).apiToken).toBeNull()
+  })
+
+  it('a scoped store reads only its own half of a file that carries both', async () => {
+    const file = await tempFile()
+    const both = new SecretsStore(file, 's', 'all')
+    both.setPassword('a-password')
+    both.setApiToken('hh_a-token')
+    both.setTelegramToken('bot-token')
+    both.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
+
+    const global = new SecretsStore(file, 's', 'global')
+    expect(global.passwordSet).toBe(true)
+    expect(global.apiTokenSet).toBe(true)
+    expect(global.telegramToken).toBeNull()
+    expect(global.ddnsAccountIds).toEqual([])
+
+    const workspace = new SecretsStore(file, 's', 'workspace')
+    expect(workspace.telegramToken).toBe('bot-token')
+    expect(workspace.getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'cf-token-value' })
+    expect(workspace.passwordSet).toBe(false)
+    expect(workspace.apiTokenSet).toBe(false)
+  })
+
+  it('a global store leaves the all-scope file it reads intact on a write', async () => {
+    const file = await tempFile()
+    // A backup archive carries the all-in-one shape; a global store opening it must
+    // still be able to read the password without the workspace half leaking back in.
+    fs.writeFileSync(file, JSON.stringify({
+      version: 3,
+      password: null,
+      apiToken: null,
+      telegram: { botToken: 'bot-token' },
+      ddns: { cf: { provider: 'cloudflare', values: { apiToken: 'cf-token-value' } } },
+    }, null, 2))
+
+    const global = new SecretsStore(file, 's', 'global')
+    global.setPassword('a-password')
+
+    // The workspace half is not echoed back through a global write.
+    expect(read(file).telegram ?? null).toBeNull()
+    expect(read(file).ddns ?? {}).toEqual({})
+  })
+})

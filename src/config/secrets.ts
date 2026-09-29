@@ -64,6 +64,15 @@ interface DdnsKdfMeta {
   salt: string
 }
 
+/**
+ * Which halves of the file a store owns. Global secrets (the password hash and
+ * the API token) live above the workspaces, in `.hh/.control-secrets.json`;
+ * workspace secrets (the Telegram bot token and DDNS credentials) live in that
+ * workspace's own `.secrets.json`. `all` is the shape the pre-workspace file had
+ * and is still what a backup archive may carry.
+ */
+export type SecretsScope = 'all' | 'global' | 'workspace'
+
 interface SecretsFile {
   version: 3
   password: PasswordRecord | null
@@ -263,7 +272,7 @@ export class SecretsStore {
   private readonly warnedAccounts = new Set<string>()
   private readonly ddnsSecret: string
 
-  constructor(private readonly file: string, ddnsSecret?: string) {
+  constructor(private readonly file: string, ddnsSecret?: string, private readonly scope: SecretsScope = 'all') {
     const candidate = (ddnsSecret ?? process.env.HHOSTED_DDNS_SECRET ?? '').trim()
     this.ddnsSecret = candidate.length > 0 ? candidate : DEFAULT_DDNS_SECRET
   }
@@ -451,11 +460,12 @@ export class SecretsStore {
   }
 
   private read(): SecretsFile {
+    const empty: SecretsFile = { version: 3, password: null, apiToken: null, telegram: null, ddns: {}, ddnsKdf: null }
     if (!fs.existsSync(this.file))
-      return { version: 3, password: null, apiToken: null, telegram: null, ddns: {}, ddnsKdf: null }
+      return this.inScope(empty)
     try {
       const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<SecretsFile>
-      return {
+      return this.inScope({
         version: 3,
         // A version-2 file simply has no token, so it reads as "none set".
         password: parsed?.password ?? null,
@@ -463,16 +473,25 @@ export class SecretsStore {
         telegram: parsed?.telegram?.botToken ? { botToken: parsed.telegram.botToken } : null,
         ddns: readStoredDdns(parsed?.ddns),
         ddnsKdf: readDdnsKdf((parsed as { ddnsKdf?: unknown })?.ddnsKdf),
-      }
+      })
     }
     catch {
       // A corrupt secrets file must not silently authenticate anyone.
-      return { version: 3, password: null, apiToken: null, telegram: null, ddns: {}, ddnsKdf: null }
+      return this.inScope(empty)
     }
   }
 
+  /** Everything a store does not own is neither read from nor written to its file. */
+  private inScope(contents: SecretsFile): SecretsFile {
+    if (this.scope === 'global')
+      return { ...contents, telegram: null, ddns: {}, ddnsKdf: null }
+    if (this.scope === 'workspace')
+      return { ...contents, password: null, apiToken: null }
+    return contents
+  }
+
   private save(contents: SecretsFile): void {
-    const sealed = this.sealStored(contents)
+    const sealed = this.sealStored(this.inScope(contents))
     writeFileAtomic(this.file, `${JSON.stringify(sealed, null, 2)}\n`, { mode: 0o600 })
     this.cache = sealed
   }

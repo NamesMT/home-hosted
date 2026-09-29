@@ -128,7 +128,8 @@ function localCall(runtime: Runtime, path: string, method: 'GET' | 'POST', token
     const request = (secure ? https : http).request({
       hostname: url.hostname,
       port: url.port,
-      path: url.pathname,
+      // The query travels too: a workspace-scoped local call names its workspace there.
+      path: `${url.pathname}${url.search}`,
       method,
       // Only ever pointed at our own listener on this machine.
       ...(secure ? { rejectUnauthorized: false } : {}),

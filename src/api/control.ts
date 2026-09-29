@@ -6,6 +6,8 @@ import { statusForAction } from '#src/helpers/action-result'
 import { afterResponse } from '#src/helpers/deferred'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
+import { validate } from '#src/helpers/validator'
+import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 
 /**
@@ -50,9 +52,11 @@ export function createControlRoute(deps: AppDeps) {
         summary: 'Start one server, without a session (local token required)',
         responses: { 200: { description: 'Started' }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
       }),
+      validate('query', workspaceQuerySchema),
       async (c) => {
         assertLocalCall(c, 'start or stop a server')
-        const result = await deps.supervisor.start(c.req.param('id'))
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.start(c.req.param('id'))
         return c.json(result, statusForAction(result))
       },
     )
@@ -64,9 +68,11 @@ export function createControlRoute(deps: AppDeps) {
         summary: 'Stop one server, without a session (local token required)',
         responses: { 200: { description: 'Stopped' }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
       }),
+      validate('query', workspaceQuerySchema),
       async (c) => {
         assertLocalCall(c, 'start or stop a server')
-        const result = await deps.supervisor.stop(c.req.param('id'))
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.stop(c.req.param('id'))
         return c.json(result, statusForAction(result))
       },
     )
