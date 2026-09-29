@@ -1,6 +1,25 @@
 # Changelog
 
 
+## v0.7.0
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.8...v0.7.0)
+
+### 🚀 Enhancements
+
+- **workspaces:** ⚠️  State, settings and servers per workspace ([edb5962](https://github.com/NamesMT/home-hosted/commit/edb5962))
+- **ui:** ⚠️  Global-first navigation and root opens Global Overview ([c62bf33](https://github.com/NamesMT/home-hosted/commit/c62bf33))
+- **noc-console:** Full workspace support ([ddd6144](https://github.com/NamesMT/home-hosted/commit/ddd6144))
+
+#### ⚠️ Breaking Changes
+
+- **workspaces:** ⚠️  State, settings and servers per workspace ([edb5962](https://github.com/NamesMT/home-hosted/commit/edb5962))
+- **ui:** ⚠️  Global-first navigation and root opens Global Overview ([c62bf33](https://github.com/NamesMT/home-hosted/commit/c62bf33))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.6.8
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.7...v0.6.8)
