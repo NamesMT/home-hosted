@@ -605,9 +605,10 @@ scripts/        builds, typechecks, media capture, release helpers
 test/           the vitest suite
 ```
 
-`pnpm dev` runs the panel with `tsx watch` plus the stock UI's dev server (state goes to
-`.dev-state/`); `pnpm build` produces `dist/` and `uis/stock/dist/`; `pnpm quickcheck` is lint plus
-types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
+`pnpm dev` runs the panel with `tsx watch` plus one UI's dev server on the 6xxx range — panel `6000`,
+UI `6001` (`pnpm dev --ui noc-console`), state in `.dev-state/` — so a dev instance never fights an
+installed panel's 3999. `pnpm build` produces `dist/` and `uis/stock/dist/`; `pnpm quickcheck` is lint
+plus types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 
 <details>
 <summary><b>📚 Which doc do I need?</b></summary>

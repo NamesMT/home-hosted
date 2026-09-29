@@ -235,8 +235,10 @@ cd dist && zip -r ../my-panel.zip . && cd ..
 
 Your client needs the session cookie, which the browser sends automatically once you log in on that
 origin (a non-browser client uses an API token instead, above). For local development `pnpm dev` runs
-the panel on 3999 and a Vite dev server on 3998 with `/api` proxied — point your own dev server at
-`http://127.0.0.1:3999` the same way.
+the panel on `6000` and a Vite dev server on `6001` with `/api` proxied — point your own dev server at
+`http://127.0.0.1:6000` the same way. Both stay in the 6xxx range so a dev instance never collides
+with an installed panel on the default 3999; override with `--port`/`--ui-port` or
+`HHOSTED_DEV_PANEL_PORT`/`HHOSTED_DEV_UI_PORT`.
 
 ## Checklist
 

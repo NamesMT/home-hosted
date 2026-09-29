@@ -21,7 +21,8 @@ seed entry, or a path that names one.
 ```sh
 pnpm run up|down|restart|status    # detached; `down` asks /_hh/shutdown, signals are the fallback
 pnpm run start                     # up --foreground (systemd, docker, a foreground shell)
-pnpm dev                           # tsx-watch panel :3999 + the stock UI's Vite :3998 (proxies /api)
+pnpm dev                           # tsx-watch panel :6000 + the stock UI's Vite :6001 (proxies /api), state in .dev-state/
+pnpm dev --ui noc-console          # the same, for another UI; --port/--ui-port override
 pnpm run build                     # dist/cli.js + the stock UI (uis/stock/dist)
 pnpm run build:uis                 # every UI under uis/, zipped into uis/dist/ (release assets)
 pnpm run quickcheck                # eslint + tsc + vue-tsc for every UI under uis/
@@ -35,6 +36,12 @@ pnpm run media                     # regenerate docs/media (mockups, both served
 ```
 
 The published bin is `home-hosted`, with an `hh` alias: both names run the same CLI.
+
+**Dev servers and test instances stay in the 6xxx range** — panel 6000, UI 6001, test-spawned panels
+6100+ (`pnpm dev` takes `--ui`/`--port`/`--ui-port`, or `HHOSTED_DEV_PANEL_PORT` /
+`HHOSTED_DEV_UI_PORT`). Never assume 3999 is free: an installed panel or another dev instance may hold
+it, and the CLI's port preflight runs *before* its config guard, so a busy default port turns config
+tests red for the wrong reason.
 
 Releases are dispatched from `.github/workflows/release.yml` with a version (and a `dry-run` switch
 that stops before pushing). It verifies the version, lints/types/tests, builds the CLI plus the stock

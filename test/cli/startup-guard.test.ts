@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -14,6 +15,10 @@ import { afterAll, afterEach, describe, expect, it } from 'vitest'
  *
  * The guard runs before the listener binds and before `run.json` is written, so
  * these tests assert both: the exit and the absence of the daemon's identity file.
+ *
+ * Every case seeds a free 6xxx control port. The port preflight runs before the
+ * config guard, so relying on the shipped 3999 default would make these tests fail
+ * whenever a dev or installed panel already holds it — for the wrong reason.
  */
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
@@ -45,12 +50,41 @@ function seedWorkspace(home: string, id = 'default'): { workspace: string, hh: s
   return { workspace, hh }
 }
 
+/** A free port in the dev range, so a panel on 3999 (installed or dev) cannot interfere. */
+function freeDevPort(from = 6100, to = 6199): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const attempt = (port: number): void => {
+      if (port > to) {
+        reject(new Error(`no free port in ${from}-${to}`))
+        return
+      }
+      const probe = net.createServer()
+      probe.once('error', () => attempt(port + 1))
+      probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(port)))
+    }
+    attempt(from)
+  })
+}
+
+/** Gives the home a control port of its own unless the case wrote its own settings. */
+async function seedControlPort(home: string): Promise<void> {
+  const file = path.join(home, '.hh', 'settings.json')
+  if (fs.existsSync(file))
+    return
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, `${JSON.stringify({
+    meta: { writtenBy: 'test', schema: 1 },
+    control: { port: await freeDevPort() },
+  }, null, 2)}\n`)
+}
+
 /**
  * Runs `up --foreground` and resolves what it printed. The guard must exit on its
  * own; if it does not, the child would stay alive as a panel, so the timeout kills
  * it and the case fails on the missing output rather than hanging the suite.
  */
-function runUp(home: string, timeoutMs = 6000): Promise<{ status: number | null, stdout: string, stderr: string }> {
+async function runUp(home: string, timeoutMs = 6000): Promise<{ status: number | null, stdout: string, stderr: string }> {
+  await seedControlPort(home)
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'up', '--foreground', '--no-autostart'], {
       cwd: root,
