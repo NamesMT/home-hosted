@@ -82,6 +82,28 @@ const connectionMeta = computed(() => ({
     </div>
 
     <nav class="flex flex-col gap-3" aria-label="Navigation">
+      <div class="flex flex-col gap-0.5">
+        <p class="flex items-center gap-1 px-2.5 pb-1 text-2xs font-medium text-faint">
+          <Globe class="size-3" />
+          Global
+        </p>
+        <RouterLink
+          v-for="item in globalItems"
+          :key="item.to"
+          :to="item.to"
+          :class="cn(
+            'group flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm transition-colors duration-150',
+            isActive(item)
+              ? 'bg-accent-soft font-medium text-accent'
+              : 'text-muted hover:bg-hover hover:text-ink',
+          )"
+          @click="emit('navigate')"
+        >
+          <component :is="item.icon" class="size-4 shrink-0" :stroke-width="isActive(item) ? 2.1 : 1.8" />
+          {{ item.label }}
+        </RouterLink>
+      </div>
+
       <div class="flex min-h-0 flex-col gap-0.5">
         <p class="truncate px-2.5 pb-1 text-2xs font-medium text-faint">
           Workspace · <span class="text-muted">{{ props.workspaceLabel }}</span>
@@ -105,28 +127,6 @@ const connectionMeta = computed(() => ({
             class="ml-auto font-mono text-2xs tabular-nums"
             :class="isActive(item) ? 'text-accent' : 'text-faint'"
           >{{ props.running }}/{{ props.total }}</span>
-        </RouterLink>
-      </div>
-
-      <div class="flex flex-col gap-0.5">
-        <p class="flex items-center gap-1 px-2.5 pb-1 text-2xs font-medium text-faint">
-          <Globe class="size-3" />
-          Global
-        </p>
-        <RouterLink
-          v-for="item in globalItems"
-          :key="item.to"
-          :to="item.to"
-          :class="cn(
-            'group flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm transition-colors duration-150',
-            isActive(item)
-              ? 'bg-accent-soft font-medium text-accent'
-              : 'text-muted hover:bg-hover hover:text-ink',
-          )"
-          @click="emit('navigate')"
-        >
-          <component :is="item.icon" class="size-4 shrink-0" :stroke-width="isActive(item) ? 2.1 : 1.8" />
-          {{ item.label }}
         </RouterLink>
       </div>
     </nav>

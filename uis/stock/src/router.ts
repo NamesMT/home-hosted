@@ -56,6 +56,7 @@ export function workspacePath(workspaceId: string, page: 'overview' | 'servers' 
  * The workspace is part of the URL, so a page can be bookmarked and shared. A
  * request without one (or with an id that no longer exists) is rewritten to the
  * canonical `/w/<id>/…` URL rather than silently rendered from a stored value.
+ * The bare root is the panel-wide view, not a workspace.
  */
 router.beforeEach(async (to) => {
   const { session, refresh } = useSession()
@@ -78,6 +79,9 @@ router.beforeEach(async (to) => {
     return { name: 'global-overview', query: to.query, replace: true }
   if (to.name === 'legacy-global-settings')
     return { name: 'global-settings', query: to.query, replace: true }
+  // `/` and anything unrecognized open the panel-wide overview.
+  if (to.name === 'home' || to.name === 'not-found')
+    return { name: 'global-overview', replace: true }
 
   // The frame decides which ids exist, so a deep link waits for it once.
   const control = useControlPlane()

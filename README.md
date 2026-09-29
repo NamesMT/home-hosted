@@ -294,7 +294,8 @@ relocated into one automatically.
 | **Global settings** | `/global/settings` | Listener, Authentication, Host vitals, Backups, TLS, Interface, Paths |
 
 Every page is bookmarked by its own URL: the workspace id is part of it, so a link opens the same
-workspace even in a browser that never selected it.
+workspace even in a browser that never selected it. `/` opens **Global Overview**. The sidebar lists
+the panel-wide pages first, then the selected workspace's.
 
 <details>
 <summary><b>🗂 What lives where</b></summary>

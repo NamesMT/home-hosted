@@ -46,19 +46,21 @@ function versionLine(wrapper: Awaited<ReturnType<typeof mountNav>>): string {
   return wrapper.get('p[title]').text()
 }
 
-/** The active entry is the one wearing the accent fill (`isActive` in SideNav). */
-function isActive(wrapper: Awaited<ReturnType<typeof mountNav>>, label: string): boolean {
-  const link = wrapper.findAll('a').find(node => node.text().includes(label))
+/** The link whose own label starts with `label` — not "Global Overview" for "Overview". */
+function linkFor(wrapper: Awaited<ReturnType<typeof mountNav>>, label: string) {
+  const link = wrapper.findAll('a').find(node => node.text().replace(/\s+/g, ' ').trim().startsWith(label))
   if (!link)
     throw new Error(`no nav link for ${label}`)
-  return link.classes().includes('bg-accent-soft')
+  return link
+}
+
+/** The active entry is the one wearing the accent fill (`isActive` in SideNav). */
+function isActive(wrapper: Awaited<ReturnType<typeof mountNav>>, label: string): boolean {
+  return linkFor(wrapper, label).classes().includes('bg-accent-soft')
 }
 
 function hrefOf(wrapper: Awaited<ReturnType<typeof mountNav>>, label: string): string {
-  const link = wrapper.findAll('a').find(node => node.text().includes(label))
-  if (!link)
-    throw new Error(`no nav link for ${label}`)
-  return link.attributes('href') ?? ''
+  return linkFor(wrapper, label).attributes('href') ?? ''
 }
 
 describe('side nav', () => {
@@ -83,6 +85,16 @@ describe('side nav', () => {
 
     // The Servers entry carries the running/total badge.
     expect(wrapper.findAll('a').find(node => node.text().includes('Servers'))!.text()).toContain('1/2')
+  })
+
+  it('lists the panel-wide pages above the workspace ones', async () => {
+    const labels = (await mountNav('0.6.5')).findAll('a').map(node => node.text().replace(/\s+/g, ' ').trim())
+
+    const globalOverview = labels.findIndex(text => text.startsWith('Global Overview'))
+    const workspaceOverview = labels.findIndex(text => text.startsWith('Overview'))
+
+    expect(globalOverview).toBeGreaterThanOrEqual(0)
+    expect(workspaceOverview).toBeGreaterThan(globalOverview)
   })
 
   it('puts the workspace id in every workspace-scoped link', async () => {
