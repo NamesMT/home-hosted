@@ -503,10 +503,7 @@ Two ship in this repo: `uis/stock`, and `uis/noc-console` for TUI and shortcuts 
 attaches both as `home-hosted-ui-<name>.zip`. Yours can be anything that compiles to static files —
 the server never cares what built it.
 
-<sub>Install a UI from the CLI: `home-hosted ui-switch` — with no flags it fetches the official asset
-built for this release. An **official** UI keeps itself paired with the panel: upgrade the panel and
-the next `up` re-installs the matching asset. Someone else's UI declares its own `repo`/`asset` in
-`ui.json`, and `home-hosted ui-update` offers its newer releases to pick from — `--old` for older ones.</sub>
+<sub>Install a UI from the CLI: `home-hosted ui-switch` `--asset noc-console` selects an UI directly, no flags interactively show official assets. Official UIs's version auto-sync when you update `home-hosted`. For unofficial UIs, `home-hosted ui-update` offers its newer releases to pick from — or `--old` for older (author must set up `ui.json` and GH releases).</sub>
 
 <details>
 <summary><b>🤖 Or have an agent build the UI you actually want</b></summary>
@@ -635,7 +632,7 @@ plus types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 <details>
 <summary><b>🔗 Interesting resources</b></summary>
 
-- [dsh-home-hosted](https://github.com/NamesMT/dsh-home-hosted) — home-hosted servers management with boot autostart from [DeepSeek Harness](https://github.com/deepseek-ai/dsh)
+- [dsh-home-hosted](https://github.com/NamesMT/dsh-home-hosted) — home-hosted servers management with boot autostart from inside [DeepSeek Harness](https://github.com/deepseek-ai/dsh)
 
 <sub><i>+ PR to add yours</i></sub>
 
