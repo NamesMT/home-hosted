@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.7.1
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.0...v0.7.1)
+
+### 🩹 Fixes
+
+- **cli:** Bind the port `--port` asked for ([63f1921](https://github.com/NamesMT/home-hosted/commit/63f1921))
+
+### 🏡 Chore
+
+- **dev:** Keep dev servers and test panels in the 6xxx range ([930f1bf](https://github.com/NamesMT/home-hosted/commit/930f1bf))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.6.8...v0.7.0)
