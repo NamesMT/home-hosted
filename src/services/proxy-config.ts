@@ -82,10 +82,22 @@ function noticePage(host: string, httpPort: number, httpsPort: number): string {
 
 /**
  * The same match, minus the ACME challenge path: the CA has to be able to read it on
- * the cleartext port, so nothing this panel generates may answer for it.
+ * the cleartext port, so nothing this panel generates may answer for it. HTTP-01 is
+ * always asked at the root of the host (RFC 8555 §8.3), which is why one pattern is
+ * enough.
  */
 function matchForWithoutChallenge(route: ProxyUpstreamRoute): Record<string, unknown> {
   return { ...matchFor(route), not: [{ path: ['/.well-known/acme-challenge/*'] }] }
+}
+
+/**
+ * The whole host, for a name whose certificate is not there yet. The prefix is dropped
+ * on purpose: readiness is a property of the hostname, so a visitor who lands outside
+ * the route's prefix must get the page too, not a redirect into a handshake that
+ * cannot finish.
+ */
+function noticeMatcher(route: ProxyUpstreamRoute): Record<string, unknown> {
+  return { host: [route.host], not: [{ path: ['/.well-known/acme-challenge/*'] }] }
 }
 
 function matchFor(route: ProxyUpstreamRoute): Record<string, unknown> {
@@ -139,25 +151,25 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
       routes: [
         ...plain.map(route => ({ match: [matchFor(route)], handle: [proxyHandler(route)], terminal: true })),
         // A name whose certificate is not there yet gets the reason as a page rather
-        // than a redirect into a handshake that cannot finish.
-        ...managed.map(route => route.certificateReady
-          ? {
-              match: [matchForWithoutChallenge(route)],
-              handle: [{
-                handler: 'static_response',
-                status_code: 308,
-                headers: { Location: [`https://{http.request.host}${suffix}{http.request.uri}`] },
-              }],
-            }
-          : {
-              match: [matchForWithoutChallenge(route)],
-              handle: [{
-                handler: 'static_response',
-                status_code: 503,
-                headers: { 'content-type': ['text/html; charset=utf-8'] },
-                body: noticePage(route.host, config.httpPort, config.httpsPort),
-              }],
-            }),
+        // than a redirect into a handshake that cannot finish — once per host, since
+        // that is what the certificate belongs to.
+        ...managed.filter(route => route.certificateReady).map(route => ({
+          match: [matchForWithoutChallenge(route)],
+          handle: [{
+            handler: 'static_response',
+            status_code: 308,
+            headers: { Location: [`https://{http.request.host}${suffix}{http.request.uri}`] },
+          }],
+        })),
+        ...[...new Set(managed.filter(route => !route.certificateReady).map(route => route.host))].map(host => ({
+          match: [noticeMatcher({ host } as ProxyUpstreamRoute)],
+          handle: [{
+            handler: 'static_response',
+            status_code: 503,
+            headers: { 'content-type': ['text/html; charset=utf-8'] },
+            body: noticePage(host, config.httpPort, config.httpsPort),
+          }],
+        })),
       ],
     }
   }

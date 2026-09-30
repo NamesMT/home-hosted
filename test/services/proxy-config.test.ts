@@ -211,6 +211,53 @@ describe('renderCaddyConfig', () => {
     expect(httpRoutes[0].handle[0].headers.Location).toBeUndefined()
   })
 
+  it('covers the whole host with the notice, prefix or not', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com', httpPort: 4480, httpsPort: 4443 }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com', 'other.example.com'] },
+      routes: [
+        // Not ready, with a prefix: the notice must still answer the whole host.
+        { host: 'git.example.com', path: '/app', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto', certificateReady: false },
+        // Ready, with a prefix: the redirect keeps its prefix.
+        { host: 'other.example.com', path: '/api', dial: '127.0.0.1:3001', upstreamTls: false, tls: 'auto', certificateReady: true },
+      ],
+    })
+
+    const httpRoutes = (rendered.apps as any).http.servers.http.routes
+    expect(httpRoutes).toHaveLength(2)
+    // The ready one redirects only inside its prefix…
+    expect(httpRoutes[0].match[0]).toEqual({
+      host: ['other.example.com'],
+      path: ['/api', '/api/*'],
+      not: [{ path: ['/.well-known/acme-challenge/*'] }],
+    })
+    expect(httpRoutes[0].handle[0].status_code).toBe(308)
+    // …while the notice answers the host, whatever the path.
+    expect(httpRoutes[1].match[0]).toEqual({
+      host: ['git.example.com'],
+      not: [{ path: ['/.well-known/acme-challenge/*'] }],
+    })
+    expect(httpRoutes[1].handle[0].status_code).toBe(503)
+  })
+
+  it('emits one notice per host, not one per route', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com' }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
+      routes: [
+        { host: 'git.example.com', path: '/app', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto', certificateReady: false },
+        { host: 'git.example.com', path: '/other', dial: '127.0.0.1:3001', upstreamTls: false, tls: 'auto', certificateReady: false },
+      ],
+    })
+    expect((rendered.apps as any).http.servers.http.routes).toHaveLength(1)
+  })
+
   it('sends a staging account to the staging directory, and only there', () => {
     const rendered = render({
       config: config({ email: '', staging: true }),
