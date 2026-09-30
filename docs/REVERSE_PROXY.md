@@ -112,8 +112,9 @@ route still serves it — so the two can never disagree.
 Certificates are read, never edited: the panel reports each pair's subject, issuer,
 expiry and the hostnames it covers (from its SANs, wildcards included), and marks a pair
 no route would be served from. An expired pair is never served — the route that asks for
-it is refused with the reason. The store is re-read at most every 15 seconds, so a pair
-changed outside the panel is reported for a moment before the next read.
+it is refused with the reason. An uploaded pair is re-read as soon as its file changes,
+so editing or replacing one outside the panel is picked up on the next look; the engine's
+own certificate store (the issued certificates) is read at most every 15 seconds.
 
 Certificates are managed by the engine, inside `.hh/.proxy/engine/`, and nothing else on
 the machine is touched: the generated configuration pins its storage root, and the

@@ -325,6 +325,62 @@ describe('proxyService', () => {
     expect(service.certificateViews().map(entry => [entry.id, entry.used])).toEqual([['good', true], ['old', false]])
   })
 
+  it('reflects a route edit in `used` at once, not after the cache turns over', async () => {
+    if (!openssl)
+      return
+    const { service, settings, options } = await harness()
+    writePair(options.tlsDir, 'wild', makePair('*.example.com'))
+    writePair(options.tlsDir, 'exact', makePair('special.example.com'))
+    settings.updateProxy({ certificates: [{ id: 'wild', label: 'Wild' }, { id: 'exact', label: 'Exact' }] })
+    // Nothing routes through them yet.
+    expect(service.certificateViews().map(entry => entry.used)).toEqual([false, false])
+
+    settings.updateProxy({
+      routes: [
+        { id: 'a', host: 'a.example.com', target: 'external', url: 'http://10.0.0.5:1', tls: 'manual' },
+        { id: 's', host: 'special.example.com', target: 'external', url: 'http://10.0.0.5:1', tls: 'manual' },
+      ],
+    })
+    // The wildcard serves the plain subdomain, the exact pair the specific name.
+    expect(service.certificateViews().map(entry => [entry.id, entry.used])).toEqual([['wild', true], ['exact', true]])
+  })
+
+  it('marks only one of two identical pairs as the one being served', async () => {
+    if (!openssl)
+      return
+    const { service, settings, options } = await harness()
+    writePair(options.tlsDir, 'wild', makePair('*.example.com'))
+    writePair(options.tlsDir, 'exact', makePair('special.example.com'))
+    writePair(options.tlsDir, 'copy', makePair('special.example.com'))
+    settings.updateProxy({
+      certificates: [{ id: 'wild', label: 'Wild' }, { id: 'exact', label: 'Exact' }, { id: 'copy', label: 'Copy' }],
+      routes: [{ id: 's', host: 'special.example.com', target: 'external', url: 'http://10.0.0.5:1', tls: 'manual' }],
+    })
+
+    expect(service.certificateViews().map(entry => [entry.id, entry.used])).toEqual([
+      ['wild', false],
+      ['exact', true],
+      ['copy', false],
+    ])
+  })
+
+  it('notices a stored pair that was replaced by an expired one', async () => {
+    if (!openssl)
+      return
+    const { service, settings, options } = await harness()
+    writePair(options.tlsDir, 'p', makePair('p.example.com'))
+    settings.updateProxy({
+      certificates: [{ id: 'p', label: 'P' }],
+      routes: [{ id: 'r', host: 'p.example.com', target: 'external', url: 'http://10.0.0.5:1', tls: 'manual' }],
+    })
+    expect(service.routeViews()[0]?.status).toBe('ok')
+
+    // Same id, same name, now expired — the kind of change nothing but the file says.
+    writePair(options.tlsDir, 'p', makePair('p.example.com', true))
+    expect(service.certificateViews()[0]?.error).toContain('expired')
+    expect(service.routeViews()[0]?.status).toBe('error')
+  })
+
   it('refuses a pair that is not a certificate, and stores none', async () => {
     const { service, settings } = await harness()
     // The same validator the panel's own TLS uses, so a bad pair never reaches disk.

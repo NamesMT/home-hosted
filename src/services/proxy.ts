@@ -166,7 +166,7 @@ export class ProxyService {
   private nanny: ChildProcess | null = null
   private admin: ProxyAdminTransport | null = null
   private lastError: string | null = null
-  private certCache: { at: number, days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, views: ProxyCertificateView[] } | null = null
+  private certCache: { at: number, key: string, days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, views: ProxyCertificateView[] } | null = null
   /** The certificate state the last apply was built from, so a change re-applies once. */
   private certificateSignature: string | null = null
 
@@ -236,9 +236,37 @@ export class ProxyService {
     return this.certSnapshot().views
   }
 
+  /**
+   * What the certificate snapshot depends on: the config it resolves against, and the
+   * uploaded pair files themselves. Keying on both means a route edit, an upload, or a
+   * pair that expired (or was replaced) on disk is reflected on the next read, while a
+   * steady state still costs one read per 15 seconds.
+   */
+  private certKey(): string {
+    const config = [
+      ...this.config.certificates.map(entry => `${entry.id}:${entry.label}`),
+      ...this.config.routes.map(route => `${route.id}:${route.host}:${route.tls}:${route.enabled}`),
+    ].join('|')
+    const files = this.config.certificates.map((entry) => {
+      const store = this.pairStore(entry.id)
+      const stamp = (file: string): string => {
+        try {
+          const stats = fs.statSync(file)
+          return `${stats.mtimeMs}:${stats.size}`
+        }
+        catch {
+          return 'x'
+        }
+      }
+      return `${entry.id}:${stamp(store.certPath)}:${stamp(store.keyPath)}`
+    }).join('|')
+    return `${config}#${files}`
+  }
+
   /** The certificate store read once, so a per-second tick costs nothing. */
-  private certSnapshot(): { days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, views: ProxyCertificateView[] } {
-    if (this.certCache !== null && Date.now() - this.certCache.at < 15_000)
+  private certSnapshot(): { at: number, key: string, days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, views: ProxyCertificateView[] } {
+    const key = this.certKey()
+    if (this.certCache !== null && this.certCache.key === key && Date.now() - this.certCache.at < 15_000)
       return this.certCache
     const views = this.readCertificateViews()
     const issued = this.readIssuedCertificates()
@@ -246,6 +274,7 @@ export class ProxyService {
     const soonest = values.length === 0 ? null : Math.min(...values.map(entry => entry.notAfter))
     this.certCache = {
       at: Date.now(),
+      key,
       days: soonest === null ? null : Math.floor((soonest - Date.now()) / 86_400_000),
       issued,
       views,
@@ -727,7 +756,8 @@ export class ProxyService {
       // `manual` means the uploaded pair and nothing else: without one the engine
       // would quietly obtain its own certificate for a name the user marked manual.
       if (route.tls === 'manual' && !this.manualCovers(route.host)) {
-        return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" serves an uploaded certificate, but none of them covers ${route.host}` }
+        const reason = this.certificateFor(route).message ?? `no uploaded certificate covers ${route.host}`
+        return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" ${reason}` }
       }
 
       if (route.target === 'external') {
