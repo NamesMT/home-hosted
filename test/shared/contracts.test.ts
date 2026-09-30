@@ -19,6 +19,12 @@ import {
   passwordSchema,
   passwordValueSchema,
   portSchema,
+  proxyConfigSchema,
+  proxyEngineStatusSchema,
+  proxyPatchSchema,
+  proxyRouteSchema,
+  proxyStatusSchema,
+  proxyViewSchema,
   restartSchema,
   serverCreateSchema,
   serverPatchSchema,
@@ -423,5 +429,63 @@ describe('dynamic DNS schema', () => {
     // DDNS moved into the workspace subtree, and stays optional there.
     expect('ddns' in properties(workspaceViewSchema)).toBe(true)
     expect('ddns' in properties(appStateSchema)).toBe(false)
+  })
+})
+
+describe('reverse proxy schema', () => {
+  const ok = (schema: (input: unknown) => unknown, input: unknown): boolean => !(schema(input) instanceof type.errors)
+
+  it('is off with no engine installed and nothing routed', () => {
+    const parsed = unwrap(proxyConfigSchema({}))
+    expect(parsed).toMatchObject({ enabled: false, engine: 'caddy', httpPort: 80, httpsPort: 443, email: '', staging: false })
+    expect(parsed.routes).toEqual([])
+  })
+
+  it('defaults a route to the supervised entry, automatic TLS, whole host', () => {
+    const route = unwrap(proxyRouteSchema({ id: 'gitea', host: 'git.example.com' }))
+    expect(route).toMatchObject({ enabled: true, target: 'server', tls: 'auto', path: '', workspace: '', server: '', url: '' })
+  })
+
+  it('accepts a single-label local name and refuses something that is not a host', () => {
+    expect(ok(proxyRouteSchema, { id: 'a', host: 'gitea' })).toBe(true)
+    expect(ok(proxyRouteSchema, { id: 'a', host: 'media.lan' })).toBe(true)
+    expect(ok(proxyRouteSchema, { id: 'a', host: 'not a host' })).toBe(false)
+    expect(ok(proxyRouteSchema, { id: 'a', host: '*.example.com' })).toBe(false)
+    expect(ok(proxyRouteSchema, { id: 'Bad', host: 'git.example.com' })).toBe(false)
+  })
+
+  it('keeps both ports inside the range, and the mode set closed', () => {
+    expect(ok(proxyConfigSchema, { httpPort: 1, httpsPort: 65535 })).toBe(true)
+    expect(ok(proxyConfigSchema, { httpPort: 0 })).toBe(false)
+    expect(ok(proxyConfigSchema, { httpsPort: 65536 })).toBe(false)
+    expect(ok(proxyConfigSchema, { httpsPort: 443.5 })).toBe(false)
+    expect(ok(proxyRouteSchema, { id: 'a', host: 'a.example.com', tls: 'letsencrypt' })).toBe(false)
+    expect(ok(proxyConfigSchema, { engine: 'traefik' })).toBe(false)
+  })
+
+  it('carries no defaults in the patch, and replaces the route list', () => {
+    const patch = unwrap(proxyPatchSchema({ httpPort: 4480 }))
+    expect(patch).toEqual({ httpPort: 4480 })
+    expect(unwrap(proxyPatchSchema({ routes: [] })).routes).toEqual([])
+    expect(proxyPatchSchema({ engine: 'nginx' } as unknown) instanceof type.errors).toBe(true)
+  })
+
+  it('describes an engine that has not been installed yet', () => {
+    const engine = unwrap(proxyEngineStatusSchema({ id: 'caddy', installed: false, version: null, source: null, path: null, bytes: null, sha256: null, error: null }))
+    expect(engine.installed).toBe(false)
+    const status = unwrap(proxyStatusSchema({ state: 'off', pid: null, urls: [], certExpiryDays: null, since: null, lastError: null }))
+    expect(status.state).toBe('off')
+  })
+
+  it('reads without the optional live-state fields', () => {
+    const view = unwrap(proxyViewSchema({
+      config: {},
+      engine: { id: 'caddy', installed: false, version: null, source: null, path: null, bytes: null, sha256: null, error: null },
+      engines: [{ id: 'caddy', label: 'Caddy', docsUrl: 'https://caddyserver.com/docs/', releaseUrl: '', acme: true, internalCa: true, dns01: false, tcp: false }],
+      status: { state: 'off', pid: null, urls: [], certExpiryDays: null, since: null, lastError: null },
+      routes: [],
+      tls: { enabled: false, certPresent: false, subject: null, issuer: null, validFrom: null, validTo: null, daysRemaining: null, fingerprint: null, keyMatches: null, error: null },
+    }))
+    expect(view.routes).toEqual([])
   })
 })

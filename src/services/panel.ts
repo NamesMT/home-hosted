@@ -5,6 +5,7 @@ import type { BackupService, BackupSources, BackupWorkspaceSource } from '#src/s
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { EventHub } from '#src/services/events'
 import type { HostMonitor } from '#src/services/host-monitor'
+import type { ProxyService } from '#src/services/proxy'
 import type { TlsStore } from '#src/services/tls'
 import type { UiService } from '#src/services/ui'
 import type { AppState, ServerConfig, ServerView, Workspace, WorkspaceView } from '#src/shared/contracts'
@@ -68,6 +69,8 @@ export interface PanelServiceOptions {
   hub: EventHub
   /** The live listener; read lazily because it is created after this service. */
   control: () => ControlEndpoint
+  /** The panel-wide reverse proxy; read lazily for the same reason. */
+  proxy: () => ProxyService | null
   /** `--no-autostart` still means "start nothing on your own", reloads included. */
   autostart: boolean
   /** `--config`: the default workspace's servers file, for a launcher that pins one. */
@@ -156,12 +159,14 @@ export class PanelService {
   }
 
   getState(): AppState {
+    const proxy = this.options.proxy()
     return {
       control: buildControlView(this.options.settings, this.options.auth, this.options.control(), this.options.tls),
       host: this.options.hostMonitor.view,
       backups: this.options.backups.view(),
       ui: this.options.ui.status(),
       workspaces: this.workspaces().map(runtime => runtime.view()),
+      ...(proxy === null ? {} : { proxy: proxy.view() }),
       projectDir,
       dataRoot,
       version: appVersion(),
@@ -416,6 +421,11 @@ export class PanelService {
     this.scheduleState()
   }
 
+  /** A panel-wide service changed something the state frame carries. */
+  notifyStateChange(): void {
+    this.scheduleState()
+  }
+
   /** Coalesces every signal in a turn into at most one frame. */
   private scheduleState(): void {
     if (this.stateScheduled || this.disposed)
@@ -450,6 +460,19 @@ function stateSignature(state: AppState): string {
     state.host.alerts.join(','),
     state.backups.files.length,
     state.backups.entries.length,
+    // The proxy is the one panel-wide service whose live state changes on its own
+    // (a start, a stop, a rejected route), so it has to be part of the signature.
+    state.proxy === undefined
+      ? ''
+      : [
+          state.proxy.config.enabled,
+          state.proxy.status.state,
+          state.proxy.status.pid,
+          state.proxy.status.lastError ?? '',
+          state.proxy.engine.installed,
+          state.proxy.engine.version ?? '',
+          ...state.proxy.routes.map(route => `${route.route.id}:${route.status}:${route.upstream ?? ''}`),
+        ].join(':'),
     ...state.workspaces.flatMap(workspace => [
       workspace.id,
       workspace.label,

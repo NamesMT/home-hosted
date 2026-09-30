@@ -45,7 +45,7 @@ const settingsPath = computed(() => path('settings'))
 
 let prefixTimer: ReturnType<typeof setTimeout> | null = null
 
-function go(page: 'overview' | 'global-settings' | WorkspacePage): void {
+function go(page: 'overview' | 'global-settings' | 'proxy' | WorkspacePage): void {
   if (page === 'overview') {
     void router.push('/global/overview')
     return
@@ -54,14 +54,19 @@ function go(page: 'overview' | 'global-settings' | WorkspacePage): void {
     void router.push('/global/settings')
     return
   }
+  if (page === 'proxy') {
+    void router.push('/proxy')
+    return
+  }
   if (activeId.value.length === 0)
     return
   void router.push(workspacePath(activeId.value, page))
 }
 
-const GOTO: Record<string, 'overview' | 'global-settings' | WorkspacePage> = {
+const GOTO: Record<string, 'overview' | 'global-settings' | 'proxy' | WorkspacePage> = {
   o: 'overview',
   g: 'global-settings',
+  p: 'proxy',
   s: 'servers',
   l: 'logs',
   t: 'settings',
@@ -222,6 +227,14 @@ onScopeDispose(() => {
       <RouterLink :to="settingsPath" class="nav__item" active-class="nav__item--active">
         workspace settings
         <span class="nav__key">g t</span>
+      </RouterLink>
+
+      <div class="nav__group">
+        others
+      </div>
+      <RouterLink to="/proxy" class="nav__item" active-class="nav__item--active">
+        reverse proxy
+        <span class="nav__key">g p</span>
       </RouterLink>
 
       <button type="button" class="nav__item" @click="helpOpen = true">

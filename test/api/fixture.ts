@@ -16,10 +16,12 @@ import { AuthService } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
 import { DdnsService } from '#src/services/ddns'
 import { EventHub } from '#src/services/events'
+import { checkProxyExposure } from '#src/services/exposure'
 import { HistoryStore } from '#src/services/history'
 import { HostMonitor } from '#src/services/host-monitor'
 import { LogFiles } from '#src/services/log-files'
 import { NotificationService as Notifications } from '#src/services/notifications'
+import { ProxyService } from '#src/services/proxy'
 import { buildControlView, buildWorkspaceView } from '#src/services/state'
 import { TlsStore } from '#src/services/tls'
 import { UiService } from '#src/services/ui'
@@ -381,6 +383,24 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     restart: async () => ({ ok: true }),
   }
 
+  // A real proxy service over this fixture's own directory: the routes under test are
+  // the panel's, and none of these tests start an engine.
+  const proxy = new ProxyService({
+    settings,
+    binDir: path.join(hhDir, '.proxy', 'bin'),
+    engineDir: path.join(hhDir, '.proxy', 'engine'),
+    configPath: path.join(hhDir, '.proxy', 'engine', 'current.json'),
+    previousConfigPath: path.join(hhDir, '.proxy', 'engine', 'previous.json'),
+    stateDir: path.join(hhDir, '.proxy', 'state'),
+    adminPath: path.join(hhDir, '.proxy', 'state', 'admin.json'),
+    logDir: path.join(hhDir, '.logs'),
+    tls: new TlsStore(path.join(hhDir, '.proxy', 'tls'), 'proxy'),
+    control: () => endpoint,
+    resolveServer: () => null,
+    exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword),
+    onStateChange: () => undefined,
+  })
+
   let shutdowns = 0
   const deps = {
     panel,
@@ -391,6 +411,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     tls,
     backups,
     ui,
+    proxy,
     runtimeToken: 'runtime-token',
     onShutdown: async () => {
       shutdowns += 1

@@ -219,6 +219,8 @@ export function useControlPlane() {
   const host = computed(() => appState.value?.host ?? null)
   const backups = computed<BackupsView | null>(() => appState.value?.backups ?? null)
   const ui = computed(() => appState.value?.ui ?? null)
+  /** Optional: a panel that predates the reverse proxy sends no `proxy` field. */
+  const proxy = computed(() => appState.value?.proxy ?? null)
   const dataRoot = computed(() => appState.value?.dataRoot ?? '')
   const projectDir = computed(() => appState.value?.projectDir ?? '')
 
@@ -274,6 +276,7 @@ export function useControlPlane() {
     host,
     backups,
     ui,
+    proxy,
     dataRoot,
     projectDir,
     connection: readonly(connection),

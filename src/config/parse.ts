@@ -13,6 +13,7 @@ import {
   logsSchema,
   mergeDefaults,
   notificationsSchema,
+  proxyConfigSchema,
   SERVERS_FILE_KEYS,
   serverSchema,
   WORKSPACE_SETTINGS_KEYS,
@@ -166,12 +167,14 @@ export function parseGlobalSettings(raw: unknown, options: MigrationOptions = {}
       ['control', controlSchema as unknown as Validator],
       ['host', hostSchema as unknown as Validator],
       ['backups', backupsSchema as unknown as Validator],
+      ['proxy', proxyConfigSchema as unknown as Validator],
     ],
     build: (meta, groups) => ({
       meta,
       control: groups.control as ResolvedGlobalConfig['control'],
       host: groups.host as ResolvedGlobalConfig['host'],
       backups: groups.backups as ResolvedGlobalConfig['backups'],
+      proxy: groups.proxy as ResolvedGlobalConfig['proxy'],
     }),
   }, options)
 }

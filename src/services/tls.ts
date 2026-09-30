@@ -9,24 +9,25 @@ import { writeFileAtomic } from '#src/helpers/atomic'
  * Stores an uploaded PEM pair and reports what it contains.
  *
  * The key is written 0600 and both files stay out of git. Nothing here binds a
- * socket — the control server reads the pair and hands it to srvx.
+ * socket — the control server reads the pair and hands it to srvx. The reverse
+ * proxy keeps its own pair in its own directory through the same class.
  */
 export class TlsStore {
   private cached: { cert: string, key: string } | null = null
   private cachedMtime = ''
 
-  constructor(private readonly dir: string) {}
+  constructor(private readonly dir: string, private readonly name = 'control') {}
 
   get directory(): string {
     return this.dir
   }
 
   get certPath(): string {
-    return path.join(this.dir, 'control.crt.pem')
+    return path.join(this.dir, `${this.name}.crt.pem`)
   }
 
   get keyPath(): string {
-    return path.join(this.dir, 'control.key.pem')
+    return path.join(this.dir, `${this.name}.key.pem`)
   }
 
   get present(): boolean {

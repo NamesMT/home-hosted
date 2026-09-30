@@ -1,10 +1,17 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { checkExposure } from '#src/services/exposure'
-import { authSchema, controlSchema } from '#src/shared/contracts'
+import { checkExposure, checkProxyExposure } from '#src/services/exposure'
+import { authSchema, controlSchema, proxyConfigSchema } from '#src/shared/contracts'
 
 function control(host: string, auth: Record<string, unknown> = {}) {
   const parsed = controlSchema({ host, auth })
+  if (parsed instanceof type.errors)
+    throw parsed
+  return parsed
+}
+
+function proxy(input: Record<string, unknown>) {
+  const parsed = proxyConfigSchema(input)
   if (parsed instanceof type.errors)
     throw parsed
   return parsed
@@ -64,5 +71,33 @@ describe('control panel exposure', () => {
 
   it('rejects unknown auth keys', () => {
     expect(authSchema({ enabled: true, typo: 1 } as unknown) instanceof type.errors).toBe(true)
+  })
+})
+
+describe('reverse proxy exposure', () => {
+  const panelRoute = { id: 'panel', host: 'panel.example.com', target: 'panel' as const }
+
+  it('says nothing about a proxy that is off, or that serves no panel route', () => {
+    expect(checkProxyExposure(proxy({ enabled: false, routes: [panelRoute] }), false, false)).toBeNull()
+    expect(checkProxyExposure(proxy({ enabled: true, routes: [{ id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' }] }), false, false)).toBeNull()
+  })
+
+  it('holds a panel route to the same bar as a non-loopback bind', () => {
+    const on = proxy({ enabled: true, routes: [panelRoute] })
+    expect(checkProxyExposure(on, true, true, false)).toBeNull()
+    expect(checkProxyExposure(on, false, false)).toContain('authentication is disabled and no password is set')
+    expect(checkProxyExposure(on, false, true)).toContain('authentication is disabled')
+    expect(checkProxyExposure(on, true, false)).toContain('no password is set')
+    expect(checkProxyExposure(on, true, true, true)).toContain('default password')
+    // The hostname is named, so the message points at the route to change.
+    expect(checkProxyExposure(on, true, false)).toContain('panel.example.com')
+  })
+
+  it('ignores a disabled route and one that serves plain HTTP', () => {
+    const disabled = proxy({ enabled: true, routes: [{ ...panelRoute, enabled: false }] })
+    expect(checkProxyExposure(disabled, false, false)).toBeNull()
+
+    const plain = proxy({ enabled: true, routes: [{ ...panelRoute, tls: 'off' }] })
+    expect(checkProxyExposure(plain, false, false)).toBeNull()
   })
 })

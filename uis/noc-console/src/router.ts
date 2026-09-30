@@ -6,6 +6,7 @@ import GlobalOverviewView from '@/views/GlobalOverviewView.vue'
 import GlobalSettingsView from '@/views/GlobalSettingsView.vue'
 import LoginView from '@/views/LoginView.vue'
 import LogsView from '@/views/LogsView.vue'
+import ProxyView from '@/views/ProxyView.vue'
 import ServerConfigView from '@/views/ServerConfigView.vue'
 import ServersView from '@/views/ServersView.vue'
 import SettingsView from '@/views/SettingsView.vue'
@@ -25,6 +26,8 @@ export const router = createRouter({
     { path: '/w/:workspaceId/settings', name: 'settings', component: SettingsView },
     { path: '/global/overview', name: 'global-overview', component: GlobalOverviewView },
     { path: '/global/settings', name: 'global-settings', component: GlobalSettingsView },
+    // Panel-wide, under Others: one engine exposes every workspace's servers.
+    { path: '/proxy', name: 'proxy', component: ProxyView },
     { path: '/login', name: 'login', component: LoginView },
     // The pre-workspace URLs, the bare entries, and anything unknown land on the
     // canonical URL the guard picks, so an old bookmark keeps working.
@@ -72,7 +75,7 @@ router.beforeEach(async (to) => {
 
   if (to.name === 'login')
     return true
-  if (to.name === 'global-overview' || to.name === 'global-settings')
+  if (to.name === 'global-overview' || to.name === 'global-settings' || to.name === 'proxy')
     return true
   if (to.name === 'legacy-global')
     return { name: 'global-overview', query: to.query, replace: true }

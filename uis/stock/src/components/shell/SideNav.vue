@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
-import { Globe, LayoutDashboard, ScrollText, Server, Settings2, SlidersHorizontal, X } from 'lucide-vue-next'
+import { Boxes, Globe, LayoutDashboard, ScrollText, Server, Settings2, SlidersHorizontal, Waypoints, X } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import InstrumentCluster from '@/components/shell/InstrumentCluster.vue'
@@ -39,6 +39,18 @@ const globalItems = [
   { to: '/global/overview', label: 'Global Overview', icon: Globe, exact: true, servers: false },
   { to: '/global/settings', label: 'Global settings', icon: SlidersHorizontal, exact: false, servers: false },
 ]
+
+/** Features that belong to the panel itself and to no workspace in particular. */
+const otherItems = [
+  { to: '/proxy', label: 'Reverse Proxy', icon: Waypoints, exact: false, servers: false },
+]
+
+/** The three groups, in reading order: panel-wide, workspace, then everything else. */
+const sections = computed(() => [
+  { title: 'Global', label: '', icon: Globe, items: globalItems },
+  { title: 'Workspace', label: props.workspaceLabel, icon: undefined, items: workspaceItems.value },
+  { title: 'Others', label: '', icon: Boxes, items: otherItems },
+])
 
 function isActive(item: { to: string, exact: boolean }): boolean {
   return item.exact ? route.path === item.to : route.path === item.to || route.path.startsWith(`${item.to}/`)
@@ -82,34 +94,13 @@ const connectionMeta = computed(() => ({
     </div>
 
     <nav class="flex flex-col gap-3" aria-label="Navigation">
-      <div class="flex flex-col gap-0.5">
-        <p class="flex items-center gap-1 px-2.5 pb-1 text-2xs font-medium text-faint">
-          <Globe class="size-3" />
-          Global
+      <div v-for="section in sections" :key="section.title" class="flex min-h-0 flex-col gap-0.5">
+        <p class="flex items-center gap-1 truncate px-2.5 pb-1 text-2xs font-medium text-faint">
+          <component :is="section.icon" v-if="section.icon" class="size-3 shrink-0" />
+          {{ section.label ? `${section.title} · ` : section.title }}<span v-if="section.label" class="text-muted">{{ section.label }}</span>
         </p>
         <RouterLink
-          v-for="item in globalItems"
-          :key="item.to"
-          :to="item.to"
-          :class="cn(
-            'group flex items-center gap-2.5 rounded-control px-2.5 py-1.5 text-sm transition-colors duration-150',
-            isActive(item)
-              ? 'bg-accent-soft font-medium text-accent'
-              : 'text-muted hover:bg-hover hover:text-ink',
-          )"
-          @click="emit('navigate')"
-        >
-          <component :is="item.icon" class="size-4 shrink-0" :stroke-width="isActive(item) ? 2.1 : 1.8" />
-          {{ item.label }}
-        </RouterLink>
-      </div>
-
-      <div class="flex min-h-0 flex-col gap-0.5">
-        <p class="truncate px-2.5 pb-1 text-2xs font-medium text-faint">
-          Workspace · <span class="text-muted">{{ props.workspaceLabel }}</span>
-        </p>
-        <RouterLink
-          v-for="item in workspaceItems"
+          v-for="item in section.items"
           :key="item.to"
           :to="item.to"
           :class="cn(

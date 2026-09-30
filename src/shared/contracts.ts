@@ -676,6 +676,168 @@ export const tlsStatusSchema = type({
 })
 export type TlsStatus = typeof tlsStatusSchema.infer
 
+/**
+ * The reverse-proxy engine this panel can drive. One engine ships today; the
+ * field exists so a config written now keeps working if a second one lands.
+ */
+export const proxyEngineSchema = type.enumerated('caddy')
+export type ProxyEngine = typeof proxyEngineSchema.infer
+
+/** What a route forwards to: a supervised entry, the panel itself, or a literal upstream. */
+export const proxyTargetSchema = type.enumerated('server', 'panel', 'external')
+export type ProxyTarget = typeof proxyTargetSchema.infer
+
+/** `auto` lets the engine decide: a public name gets ACME, a local one its own CA. */
+export const proxyTlsModeSchema = type.enumerated('auto', 'off', 'manual')
+export type ProxyTlsMode = typeof proxyTlsModeSchema.infer
+
+/**
+ * One public hostname, and where it goes. A route is panel-wide on purpose — the
+ * point is one domain per service across every workspace — so a target that
+ * names an entry names its workspace too.
+ */
+export const proxyRouteSchema = type({
+  id: '/^[a-z0-9][a-z0-9_-]*$/',
+  /** The public hostname this route answers for. */
+  host: '/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/',
+  enabled: 'boolean = true',
+  target: proxyTargetSchema.default(() => 'server' as const),
+  /** `target: "server"` — an id is only unique inside its workspace. */
+  workspace: 'string = ""',
+  server: 'string = ""',
+  /** `target: "external"` — a literal upstream such as `http://10.0.0.5:8080`. */
+  url: 'string = ""',
+  /** Optional path prefix; empty serves the whole host. */
+  path: 'string = ""',
+  tls: proxyTlsModeSchema.default(() => 'auto' as const),
+}).onUndeclaredKey('reject')
+export type ProxyRoute = typeof proxyRouteSchema.infer
+
+/** Reverse proxy: expose the stack through one engine, with automatic HTTPS. */
+export const proxyConfigSchema = type({
+  enabled: 'boolean = false',
+  engine: proxyEngineSchema.default(() => 'caddy' as const),
+  /** Cleartext side: ACME HTTP-01 challenges and the redirect to HTTPS. */
+  httpPort: '1 <= number.integer <= 65535 = 80',
+  httpsPort: '1 <= number.integer <= 65535 = 443',
+  /** ACME account address; a public certificate needs one. */
+  email: 'string = ""',
+  /** The ACME staging endpoint: untrusted certificates, no rate-limit burn. */
+  staging: 'boolean = false',
+  routes: proxyRouteSchema.array().default(() => []),
+}).onUndeclaredKey('reject')
+export type ProxyConfig = typeof proxyConfigSchema.infer
+
+/** Where the binary came from: the release we downloaded, or a path a person set. */
+export const proxyEngineSourceSchema = type.enumerated('downloaded', 'custom')
+export type ProxyEngineSource = typeof proxyEngineSourceSchema.infer
+
+/** What the panel knows about the installed engine. */
+export const proxyEngineStatusSchema = type({
+  id: proxyEngineSchema,
+  installed: 'boolean',
+  /** The version the binary reports; `null` until it has been probed. */
+  version: 'string | null',
+  source: proxyEngineSourceSchema.or(type('null')),
+  path: 'string | null',
+  bytes: 'number | null',
+  /** Recorded at download time, so a swapped binary is visible. */
+  sha256: 'string | null',
+  error: 'string | null',
+})
+export type ProxyEngineStatus = typeof proxyEngineStatusSchema.infer
+
+/** Engine capabilities, so the page knows which options to offer. */
+export const proxyEngineInfoSchema = type({
+  id: proxyEngineSchema,
+  label: 'string',
+  docsUrl: 'string',
+  releaseUrl: 'string',
+  acme: 'boolean',
+  internalCa: 'boolean',
+  dns01: 'boolean',
+  tcp: 'boolean',
+})
+export type ProxyEngineInfo = typeof proxyEngineInfoSchema.infer
+
+export const proxyRouteStatusSchema = type.enumerated('ok', 'disabled', 'no-upstream', 'error')
+export type ProxyRouteStatus = typeof proxyRouteStatusSchema.infer
+
+/** A route as the page reads it: the config, plus the upstream resolved live. */
+export const proxyRouteViewSchema = type({
+  route: proxyRouteSchema,
+  status: proxyRouteStatusSchema,
+  upstream: 'string | null',
+  message: 'string | null',
+})
+export type ProxyRouteView = typeof proxyRouteViewSchema.infer
+
+export const proxyRunStateSchema = type.enumerated('off', 'stopped', 'starting', 'running', 'error', 'unsupported')
+export type ProxyRunState = typeof proxyRunStateSchema.infer
+
+/** Live engine state. */
+export const proxyStatusSchema = type({
+  state: proxyRunStateSchema,
+  pid: 'number | null',
+  /** The addresses the engine serves on, for the page to show. */
+  urls: type('string[]'),
+  /** Days until the soonest managed certificate expires; `null` when none. */
+  certExpiryDays: 'number | null',
+  since: 'number | null',
+  lastError: 'string | null',
+})
+export type ProxyStatus = typeof proxyStatusSchema.infer
+
+/** `GET /api/proxy`: the policy, the engine, the live state and the resolved routes. */
+export const proxyViewSchema = type({
+  config: proxyConfigSchema,
+  engine: proxyEngineStatusSchema,
+  engines: proxyEngineInfoSchema.array(),
+  status: proxyStatusSchema,
+  routes: proxyRouteViewSchema.array(),
+  /** The PEM pair `tls: "manual"` serves, described like the panel's own. */
+  tls: tlsStatusSchema,
+})
+export type ProxyView = typeof proxyViewSchema.infer
+
+/**
+ * A route as a patch sends it: every field optional, so a client may change one
+ * member of a route — or add a route with only the two fields that matter.
+ */
+export const proxyRoutePatchSchema = type({
+  id: 'string',
+  host: 'string',
+  enabled: 'boolean?',
+  target: proxyTargetSchema.optional(),
+  workspace: 'string?',
+  server: 'string?',
+  url: 'string?',
+  path: 'string?',
+  tls: proxyTlsModeSchema.optional(),
+}).onUndeclaredKey('reject')
+export type ProxyRoutePatch = typeof proxyRoutePatchSchema.infer
+
+/**
+ * The proxy block as a patch: no defaults, and `routes` is a list a patch
+ * **replaces** — a key-by-key merge cannot express removing a route.
+ */
+export const proxyPatchSchema = type({
+  enabled: 'boolean?',
+  engine: proxyEngineSchema.optional(),
+  httpPort: '1 <= number.integer <= 65535?',
+  httpsPort: '1 <= number.integer <= 65535?',
+  email: 'string?',
+  staging: 'boolean?',
+  routes: proxyRoutePatchSchema.array().optional(),
+}).onUndeclaredKey('reject')
+export type ProxyPatch = typeof proxyPatchSchema.infer
+
+/** `POST /api/proxy/engine`: which release to install; empty means the pinned one. */
+export const proxyEngineInstallSchema = type({
+  version: 'string = ""',
+}).onUndeclaredKey('reject')
+export type ProxyEngineInstall = typeof proxyEngineInstallSchema.infer
+
 export const telegramStatusSchema = type({
   enabled: 'boolean',
   tokenSet: 'boolean',
@@ -1016,6 +1178,8 @@ export const appStateSchema = type({
   'backups': backupsViewSchema,
   'ui': uiStatusSchema,
   'workspaces': workspaceViewSchema.array(),
+  /** The reverse proxy, when this panel has one. Optional: an older panel does not send it. */
+  'proxy?': proxyViewSchema,
   /** The directory the panel was started from; relative entry paths use it. */
   'projectDir': 'string',
   /** `HHOSTED_HOME`: every file home-hosted owns lives under here. */

@@ -1,12 +1,12 @@
 import type { ResolvedGlobalConfig } from '#src/config/schema'
-import type { BackupsConfig, ControlConfig, HostConfig, SettingsPatch } from '#src/shared/contracts'
+import type { BackupsConfig, ControlConfig, HostConfig, ProxyConfig, ProxyPatch, SettingsPatch } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
 import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
 import { parseGlobalSettings, parseTolerant, stampConfig } from '#src/config/parse'
 import { applyPatch, CONTROL_MERGE_KEYS, EMPTY_MERGE_KEYS } from '#src/config/patch'
-import { backupsSchema, controlSchema, globalSettingsSchema, hostSchema } from '#src/config/schema'
+import { backupsSchema, controlSchema, globalSettingsSchema, hostSchema, proxyConfigSchema } from '#src/config/schema'
 import { SEED_GLOBAL_SETTINGS } from '#src/config/seed'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { globalSettingsPath } from '#src/helpers/paths'
@@ -50,6 +50,10 @@ export class GlobalSettingsStore {
 
   get backups(): BackupsConfig {
     return this.resolvedConfig.backups
+  }
+
+  get proxy(): ProxyConfig {
+    return this.resolvedConfig.proxy
   }
 
   get configError(): string | null {
@@ -174,6 +178,18 @@ export class GlobalSettingsStore {
     return backups
   }
 
+  /** The reverse proxy. `routes` is a list a patch replaces, so it merges nothing. */
+  updateProxy(patch: ProxyPatch): ProxyConfig {
+    const draft = structuredClone(this.raw)
+    draft.proxy = { ...(draft.proxy as Record<string, unknown> ?? {}) }
+    applyPatch(draft.proxy as Record<string, unknown>, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
+
+    const proxy = this.parseGroup<ProxyConfig>(proxyConfigSchema as unknown as (input: unknown) => unknown, draft.proxy as Record<string, unknown>, 'proxy')
+
+    this.commit(draft)
+    return proxy
+  }
+
   /** Regenerates `settings.schema.json` for editor autocomplete, beside the file it describes. */
   writeJsonSchema(): void {
     const target = path.join(path.dirname(this.file), 'settings.schema.json')
@@ -204,9 +220,10 @@ export class GlobalSettingsStore {
     const control = controlSchema({})
     const host = hostSchema({})
     const backups = backupsSchema({})
-    if (control instanceof type.errors || host instanceof type.errors || backups instanceof type.errors)
+    const proxy = proxyConfigSchema({})
+    if (control instanceof type.errors || host instanceof type.errors || backups instanceof type.errors || proxy instanceof type.errors)
       throw new ConfigError('internal: default settings failed validation')
-    return { control, host, backups }
+    return { control, host, backups, proxy }
   }
 
   private apply(raw: unknown): void {

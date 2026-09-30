@@ -20,6 +20,13 @@ import {
   globalSecretsPath,
   hhDir,
   projectDir,
+  proxyAdminPath,
+  proxyBinDir,
+  proxyConfigPath,
+  proxyEngineDir,
+  proxyPreviousConfigPath,
+  proxyStateDir,
+  proxyTlsDir,
   resolveUserPath,
   tlsDir,
 } from '#src/helpers/paths'
@@ -31,9 +38,10 @@ import { BackupService } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
 import { ControlServer } from '#src/services/control-server'
 import { EventHub } from '#src/services/events'
-import { checkExposure } from '#src/services/exposure'
+import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { HostMonitor } from '#src/services/host-monitor'
 import { PanelService } from '#src/services/panel'
+import { ProxyService } from '#src/services/proxy'
 import { TlsStore } from '#src/services/tls'
 import { UiService } from '#src/services/ui'
 import { autoUpdateOfficialUi } from '#src/services/ui-update'
@@ -196,6 +204,35 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     },
   )
 
+  // The reverse proxy is created before the panel so the state frame can carry it,
+  // and resolves entries through the panel lazily — the same closure trick.
+  const proxy = new ProxyService({
+    settings,
+    binDir: proxyBinDir,
+    engineDir: proxyEngineDir,
+    configPath: proxyConfigPath,
+    previousConfigPath: proxyPreviousConfigPath,
+    stateDir: proxyStateDir,
+    adminPath: proxyAdminPath,
+    logDir: path.join(hhDir, '.logs'),
+    tls: new TlsStore(proxyTlsDir, 'proxy'),
+    control: () => controlServer.endpoint,
+    resolveServer: (workspaceId, serverId) => {
+      const found = panel?.findServer(workspaceId, serverId)
+      if (found === undefined || found === null)
+        return null
+      const view = panel?.serverViews(workspaceId).find(entry => entry.id === serverId)
+      const port = view?.config.port ?? null
+      if (port === null)
+        return { url: null, message: `"${serverId}" has no port to forward to` }
+      if (view?.status !== 'running' && view?.status !== 'starting')
+        return { url: null, message: `"${workspaceId}/${serverId}" is ${view?.status ?? 'not running'}` }
+      return { url: `${view.bindHost === '0.0.0.0' ? '127.0.0.1' : view.bindHost}:${port}`, message: null }
+    },
+    exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword),
+    onStateChange: () => panel?.notifyStateChange(),
+  })
+
   // The backups service needs the panel's sources, and the panel needs the
   // backups service for its state frame — one closure bridges the pair.
   const backups = new BackupService({
@@ -216,6 +253,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     hostMonitor,
     hub,
     control: () => controlServer.endpoint,
+    proxy: () => proxy,
     autostart: options.autostart,
     ...(options.configPath === undefined ? {} : { defaultServersPath: options.configPath }),
   })
@@ -244,8 +282,11 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
       return
     shuttingDown = true
     logger.info(`${reason} — stopping ${panel!.serverViews().length} server(s) across ${panel!.workspaces().length} workspace(s)`)
+    if (proxy.status().state === 'running')
+      logger.info('reverse proxy: left running (stop it from the panel, or switch the proxy off first)')
     clearRuntime()
     auth.dispose()
+    proxy.dispose()
     await panel!.dispose()
     await controlServer.close(true)
     process.exit(0)
@@ -260,6 +301,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     tls,
     backups,
     ui,
+    proxy,
     runtimeToken: token,
     onShutdown: () => shutdown('shutdown requested locally'),
   })
@@ -268,6 +310,8 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // Reads every existing archive once, so the first state frame already shows
   // which backups are password-protected.
   await backups.warm()
+  // Reattach to an engine that outlived the panel, or start the one this config asks for.
+  await proxy.initialize()
 
   const endpoint = controlServer.endpoint
   const runtime: Runtime = {

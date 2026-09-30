@@ -57,6 +57,7 @@
     "dist",
     "docs/DDNS.md",
     "docs/NOTIFICATIONS.md",
+    "docs/REVERSE_PROXY.md",
     "docs/SERVERS.md",
     "docs/UI_CREATION.md",
     "uis/stock/dist"

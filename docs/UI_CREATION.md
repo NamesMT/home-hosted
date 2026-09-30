@@ -124,6 +124,7 @@ naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fall
 | `GET` / `PATCH /api/settings/workspace` | one workspace's settings: server defaults, log retention, notifications |
 | `POST` / `DELETE /api/settings/ui` | install or revert a UI — what Global settings calls |
 | `POST` / `DELETE /api/settings/tls` | upload or clear a PEM pair |
+| `GET` / `PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `PUT` / `DELETE /api/proxy/tls` | the panel-wide reverse proxy: engine, route table, its own PEM pair. Its live view also rides in the state frame as an optional `proxy` — read it defensively |
 | `GET` / `POST /api/backups`, `/api/backups/restore`, `/api/backups/:name/download` | archives; entries are global (`global:settings`, `global:secrets`, `global:tls`) or per workspace, whose leaves are `workspace:<id>:settings`, `:servers`, `:secrets` plus `data:<path>`; a create/restore body `include` selects them |
 | `POST` / `DELETE /api/notifications/token`, `/api/notifications/test`, `/detect-chats` | Telegram, per workspace |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | the session |

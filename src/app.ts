@@ -4,6 +4,7 @@ import type { BackupService } from '#src/services/backups'
 import type { ControlServer } from '#src/services/control-server'
 import type { EventHub } from '#src/services/events'
 import type { PanelService } from '#src/services/panel'
+import type { ProxyService } from '#src/services/proxy'
 import type { TlsStore } from '#src/services/tls'
 import type { UiService } from '#src/services/ui'
 import { createAuthRoute } from '#src/api/auth/$.routes'
@@ -15,6 +16,7 @@ import { createHealthRoute } from '#src/api/health'
 import { createLogsRoute } from '#src/api/logs'
 import { createMetricsRoute } from '#src/api/metrics'
 import { createNotificationsRoute } from '#src/api/notifications'
+import { createProxyRoute } from '#src/api/proxy'
 import { createServersRoute } from '#src/api/servers/$.routes'
 import { createSettingsRoute } from '#src/api/settings'
 import { createStateRoute } from '#src/api/state'
@@ -41,6 +43,8 @@ export interface AppDeps {
   tls: TlsStore
   backups: BackupService
   ui: UiService
+  /** The panel-wide reverse proxy: engine, routes and its own TLS pair. */
+  proxy: ProxyService
   /** Token for the local `down` command, and the graceful stop it asks for. */
   runtimeToken: string
   onShutdown: () => Promise<void>
@@ -77,6 +81,7 @@ export function createRootApp(deps: AppDeps) {
     .route('/api', createLogsRoute(deps))
     .route('/api', createNotificationsRoute(deps))
     .route('/api', createDdnsRoute(deps))
+    .route('/api', createProxyRoute(deps))
     .route('/api', createMetricsRoute(deps))
     .route('/api', createBackupsRoute(deps))
     .route('/api/workspaces', createWorkspacesRoute(deps))

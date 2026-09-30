@@ -64,6 +64,25 @@ export const runtimePath = path.join(hhDir, 'run.json')
 /** The installed UI; `UiService` owns everything under it. */
 export const uiDir = path.join(hhDir, '.ui')
 
+// ----------------------------------------------------------------- reverse proxy
+
+/** Everything the reverse proxy owns: engine binary, its data, its state and logs. */
+export const proxyDir = path.join(hhDir, '.proxy')
+/** The engine binary the panel installed, plus the record of what it installed. */
+export const proxyBinDir = path.join(proxyDir, 'bin')
+/** The engine's own data and configuration directories, pinned away from `$HOME`. */
+export const proxyEngineDir = path.join(proxyDir, 'engine')
+/** The generated engine configuration, rewritten on every change. */
+export const proxyConfigPath = path.join(proxyEngineDir, 'current.json')
+/** The last configuration that applied, kept so a rejected change can be reverted. */
+export const proxyPreviousConfigPath = path.join(proxyEngineDir, 'previous.json')
+/** The nanny's spec and state for the engine process, so it outlives the panel. */
+export const proxyStateDir = path.join(proxyDir, 'state')
+/** How the panel reaches a running engine's admin endpoint. */
+export const proxyAdminPath = path.join(proxyStateDir, 'admin.json')
+/** The PEM pair a route with `tls: "manual"` serves. */
+export const proxyTlsDir = path.join(proxyDir, 'tls')
+
 // ------------------------------------------------------------- workspace state
 
 export function workspaceDir(id: string): string {

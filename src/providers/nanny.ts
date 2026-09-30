@@ -30,7 +30,7 @@ export const SPEC_SUFFIX = '.spec.json'
 export const NANNY_HEARTBEAT_MS = 5000
 
 /** A heartbeat older than this is not evidence of anything. */
-const HEARTBEAT_STALE_MS = 30_000
+export const HEARTBEAT_STALE_MS = 30_000
 
 /**
  * The state directory is passed in rather than read from a global: the panel injects

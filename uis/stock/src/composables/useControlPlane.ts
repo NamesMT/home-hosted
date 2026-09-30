@@ -323,6 +323,8 @@ export function useControlPlane() {
   const control = computed(() => appState.value?.control ?? null)
   const host = computed(() => appState.value?.host ?? null)
   const backups = computed(() => appState.value?.backups ?? null)
+  /** Optional: a panel that predates the reverse proxy sends no `proxy` field. */
+  const proxy = computed(() => appState.value?.proxy ?? null)
   const projectDir = computed(() => appState.value?.projectDir ?? null)
   const dataRoot = computed(() => appState.value?.dataRoot ?? null)
   const version = computed(() => appState.value?.version ?? null)
@@ -387,6 +389,7 @@ export function useControlPlane() {
     control,
     host,
     backups,
+    proxy,
     projectDir,
     dataRoot,
     version,

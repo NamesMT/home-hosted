@@ -7,6 +7,8 @@ import type {
   DdnsView,
   LogHistoryView,
   LogServerView,
+  ProxyPatch,
+  ProxyView,
   RestorePlan,
   ServerCreate,
   ServerPatch,
@@ -27,6 +29,8 @@ import {
   loginSchema,
   logServersViewSchema,
   passwordSchema,
+  proxyPatchSchema,
+  proxyViewSchema,
   settingsPatchSchema,
   settingsSavedSchema,
   workspaceCreateSchema,
@@ -432,6 +436,59 @@ export function uploadTls(certificate: string, privateKey: string): Promise<Sett
 
 export function clearTls(): Promise<SettingsSaveResult> {
   return request('/api/settings/tls', { method: 'DELETE' })
+}
+
+/** The reverse proxy is panel-wide: one engine, one route table, one set of ports. */
+async function proxyView(payload: unknown): Promise<ProxyView> {
+  const parsed = proxyViewSchema(payload)
+  if (parsed instanceof type.errors)
+    throw new Error(`proxy contract mismatch: ${parsed.summary}`)
+  return parsed as ProxyView
+}
+
+export async function fetchProxy(): Promise<ProxyView> {
+  return proxyView(await request<unknown>('/api/proxy'))
+}
+
+export async function patchProxy(patch: ProxyPatch): Promise<ProxyView> {
+  const parsed = proxyPatchSchema(patch)
+  if (parsed instanceof type.errors)
+    throw new Error(parsed.summary)
+  return proxyView(await request<unknown>('/api/proxy', { method: 'PATCH', body: JSON.stringify(parsed) }))
+}
+
+/** Empty version installs the pinned release; a version pins another one. */
+export async function installProxyEngine(version = ''): Promise<ProxyView> {
+  return proxyView(await request<unknown>('/api/proxy/engine', { method: 'POST', body: JSON.stringify({ version }) }))
+}
+
+function proxyAction(action: 'start' | 'stop' | 'apply' | 'revert'): Promise<ProxyView> {
+  return request<unknown>(`/api/proxy/${action}`, { method: 'POST' }).then(proxyView)
+}
+
+export function startProxy(): Promise<ProxyView> {
+  return proxyAction('start')
+}
+
+export function stopProxy(): Promise<ProxyView> {
+  return proxyAction('stop')
+}
+
+export function applyProxy(): Promise<ProxyView> {
+  return proxyAction('apply')
+}
+
+export function revertProxy(): Promise<ProxyView> {
+  return proxyAction('revert')
+}
+
+/** The pair routes with `tls: "manual"` serve. */
+export async function uploadProxyTls(certificate: string, privateKey: string): Promise<ProxyView> {
+  return proxyView(await request<unknown>('/api/proxy/tls', { method: 'PUT', body: JSON.stringify({ certificate, privateKey }) }))
+}
+
+export async function clearProxyTls(): Promise<ProxyView> {
+  return proxyView(await request<unknown>('/api/proxy/tls', { method: 'DELETE' }))
 }
 
 /**

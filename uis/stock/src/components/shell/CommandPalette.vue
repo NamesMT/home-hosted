@@ -19,6 +19,7 @@ import {
   Square,
   Sun,
   Terminal,
+  Waypoints,
 } from 'lucide-vue-next'
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
@@ -147,6 +148,7 @@ const commands = computed<PaletteCommand[]>(() => {
     { id: 'nav:overview', title: 'Go to Overview', group: 'Navigate', icon: LayoutDashboard, keywords: 'dashboard home workspace', run: () => go(here('overview')) },
     { id: 'nav:global', title: 'Go to Global Overview', group: 'Navigate', icon: Globe, keywords: 'dashboard home host vitals every workspace', run: () => go('/global/overview') },
     { id: 'nav:global-settings', title: 'Go to Global settings', group: 'Navigate', icon: SlidersHorizontal, keywords: 'panel listener auth tls backups host', run: () => go('/global/settings') },
+    { id: 'nav:proxy', title: 'Go to Reverse Proxy', group: 'Navigate', icon: Waypoints, keywords: 'caddy domain route acme certificate https expose', run: () => go('/proxy') },
     { id: 'nav:servers', title: 'Go to Servers', group: 'Navigate', icon: Server, keywords: 'processes list workspace', run: () => go(here('servers')) },
     { id: 'nav:logs', title: 'Go to Logs', group: 'Navigate', icon: ScrollText, keywords: 'output files tail workspace', run: () => go(here('logs')) },
     { id: 'nav:settings', title: 'Go to Workspace settings', group: 'Navigate', icon: Settings2, keywords: 'defaults notifications ddns config workspace', run: () => go(here('settings')) },

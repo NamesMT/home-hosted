@@ -167,6 +167,52 @@ describe('globalSettingsStore', () => {
     expect(store.configSchemaVersion).toBe(CONFIG_SCHEMA)
     expect(store.pendingMigrations).toEqual([])
   })
+
+  it('reads a settings file written before the proxy existed', async () => {
+    const { store } = await makeStore({ control: { port: 3999 } })
+
+    expect(store.configError).toBeNull()
+    expect(store.proxy.enabled).toBe(false)
+    expect(store.proxy.engine).toBe('caddy')
+    expect(store.proxy.httpPort).toBe(80)
+    expect(store.proxy.httpsPort).toBe(443)
+    expect(store.proxy.routes).toEqual([])
+  })
+
+  it('replaces the route list a proxy patch sends, and keeps the rest', async () => {
+    const { store, file } = await makeStore({})
+
+    store.updateProxy({
+      enabled: true,
+      httpPort: 4480,
+      httpsPort: 4443,
+      email: 'me@example.com',
+      routes: [
+        { id: 'gitea', host: 'git.example.com', target: 'server', workspace: 'default', server: 'gitea' },
+      ],
+    })
+    expect(store.proxy.routes).toHaveLength(1)
+    expect(store.proxy.routes[0]?.tls).toBe('auto')
+
+    // A second patch with no routes leaves them alone; one with an empty list clears them.
+    store.updateProxy({ staging: true })
+    expect(store.proxy.routes).toHaveLength(1)
+    expect(store.proxy.staging).toBe(true)
+    expect(store.proxy.email).toBe('me@example.com')
+
+    store.updateProxy({ routes: [] })
+    expect(store.proxy.routes).toEqual([])
+    expect(read(file).proxy.httpPort).toBe(4480)
+  })
+
+  it('refuses a proxy patch that is wrong and leaves the file alone', async () => {
+    const { store, file } = await makeStore({})
+    const before = await fs.promises.readFile(file, 'utf8')
+
+    expect(() => store.updateProxy({ httpPort: 0 })).toThrow(ConfigError)
+    expect(() => store.updateProxy({ routes: [{ id: 'Bad Id', host: 'x.example.com' } as never] })).toThrow(ConfigError)
+    expect(await fs.promises.readFile(file, 'utf8')).toBe(before)
+  })
 })
 
 describe('shipped global seed', () => {

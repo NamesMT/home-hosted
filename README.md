@@ -17,7 +17,7 @@ them, watches them, restarts what dies, and shows you one page of what is going 
 [![License](https://img.shields.io/npm/l/home-hosted.svg)](./LICENSE)
 [![Node](https://img.shields.io/node/v/home-hosted.svg)](https://nodejs.org)
 
-[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🎨 BYOU](#-bring-your-own-ui-byou)
+[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🔀 Reverse proxy](./docs/REVERSE_PROXY.md) · [🎨 BYOU](#-bring-your-own-ui-byou)
 
 </div>
 
@@ -272,6 +272,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
 | 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes — [setup here](./docs/NOTIFICATIONS.md). |
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
+| 🔀 **Reverse proxy** | One engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `media.example.com` → a container, `panel.example.com` → the panel. Caddy, installed and supervised by the panel. [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
 | 💾 **Backups** | Two levels: pick global settings, global secrets, TLS or a whole workspace at the top, then the pieces inside it (settings, servers, secrets, data directories) — plain `.zip`, or AES-256 with a password, restored per path. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
@@ -621,6 +622,7 @@ plus types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 | --- | --- |
 | declare a server: every field, placeholders, port conflicts | [SERVERS.md](./docs/SERVERS.md) |
 | get Telegram alerts working end to end | [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) |
+| expose the stack behind one hostname, with HTTPS | [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
 | build a UI against the API | [UI_CREATION.md](./docs/UI_CREATION.md) |
 | change the internals: architecture and the rules | [AGENTS.md](./AGENTS.md) |
 | poke the live API on your own panel | [/openapi/ui](http://127.0.0.1:3999/openapi/ui) |

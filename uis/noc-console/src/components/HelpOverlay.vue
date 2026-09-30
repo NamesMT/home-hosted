@@ -17,6 +17,7 @@ const groups: Array<{ title: string, rows: Row[] }> = [
       { combo: 'g s', label: 'servers' },
       { combo: 'g l', label: 'logs' },
       { combo: 'g t', label: 'workspace settings' },
+      { combo: 'g p', label: 'reverse proxy' },
       { combo: 'j / k', label: 'move selection' },
       { combo: 'Home / G', label: 'first / last' },
       { combo: '/', label: 'filter the list' },

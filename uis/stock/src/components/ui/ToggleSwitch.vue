@@ -11,11 +11,14 @@ const props = withDefaults(defineProps<{
   trailing?: boolean
   /** Span both columns of a `FieldGroup` grid, for a longer hint. */
   wide?: boolean
+  /** Keep the label for assistive tech only, for a switch inside a table row. */
+  srOnly?: boolean
 }>(), {
   hint: undefined,
   disabled: false,
   trailing: false,
   wide: false,
+  srOnly: false,
 })
 
 const model = defineModel<boolean>({ default: false })
@@ -39,7 +42,7 @@ const model = defineModel<boolean>({ default: false })
       />
     </SwitchRoot>
     <label class="min-w-0 cursor-pointer select-none" @click="!props.disabled && (model = !model)">
-      <span class="block text-xs text-ink">{{ props.label }}</span>
+      <span :class="cn('block text-xs text-ink', props.srOnly && 'sr-only')">{{ props.label }}</span>
       <span v-if="props.hint" class="block text-2xs text-faint">{{ props.hint }}</span>
     </label>
   </div>

@@ -15,7 +15,7 @@ import SideNav from '../src/components/shell/SideNav.vue'
  */
 
 /** Every link the nav renders, so the router does not warn about any of them. */
-const PATHS = ['/w/acme', '/w/acme/servers', '/w/acme/logs', '/w/acme/settings', '/global/overview', '/global/settings']
+const PATHS = ['/w/acme', '/w/acme/servers', '/w/acme/logs', '/w/acme/settings', '/global/overview', '/global/settings', '/proxy']
 
 async function mountNav(panelVersion: string | null, path = '/w/acme') {
   const router = createRouter({
@@ -79,12 +79,30 @@ describe('side nav', () => {
 
     expect(wrapper.text()).toContain('Workspace · acme')
     expect(wrapper.text()).toContain('Global')
+    expect(wrapper.text()).toContain('Others')
 
-    for (const label of ['Overview', 'Servers', 'Logs', 'Workspace settings', 'Global Overview', 'Global settings'])
+    for (const label of ['Overview', 'Servers', 'Logs', 'Workspace settings', 'Global Overview', 'Global settings', 'Reverse Proxy'])
       expect(wrapper.findAll('a').some(node => node.text().includes(label)), label).toBe(true)
 
     // The Servers entry carries the running/total badge.
     expect(wrapper.findAll('a').find(node => node.text().includes('Servers'))!.text()).toContain('1/2')
+  })
+
+  /**
+   * Others is the third group: below the workspace pages, so the panel-wide
+   * features never push the day-to-day entries down the rail.
+   */
+  it('lists Others below both the global and the workspace pages', async () => {
+    const wrapper = await mountNav('0.6.5')
+    const text = wrapper.text()
+    const order = (label: string) => text.indexOf(label)
+
+    expect(order('Others')).toBeGreaterThan(order('Global'))
+    expect(order('Others')).toBeGreaterThan(order('Workspace · acme'))
+    expect(order('Reverse Proxy')).toBeGreaterThan(order('Workspace settings'))
+    expect(hrefOf(wrapper, 'Reverse Proxy')).toBe('/proxy')
+    expect(isActive(wrapper, 'Reverse Proxy')).toBe(false)
+    expect(isActive(await mountNav('0.6.5', '/proxy'), 'Reverse Proxy')).toBe(true)
   })
 
   it('lists the panel-wide pages above the workspace ones', async () => {
