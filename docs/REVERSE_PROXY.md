@@ -51,8 +51,9 @@ sudo setcap 'cap_net_bind_service=+ep' "$HHOSTED_HOME/.hh/.proxy/bin/hh-caddy"
 ```
 
 Otherwise use **4480/4443** — one click in the page, or `httpPort`/`httpsPort` — and
-forward `80 → 4480` and `443 → 4443` on your router. The panel reports the port as
-busy with the pid that holds it, and never kills a listener it did not start.
+forward `80 → 4480` and `443 → 4443` on your router. A port already in use is reported with
+the pid that holds it, on a first start and on a later change alike, and no listener the
+panel did not start is ever killed.
 
 ## Routes
 
@@ -77,11 +78,14 @@ refused.
 | --- | --- |
 | `auto` | The engine decides. A public name gets a Let's Encrypt certificate (HTTP-01 or TLS-ALPN-01, with ZeroSSL as fallback and renewal in the background). A local-only name gets the engine's own locally-trusted CA. |
 | `off` | Plain HTTP on the http port, no certificate. |
-| `manual` | The PEM pair uploaded under *Certificate*. |
+| `manual` | The PEM pair uploaded under *Certificate*. A route set to this with no pair stored is refused, rather than quietly given a certificate from somewhere else. |
 
-`email` is the ACME account address and is required as soon as a route uses a public
-hostname. `staging` points at the ACME staging endpoint while you test — the
-certificates are untrusted, and it is the way to avoid burning a rate limit.
+`email` is required as soon as a route uses a public hostname, and it is the contact
+address the ACME account is registered with. `staging` points that account at the ACME
+staging endpoint while you test: the certificates are untrusted, and it is the way to
+avoid burning a rate limit. Both reach the engine as one automation policy covering the
+**public** names only, so a local-only name keeps the engine's own CA. The engine page
+shows the soonest expiry among the publicly-issued certificates.
 
 Certificates are managed by the engine, inside `.hh/.proxy/engine/`, and nothing else on
 the machine is touched: the generated configuration pins its storage root, and the
@@ -100,7 +104,7 @@ takes a plugin list, so this is the next step, not a redesign.
 | Installed at | `.hh/.proxy/bin/hh-caddy` + `engine.json` (version, URL, SHA-256, size). |
 | Runs as | A child of the panel's own nanny, exactly like a `persistent: true` entry. |
 | Supervised by | The panel. The admin API is opened on the panel side only: a unix socket in a `0700` directory (loopback TCP plus Caddy's origin check on Windows). |
-| Reloaded by | `POST /load` — atomic, with the previous configuration kept on disk so a rejected change can be reverted in one click. |
+| Reloaded by | `POST /load` — atomic, and the revision that applied is kept on disk so a change can be reverted in one click (the first one has nothing to go back to). A reload onto a port something else holds is refused with that pid before the engine is touched, and the panel keeps reporting the ports the engine is really on. |
 | Stops with | **Stop** in the page, switching the proxy off, or `POST /api/proxy/stop`. It never stops itself, and `down` leaves it serving — the socket facing the internet is not something a panel restart should drop. It is never restarted automatically either: a configuration the engine refuses needs a person, not a retry loop. |
 
 Because it runs under a nanny, a panel restart does not drop the socket that faces the

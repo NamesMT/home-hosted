@@ -1,3 +1,4 @@
+import type { ProxyConfigInput } from '#src/services/proxy-config'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
@@ -20,6 +21,11 @@ function route(input: Record<string, unknown>) {
 }
 
 const unixAdmin = { kind: 'unix', path: '/tmp/hh/admin.sock' } as const
+
+/** The renderer with the ACME account left out, for the cases that are not about it. */
+function render(input: Omit<ProxyConfigInput, 'acme'> & { acme?: ProxyConfigInput['acme'] }) {
+  return renderCaddyConfig({ acme: { email: '', staging: false, subjects: [] }, ...input })
+}
 
 describe('caddy engine', () => {
   it('is the engine this build offers', () => {
@@ -73,7 +79,7 @@ describe('caddy engine', () => {
 
 describe('renderCaddyConfig', () => {
   it('serves a route on both ports and redirects to the configured https port', () => {
-    const rendered = renderCaddyConfig({
+    const rendered = render({
       config: config({ httpPort: 4480, httpsPort: 4443, email: 'me@example.com' }),
       admin: unixAdmin,
       engineDir: '/state/engine',
@@ -102,7 +108,7 @@ describe('renderCaddyConfig', () => {
   })
 
   it('omits the port from the redirect when it is the default one', () => {
-    const rendered = renderCaddyConfig({
+    const rendered = render({
       config: config({ email: 'me@example.com' }),
       admin: unixAdmin,
       engineDir: '/state/engine',
@@ -114,7 +120,7 @@ describe('renderCaddyConfig', () => {
   })
 
   it('skips the https server for a host that asked for no TLS', () => {
-    const rendered = renderCaddyConfig({
+    const rendered = render({
       config: config({}),
       admin: unixAdmin,
       engineDir: '/state/engine',
@@ -130,7 +136,7 @@ describe('renderCaddyConfig', () => {
   })
 
   it('matches a path prefix with and without a trailing segment', () => {
-    const rendered = renderCaddyConfig({
+    const rendered = render({
       config: config({ email: 'me@example.com' }),
       admin: unixAdmin,
       engineDir: '/state/engine',
@@ -142,7 +148,7 @@ describe('renderCaddyConfig', () => {
   })
 
   it('verifies nothing on a local upstream that speaks TLS', () => {
-    const rendered = renderCaddyConfig({
+    const rendered = render({
       config: config({}),
       admin: unixAdmin,
       engineDir: '/state/engine',
@@ -153,8 +159,72 @@ describe('renderCaddyConfig', () => {
     expect(http.servers.https.routes[0].handle[0].transport).toEqual({ protocol: 'http', tls: { insecure_skip_verify: true } })
   })
 
+  it('points the public names at an ACME account, and keeps the failover', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com' }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: null,
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
+      routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
+    })
+
+    const automation = (rendered.apps as any).tls.automation
+    expect(automation.policies).toHaveLength(1)
+    expect(automation.policies[0].subjects).toEqual(['git.example.com'])
+    // The address reaches the issuer, and supplying it does not cost ZeroSSL.
+    // The contact goes on the ACME account; the ZeroSSL issuer takes no `email`.
+    expect(automation.policies[0].issuers).toEqual([
+      { module: 'acme', email: 'me@example.com' },
+      { module: 'zerossl' },
+    ])
+  })
+
+  it('sends a staging account to the staging directory, and only there', () => {
+    const rendered = render({
+      config: config({ email: '', staging: true }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: null,
+      acme: { email: '', staging: true, subjects: ['git.example.com'] },
+      routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
+    })
+
+    expect((rendered.apps as any).tls.automation.policies[0].issuers).toEqual([
+      { module: 'acme', ca: 'https://acme-staging-v02.api.letsencrypt.org/directory' },
+    ])
+  })
+
+  it('emits no automation policy when no public name is served', () => {
+    const rendered = render({
+      config: config({}),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: null,
+      routes: [{ host: 'gitea.lan', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
+    })
+    // A catch-all policy would take the engine's own CA away from the local name.
+    expect((rendered.apps as any).tls).toBeUndefined()
+  })
+
+  it('carries the manual pair and the ACME account side by side', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com' }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: { certificate: '/state/tls/proxy.crt.pem', key: '/state/tls/proxy.key.pem' },
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
+      routes: [
+        { host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' },
+        { host: 'manual.example.com', path: '', dial: '127.0.0.1:3001', upstreamTls: false, tls: 'manual' },
+      ],
+    })
+    expect((rendered.apps as any).tls.certificates.load_files[0].certificate).toBe('/state/tls/proxy.crt.pem')
+    expect((rendered.apps as any).tls.automation.policies[0].subjects).toEqual(['git.example.com'])
+  })
+
   it('loads the uploaded pair from disk instead of inlining a private key', () => {
-    const rendered = renderCaddyConfig({
+    const rendered = render({
       config: config({}),
       admin: unixAdmin,
       engineDir: '/state/engine',
@@ -167,7 +237,7 @@ describe('renderCaddyConfig', () => {
   })
 
   it('asks a TCP admin endpoint for the origin its own check requires', () => {
-    const rendered = renderCaddyConfig({
+    const rendered = render({
       config: config({}),
       admin: { kind: 'tcp', host: '127.0.0.1', port: 46_000, origin: 'http://127.0.0.1:46000' },
       engineDir: '/state/engine',

@@ -2,11 +2,14 @@ import type { ChildProcess } from 'node:child_process'
 import type { GlobalSettingsStore } from '#src/config/settings'
 import type { ProxyAdminTransport, ProxyEngine } from '#src/providers/proxy'
 import type { ControlEndpoint } from '#src/services/control-server'
+import type { ProxyUpstreamRoute } from '#src/services/proxy-config'
 import type { TlsStore } from '#src/services/tls'
 import type {
   ProxyConfig,
   ProxyEngineStatus,
   ProxyPatch,
+  ProxyRoute,
+  ProxyRouteStatus,
   ProxyRouteView,
   ProxyRunState,
   ProxyStatus,
@@ -14,7 +17,7 @@ import type {
 } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, X509Certificate } from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
@@ -57,6 +60,23 @@ export const engineRecordSchema = type({
   installedAt: 'number',
 }).onUndeclaredKey('reject')
 export type EngineRecord = typeof engineRecordSchema.infer
+
+/** One route resolved far enough for the engine (and the UI) to use it. */
+interface ResolvedRoute {
+  route: ProxyRoute
+  status: ProxyRouteStatus
+  upstream: string | null
+  /** The upstream speaks TLS, so the engine must not dial it in cleartext. */
+  upstreamTls: boolean
+  message: string | null
+}
+
+/** The ports the engine actually bound, so a rejected reload cannot make the panel lie. */
+const appliedRecordSchema = type({
+  httpPort: '1 <= number.integer <= 65535',
+  httpsPort: '1 <= number.integer <= 65535',
+  at: 'number',
+}).onUndeclaredKey('reject')
 
 /** How the panel reaches a running engine; kept beside the nanny's state so a new panel finds it. */
 const adminRecordSchema = type({
@@ -112,6 +132,7 @@ export class ProxyService {
   private nanny: ChildProcess | null = null
   private admin: ProxyAdminTransport | null = null
   private lastError: string | null = null
+  private certCache: { at: number, days: number | null } | null = null
 
   constructor(private readonly options: ProxyServiceOptions) {}
 
@@ -200,10 +221,15 @@ export class ProxyService {
     if (!config.enabled)
       return base
 
-    const urls = [`http://localhost:${config.httpPort}`, `https://localhost:${config.httpsPort}`]
-    if (!this.installed()) {
-      return { ...base, state: 'stopped', urls, lastError: 'the proxy engine is not installed' }
-    }
+    // The ports the engine bound, not the ones the settings now ask for: a reload
+    // the engine rejected leaves it serving on what it already had.
+    const applied = this.readApplied()
+    const httpPort = applied?.httpPort ?? config.httpPort
+    const httpsPort = applied?.httpsPort ?? config.httpsPort
+    const urls = [`http://localhost:${httpPort}`, `https://localhost:${httpsPort}`]
+    const certExpiryDays = this.certificateExpiryDays()
+    if (!this.installed())
+      return { ...base, state: 'stopped', urls, certExpiryDays, lastError: 'the proxy engine is not installed' }
 
     const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
     if (state === null || state.serverId !== PROXY_ID || state.nannyPid <= 0 || !isProcessAlive(state.nannyPid)) {
@@ -212,20 +238,20 @@ export class ProxyService {
         ? null
         : `the engine exited with ${lastExit.signal === null ? `code ${lastExit.code}` : `signal ${lastExit.signal}`}`
       const lastError = this.lastError ?? detail
-      return { ...base, state: lastError === null ? 'stopped' : 'error', urls, lastError }
+      return { ...base, state: lastError === null ? 'stopped' : 'error', urls, certExpiryDays, lastError }
     }
     if (Date.now() - state.heartbeatAt > HEARTBEAT_STALE_MS)
-      return { ...base, state: 'error', urls, pid: state.childPid, since: state.startedAt, lastError: 'the engine stopped answering (its nanny is gone)' }
+      return { ...base, state: 'error', urls, certExpiryDays, pid: state.childPid, since: state.startedAt, lastError: 'the engine stopped answering (its nanny is gone)' }
 
-    const running: ProxyRunState = this.admin === null ? 'starting' : 'running'
-    return {
-      ...base,
-      state: running,
-      pid: state.childPid ?? state.nannyPid,
-      urls,
-      since: state.startedAt,
-      lastError: this.lastError,
-    }
+    const identity = { pid: state.childPid ?? state.nannyPid, since: state.startedAt, certExpiryDays }
+    if (this.admin === null)
+      return { ...base, state: 'starting', urls, ...identity, lastError: this.lastError }
+    // A nanny that outlived its child leaves a state file behind for a moment; the
+    // admin endpoint is the thing we would actually talk to.
+    if (this.admin.kind === 'unix' && !fs.existsSync(this.admin.path))
+      return { ...base, state: 'error', urls, ...identity, lastError: this.lastError ?? 'the engine is not answering on its admin endpoint' }
+
+    return { ...base, state: 'running' as ProxyRunState, urls, ...identity, lastError: this.lastError }
   }
 
   // --------------------------------------------------------------------- config
@@ -255,13 +281,14 @@ export class ProxyService {
 
     const rendered = this.render()
     const text = `${JSON.stringify(rendered, null, 2)}\n`
-    if (fs.existsSync(this.options.configPath)) {
-      const current = fs.readFileSync(this.options.configPath, 'utf8')
-      if (current === text)
-        return
-      writeFileAtomic(this.options.previousConfigPath, current)
+    if (fs.existsSync(this.options.configPath) && fs.readFileSync(this.options.configPath, 'utf8') === text) {
+      this.lastError = null
+      return
     }
-    writeFileAtomic(this.options.configPath, text)
+
+    // The engine cannot bind a port a stranger holds, and the raw error it answers
+    // with names no process. Ask first, so the answer names the pid to stop.
+    await this.assertPortsFree(this.config.httpPort, this.config.httpsPort)
 
     const result = await this.request('POST', '/load', rendered).catch((error: unknown) => {
       this.lastError = `the engine did not accept the configuration: ${error instanceof Error ? error.message : String(error)}`
@@ -271,8 +298,81 @@ export class ProxyService {
       this.lastError = engineMessage(result.body) ?? `the engine rejected the configuration (HTTP ${result.status})`
       throw new DetailedError(this.lastError, { statusCode: 400, code: 'PROXY_CONFIG_REJECTED' })
     }
+
+    // Only now is this the configuration: the file the engine boots from must never
+    // hold a revision it refused.
+    this.rememberConfig(text)
+    this.rememberApplied(this.config.httpPort, this.config.httpsPort)
     this.lastError = null
     this.options.onStateChange()
+  }
+
+  /** Advances `previous.json` only for a configuration the engine accepted. */
+  private rememberConfig(text: string): void {
+    if (fs.existsSync(this.options.configPath))
+      writeFileAtomic(this.options.previousConfigPath, fs.readFileSync(this.options.configPath, 'utf8'))
+    writeFileAtomic(this.options.configPath, text)
+  }
+
+  /** The ports the engine last bound. */
+  private readApplied(): { httpPort: number, httpsPort: number } | null {
+    try {
+      const parsed = appliedRecordSchema(JSON.parse(fs.readFileSync(path.join(this.options.stateDir, 'applied.json'), 'utf8')))
+      return parsed instanceof type.errors ? null : { httpPort: parsed.httpPort, httpsPort: parsed.httpsPort }
+    }
+    catch {
+      return null
+    }
+  }
+
+  private rememberApplied(httpPort: number, httpsPort: number): void {
+    writeFileAtomic(path.join(this.options.stateDir, 'applied.json'), `${JSON.stringify({ httpPort, httpsPort, at: Date.now() })}\n`, { mode: 0o600 })
+  }
+
+  /**
+   * Days until the soonest publicly-issued certificate expires. The engine's own CA
+   * is left out on purpose: it re-issues constantly, so its leaves are always hours
+   * from expiry and would read as a problem.
+   */
+  private certificateExpiryDays(): number | null {
+    if (this.certCache !== null && Date.now() - this.certCache.at < 30_000)
+      return this.certCache.days
+
+    const root = path.join(this.options.engineDir, 'data', 'certificates')
+    let soonest: number | null = null
+    const walk = (dir: string, inside: boolean): void => {
+      let entries: fs.Dirent[]
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+      }
+      catch {
+        return
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (!inside && entry.name === 'local')
+            continue
+          walk(full, true)
+          continue
+        }
+        if (!entry.name.endsWith('.crt'))
+          continue
+        try {
+          const validTo = new Date(new X509Certificate(fs.readFileSync(full)).validTo).getTime()
+          if (soonest === null || validTo < soonest)
+            soonest = validTo
+        }
+        catch {
+          // Not a PEM we can read; it is not evidence about any certificate.
+        }
+      }
+    }
+    walk(root, false)
+
+    const days = soonest === null ? null : Math.floor((soonest - Date.now()) / 86_400_000)
+    this.certCache = { at: Date.now(), days }
+    return days
   }
 
   /**
@@ -285,46 +385,114 @@ export class ProxyService {
     }
     const current = fs.existsSync(this.options.configPath) ? fs.readFileSync(this.options.configPath, 'utf8') : null
     const previous = fs.readFileSync(this.options.previousConfigPath, 'utf8')
-    writeFileAtomic(this.options.configPath, previous)
-    if (current === null)
-      fs.rmSync(this.options.previousConfigPath, { force: true })
-    else writeFileAtomic(this.options.previousConfigPath, current)
 
     const result = await this.request('POST', '/load', JSON.parse(previous) as unknown)
     if (result.status >= 400) {
       this.lastError = engineMessage(result.body) ?? `the engine rejected the configuration (HTTP ${result.status})`
       throw new DetailedError(this.lastError, { statusCode: 400, code: 'PROXY_CONFIG_REJECTED' })
     }
+
+    writeFileAtomic(this.options.configPath, previous)
+    if (current === null)
+      fs.rmSync(this.options.previousConfigPath, { force: true })
+    else writeFileAtomic(this.options.previousConfigPath, current)
     this.lastError = null
     this.options.onStateChange()
   }
 
-  /** The engine configuration for the current route table, resolved upstreams included. */
+  /**
+   * The engine configuration for the current route table. Throws when a route cannot
+   * be built, because a half-built configuration is worse than a refused one.
+   */
   private render(): Record<string, unknown> {
-    const routes = this.routeViews()
-    const blocked = routes.find(view => view.status === 'error')
+    const blocked = this.resolveRoutes().find(view => view.status === 'error')
     if (blocked !== undefined)
       throw new DetailedError(blocked.message ?? `${blocked.route.host} cannot be routed`, { statusCode: 400, code: 'PROXY_ROUTE_INVALID' })
 
-    const manual = this.options.tls.present && this.config.routes.some(route => route.tls === 'manual')
-      ? { certificate: this.options.tls.certPath, key: this.options.tls.keyPath }
-      : null
-
+    const routes = this.engineRoutes()
     return renderCaddyConfig({
       config: this.config,
       admin: this.admin ?? this.unixAdmin(),
       engineDir: this.options.engineDir,
-      manual,
-      routes: routes
-        .filter(view => view.status === 'ok' && view.upstream !== null)
-        .map(view => ({
-          host: view.route.host,
-          path: view.route.path,
-          dial: view.upstream!,
-          upstreamTls: view.route.target === 'panel' && this.options.control().protocol === 'https',
-          tls: view.route.tls,
-        })),
+      manual: this.manualPair(),
+      acme: this.acmeAccount(routes),
+      routes,
     })
+  }
+
+  /** The uploaded pair, when any route actually asks for it. */
+  private manualPair(): { certificate: string, key: string } | null {
+    if (!this.options.tls.present)
+      return null
+    return this.config.routes.some(route => route.tls === 'manual')
+      ? { certificate: this.options.tls.certPath, key: this.options.tls.keyPath }
+      : null
+  }
+
+  /** The ACME account, and the names it may issue for: only the public ones. */
+  private acmeAccount(routes: readonly ProxyUpstreamRoute[]): { email: string, staging: boolean, subjects: string[] } {
+    return {
+      email: this.config.email.trim(),
+      staging: this.config.staging,
+      subjects: routes.filter(route => route.tls === 'auto' && isPublicHost(route.host)).map(route => route.host),
+    }
+  }
+
+  /** Every route, resolved far enough to render. */
+  private resolveRoutes(): ResolvedRoute[] {
+    const seen = new Map<string, string>()
+    return this.config.routes.map((route): ResolvedRoute => {
+      const key = `${route.host.toLowerCase()}${route.path}`
+      const clash = seen.get(key)
+      if (clash !== undefined)
+        return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.host}" is routed twice (${clash} and ${route.id})` }
+      seen.set(key, route.id)
+
+      if (!route.enabled)
+        return { route, status: 'disabled', upstream: null, upstreamTls: false, message: null }
+
+      // `manual` means the uploaded pair and nothing else: without one the engine
+      // would quietly obtain its own certificate for a name the user marked manual.
+      if (route.tls === 'manual' && !this.options.tls.present)
+        return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" is set to the uploaded certificate, but none has been uploaded` }
+
+      if (route.target === 'external') {
+        const parsed = parseUpstream(route.url)
+        if (parsed === null)
+          return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" needs an upstream like http://10.0.0.5:8080` }
+        return { route, status: 'ok', upstream: parsed.dial, upstreamTls: parsed.tls, message: null }
+      }
+
+      if (route.target === 'panel') {
+        const endpoint = this.options.control()
+        if (!endpoint.port)
+          return { route, status: 'no-upstream', upstream: null, upstreamTls: false, message: 'the control panel is not listening' }
+        return { route, status: 'ok', upstream: `127.0.0.1:${endpoint.port}`, upstreamTls: endpoint.protocol === 'https', message: null }
+      }
+
+      if (route.workspace.length === 0 || route.server.length === 0)
+        return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" needs a workspace and a server` }
+
+      const resolved = this.options.resolveServer(route.workspace, route.server)
+      if (resolved === null)
+        return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" points at ${route.workspace}/${route.server}, which does not exist` }
+      if (resolved.url === null)
+        return { route, status: 'no-upstream', upstream: null, upstreamTls: false, message: resolved.message ?? `${route.workspace}/${route.server} is not running` }
+      return { route, status: 'ok', upstream: resolved.url.replace(/^https?:\/\//, ''), upstreamTls: resolved.url.startsWith('https://'), message: null }
+    })
+  }
+
+  /** Only the routes the engine can serve, in the shape the renderer wants. */
+  private engineRoutes(): ProxyUpstreamRoute[] {
+    return this.resolveRoutes()
+      .filter(resolved => resolved.status === 'ok' && resolved.upstream !== null)
+      .map(resolved => ({
+        host: resolved.route.host,
+        path: resolved.route.path,
+        dial: resolved.upstream!,
+        upstreamTls: resolved.upstreamTls,
+        tls: resolved.route.tls,
+      }))
   }
 
   /**
@@ -332,45 +500,7 @@ export class ProxyService {
    * is reported, not silently dropped: the panel says why the hostname is dark.
    */
   routeViews(): ProxyRouteView[] {
-    const seen = new Map<string, string>()
-    return this.config.routes.map((route) => {
-      const key = `${route.host.toLowerCase()}${route.path}`
-      const clash = seen.get(key)
-      if (clash !== undefined) {
-        return { route, status: 'error' as const, upstream: null, message: `"${route.host}" is routed twice (${clash} and ${route.id})` }
-      }
-      seen.set(key, route.id)
-
-      if (!route.enabled)
-        return { route, status: 'disabled' as const, upstream: null, message: null }
-
-      if (route.target === 'external') {
-        const parsed = parseUpstream(route.url)
-        if (parsed === null) {
-          return { route, status: 'error' as const, upstream: null, message: `"${route.id}" needs an upstream like http://10.0.0.5:8080` }
-        }
-        return { route, status: 'ok' as const, upstream: parsed.dial, message: null }
-      }
-
-      if (route.target === 'panel') {
-        const endpoint = this.options.control()
-        if (!endpoint.port)
-          return { route, status: 'no-upstream' as const, upstream: null, message: 'the control panel is not listening' }
-        return { route, status: 'ok' as const, upstream: `127.0.0.1:${endpoint.port}`, message: null }
-      }
-
-      if (route.workspace.length === 0 || route.server.length === 0) {
-        return { route, status: 'error' as const, upstream: null, message: `"${route.id}" needs a workspace and a server` }
-      }
-      const resolved = this.options.resolveServer(route.workspace, route.server)
-      if (resolved === null) {
-        return { route, status: 'error' as const, upstream: null, message: `"${route.id}" points at ${route.workspace}/${route.server}, which does not exist` }
-      }
-      if (resolved.url === null) {
-        return { route, status: 'no-upstream' as const, upstream: null, message: resolved.message ?? `${route.workspace}/${route.server} is not running` }
-      }
-      return { route, status: 'ok' as const, upstream: resolved.url.replace(/^https?:\/\//, ''), message: null }
-    })
+    return this.resolveRoutes().map(({ route, status, upstream, message }) => ({ route, status, upstream, message }))
   }
 
   view(): ProxyView {
@@ -443,6 +573,9 @@ export class ProxyService {
    */
   async install(version = ''): Promise<ProxyEngineStatus> {
     const engine = this.engine
+    if (version.length > 0 && !/^v?\d+\.\d+\.\d[\w.+-]*$/.test(version)) {
+      throw new DetailedError(`"${version}" is not a ${engine.info.label} version`, { statusCode: 400, code: 'INVALID_ENGINE_VERSION' })
+    }
     const download = engine.download({ platform: process.platform, arch: process.arch, version })
     if (download === null) {
       throw new DetailedError(`${engine.info.label} has no build for ${process.platform}/${process.arch}`, { statusCode: 400, code: 'UNSUPPORTED_PLATFORM' })
@@ -481,9 +614,15 @@ export class ProxyService {
       fs.chmodSync(target, 0o755)
     fs.renameSync(target, this.enginePath)
 
+    if (process.platform !== 'win32')
+      fs.chmodSync(this.enginePath, 0o755)
+
+    // What the binary says it is, not what was asked for: the build service answers
+    // a request for a version it does not have with its default release.
+    const probed = await this.probeEngineVersion()
     const record: EngineRecord = {
       engine: engine.info.id,
-      version: download.version,
+      version: probed ?? download.version,
       source: 'downloaded',
       url: download.url,
       sha256,
@@ -491,7 +630,7 @@ export class ProxyService {
       installedAt: Date.now(),
     }
     writeFileAtomic(path.join(this.options.binDir, 'engine.json'), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 })
-    logger.info(`proxy:    installed ${engine.info.label} ${download.version} (${Math.round(bytes / 1024 / 1024)} MB)`)
+    logger.info(`proxy:    installed ${engine.info.label} ${record.version} (${Math.round(bytes / 1024 / 1024)} MB)`)
     this.options.onStateChange()
     return this.engineStatus()
   }
@@ -537,31 +676,21 @@ export class ProxyService {
 
     const admin = await this.chooseAdmin()
     this.admin = admin
-    const routes = this.routeViews()
-    const invalid = routes.find(view => view.status === 'error')
+    const invalid = this.resolveRoutes().find(view => view.status === 'error')
     if (invalid !== undefined)
       throw new DetailedError(invalid.message ?? 'a route cannot be built', { statusCode: 400, code: 'PROXY_ROUTE_INVALID' })
 
-    const manual = this.options.tls.present && config.routes.some(route => route.tls === 'manual')
-      ? { certificate: this.options.tls.certPath, key: this.options.tls.keyPath }
-      : null
+    const routes = this.engineRoutes()
     const rendered = renderCaddyConfig({
       config,
       admin,
       engineDir: this.options.engineDir,
-      manual,
-      routes: routes
-        .filter(view => view.status === 'ok' && view.upstream !== null)
-        .map(view => ({
-          host: view.route.host,
-          path: view.route.path,
-          dial: view.upstream!,
-          upstreamTls: view.route.target === 'panel' && this.options.control().protocol === 'https',
-          tls: view.route.tls,
-        })),
+      manual: this.manualPair(),
+      acme: this.acmeAccount(routes),
+      routes,
     })
     fs.mkdirSync(this.options.engineDir, { recursive: true, mode: 0o700 })
-    writeFileAtomic(this.options.configPath, `${JSON.stringify(rendered, null, 2)}\n`)
+    this.rememberConfig(`${JSON.stringify(rendered, null, 2)}\n`)
     writeFileAtomic(this.options.adminPath, `${JSON.stringify(admin)}\n`, { mode: 0o600 })
 
     const specPath = nannySpecPath(this.options.stateDir, PROXY_ID)
@@ -591,6 +720,10 @@ export class ProxyService {
     })
     this.nanny.on('exit', () => {
       this.nanny = null
+      // The handle is gone, so nothing it owned is ours to talk to any more — a
+      // stale admin.json would have the next apply() reach for a dead socket.
+      this.admin = null
+      fs.rmSync(this.options.adminPath, { force: true })
       this.options.onStateChange()
     })
 
@@ -600,6 +733,7 @@ export class ProxyService {
       await this.stop().catch(() => undefined)
       throw new DetailedError(this.lastError, { statusCode: 502, code: 'ENGINE_NOT_READY' })
     }
+    this.rememberApplied(config.httpPort, config.httpsPort)
     this.lastError = null
     logger.info(`proxy:    ${this.engine.info.label} serving on :${this.config.httpPort} and :${this.config.httpsPort}`)
     this.options.onStateChange()
@@ -643,8 +777,10 @@ export class ProxyService {
 
     this.nanny = null
     this.admin = null
+    this.certCache = null
     fs.rmSync(nannySpecPath(this.options.stateDir, PROXY_ID), { force: true })
     fs.rmSync(this.options.adminPath, { force: true })
+    fs.rmSync(path.join(this.options.stateDir, 'applied.json'), { force: true })
     this.options.onStateChange()
   }
 

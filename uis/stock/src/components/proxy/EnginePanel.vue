@@ -134,7 +134,7 @@ const CAPABILITIES = [
             </dt>
             <dd class="text-xs text-ink">
               {{ status?.certExpiryDays === null || status?.certExpiryDays === undefined
-                ? 'no managed certificate yet'
+                ? 'no public certificate yet'
                 : `soonest expires in ${status.certExpiryDays} days` }}
             </dd>
           </div>

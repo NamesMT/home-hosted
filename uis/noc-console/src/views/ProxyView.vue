@@ -354,7 +354,7 @@ async function runTls(action: () => Promise<ProxyView>, done: string): Promise<v
                 <span class="detailbox__k">certificates</span>
                 <span class="detailbox__v">
                   {{ status?.certExpiryDays === null || status?.certExpiryDays === undefined
-                    ? 'no managed certificate yet'
+                    ? 'no public certificate yet'
                     : `soonest expires in ${status.certExpiryDays} days` }}
                 </span>
               </div>

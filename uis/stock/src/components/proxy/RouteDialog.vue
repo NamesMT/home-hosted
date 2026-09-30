@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ProxyWorkspace, RouteDraft, RouteErrors } from '@/lib/proxy'
-import { computed, ref, watch } from 'vue'
+import { computed, ref, toRaw, watch } from 'vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
@@ -44,7 +44,7 @@ const tlsHint = computed(() => {
 watch(open, (isOpen) => {
   if (!isOpen)
     return
-  form.value = props.draft === null ? newRouteDraft() : structuredClone(props.draft)
+  form.value = props.draft === null ? newRouteDraft() : structuredClone(toRaw(props.draft))
   if (form.value.workspace.length === 0)
     form.value.workspace = props.workspaces[0]?.id ?? ''
   errors.value = {}

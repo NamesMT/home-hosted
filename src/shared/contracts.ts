@@ -781,7 +781,7 @@ export const proxyStatusSchema = type({
   pid: 'number | null',
   /** The addresses the engine serves on, for the page to show. */
   urls: type('string[]'),
-  /** Days until the soonest managed certificate expires; `null` when none. */
+  /** Days until the soonest publicly-issued certificate expires; `null` when none. */
   certExpiryDays: 'number | null',
   since: 'number | null',
   lastError: 'string | null',

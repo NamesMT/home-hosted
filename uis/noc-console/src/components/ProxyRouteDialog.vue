@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ProxyWorkspace, RouteDraft, RouteErrors } from '@/lib/proxy'
-import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
+import { computed, nextTick, onScopeDispose, ref, toRaw, watch } from 'vue'
 import { isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
 
 /** One route, edited in the console's own sheet. Nothing is saved here. */
@@ -44,7 +44,7 @@ watch(() => props.open, async (open) => {
     return
   }
   window.addEventListener('keydown', onKey)
-  form.value = props.draft === null ? newRouteDraft() : structuredClone(props.draft)
+  form.value = props.draft === null ? newRouteDraft() : structuredClone(toRaw(props.draft))
   if (form.value.workspace.length === 0)
     form.value.workspace = props.workspaces[0]?.id ?? ''
   errors.value = {}

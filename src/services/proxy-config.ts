@@ -20,6 +20,28 @@ export interface ProxyConfigInput {
   routes: ProxyUpstreamRoute[]
   /** The PEM pair `tls: "manual"` serves, as paths on disk. */
   manual: { certificate: string, key: string } | null
+  /**
+   * The ACME account, and the names it may issue for. Without this the engine still
+   * gets certificates, but registers an account with no contact address and has no
+   * way to be pointed at the staging endpoint.
+   */
+  acme: { email: string, staging: boolean, subjects: string[] }
+}
+
+/** The ACME staging directory: untrusted certificates, and no rate limit burnt. */
+const ACME_STAGING = 'https://acme-staging-v02.api.letsencrypt.org/directory'
+
+/**
+ * The issuers for the public names. `zerossl` is Caddy's second default CA and is
+ * listed so supplying an address does not cost the automatic failover — it takes no
+ * `email` field of its own (verified against Caddy 2.11.4: it rejects one).
+ */
+function acmeIssuers(acme: ProxyConfigInput['acme']): Array<Record<string, unknown>> {
+  const contact = acme.email.length > 0 ? { email: acme.email } : {}
+  return [
+    { module: 'acme', ...contact, ...(acme.staging ? { ca: ACME_STAGING } : {}) },
+    ...(acme.staging ? [] : [{ module: 'zerossl' }]),
+  ]
 }
 
 function matchFor(route: ProxyUpstreamRoute): Record<string, unknown> {
@@ -96,14 +118,23 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
     adminBlock.origins = [admin.origin]
   }
 
+  const tlsApp: Record<string, unknown> = {}
+  if (input.manual !== null)
+    tlsApp.certificates = { load_files: [{ certificate: input.manual.certificate, key: input.manual.key }] }
+  // Subjects are the public names only: a local-only name must keep falling to the
+  // engine's own CA, which a catch-all policy would take away from it.
+  if (input.acme.subjects.length > 0) {
+    tlsApp.automation = {
+      policies: [{ subjects: input.acme.subjects, issuers: acmeIssuers(input.acme) }],
+    }
+  }
+
   return {
     admin: adminBlock,
     storage: { module: 'file_system', root: `${engineDir}/data` },
     logging: { logs: { default: { level: 'INFO' } } },
     apps: {
-      ...(input.manual === null
-        ? {}
-        : { tls: { certificates: { load_files: [{ certificate: input.manual.certificate, key: input.manual.key }] } } }),
+      ...(Object.keys(tlsApp).length === 0 ? {} : { tls: tlsApp }),
       http: {
         http_port: config.httpPort,
         https_port: config.httpsPort,
