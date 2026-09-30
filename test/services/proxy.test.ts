@@ -188,7 +188,8 @@ describe('proxyService', () => {
   it('reports an installed engine with what was written beside it', async () => {
     const { service, options } = await harness()
     fs.mkdirSync(options.binDir, { recursive: true })
-    fs.writeFileSync(path.join(options.binDir, 'hh-caddy'), 'not really a binary')
+    // The name the panel would install, so this holds on Windows too.
+    fs.writeFileSync(service.enginePath, 'not really a binary')
     fs.writeFileSync(path.join(options.binDir, 'engine.json'), JSON.stringify({
       engine: 'caddy',
       version: '2.11.4',
@@ -206,7 +207,7 @@ describe('proxyService', () => {
   it('calls a binary we did not install our own, and reads a garbled record as absent', async () => {
     const { service, options } = await harness()
     fs.mkdirSync(options.binDir, { recursive: true })
-    fs.writeFileSync(path.join(options.binDir, 'hh-caddy'), 'x')
+    fs.writeFileSync(service.enginePath, 'x')
     fs.writeFileSync(path.join(options.binDir, 'engine.json'), '{ not json')
 
     expect(service.engineStatus()).toMatchObject({ installed: true, source: 'custom', version: null, sha256: null })
