@@ -1,14 +1,64 @@
 import type { ProxyServiceOptions } from '#src/services/proxy'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { isPublicHost, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
 import { proxyConfigSchema } from '#src/shared/contracts'
 
 const dirs: string[] = []
+
+let openssl = true
+
+beforeAll(() => {
+  try {
+    execFileSync('openssl', ['version'], { stdio: 'ignore' })
+  }
+  catch {
+    openssl = false
+  }
+})
+
+/** A real pair, valid or long expired — the second is what an in-place expiry looks like. */
+function makePair(host: string, expired = false): { certificate: string, privateKey: string } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-proxy-pair-'))
+  const args = [
+    'req',
+    '-x509',
+    '-newkey',
+    'rsa:2048',
+    '-nodes',
+    '-keyout',
+    path.join(dir, 'key.pem'),
+    '-out',
+    path.join(dir, 'cert.pem'),
+    '-subj',
+    `/CN=${host}`,
+    '-addext',
+    `subjectAltName=DNS:${host}`,
+    ...(expired ? ['-not_before', '20200101000000Z', '-not_after', '20200102000000Z'] : ['-days', '3']),
+  ]
+  try {
+    execFileSync('openssl', args, { stdio: 'ignore' })
+    return {
+      certificate: fs.readFileSync(path.join(dir, 'cert.pem'), 'utf8'),
+      privateKey: fs.readFileSync(path.join(dir, 'key.pem'), 'utf8'),
+    }
+  }
+  finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** Writes a pair where the store looks for it, without going through the API. */
+function writePair(tlsDir: string, id: string, pair: { certificate: string, privateKey: string }): void {
+  fs.mkdirSync(tlsDir, { recursive: true })
+  fs.writeFileSync(path.join(tlsDir, `${id}.crt.pem`), pair.certificate)
+  fs.writeFileSync(path.join(tlsDir, `${id}.key.pem`), pair.privateKey)
+}
 
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
@@ -233,6 +283,46 @@ describe('proxyService', () => {
     const { service } = await harness()
     await expect(service.start()).rejects.toThrow('switched off')
     await expect(service.apply()).resolves.toBeUndefined()
+  })
+
+  it('refuses to serve a pair that expired in place, and says so', async () => {
+    if (!openssl)
+      return
+    const { service, settings, options } = await harness()
+    // The upload path rejects an already-expired pair; this is the one it cannot see —
+    // a pair that was valid when stored and expired since.
+    writePair(options.tlsDir, 'old', makePair('old.example.com', true))
+    settings.updateProxy({ certificates: [{ id: 'old', label: 'Old' }] })
+
+    const view = service.certificateViews()[0]
+    expect(view).toMatchObject({ id: 'old', present: true, used: false })
+    expect(view?.error).toContain('expired')
+
+    settings.updateProxy({
+      routes: [{ id: 'h', host: 'old.example.com', target: 'external', url: 'http://10.0.0.5:1', tls: 'manual' }],
+    })
+    const route = service.routeViews()[0]
+    expect(route?.status).toBe('error')
+    expect(route?.certificate?.state).toBe('failed')
+    expect(route?.certificate?.message).toContain('expired')
+  })
+
+  it('serves the usable pair, and marks the shadowed one unused', async () => {
+    if (!openssl)
+      return
+    const { service, settings, options } = await harness()
+    writePair(options.tlsDir, 'good', makePair('good.example.com'))
+    writePair(options.tlsDir, 'old', makePair('good.example.com', true))
+    settings.updateProxy({ certificates: [{ id: 'good', label: 'Good' }, { id: 'old', label: 'Old' }] })
+    settings.updateProxy({
+      routes: [{ id: 'h', host: 'good.example.com', target: 'external', url: 'http://10.0.0.5:1', tls: 'manual' }],
+    })
+
+    // Only the usable pair is a candidate, so the route is fine and the expired copy is
+    // reported as unused rather than as a second healthy certificate.
+    expect(service.routeViews()[0]?.status).toBe('ok')
+    expect(service.routeViews()[0]?.certificate?.state).toBe('uploaded')
+    expect(service.certificateViews().map(entry => [entry.id, entry.used])).toEqual([['good', true], ['old', false]])
   })
 
   it('refuses a pair that is not a certificate, and stores none', async () => {

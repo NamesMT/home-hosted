@@ -815,6 +815,8 @@ export const proxyCertificateViewSchema = type({
   label: 'string',
   /** Both halves are on disk. */
   present: 'boolean',
+  /** The engine would serve this pair for at least one manual route. */
+  used: 'boolean',
   subject: 'string | null',
   issuer: 'string | null',
   validTo: 'string | null',

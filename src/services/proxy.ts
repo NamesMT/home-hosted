@@ -253,13 +253,26 @@ export class ProxyService {
     return this.certCache
   }
 
+  /**
+   * The pair that would actually serve this hostname: an exact SAN beats a wildcard,
+   * and an expired or unreadable pair is not a candidate at all.
+   */
+  private bestCover(host: string): ProxyCertificateView | null {
+    const usable = this.certificateViews().filter(entry => entry.present && entry.error === null)
+    const name = host.toLowerCase()
+    return usable.find(entry => entry.hosts.includes(name))
+      ?? usable.find(entry => coversHost(entry.hosts, name))
+      ?? null
+  }
+
   private readCertificateViews(): ProxyCertificateView[] {
-    return this.config.certificates.map((entry) => {
+    const views = this.config.certificates.map((entry) => {
       const store = this.pairStore(entry.id)
       const base: ProxyCertificateView = {
         id: entry.id,
         label: entry.label,
         present: store.present,
+        used: false,
         subject: null,
         issuer: null,
         validTo: null,
@@ -287,6 +300,19 @@ export class ProxyService {
         return { ...base, error: `unreadable certificate: ${error instanceof Error ? error.message : String(error)}` }
       }
     })
+
+    // Two pairs can cover one name (a wildcard and an exact one, or two copies of the
+    // same thing); the engine serves one, so say which. A pair no route would get is
+    // reported as unused rather than healthy.
+    const wanted = new Set<string>()
+    for (const route of this.config.routes.filter(entry => entry.tls === 'manual')) {
+      const name = route.host.toLowerCase()
+      const usable = views.filter(entry => entry.present && entry.error === null)
+      const best = usable.find(entry => entry.hosts.includes(name)) ?? usable.find(entry => coversHost(entry.hosts, name))
+      if (best !== undefined)
+        wanted.add(best.id)
+    }
+    return views.map(entry => ({ ...entry, used: wanted.has(entry.id) }))
   }
 
   /**
@@ -298,10 +324,19 @@ export class ProxyService {
       return { state: 'off', message: null }
 
     if (route.tls === 'manual') {
-      const covered = this.certificateViews().some(entry => entry.present && coversHost(entry.hosts, route.host))
-      return covered
-        ? { state: 'uploaded', message: null }
-        : { state: 'failed', message: `no uploaded certificate covers ${route.host}` }
+      const best = this.bestCover(route.host)
+      if (best !== null)
+        return { state: 'uploaded', message: best.label.length > 0 ? best.label : best.id }
+
+      // A pair that covers the name but cannot be used says why — an expired one is the
+      // case that would otherwise be served happily.
+      const covering = this.certificateViews().find(entry => entry.present && coversHost(entry.hosts, route.host))
+      return {
+        state: 'failed',
+        message: covering === undefined
+          ? `no uploaded certificate covers ${route.host}`
+          : `${covering.error ?? 'the uploaded certificate cannot be used'} — upload a valid pair for ${route.host}`,
+      }
     }
 
     if (!isPublicHost(route.host))
@@ -587,7 +622,7 @@ export class ProxyService {
 
   /** True when an uploaded pair covers this hostname. */
   private manualCovers(host: string): boolean {
-    return this.certificateViews().some(entry => entry.present && coversHost(entry.hosts, host))
+    return this.bestCover(host) !== null
   }
 
   /**
@@ -661,9 +696,9 @@ export class ProxyService {
   private manualPairs(): Array<{ certificate: string, key: string }> {
     if (!this.config.routes.some(route => route.tls === 'manual'))
       return []
-    return this.config.certificates
+    return this.certificateViews()
+      .filter(entry => entry.present && entry.error === null)
       .map(entry => this.pairStore(entry.id))
-      .filter(store => store.present)
       .map(store => ({ certificate: store.certPath, key: store.keyPath }))
   }
 
