@@ -151,9 +151,27 @@ export class ProxyService {
     return path.join(this.options.binDir, this.engine.binaryName(process.platform))
   }
 
-  /** The PEM pair a route with `tls: "manual"` serves; the TLS route owns its writes. */
-  get manualTls(): TlsStore {
-    return this.options.tls
+  /** Stores the pair a route with `tls: "manual"` serves. */
+  saveManualTls(certificate: string, privateKey: string): { ok: boolean, error?: string } {
+    const saved = this.options.tls.save(certificate, privateKey)
+    this.certCache = null
+    return saved
+  }
+
+  /**
+   * Removes it — refused while a route still serves it, because clearing first
+   * would leave the engine on a certificate the panel has already deleted.
+   */
+  clearManualTls(): void {
+    const holders = this.config.routes.filter(route => route.tls === 'manual')
+    if (holders.length > 0) {
+      throw new DetailedError(
+        `the uploaded certificate is still served by ${holders.map(route => `"${route.id}"`).join(', ')} — set those routes to another TLS mode first`,
+        { statusCode: 400, code: 'PROXY_TLS_IN_USE', detail: { routes: holders.map(route => route.id) } },
+      )
+    }
+    this.options.tls.clear()
+    this.certCache = null
   }
 
   // ------------------------------------------------------------------ lifecycle

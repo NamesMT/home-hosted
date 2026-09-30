@@ -187,7 +187,7 @@ export function createProxyRoute(deps: AppDeps) {
       validate('json', tlsUploadSchema),
       async (c) => {
         const body = c.req.valid('json')
-        const saved = deps.proxy.manualTls.save(body.certificate, body.privateKey)
+        const saved = proxy().saveManualTls(body.certificate, body.privateKey)
         if (!saved.ok)
           throw new DetailedError(saved.error ?? 'the certificate pair was rejected', { statusCode: 400, code: 'INVALID_CERTIFICATE' })
 
@@ -205,7 +205,7 @@ export function createProxyRoute(deps: AppDeps) {
         responses: { 200: { description: 'Removed', content: jsonBody(proxyViewSchema) } },
       }),
       async (c) => {
-        deps.proxy.manualTls.clear()
+        proxy().clearManualTls()
         if (proxy().status().state === 'running')
           await proxy().apply()
         return c.json(view())

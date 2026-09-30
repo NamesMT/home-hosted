@@ -163,6 +163,29 @@ describe('pOST /api/proxy/engine', () => {
 })
 
 describe('pUT /api/proxy/tls', () => {
+  it('keeps the pair while a route still serves it', async () => {
+    const fixture = await makeApp()
+    // A manual route in the config is what makes the pair load-bearing.
+    fixture.settings.updateProxy({
+      routes: [{ id: 'm', host: 'manual.example.com', target: 'external', url: 'http://10.0.0.5:3000', tls: 'manual' }],
+    })
+
+    const refused = await fixture.app.request('/api/proxy/tls', { method: 'DELETE' })
+    expect(refused.status).toBe(400)
+    const body = await refused.json() as ProxyBody
+    expect(body.code).toBe('PROXY_TLS_IN_USE')
+    // The route id is named, so the message says which route to change.
+    expect(body.message).toContain('"m"')
+    expect(fixture.settings.proxy.routes[0]?.tls).toBe('manual')
+  })
+
+  it('removes the pair once no route serves it', async () => {
+    const fixture = await makeApp()
+    const response = await fixture.app.request('/api/proxy/tls', { method: 'DELETE' })
+    expect(response.status).toBe(200)
+    expect((await response.json() as ProxyBody).tls.certPresent).toBe(false)
+  })
+
   it('refuses a pair that is not a certificate', async () => {
     const fixture = await makeApp()
     const response = await fixture.app.request('/api/proxy/tls', {
