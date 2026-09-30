@@ -136,7 +136,10 @@ onScopeDispose(() => disconnect())
           :config-path="workspace.selected.value?.configPath"
         />
 
-        <main :class="cn('min-h-0 flex-1', isLogs ? 'overflow-hidden' : 'overflow-y-auto')">
+        <!-- `relative` contains absolutely-positioned descendants (an `sr-only` label, for
+             one): a static scroller lets them resolve against the page, which puts a
+             second, empty scrollbar on the document. -->
+        <main :class="cn('relative min-h-0 flex-1', isLogs ? 'overflow-hidden' : 'overflow-y-auto')">
           <RouterView />
         </main>
       </div>

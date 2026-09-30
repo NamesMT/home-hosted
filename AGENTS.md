@@ -355,6 +355,9 @@ either is a last resort, and never an accidental one.
   file-only blocks on their own. The copy has to be **detached**, too: a shallow one leaves a nested
   group (`health.http`) aliased to live state, so an edit to "Healthy below status" mutated the very
   config the guard compared against and the next frame reset the whole editor (`cloneHealth`).
+- **An absolutely positioned element inside a *static* scroll container resolves against the
+  page, not the scroller** — an `sr-only` label in a table row was enough to give the document a
+  second, empty scrollbar. The shell's `main` carries `relative` for that reason; keep it there.
 - **A dialog's footer has to be a flex sibling of a scrolling body** (`uis/stock/src/components/ui/Modal.vue`):
   the sheet is `flex flex-col` with `max-h-[88dvh]`, the body `min-h-0 flex-1 overflow-y-auto`. When
   only the body carried a max-height, a tall form pushed its own save button below the clipped
