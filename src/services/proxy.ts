@@ -428,6 +428,12 @@ export class ProxyService {
 
     if (this.live()) {
       logger.info(`proxy:    reattached to the running ${this.config.engine} engine`)
+      // A reattached engine still holds the configuration from before this panel
+      // started — after an upgrade that is the old shape. Applying is a no-op when
+      // nothing changed.
+      await this.apply().catch((error: unknown) => {
+        logger.warn(`proxy:    could not apply the current configuration to the reattached engine: ${error instanceof Error ? error.message : String(error)}`)
+      })
       return
     }
     try {
