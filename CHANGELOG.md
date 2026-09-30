@@ -1,6 +1,45 @@
 # Changelog
 
 
+## v0.7.2
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.1...v0.7.2)
+
+### 🚀 Enhancements
+
+- **proxy:** Reverse proxy with automatic HTTPS, driven by the panel ([60039ad](https://github.com/NamesMT/home-hosted/commit/60039ad))
+- **proxy:** Several uploaded certificates, and never a dead handshake ([637e45c](https://github.com/NamesMT/home-hosted/commit/637e45c))
+- **ui:** Uploaded certificates are a list, and a route shows its certificate state ([be823fe](https://github.com/NamesMT/home-hosted/commit/be823fe))
+
+### 🩹 Fixes
+
+- **proxy:** Reach the engine with the account and the ports it actually has ([b9c68b1](https://github.com/NamesMT/home-hosted/commit/b9c68b1))
+- **proxy:** Keep the uploaded certificate while a route serves it ([5ca6898](https://github.com/NamesMT/home-hosted/commit/5ca6898))
+- **proxy:** One ACME issuer, and say what the challenge needs ([b91a1a2](https://github.com/NamesMT/home-hosted/commit/b91a1a2))
+- **ui:** Stop the proxy page from scrolling the document ([196fe58](https://github.com/NamesMT/home-hosted/commit/196fe58))
+- **proxy:** Apply the current configuration to a reattached engine ([0d3dbfb](https://github.com/NamesMT/home-hosted/commit/0d3dbfb))
+- **proxy:** Never serve an uploaded pair that cannot be used ([6c08bfc](https://github.com/NamesMT/home-hosted/commit/6c08bfc))
+- **proxy:** Key the certificate snapshot on the config and the pair files ([1e22a33](https://github.com/NamesMT/home-hosted/commit/1e22a33))
+- **proxy:** The not-ready page covers the whole host, prefix or not ([adb052c](https://github.com/NamesMT/home-hosted/commit/adb052c))
+- **ui:** The setcap command reads as inline code ([45bbd30](https://github.com/NamesMT/home-hosted/commit/45bbd30))
+- **ui:** The copy button sits on the same line as what it copies ([f990018](https://github.com/NamesMT/home-hosted/commit/f990018))
+
+### 📖 Documentation
+
+- README typo ([126139e](https://github.com/NamesMT/home-hosted/commit/126139e))
+- Mark which endpoints are workspace-scoped ([f7db7de](https://github.com/NamesMT/home-hosted/commit/f7db7de))
+- README update ([b9f48ee](https://github.com/NamesMT/home-hosted/commit/b9f48ee))
+
+### ✅ Tests
+
+- **proxy:** Write the fake engine to the path the panel would use ([a10588f](https://github.com/NamesMT/home-hosted/commit/a10588f))
+- **proxy:** Test expiry by moving the clock, not by backdating the certificate ([3c010cf](https://github.com/NamesMT/home-hosted/commit/3c010cf))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+- Trung Dang ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.1
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.0...v0.7.1)
