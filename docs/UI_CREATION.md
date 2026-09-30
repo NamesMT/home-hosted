@@ -90,6 +90,21 @@ must never lock you out of your own machine.
    drive letters.
 7. **Offline and plain-http friendly.** Assume a LAN over `http://`: no `Secure`-only cookies, no
    hard-coded port, no https-only APIs.
+8. **Give each page its own path.** An SPA with canonical URLs is the best default: a path is what
+   makes a page bookmarkable, shareable, and reachable with back/forward — and matching the stock
+   paths keeps two UIs of the same panel feeling alike. Those are:
+
+   | page | path |
+   | --- | --- |
+   | workspace: overview · servers · logs · settings | `/w/<workspace>` · `/w/<workspace>/servers` · `/w/<workspace>/logs` · `/w/<workspace>/settings` |
+   | one server | `/w/<workspace>/servers/<id>` |
+   | panel-wide: overview · settings | `/global/overview` · `/global/settings` |
+   | reverse proxy | `/proxy` |
+
+   Keep the workspace id in the URL (a link then opens the same workspace in a browser that never
+   selected it), and rewrite bare or unknown paths onto the canonical one (`/` → Global Overview) so an
+   old bookmark still lands somewhere sensible. **Not a hard rule** — a different direction may route
+   however it fits; just keep deep links working.
 
 ## The API
 
@@ -247,7 +262,7 @@ with an installed panel on the default 3999; override with `--port`/`--ui-port` 
 - [ ] only `/api/...` calls, no absolute origins, no hard-coded port
 - [ ] `401 { code: 'AUTH_REQUIRED' }` handled with a login screen
 - [ ] live data from SSE — a panel that only polls feels broken
-- [ ] deep links render (the server falls back to `index.html`)
+- [ ] deep links render (the server falls back to `index.html`) and each page has its own path
 - [ ] assets self-hosted, no CDN
 - [ ] works over plain http on a LAN
 - [ ] `ui.json` with a name and version, so Global settings can tell you what is installed — plus `repo`/`tag`/`asset` if you want `ui-update` to follow your releases
