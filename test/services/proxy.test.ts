@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { isPublicHost, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
 import { proxyConfigSchema } from '#src/shared/contracts'
@@ -22,27 +22,31 @@ beforeAll(() => {
   }
 })
 
-/** A real pair, valid or long expired — the second is what an in-place expiry looks like. */
-function makePair(host: string, expired = false): { certificate: string, privateKey: string } {
+/**
+ * A real pair. Expiry is tested by moving the clock, not by backdating the
+ * certificate: `-not_before`/`-not_after` only exist from OpenSSL 3.2, and the CI
+ * runner carries an older one.
+ */
+function makePair(host: string): { certificate: string, privateKey: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-proxy-pair-'))
-  const args = [
-    'req',
-    '-x509',
-    '-newkey',
-    'rsa:2048',
-    '-nodes',
-    '-keyout',
-    path.join(dir, 'key.pem'),
-    '-out',
-    path.join(dir, 'cert.pem'),
-    '-subj',
-    `/CN=${host}`,
-    '-addext',
-    `subjectAltName=DNS:${host}`,
-    ...(expired ? ['-not_before', '20200101000000Z', '-not_after', '20200102000000Z'] : ['-days', '3']),
-  ]
   try {
-    execFileSync('openssl', args, { stdio: 'ignore' })
+    execFileSync('openssl', [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-nodes',
+      '-keyout',
+      path.join(dir, 'key.pem'),
+      '-out',
+      path.join(dir, 'cert.pem'),
+      '-subj',
+      `/CN=${host}`,
+      '-addext',
+      `subjectAltName=DNS:${host}`,
+      '-days',
+      '3',
+    ], { stdio: 'ignore' })
     return {
       certificate: fs.readFileSync(path.join(dir, 'cert.pem'), 'utf8'),
       privateKey: fs.readFileSync(path.join(dir, 'key.pem'), 'utf8'),
@@ -51,6 +55,11 @@ function makePair(host: string, expired = false): { certificate: string, private
   finally {
     fs.rmSync(dir, { recursive: true, force: true })
   }
+}
+
+/** A pair the store cannot read at all: the other way a stored pair stops being usable. */
+function brokenPair(): { certificate: string, privateKey: string } {
+  return { certificate: 'not a certificate', privateKey: 'not a key' }
 }
 
 /** Writes a pair where the store looks for it, without going through the API. */
@@ -291,21 +300,30 @@ describe('proxyService', () => {
       return
     const { service, settings, options } = await harness()
     // The upload path rejects an already-expired pair; this is the one it cannot see —
-    // a pair that was valid when stored and expired since.
-    writePair(options.tlsDir, 'old', makePair('old.example.com', true))
-    settings.updateProxy({ certificates: [{ id: 'old', label: 'Old' }] })
-
-    const view = service.certificateViews()[0]
-    expect(view).toMatchObject({ id: 'old', present: true, used: false })
-    expect(view?.error).toContain('expired')
-
+    // a pair that was valid when stored and expired since, which is a matter of the
+    // clock rather than of the file.
+    writePair(options.tlsDir, 'old', makePair('old.example.com'))
     settings.updateProxy({
+      certificates: [{ id: 'old', label: 'Old' }],
       routes: [{ id: 'h', host: 'old.example.com', target: 'external', url: 'http://10.0.0.5:1', tls: 'manual' }],
     })
-    const route = service.routeViews()[0]
-    expect(route?.status).toBe('error')
-    expect(route?.certificate?.state).toBe('failed')
-    expect(route?.certificate?.message).toContain('expired')
+    expect(service.routeViews()[0]?.status).toBe('ok')
+
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2035-01-01T00:00:00Z'))
+    try {
+      const view = service.certificateViews()[0]
+      expect(view).toMatchObject({ id: 'old', present: true, used: false })
+      expect(view?.error).toContain('expired')
+
+      const route = service.routeViews()[0]
+      expect(route?.status).toBe('error')
+      expect(route?.certificate?.state).toBe('failed')
+      expect(route?.certificate?.message).toContain('expired')
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it('serves the usable pair, and marks the shadowed one unused', async () => {
@@ -313,7 +331,8 @@ describe('proxyService', () => {
       return
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'good', makePair('good.example.com'))
-    writePair(options.tlsDir, 'old', makePair('good.example.com', true))
+    writePair(options.tlsDir, 'old', brokenPair())
+    // Same hostname on both, so only usability tells them apart.
     settings.updateProxy({ certificates: [{ id: 'good', label: 'Good' }, { id: 'old', label: 'Old' }] })
     settings.updateProxy({
       routes: [{ id: 'h', host: 'good.example.com', target: 'external', url: 'http://10.0.0.5:1', tls: 'manual' }],
@@ -376,9 +395,9 @@ describe('proxyService', () => {
     })
     expect(service.routeViews()[0]?.status).toBe('ok')
 
-    // Same id, same name, now expired — the kind of change nothing but the file says.
-    writePair(options.tlsDir, 'p', makePair('p.example.com', true))
-    expect(service.certificateViews()[0]?.error).toContain('expired')
+    // Same id, same name, no longer readable — the kind of change only the file says.
+    writePair(options.tlsDir, 'p', brokenPair())
+    expect(service.certificateViews()[0]?.error).not.toBeNull()
     expect(service.routeViews()[0]?.status).toBe('error')
   })
 
