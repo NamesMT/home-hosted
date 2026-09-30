@@ -159,7 +159,7 @@ describe('renderCaddyConfig', () => {
     expect(http.servers.https.routes[0].handle[0].transport).toEqual({ protocol: 'http', tls: { insecure_skip_verify: true } })
   })
 
-  it('points the public names at an ACME account, and keeps the failover', () => {
+  it('points the public names at an ACME account', () => {
     const rendered = render({
       config: config({ email: 'me@example.com' }),
       admin: unixAdmin,
@@ -173,11 +173,8 @@ describe('renderCaddyConfig', () => {
     expect(automation.policies).toHaveLength(1)
     expect(automation.policies[0].subjects).toEqual(['git.example.com'])
     // The address reaches the issuer, and supplying it does not cost ZeroSSL.
-    // The contact goes on the ACME account; the ZeroSSL issuer takes no `email`.
-    expect(automation.policies[0].issuers).toEqual([
-      { module: 'acme', email: 'me@example.com' },
-      { module: 'zerossl' },
-    ])
+    // One issuer, with the contact on it: ZeroSSL needs an EAB key we do not collect.
+    expect(automation.policies[0].issuers).toEqual([{ module: 'acme', email: 'me@example.com' }])
   })
 
   it('sends a staging account to the staging directory, and only there', () => {

@@ -32,15 +32,15 @@ export interface ProxyConfigInput {
 const ACME_STAGING = 'https://acme-staging-v02.api.letsencrypt.org/directory'
 
 /**
- * The issuers for the public names. `zerossl` is Caddy's second default CA and is
- * listed so supplying an address does not cost the automatic failover — it takes no
- * `email` field of its own (verified against Caddy 2.11.4: it rejects one).
+ * The issuer for the public names: ACME, with the account address on it. ZeroSSL is
+ * deliberately not listed as a second issuer — it needs an EAB key the panel does not
+ * collect, so listing it only added a failing issuer and a second retry on every name
+ * (its own error, `missing_access_key`, is what a person ends up reading instead of the
+ * real one).
  */
 function acmeIssuers(acme: ProxyConfigInput['acme']): Array<Record<string, unknown>> {
-  const contact = acme.email.length > 0 ? { email: acme.email } : {}
   return [
-    { module: 'acme', ...contact, ...(acme.staging ? { ca: ACME_STAGING } : {}) },
-    ...(acme.staging ? [] : [{ module: 'zerossl' }]),
+    { module: 'acme', ...(acme.email.length > 0 ? { email: acme.email } : {}), ...(acme.staging ? { ca: ACME_STAGING } : {}) },
   ]
 }
 

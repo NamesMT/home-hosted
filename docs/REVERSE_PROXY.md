@@ -85,7 +85,14 @@ address the ACME account is registered with. `staging` points that account at th
 staging endpoint while you test: the certificates are untrusted, and it is the way to
 avoid burning a rate limit. Both reach the engine as one automation policy covering the
 **public** names only, so a local-only name keeps the engine's own CA. The engine page
-shows the soonest expiry among the publicly-issued certificates.
+shows the soonest expiry among the publicly-issued certificates. Issuance is Let's
+Encrypt; ZeroSSL is not offered as a second issuer because it needs an EAB key the panel
+does not collect.
+
+The challenge is the part that catches people out: with the proxy on 4480/4443, **80 has
+to reach 4480 and 443 has to reach 4443**, or the CA never sees the challenge and the name
+keeps failing its handshake. `ERR_SSL_PROTOCOL_ERROR` in a browser for a public name is
+usually this, not the panel.
 
 Certificates are managed by the engine, inside `.hh/.proxy/engine/`, and nothing else on
 the machine is touched: the generated configuration pins its storage root, and the
