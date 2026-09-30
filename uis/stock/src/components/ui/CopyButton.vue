@@ -40,7 +40,7 @@ onScopeDispose(() => {
 <template>
   <button
     type="button"
-    :class="cn('grid size-6 shrink-0 place-items-center rounded-control text-faint transition-colors duration-150 hover:bg-hover hover:text-ink', focusRing, props.class)"
+    :class="cn('inline-grid size-6 shrink-0 place-items-center rounded-control text-faint transition-colors duration-150 hover:bg-hover hover:text-ink', focusRing, props.class)"
     :aria-label="copied ? 'Copied' : props.label"
     @click="copy"
   >
