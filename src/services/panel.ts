@@ -418,6 +418,15 @@ export class PanelService {
       // up anything else.
       runtime.ddns.tick(now)
     }
+    // A certificate that arrives (or expires) changes what the proxy serves on the
+    // cleartext port, so the engine is re-applied when that state moves. Cheap: the
+    // certificate store is read once and cached.
+    const proxy = this.options.proxy()
+    if (proxy !== null) {
+      await proxy.sync().catch((error: unknown) => {
+        logger.warn('the proxy certificate check failed', error)
+      })
+    }
     this.scheduleState()
   }
 

@@ -394,7 +394,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     stateDir: path.join(hhDir, '.proxy', 'state'),
     adminPath: path.join(hhDir, '.proxy', 'state', 'admin.json'),
     logDir: path.join(hhDir, '.logs'),
-    tls: new TlsStore(path.join(hhDir, '.proxy', 'tls'), 'proxy'),
+    tlsDir: path.join(hhDir, '.proxy', 'tls'),
     control: () => endpoint,
     resolveServer: () => null,
     exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword),

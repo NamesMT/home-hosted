@@ -78,7 +78,7 @@ refused.
 | --- | --- |
 | `auto` | The engine decides. A public name gets a Let's Encrypt certificate (HTTP-01 or TLS-ALPN-01, with ZeroSSL as fallback and renewal in the background). A local-only name gets the engine's own locally-trusted CA. |
 | `off` | Plain HTTP on the http port, no certificate. |
-| `manual` | The PEM pair uploaded under *Certificate*. A route set to this with no pair stored is refused, rather than quietly given a certificate from somewhere else. |
+| `manual` | One of the uploaded pairs, whichever covers the hostname (the engine picks by SNI). A route set to this with no pair covering it is refused, rather than quietly given a certificate from somewhere else. |
 
 `email` is required as soon as a route uses a public hostname, and it is the contact
 address the ACME account is registered with. `staging` points that account at the ACME
@@ -91,8 +91,26 @@ does not collect.
 
 The challenge is the part that catches people out: with the proxy on 4480/4443, **80 has
 to reach 4480 and 443 has to reach 4443**, or the CA never sees the challenge and the name
-keeps failing its handshake. `ERR_SSL_PROTOCOL_ERROR` in a browser for a public name is
-usually this, not the panel.
+never gets its certificate.
+
+**A name with no certificate yet is still reachable.** The engine's own CA is the last
+issuer in the policy, so the handshake completes with an untrusted certificate — the
+browser offers to continue instead of failing with `ERR_SSL_PROTOCOL_ERROR` — and over
+plain HTTP the same name answers with a page saying so, naming the ports to forward,
+rather than redirecting into a handshake that cannot finish. The panel re-applies the
+configuration when the certificate arrives, and the route table shows where each name
+stands: *issued* · *pending* · *failed* (with the engine's own reason) · *local* (the
+engine CA) · *uploaded*.
+
+## Uploaded certificates
+
+*Manual certificate* takes as many PEM pairs as you have names: add one per hostname,
+label it, and the engine serves each to the name it covers. A route set to `manual` is
+refused while no uploaded pair covers its hostname, and a pair cannot be removed while a
+route still serves it — so the two can never disagree.
+
+Certificates are read, never edited: the panel reports each pair's subject, issuer,
+expiry and the hostnames it covers (from its SANs, wildcards included).
 
 Certificates are managed by the engine, inside `.hh/.proxy/engine/`, and nothing else on
 the machine is touched: the generated configuration pins its storage root, and the
@@ -124,8 +142,9 @@ internet: the engine keeps serving, and the panel reattaches to it on the next b
 | `GET /api/proxy` | Policy, engine, live state and every route with its resolved upstream. |
 | `PATCH /api/proxy` | Change the settings or replace the route list, then apply. |
 | `POST /api/proxy/engine` | Install or update the engine (`{ "version": "" }` = the pinned one). |
+| `PUT` \| `DELETE /api/proxy/certificates/:id` | Store or remove one uploaded pair (`{ label, certificate, privateKey }`). |
 | `POST /api/proxy/start` \| `stop` \| `apply` \| `revert` | Engine lifecycle and configuration. |
-| `PUT` \| `DELETE /api/proxy/tls` | The PEM pair `tls: "manual"` serves. |
+
 
 ## Files
 
@@ -134,5 +153,5 @@ internet: the engine keeps serving, and the panel reattaches to it on the next b
 | `.hh/.proxy/bin/` | The engine binary and the record of what was installed. |
 | `.hh/.proxy/engine/current.json` | The generated configuration; `previous.json` is the revision before it. |
 | `.hh/.proxy/state/` | The nanny's spec and state, and `admin.json` (how to reach a running engine). |
-| `.hh/.proxy/tls/` | The uploaded pair for `tls: "manual"` (the key is `0600`). |
+| `.hh/.proxy/tls/<id>.crt.pem` \| `<id>.key.pem` | One uploaded pair per entry (the key is `0600`). |
 | `.hh/.logs/proxy.log` | The engine's own JSON output, as the nanny captures it. |

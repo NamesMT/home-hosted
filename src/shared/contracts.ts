@@ -713,6 +713,20 @@ export const proxyRouteSchema = type({
 }).onUndeclaredKey('reject')
 export type ProxyRoute = typeof proxyRouteSchema.infer
 
+/**
+ * One uploaded PEM pair. The pair itself lives on disk (0600) beside the panel's
+ * own; this is the entry that names it, so a route can be checked against it.
+ */
+export const proxyCertificateSchema = type({
+  id: '/^[a-z0-9][a-z0-9_-]*$/',
+  label: 'string = ""',
+}).onUndeclaredKey('reject')
+export type ProxyCertificate = typeof proxyCertificateSchema.infer
+
+/** What a route's certificate situation is, for the page to show. */
+export const proxyCertificateStateSchema = type.enumerated('off', 'local', 'uploaded', 'issued', 'pending', 'failed')
+export type ProxyCertificateState = typeof proxyCertificateStateSchema.infer
+
 /** Reverse proxy: expose the stack through one engine, with automatic HTTPS. */
 export const proxyConfigSchema = type({
   enabled: 'boolean = false',
@@ -724,6 +738,8 @@ export const proxyConfigSchema = type({
   email: 'string = ""',
   /** The ACME staging endpoint: untrusted certificates, no rate-limit burn. */
   staging: 'boolean = false',
+  /** PEM pairs a route with `tls: "manual"` may serve; the engine picks by SNI. */
+  certificates: proxyCertificateSchema.array().default(() => []),
   routes: proxyRouteSchema.array().default(() => []),
 }).onUndeclaredKey('reject')
 export type ProxyConfig = typeof proxyConfigSchema.infer
@@ -765,10 +781,15 @@ export type ProxyRouteStatus = typeof proxyRouteStatusSchema.infer
 
 /** A route as the page reads it: the config, plus the upstream resolved live. */
 export const proxyRouteViewSchema = type({
-  route: proxyRouteSchema,
-  status: proxyRouteStatusSchema,
-  upstream: 'string | null',
-  message: 'string | null',
+  'route': proxyRouteSchema,
+  'status': proxyRouteStatusSchema,
+  'upstream': 'string | null',
+  'message': 'string | null',
+  /** Where this hostname's certificate stands. Optional: an older panel omits it. */
+  'certificate?': type({
+    state: proxyCertificateStateSchema,
+    message: 'string | null',
+  }),
 })
 export type ProxyRouteView = typeof proxyRouteViewSchema.infer
 
@@ -788,6 +809,22 @@ export const proxyStatusSchema = type({
 })
 export type ProxyStatus = typeof proxyStatusSchema.infer
 
+/** One uploaded pair, described: what it is for, and whether it is usable. */
+export const proxyCertificateViewSchema = type({
+  id: 'string',
+  label: 'string',
+  /** Both halves are on disk. */
+  present: 'boolean',
+  subject: 'string | null',
+  issuer: 'string | null',
+  validTo: 'string | null',
+  daysRemaining: 'number | null',
+  /** Hostnames the pair covers, read from its SANs. */
+  hosts: type('string[]'),
+  error: 'string | null',
+})
+export type ProxyCertificateView = typeof proxyCertificateViewSchema.infer
+
 /** `GET /api/proxy`: the policy, the engine, the live state and the resolved routes. */
 export const proxyViewSchema = type({
   config: proxyConfigSchema,
@@ -795,8 +832,8 @@ export const proxyViewSchema = type({
   engines: proxyEngineInfoSchema.array(),
   status: proxyStatusSchema,
   routes: proxyRouteViewSchema.array(),
-  /** The PEM pair `tls: "manual"` serves, described like the panel's own. */
-  tls: tlsStatusSchema,
+  /** Every uploaded pair, with what it covers and when it expires. */
+  certificates: proxyCertificateViewSchema.array(),
 })
 export type ProxyView = typeof proxyViewSchema.infer
 
@@ -828,9 +865,18 @@ export const proxyPatchSchema = type({
   httpsPort: '1 <= number.integer <= 65535?',
   email: 'string?',
   staging: 'boolean?',
+  certificates: proxyCertificateSchema.array().optional(),
   routes: proxyRoutePatchSchema.array().optional(),
 }).onUndeclaredKey('reject')
 export type ProxyPatch = typeof proxyPatchSchema.infer
+
+/** `PUT /api/proxy/certificates/:id`: the pair itself, plus what to call it. */
+export const proxyCertificateUploadSchema = type({
+  label: 'string = ""',
+  certificate: 'string >= 1',
+  privateKey: 'string >= 1',
+}).onUndeclaredKey('reject')
+export type ProxyCertificateUpload = typeof proxyCertificateUploadSchema.infer
 
 /** `POST /api/proxy/engine`: which release to install; empty means the pinned one. */
 export const proxyEngineInstallSchema = type({

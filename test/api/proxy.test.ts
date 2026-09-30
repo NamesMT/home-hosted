@@ -1,9 +1,10 @@
 import type { Fixture } from './fixture'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { isProcessAlive } from '#src/providers/port'
 import { proxyViewSchema } from '#src/shared/contracts'
 import { makeFixture } from './fixture'
@@ -33,10 +34,52 @@ interface ProxyBody {
   config: { enabled: boolean, httpPort: number, httpsPort: number, email: string, routes: Array<{ id: string, host: string, tls: string }> }
   engine: { installed: boolean, version: string | null }
   status: { state: string, lastError: string | null }
-  routes: Array<{ route: { id: string }, status: string, upstream: string | null }>
-  tls: { certPresent: boolean }
+  routes: Array<{ route: { id: string }, status: string, upstream: string | null, certificate?: { state: string, message: string | null } }>
+  certificates: Array<{ id: string, present: boolean, hosts: string[] }>
   code?: string
   message?: string
+}
+
+/** A real self-signed pair, the way `tls.test.ts` makes one. */
+let openssl = true
+
+beforeAll(() => {
+  try {
+    execFileSync('openssl', ['version'], { stdio: 'ignore' })
+  }
+  catch {
+    openssl = false
+  }
+})
+
+function certificateFor(host: string): { certificate: string, privateKey: string } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-proxy-cert-'))
+  try {
+    execFileSync('openssl', [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-nodes',
+      '-keyout',
+      path.join(dir, 'key.pem'),
+      '-out',
+      path.join(dir, 'cert.pem'),
+      '-days',
+      '3',
+      '-subj',
+      `/CN=${host}`,
+      '-addext',
+      `subjectAltName=DNS:${host}`,
+    ], { stdio: 'ignore' })
+    return {
+      certificate: fs.readFileSync(path.join(dir, 'cert.pem'), 'utf8'),
+      privateKey: fs.readFileSync(path.join(dir, 'key.pem'), 'utf8'),
+    }
+  }
+  finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 }
 
 describe('gET /api/proxy', () => {
@@ -163,40 +206,82 @@ describe('pOST /api/proxy/engine', () => {
 })
 
 describe('pUT /api/proxy/tls', () => {
-  it('keeps the pair while a route still serves it', async () => {
+  it('keeps a pair while a route still serves it', async () => {
+    if (!openssl)
+      return
     const fixture = await makeApp()
-    // A manual route in the config is what makes the pair load-bearing.
+    // An uploaded pair, covering the name a manual route will use.
+    const pair = certificateFor('manual.example.com')
+    const stored = await fixture.app.request('/api/proxy/certificates/mine', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Mine', ...pair }),
+    })
+    expect(stored.status).toBe(200)
+    expect((await stored.json() as ProxyBody).certificates).toEqual([
+      expect.objectContaining({ id: 'mine', present: true, hosts: ['manual.example.com'] }),
+    ])
+
     fixture.settings.updateProxy({
       routes: [{ id: 'm', host: 'manual.example.com', target: 'external', url: 'http://10.0.0.5:3000', tls: 'manual' }],
     })
 
-    const refused = await fixture.app.request('/api/proxy/tls', { method: 'DELETE' })
+    const refused = await fixture.app.request('/api/proxy/certificates/mine', { method: 'DELETE' })
     expect(refused.status).toBe(400)
     const body = await refused.json() as ProxyBody
     expect(body.code).toBe('PROXY_TLS_IN_USE')
     // The route id is named, so the message says which route to change.
     expect(body.message).toContain('"m"')
-    expect(fixture.settings.proxy.routes[0]?.tls).toBe('manual')
+    expect(fixture.settings.proxy.certificates).toHaveLength(1)
   })
 
-  it('removes the pair once no route serves it', async () => {
+  it('removes a pair once no route serves it', async () => {
+    if (!openssl)
+      return
     const fixture = await makeApp()
-    const response = await fixture.app.request('/api/proxy/tls', { method: 'DELETE' })
+    await fixture.app.request('/api/proxy/certificates/mine', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ label: 'Mine', ...certificateFor('unused.example.com') }),
+    })
+
+    const response = await fixture.app.request('/api/proxy/certificates/mine', { method: 'DELETE' })
     expect(response.status).toBe(200)
-    expect((await response.json() as ProxyBody).tls.certPresent).toBe(false)
+    expect((await response.json() as ProxyBody).certificates).toEqual([])
+  })
+
+  it('reports where each route certificate stands', async () => {
+    const fixture = await makeApp()
+    const response = await fixture.app.request('/api/proxy', patch({
+      email: 'me@example.com',
+      routes: [
+        { id: 'pub', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+        { id: 'lan', host: 'gitea.lan', target: 'external', url: 'http://10.0.0.5:3000' },
+        { id: 'plain', host: 'plain.example.com', target: 'external', url: 'http://10.0.0.5:3000', tls: 'off' },
+      ],
+    }))
+
+    expect(response.status).toBe(200)
+    const body = await response.json() as ProxyBody
+    const states = Object.fromEntries(body.routes.map(entry => [entry.route.id, entry.certificate?.state]))
+    // Nothing issued yet, so the public name is waiting on the CA; the local name is
+    // the engine's own CA, and a plain route has no certificate at all.
+    expect(states).toEqual({ pub: 'pending', lan: 'local', plain: 'off' })
   })
 
   it('refuses a pair that is not a certificate', async () => {
+    if (!openssl)
+      return
     const fixture = await makeApp()
-    const response = await fixture.app.request('/api/proxy/tls', {
+    const response = await fixture.app.request('/api/proxy/certificates/mine', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ certificate: 'not a pem', privateKey: 'not a key' }),
+      body: JSON.stringify({ label: 'Mine', certificate: 'not a pem', privateKey: 'not a key' }),
     })
 
     expect(response.status).toBe(400)
     expect((await response.json() as ProxyBody).code).toBe('INVALID_CERTIFICATE')
-    expect((await (await fixture.app.request('/api/proxy')).json() as ProxyBody).tls.certPresent).toBe(false)
+    expect((await (await fixture.app.request('/api/proxy')).json() as ProxyBody).certificates).toEqual([])
   })
 })
 

@@ -215,7 +215,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     stateDir: proxyStateDir,
     adminPath: proxyAdminPath,
     logDir: path.join(hhDir, '.logs'),
-    tls: new TlsStore(proxyTlsDir, 'proxy'),
+    tlsDir: proxyTlsDir,
     control: () => controlServer.endpoint,
     resolveServer: (workspaceId, serverId) => {
       const found = panel?.findServer(workspaceId, serverId)

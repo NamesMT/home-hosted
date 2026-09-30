@@ -1,4 +1,4 @@
-import type { ProxyConfigInput } from '#src/services/proxy-config'
+import type { ProxyConfigInput, ProxyUpstreamRoute } from '#src/services/proxy-config'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
@@ -23,8 +23,15 @@ function route(input: Record<string, unknown>) {
 const unixAdmin = { kind: 'unix', path: '/tmp/hh/admin.sock' } as const
 
 /** The renderer with the ACME account left out, for the cases that are not about it. */
-function render(input: Omit<ProxyConfigInput, 'acme'> & { acme?: ProxyConfigInput['acme'] }) {
-  return renderCaddyConfig({ acme: { email: '', staging: false, subjects: [] }, ...input })
+type RouteInput = Omit<ProxyUpstreamRoute, 'certificateReady'> & { certificateReady?: boolean }
+
+function render(input: Omit<ProxyConfigInput, 'acme' | 'routes'> & { acme?: ProxyConfigInput['acme'], routes: RouteInput[] }) {
+  return renderCaddyConfig({
+    acme: { email: '', staging: false, subjects: [] },
+    ...input,
+    // Most cases are about routing, not about a certificate that is still coming.
+    routes: input.routes.map(route => ({ certificateReady: route.certificateReady ?? true, ...route })),
+  })
 }
 
 describe('caddy engine', () => {
@@ -83,7 +90,7 @@ describe('renderCaddyConfig', () => {
       config: config({ httpPort: 4480, httpsPort: 4443, email: 'me@example.com' }),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
 
@@ -112,7 +119,7 @@ describe('renderCaddyConfig', () => {
       config: config({ email: 'me@example.com' }),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
     const http = (rendered.apps as any).http
@@ -124,7 +131,7 @@ describe('renderCaddyConfig', () => {
       config: config({}),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       routes: [{ host: 'plain.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'off' }],
     })
     const http = (rendered.apps as any).http
@@ -140,7 +147,7 @@ describe('renderCaddyConfig', () => {
       config: config({ email: 'me@example.com' }),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       routes: [{ host: 'app.example.com', path: 'gitea', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
     const http = (rendered.apps as any).http
@@ -152,7 +159,7 @@ describe('renderCaddyConfig', () => {
       config: config({}),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       routes: [{ host: 'panel.example.com', path: '', dial: '127.0.0.1:3999', upstreamTls: true, tls: 'auto' }],
     })
     const http = (rendered.apps as any).http
@@ -164,7 +171,7 @@ describe('renderCaddyConfig', () => {
       config: config({ email: 'me@example.com' }),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
       routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
@@ -173,8 +180,35 @@ describe('renderCaddyConfig', () => {
     expect(automation.policies).toHaveLength(1)
     expect(automation.policies[0].subjects).toEqual(['git.example.com'])
     // The address reaches the issuer, and supplying it does not cost ZeroSSL.
-    // One issuer, with the contact on it: ZeroSSL needs an EAB key we do not collect.
-    expect(automation.policies[0].issuers).toEqual([{ module: 'acme', email: 'me@example.com' }])
+    // The contact goes on the ACME issuer; the engine's own CA is the last resort, so
+    // a certificate that has not arrived yet is a warning instead of a dead handshake.
+    expect(automation.policies[0].issuers).toEqual([
+      { module: 'acme', email: 'me@example.com' },
+      { module: 'internal' },
+    ])
+  })
+
+  it('serves a page instead of redirecting while a certificate is still coming', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com', httpPort: 4480, httpsPort: 4443 }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
+      routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto', certificateReady: false }],
+    })
+
+    const httpRoutes = (rendered.apps as any).http.servers.http.routes
+    expect(httpRoutes).toHaveLength(1)
+    // The challenge path is never ours to answer, on the notice or on a redirect.
+    expect(httpRoutes[0].match[0].not).toEqual([{ path: ['/.well-known/acme-challenge/*'] }])
+    expect(httpRoutes[0].handle[0].status_code).toBe(503)
+    expect(httpRoutes[0].handle[0].headers['content-type']).toEqual(['text/html; charset=utf-8'])
+    // The page names the hostname and the ports a router has to forward.
+    expect(httpRoutes[0].handle[0].body).toContain('git.example.com')
+    expect(httpRoutes[0].handle[0].body).toContain('80 → 4480')
+    // And no redirect into a handshake that cannot finish.
+    expect(httpRoutes[0].handle[0].headers.Location).toBeUndefined()
   })
 
   it('sends a staging account to the staging directory, and only there', () => {
@@ -182,13 +216,14 @@ describe('renderCaddyConfig', () => {
       config: config({ email: '', staging: true }),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       acme: { email: '', staging: true, subjects: ['git.example.com'] },
       routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
 
     expect((rendered.apps as any).tls.automation.policies[0].issuers).toEqual([
       { module: 'acme', ca: 'https://acme-staging-v02.api.letsencrypt.org/directory' },
+      { module: 'internal' },
     ])
   })
 
@@ -197,7 +232,7 @@ describe('renderCaddyConfig', () => {
       config: config({}),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       routes: [{ host: 'gitea.lan', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
     // A catch-all policy would take the engine's own CA away from the local name.
@@ -209,7 +244,7 @@ describe('renderCaddyConfig', () => {
       config: config({ email: 'me@example.com' }),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: { certificate: '/state/tls/proxy.crt.pem', key: '/state/tls/proxy.key.pem' },
+      manual: [{ certificate: '/state/tls/proxy.crt.pem', key: '/state/tls/proxy.key.pem' }],
       acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
       routes: [
         { host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' },
@@ -225,7 +260,7 @@ describe('renderCaddyConfig', () => {
       config: config({}),
       admin: unixAdmin,
       engineDir: '/state/engine',
-      manual: { certificate: '/state/tls/proxy.crt.pem', key: '/state/tls/proxy.key.pem' },
+      manual: [{ certificate: '/state/tls/proxy.crt.pem', key: '/state/tls/proxy.key.pem' }],
       routes: [{ host: 'manual.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'manual' }],
     })
     expect((rendered.apps as any).tls).toEqual({
@@ -238,7 +273,7 @@ describe('renderCaddyConfig', () => {
       config: config({}),
       admin: { kind: 'tcp', host: '127.0.0.1', port: 46_000, origin: 'http://127.0.0.1:46000' },
       engineDir: '/state/engine',
-      manual: null,
+      manual: [],
       routes: [],
     })
     expect(rendered.admin).toEqual({

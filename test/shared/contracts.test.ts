@@ -19,10 +19,12 @@ import {
   passwordSchema,
   passwordValueSchema,
   portSchema,
+  proxyCertificateSchema,
   proxyConfigSchema,
   proxyEngineStatusSchema,
   proxyPatchSchema,
   proxyRouteSchema,
+  proxyRouteViewSchema,
   proxyStatusSchema,
   proxyViewSchema,
   restartSchema,
@@ -463,6 +465,29 @@ describe('reverse proxy schema', () => {
     expect(ok(proxyConfigSchema, { engine: 'traefik' })).toBe(false)
   })
 
+  it('keeps the uploaded pairs in the config, and replaces the list in a patch', () => {
+    const parsed = unwrap(proxyConfigSchema({ certificates: [{ id: 'mine', label: 'Mine' }] }))
+    expect(parsed.certificates).toEqual([{ id: 'mine', label: 'Mine' }])
+    expect(unwrap(proxyConfigSchema({})).certificates).toEqual([])
+    expect(ok(proxyCertificateSchema, { id: 'Bad Id' })).toBe(false)
+    expect(unwrap(proxyPatchSchema({ certificates: [] })).certificates).toEqual([])
+  })
+
+  it('reports where a route certificate stands', () => {
+    const route = unwrap(proxyRouteSchema({ id: 'a', host: 'a.example.com' }))
+    const view = unwrap(proxyRouteViewSchema({
+      route,
+      status: 'ok',
+      upstream: '127.0.0.1:3000',
+      message: null,
+      certificate: { state: 'pending', message: 'the engine is waiting for a certificate' },
+    }))
+    expect(view.certificate?.state).toBe('pending')
+    // Optional: an older panel's frame still parses without it.
+    expect(unwrap(proxyRouteViewSchema({ route, status: 'ok', upstream: null, message: null })).certificate).toBeUndefined()
+    expect(ok(proxyRouteViewSchema, { route, status: 'ok', upstream: null, message: null, certificate: { state: 'nope', message: null } })).toBe(false)
+  })
+
   it('carries no defaults in the patch, and replaces the route list', () => {
     const patch = unwrap(proxyPatchSchema({ httpPort: 4480 }))
     expect(patch).toEqual({ httpPort: 4480 })
@@ -484,8 +509,9 @@ describe('reverse proxy schema', () => {
       engines: [{ id: 'caddy', label: 'Caddy', docsUrl: 'https://caddyserver.com/docs/', releaseUrl: '', acme: true, internalCa: true, dns01: false, tcp: false }],
       status: { state: 'off', pid: null, urls: [], certExpiryDays: null, since: null, lastError: null },
       routes: [],
-      tls: { enabled: false, certPresent: false, subject: null, issuer: null, validFrom: null, validTo: null, daysRemaining: null, fingerprint: null, keyMatches: null, error: null },
+      certificates: [],
     }))
     expect(view.routes).toEqual([])
+    expect(view.certificates).toEqual([])
   })
 })

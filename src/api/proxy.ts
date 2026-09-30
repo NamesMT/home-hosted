@@ -10,12 +10,14 @@ import { validate } from '#src/helpers/validator'
 import { checkProxyExposure } from '#src/services/exposure'
 import { validateProxyConfig } from '#src/services/proxy'
 import {
+  proxyCertificateUploadSchema,
   proxyConfigSchema,
   proxyEngineInstallSchema,
   proxyPatchSchema,
   proxyViewSchema,
-  tlsUploadSchema,
 } from '#src/shared/contracts'
+
+const certificateParam = type({ id: '/^[a-z0-9][a-z0-9_-]*$/' })
 
 /** The patch, applied to the live config the way the store would apply it. */
 function candidateConfig(current: ProxyConfig, patch: Record<string, unknown>): ProxyConfig {
@@ -178,16 +180,18 @@ export function createProxyRoute(deps: AppDeps) {
     )
 
     .put(
-      '/proxy/tls',
+      '/proxy/certificates/:id',
       describeRoute({
         tags: ['proxy'],
-        summary: 'Upload the certificate pair routes with `tls: "manual"` serve',
+        summary: 'Store a certificate pair that routes with `tls: "manual"` serve',
         responses: { 200: { description: 'Stored', content: jsonBody(proxyViewSchema) }, 400: ERROR_RESPONSES[400] },
       }),
-      validate('json', tlsUploadSchema),
+      validate('param', certificateParam),
+      validate('json', proxyCertificateUploadSchema),
       async (c) => {
+        const { id } = c.req.valid('param')
         const body = c.req.valid('json')
-        const saved = proxy().saveManualTls(body.certificate, body.privateKey)
+        const saved = proxy().saveCertificate(id, body.label, body.certificate, body.privateKey)
         if (!saved.ok)
           throw new DetailedError(saved.error ?? 'the certificate pair was rejected', { statusCode: 400, code: 'INVALID_CERTIFICATE' })
 
@@ -198,14 +202,15 @@ export function createProxyRoute(deps: AppDeps) {
     )
 
     .delete(
-      '/proxy/tls',
+      '/proxy/certificates/:id',
       describeRoute({
         tags: ['proxy'],
-        summary: 'Remove the uploaded certificate pair',
-        responses: { 200: { description: 'Removed', content: jsonBody(proxyViewSchema) } },
+        summary: 'Remove an uploaded certificate pair',
+        responses: { 200: { description: 'Removed', content: jsonBody(proxyViewSchema) }, 400: ERROR_RESPONSES[400] },
       }),
+      validate('param', certificateParam),
       async (c) => {
-        proxy().clearManualTls()
+        proxy().clearCertificate(c.req.valid('param').id)
         if (proxy().status().state === 'running')
           await proxy().apply()
         return c.json(view())

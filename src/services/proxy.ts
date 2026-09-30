@@ -3,8 +3,9 @@ import type { GlobalSettingsStore } from '#src/config/settings'
 import type { ProxyAdminTransport, ProxyEngine } from '#src/providers/proxy'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { ProxyUpstreamRoute } from '#src/services/proxy-config'
-import type { TlsStore } from '#src/services/tls'
 import type {
+  ProxyCertificateState,
+  ProxyCertificateView,
   ProxyConfig,
   ProxyEngineStatus,
   ProxyPatch,
@@ -40,6 +41,7 @@ import {
 import { isPortFree, isProcessAlive, listPortHolders } from '#src/providers/port'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
 import { renderCaddyConfig } from '#src/services/proxy-config'
+import { TlsStore } from '#src/services/tls'
 
 /** The engine is not a server entry, but it borrows the nanny's shape. */
 const PROXY_ID = 'proxy'
@@ -60,6 +62,38 @@ export const engineRecordSchema = type({
   installedAt: 'number',
 }).onUndeclaredKey('reject')
 export type EngineRecord = typeof engineRecordSchema.infer
+
+/** The DNS names a certificate covers, from its SANs (and its subject as a fallback). */
+function namesOf(x509: X509Certificate): string[] {
+  const names = new Set<string>()
+  for (const part of (x509.subjectAltName ?? '').split(',')) {
+    const trimmed = part.trim()
+    if (!trimmed.toUpperCase().startsWith('DNS:'))
+      continue
+    const value = trimmed.slice(4).trim().toLowerCase()
+    if (value.length > 0)
+      names.add(value)
+  }
+  if (names.size === 0) {
+    const cn = /CN=([^,\n]+)/.exec(x509.subject)?.[1]?.trim()
+    if (cn !== undefined && cn.length > 0)
+      names.add(cn.toLowerCase())
+  }
+  return [...names]
+}
+
+/** True when a pair covers this hostname, wildcards included. */
+function coversHost(hosts: readonly string[], host: string): boolean {
+  const name = host.toLowerCase()
+  return hosts.some((entry) => {
+    if (entry === name)
+      return true
+    if (!entry.startsWith('*.'))
+      return false
+    const suffix = entry.slice(1)
+    return name.endsWith(suffix) && !name.slice(0, -suffix.length).includes('.')
+  })
+}
 
 /** One route resolved far enough for the engine (and the UI) to use it. */
 interface ResolvedRoute {
@@ -102,8 +136,8 @@ export interface ProxyServiceOptions {
   adminPath: string
   /** JSONL directory the nanny writes into; the panel's own `.hh/.logs`. */
   logDir: string
-  /** The PEM pair `tls: "manual"` serves. */
-  tls: TlsStore
+  /** Where the uploaded PEM pairs live, one `<id>.crt.pem`/`<id>.key.pem` per entry. */
+  tlsDir: string
   /** The live control listener, read lazily — it is created after this service. */
   control: () => ControlEndpoint
   /**
@@ -132,7 +166,9 @@ export class ProxyService {
   private nanny: ChildProcess | null = null
   private admin: ProxyAdminTransport | null = null
   private lastError: string | null = null
-  private certCache: { at: number, days: number | null } | null = null
+  private certCache: { at: number, days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, views: ProxyCertificateView[] } | null = null
+  /** The certificate state the last apply was built from, so a change re-applies once. */
+  private certificateSignature: string | null = null
 
   constructor(private readonly options: ProxyServiceOptions) {}
 
@@ -151,27 +187,214 @@ export class ProxyService {
     return path.join(this.options.binDir, this.engine.binaryName(process.platform))
   }
 
-  /** Stores the pair a route with `tls: "manual"` serves. */
-  saveManualTls(certificate: string, privateKey: string): { ok: boolean, error?: string } {
-    const saved = this.options.tls.save(certificate, privateKey)
-    this.certCache = null
-    return saved
+  /** One uploaded pair, by the id that names it in the config. */
+  private pairStore(id: string): TlsStore {
+    return new TlsStore(this.options.tlsDir, id)
   }
 
   /**
-   * Removes it — refused while a route still serves it, because clearing first
-   * would leave the engine on a certificate the panel has already deleted.
+   * Stores a pair under `id` and records it in the config, so a route can be
+   * checked against what it actually covers.
    */
-  clearManualTls(): void {
-    const holders = this.config.routes.filter(route => route.tls === 'manual')
+  saveCertificate(id: string, label: string, certificate: string, privateKey: string): { ok: boolean, error?: string } {
+    const saved = this.pairStore(id).save(certificate, privateKey)
+    if (!saved.ok)
+      return saved
+
+    const certificates = this.config.certificates.some(entry => entry.id === id)
+      ? this.config.certificates.map(entry => (entry.id === id ? { ...entry, label } : entry))
+      : [...this.config.certificates, { id, label }]
+    this.options.settings.updateProxy({ certificates })
+    this.certCache = null
+    this.certificateSignature = null
+    this.options.onStateChange()
+    return { ok: true }
+  }
+
+  /**
+   * Removes a pair — refused while a route still serves it, because deleting the
+   * files first would leave the engine on a certificate the panel has dropped.
+   */
+  clearCertificate(id: string): void {
+    const pair = this.certificateViews().find(entry => entry.id === id)
+    const holders = this.config.routes.filter(route => route.tls === 'manual' && pair !== undefined && coversHost(pair.hosts, route.host))
     if (holders.length > 0) {
       throw new DetailedError(
-        `the uploaded certificate is still served by ${holders.map(route => `"${route.id}"`).join(', ')} — set those routes to another TLS mode first`,
+        `that certificate is still served by ${holders.map(route => `"${route.id}"`).join(', ')} — set those routes to another TLS mode first`,
         { statusCode: 400, code: 'PROXY_TLS_IN_USE', detail: { routes: holders.map(route => route.id) } },
       )
     }
-    this.options.tls.clear()
+    this.pairStore(id).clear()
+    this.options.settings.updateProxy({ certificates: this.config.certificates.filter(entry => entry.id !== id) })
     this.certCache = null
+    this.certificateSignature = null
+    this.options.onStateChange()
+  }
+
+  /** Every uploaded pair, described: what it is for, and what it covers. */
+  certificateViews(): ProxyCertificateView[] {
+    return this.certSnapshot().views
+  }
+
+  /** The certificate store read once, so a per-second tick costs nothing. */
+  private certSnapshot(): { days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, views: ProxyCertificateView[] } {
+    if (this.certCache !== null && Date.now() - this.certCache.at < 15_000)
+      return this.certCache
+    const views = this.readCertificateViews()
+    const issued = this.readIssuedCertificates()
+    const values = [...issued.values()]
+    const soonest = values.length === 0 ? null : Math.min(...values.map(entry => entry.notAfter))
+    this.certCache = {
+      at: Date.now(),
+      days: soonest === null ? null : Math.floor((soonest - Date.now()) / 86_400_000),
+      issued,
+      views,
+    }
+    return this.certCache
+  }
+
+  private readCertificateViews(): ProxyCertificateView[] {
+    return this.config.certificates.map((entry) => {
+      const store = this.pairStore(entry.id)
+      const base: ProxyCertificateView = {
+        id: entry.id,
+        label: entry.label,
+        present: store.present,
+        subject: null,
+        issuer: null,
+        validTo: null,
+        daysRemaining: null,
+        hosts: [],
+        error: store.present ? null : 'the pair is not on disk',
+      }
+      const pair = store.load()
+      if (pair === null)
+        return base
+      try {
+        const x509 = new X509Certificate(pair.cert)
+        const validTo = new Date(x509.validTo)
+        return {
+          ...base,
+          subject: x509.subject.replace(/\n/g, ', '),
+          issuer: x509.issuer.replace(/\n/g, ', '),
+          validTo: validTo.toISOString(),
+          daysRemaining: Math.floor((validTo.getTime() - Date.now()) / 86_400_000),
+          hosts: namesOf(x509),
+          error: store.status(true).error,
+        }
+      }
+      catch (error) {
+        return { ...base, error: `unreadable certificate: ${error instanceof Error ? error.message : String(error)}` }
+      }
+    })
+  }
+
+  /**
+   * What a route's certificate situation is: read from the engine's own store for a
+   * managed name, and from the last thing the engine said about it in its log.
+   */
+  private certificateFor(route: ProxyRoute): { state: ProxyCertificateState, message: string | null } {
+    if (route.tls === 'off')
+      return { state: 'off', message: null }
+
+    if (route.tls === 'manual') {
+      const covered = this.certificateViews().some(entry => entry.present && coversHost(entry.hosts, route.host))
+      return covered
+        ? { state: 'uploaded', message: null }
+        : { state: 'failed', message: `no uploaded certificate covers ${route.host}` }
+    }
+
+    if (!isPublicHost(route.host))
+      return { state: 'local', message: 'signed by the engine\'s own CA' }
+
+    const issued = this.issuedCertificates().get(route.host.toLowerCase())
+    if (issued !== undefined)
+      return { state: 'issued', message: `expires in ${Math.floor((issued.notAfter - Date.now()) / 86_400_000)} days` }
+
+    const failure = this.obtainFailures().get(route.host.toLowerCase())
+    return failure === undefined
+      ? { state: 'pending', message: 'the engine is waiting for a certificate' }
+      : { state: 'failed', message: failure }
+  }
+
+  /** Managed certificates the engine holds, by hostname. */
+  private issuedCertificates(): Map<string, { notAfter: number, issuer: string }> {
+    return this.certSnapshot().issued
+  }
+
+  private readIssuedCertificates(): Map<string, { notAfter: number, issuer: string }> {
+    const found = new Map<string, { notAfter: number, issuer: string }>()
+    const root = path.join(this.options.engineDir, 'data', 'certificates')
+    const walk = (dir: string, inside: boolean): void => {
+      let entries: fs.Dirent[]
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+      }
+      catch {
+        return
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          // The engine's own CA renews constantly; only public issuance is reported.
+          if (!inside && entry.name === 'local')
+            continue
+          walk(full, true)
+          continue
+        }
+        if (!entry.name.endsWith('.crt'))
+          continue
+        try {
+          const x509 = new X509Certificate(fs.readFileSync(full))
+          const info = { notAfter: new Date(x509.validTo).getTime(), issuer: x509.issuer.replace(/\n/g, ', ') }
+          for (const host of namesOf(x509)) {
+            const known = found.get(host)
+            if (known === undefined || info.notAfter < known.notAfter)
+              found.set(host, info)
+          }
+        }
+        catch {
+          // Not a PEM we can read; it is not evidence about any certificate.
+        }
+      }
+    }
+    walk(root, false)
+    return found
+  }
+
+  /**
+   * The last thing the engine said about obtaining a certificate, per name. Caddy
+   * has no admin endpoint that lists failures, so its own log is the source.
+   */
+  private obtainFailures(): Map<string, string> {
+    const failures = new Map<string, string>()
+    let text: string
+    try {
+      text = fs.readFileSync(path.join(this.options.logDir, `${PROXY_ID}.log`), 'utf8')
+    }
+    catch {
+      return failures
+    }
+
+    for (const line of text.trimEnd().split('\n').slice(-400)) {
+      let inner: Record<string, unknown>
+      try {
+        const outer = JSON.parse(line) as { text?: string }
+        inner = JSON.parse(outer.text ?? '') as Record<string, unknown>
+      }
+      catch {
+        continue
+      }
+      const identifier = typeof inner.identifier === 'string' ? inner.identifier.toLowerCase() : null
+      if (identifier === null)
+        continue
+      if (inner.logger === 'tls.obtain' && typeof inner.error === 'string')
+        failures.set(identifier, inner.error)
+      // A later success clears it, so a name that recovered is not reported failed.
+      if (inner.msg === 'certificate obtained successfully')
+        failures.delete(identifier)
+    }
+    return failures
   }
 
   // ------------------------------------------------------------------ lifecycle
@@ -353,44 +576,34 @@ export class ProxyService {
    * from expiry and would read as a problem.
    */
   private certificateExpiryDays(): number | null {
-    if (this.certCache !== null && Date.now() - this.certCache.at < 30_000)
-      return this.certCache.days
+    return this.certSnapshot().days
+  }
 
-    const root = path.join(this.options.engineDir, 'data', 'certificates')
-    let soonest: number | null = null
-    const walk = (dir: string, inside: boolean): void => {
-      let entries: fs.Dirent[]
-      try {
-        entries = fs.readdirSync(dir, { withFileTypes: true })
-      }
-      catch {
-        return
-      }
-      for (const entry of entries) {
-        const full = path.join(dir, entry.name)
-        if (entry.isDirectory()) {
-          if (!inside && entry.name === 'local')
-            continue
-          walk(full, true)
-          continue
-        }
-        if (!entry.name.endsWith('.crt'))
-          continue
-        try {
-          const validTo = new Date(new X509Certificate(fs.readFileSync(full)).validTo).getTime()
-          if (soonest === null || validTo < soonest)
-            soonest = validTo
-        }
-        catch {
-          // Not a PEM we can read; it is not evidence about any certificate.
-        }
-      }
-    }
-    walk(root, false)
+  /** True when an uploaded pair covers this hostname. */
+  private manualCovers(host: string): boolean {
+    return this.certificateViews().some(entry => entry.present && coversHost(entry.hosts, host))
+  }
 
-    const days = soonest === null ? null : Math.floor((soonest - Date.now()) / 86_400_000)
-    this.certCache = { at: Date.now(), days }
-    return days
+  /**
+   * Re-applies the configuration when the certificate situation changed — a name that
+   * just obtained its certificate stops being served the "not ready" page, and one
+   * that lost it starts. Cheap enough for the panel's tick: the store read is cached.
+   */
+  async sync(): Promise<void> {
+    if (!this.config.enabled || !this.installed())
+      return
+    if (this.status().state !== 'running')
+      return
+    const signature = this.routeViews().map(view => `${view.route.id}:${view.certificate?.state ?? ''}`).join('|')
+    if (signature === this.certificateSignature)
+      return
+    const first = this.certificateSignature === null
+    this.certificateSignature = signature
+    if (first)
+      return
+    await this.apply().catch((error: unknown) => {
+      logger.warn(`proxy:    could not re-apply after a certificate change: ${error instanceof Error ? error.message : String(error)}`)
+    })
   }
 
   /**
@@ -432,19 +645,20 @@ export class ProxyService {
       config: this.config,
       admin: this.admin ?? this.unixAdmin(),
       engineDir: this.options.engineDir,
-      manual: this.manualPair(),
+      manual: this.manualPairs(),
       acme: this.acmeAccount(routes),
       routes,
     })
   }
 
-  /** The uploaded pair, when any route actually asks for it. */
-  private manualPair(): { certificate: string, key: string } | null {
-    if (!this.options.tls.present)
-      return null
-    return this.config.routes.some(route => route.tls === 'manual')
-      ? { certificate: this.options.tls.certPath, key: this.options.tls.keyPath }
-      : null
+  /** The uploaded pairs, when any route actually asks for one. */
+  private manualPairs(): Array<{ certificate: string, key: string }> {
+    if (!this.config.routes.some(route => route.tls === 'manual'))
+      return []
+    return this.config.certificates
+      .map(entry => this.pairStore(entry.id))
+      .filter(store => store.present)
+      .map(store => ({ certificate: store.certPath, key: store.keyPath }))
   }
 
   /** The ACME account, and the names it may issue for: only the public ones. */
@@ -471,8 +685,9 @@ export class ProxyService {
 
       // `manual` means the uploaded pair and nothing else: without one the engine
       // would quietly obtain its own certificate for a name the user marked manual.
-      if (route.tls === 'manual' && !this.options.tls.present)
-        return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" is set to the uploaded certificate, but none has been uploaded` }
+      if (route.tls === 'manual' && !this.manualCovers(route.host)) {
+        return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" serves an uploaded certificate, but none of them covers ${route.host}` }
+      }
 
       if (route.target === 'external') {
         const parsed = parseUpstream(route.url)
@@ -504,13 +719,19 @@ export class ProxyService {
   private engineRoutes(): ProxyUpstreamRoute[] {
     return this.resolveRoutes()
       .filter(resolved => resolved.status === 'ok' && resolved.upstream !== null)
-      .map(resolved => ({
-        host: resolved.route.host,
-        path: resolved.route.path,
-        dial: resolved.upstream!,
-        upstreamTls: resolved.upstreamTls,
-        tls: resolved.route.tls,
-      }))
+      .map((resolved) => {
+        const certificate = this.certificateFor(resolved.route)
+        return {
+          host: resolved.route.host,
+          path: resolved.route.path,
+          dial: resolved.upstream!,
+          upstreamTls: resolved.upstreamTls,
+          tls: resolved.route.tls,
+          // A name whose certificate is not there yet gets a rendered page on the
+          // cleartext side instead of a redirect into a handshake that cannot finish.
+          certificateReady: certificate.state === 'issued' || certificate.state === 'local' || certificate.state === 'uploaded',
+        }
+      })
   }
 
   /**
@@ -518,7 +739,13 @@ export class ProxyService {
    * is reported, not silently dropped: the panel says why the hostname is dark.
    */
   routeViews(): ProxyRouteView[] {
-    return this.resolveRoutes().map(({ route, status, upstream, message }) => ({ route, status, upstream, message }))
+    return this.resolveRoutes().map(({ route, status, upstream, message }) => ({
+      route,
+      status,
+      upstream,
+      message,
+      certificate: this.certificateFor(route),
+    }))
   }
 
   view(): ProxyView {
@@ -528,7 +755,7 @@ export class ProxyService {
       engines: proxyEngineInfos(),
       status: this.status(),
       routes: this.routeViews(),
-      tls: this.options.tls.status(this.config.routes.some(route => route.tls === 'manual')),
+      certificates: this.certificateViews(),
     }
   }
 
@@ -703,7 +930,7 @@ export class ProxyService {
       config,
       admin,
       engineDir: this.options.engineDir,
-      manual: this.manualPair(),
+      manual: this.manualPairs(),
       acme: this.acmeAccount(routes),
       routes,
     })
@@ -796,6 +1023,7 @@ export class ProxyService {
     this.nanny = null
     this.admin = null
     this.certCache = null
+    this.certificateSignature = null
     fs.rmSync(nannySpecPath(this.options.stateDir, PROXY_ID), { force: true })
     fs.rmSync(this.options.adminPath, { force: true })
     fs.rmSync(path.join(this.options.stateDir, 'applied.json'), { force: true })

@@ -6,7 +6,6 @@ import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { isPublicHost, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
-import { TlsStore } from '#src/services/tls'
 import { proxyConfigSchema } from '#src/shared/contracts'
 
 const dirs: string[] = []
@@ -51,7 +50,7 @@ async function harness(overrides: Partial<ProxyServiceOptions> = {}): Promise<Ha
     stateDir: path.join(dir, 'state'),
     adminPath: path.join(dir, 'state', 'admin.json'),
     logDir: path.join(dir, 'logs'),
-    tls: new TlsStore(path.join(dir, 'tls'), 'proxy'),
+    tlsDir: path.join(dir, 'tls'),
     control: () => ({ host: 'local', port: 3999, bindHost: '127.0.0.1', url: 'http://127.0.0.1:3999', protocol: 'http' }),
     resolveServer: () => null,
     exposureBlocked: () => null,
@@ -133,7 +132,7 @@ describe('proxyService', () => {
     expect(view.engine).toMatchObject({ id: 'caddy', installed: false, version: null })
     expect(view.status.state).toBe('off')
     expect(view.routes).toEqual([])
-    expect(view.tls.certPresent).toBe(false)
+    expect(view.certificates).toEqual([])
   })
 
   it('reports an installed engine with what was written beside it', async () => {
@@ -236,10 +235,11 @@ describe('proxyService', () => {
     await expect(service.apply()).resolves.toBeUndefined()
   })
 
-  it('reports the manual pair once it is stored', async () => {
-    const { options } = await harness()
-    const pair = { certificate: '', key: '' }
-    // A garbage pair is rejected by the same validator the panel's own TLS uses.
-    expect(options.tls.save(pair.certificate, pair.key).ok).toBe(false)
+  it('refuses a pair that is not a certificate, and stores none', async () => {
+    const { service, settings } = await harness()
+    // The same validator the panel's own TLS uses, so a bad pair never reaches disk.
+    expect(service.saveCertificate('m', 'Mine', '', '').ok).toBe(false)
+    expect(settings.proxy.certificates).toEqual([])
+    expect(service.view().certificates).toEqual([])
   })
 })
