@@ -77,8 +77,8 @@ function useStandard(): void {
       <Notice tone="warn" title="A port below 1024 needs a privileged bind">
         Running the panel as your own user cannot bind 80 or 443 without permission. Either grant it
         once
-        <span v-if="setcap" class="font-mono">{{ setcap }}</span>
-        <span v-else>with <span class="font-mono">setcap</span> on the engine binary</span>
+        <code v-if="setcap" class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">{{ setcap }}</code>
+        <span v-else>with <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">setcap</code> on the engine binary</span>
         <CopyButton v-if="setcap" :value="setcap" label="Copy the command" class="ml-1 align-middle" />
         and restart the engine, or keep {{ UNPRIVILEGED_HTTP_PORT }}/{{ UNPRIVILEGED_HTTPS_PORT }} and forward
         80/443 from your router. On Windows the port is free to bind, but something else may hold it.

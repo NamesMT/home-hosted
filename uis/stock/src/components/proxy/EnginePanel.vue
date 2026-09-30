@@ -162,7 +162,7 @@ const CAPABILITIES = [
 
       <p v-if="installed && setcap" class="text-2xs leading-4 text-faint sm:col-span-2">
         A privileged port (below 1024) needs this once on Linux:
-        <span class="font-mono">{{ setcap }}</span>
+        <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">{{ setcap }}</code>
         <CopyButton :value="setcap" label="Copy the command" class="ml-1 align-middle" />
       </p>
     </template>
