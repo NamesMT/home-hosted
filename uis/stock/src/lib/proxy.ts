@@ -1,4 +1,4 @@
-import type { ProxyConfig, ProxyPatch, ProxyRoute, ProxyRoutePatch, ProxyRouteStatus, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
+import type { ProxyCertificateState, ProxyCertificateView, ProxyConfig, ProxyPatch, ProxyRoute, ProxyRoutePatch, ProxyRouteStatus, ProxyRouteView, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
 import type { Tone } from '@/lib/status'
 import { proxyRouteSchema } from '@shared/contracts'
 import { type } from 'arktype'
@@ -25,6 +25,13 @@ export interface ProxyWorkspace {
   id: string
   label: string
   servers: Array<{ id: string }>
+}
+
+export interface CertificateErrors {
+  label?: string
+  id?: string
+  certificate?: string
+  privateKey?: string
 }
 
 export interface RouteErrors {
@@ -76,6 +83,36 @@ export const ROUTE_STATUS_META: Record<ProxyRouteStatus, { label: string, tone: 
   'disabled': { label: 'Disabled', tone: 'neutral' },
   'no-upstream': { label: 'No upstream', tone: 'warn' },
   'error': { label: 'Error', tone: 'danger' },
+}
+
+/** Where a hostname's certificate stands. `off` has nothing to say. */
+export const CERTIFICATE_STATE_META: Record<ProxyCertificateState, { label: string, tone: Tone } | null> = {
+  off: null,
+  local: { label: 'engine CA', tone: 'neutral' },
+  uploaded: { label: 'uploaded pair', tone: 'info' },
+  issued: { label: 'certificate ready', tone: 'ok' },
+  pending: { label: 'waiting for the CA', tone: 'warn' },
+  failed: { label: 'certificate failed', tone: 'danger' },
+}
+
+/**
+ * The certificate line for one route, or `null` when there is nothing to say —
+ * an older panel does not send the field at all, and a route with TLS off has no
+ * certificate to report.
+ */
+export function routeCertificate(view: ProxyRouteView): { label: string, tone: Tone, message: string | null } | null {
+  const certificate = view.certificate
+  if (certificate === undefined)
+    return null
+  const meta = CERTIFICATE_STATE_META[certificate.state]
+  if (meta === null)
+    return null
+  return { ...meta, message: certificate.message }
+}
+
+/** One uploaded pair, as the list shows it; the files themselves are on disk. */
+export function certificateTitle(certificate: Pick<ProxyCertificateView, 'label' | 'id'>): string {
+  return certificate.label.trim().length > 0 ? certificate.label : certificate.id
 }
 
 const LOCAL_LISTENER = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?<authority>[^/?#]+)/i
@@ -202,15 +239,15 @@ export function firstPublicHost(routes: readonly RouteDraft[]): string | null {
   return routes.find(route => route.tls !== 'off' && isPublicHost(route.host))?.host ?? null
 }
 
-export function slugifyRouteId(host: string): string {
-  const slug = host.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
+function slugifyId(value: string, fallback: string): string {
+  const slug = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '')
   if (slug.length === 0)
-    return 'route'
+    return fallback
   return /^[a-z0-9]/.test(slug) ? slug : `r-${slug}`
 }
 
-/** An id no other route uses: the panel refuses duplicates outright. */
-export function uniqueRouteId(base: string, taken: readonly string[]): string {
+/** An id no other entry uses: the panel refuses duplicates outright. */
+function uniqueId(base: string, taken: readonly string[]): string {
   const used = new Set(taken)
   if (!used.has(base))
     return base
@@ -218,6 +255,23 @@ export function uniqueRouteId(base: string, taken: readonly string[]): string {
   while (used.has(`${base}-${index}`))
     index += 1
   return `${base}-${index}`
+}
+
+export function slugifyRouteId(host: string): string {
+  return slugifyId(host, 'route')
+}
+
+export function uniqueRouteId(base: string, taken: readonly string[]): string {
+  return uniqueId(base, taken)
+}
+
+/** A certificate is named by its label; the id names the files on disk. */
+export function slugifyCertificateId(label: string): string {
+  return slugifyId(label, 'certificate')
+}
+
+export function uniqueCertificateId(base: string, taken: readonly string[]): string {
+  return uniqueId(base, taken)
 }
 
 export function newRouteDraft(): RouteDraft {

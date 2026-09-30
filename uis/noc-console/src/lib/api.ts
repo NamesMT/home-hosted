@@ -29,6 +29,7 @@ import {
   loginSchema,
   logServersViewSchema,
   passwordSchema,
+  proxyCertificateUploadSchema,
   proxyPatchSchema,
   proxyViewSchema,
   settingsPatchSchema,
@@ -482,13 +483,20 @@ export function revertProxy(): Promise<ProxyView> {
   return proxyAction('revert')
 }
 
-/** The pair routes with `tls: "manual"` serve. */
-export async function uploadProxyTls(certificate: string, privateKey: string): Promise<ProxyView> {
-  return proxyView(await request<unknown>('/api/proxy/tls', { method: 'PUT', body: JSON.stringify({ certificate, privateKey }) }))
+/**
+ * One uploaded pair, stored under an id that also names its files on disk. The
+ * entry joins the config, so this is the write — there is no separate save.
+ */
+export async function uploadProxyCertificate(id: string, label: string, certificate: string, privateKey: string): Promise<ProxyView> {
+  const body = proxyCertificateUploadSchema({ label, certificate, privateKey })
+  if (body instanceof type.errors)
+    throw new Error(body.summary)
+  return proxyView(await request<unknown>(`/api/proxy/certificates/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }))
 }
 
-export async function clearProxyTls(): Promise<ProxyView> {
-  return proxyView(await request<unknown>('/api/proxy/tls', { method: 'DELETE' }))
+/** Refused with `PROXY_TLS_IN_USE` while a route still serves the pair. */
+export async function clearProxyCertificate(id: string): Promise<ProxyView> {
+  return proxyView(await request<unknown>(`/api/proxy/certificates/${encodeURIComponent(id)}`, { method: 'DELETE' }))
 }
 
 /**

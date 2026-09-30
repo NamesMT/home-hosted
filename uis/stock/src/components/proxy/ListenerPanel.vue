@@ -107,5 +107,10 @@ function useStandard(): void {
       hint="Untrusted certificates and no rate-limit burn while you try things out."
       wide
     />
+
+    <p class="text-2xs leading-4 text-faint sm:col-span-2">
+      A public name whose certificate is still being issued is reachable in the meantime — over HTTPS with a
+      temporary untrusted certificate, or over plain HTTP with a page naming the ports to forward.
+    </p>
   </FieldGroup>
 </template>

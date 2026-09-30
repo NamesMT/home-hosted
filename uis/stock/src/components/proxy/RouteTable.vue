@@ -9,7 +9,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
-import { ROUTE_STATUS_META, targetSummary, tlsSummary } from '@/lib/proxy'
+import { ROUTE_STATUS_META, routeCertificate, targetSummary, tlsSummary } from '@/lib/proxy'
 
 /**
  * The route table. Rows are a draft: the whole list is written by the page's
@@ -38,6 +38,7 @@ const rows = computed(() => props.routes.map((route) => {
     meta: view === null ? null : ROUTE_STATUS_META[view.status],
     target: targetSummary(route, props.workspaces),
     tls: tlsSummary(route),
+    certificate: view === null ? null : routeCertificate(view),
   }
 }))
 
@@ -129,6 +130,18 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
             </td>
             <td class="py-1.5 pr-3 text-2xs text-muted">
               {{ row.tls }}
+              <div v-if="row.certificate" class="mt-0.5">
+                <ToneBadge :tone="row.certificate.tone" dot>
+                  {{ row.certificate.label }}
+                </ToneBadge>
+                <p
+                  v-if="row.certificate.message"
+                  class="mt-0.5 text-2xs"
+                  :class="row.certificate.tone === 'danger' ? 'text-danger' : 'text-faint'"
+                >
+                  {{ row.certificate.message }}
+                </p>
+              </div>
             </td>
             <td class="py-1.5 pr-3">
               <ToneBadge v-if="row.meta" :tone="row.meta.tone" dot>

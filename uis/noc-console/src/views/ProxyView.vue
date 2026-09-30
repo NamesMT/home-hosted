@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import type { ProxyView } from '@shared/contracts'
+import type { ProxyCertificateView, ProxyView } from '@shared/contracts'
 import type { ListenerDraft, ProxyAction, ProxyWorkspace, RouteDraft } from '@/lib/proxy'
 import { computed, onMounted, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
+import ProxyCertificateDialog from '@/components/ProxyCertificateDialog.vue'
 import ProxyRouteDialog from '@/components/ProxyRouteDialog.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { flash } from '@/composables/useUi'
 import * as api from '@/lib/api'
 import {
+  certificateTitle,
   changedKeys,
   cloneListenerDraft,
   cloneRoutes,
@@ -17,6 +19,7 @@ import {
   proxyPatch,
   requiresEmail,
   ROUTE_STATUS_META,
+  routeCertificate,
   routesPatch,
   RUN_STATE_META,
   targetSummary,
@@ -115,6 +118,7 @@ const rows = computed(() => routes.value.map((route) => {
     meta: entry === null ? null : ROUTE_STATUS_META[entry.status],
     target: targetSummary(route, workspaces.value),
     tls: tlsSummary(route),
+    certificate: entry === null ? null : routeCertificate(entry),
   }
 }))
 
@@ -236,38 +240,45 @@ function removeRoute(route: RouteDraft): void {
   routes.value = routes.value.filter(entry => entry.key !== route.key)
 }
 
-const certInput = ref('')
-const keyInput = ref('')
-const tlsBusy = ref(false)
-const tlsError = ref<string | null>(null)
+const certDialogOpen = ref(false)
+const certBusy = ref(false)
+const certError = ref<string | null>(null)
 
-async function readFileInto(event: Event, target: 'cert' | 'key'): Promise<void> {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file)
-    return
-  const text = await file.text()
-  if (target === 'cert')
-    certInput.value = text
-  else keyInput.value = text
-}
+const certificates = computed(() => view.value?.certificates ?? [])
+const takenCertificateIds = computed(() => certificates.value.map(entry => entry.id))
 
-async function runTls(action: () => Promise<ProxyView>, done: string): Promise<void> {
-  tlsBusy.value = true
-  tlsError.value = null
+async function runCertificate(action: () => Promise<ProxyView>, done: string): Promise<boolean> {
+  certBusy.value = true
+  certError.value = null
   try {
     fetched.value = await action()
-    certInput.value = ''
-    keyInput.value = ''
     flash(done)
     await control.refresh()
+    return true
   }
   catch (caught) {
-    tlsError.value = caught instanceof Error ? caught.message : String(caught)
-    flash(tlsError.value, 'error')
+    certError.value = caught instanceof Error ? caught.message : String(caught)
+    flash(certError.value, 'error')
+    return false
   }
   finally {
-    tlsBusy.value = false
+    certBusy.value = false
   }
+}
+
+async function addCertificate(payload: { id: string, label: string, certificate: string, privateKey: string }): Promise<void> {
+  const stored = await runCertificate(
+    () => api.uploadProxyCertificate(payload.id, payload.label, payload.certificate, payload.privateKey),
+    `“${payload.label}” stored`,
+  )
+  if (stored) {
+    certDialogOpen.value = false
+    certError.value = null
+  }
+}
+
+function removeCertificate(certificate: ProxyCertificateView): void {
+  void runCertificate(() => api.clearProxyCertificate(certificate.id), `“${certificateTitle(certificate)}” removed`)
 }
 </script>
 
@@ -447,6 +458,11 @@ async function runTls(action: () => Promise<ProxyView>, done: string): Promise<v
                 </label>
               </div>
 
+              <p class="field__hint">
+                a public name whose certificate is still being issued is reachable meanwhile — https serves a
+                temporary untrusted certificate, and plain http a page naming the ports to forward
+              </p>
+
               <div class="actions actions--start">
                 <button type="button" class="btn btn--sm" @click="useFallback">
                   use {{ UNPRIVILEGED_HTTP_PORT }} / {{ UNPRIVILEGED_HTTPS_PORT }}
@@ -511,6 +527,14 @@ async function runTls(action: () => Promise<ProxyView>, done: string): Promise<v
                     </td>
                     <td class="dim">
                       {{ row.tls }}
+                      <span v-if="row.certificate" class="chip" :class="row.certificate.chip">{{ row.certificate.label }}</span>
+                      <span
+                        v-if="row.certificate?.message"
+                        class="faint"
+                        :class="{ danger: row.certificate.danger, warn: row.certificate.warn }"
+                      >
+                        {{ row.certificate.message }}
+                      </span>
                     </td>
                     <td>
                       <span v-if="row.meta" class="chip" :class="row.meta.chip">{{ row.meta.label }}</span>
@@ -550,86 +574,72 @@ async function runTls(action: () => Promise<ProxyView>, done: string): Promise<v
 
         <section class="pane">
           <div class="pane__head">
-            <span class="pane__title">manual certificate</span>
+            <span class="pane__title">uploaded certificates</span>
             <span class="view__spacer" />
-            <span class="faint">served by routes set to “uploaded certificate”</span>
+            <span class="faint">{{ certificates.length }} pair{{ certificates.length === 1 ? '' : 's' }}</span>
+            <button type="button" class="btn btn--xs" :disabled="certBusy" @click="certDialogOpen = true">
+              add certificate
+            </button>
           </div>
           <div class="pane__body">
-            <p v-if="view.tls.error" class="note note--error">
-              {{ view.tls.error }}
+            <p v-if="certError" class="note note--error">
+              {{ certError }}
             </p>
 
-            <div v-if="view.tls.certPresent" class="detailbox">
-              <div class="detailbox__row">
-                <span class="detailbox__k">subject</span>
-                <span class="detailbox__v mono truncate">{{ view.tls.subject ?? '—' }}</span>
-              </div>
-              <div class="detailbox__row">
-                <span class="detailbox__k">issuer</span>
-                <span class="detailbox__v mono truncate">{{ view.tls.issuer ?? '—' }}</span>
-              </div>
-              <div class="detailbox__row">
-                <span class="detailbox__k">valid until</span>
-                <span class="detailbox__v mono">
-                  {{ view.tls.validTo ? view.tls.validTo.slice(0, 10) : '—' }}
-                  <span v-if="view.tls.daysRemaining !== null" class="faint">({{ view.tls.daysRemaining }} days)</span>
-                </span>
-              </div>
-              <div class="detailbox__row">
-                <span class="detailbox__k">key</span>
-                <span class="detailbox__v">
-                  <span class="chip" :class="view.tls.keyMatches ? 'chip--ok' : 'chip--danger'">
-                    {{ view.tls.keyMatches ? 'matches' : 'does not match' }}
-                  </span>
-                </span>
+            <div v-if="certificates.length > 0" class="stack">
+              <div v-for="certificate in certificates" :key="certificate.id" class="detailbox">
+                <div class="detailbox__row">
+                  <span class="detailbox__k">{{ certificateTitle(certificate) }}</span>
+                  <span class="detailbox__v mono truncate">{{ certificate.id }}</span>
+                </div>
+
+                <p v-if="certificate.error" class="note note--error">
+                  {{ certificate.error }}
+                </p>
+                <template v-else>
+                  <div class="detailbox__row">
+                    <span class="detailbox__k">subject</span>
+                    <span class="detailbox__v mono truncate">{{ certificate.subject ?? '—' }}</span>
+                  </div>
+                  <div class="detailbox__row">
+                    <span class="detailbox__k">issuer</span>
+                    <span class="detailbox__v mono truncate">{{ certificate.issuer ?? '—' }}</span>
+                  </div>
+                  <div class="detailbox__row">
+                    <span class="detailbox__k">valid until</span>
+                    <span class="detailbox__v mono">
+                      {{ certificate.validTo ? certificate.validTo.slice(0, 10) : '—' }}
+                      <span
+                        v-if="certificate.daysRemaining !== null"
+                        class="faint"
+                        :class="{ warn: certificate.daysRemaining < 14 }"
+                      >({{ certificate.daysRemaining }} days)</span>
+                    </span>
+                  </div>
+                  <div class="detailbox__row">
+                    <span class="detailbox__k">covers</span>
+                    <span class="detailbox__v mono truncate">
+                      {{ certificate.hosts.length > 0 ? certificate.hosts.join(', ') : 'no hostnames in its SANs' }}
+                    </span>
+                  </div>
+                </template>
+
+                <div class="actions actions--start">
+                  <ConfirmButton
+                    label="remove"
+                    confirm-label="confirm remove"
+                    tone="danger"
+                    :disabled="certBusy"
+                    @confirm="removeCertificate(certificate)"
+                  />
+                </div>
               </div>
             </div>
 
-            <p v-else class="note">
-              no certificate uploaded — a route set to “uploaded certificate” serves nothing until a pair is stored
+            <p v-else class="empty">
+              no certificate uploaded — a route set to “uploaded certificate” needs a pair covering its
+              hostname, or the engine has nothing to serve for it
             </p>
-
-            <div class="grid grid--wide">
-              <label class="field">
-                <span class="field__label">certificate file (.pem, .crt)</span>
-                <input type="file" accept=".pem,.crt,.cer,text/plain" @change="readFileInto($event, 'cert')">
-              </label>
-              <label class="field">
-                <span class="field__label">private key file (.pem, .key)</span>
-                <input type="file" accept=".pem,.key,text/plain" @change="readFileInto($event, 'key')">
-              </label>
-              <label class="field grid__full">
-                <span class="field__label">or paste the certificate</span>
-                <textarea v-model="certInput" rows="3" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----" />
-              </label>
-              <label class="field grid__full">
-                <span class="field__label">or paste the private key</span>
-                <textarea v-model="keyInput" rows="3" spellcheck="false" placeholder="-----BEGIN PRIVATE KEY-----" />
-              </label>
-            </div>
-
-            <p v-if="tlsError" class="note note--error">
-              {{ tlsError }}
-            </p>
-
-            <div class="actions actions--start">
-              <button
-                type="button"
-                class="btn btn--sm btn--primary"
-                :disabled="tlsBusy || certInput.trim().length === 0 || keyInput.trim().length === 0"
-                @click="runTls(() => api.uploadProxyTls(certInput, keyInput), 'certificate stored')"
-              >
-                save certificate
-              </button>
-              <ConfirmButton
-                v-if="view.tls.certPresent"
-                label="remove certificate"
-                confirm-label="confirm remove"
-                tone="danger"
-                :disabled="tlsBusy"
-                @confirm="runTls(api.clearProxyTls, 'certificate removed')"
-              />
-            </div>
           </div>
         </section>
       </template>
@@ -642,6 +652,15 @@ async function runTls(action: () => Promise<ProxyView>, done: string): Promise<v
       :workspaces="workspaces"
       @close="dialogOpen = false"
       @save="applyRoute"
+    />
+
+    <ProxyCertificateDialog
+      :open="certDialogOpen"
+      :taken="takenCertificateIds"
+      :busy="certBusy"
+      :error="certError"
+      @close="certDialogOpen = false"
+      @submit="addCertificate"
     />
   </div>
 </template>

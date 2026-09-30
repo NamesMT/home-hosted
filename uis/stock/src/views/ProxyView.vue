@@ -2,11 +2,11 @@
 import type { ProxyView } from '@shared/contracts'
 import type { ListenerDraft, ProxyAction, ProxyWorkspace, RouteDraft } from '@/lib/proxy'
 import { computed, onMounted, ref, watch } from 'vue'
+import CertificatePanel from '@/components/proxy/CertificatePanel.vue'
 import EnginePanel from '@/components/proxy/EnginePanel.vue'
 import ListenerPanel from '@/components/proxy/ListenerPanel.vue'
 import RouteDialog from '@/components/proxy/RouteDialog.vue'
 import RouteTable from '@/components/proxy/RouteTable.vue'
-import TlsPanel from '@/components/proxy/TlsPanel.vue'
 import Notice from '@/components/settings/Notice.vue'
 import { isBlockEdited } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -212,7 +212,7 @@ function toggleRoute(route: RouteDraft, enabled: boolean): void {
   route.enabled = enabled
 }
 
-async function applyTlsView(next: ProxyView): Promise<void> {
+async function applyCertificateView(next: ProxyView): Promise<void> {
   fetched.value = next
   // The frame is preferred over this fallback, so re-read it: a certificate is
   // not a settings write, and nothing else would push a fresh frame.
@@ -265,7 +265,11 @@ async function applyTlsView(next: ProxyView): Promise<void> {
           @toggle="toggleRoute"
         />
 
-        <TlsPanel :tls="view.tls" @changed="applyTlsView" />
+        <CertificatePanel
+          :certificates="view.certificates"
+          :disabled="saving"
+          @changed="applyCertificateView"
+        />
       </div>
     </div>
 
