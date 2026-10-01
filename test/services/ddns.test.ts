@@ -191,4 +191,19 @@ describe('ddnsService', () => {
     disabled.service.tick(1000)
     expect(disabled.calls).toHaveLength(0)
   })
+
+  it('skips an account whose provider only answers challenges', async () => {
+    // `namecheap-api` exists for DNS-01 and has no address update, so a hostname
+    // pointed at it must say so rather than fail obscurely.
+    const { service, calls } = await harness(baseConfig({
+      accounts: [{ id: 'nc', provider: 'namecheap-api' }],
+      domains: [{ host: 'home.example.com', account: 'nc', types: ['A'] }],
+    }), { credentials: { nc: { apiUser: 'me', apiKey: 'k', clientIp: '203.0.113.7' } } })
+
+    const status = await service.run()
+
+    expect(status.records[0]).toMatchObject({ state: 'skipped' })
+    expect(status.records[0]?.message).toContain('does not update addresses')
+    expect(calls.some(call => call.includes('api.namecheap.com'))).toBe(false)
+  })
 })

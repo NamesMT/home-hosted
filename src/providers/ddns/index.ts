@@ -10,6 +10,7 @@ import { gandiProvider } from '#src/providers/ddns/gandi'
 import { godaddyProvider } from '#src/providers/ddns/godaddy'
 import { henetProvider } from '#src/providers/ddns/henet'
 import { namecheapProvider } from '#src/providers/ddns/namecheap'
+import { namecheapApiProvider } from '#src/providers/ddns/namecheap-api'
 import { noipProvider } from '#src/providers/ddns/noip'
 import { porkbunProvider } from '#src/providers/ddns/porkbun'
 import { spaceshipProvider } from '#src/providers/ddns/spaceship'
@@ -18,6 +19,7 @@ import { spaceshipProvider } from '#src/providers/ddns/spaceship'
 export const DDNS_PROVIDERS: readonly DdnsProvider[] = [
   cloudflareProvider,
   namecheapProvider,
+  namecheapApiProvider,
   spaceshipProvider,
   porkbunProvider,
   godaddyProvider,
@@ -46,6 +48,7 @@ export function ddnsProviderInfos(): DdnsProviderInfo[] {
     fields: provider.fields,
     ttl: provider.ttl,
     proxied: provider.proxied,
+    txt: provider.challenge !== undefined,
   }))
 }
 

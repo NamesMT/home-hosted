@@ -68,9 +68,10 @@ and the guess is wrong (`home.example.co.uk` is handled; an unusual suffix may n
 | **Dynu** | A, AAAA | Username + password | `password` may be the SHA-256 hash. |
 | **Hurricane Electric** | A, AAAA | Per-host DDNS key | `dyn.dns.he.net`. |
 | **FreeDNS (afraid.org)** | A, AAAA | The per-record "Direct URL" | Paste the whole URL or just its hash. |
+| **Namecheap (API)** | — | API user + key + whitelisted IP | For **DNS-01 only**: it answers a challenge through the XML API, which rewrites the whole zone per write. It updates no addresses — use the Dynamic DNS provider above for that. The client IP must be whitelisted under Profile → Tools → Namecheap API Access, and error `1017105` means it is not. |
 
-Not supported: **Route 53** (AWS SigV4 signing, a much larger dependency), **DreamHost** (no public
-DNS API), and the Namecheap XML API (a full zone rewrite per update).
+Not supported: **Route 53** (AWS SigV4 signing, a much larger dependency) and **DreamHost** (no
+public DNS API).
 
 ## Notifications
 
