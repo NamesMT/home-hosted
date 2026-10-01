@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.7.2",
   "packageManager": "pnpm@12.5.1",
-  "description": "Self-hosted control panel that keeps your home-server processes alive: supervision, restarts, port conflicts, logs — and a UI you can replace.",
+  "description": "Self-hosted control panel that keeps your home-server processes alive: supervision, restarts, port conflicts, logs \u2014 and a UI you can replace.",
   "author": "NamesMT <dangquoctrung123@gmail.com>",
   "license": "MIT",
   "homepage": "https://github.com/NamesMT/home-hosted#readme",
@@ -133,7 +133,7 @@
     "vue-tsc": "^3.3.11"
   },
   "simple-git-hooks": {
-    "pre-commit": "pnpm lint-staged"
+    "pre-commit": "pnpm lint-staged && node scripts/stamp-uis.mjs"
   },
   "lint-staged": {
     "*": "eslint --fix"
