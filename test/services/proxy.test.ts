@@ -132,6 +132,11 @@ async function harness(overrides: Partial<ProxyServiceOptions> = {}): Promise<Ha
  * and records every run beside itself. The panel spawns it for real, so nothing
  * here has to mock `node:child_process`.
  */
+/**
+ * A stand-in engine: a shell script, so it is spawnable on Linux and macOS but not on
+ * Windows. Tests that merely need `installed()` to be true use it anywhere; the ones
+ * that actually run it are marked `spawnsStubEngine` below.
+ */
 function writeStubEngine(enginePath: string, modules: string[]): void {
   const log = path.join(path.dirname(enginePath), 'runs.log')
   fs.mkdirSync(path.dirname(enginePath), { recursive: true })
@@ -194,6 +199,9 @@ function writeHangingEngine(enginePath: string): void {
   fs.writeFileSync(enginePath, '#!/bin/sh\nexec sleep 30\n')
   fs.chmodSync(enginePath, 0o755)
 }
+
+/** For the tests that spawn that script rather than just placing it. */
+const spawnsStubEngine = it.runIf(process.platform !== 'win32')
 
 describe('which account answers a challenge', () => {
   /** The panel's one usable account, named by no route. */
@@ -545,7 +553,7 @@ describe('proxyService', () => {
     expect(service.engineStatus()).toMatchObject({ installed: true, source: 'custom', version: null })
   })
 
-  it('reads the modules an installed binary carries, and only asks once', async () => {
+  spawnsStubEngine('reads the modules an installed binary carries, and only asks once', async () => {
     const { service, options } = await harness()
     writeStubEngine(service.enginePath, ['dns.providers.acmeproxy', 'http.handlers.reverse_proxy'])
 
@@ -557,7 +565,7 @@ describe('proxyService', () => {
     expect(fs.readFileSync(path.join(options.binDir, 'runs.log'), 'utf8').trim().split('\n')).toHaveLength(1)
   })
 
-  it('refuses to start DNS-01 on a build that has no ACMEProxy module', async () => {
+  spawnsStubEngine('refuses to start DNS-01 on a build that has no ACMEProxy module', async () => {
     const { service, settings } = await harness()
     writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
     settings.updateProxy({ enabled: true, dns01: { enabled: true } })
@@ -565,7 +573,7 @@ describe('proxyService', () => {
     await expect(service.start()).rejects.toMatchObject({ code: 'ENGINE_MODULE_NOT_INSTALLED', statusCode: 400 })
   })
 
-  it('gives up on an engine that never answers instead of hanging', async () => {
+  spawnsStubEngine('gives up on an engine that never answers instead of hanging', async () => {
     const { service } = await harness({ engineCommandTimeoutMs: 60 })
     writeHangingEngine(service.enginePath)
 
