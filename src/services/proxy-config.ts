@@ -28,10 +28,41 @@ export interface ProxyConfigInput {
    * way to be pointed at the staging endpoint.
    */
   acme: { email: string, staging: boolean, subjects: string[] }
+  /**
+   * How the panel answers a DNS-01 challenge. Absent means the engine keeps using
+   * HTTP-01/TLS-ALPN-01 for every name.
+   *
+   * One entry per DNS account, because an engine policy carries one challenge
+   * provider: a name whose zone lives at Cloudflare and one at deSEC need one policy
+   * each. The caller groups them, so the renderer never guesses which account owns a
+   * hostname.
+   */
+  dns01?: {
+    /** The panel's ACMEProxy endpoint, e.g. `http://127.0.0.1:3999/_acme`. */
+    endpoint: string
+    username: string
+    password: string
+    /** Nameservers the engine checks the record against; empty leaves it to Caddy. */
+    resolvers: string[]
+    policies: Array<{
+      /** `<workspace>/<account>`, for the panel's own record of who answers. */
+      account: string
+      /** The DNS provider, for the engine log when a challenge fails. */
+      provider: string
+      subjects: string[]
+    }>
+  }
 }
 
 /** The ACME staging directory: untrusted certificates, and no rate limit burnt. */
 const ACME_STAGING = 'https://acme-staging-v02.api.letsencrypt.org/directory'
+
+/**
+ * The name the engine answers with when a visitor reaches the port without an SNI
+ * (a bare IP) — or with one it has no certificate for. Caddy issues it from its own
+ * CA, which is why nothing here has to generate a certificate.
+ */
+export const FALLBACK_NAME = 'hh-fallback.invalid'
 
 /**
  * The issuers for the public names: ACME with the account address, then the engine's
@@ -45,11 +76,79 @@ const ACME_STAGING = 'https://acme-staging-v02.api.letsencrypt.org/directory'
  * ZeroSSL is deliberately absent: it needs an EAB key the panel does not collect, so
  * listing it only added a failing issuer and a second retry on every name.
  */
-function acmeIssuers(acme: ProxyConfigInput['acme']): Array<Record<string, unknown>> {
+/**
+ * The DNS-01 challenge block, which names the panel as the one that answers it. The
+ * engine holds no DNS credentials: it asks the panel over the ACMEProxy protocol, and
+ * the panel writes the record through the workspace account the route names.
+ */
+function challengeBlock(dns01: NonNullable<ProxyConfigInput['dns01']>): Record<string, unknown> {
+  return {
+    challenges: {
+      dns: {
+        provider: {
+          name: 'acmeproxy',
+          endpoint: dns01.endpoint,
+          username: dns01.username,
+          password: dns01.password,
+        },
+        // Only when asked for: an empty list would otherwise mean "no resolver".
+        ...(dns01.resolvers.length > 0 ? { resolvers: dns01.resolvers } : {}),
+      },
+    },
+  }
+}
+
+function acmeIssuers(acme: ProxyConfigInput['acme'], challenge: Record<string, unknown> = {}): Array<Record<string, unknown>> {
   return [
-    { module: 'acme', ...(acme.email.length > 0 ? { email: acme.email } : {}), ...(acme.staging ? { ca: ACME_STAGING } : {}) },
+    {
+      module: 'acme',
+      ...(acme.email.length > 0 ? { email: acme.email } : {}),
+      ...(acme.staging ? { ca: ACME_STAGING } : {}),
+      ...challenge,
+    },
     { module: 'internal' },
   ]
+}
+
+/**
+ * The page a visitor gets when the hostname they reached is not routed at all. It is
+ * the answer on both ports, so a request never lands on a redirect into a handshake
+ * that cannot finish.
+ */
+function notConfiguredPage(): string {
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>No route for this hostname</title>
+<style>
+  :root { color-scheme: light dark }
+  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; font: 15px/1.6 system-ui, sans-serif }
+  main { max-width: 34rem; padding: 2rem }
+  h1 { font-size: 1.15rem; margin: 0 0 .75rem }
+  p { margin: 0 0 .75rem }
+  code { font-family: ui-monospace, monospace; font-size: .9em }
+  footer { color: #888; font-size: .85em }
+</style></head>
+<body><main>
+  <h1>This route is not configured for any target yet</h1>
+  <p>No route in <strong>home-hosted</strong>'s reverse proxy claims the hostname
+  <code>{http.request.host}</code>, so there is nothing here to serve.</p>
+  <p>Add a route for it under <strong>Others → Reverse Proxy</strong>, or check that you
+  reached the hostname you meant to.</p>
+  <footer>home-hosted reverse proxy</footer>
+</main></body></html>`
+}
+
+/** The catch-all: it answers last, so every configured route wins over it. */
+function notConfiguredRoute(): Record<string, unknown> {
+  return {
+    handle: [{
+      handler: 'static_response',
+      status_code: 404,
+      headers: { 'content-type': ['text/html; charset=utf-8'] },
+      body: notConfiguredPage(),
+    }],
+  }
 }
 
 /** The page a visitor gets when a name has no certificate yet and HTTPS cannot work. */
@@ -140,7 +239,16 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
   if (managed.length > 0) {
     servers.https = {
       listen: [`:${config.httpsPort}`],
-      routes: managed.map(route => ({ match: [matchFor(route)], handle: [proxyHandler(route)], terminal: true })),
+      // A visitor with no SNI (a bare IP) or an unrouted name still gets a handshake,
+      // served by Caddy's own CA, and then the catch-all page below.
+      tls_connection_policies: [{ default_sni: FALLBACK_NAME }],
+      routes: [
+        ...managed.map(route => ({ match: [matchFor(route)], handle: [proxyHandler(route)], terminal: true })),
+        // Named so Caddy manages it, which is what makes it issue the certificate the
+        // policy above falls back to. Nothing is served from it but the same page.
+        { match: [{ host: [FALLBACK_NAME] }], ...notConfiguredRoute(), terminal: true },
+        notConfiguredRoute(),
+      ],
     }
   }
   if (routes.length > 0) {
@@ -170,6 +278,7 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
             body: noticePage(host, config.httpPort, config.httpsPort),
           }],
         })),
+        notConfiguredRoute(),
       ],
     }
   }
@@ -191,11 +300,24 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
     tlsApp.certificates = { load_files: input.manual }
   // Subjects are the public names only: a local-only name must keep falling to the
   // engine's own CA, which a catch-all policy would take away from it.
+  const policies: Array<Record<string, unknown>> = []
   if (input.acme.subjects.length > 0) {
-    tlsApp.automation = {
-      policies: [{ subjects: input.acme.subjects, issuers: acmeIssuers(input.acme) }],
-    }
+    const challenge = input.dns01 === undefined ? {} : challengeBlock(input.dns01)
+    const dnsSubjects = new Set(input.dns01?.policies.flatMap(policy => policy.subjects) ?? [])
+    // One policy per DNS account, plus one for every public name that is not answered
+    // by DNS-01 — that last one keeps HTTP-01/TLS-ALPN-01 for the names it still can.
+    for (const policy of input.dns01?.policies ?? [])
+      policies.push({ subjects: policy.subjects, issuers: acmeIssuers(input.acme, challenge) })
+    const rest = input.acme.subjects.filter(subject => !dnsSubjects.has(subject))
+    if (rest.length > 0)
+      policies.push({ subjects: rest, issuers: acmeIssuers(input.acme) })
   }
+  // The name the engine falls back to for a bare-IP visitor is issued by its own CA and
+  // never leaves the machine, so it gets its own policy: the ACME one must not see it.
+  if (managed.length > 0)
+    policies.push({ subjects: [FALLBACK_NAME], issuers: [{ module: 'internal' }] })
+  if (policies.length > 0)
+    tlsApp.automation = { policies }
 
   return {
     admin: adminBlock,

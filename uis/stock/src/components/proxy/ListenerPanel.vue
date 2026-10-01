@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ProxyDnsAccountView } from '@shared/contracts'
 import type { ListenerDraft } from '@/lib/proxy'
 import { computed } from 'vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -21,10 +22,14 @@ const props = defineProps<{
   emailHost: string | null
   /** The installed engine's path, for the `setcap` line. */
   enginePath: string | null
+  /** Every DNS account the proxy may name, so DNS-01 can say when none can answer. */
+  dnsAccounts: ProxyDnsAccountView[]
 }>()
 
 const form = defineModel<ListenerDraft>('form', { required: true })
 
+/** Accounts that could actually answer a challenge: credentials, and a TXT write. */
+const usableAccounts = computed(() => props.dnsAccounts.filter(account => account.writesTxt && account.hasCredentials))
 const fallback = computed(() => usesFallbackPorts(form.value))
 const setcap = computed(() => (props.enginePath === null ? null : `sudo setcap 'cap_net_bind_service=+ep' ${props.enginePath}`))
 const privileged = computed(() => isPrivilegedPort(form.value.httpPort) || isPrivilegedPort(form.value.httpsPort))
@@ -107,6 +112,44 @@ function useStandard(): void {
       hint="Untrusted certificates and no rate-limit burn while you try things out."
       wide
     />
+
+    <ToggleSwitch
+      v-model="form.dns01"
+      label="Answer challenges with DNS-01"
+      hint="The panel writes the challenge record through a route's DNS account, so no inbound port is needed to get a certificate."
+      wide
+    />
+
+    <TextField
+      v-if="form.dns01"
+      v-model="form.resolvers"
+      label="Check the record against"
+      placeholder="1.1.1.1, 8.8.8.8"
+      hint="Nameservers the engine reads the record from; empty uses its own. Needed where split-horizon DNS shows it a different view."
+      spellcheck="false"
+      wide
+    />
+
+    <div v-if="form.dns01 && usableAccounts.length === 0" class="sm:col-span-2">
+      <Notice tone="warn" title="No DNS account can answer a challenge">
+        DNS-01 is on, but no account has credentials it can use. Add one under
+        Workspace Settings → Dynamic DNS, or public names stay on the port challenges and
+        wait for a CA that cannot reach them.
+      </Notice>
+    </div>
+
+    <div v-else-if="form.dns01 && usableAccounts.length > 1" class="sm:col-span-2">
+      <Notice tone="info" title="Each public route has to pick an account">
+        More than one account can answer, so “Automatic” cannot choose. Pick one per route,
+        or those names stay on the port challenges.
+      </Notice>
+    </div>
+
+    <p v-if="form.dns01" class="text-2xs leading-4 text-faint sm:col-span-2">
+      Each route picks its own account, so names in different zones each get the right one. A route
+      left on “Automatic” uses the only account the table names. A name no account answers stays on
+      the port challenges.
+    </p>
 
     <p class="text-2xs leading-4 text-faint sm:col-span-2">
       A public name whose certificate is still being issued is reachable in the meantime — over HTTPS with a

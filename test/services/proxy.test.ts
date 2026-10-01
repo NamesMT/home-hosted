@@ -1,12 +1,18 @@
+import type { AddressInfo } from 'node:net'
 import type { ProxyServiceOptions } from '#src/services/proxy'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
+import http from 'node:http'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { GlobalSettingsStore } from '#src/config/settings'
-import { isPublicHost, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
+import { logger } from '#src/helpers/logger'
+import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
+import { isProcessAlive } from '#src/providers/port'
+import { groupDns01Policies, isPublicHost, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
 import { proxyConfigSchema } from '#src/shared/contracts'
 
 const dirs: string[] = []
@@ -70,6 +76,7 @@ function writePair(tlsDir: string, id: string, pair: { certificate: string, priv
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
 })
 
@@ -108,6 +115,7 @@ async function harness(overrides: Partial<ProxyServiceOptions> = {}): Promise<Ha
     previousConfigPath: path.join(dir, 'engine', 'previous.json'),
     stateDir: path.join(dir, 'state'),
     adminPath: path.join(dir, 'state', 'admin.json'),
+    challengeAuthPath: path.join(dir, 'state', 'challenge.json'),
     logDir: path.join(dir, 'logs'),
     tlsDir: path.join(dir, 'tls'),
     control: () => ({ host: 'local', port: 3999, bindHost: '127.0.0.1', url: 'http://127.0.0.1:3999', protocol: 'http' }),
@@ -117,6 +125,169 @@ async function harness(overrides: Partial<ProxyServiceOptions> = {}): Promise<Ha
     ...overrides,
   }
   return { service: new ProxyService(options), settings, dir, options }
+}
+
+/**
+ * A stand-in engine: a real executable that answers `version` and `list-modules`,
+ * and records every run beside itself. The panel spawns it for real, so nothing
+ * here has to mock `node:child_process`.
+ */
+function writeStubEngine(enginePath: string, modules: string[]): void {
+  const log = path.join(path.dirname(enginePath), 'runs.log')
+  fs.mkdirSync(path.dirname(enginePath), { recursive: true })
+  const list = modules.map(name => `${name}\n`).join('')
+  fs.writeFileSync(enginePath, [
+    '#!/bin/sh',
+    `echo "$1" >> "${log}"`,
+    'if [ "$1" = "version" ]; then echo "v2.11.4 h1:stub"; fi',
+    `if [ "$1" = "list-modules" ]; then printf '${list}'; fi`,
+    'exit 0',
+    '',
+  ].join('\n'))
+  fs.chmodSync(enginePath, 0o755)
+}
+
+describe('dNS-01 policy grouping', () => {
+  function upstream(host: string, tls: 'auto' | 'off' | 'manual' = 'auto') {
+    return { host, path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls, certificateReady: true }
+  }
+
+  const accounts: Record<string, { workspaceId: string, accountId: string, provider: string }> = {
+    'git.example.com': { workspaceId: 'default', accountId: 'cf', provider: 'cloudflare' },
+    'media.example.com': { workspaceId: 'default', accountId: 'cf', provider: 'cloudflare' },
+    'vault.example.net': { workspaceId: 'default', accountId: 'r53', provider: 'route53' },
+  }
+  const accountFor = (host: string) => accounts[host] ?? null
+
+  it('gives names that share an account one policy', () => {
+    const policies = groupDns01Policies(
+      [upstream('git.example.com'), upstream('media.example.com'), upstream('vault.example.net')],
+      accountFor,
+    )
+
+    expect(policies).toEqual([
+      { account: 'default/cf', provider: 'cloudflare', subjects: ['git.example.com', 'media.example.com'] },
+      { account: 'default/r53', provider: 'route53', subjects: ['vault.example.net'] },
+    ])
+  })
+
+  it('leaves out the names no account answers, and the ones not on automatic TLS', () => {
+    const policies = groupDns01Policies(
+      [upstream('git.example.com'), upstream('plain.example.com'), upstream('manual.example.com', 'manual'), upstream('off.example.com', 'off')],
+      accountFor,
+    )
+
+    expect(policies).toEqual([{ account: 'default/cf', provider: 'cloudflare', subjects: ['git.example.com'] }])
+  })
+
+  it('is empty when nothing is answered', () => {
+    expect(groupDns01Policies([upstream('nothing.example.com')], accountFor)).toEqual([])
+  })
+})
+
+/**
+ * An engine that never answers. `exec` replaces the shell, so the kill reaches the
+ * process that is actually sleeping.
+ */
+function writeHangingEngine(enginePath: string): void {
+  fs.mkdirSync(path.dirname(enginePath), { recursive: true })
+  fs.writeFileSync(enginePath, '#!/bin/sh\nexec sleep 30\n')
+  fs.chmodSync(enginePath, 0o755)
+}
+
+describe('which account answers a challenge', () => {
+  /** The panel's one usable account, named by no route. */
+  const single = {
+    listDnsAccounts: () => [{ workspace: 'default', account: 'cf', provider: 'cloudflare', label: '', writesTxt: true, hasCredentials: true }],
+    resolveDnsAccount: () => ({ provider: 'cloudflare', credentials: { apiToken: 'tok' } }),
+    defaultWorkspaceId: () => 'default',
+  }
+  const route = (host: string, dnsAccount = '') =>
+    ({ id: 'r', host, target: 'external' as const, url: 'http://10.0.0.5:3000', dnsAccount })
+
+  it('uses the panel’s only usable account when no route names one', async () => {
+    // Without this the challenge block was never generated and a public name sat on
+    // "waiting for the CA" forever, because Caddy fell back to HTTP-01.
+    const { service, settings } = await harness(single)
+    settings.updateProxy({ dns01: { enabled: true }, routes: [route('git.example.com')] })
+
+    expect(service.challengeAccount('_acme-challenge.git.example.com.')).toMatchObject({ workspaceId: 'default', accountId: 'cf' })
+  })
+
+  it('refuses to guess between two accounts', async () => {
+    const { service, settings } = await harness({
+      ...single,
+      listDnsAccounts: () => [
+        { workspace: 'default', account: 'cf', provider: 'cloudflare', label: '', writesTxt: true, hasCredentials: true },
+        { workspace: 'default', account: 'do', provider: 'digitalocean', label: '', writesTxt: true, hasCredentials: true },
+      ],
+    })
+    settings.updateProxy({ dns01: { enabled: true }, routes: [route('git.example.com')] })
+
+    expect(service.challengeAccount('_acme-challenge.git.example.com.')).toBeNull()
+  })
+
+  it('never answers for a local-only name', async () => {
+    // A loopback or `.lan` name is signed by the engine's own CA. Answering would
+    // write a bogus TXT record, and listing it made Caddy attempt ACME for an IP.
+    const { service, settings } = await harness(single)
+    settings.updateProxy({ dns01: { enabled: true }, routes: [route('gitea.lan'), route('127.0.0.1')] })
+
+    expect(service.challengeAccount('_acme-challenge.gitea.lan.')).toBeNull()
+    expect(service.challengeAccount('_acme-challenge.127.0.0.1.')).toBeNull()
+  })
+
+  it('leaves a local-only name out of the DNS-01 policy', () => {
+    const policies = groupDns01Policies(
+      [
+        { host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto', certificateReady: true },
+        { host: 'gitea.lan', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto', certificateReady: true },
+        { host: '127.0.0.1', path: '', dial: '127.0.0.1:6010', upstreamTls: false, tls: 'auto', certificateReady: true },
+      ],
+      () => ({ workspaceId: 'default', accountId: 'cf', provider: 'cloudflare' }),
+    )
+
+    expect(policies).toEqual([{ account: 'default/cf', provider: 'cloudflare', subjects: ['git.example.com'] }])
+  })
+})
+
+/**
+ * A stand-in engine: a live process the panel could stop (if it ever tried), and an
+ * admin endpoint that records every configuration handed to it.
+ */
+async function stubEngine(options: ProxyServiceOptions): Promise<{ loads: any[], pid: number, stop: () => Promise<void> }> {
+  const engine = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+  const loads: any[] = []
+  const admin = http.createServer((request, response) => {
+    let body = ''
+    request.on('data', chunk => body += chunk)
+    request.on('end', () => {
+      loads.push(JSON.parse(body))
+      response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
+    })
+  })
+  await new Promise<void>(resolve => admin.listen(0, '127.0.0.1', resolve))
+  const port = (admin.address() as AddressInfo).port
+
+  fs.mkdirSync(options.stateDir, { recursive: true })
+  fs.writeFileSync(options.adminPath, JSON.stringify({ kind: 'tcp', host: '127.0.0.1', port, origin: `http://127.0.0.1:${port}` }))
+  writeNannyState(nannyStatePath(options.stateDir, 'proxy'), {
+    serverId: 'proxy',
+    nannyPid: engine.pid!,
+    childPid: engine.pid!,
+    startedAt: Date.now(),
+    logFile: '',
+    heartbeatAt: Date.now(),
+  })
+
+  return {
+    loads,
+    pid: engine.pid!,
+    async stop() {
+      engine.kill('SIGKILL')
+      await new Promise<void>(resolve => admin.close(() => resolve()))
+    },
+  }
 }
 
 describe('validateProxyConfig', () => {
@@ -157,6 +328,48 @@ describe('validateProxyConfig', () => {
     // A host that opted out of TLS needs no certificate at all.
     const plain = config({ routes: [{ id: 'a', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000', tls: 'off' }] })
     expect(validateProxyConfig(plain)).toEqual([])
+  })
+
+  it('checks a named DNS account before the save, not at issuance', () => {
+    const withAccount = (dnsAccount: string) => config({
+      email: 'me@example.com',
+      dns01: { enabled: true },
+      routes: [{ id: 'a', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000', dnsAccount }],
+    })
+    const account = (found: { provider: string, writesTxt: boolean, hasCredentials: boolean } | null) => () => found
+
+    expect(validateProxyConfig(withAccount('cf'), account({ provider: 'cloudflare', writesTxt: true, hasCredentials: true }))).toEqual([])
+
+    expect(validateProxyConfig(withAccount('nope'), account(null)))
+      .toEqual(['route "a" names unknown DNS account "nope"'])
+
+    // A router-style Dynamic DNS password cannot write a TXT record at all.
+    expect(validateProxyConfig(withAccount('nc'), account({ provider: 'namecheap', writesTxt: false, hasCredentials: true })))
+      .toEqual(['route "a": the "namecheap" account cannot write TXT records, so it cannot answer a DNS-01 challenge'])
+
+    expect(validateProxyConfig(withAccount('cf'), account({ provider: 'cloudflare', writesTxt: true, hasCredentials: false })))
+      .toEqual(['route "a": the "cloudflare" account has no credentials stored yet'])
+
+    // A bare id belongs to the route's own workspace, not the panel default.
+    const scoped = config({
+      email: 'me@example.com',
+      dns01: { enabled: true },
+      routes: [{ id: 'a', host: 'git.example.com', target: 'server', workspace: 'lab', server: 'gitea', dnsAccount: 'cf' }],
+    })
+    const asked: string[] = []
+    validateProxyConfig(scoped, (ref, workspaceId) => {
+      asked.push(`${workspaceId}/${ref}`)
+      return { provider: 'cloudflare', writesTxt: true, hasCredentials: true }
+    })
+    expect(asked).toEqual(['lab/cf'])
+
+    // Naming an account while the feature is off is a config that would do nothing.
+    const off = config({
+      email: 'me@example.com',
+      routes: [{ id: 'a', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000', dnsAccount: 'cf' }],
+    })
+    expect(validateProxyConfig(off, account({ provider: 'cloudflare', writesTxt: true, hasCredentials: true })))
+      .toEqual(['route "a" names DNS account "cf", but DNS-01 is switched off'])
   })
 })
 
@@ -204,13 +417,123 @@ describe('proxyService', () => {
       version: '2.11.4',
       source: 'downloaded',
       url: 'https://example.test/caddy',
-      sha256: 'abc',
       bytes: 12,
       installedAt: 1,
     }))
 
     expect(service.installed()).toBe(true)
-    expect(service.engineStatus()).toMatchObject({ installed: true, version: '2.11.4', source: 'downloaded', sha256: 'abc', bytes: 12 })
+    expect(service.engineStatus()).toMatchObject({ installed: true, version: '2.11.4', source: 'downloaded', bytes: 12 })
+  })
+
+  it('still reads a record an older release stamped with a checksum', async () => {
+    const { service, options } = await harness()
+    fs.mkdirSync(options.binDir, { recursive: true })
+    fs.writeFileSync(service.enginePath, 'not really a binary')
+    fs.writeFileSync(path.join(options.binDir, 'engine.json'), JSON.stringify({
+      engine: 'caddy',
+      version: '2.11.4',
+      source: 'downloaded',
+      url: 'https://example.test/caddy',
+      sha256: 'abc',
+      bytes: 12,
+      installedAt: 1,
+    }))
+
+    // The dropped key must not turn the record into an unreadable one.
+    expect(service.engineStatus()).toMatchObject({ installed: true, version: '2.11.4', source: 'downloaded', bytes: 12 })
+  })
+
+  it('says the checksum was dropped once, not on every state frame', async () => {
+    const { service, options } = await harness()
+    fs.mkdirSync(options.binDir, { recursive: true })
+    fs.writeFileSync(service.enginePath, 'not really a binary')
+    fs.writeFileSync(path.join(options.binDir, 'engine.json'), JSON.stringify({
+      engine: 'caddy',
+      version: '2.11.4',
+      source: 'downloaded',
+      url: 'https://example.test/caddy',
+      sha256: 'abc',
+      bytes: 12,
+      installedAt: 1,
+    }))
+
+    // `engineStatus()` runs on every state read, so a warning per call would bury
+    // the log the moment an older engine.json is on disk.
+    const warnings: string[] = []
+    const savedWarn = logger.warn
+    logger.warn = ((...args: unknown[]) => { warnings.push(String(args[0])) }) as typeof logger.warn
+    try {
+      service.engineStatus()
+      service.engineStatus()
+      service.view()
+    }
+    finally {
+      logger.warn = savedWarn
+    }
+
+    expect(warnings.filter(line => line.includes('engine checksum'))).toHaveLength(1)
+  })
+
+  it('installs over an engine that is only recorded as failed', async () => {
+    // The trap: a state file left by a nanny that is gone made the panel read "error",
+    // the install guard refused on that display state, and there was no way to update.
+    const { service, options, settings } = await harness()
+    settings.updateProxy({ enabled: true })
+    fs.mkdirSync(options.stateDir, { recursive: true })
+    writeNannyState(nannyStatePath(options.stateDir, 'proxy'), {
+      serverId: 'proxy',
+      nannyPid: 999_999,
+      childPid: 999_998,
+      startedAt: Date.now(),
+      logFile: '',
+      heartbeatAt: Date.now(),
+    })
+    // Stop at the download: getting that far proves the guard let it through.
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 500 }))
+
+    await expect(service.install()).rejects.toMatchObject({ code: 'ENGINE_DOWNLOAD_FAILED' })
+  })
+
+  it('still refuses while a child outlived its nanny', async () => {
+    // `live()` is false there — the heartbeat is gone — but the binary is in use, so
+    // replacing it on disk is exactly what must not happen.
+    const { service, options, settings } = await harness()
+    settings.updateProxy({ enabled: true })
+    fs.mkdirSync(options.stateDir, { recursive: true })
+    writeNannyState(nannyStatePath(options.stateDir, 'proxy'), {
+      serverId: 'proxy',
+      nannyPid: 999_999,
+      childPid: process.pid,
+      startedAt: Date.now(),
+      logFile: '',
+      heartbeatAt: Date.now(),
+    })
+
+    await expect(service.install()).rejects.toMatchObject({ code: 'ENGINE_BUSY' })
+  })
+
+  it('refuses to install over an engine that is up', async () => {
+    const { service, options, settings } = await harness()
+    settings.updateProxy({ enabled: true })
+    // An engine cannot be up without being installed, and `status()` says so before it
+    // looks at the nanny at all — so this stands in for the binary rather than writing one.
+    const realStatSync = fs.statSync
+    vi.spyOn(fs, 'statSync').mockImplementation(((target: fs.PathLike, options?: unknown) => {
+      if (target === service.enginePath)
+        return { isFile: () => true, size: 1 }
+      return realStatSync(target, options as never)
+    }) as typeof fs.statSync)
+    fs.mkdirSync(options.stateDir, { recursive: true })
+    writeNannyState(nannyStatePath(options.stateDir, 'proxy'), {
+      serverId: 'proxy',
+      nannyPid: process.pid,
+      childPid: process.pid,
+      startedAt: Date.now(),
+      logFile: '',
+      heartbeatAt: Date.now(),
+    })
+
+    await expect(service.install()).rejects.toMatchObject({ code: 'ENGINE_BUSY', statusCode: 409 })
   })
 
   it('calls a binary we did not install our own, and reads a garbled record as absent', async () => {
@@ -219,7 +542,62 @@ describe('proxyService', () => {
     fs.writeFileSync(service.enginePath, 'x')
     fs.writeFileSync(path.join(options.binDir, 'engine.json'), '{ not json')
 
-    expect(service.engineStatus()).toMatchObject({ installed: true, source: 'custom', version: null, sha256: null })
+    expect(service.engineStatus()).toMatchObject({ installed: true, source: 'custom', version: null })
+  })
+
+  it('reads the modules an installed binary carries, and only asks once', async () => {
+    const { service, options } = await harness()
+    writeStubEngine(service.enginePath, ['dns.providers.acmeproxy', 'http.handlers.reverse_proxy'])
+
+    const modules = await service.installedModules()
+    expect([...(modules ?? [])]).toEqual(['dns.providers.acmeproxy', 'http.handlers.reverse_proxy'])
+    // A second read is answered from the process, not by running the binary again.
+    const again = await service.installedModules()
+    expect(again).toBe(modules)
+    expect(fs.readFileSync(path.join(options.binDir, 'runs.log'), 'utf8').trim().split('\n')).toHaveLength(1)
+  })
+
+  it('refuses to start DNS-01 on a build that has no ACMEProxy module', async () => {
+    const { service, settings } = await harness()
+    writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
+    settings.updateProxy({ enabled: true, dns01: { enabled: true } })
+
+    await expect(service.start()).rejects.toMatchObject({ code: 'ENGINE_MODULE_NOT_INSTALLED', statusCode: 400 })
+  })
+
+  it('gives up on an engine that never answers instead of hanging', async () => {
+    const { service } = await harness({ engineCommandTimeoutMs: 60 })
+    writeHangingEngine(service.enginePath)
+
+    // A replaced or wrapped binary that never exits must not hang `start()` or the
+    // request that triggered the probe.
+    await expect(service.probeEngineVersion()).resolves.toBeNull()
+    await expect(service.installedModules()).resolves.toBeNull()
+  })
+
+  it('does not ask for the module when DNS-01 is off', async () => {
+    const { service, options, settings } = await harness()
+    writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
+    // A port something else holds, so the start fails at the preflight instead of
+    // waiting out the readiness timeout.
+    const held = net.createServer()
+    await new Promise<void>(resolve => held.listen(0, '127.0.0.1', resolve))
+    const port = (held.address() as net.AddressInfo).port
+    held.unref()
+    try {
+      settings.updateProxy({ enabled: true, httpPort: port, httpsPort: 1 })
+
+      // It gets past the module guard and fails on the port instead — the point is
+      // that a stock build is never refused for a feature nobody switched on.
+      await expect(service.start()).rejects.toMatchObject({ code: 'PROXY_PORT_IN_USE' })
+      const runs = fs.existsSync(path.join(options.binDir, 'runs.log'))
+        ? fs.readFileSync(path.join(options.binDir, 'runs.log'), 'utf8')
+        : ''
+      expect(runs).not.toContain('list-modules')
+    }
+    finally {
+      await new Promise<void>(resolve => held.close(() => resolve()))
+    }
   })
 
   it('resolves an entry route, and says which ones are dark', async () => {
@@ -275,10 +653,10 @@ describe('proxyService', () => {
     expect(service.status()).toMatchObject({ state: 'off', lastError: null })
 
     settings.updateProxy({ enabled: true })
-    expect(service.status()).toMatchObject({ state: 'stopped', lastError: 'the proxy engine is not installed', urls: ['http://localhost:80', 'https://localhost:443'] })
+    expect(service.status()).toMatchObject({ state: 'stopped', lastError: 'the proxy engine is not installed', urls: ['http://127.0.0.1:80', 'https://127.0.0.1:443'] })
 
     settings.updateProxy({ httpPort: 4480, httpsPort: 4443 })
-    expect(service.status().urls).toEqual(['http://localhost:4480', 'https://localhost:4443'])
+    expect(service.status().urls).toEqual(['http://127.0.0.1:4480', 'https://127.0.0.1:4443'])
   })
 
   it('writes the settings a patch asks for, through the store', async () => {
@@ -289,10 +667,207 @@ describe('proxyService', () => {
     expect(service.view().config.httpPort).toBe(4480)
   })
 
+  it('merges a partial DNS-01 patch instead of resetting the group', async () => {
+    const { settings } = await harness()
+    settings.updateProxy({ dns01: { enabled: true, resolvers: ['1.1.1.1'] } })
+
+    // A client that only toggles the switch must not lose the resolvers it never
+    // mentioned — the same rule every other nested group follows.
+    settings.updateProxy({ dns01: { enabled: false } })
+    expect(settings.proxy.dns01).toEqual({ enabled: false, resolvers: ['1.1.1.1'] })
+
+    // An explicit null clears one key back to its schema default.
+    settings.updateProxy({ dns01: { resolvers: null } })
+    expect(settings.proxy.dns01).toEqual({ enabled: false, resolvers: [] })
+  })
+
+  it('drops the engine certificate for one name, and nothing else', async () => {
+    const { service, options, settings } = await harness()
+    writeStubEngine(service.enginePath, ['dns.providers.acmeproxy'])
+    settings.updateProxy({
+      enabled: true,
+      routes: [
+        { id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+        { id: 'media', host: 'media.example.com', target: 'external', url: 'http://10.0.0.5:3001' },
+      ],
+    })
+    // What the engine stores for a name, under one directory per issuer.
+    const root = path.join(options.engineDir, 'data', 'certificates')
+    for (const issuer of ['acme-v02.api.letsencrypt.org-directory', 'local']) {
+      fs.mkdirSync(path.join(root, issuer, 'git.example.com'), { recursive: true })
+      fs.writeFileSync(path.join(root, issuer, 'git.example.com', 'git.example.com.crt'), 'x')
+      fs.mkdirSync(path.join(root, issuer, 'media.example.com'), { recursive: true })
+    }
+
+    await service.retryCertificate('git')
+
+    // The next handshake re-obtains; the other name is untouched.
+    expect(fs.existsSync(path.join(root, 'acme-v02.api.letsencrypt.org-directory', 'git.example.com'))).toBe(false)
+    expect(fs.existsSync(path.join(root, 'local', 'git.example.com'))).toBe(false)
+    expect(fs.existsSync(path.join(root, 'local', 'media.example.com'))).toBe(true)
+  })
+
+  it('retries without restarting the engine, by taking the name out and putting it back', async () => {
+    const { service, options, settings } = await harness()
+    writeStubEngine(service.enginePath, ['dns.providers.acmeproxy'])
+    const engine = await stubEngine(options)
+    const { loads } = engine
+
+    try {
+      settings.updateProxy({
+        enabled: true,
+        httpPort: 18080,
+        httpsPort: 18443,
+        routes: [
+          { id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+          { id: 'media', host: 'media.example.com', target: 'external', url: 'http://10.0.0.5:3001' },
+        ],
+      })
+      const root = path.join(options.engineDir, 'data', 'certificates', 'local')
+      fs.mkdirSync(path.join(root, 'git.example.com'), { recursive: true })
+
+      // Boot first: that is what adopts the running engine's admin record, and a
+      // panel that has not done that reads the engine as merely starting.
+      await service.initialize()
+      const before = loads.length
+
+      await service.retryCertificate('git')
+
+      // Two reloads, and the first one leaves the name out — which is what makes the
+      // engine let go of the certificate it was holding.
+      const sent = loads.slice(before)
+      expect(sent).toHaveLength(2)
+      const hosts = (config: any): string[] => JSON.stringify(config.apps.http.servers.https.routes)
+        .match(/git\.example\.com/g) ?? []
+      expect(hosts(sent[0])).toHaveLength(0)
+      expect(hosts(sent[1]!).length).toBeGreaterThan(0)
+      // The other route is in both, and the engine process was never stopped.
+      expect(JSON.stringify(sent[0])).toContain('media.example.com')
+      // The engine was never stopped: the name left the configuration, not the process.
+      expect(isProcessAlive(engine.pid)).toBe(true)
+      expect(fs.existsSync(path.join(root, 'git.example.com'))).toBe(false)
+    }
+    finally {
+      await engine.stop()
+    }
+  })
+
+  it('drops certificates for names it no longer serves, and keeps the rest', async () => {
+    const { service, options, settings } = await harness()
+    writeStubEngine(service.enginePath, ['dns.providers.acmeproxy'])
+    const engine = await stubEngine(options)
+
+    try {
+      const root = path.join(options.engineDir, 'data', 'certificates')
+      const make = (issuer: string, host: string): string => {
+        const dir = path.join(root, issuer, host)
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(path.join(dir, `${host}.crt`), 'x')
+        return dir
+      }
+      // A removed route, a route that is only switched off, the engine's fallback
+      // name, and a route still in use.
+      const gone = make('acme-v02.api.letsencrypt.org-directory', 'gone.example.com')
+      const disabled = make('acme-v02.api.letsencrypt.org-directory', 'off.example.com')
+      const fallback = make('local', 'hh-fallback.invalid')
+      const live = make('acme-v02.api.letsencrypt.org-directory', 'git.example.com')
+
+      settings.updateProxy({
+        enabled: true,
+        httpPort: 18080,
+        httpsPort: 18443,
+        routes: [
+          { id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+          { id: 'off', host: 'off.example.com', target: 'external', url: 'http://10.0.0.5:3001', enabled: false },
+        ],
+      })
+      await service.initialize()
+      await service.apply({ force: true })
+
+      expect(fs.existsSync(gone)).toBe(false)
+      expect(fs.existsSync(live)).toBe(true)
+      // A disabled route is still configured: a temporary switch-off must not cost a
+      // new issuance when it is switched back on.
+      expect(fs.existsSync(disabled)).toBe(true)
+      expect(fs.existsSync(fallback)).toBe(true)
+    }
+    finally {
+      await engine.stop()
+    }
+  })
+
+  it('refuses to retry a name no CA issues for, or one it does not know', async () => {
+    const { service, settings } = await harness()
+    writeStubEngine(service.enginePath, ['dns.providers.acmeproxy'])
+    settings.updateProxy({
+      enabled: true,
+      routes: [
+        { id: 'lan', host: 'gitea.lan', target: 'external', url: 'http://10.0.0.5:3000' },
+        { id: 'off', host: 'plain.example.com', target: 'external', url: 'http://10.0.0.5:3001', tls: 'off' },
+      ],
+    })
+
+    // A local name is signed by the engine's own CA, and a plain route has no
+    // certificate at all: retrying either would restart the engine for nothing.
+    await expect(service.retryCertificate('lan')).rejects.toMatchObject({ code: 'PROXY_CERT_NOT_MANAGED' })
+    await expect(service.retryCertificate('off')).rejects.toMatchObject({ code: 'PROXY_CERT_NOT_MANAGED' })
+    await expect(service.retryCertificate('ghost')).rejects.toMatchObject({ code: 'PROXY_ROUTE_UNKNOWN' })
+  })
+
   it('does not start anything for a config that is only switched off', async () => {
     const { service } = await harness()
     await expect(service.start()).rejects.toThrow('switched off')
     await expect(service.apply()).resolves.toBeUndefined()
+  })
+
+  it('calls a public name on the engine’s own CA a fallback, and says when it tries again', async () => {
+    if (!openssl)
+      return
+    const { service, options, settings } = await harness()
+    // What the engine leaves behind when the CA will not issue for a public name.
+    const pair = makePair('git.example.com')
+    const dir = path.join(options.engineDir, 'data', 'certificates', 'local', 'git.example.com')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'git.example.com.crt'), pair.certificate)
+    settings.updateProxy({
+      routes: [
+        { id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+        // A local-only name is signed by that same CA on purpose, and is not a fallback.
+        { id: 'lan', host: 'gitea.lan', target: 'external', url: 'http://10.0.0.5:3001' },
+      ],
+    })
+
+    const views = service.routeViews()
+    expect(views[0]?.certificate).toMatchObject({ state: 'fallback' })
+    // certmagic renews once a third of the lifetime is left, so two thirds of the
+    // three days this pair is valid for is the wait.
+    expect(views[0]?.certificate?.retryInMinutes).toBe(2880)
+    expect(views[1]?.certificate).toMatchObject({ state: 'local' })
+    expect(views[1]?.certificate?.retryInMinutes).toBeUndefined()
+  })
+
+  it('keeps the CA’s reason when the engine falls back to its own CA', async () => {
+    const { service, options, settings } = await harness()
+    const pair = makePair('git.example.com')
+    const dir = path.join(options.engineDir, 'data', 'certificates', 'local', 'git.example.com')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'git.example.com.crt'), pair.certificate)
+    settings.updateProxy({ routes: [{ id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' }] })
+
+    const line = (inner: Record<string, unknown>): string =>
+      `${JSON.stringify({ ts: 1, stream: 'stderr', text: JSON.stringify(inner) })}\n`
+    fs.mkdirSync(options.logDir, { recursive: true })
+    fs.writeFileSync(path.join(options.logDir, 'proxy.log'), [
+      line({ logger: 'tls.obtain', msg: 'could not get certificate from issuer', identifier: 'git.example.com', error: 'HTTP 400 urn:ietf:params:acme:error:rejectedIdentifier' }),
+      // The fallback's own success must not read as the CA having recovered.
+      line({ logger: 'tls.obtain', msg: 'certificate obtained successfully', identifier: 'git.example.com', issuer: 'local' }),
+    ].join(''))
+
+    expect(service.routeViews()[0]?.certificate?.message).toContain('rejectedIdentifier')
+
+    // A real CA issuance does clear it.
+    fs.appendFileSync(path.join(options.logDir, 'proxy.log'), line({ logger: 'tls.obtain', msg: 'certificate obtained successfully', identifier: 'git.example.com', issuer: 'acme-v02.api.letsencrypt.org-directory' }))
+    expect(service.routeViews()[0]?.certificate?.message).not.toContain('rejectedIdentifier')
   })
 
   it('refuses to serve a pair that expired in place, and says so', async () => {

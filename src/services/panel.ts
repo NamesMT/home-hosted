@@ -8,7 +8,7 @@ import type { HostMonitor } from '#src/services/host-monitor'
 import type { ProxyService } from '#src/services/proxy'
 import type { TlsStore } from '#src/services/tls'
 import type { UiService } from '#src/services/ui'
-import type { AppState, ServerConfig, ServerView, Workspace, WorkspaceView } from '#src/shared/contracts'
+import type { AppState, DdnsAccount, ProxyDnsAccountView, ServerConfig, ServerView, Workspace, WorkspaceView } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { SecretsStore } from '#src/config/secrets'
@@ -28,6 +28,7 @@ import {
   workspaceStateDir,
 } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
+import { ddnsProvider } from '#src/providers/ddns'
 import { ConfigWatch } from '#src/services/config-watch'
 import { DdnsService } from '#src/services/ddns'
 import { HistoryStore } from '#src/services/history'
@@ -150,6 +151,50 @@ export class PanelService {
       return null
     const config = workspace.store.getServer(serverId)
     return config === undefined ? null : { workspace, config }
+  }
+
+  /**
+   * One workspace's DDNS account, credentials included, for the panel-wide proxy.
+   *
+   * The account stays where it lives — a workspace owns its secrets and its
+   * notification routing — so the proxy references it instead of holding a copy.
+   */
+  findDnsAccount(workspaceId: string, accountId: string): { workspace: WorkspaceRuntime, account: DdnsAccount, credentials: Record<string, string> | null } | null {
+    const workspace = this.runtimes.get(workspaceId)
+    if (workspace === undefined)
+      return null
+    const account = workspace.store.ddns.accounts.find(entry => entry.id === accountId)
+    if (account === undefined)
+      return null
+    return {
+      workspace,
+      account,
+      credentials: workspace.secrets.getDdnsCredentials(accountId, account.provider)?.values ?? null,
+    }
+  }
+
+  /**
+   * Every DNS account a proxy route may name, across every workspace.
+   *
+   * A route references `<workspace>/<account>`, so the picker needs all of them; the
+   * account itself never leaves the workspace that owns it.
+   */
+  listDnsAccounts(): ProxyDnsAccountView[] {
+    const accounts: ProxyDnsAccountView[] = []
+    for (const workspace of this.runtimes.values()) {
+      for (const account of workspace.store.ddns.accounts) {
+        const provider = ddnsProvider(account.provider)
+        accounts.push({
+          workspace: workspace.id,
+          account: account.id,
+          provider: account.provider,
+          label: account.label,
+          writesTxt: provider?.challenge !== undefined,
+          hasCredentials: workspace.secrets.getDdnsCredentials(account.id, account.provider) !== null,
+        })
+      }
+    }
+    return accounts
   }
 
   serverViews(workspaceId?: string): ServerView[] {

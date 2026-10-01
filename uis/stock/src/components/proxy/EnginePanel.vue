@@ -40,7 +40,7 @@ const CAPABILITIES = [
 <template>
   <FieldGroup
     title="Engine"
-    description="The reverse proxy itself. The panel downloads a pinned build, supervises it and applies its configuration through the engine's own admin API."
+    description="The reverse proxy itself. The panel downloads the current build, supervises it and applies its configuration through the engine's own admin API."
   >
     <template #actions>
       <ToneBadge v-if="meta" :tone="meta.tone" dot>
@@ -63,7 +63,7 @@ const CAPABILITIES = [
 
       <div v-if="!installed" class="sm:col-span-2">
         <Notice tone="info" title="No engine installed">
-          Installing downloads the pinned {{ info?.label ?? engine.id }} build the panel supervises —
+          Installing downloads the current {{ info?.label ?? engine.id }} release the panel supervises —
           about 46 MB, once. Nothing is exposed until a route is added and the proxy is switched on.
         </Notice>
       </div>
@@ -94,15 +94,6 @@ const CAPABILITIES = [
               {{ formatBytes(engine.bytes) }}
             </dd>
           </div>
-          <div v-if="engine.sha256" class="flex items-start justify-between gap-4 py-1.5">
-            <dt class="text-muted">
-              SHA-256
-            </dt>
-            <dd class="flex min-w-0 items-center gap-1.5">
-              <span class="min-w-0 truncate font-mono text-2xs text-ink">{{ engine.sha256 }}</span>
-              <CopyButton :value="engine.sha256" label="Copy the checksum" />
-            </dd>
-          </div>
           <div v-if="binaryPath" class="flex items-start justify-between gap-4 py-1.5">
             <dt class="text-muted">
               Binary
@@ -116,8 +107,16 @@ const CAPABILITIES = [
             <dt class="text-muted">
               Live address
             </dt>
-            <dd class="text-right font-mono text-xs text-ink">
-              {{ status && status.urls.length > 0 ? status.urls.join(', ') : '—' }}
+            <dd class="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right font-mono text-xs">
+              <a
+                v-for="url in status?.urls ?? []"
+                :key="url"
+                :href="url"
+                target="_blank"
+                rel="noreferrer"
+                class="text-accent underline decoration-line underline-offset-2 hover:decoration-accent"
+              >{{ url }}</a>
+              <span v-if="!status || status.urls.length === 0" class="text-ink">—</span>
             </dd>
           </div>
           <div class="flex items-start justify-between gap-4 py-1.5">

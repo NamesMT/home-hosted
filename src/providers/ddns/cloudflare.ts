@@ -1,4 +1,4 @@
-import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
+import type { DdnsChallengeResult, DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { failed, missingFields, succeeded } from '#src/providers/ddns/types'
 
 const API = 'https://api.cloudflare.com/client/v4'
@@ -161,6 +161,66 @@ export const cloudflareProvider: DdnsProvider = {
     }
     catch (error) {
       return failed(error instanceof Error ? error.message : String(error))
+    }
+  },
+
+  /**
+   * One `_acme-challenge` TXT record, written and removed around a validation.
+   * Cloudflare has real per-record endpoints, so nothing else in the zone is read
+   * or rewritten — the failure mode that makes a whole-record-set API risky.
+   */
+  async challenge(record, context): Promise<DdnsChallengeResult> {
+    const headers = authHeaders(context.credentials)
+    if (headers === null)
+      return { ok: false, message: 'cloudflare needs an API token (or the legacy email + global key)' }
+
+    try {
+      const zone = await resolveZone(record.fqdn, headers, context, undefined)
+      if (zone === null)
+        return { ok: false, message: `cloudflare does not have a zone for ${record.fqdn}` }
+
+      // Every TXT at this name, because the CA may find several. What matters is
+      // whether the one carrying *this* value is among them: a different value left
+      // by an earlier attempt is not a substitute, and ACME checks the value.
+      const listed = await call<CloudflareRecord[]>(
+        `/zones/${zone.id}/dns_records?type=TXT&name=${encodeURIComponent(record.fqdn)}&per_page=100`,
+        headers,
+        context,
+      )
+      if (listed.error !== null)
+        return { ok: false, message: listed.error }
+      const matches = (listed.data?.result ?? []).filter(entry => entry.id !== undefined)
+      const ours = matches.filter(entry => entry.content === record.value)
+
+      if (record.action === 'present') {
+        if (ours.length > 0)
+          return { ok: true, message: `${record.fqdn} already carries this value` }
+        // Another TXT at the same name is left alone: Cloudflare serves several, and
+        // deleting somebody else's record to make room is not ours to do.
+        // TTL 1 is Cloudflare's "automatic", which is what a record this short-lived wants.
+        const written = await call<CloudflareRecord>(`/zones/${zone.id}/dns_records`, headers, context, {
+          method: 'POST',
+          body: JSON.stringify({ type: 'TXT', name: record.fqdn, content: record.value, ttl: 1 }),
+        })
+        if (written.error !== null)
+          return { ok: false, message: written.error }
+        return { ok: true, message: `wrote the TXT record for ${record.fqdn}` }
+      }
+
+      // Only the records carrying this value: a second challenge for the same name
+      // must survive our cleanup, and so must an unrelated TXT record.
+      for (const entry of ours) {
+        const removed = await call<unknown>(`/zones/${zone.id}/dns_records/${entry.id}`, headers, context, { method: 'DELETE' })
+        // Already gone is the state we wanted: a retry must not fail on it.
+        if (removed.error !== null && removed.status !== 404)
+          return { ok: false, message: removed.error }
+      }
+      if (ours.length === 0)
+        return { ok: true, message: `${record.fqdn} had no challenge record to remove` }
+      return { ok: true, message: `removed the TXT record for ${record.fqdn}` }
+    }
+    catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
   },
 }

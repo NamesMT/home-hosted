@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import type { ProxyDnsAccountView } from '@shared/contracts'
 import type { ProxyWorkspace, RouteDraft, RouteErrors } from '@/lib/proxy'
 import { computed, nextTick, onScopeDispose, ref, toRaw, watch } from 'vue'
-import { isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
+import { dnsAccountOptions, isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
 
 /** One route, edited in the console's own sheet. Nothing is saved here. */
 const props = defineProps<{
@@ -10,6 +11,8 @@ const props = defineProps<{
   draft: RouteDraft | null
   others: RouteDraft[]
   workspaces: ProxyWorkspace[]
+  /** Every DNS account the proxy may name, across workspaces. */
+  dnsAccounts: ProxyDnsAccountView[]
 }>()
 
 const emit = defineEmits<{ close: [], save: [route: RouteDraft] }>()
@@ -31,6 +34,20 @@ const tlsHint = computed(() => {
   return isPublicHost(form.value.host)
     ? 'public — the engine asks a CA, so an ACME e-mail is needed'
     : 'local — the engine signs it with its own locally-trusted CA'
+})
+
+/** The account picker is only meaningful for a name the engine would get a certificate for. */
+const wantsDns = computed(() => form.value.tls === 'auto' && isPublicHost(form.value.host))
+const accountOptions = computed(() => dnsAccountOptions(props.dnsAccounts))
+const chosenAccount = computed(() => props.dnsAccounts.find(entry => `${entry.workspace}/${entry.account}` === form.value.dnsAccount))
+const accountHint = computed(() => {
+  if (chosenAccount.value === undefined)
+    return 'dns-01 writes the challenge record here; empty uses the only account that can answer'
+  if (!chosenAccount.value.writesTxt)
+    return `a ${chosenAccount.value.provider} account cannot write TXT records`
+  if (!chosenAccount.value.hasCredentials)
+    return `no credentials are stored for this ${chosenAccount.value.provider} account yet`
+  return `the challenge is written through this ${chosenAccount.value.provider} account`
 })
 
 function onKey(event: KeyboardEvent): void {
@@ -112,6 +129,14 @@ function submit(): void {
                 <option v-for="option in TLS_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
               <span class="field__hint">{{ tlsHint }}</span>
+            </label>
+
+            <label v-if="wantsDns" class="field">
+              <span class="field__label">dns account</span>
+              <select v-model="form.dnsAccount">
+                <option v-for="option in accountOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+              <span class="field__hint">{{ accountHint }}</span>
             </label>
 
             <label class="field">

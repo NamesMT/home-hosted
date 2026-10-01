@@ -53,9 +53,37 @@ export interface DdnsProvider {
   ttl: boolean
   /** The provider has a proxy/CDN flag (Cloudflare). */
   proxied: boolean
-  /** Non-null when the stored credentials cannot drive this provider yet. */
+  /**
+   * Non-null when the stored credentials cannot drive this provider yet.
+   */
   validate: (credentials: Record<string, string> | null) => string | null
-  update: (record: DdnsRecord, context: DdnsContext) => Promise<DdnsResult>
+  /**
+   * Keeps one address record current. Absent for a provider that exists only to
+   * answer DNS-01 challenges — an account on one of those cannot be used as a DDNS
+   * hostname, and saying so beats a stub that pretends to work.
+   */
+  update?: (record: DdnsRecord, context: DdnsContext) => Promise<DdnsResult>
+  /**
+   * Present when these credentials can answer an ACME DNS-01 challenge, which
+   * needs a temporary `TXT` record — a capability the update path does not imply.
+   * A router-style Dynamic DNS password cannot write TXT, so it is absent there.
+   */
+  challenge?: (record: DdnsChallengeRecord, context: DdnsContext) => Promise<DdnsChallengeResult>
+}
+
+/** One `_acme-challenge` TXT record, as the ACME server asked for it. */
+export interface DdnsChallengeRecord {
+  /** The full name the CA reads, e.g. `_acme-challenge.git.example.com`. */
+  fqdn: string
+  /** The value the CA expects to find. */
+  value: string
+  /** `present` writes it, `cleanup` removes it again. */
+  action: 'present' | 'cleanup'
+}
+
+export interface DdnsChallengeResult {
+  ok: boolean
+  message: string
 }
 
 export function succeeded(message: string, changed: boolean): DdnsResult {

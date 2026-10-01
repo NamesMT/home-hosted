@@ -82,6 +82,8 @@ export const proxyStateDir = path.join(proxyDir, 'state')
 export const proxyAdminPath = path.join(proxyStateDir, 'admin.json')
 /** The PEM pair a route with `tls: "manual"` serves. */
 export const proxyTlsDir = path.join(proxyDir, 'tls')
+/** The credentials the engine presents to the panel's DNS-01 endpoint, 0600. */
+export const proxyChallengeAuthPath = path.join(proxyStateDir, 'challenge.json')
 
 // ------------------------------------------------------------- workspace state
 

@@ -134,6 +134,42 @@ describe('pATCH /api/proxy', () => {
     expect(fixture.settings.proxy.routes).toEqual([])
   })
 
+  it('refuses a route whose DNS account cannot answer a challenge', async () => {
+    const fixture = await makeApp()
+    const runtime = fixture.workspaces.get(fixture.defaultId)!
+    // A Dynamic DNS password account: it can update an address, not write a TXT record.
+    runtime.runtime.store.updateDdns({ accounts: [{ id: 'nc', provider: 'namecheap', label: '' }] })
+    runtime.secrets.setDdnsCredentials('nc', 'namecheap', { password: 'pw' })
+
+    const response = await fixture.app.request('/api/proxy', patch({
+      email: 'me@example.com',
+      dns01: { enabled: true },
+      routes: [{ id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000', dnsAccount: 'nc' }],
+    }))
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as ProxyBody
+    expect(body.code).toBe('INVALID_PROXY')
+    expect(body.message).toContain('cannot write TXT records')
+    expect(fixture.settings.proxy.routes).toEqual([])
+  })
+
+  it('accepts a route whose DNS account can answer a challenge', async () => {
+    const fixture = await makeApp()
+    const runtime = fixture.workspaces.get(fixture.defaultId)!
+    runtime.runtime.store.updateDdns({ accounts: [{ id: 'cf', provider: 'cloudflare', label: '' }] })
+    runtime.secrets.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'tok' })
+
+    const response = await fixture.app.request('/api/proxy', patch({
+      email: 'me@example.com',
+      dns01: { enabled: true },
+      routes: [{ id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000', dnsAccount: 'cf' }],
+    }))
+
+    expect(response.status).toBe(200)
+    expect(fixture.settings.proxy.routes[0]?.dnsAccount).toBe('cf')
+  })
+
   it('refuses the same hostname twice', async () => {
     const fixture = await makeApp()
     const response = await fixture.app.request('/api/proxy', patch({

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { type } from 'arktype'
 import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
 import { parseGlobalSettings, parseTolerant, stampConfig } from '#src/config/parse'
-import { applyPatch, CONTROL_MERGE_KEYS, EMPTY_MERGE_KEYS } from '#src/config/patch'
+import { applyPatch, CONTROL_MERGE_KEYS, EMPTY_MERGE_KEYS, PROXY_MERGE_KEYS } from '#src/config/patch'
 import { backupsSchema, controlSchema, globalSettingsSchema, hostSchema, proxyConfigSchema } from '#src/config/schema'
 import { SEED_GLOBAL_SETTINGS } from '#src/config/seed'
 import { writeFileAtomic } from '#src/helpers/atomic'
@@ -178,11 +178,11 @@ export class GlobalSettingsStore {
     return backups
   }
 
-  /** The reverse proxy. `routes` is a list a patch replaces, so it merges nothing. */
+  /** The reverse proxy. `routes` is a list a patch replaces; `dns01` merges key by key. */
   updateProxy(patch: ProxyPatch): ProxyConfig {
     const draft = structuredClone(this.raw)
     draft.proxy = { ...(draft.proxy as Record<string, unknown> ?? {}) }
-    applyPatch(draft.proxy as Record<string, unknown>, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
+    applyPatch(draft.proxy as Record<string, unknown>, patch as Record<string, unknown>, PROXY_MERGE_KEYS)
 
     const proxy = this.parseGroup<ProxyConfig>(proxyConfigSchema as unknown as (input: unknown) => unknown, draft.proxy as Record<string, unknown>, 'proxy')
 

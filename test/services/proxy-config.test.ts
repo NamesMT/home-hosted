@@ -22,6 +22,18 @@ function route(input: Record<string, unknown>) {
 
 const unixAdmin = { kind: 'unix', path: '/tmp/hh/admin.sock' } as const
 
+/**
+ * The catch-all page is always the last route on each server, and the fallback
+ * certificate's policy is always the last policy. Both are asserted on their own
+ * below, so the routing cases here strip them.
+ */
+function routesOf(rendered: Record<string, unknown>, server: 'http' | 'https'): any[] {
+  return ((rendered.apps as any).http.servers[server].routes as any[]).slice(0, -1)
+}
+function policiesOf(rendered: Record<string, unknown>): any[] {
+  return ((rendered.apps as any).tls.automation.policies as any[]).slice(0, -1)
+}
+
 /** The renderer with the ACME account left out, for the cases that are not about it. */
 type RouteInput = Omit<ProxyUpstreamRoute, 'certificateReady'> & { certificateReady?: boolean }
 
@@ -40,21 +52,25 @@ describe('caddy engine', () => {
     expect(proxyEngine('caddy')).toBe(caddyEngine)
     expect(proxyEngine('nginx')).toBeNull()
     expect(caddyEngine.info.acme).toBe(true)
-    // The stock binary ships no DNS provider module, so DNS-01 is a plugin build.
-    expect(caddyEngine.info.dns01).toBe(false)
+    // The acmeproxy module is compiled in, so the engine can ask the panel to answer.
+    expect(caddyEngine.info.dns01).toBe(true)
   })
 
-  it('downloads a pinned release from the build service, with no plugin by default', () => {
-    const pinned = caddyEngine.download({ platform: 'linux', arch: 'x64', version: '' })
-    expect(pinned).toEqual({
-      url: `https://caddyserver.com/api/download?os=linux&arch=amd64&version=${caddyEngine.pinnedVersion}`,
-      version: caddyEngine.pinnedVersion,
+  it('asks the build service for its current release, with the one module it needs', () => {
+    // No `version`: that is how "whatever Caddy currently serves" is spelled, so a
+    // security fix lands by pressing Update instead of waiting for a panel release.
+    const current = caddyEngine.download({ platform: 'linux', arch: 'x64', version: '' })
+    expect(current).toEqual({
+      url: 'https://caddyserver.com/api/download?os=linux&arch=amd64&p=github.com%2Fcaddy-dns%2Facmeproxy',
+      version: '',
     })
+    expect(current?.url).not.toContain('version=')
 
+    // A named release is still only a request, and the module travels with it.
     const asked = caddyEngine.download({ platform: 'darwin', arch: 'arm64', version: '2.9.1' })
     expect(asked?.url).toContain('os=darwin&arch=arm64&version=2.9.1')
     expect(asked?.version).toBe('2.9.1')
-    expect(asked?.url).not.toContain('&p=')
+    expect(asked?.url).toContain('&p=github.com%2Fcaddy-dns%2Facmeproxy')
   })
 
   it('has no build for a platform or architecture it cannot serve', () => {
@@ -136,7 +152,8 @@ describe('renderCaddyConfig', () => {
     })
     const http = (rendered.apps as any).http
     expect(http.servers.https).toBeUndefined()
-    expect(http.servers.http.routes).toHaveLength(1)
+    // The catch-all is the second route; the reverse proxy is the first.
+    expect(http.servers.http.routes).toHaveLength(2)
     // A host we do not manage must not have a certificate attempted for it.
     expect(http.servers.http.automatic_https.skip).toEqual(['plain.example.com'])
     expect(http.servers.http.routes[0].handle[0].handler).toBe('reverse_proxy')
@@ -177,7 +194,7 @@ describe('renderCaddyConfig', () => {
     })
 
     const automation = (rendered.apps as any).tls.automation
-    expect(automation.policies).toHaveLength(1)
+    expect(policiesOf(rendered)).toHaveLength(1)
     expect(automation.policies[0].subjects).toEqual(['git.example.com'])
     // The address reaches the issuer, and supplying it does not cost ZeroSSL.
     // The contact goes on the ACME issuer; the engine's own CA is the last resort, so
@@ -186,6 +203,114 @@ describe('renderCaddyConfig', () => {
       { module: 'acme', email: 'me@example.com' },
       { module: 'internal' },
     ])
+  })
+
+  it('answers the challenge through the panel when DNS-01 is on', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com', dns01: { enabled: true, resolvers: ['1.1.1.1'] } }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
+      dns01: {
+        resolvers: ['1.1.1.1'],
+        endpoint: 'http://127.0.0.1:3999/_acme',
+        username: 'hh',
+        password: 'secret',
+        policies: [{ account: 'default/cf', provider: 'cloudflare', subjects: ['git.example.com'] }],
+      },
+      routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
+    })
+
+    const policies = policiesOf(rendered)
+    expect(policies).toHaveLength(1)
+    expect(policies[0].subjects).toEqual(['git.example.com'])
+    const issuers = policies[0].issuers
+    // The panel answers the challenge; the engine holds no DNS credentials of its own.
+    expect(issuers[0].challenges.dns.provider).toEqual({
+      name: 'acmeproxy',
+      endpoint: 'http://127.0.0.1:3999/_acme',
+      username: 'hh',
+      password: 'secret',
+    })
+    expect(issuers[0].challenges.dns.resolvers).toEqual(['1.1.1.1'])
+    // The engine's own CA stays the last resort.
+    expect(issuers[1]).toEqual({ module: 'internal' })
+  })
+
+  it('gives each account a policy of its own', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com', dns01: { enabled: true } }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com', 'vault.example.net'] },
+      dns01: {
+        resolvers: [],
+        endpoint: 'http://127.0.0.1:3999/_acme',
+        username: 'hh',
+        password: 'secret',
+        policies: [
+          { account: 'default/cf', provider: 'cloudflare', subjects: ['git.example.com'] },
+          { account: 'default/r53', provider: 'route53', subjects: ['vault.example.net'] },
+        ],
+      },
+      routes: [
+        { host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' },
+        { host: 'vault.example.net', path: '', dial: '127.0.0.1:8200', upstreamTls: false, tls: 'auto' },
+      ],
+    })
+
+    // One policy per account: an engine policy carries one challenge provider, so two
+    // zones at two registrars cannot share one.
+    const policies = policiesOf(rendered)
+    expect(policies).toHaveLength(2)
+    expect(policies.map((policy: any) => policy.subjects)).toEqual([['git.example.com'], ['vault.example.net']])
+    for (const policy of policies)
+      expect(policy.issuers[0].challenges.dns.provider.name).toBe('acmeproxy')
+  })
+
+  it('keeps a name that is not on DNS-01 on the port challenges', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com', dns01: { enabled: true } }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com', 'plain.example.com'] },
+      dns01: {
+        resolvers: [],
+        endpoint: 'http://127.0.0.1:3999/_acme',
+        username: 'hh',
+        password: 'secret',
+        policies: [{ account: 'default/cf', provider: 'cloudflare', subjects: ['git.example.com'] }],
+      },
+      routes: [
+        { host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' },
+        { host: 'plain.example.com', path: '', dial: '127.0.0.1:3001', upstreamTls: false, tls: 'auto' },
+      ],
+    })
+
+    const policies = policiesOf(rendered)
+    expect(policies).toHaveLength(2)
+    // The DNS-01 policy first, then everything else, still able to use HTTP-01.
+    expect(policies[0].subjects).toEqual(['git.example.com'])
+    expect(policies[0].issuers[0].challenges).toBeDefined()
+    expect(policies[1].subjects).toEqual(['plain.example.com'])
+    expect(policies[1].issuers[0].challenges).toBeUndefined()
+  })
+
+  it('leaves the challenge alone when DNS-01 is off', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com' }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
+      routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
+    })
+
+    const issuer = policiesOf(rendered)[0].issuers[0]
+    expect(issuer.challenges).toBeUndefined()
   })
 
   it('serves a page instead of redirecting while a certificate is still coming', () => {
@@ -198,7 +323,7 @@ describe('renderCaddyConfig', () => {
       routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto', certificateReady: false }],
     })
 
-    const httpRoutes = (rendered.apps as any).http.servers.http.routes
+    const httpRoutes = routesOf(rendered, 'http')
     expect(httpRoutes).toHaveLength(1)
     // The challenge path is never ours to answer, on the notice or on a redirect.
     expect(httpRoutes[0].match[0].not).toEqual([{ path: ['/.well-known/acme-challenge/*'] }])
@@ -226,7 +351,7 @@ describe('renderCaddyConfig', () => {
       ],
     })
 
-    const httpRoutes = (rendered.apps as any).http.servers.http.routes
+    const httpRoutes = routesOf(rendered, 'http')
     expect(httpRoutes).toHaveLength(2)
     // The ready one redirects only inside its prefix…
     expect(httpRoutes[0].match[0]).toEqual({
@@ -255,7 +380,7 @@ describe('renderCaddyConfig', () => {
         { host: 'git.example.com', path: '/other', dial: '127.0.0.1:3001', upstreamTls: false, tls: 'auto', certificateReady: false },
       ],
     })
-    expect((rendered.apps as any).http.servers.http.routes).toHaveLength(1)
+    expect(routesOf(rendered, 'http')).toHaveLength(1)
   })
 
   it('sends a staging account to the staging directory, and only there', () => {
@@ -268,7 +393,7 @@ describe('renderCaddyConfig', () => {
       routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
 
-    expect((rendered.apps as any).tls.automation.policies[0].issuers).toEqual([
+    expect(policiesOf(rendered)[0].issuers).toEqual([
       { module: 'acme', ca: 'https://acme-staging-v02.api.letsencrypt.org/directory' },
       { module: 'internal' },
     ])
@@ -282,8 +407,38 @@ describe('renderCaddyConfig', () => {
       manual: [],
       routes: [{ host: 'gitea.lan', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
-    // A catch-all policy would take the engine's own CA away from the local name.
-    expect((rendered.apps as any).tls).toBeUndefined()
+    // No ACME policy for a local-only name: it keeps the engine's own CA. The only
+    // automation is the fallback certificate the bare-IP visitor is served.
+    expect(policiesOf(rendered)).toEqual([])
+    expect((rendered.apps as any).tls.automation.policies).toEqual([
+      { subjects: ['hh-fallback.invalid'], issuers: [{ module: 'internal' }] },
+    ])
+  })
+
+  it('answers an unrouted host with a page on both ports, and never a redirect', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com', httpPort: 4480, httpsPort: 4443 }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
+      routes: [{ host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
+    })
+
+    for (const server of ['http', 'https'] as const) {
+      const routes = (rendered.apps as any).http.servers[server].routes
+      const last = routes[routes.length - 1]
+      // No host matcher: it catches whatever the routes above it did not.
+      expect(last.match).toBeUndefined()
+      expect(last.handle[0].status_code).toBe(404)
+      expect(last.handle[0].body).toContain('This route is not configured for any target yet')
+      expect(last.handle[0].body).toContain('home-hosted')
+    }
+
+    // Caddy's own redirect for a host it does not manage points at port 443, not ours;
+    // the catch-all above is what stops it being reached.
+    const https = (rendered.apps as any).http.servers.https
+    expect(https.tls_connection_policies).toEqual([{ default_sni: 'hh-fallback.invalid' }])
   })
 
   it('carries the manual pair and the ACME account side by side', () => {
@@ -299,7 +454,7 @@ describe('renderCaddyConfig', () => {
       ],
     })
     expect((rendered.apps as any).tls.certificates.load_files[0].certificate).toBe('/state/tls/proxy.crt.pem')
-    expect((rendered.apps as any).tls.automation.policies[0].subjects).toEqual(['git.example.com'])
+    expect(policiesOf(rendered)[0].subjects).toEqual(['git.example.com'])
   })
 
   it('loads the uploaded pair from disk instead of inlining a private key', () => {
@@ -310,9 +465,14 @@ describe('renderCaddyConfig', () => {
       manual: [{ certificate: '/state/tls/proxy.crt.pem', key: '/state/tls/proxy.key.pem' }],
       routes: [{ host: 'manual.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'manual' }],
     })
-    expect((rendered.apps as any).tls).toEqual({
-      certificates: { load_files: [{ certificate: '/state/tls/proxy.crt.pem', key: '/state/tls/proxy.key.pem' }] },
+    expect((rendered.apps as any).tls.certificates).toEqual({
+      load_files: [{ certificate: '/state/tls/proxy.crt.pem', key: '/state/tls/proxy.key.pem' }],
     })
+    // No public name is served, so the only automation is the fallback certificate.
+    expect(policiesOf(rendered)).toEqual([])
+    expect((rendered.apps as any).tls.automation.policies).toEqual([
+      { subjects: ['hh-fallback.invalid'], issuers: [{ module: 'internal' }] },
+    ])
   })
 
   it('asks a TCP admin endpoint for the origin its own check requires', () => {

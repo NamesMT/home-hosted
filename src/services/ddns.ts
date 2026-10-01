@@ -232,7 +232,12 @@ export class DdnsService {
             ...(cache === undefined ? {} : { cache: { ...(cache.zoneId === undefined ? {} : { zoneId: cache.zoneId }), ...(cache.recordId === undefined ? {} : { recordId: cache.recordId }) } }),
           }
 
-          const result = await provider.update(record, { credentials: credentials ?? {}, fetch: fetchImpl, signal })
+          const update = provider.update
+          if (update === undefined) {
+            this.remember(key, 'skipped', address, `the "${account.provider}" provider does not update addresses`)
+            continue
+          }
+          const result = await update(record, { credentials: credentials ?? {}, fetch: fetchImpl, signal })
           if (result.ok) {
             this.persisted.records[key] = {
               ip: address,

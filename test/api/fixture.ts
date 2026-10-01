@@ -12,6 +12,8 @@ import { SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceStore } from '#src/config/store'
 import { WorkspaceError, WorkspaceRegistry } from '#src/config/workspaces'
+import { ddnsProvider } from '#src/providers/ddns'
+import { AcmeChallengeService } from '#src/services/acme-challenge'
 import { AuthService } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
 import { DdnsService } from '#src/services/ddns'
@@ -393,10 +395,32 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     previousConfigPath: path.join(hhDir, '.proxy', 'engine', 'previous.json'),
     stateDir: path.join(hhDir, '.proxy', 'state'),
     adminPath: path.join(hhDir, '.proxy', 'state', 'admin.json'),
+    challengeAuthPath: path.join(hhDir, '.proxy', 'state', 'challenge.json'),
     logDir: path.join(hhDir, '.logs'),
     tlsDir: path.join(hhDir, '.proxy', 'tls'),
     control: () => endpoint,
     resolveServer: () => null,
+    resolveDnsAccount: (workspaceId, accountId) => {
+      const workspace = workspaces.get(workspaceId)
+      if (workspace === undefined)
+        return null
+      const account = workspace.runtime.store.ddns.accounts.find(entry => entry.id === accountId)
+      if (account === undefined)
+        return null
+      return { provider: account.provider, credentials: workspace.secrets.getDdnsCredentials(accountId, account.provider)?.values ?? null }
+    },
+    listDnsAccounts: () => [...workspaces.values()].flatMap(workspace => workspace.runtime.store.ddns.accounts.map((account) => {
+      const provider = ddnsProvider(account.provider)
+      return {
+        workspace: workspace.id,
+        account: account.id,
+        provider: account.provider,
+        label: account.label,
+        writesTxt: provider?.challenge !== undefined,
+        hasCredentials: workspace.secrets.getDdnsCredentials(account.id, account.provider) !== null,
+      }
+    })),
+    defaultWorkspaceId: () => registry.defaultId,
     exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword),
     onStateChange: () => undefined,
   })
@@ -412,6 +436,10 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     backups,
     ui,
     proxy,
+    challenge: new AcmeChallengeService({
+      auth: () => (proxy.config.dns01.enabled ? proxy.challengeAuth() : null),
+      accountFor: fqdn => proxy.challengeAccount(fqdn),
+    }),
     runtimeToken: 'runtime-token',
     onShutdown: async () => {
       shutdowns += 1

@@ -1,4 +1,5 @@
 import type { SecretsStore } from '#src/config/secrets'
+import type { AcmeChallengeService } from '#src/services/acme-challenge'
 import type { AuthService } from '#src/services/auth'
 import type { BackupService } from '#src/services/backups'
 import type { ControlServer } from '#src/services/control-server'
@@ -7,6 +8,7 @@ import type { PanelService } from '#src/services/panel'
 import type { ProxyService } from '#src/services/proxy'
 import type { TlsStore } from '#src/services/tls'
 import type { UiService } from '#src/services/ui'
+import { createAcmeChallengeRoute } from '#src/api/acme'
 import { createAuthRoute } from '#src/api/auth/$.routes'
 import { createBackupsRoute } from '#src/api/backups'
 import { createControlRoute } from '#src/api/control'
@@ -45,6 +47,8 @@ export interface AppDeps {
   ui: UiService
   /** The panel-wide reverse proxy: engine, routes and its own TLS pair. */
   proxy: ProxyService
+  /** Answers the engine's DNS-01 challenges through a route's DNS account. */
+  challenge: AcmeChallengeService
   /** Token for the local `down` command, and the graceful stop it asks for. */
   runtimeToken: string
   onShutdown: () => Promise<void>
@@ -70,6 +74,10 @@ export function createRootApp(deps: AppDeps) {
     // Outside `/api`, so a local `down` needs no session — but it needs the token
     // from `run.json` and a loopback peer. Registered before the guard by design.
     .route('/_hh', createControlRoute(deps))
+
+    // The engine's DNS-01 channel: outside `/api` too, loopback-only, and behind
+    // credentials the panel generates. Registered before the guard for the same reason.
+    .route('/_acme', createAcmeChallengeRoute(deps))
 
     .use('/api/*', createAuthGuard({ auth: deps.auth }))
 

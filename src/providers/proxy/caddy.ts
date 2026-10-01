@@ -5,15 +5,25 @@ import type { ProxyEngine, ProxyEngineDownload, ProxyEngineRun, ProxyEngineTarge
  *
  * The panel generates the whole JSON configuration and applies it with
  * `POST /load`, which is atomic: a configuration that does not load leaves the
- * running one in place. Plugins (a DNS provider for DNS-01) are compiled into the
- * binary by Caddy's own build service, so the download is a single pinned URL.
+ * running one in place. Plugins are compiled into the binary by Caddy's own build
+ * service, so the download is a single URL that names them.
+ *
+ * The release is **not** pinned: an install takes whatever the build service
+ * currently serves, so a security fix reaches the user by pressing Update. What the
+ * panel is known to work against is written down in `docs/REVERSE_PROXY.md`; the
+ * version that actually arrived is read from the binary and recorded.
  */
 
 /** The Next.js-style build service that returns a ready binary, plugins included. */
 const BUILD_URL = 'https://caddyserver.com/api/download'
 
-/** The release this panel installs. Pinned on purpose: a minor can break a config. */
-const PINNED = '2.11.4'
+/**
+ * The one module this build carries: the ACMEProxy DNS provider, which lets the
+ * engine ask the panel to write a DNS-01 challenge record instead of holding DNS
+ * credentials itself. It is compiled in for every install, not only when DNS-01 is
+ * switched on, so the binary does not depend on a setting that can change later.
+ */
+const PLUGINS = ['github.com/caddy-dns/acmeproxy']
 
 /** `process.platform` matches Caddy's own GOOS names; only the arch needs mapping. */
 function goArch(arch: string): string | null {
@@ -34,12 +44,10 @@ export const caddyEngine: ProxyEngine = {
     releaseUrl: 'https://github.com/caddyserver/caddy/releases',
     acme: true,
     internalCa: true,
-    // The stock binary ships no DNS provider module; DNS-01 needs a plugin build.
-    dns01: false,
+    // Compiled in (see PLUGINS): the panel answers the challenge, the engine asks it.
+    dns01: true,
     tcp: false,
   },
-
-  pinnedVersion: PINNED,
 
   binaryName(platform: NodeJS.Platform): string {
     return platform === 'win32' ? 'hh-caddy.exe' : 'hh-caddy'
@@ -52,9 +60,13 @@ export const caddyEngine: ProxyEngine = {
     if (target.platform !== 'linux' && target.platform !== 'darwin' && target.platform !== 'win32')
       return null
 
-    const version = target.version.length > 0 ? target.version : PINNED
-    const url = `${BUILD_URL}?os=${target.platform}&arch=${arch}&version=${encodeURIComponent(version)}`
-    return { url, version }
+    // No `version` unless one was asked for, which is how "the current release" is
+    // spelled. A named release is only a request: the build service answers a URL
+    // that names plugins with its own current release either way.
+    const wanted = target.version.length > 0 ? `&version=${encodeURIComponent(target.version)}` : ''
+    const plugins = PLUGINS.map(plugin => `&p=${encodeURIComponent(plugin)}`).join('')
+    const url = `${BUILD_URL}?os=${target.platform}&arch=${arch}${wanted}${plugins}`
+    return { url, version: target.version }
   },
 
   runArgs(run: ProxyEngineRun): string[] {

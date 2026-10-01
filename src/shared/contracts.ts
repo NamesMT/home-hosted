@@ -351,6 +351,8 @@ export const ddnsProviderInfoSchema = type({
   fields: ddnsProviderFieldSchema.array(),
   ttl: 'boolean',
   proxied: 'boolean',
+  /** These credentials can also answer an ACME DNS-01 challenge (a TXT record). */
+  txt: 'boolean',
 })
 export type DdnsProviderInfo = typeof ddnsProviderInfoSchema.infer
 
@@ -710,6 +712,13 @@ export const proxyRouteSchema = type({
   /** Optional path prefix; empty serves the whole host. */
   path: 'string = ""',
   tls: proxyTlsModeSchema.default(() => 'auto' as const),
+  /**
+   * Which DNS account answers a DNS-01 challenge for this hostname, as
+   * `<workspace>/<account>` — the account belongs to a workspace, so the proxy
+   * references it rather than owning it. Empty picks the workspace's only
+   * account that can write TXT records.
+   */
+  dnsAccount: 'string = ""',
 }).onUndeclaredKey('reject')
 export type ProxyRoute = typeof proxyRouteSchema.infer
 
@@ -723,9 +732,28 @@ export const proxyCertificateSchema = type({
 }).onUndeclaredKey('reject')
 export type ProxyCertificate = typeof proxyCertificateSchema.infer
 
-/** What a route's certificate situation is, for the page to show. */
-export const proxyCertificateStateSchema = type.enumerated('off', 'local', 'uploaded', 'issued', 'pending', 'failed')
+/**
+ * What a route's certificate situation is, for the page to show. `fallback` is a
+ * public name the CA would not issue for, so the engine is serving its own CA.
+ */
+export const proxyCertificateStateSchema = type.enumerated('off', 'local', 'uploaded', 'issued', 'pending', 'failed', 'fallback')
 export type ProxyCertificateState = typeof proxyCertificateStateSchema.infer
+
+/**
+ * DNS-01, answered by the panel instead of the engine.
+ *
+ * The engine never holds DNS credentials: it asks the panel over the ACMEProxy
+ * protocol, and the panel writes the challenge record through the workspace
+ * account a route names. `resolvers` overrides the nameservers Caddy uses to see
+ * the record, which is what split-horizon DNS needs.
+ */
+export const proxyDns01Schema = type({
+  /** Off means the engine uses HTTP-01/TLS-ALPN-01, exactly as before. */
+  enabled: 'boolean = false',
+  /** Nameservers Caddy checks the TXT record against; empty uses its own defaults. */
+  resolvers: type('string[]').default(() => []),
+}).onUndeclaredKey('reject')
+export type ProxyDns01 = typeof proxyDns01Schema.infer
 
 /** Reverse proxy: expose the stack through one engine, with automatic HTTPS. */
 export const proxyConfigSchema = type({
@@ -738,6 +766,7 @@ export const proxyConfigSchema = type({
   email: 'string = ""',
   /** The ACME staging endpoint: untrusted certificates, no rate-limit burn. */
   staging: 'boolean = false',
+  dns01: proxyDns01Schema.default(() => ({})),
   /** PEM pairs a route with `tls: "manual"` may serve; the engine picks by SNI. */
   certificates: proxyCertificateSchema.array().default(() => []),
   routes: proxyRouteSchema.array().default(() => []),
@@ -757,8 +786,6 @@ export const proxyEngineStatusSchema = type({
   source: proxyEngineSourceSchema.or(type('null')),
   path: 'string | null',
   bytes: 'number | null',
-  /** Recorded at download time, so a swapped binary is visible. */
-  sha256: 'string | null',
   error: 'string | null',
 })
 export type ProxyEngineStatus = typeof proxyEngineStatusSchema.infer
@@ -787,8 +814,13 @@ export const proxyRouteViewSchema = type({
   'message': 'string | null',
   /** Where this hostname's certificate stands. Optional: an older panel omits it. */
   'certificate?': type({
-    state: proxyCertificateStateSchema,
-    message: 'string | null',
+    'state': proxyCertificateStateSchema,
+    'message': 'string | null',
+    /**
+     * For `fallback`: minutes until the engine tries the CA again by itself, read
+     * from the certificate it fell back to. Optional, so an older client ignores it.
+     */
+    'retryInMinutes?': 'number',
   }),
 })
 export type ProxyRouteView = typeof proxyRouteViewSchema.infer
@@ -828,14 +860,32 @@ export const proxyCertificateViewSchema = type({
 export type ProxyCertificateView = typeof proxyCertificateViewSchema.infer
 
 /** `GET /api/proxy`: the policy, the engine, the live state and the resolved routes. */
+/**
+ * A DNS account the route table may name, flattened across workspaces so the proxy
+ * page can offer one list. The account itself stays in its workspace.
+ */
+export const proxyDnsAccountViewSchema = type({
+  workspace: 'string',
+  account: 'string',
+  provider: 'string',
+  label: 'string',
+  /** The credentials can write a TXT record, so this account can answer a challenge. */
+  writesTxt: 'boolean',
+  /** Credentials are stored; an account without them cannot answer yet. */
+  hasCredentials: 'boolean',
+})
+export type ProxyDnsAccountView = typeof proxyDnsAccountViewSchema.infer
+
 export const proxyViewSchema = type({
-  config: proxyConfigSchema,
-  engine: proxyEngineStatusSchema,
-  engines: proxyEngineInfoSchema.array(),
-  status: proxyStatusSchema,
-  routes: proxyRouteViewSchema.array(),
+  'config': proxyConfigSchema,
+  'engine': proxyEngineStatusSchema,
+  'engines': proxyEngineInfoSchema.array(),
+  'status': proxyStatusSchema,
+  'routes': proxyRouteViewSchema.array(),
   /** Every uploaded pair, with what it covers and when it expires. */
-  certificates: proxyCertificateViewSchema.array(),
+  'certificates': proxyCertificateViewSchema.array(),
+  /** Every DNS account a route may name. Optional: an older panel omits it. */
+  'dnsAccounts?': proxyDnsAccountViewSchema.array(),
 })
 export type ProxyView = typeof proxyViewSchema.infer
 
@@ -853,6 +903,7 @@ export const proxyRoutePatchSchema = type({
   url: 'string?',
   path: 'string?',
   tls: proxyTlsModeSchema.optional(),
+  dnsAccount: 'string?',
 }).onUndeclaredKey('reject')
 export type ProxyRoutePatch = typeof proxyRoutePatchSchema.infer
 
@@ -867,6 +918,14 @@ export const proxyPatchSchema = type({
   httpsPort: '1 <= number.integer <= 65535?',
   email: 'string?',
   staging: 'boolean?',
+  /**
+   * A patch shape, not the config's: both keys are optional and merge, so a client
+   * may send one without resetting the other, and an explicit `null` clears a key.
+   */
+  dns01: type({
+    enabled: 'boolean | null?',
+    resolvers: 'string[] | null?',
+  }).onUndeclaredKey('reject').optional(),
   certificates: proxyCertificateSchema.array().optional(),
   routes: proxyRoutePatchSchema.array().optional(),
 }).onUndeclaredKey('reject')
@@ -880,7 +939,7 @@ export const proxyCertificateUploadSchema = type({
 }).onUndeclaredKey('reject')
 export type ProxyCertificateUpload = typeof proxyCertificateUploadSchema.infer
 
-/** `POST /api/proxy/engine`: which release to install; empty means the pinned one. */
+/** `POST /api/proxy/engine`: which release to install; empty means the current one. */
 export const proxyEngineInstallSchema = type({
   version: 'string = ""',
 }).onUndeclaredKey('reject')

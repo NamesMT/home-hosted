@@ -18,9 +18,11 @@ import {
   isPrivilegedPort,
   proxyPatch,
   requiresEmail,
+  retryInLabel,
   ROUTE_STATUS_META,
   routeCertificate,
   routesPatch,
+  routeUrl,
   RUN_STATE_META,
   targetSummary,
   tlsSummary,
@@ -48,7 +50,7 @@ const saveMessage = ref<string | null>(null)
 const saving = ref(false)
 const busy = ref<ProxyAction | null>(null)
 
-const form = ref<ListenerDraft>({ enabled: false, httpPort: 80, httpsPort: 443, email: '', staging: false })
+const form = ref<ListenerDraft>({ enabled: false, httpPort: 80, httpsPort: 443, email: '', staging: false, dns01: false, resolvers: '' })
 const routes = ref<RouteDraft[]>([])
 
 const dialogOpen = ref(false)
@@ -56,6 +58,9 @@ const editing = ref<RouteDraft | null>(null)
 
 /** The live frame wins; the fetched view is what a panel without the field leaves us. */
 const view = computed<ProxyView | null>(() => control.proxy.value ?? fetched.value)
+
+/** Accounts that could actually answer a challenge: credentials, and a TXT write. */
+const usableDnsAccounts = computed(() => (view.value?.dnsAccounts ?? []).filter(account => account.writesTxt && account.hasCredentials))
 const config = computed(() => view.value?.config ?? null)
 const engine = computed(() => view.value?.engine ?? null)
 const status = computed(() => view.value?.status ?? null)
@@ -119,6 +124,8 @@ const rows = computed(() => routes.value.map((route) => {
     target: targetSummary(route, workspaces.value),
     tls: tlsSummary(route),
     certificate: entry === null ? null : routeCertificate(entry),
+    // Where the engine listens now, not what the draft says: the link has to work.
+    url: routeUrl(route, view.value?.config.httpPort ?? form.value.httpPort, view.value?.config.httpsPort ?? form.value.httpsPort),
   }
 }))
 
@@ -240,6 +247,11 @@ function removeRoute(route: RouteDraft): void {
   routes.value = routes.value.filter(entry => entry.key !== route.key)
 }
 
+/** Ask the CA again for one name; the engine restarts to drop the certificate it holds. */
+async function retryCertificate(route: RouteDraft): Promise<void> {
+  await runCertificate(() => api.retryProxyCertificate(route.id), `asking the ca again for ${route.host}`)
+}
+
 const certDialogOpen = ref(false)
 const certBusy = ref(false)
 const certError = ref<string | null>(null)
@@ -332,7 +344,7 @@ function removeCertificate(certificate: ProxyCertificateView): void {
             </p>
 
             <p v-if="engine && !engine.installed" class="note">
-              no engine installed — installing downloads the pinned {{ engine.id }} build the panel
+              no engine installed — installing downloads the current {{ engine.id }} release the panel
               supervises (about 46 MB, once)
             </p>
 
@@ -349,17 +361,23 @@ function removeCertificate(certificate: ProxyCertificateView): void {
                 <span class="detailbox__k">size</span>
                 <span class="detailbox__v mono">{{ formatBytes(engine.bytes) }}</span>
               </div>
-              <div v-if="engine.sha256" class="detailbox__row">
-                <span class="detailbox__k">sha-256</span>
-                <span class="detailbox__v mono truncate">{{ engine.sha256 }}</span>
-              </div>
               <div v-if="engine.path" class="detailbox__row">
                 <span class="detailbox__k">binary</span>
                 <span class="detailbox__v mono truncate">{{ engine.path }}</span>
               </div>
               <div class="detailbox__row">
                 <span class="detailbox__k">listens</span>
-                <span class="detailbox__v mono">{{ status && status.urls.length > 0 ? status.urls.join(' · ') : '—' }}</span>
+                <span class="detailbox__v mono">
+                  <a
+                    v-for="url in status?.urls ?? []"
+                    :key="url"
+                    :href="url"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="changelink"
+                  >{{ url }}</a>
+                  <template v-if="!status || status.urls.length === 0">—</template>
+                </span>
               </div>
               <div class="detailbox__row">
                 <span class="detailbox__k">certificates</span>
@@ -456,6 +474,32 @@ function removeCertificate(certificate: ProxyCertificateView): void {
                   <span class="field__label">use the acme staging endpoint</span>
                   <span class="field__hint">untrusted certificates, no rate-limit burn</span>
                 </label>
+
+                <label class="field field--check grid__full">
+                  <input v-model="form.dns01" type="checkbox">
+                  <span class="field__label">answer challenges with dns-01</span>
+                  <span class="field__hint">the panel writes the challenge record through a route's dns account, so no inbound port is needed</span>
+                </label>
+
+                <p v-if="form.dns01" class="field__hint grid__full">
+                  add the domain's dns provider to any workspace under workspace settings → dynamic dns;
+                  a route can then pick that account, from any workspace
+                </p>
+
+                <label v-if="form.dns01" class="field grid__full">
+                  <span class="field__label">check the record against</span>
+                  <input v-model="form.resolvers" placeholder="1.1.1.1, 8.8.8.8" spellcheck="false">
+                  <span class="field__hint">nameservers the engine reads the record from; empty uses its own — needed where split-horizon dns shows a different view</span>
+                </label>
+
+                <p v-if="form.dns01 && usableDnsAccounts.length === 0" class="note note--warn grid__full">
+                  dns-01 is on, but no account has credentials it can use — add one under workspace settings → dynamic dns,
+                  or public names stay on the port challenges and wait for a ca that cannot reach them
+                </p>
+                <p v-else-if="form.dns01 && usableDnsAccounts.length > 1" class="note grid__full">
+                  more than one account can answer, so “automatic” cannot choose — pick one per route, or those names stay
+                  on the port challenges
+                </p>
               </div>
 
               <p class="field__hint">
@@ -515,7 +559,15 @@ function removeCertificate(certificate: ProxyCertificateView): void {
                 <tbody>
                   <tr v-for="row in rows" :key="row.route.key" :class="{ 'is-dim': !row.route.enabled }">
                     <td>
-                      <span class="id">{{ row.route.host || 'no hostname yet' }}</span>
+                      <a
+                        v-if="row.url !== null && row.route.enabled"
+                        :href="row.url"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="hostlink"
+                        :title="`open ${row.url} in a new tab`"
+                      >{{ row.route.host }}</a>
+                      <span v-else class="id">{{ row.route.host || 'no hostname yet' }}</span>
                       <span v-if="row.route.path" class="accent">{{ row.route.path }}</span>
                       <span class="faint mono"> {{ row.route.id }}</span>
                     </td>
@@ -528,6 +580,14 @@ function removeCertificate(certificate: ProxyCertificateView): void {
                     <td class="dim">
                       {{ row.tls }}
                       <span v-if="row.certificate" class="chip" :class="row.certificate.chip">{{ row.certificate.label }}</span>
+                      <ConfirmButton
+                        v-if="row.entry?.certificate?.state === 'fallback'"
+                        label="force retry certificate"
+                        confirm-label="confirm retry"
+                        :disabled="certBusy"
+                        :title="`the engine failed to obtain a ca certificate for ${row.route.host} and is using its local ca; it retries automatically every ${retryInLabel(row.certificate?.retryInMinutes ?? null)} — retrying now will kill this route and make it unavailable for a bit, are you sure to continue?`"
+                        @confirm="retryCertificate(row.route)"
+                      />
                       <span
                         v-if="row.certificate?.message"
                         class="faint"
@@ -650,6 +710,7 @@ function removeCertificate(certificate: ProxyCertificateView): void {
       :draft="editing"
       :others="routes.filter(route => route.key !== editing?.key)"
       :workspaces="workspaces"
+      :dns-accounts="view?.dnsAccounts ?? []"
       @close="dialogOpen = false"
       @save="applyRoute"
     />

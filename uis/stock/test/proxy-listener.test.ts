@@ -13,12 +13,12 @@ import { UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT } from '../src/lib/prox
  */
 
 function draft(overrides: Partial<ListenerDraft> = {}): ListenerDraft {
-  return { enabled: false, httpPort: 80, httpsPort: 443, email: '', staging: false, ...overrides }
+  return { enabled: false, httpPort: 80, httpsPort: 443, email: '', staging: false, dns01: false, resolvers: '', ...overrides }
 }
 
 function mountPanel(form: ListenerDraft, emailHost: string | null = null) {
   return mount(ListenerPanel, {
-    props: { form, enginePath: '/home/u/.hh/.proxy/bin/hh-caddy', emailHost },
+    props: { form, enginePath: '/home/u/.hh/.proxy/bin/hh-caddy', emailHost, dnsAccounts: [] },
   })
 }
 

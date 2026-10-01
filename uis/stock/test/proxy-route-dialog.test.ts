@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type { ProxyDnsAccountView } from '@shared/contracts'
 import type { RouteDraft } from '../src/lib/proxy'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
@@ -24,17 +25,23 @@ function route(overrides: Partial<RouteDraft> = {}): RouteDraft {
     url: 'http://10.0.0.5:3000',
     path: '',
     tls: 'auto',
+    dnsAccount: '',
     ...overrides,
   }
 }
 
-function mountDialog(draft: RouteDraft | null, open = false) {
+function mountDialog(draft: RouteDraft | null, open = false, dnsAccounts: ProxyDnsAccountView[] = []) {
   return mount(RouteDialog, {
-    props: { draft, open, others: [], workspaces: [{ id: 'default', label: 'Default', servers: [] }] },
+    props: { draft, open, others: [], workspaces: [{ id: 'default', label: 'Default', servers: [] }], dnsAccounts },
     // The dialog body is what is under test, not reka-ui's portal.
     global: { stubs: { Modal: { template: '<div><slot /><slot name="footer" /></div>' } } },
   })
 }
+
+const ACCOUNTS = [
+  { workspace: 'default', account: 'cf', provider: 'cloudflare', label: 'Home zone', writesTxt: true, hasCredentials: true },
+  { workspace: 'default', account: 'nc', provider: 'namecheap', label: '', writesTxt: false, hasCredentials: true },
+]
 
 describe('the route dialog', () => {
   it('fills the form from a reactive draft instead of throwing', async () => {
@@ -62,5 +69,36 @@ describe('the route dialog', () => {
     const values = dialog.findAll('input').map(input => (input.element as HTMLInputElement).value)
     expect(values).toContain('media.example.com')
     expect(values).not.toContain('git.example.com')
+  })
+
+  it('offers the DNS accounts for a public name, and carries the choice out', async () => {
+    // Opened after mount, which is what the page does: the fill watcher fires on the
+    // open transition, so mounting with `open: true` would leave the form blank.
+    const dialog = mountDialog(route(), false, ACCOUNTS)
+    await dialog.setProps({ open: true })
+    await nextTick()
+
+    const picker = dialog.findAll('select').find(select => select.findAll('option').some(option => option.text().includes('Home zone')))
+    expect(picker, 'a public hostname should offer a DNS account').toBeDefined()
+    // The empty value is the single-account fallback, so it is first.
+    expect(picker!.findAll('option')[0]!.text()).toContain('Automatic')
+    // An account that cannot answer a challenge is still listed, marked.
+    expect(picker!.findAll('option').map(option => option.text()).join(' ')).toContain('no TXT support')
+
+    await picker!.setValue('default/cf')
+    const save = dialog.findAll('button').find(button => button.text().includes('Save route'))
+    await save!.trigger('click')
+
+    const saved = dialog.emitted('save')?.[0]?.[0] as RouteDraft | undefined
+    expect(saved?.dnsAccount).toBe('default/cf')
+  })
+
+  it('hides the picker for a name that never gets a public certificate', async () => {
+    const dialog = mountDialog(route({ host: 'gitea.lan' }), false, ACCOUNTS)
+    await dialog.setProps({ open: true })
+    await nextTick()
+
+    const picker = dialog.findAll('select').find(select => select.findAll('option').some(option => option.text().includes('Home zone')))
+    expect(picker).toBeUndefined()
   })
 })

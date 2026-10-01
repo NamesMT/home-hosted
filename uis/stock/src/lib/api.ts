@@ -433,7 +433,12 @@ export async function patchProxy(patch: ProxyPatch): Promise<ProxyView> {
   return proxyView(await request<unknown>('/api/proxy', { method: 'PATCH', body: JSON.stringify(parsed) }))
 }
 
-/** Empty version installs the pinned release; a version pins another one. */
+/** Ask the engine to fetch one route's certificate from the CA again. */
+export async function retryProxyCertificate(id: string): Promise<ProxyView> {
+  return proxyView(await request<unknown>(`/api/proxy/routes/${encodeURIComponent(id)}/retry-certificate`, { method: 'POST' }))
+}
+
+/** Empty version installs the current release; a version asks for a named one. */
 export async function installProxyEngine(version = ''): Promise<ProxyView> {
   return proxyView(await request<unknown>('/api/proxy/engine', { method: 'POST', body: JSON.stringify({ version }) }))
 }

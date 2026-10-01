@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { ProxyDnsAccountView } from '@shared/contracts'
 import type { ProxyWorkspace, RouteDraft, RouteErrors } from '@/lib/proxy'
 import { computed, ref, toRaw, watch } from 'vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -6,7 +7,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
-import { isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
+import { dnsAccountOptions, isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
 
 /** One route, edited in a dialog. Nothing is saved here — the page owns the Save. */
 const props = defineProps<{
@@ -14,6 +15,8 @@ const props = defineProps<{
   draft: RouteDraft | null
   others: RouteDraft[]
   workspaces: ProxyWorkspace[]
+  /** Every DNS account the proxy may name, across workspaces. */
+  dnsAccounts: ProxyDnsAccountView[]
 }>()
 
 const emit = defineEmits<{ save: [route: RouteDraft] }>()
@@ -39,6 +42,23 @@ const tlsHint = computed(() => {
   return isPublicHost(form.value.host)
     ? 'A public hostname, so the engine asks a CA for a certificate — an ACME account e-mail is needed.'
     : 'A local-only name, so the engine signs it with its own locally-trusted CA.'
+})
+
+/** The account picker is only meaningful for a name the engine would get a certificate for. */
+const wantsDns = computed(() => form.value.tls === 'auto' && isPublicHost(form.value.host))
+const accountOptions = computed(() => dnsAccountOptions(props.dnsAccounts))
+const chosenAccount = computed(() => props.dnsAccounts.find(entry => `${entry.workspace}/${entry.account}` === form.value.dnsAccount))
+const accountHint = computed(() => {
+  if (chosenAccount.value === undefined) {
+    return form.value.dnsAccount.length > 0
+      ? 'That account is no longer configured.'
+      : 'DNS-01 writes the challenge record here. Empty uses the only account that can answer a challenge, when there is one.'
+  }
+  if (!chosenAccount.value.writesTxt)
+    return `A ${chosenAccount.value.provider} account cannot write TXT records, so it cannot answer a DNS-01 challenge.`
+  if (!chosenAccount.value.hasCredentials)
+    return `No credentials are stored for this ${chosenAccount.value.provider} account yet.`
+  return `The challenge is written through this ${chosenAccount.value.provider} account.`
 })
 
 watch(open, (isOpen) => {
@@ -104,6 +124,17 @@ function submit(): void {
       />
       <SelectField v-model="form.target" label="Target" :options="TARGET_OPTIONS" />
       <SelectField v-model="form.tls" label="TLS" :options="TLS_OPTIONS" :hint="tlsHint" />
+
+      <SelectField
+        v-if="wantsDns"
+        v-model="form.dnsAccount"
+        label="DNS account"
+        :options="accountOptions"
+        :hint="accountHint"
+      />
+      <p v-else-if="form.tls === 'auto'" class="text-2xs leading-4 text-faint sm:col-span-2">
+        A local-only name is signed by the engine's own CA, so no DNS account is involved.
+      </p>
 
       <template v-if="form.target === 'server'">
         <SelectField

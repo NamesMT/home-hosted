@@ -33,6 +33,7 @@ import {
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { isPortFree } from '#src/providers/port'
+import { AcmeChallengeService } from '#src/services/acme-challenge'
 import { AuthService, DEFAULT_PASSWORD } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
@@ -229,6 +230,16 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
         return { url: null, message: `"${workspaceId}/${serverId}" is ${view?.status ?? 'not running'}` }
       return { url: `${view.bindHost === '0.0.0.0' ? '127.0.0.1' : view.bindHost}:${port}`, message: null }
     },
+    // A DNS-01 challenge writes through the workspace account the route names, so
+    // the credentials never leave the workspace that owns them.
+    resolveDnsAccount: (workspaceId, accountId) => {
+      const found = panel?.findDnsAccount(workspaceId, accountId)
+      if (found === undefined || found === null)
+        return null
+      return { provider: found.account.provider, credentials: found.credentials }
+    },
+    listDnsAccounts: () => panel?.listDnsAccounts() ?? [],
+    defaultWorkspaceId: () => registry.defaultId,
     exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword),
     onStateChange: () => panel?.notifyStateChange(),
   })
@@ -302,6 +313,16 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     backups,
     ui,
     proxy,
+    // Credentials are read per request, so a panel with DNS-01 off never writes the
+    // file — and one that switches it on picks the new pair up without a restart.
+    challenge: new AcmeChallengeService({
+      auth: () => (proxy.config.dns01.enabled ? proxy.challengeAuth() : null),
+      accountFor: fqdn => proxy.challengeAccount(fqdn),
+      onResult: (result) => {
+        if (!result.ok)
+          logger.warn(`proxy:    the DNS-01 challenge for ${result.fqdn} failed (${result.action}): ${result.message}`)
+      },
+    }),
     runtimeToken: token,
     onShutdown: () => shutdown('shutdown requested locally'),
   })

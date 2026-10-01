@@ -6,11 +6,13 @@ import { reactive } from 'vue'
 import {
   cloneListenerDraft,
   cloneRoutes,
+  dnsAccountOptions,
   firstPublicHost,
   isPrivilegedPort,
   isPublicHost,
   listenerPatch,
   newRouteDraft,
+  parseResolvers,
   parseUpstream,
   proxyPatch,
   requiresEmail,
@@ -87,6 +89,7 @@ describe('the route patch', () => {
       url: '',
       path: '',
       tls: 'auto',
+      dnsAccount: '',
     })
   })
 
@@ -121,6 +124,44 @@ describe('the route patch', () => {
   it('catches a port change on its own', () => {
     const current = config()
     expect(listenerPatch(current, { ...cloneListenerDraft(current), httpsPort: 4443 })).toEqual({ httpsPort: 4443 })
+  })
+
+  it('sends the DNS-01 group only when it changed', () => {
+    const current = config({ dns01: { enabled: true, resolvers: ['1.1.1.1'] } })
+    const same = { ...cloneListenerDraft(current) }
+    expect(listenerPatch(current, same)).toEqual({})
+
+    expect(listenerPatch(current, { ...same, dns01: false })).toEqual({ dns01: { enabled: false, resolvers: ['1.1.1.1'] } })
+    expect(listenerPatch(current, { ...same, resolvers: '1.1.1.1, 8.8.8.8' }))
+      .toEqual({ dns01: { enabled: true, resolvers: ['1.1.1.1', '8.8.8.8'] } })
+    // The two are sent together: the group is replaced, not merged.
+    expect(listenerPatch(current, { ...same, dns01: false, resolvers: '' }))
+      .toEqual({ dns01: { enabled: false, resolvers: [] } })
+  })
+})
+
+describe('dNS-01 resolvers and the account picker', () => {
+  it('reads nameservers however they were typed', () => {
+    expect(parseResolvers('1.1.1.1, 8.8.8.8')).toEqual(['1.1.1.1', '8.8.8.8'])
+    expect(parseResolvers('1.1.1.1\n8.8.8.8')).toEqual(['1.1.1.1', '8.8.8.8'])
+    expect(parseResolvers('  1.1.1.1 ,, 8.8.8.8  ')).toEqual(['1.1.1.1', '8.8.8.8'])
+    expect(parseResolvers('')).toEqual([])
+    expect(parseResolvers('   ')).toEqual([])
+  })
+
+  it('offers the fallback first, and marks the accounts that cannot answer', () => {
+    const options = dnsAccountOptions([
+      { workspace: 'default', account: 'cf', provider: 'cloudflare', label: 'Home zone', writesTxt: true, hasCredentials: true },
+      { workspace: 'default', account: 'nc', provider: 'namecheap', label: '', writesTxt: false, hasCredentials: true },
+      { workspace: 'lab', account: 'do', provider: 'digitalocean', label: 'Lab', writesTxt: true, hasCredentials: false },
+    ])
+
+    // The empty value is the single-account fallback, so a one-account setup is a no-op.
+    expect(options[0]).toEqual({ value: '', label: 'Automatic (the only account that can answer)' })
+    expect(options[1]).toEqual({ value: 'default/cf', label: 'Home zone · cloudflare · default' })
+    // An account that cannot write TXT is still listed, so the reason is visible.
+    expect(options[2]!.label).toContain('no TXT support')
+    expect(options[3]!.label).toContain('no credentials')
   })
 })
 

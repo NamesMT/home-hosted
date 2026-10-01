@@ -40,7 +40,7 @@ const actionError = ref<string | null>(null)
 const saving = ref(false)
 const busy = ref<ProxyAction | null>(null)
 
-const form = ref<ListenerDraft>({ enabled: false, httpPort: 80, httpsPort: 443, email: '', staging: false })
+const form = ref<ListenerDraft>({ enabled: false, httpPort: 80, httpsPort: 443, email: '', staging: false, dns01: false, resolvers: '' })
 const routes = ref<RouteDraft[]>([])
 
 const dialogOpen = ref(false)
@@ -208,6 +208,25 @@ function removeRoute(route: RouteDraft): void {
   routes.value = routes.value.filter(entry => entry.key !== route.key)
 }
 
+/**
+ * Ask the CA again for one name. The engine restarts, which is what clears the
+ * certificate it is holding — the page is unreachable for a moment.
+ */
+async function retryCertificate(route: RouteDraft): Promise<void> {
+  busy.value = 'apply'
+  try {
+    fetched.value = await api.retryProxyCertificate(route.id)
+    await control.refresh()
+    toasts.success(`asking the CA again for ${route.host}`)
+  }
+  catch (caught) {
+    toasts.failure('the retry failed', caught instanceof Error ? caught.message : String(caught))
+  }
+  finally {
+    busy.value = null
+  }
+}
+
 function toggleRoute(route: RouteDraft, enabled: boolean): void {
   route.enabled = enabled
 }
@@ -228,8 +247,11 @@ async function applyCertificateView(next: ProxyView): Promise<void> {
           Reverse Proxy
         </h1>
         <p class="mt-1 text-xs text-muted">
-          Expose your servers through domains, with certificates the engine obtains and renews on its own.
-          Panel-wide: a route may point at any workspace's servers.
+          Expose your servers through domains, with automatic HTTPS via 80/443 or a DNS challenge.
+        </p>
+        <p class="mt-1 text-2xs leading-4 text-faint">
+          For DNS-01, add the domain's DNS provider to any workspace under
+          Workspace Settings → Dynamic DNS; a route can then pick that account, from any workspace.
         </p>
       </header>
 
@@ -252,16 +274,20 @@ async function applyCertificateView(next: ProxyView): Promise<void> {
           v-model:form="form"
           :engine-path="enginePath"
           :email-host="emailHost"
+          :dns-accounts="view?.dnsAccounts ?? []"
         />
 
         <RouteTable
           :routes="routes"
           :views="view.routes"
           :workspaces="workspaces"
+          :http-port="view.config.httpPort"
+          :https-port="view.config.httpsPort"
           :disabled="saving"
           @add="openAdd"
           @edit="openEdit"
           @remove="removeRoute"
+          @retry="retryCertificate"
           @toggle="toggleRoute"
         />
 
@@ -316,6 +342,7 @@ async function applyCertificateView(next: ProxyView): Promise<void> {
       :draft="editing"
       :others="routes.filter(route => route.key !== editing?.key)"
       :workspaces="workspaces"
+      :dns-accounts="view?.dnsAccounts ?? []"
       @save="applyRoute"
     />
   </div>

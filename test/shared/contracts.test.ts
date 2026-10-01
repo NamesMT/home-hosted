@@ -496,7 +496,7 @@ describe('reverse proxy schema', () => {
   })
 
   it('describes an engine that has not been installed yet', () => {
-    const engine = unwrap(proxyEngineStatusSchema({ id: 'caddy', installed: false, version: null, source: null, path: null, bytes: null, sha256: null, error: null }))
+    const engine = unwrap(proxyEngineStatusSchema({ id: 'caddy', installed: false, version: null, source: null, path: null, bytes: null, error: null }))
     expect(engine.installed).toBe(false)
     const status = unwrap(proxyStatusSchema({ state: 'off', pid: null, urls: [], certExpiryDays: null, since: null, lastError: null }))
     expect(status.state).toBe('off')
@@ -505,7 +505,7 @@ describe('reverse proxy schema', () => {
   it('reads without the optional live-state fields', () => {
     const view = unwrap(proxyViewSchema({
       config: {},
-      engine: { id: 'caddy', installed: false, version: null, source: null, path: null, bytes: null, sha256: null, error: null },
+      engine: { id: 'caddy', installed: false, version: null, source: null, path: null, bytes: null, error: null },
       engines: [{ id: 'caddy', label: 'Caddy', docsUrl: 'https://caddyserver.com/docs/', releaseUrl: '', acme: true, internalCa: true, dns01: false, tcp: false }],
       status: { state: 'off', pid: null, urls: [], certExpiryDays: null, since: null, lastError: null },
       routes: [],

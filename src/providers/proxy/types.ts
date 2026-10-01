@@ -13,13 +13,16 @@ export type ProxyAdminTransport
 export interface ProxyEngineTarget {
   platform: NodeJS.Platform
   arch: string
-  /** The release to install; empty asks for the engine's pinned one. */
+  /** The release to install; empty asks for the build service's current one. */
   version: string
 }
 
 export interface ProxyEngineDownload {
   url: string
-  /** What the URL installs, recorded so an unplanned change is visible. */
+  /**
+   * The release that was asked for; empty when the current one was. What actually
+   * arrived is read from the binary, never assumed from this.
+   */
   version: string
 }
 
@@ -37,8 +40,6 @@ export interface ProxyEngineRun {
  */
 export interface ProxyEngine {
   readonly info: ProxyEngineInfo
-  /** The release installed when nothing else is asked for. */
-  readonly pinnedVersion: string
   /** The platform's executable name for this engine. */
   binaryName: (platform: NodeJS.Platform) => string
   /** Where to fetch it; `null` when this platform is not supported. */

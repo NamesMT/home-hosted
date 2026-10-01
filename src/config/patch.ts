@@ -8,6 +8,8 @@ export const CONTROL_MERGE_KEYS = new Set(['auth', 'tls'])
 export const NOTIFICATION_MERGE_KEYS = new Set(['telegram'])
 /** The DDNS lists are replaced; only its two IP-family groups merge. */
 export const DDNS_MERGE_KEYS = new Set(['ipv4', 'ipv6'])
+/** The proxy's one nested group; `routes` and `certificates` are lists a patch replaces. */
+export const PROXY_MERGE_KEYS = new Set(['dns01'])
 export const EMPTY_MERGE_KEYS = new Set<string>()
 
 export function applyPatch(target: Record<string, unknown>, patch: Record<string, unknown>, mergeKeys: Set<string>): void {

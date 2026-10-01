@@ -1,4 +1,4 @@
-import type { ProxyCertificateState, ProxyCertificateView, ProxyConfig, ProxyPatch, ProxyRoute, ProxyRoutePatch, ProxyRouteStatus, ProxyRouteView, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
+import type { ProxyCertificateState, ProxyCertificateView, ProxyConfig, ProxyDnsAccountView, ProxyPatch, ProxyRoute, ProxyRoutePatch, ProxyRouteStatus, ProxyRouteView, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
 import { proxyRouteSchema } from '@shared/contracts'
 import { type } from 'arktype'
 import { toRaw } from 'vue'
@@ -18,6 +18,10 @@ export interface ListenerDraft {
   httpsPort: number
   email: string
   staging: boolean
+  /** DNS-01: the panel answers the challenge instead of the engine using ports. */
+  dns01: boolean
+  /** Nameservers the engine checks the record against, as typed: one per line or comma. */
+  resolvers: string
 }
 
 export interface ProxyWorkspace {
@@ -97,22 +101,53 @@ export const CERTIFICATE_STATE_META: Record<ProxyCertificateState, ChipMeta | nu
   issued: { label: 'certificate ready', chip: 'chip--ok' },
   pending: { label: 'waiting for the CA', chip: 'chip--warn' },
   failed: { label: 'certificate failed', chip: 'chip--danger' },
+  fallback: { label: 'Fell back to Local CA', chip: 'chip--warn' },
+}
+
+/** How long until the engine tries the CA again, for the retry confirmation. */
+/**
+ * Where a route answers, for the list's link. A route with TLS off is served on the
+ * plain port, and a standard port stays out of the URL.
+ */
+export function routeUrl(route: Pick<ProxyRoute, 'host' | 'path' | 'tls'>, httpPort: number, httpsPort: number): string | null {
+  const host = route.host.trim()
+  if (host.length === 0)
+    return null
+  const plain = route.tls === 'off'
+  const port = plain ? httpPort : httpsPort
+  const standard = plain ? 80 : 443
+  const path = route.path.length === 0 || route.path.startsWith('/') ? route.path : `/${route.path}`
+  return `${plain ? 'http' : 'https'}://${host}${port === standard ? '' : `:${port}`}${path}`
+}
+
+export function retryInLabel(minutes: number | null): string {
+  // An older panel sends no interval; the engine's own CA issues 12 hours by default,
+  // which certmagic's one-third renewal window turns into eight.
+  if (minutes === null)
+    return '~8 hours'
+  if (minutes < 60)
+    return `~${minutes} minute${minutes === 1 ? '' : 's'}`
+  const hours = Math.max(1, Math.round(minutes / 60))
+  return `~${hours} hour${hours === 1 ? '' : 's'}`
 }
 
 /** The certificate line for one route, or `null` when there is nothing to say. */
-export function routeCertificate(view: ProxyRouteView): { label: string, chip: string, danger: boolean, warn: boolean, message: string | null } | null {
+export function routeCertificate(view: ProxyRouteView): { label: string, chip: string, danger: boolean, warn: boolean, message: string | null, retryInMinutes: number | null } | null {
   const certificate = view.certificate
   if (certificate === undefined)
     return null
-  const meta = CERTIFICATE_STATE_META[certificate.state]
+  // A state a newer panel sends and this build does not know reads as nothing to say.
+  const meta = CERTIFICATE_STATE_META[certificate.state] ?? null
   if (meta === null)
     return null
   return {
     label: meta.label,
     chip: meta.chip,
     danger: certificate.state === 'failed',
-    warn: certificate.state === 'pending',
+    // A fallback is a warning, not a failure: the name answers, just not trusted.
+    warn: certificate.state === 'pending' || certificate.state === 'fallback',
     message: certificate.message,
+    retryInMinutes: certificate.retryInMinutes ?? null,
   }
 }
 
@@ -156,7 +191,35 @@ export function cloneListenerDraft(config: ProxyConfig): ListenerDraft {
     httpsPort: config.httpsPort,
     email: config.email,
     staging: config.staging,
+    dns01: config.dns01.enabled,
+    resolvers: config.dns01.resolvers.join(', '),
   }
+}
+
+/** Nameservers as typed: split on commas or newlines, trimmed, empties dropped. */
+export function parseResolvers(value: string): string[] {
+  return value.split(/[\s,]+/).map(entry => entry.trim()).filter(entry => entry.length > 0)
+}
+
+/**
+ * The account picker's options. The empty value is the single-account fallback, so a
+ * one-account setup needs no per-route choice; an account that cannot answer a
+ * challenge is still listed, marked, so a person sees why it is not a candidate.
+ */
+export function dnsAccountOptions(accounts: readonly ProxyDnsAccountView[]): Array<{ value: string, label: string }> {
+  const options = [{ value: '', label: 'automatic (the only account that can answer)' }]
+  for (const account of accounts) {
+    const name = account.label.length > 0 ? account.label : account.account
+    const marks = [
+      !account.writesTxt ? 'no TXT support' : null,
+      account.writesTxt && !account.hasCredentials ? 'no credentials' : null,
+    ].filter((mark): mark is string => mark !== null)
+    options.push({
+      value: `${account.workspace}/${account.account}`,
+      label: `${name} · ${account.provider} · ${account.workspace}${marks.length > 0 ? ` (${marks.join(', ')})` : ''}`,
+    })
+  }
+  return options
 }
 
 /** A detached, plain copy of the route list, so an edit cannot reach live state. */
@@ -179,6 +242,7 @@ export function toRouteWire(route: ProxyRoute): ProxyRoutePatch {
     url: route.url,
     path: route.path,
     tls: route.tls,
+    dnsAccount: route.dnsAccount,
   }
 }
 
@@ -213,6 +277,10 @@ export function listenerPatch(current: ProxyConfig, draft: ListenerDraft): Parti
     patch.email = draft.email
   if (current.staging !== draft.staging)
     patch.staging = draft.staging
+  // Sent only when it changed, so a save never rewrites a group it did not touch.
+  const resolvers = parseResolvers(draft.resolvers)
+  if (current.dns01.enabled !== draft.dns01 || current.dns01.resolvers.join(',') !== resolvers.join(','))
+    patch.dns01 = { enabled: draft.dns01, resolvers }
   return patch
 }
 
@@ -296,6 +364,7 @@ export function newRouteDraft(): RouteDraft {
     url: '',
     path: '',
     tls: 'auto',
+    dnsAccount: '',
   }
 }
 

@@ -3,13 +3,14 @@ import type { ProxyRouteView } from '@shared/contracts'
 import type { ProxyWorkspace, RouteDraft } from '@/lib/proxy'
 import { Pencil, Plus, Trash2, Waypoints } from 'lucide-vue-next'
 import { computed } from 'vue'
+import RetryCertificateButton from '@/components/proxy/RetryCertificateButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
-import { ROUTE_STATUS_META, routeCertificate, targetSummary, tlsSummary } from '@/lib/proxy'
+import { retryInLabel, ROUTE_STATUS_META, routeCertificate, routeUrl, targetSummary, tlsSummary } from '@/lib/proxy'
 
 /**
  * The route table. Rows are a draft: the whole list is written by the page's
@@ -20,6 +21,9 @@ const props = defineProps<{
   /** Live state per saved route; a draft that was never saved has none. */
   views: ProxyRouteView[]
   workspaces: ProxyWorkspace[]
+  /** Where the engine listens, so a hostname can be opened where it really answers. */
+  httpPort: number
+  httpsPort: number
   disabled: boolean
 }>()
 
@@ -27,8 +31,18 @@ const emit = defineEmits<{
   add: []
   edit: [route: RouteDraft]
   remove: [route: RouteDraft]
+  retry: [route: RouteDraft]
   toggle: [route: RouteDraft, enabled: boolean]
 }>()
+
+/**
+ * Only the fallback is worth forcing: the CA refused, the engine is serving its own
+ * CA, and the next automatic attempt is hours away. A `pending` name is still being
+ * worked on, so offering a restart there would only interrupt the engine mid-ACME.
+ */
+function forceable(state: string | undefined): boolean {
+  return state === 'fallback'
+}
 
 const rows = computed(() => props.routes.map((route) => {
   const view = props.views.find(entry => entry.route.id === route.id) ?? null
@@ -39,6 +53,7 @@ const rows = computed(() => props.routes.map((route) => {
     target: targetSummary(route, props.workspaces),
     tls: tlsSummary(route),
     certificate: view === null ? null : routeCertificate(view),
+    url: routeUrl(route, props.httpPort, props.httpsPort),
   }
 }))
 
@@ -115,7 +130,19 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
           <tr v-for="row in rows" :key="row.route.key" class="border-t border-line-soft align-top">
             <td class="py-1.5 pr-3">
               <p class="font-mono text-xs text-ink">
-                {{ row.route.host.trim().length > 0 ? row.route.host : 'no hostname yet' }}
+                <!-- Plain text until hovered: the list stays a table of names, but a live
+                     route can be opened where it answers. -->
+                <a
+                  v-if="row.url !== null && row.route.enabled"
+                  :href="row.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="transition-colors duration-150 hover:text-accent hover:underline"
+                  :title="`Open ${row.url} in a new tab`"
+                >{{ row.route.host }}</a>
+                <template v-else>
+                  {{ row.route.host.trim().length > 0 ? row.route.host : 'no hostname yet' }}
+                </template>
                 <span v-if="row.route.path.length > 0" class="text-accent">{{ row.route.path }}</span>
               </p>
               <p class="font-mono text-2xs text-faint">
@@ -141,6 +168,14 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
                 >
                   {{ row.certificate.message }}
                 </p>
+                <div v-if="forceable(row.view?.certificate?.state)" class="mt-1">
+                  <RetryCertificateButton
+                    :host="row.route.host"
+                    :retry-in="retryInLabel(row.certificate?.retryInMinutes ?? null)"
+                    :busy="props.disabled"
+                    @confirm="emit('retry', row.route)"
+                  />
+                </div>
               </div>
             </td>
             <td class="py-1.5 pr-3">

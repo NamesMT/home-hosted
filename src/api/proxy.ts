@@ -3,6 +3,7 @@ import type { ProxyConfig } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
+import { applyPatch, PROXY_MERGE_KEYS } from '#src/config/patch'
 import { ConfigError } from '#src/config/settings'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
@@ -22,10 +23,9 @@ const certificateParam = type({ id: '/^[a-z0-9][a-z0-9_-]*$/' })
 /** The patch, applied to the live config the way the store would apply it. */
 function candidateConfig(current: ProxyConfig, patch: Record<string, unknown>): ProxyConfig {
   const merged: Record<string, unknown> = { ...current }
-  for (const [key, value] of Object.entries(patch)) {
-    if (value !== undefined)
-      merged[key] = value
-  }
+  // The same merge the store will apply, so what is validated is what is committed:
+  // a spread here would replace `dns01` where `updateProxy` merges it.
+  applyPatch(merged, patch, PROXY_MERGE_KEYS)
   const parsed = proxyConfigSchema(merged)
   if (parsed instanceof type.errors)
     throw new DetailedError(parsed.summary, { statusCode: 400, code: 'INVALID_PROXY' })
@@ -43,7 +43,7 @@ export function createProxyRoute(deps: AppDeps) {
 
   /** Everything that has to hold before a change is written to disk. */
   const guard = (candidate: ProxyConfig): void => {
-    const problems = validateProxyConfig(candidate)
+    const problems = validateProxyConfig(candidate, (ref, workspaceId) => proxy().checkDnsAccount(ref, workspaceId))
     if (problems.length > 0)
       throw new DetailedError(`invalid reverse proxy configuration: ${problems.join('; ')}`, { statusCode: 400, code: 'INVALID_PROXY', detail: problems })
 
@@ -149,6 +149,23 @@ export function createProxyRoute(deps: AppDeps) {
       }),
       async (c) => {
         await proxy().stop()
+        return c.json(view())
+      },
+    )
+
+    .post(
+      '/proxy/routes/:id/retry-certificate',
+      describeRoute({
+        tags: ['proxy'],
+        summary: 'Make the engine ask the CA again for one route',
+        responses: {
+          200: { description: 'Retried', content: jsonBody(proxyViewSchema) },
+          400: ERROR_RESPONSES[400],
+          404: ERROR_RESPONSES[404],
+        },
+      }),
+      async (c) => {
+        await proxy().retryCertificate(c.req.param('id'))
         return c.json(view())
       },
     )
