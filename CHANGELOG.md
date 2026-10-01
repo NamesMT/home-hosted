@@ -1,6 +1,32 @@
 # Changelog
 
 
+## v0.7.3
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.2...v0.7.3)
+
+### 🚀 Enhancements
+
+- **proxy:** Answer DNS-01 through the panel's own DNS accounts ([f984594](https://github.com/NamesMT/home-hosted/commit/f984594))
+- **ddns:** Add a Namecheap API provider ([f7bc12a](https://github.com/NamesMT/home-hosted/commit/f7bc12a))
+
+### 📖 Documentation
+
+- **ui:** Page paths are part of the UI contract ([940d46a](https://github.com/NamesMT/home-hosted/commit/940d46a))
+
+### 🏡 Chore
+
+- **devcontainer:** Migrate pnpm store mount to XDG ~/.local/share/pnpm ([28322f0](https://github.com/NamesMT/home-hosted/commit/28322f0))
+- Stamp ui.json when the commit is made ([cd5063d](https://github.com/NamesMT/home-hosted/commit/cd5063d))
+
+### ✅ Tests
+
+- **proxy:** Run the engine-binary probes on Linux and macOS only ([2a1312d](https://github.com/NamesMT/home-hosted/commit/2a1312d))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.2
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.1...v0.7.2)
