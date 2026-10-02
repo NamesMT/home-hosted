@@ -1,3 +1,4 @@
+import type { ChildProcess } from 'node:child_process'
 import type { LogStream, NannyExit, NannySpec, NannyState } from '#src/shared/contracts'
 import process from 'node:process'
 import { NANNY_HEARTBEAT_MS, nannyLogFile, writeNannyState } from '#src/providers/nanny'
@@ -47,15 +48,47 @@ export async function runNanny(spec: NannySpec, statePath: string): Promise<void
     logFiles.append(id, { ts: Date.now(), stream, text })
   }
 
+  // The traps go up before the child exists, and before anything about this nanny is on
+  // disk: a stop that lands in between would otherwise kill a nanny that had not taken
+  // over its child yet, orphaning that child with no record of it anywhere.
+  let stopping = false
+  let pending: NodeJS.Signals | null = null
+  let spawned: ChildProcess | null = null
+
+  const stopChild = (child: ChildProcess, signal: NodeJS.Signals): void => {
+    emit('system', `${signal} — stopping this entry (grace ${spec.stop.graceMs}ms)`)
+    // The child is not a group leader, so the signal goes to its pid alone; the panel
+    // still signals this group, which is what covers anything the child left behind.
+    void terminate(child, { signal: spec.stop.signal, killGroup: false, graceMs: spec.stop.graceMs })
+  }
+
+  const onSignal = (signal: NodeJS.Signals): void => {
+    if (stopping)
+      return
+    stopping = true
+    // Nothing to stop yet: the spawn is right behind this, and it reads `pending`.
+    if (spawned === null)
+      pending = signal
+    else
+      stopChild(spawned, signal)
+  }
+
+  process.on('SIGTERM', () => onSignal('SIGTERM'))
+  process.on('SIGINT', () => onSignal('SIGINT'))
+
   // Not detached: the child shares this nanny's process group, which is the group the
   // panel signals — one `kill(-pid)` still reaches the whole tree.
   const child = spawnManaged(
     { command: spec.command, args: spec.args, cwd: spec.cwd, env: spec.env },
     { detached: false },
   )
+  spawned = child
   childPid = child.pid ?? null
   persistState()
   emit('system', `persistent: nanny pid ${process.pid} runs this entry`)
+  // A stop that arrived before the spawn still has to reach the child it just made.
+  if (pending !== null)
+    stopChild(child, pending)
 
   const stdout = new LineSplitter((stream, text) => emit(stream, text))
   const stderr = new LineSplitter((stream, text) => emit(stream, text))
@@ -64,19 +97,6 @@ export async function runNanny(spec: NannySpec, statePath: string): Promise<void
 
   const heartbeat = setInterval(persistState, NANNY_HEARTBEAT_MS)
   heartbeat.unref()
-
-  let stopping = false
-  const onSignal = (signal: NodeJS.Signals): void => {
-    if (stopping)
-      return
-    stopping = true
-    emit('system', `${signal} — stopping this entry (grace ${spec.stop.graceMs}ms)`)
-    // The child is not a group leader, so the signal goes to its pid alone; the panel
-    // still signals this group, which is what covers anything the child left behind.
-    void terminate(child, { signal: spec.stop.signal, killGroup: false, graceMs: spec.stop.graceMs })
-  }
-  process.on('SIGTERM', () => onSignal('SIGTERM'))
-  process.on('SIGINT', () => onSignal('SIGINT'))
 
   await new Promise<void>((resolve) => {
     let settled = false

@@ -277,10 +277,12 @@ either is a last resort, and never an accidental one.
   boot through `.state/<id>.json` before any port preflight (`nannyIsAlive` = live pid **and** a fresh
   heartbeat, the `HHOSTED_SERVER_ID` marker or the argv), tails that file for live logs, and reads
   `lastExit` once so a crash nobody watched is reported. The spawn spec is consumed by the read and
-  swept at boot — it carries expanded env. Two lifetimes are pinned: the nanny **exits with its child**
+  swept at boot — it carries expanded env. Three lifetimes are pinned: the nanny **exits with its child**
   (an inherited pipe would keep it alive, and the panel would report a healthy entry whose server is a
-  detached stranger), and a stop reaches the child by pid from the state file, because `SIGKILL` and
-  `killGroup: false` cannot be forwarded — which is why a self-restarting program belongs on `reclaim`.
+  detached stranger), a stop reaches the child by pid from the state file, because `SIGKILL` and
+  `killGroup: false` cannot be forwarded — which is why a self-restarting program belongs on `reclaim` —
+  and its `SIGTERM`/`SIGINT` traps are armed *before* the child exists and before that state file
+  appears, so a stop that beats the spawn can never orphan a child nobody has a record of.
   The nanny never restarts anything: retries and health stay the supervisor's. `logs.persist: false`
   keeps that file out of the Logs page but never stops it being written — it is the transport.
 - **A port is only ever freed by re-listing its listeners.** `POST /api/servers/:id/free-port` never

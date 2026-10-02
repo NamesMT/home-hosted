@@ -264,6 +264,26 @@ describe('nanny', () => {
     await waitFor(() => isAlive(nannyPid) ? undefined : true)
   })
 
+  it.runIf(process.platform !== 'win32')('never leaves a child behind when the stop beats the spawn', async () => {
+    // The panel signals a nanny as soon as it has its pid, which can be before the nanny
+    // has spawned anything. Whatever the signal lands on — the module load, the spawn, or
+    // the moment the state file appears — a child the nanny recorded has to be a child it
+    // took down, because that state file is the only record the panel would have of it.
+    const dir = await tempDir()
+    const specPath = path.join(dir, 'keep.spec.json')
+    const statePath = path.join(dir, 'keep.json')
+
+    const nannyPid = await startNanny(baseSpec(dir), specPath, statePath)
+    process.kill(nannyPid, 'SIGTERM')
+
+    await waitFor(() => isAlive(nannyPid) ? undefined : true)
+    const state = readNannyState(statePath)
+    if (state?.childPid != null) {
+      expect(state.lastExit?.signal).toBe('SIGTERM')
+      await waitFor(() => isAlive(state.childPid!) ? undefined : true)
+    }
+  })
+
   it('reports an entry that cannot be started instead of hanging', async () => {
     const dir = await tempDir()
     const logDir = path.join(dir, 'logs')
