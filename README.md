@@ -163,13 +163,13 @@ Worked example, with per-server data inside the project:
 <sub>Call them as `pnpm run up` — `pnpm up` is pnpm's own update, not your script.</sub>
 
 > [!TIP]
-> Give a project its own panel port (`control.port`, e.g. `4399`) — the default `3999` is what the
-> global instance and every other project also want.
+> Recommended to give a project its own panel port (`control.port`, e.g. `4399`), to avoid port conflict
+> with other projects.
 
 </details>
 
 <details>
-<summary><b>🧰 Run it under systemd or Docker (no daemon needed)</b></summary>
+<summary><b>🧰 Run it under systemd or Docker</b></summary>
 
 ```bash
 home-hosted up --foreground     # stays in the foreground, logs to stderr
@@ -179,12 +179,16 @@ home-hosted up --foreground     # stays in the foreground, logs to stderr
 [Unit]
 Description=home-hosted
 [Service]
+User=$YOUR_USER
 ExecStart=/usr/local/bin/home-hosted up --foreground
 Environment=HHOSTED_HOME=/srv/home-hosted
 Restart=always
 [Install]
 WantedBy=multi-user.target
 ```
+> [!CAUTION]
+> Note: change `$YOUR_USER` to your actual user account, or remove for `root`.
+> You could also change `/srv/home-hosted` to change where the data stores.
 
 </details>
 
@@ -231,8 +235,7 @@ default workspace.
 | `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) | ❌ |
 | `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) | ❌ |
 
-✅ takes `?workspace=<id>`; ❌ is panel-wide. Omitting it means the panel's default workspace — never
-another one.
+✅ takes `?workspace=<id>`; ❌ is panel-wide. Omitting `?workspace` means `default` workspace is used.
 
 `GET /openapi/spec.json` describes all of it, `/openapi/ui` is the browsable version, and every error
 comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on.
@@ -273,7 +276,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes — [setup here](./docs/NOTIFICATIONS.md). |
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
 | 🔀 **Reverse proxy** | One engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `media.example.com` → a service on another box, `panel.example.com` → the panel. Caddy, installed and supervised by the panel. [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
-| 💾 **Backups** | Two levels: pick global settings, global secrets, TLS or a whole workspace at the top, then the pieces inside it (settings, servers, secrets, data directories) — plain `.zip`, or AES-256 with a password, restored per path. |
+| 💾 **Backups** | Deep and customizable: pick global settings, global secrets, TLS, Workspaces, then the pieces inside it (workspace settings, servers, secrets, data directories) — plain `.zip`, or AES-256 with a password, customized restore is supported too! |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
 | 🧩 **No special treatment** | A server is `command` + `args` + `env` + `cwd`; nothing is built in for any particular app. |
@@ -283,16 +286,8 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 
 ## 🗂 Workspaces
 
-A workspace is the ownership boundary: its own servers, secrets, logs, nanny state and settings. The
-header picker is the whole control — choose one, create one, rename it, or delete it (which stops
-what it supervises first). The first boot creates a `default` workspace; a pre-workspaces instance is
-relocated into one automatically.
-
-> [!IMPORTANT]
-> **Upgrading from before workspaces (0.6 → 0.7)?** That release is breaking: state moves under
-> `$HHOSTED_HOME/.hh`, settings split global vs. per-workspace, and backups become two-level. The
-> relocation runs on the next command — `home-hosted migrate` reports it and stamps every file. See
-> [Upgrading](#-cli).
+A workspace is the ownership boundary: its own servers, secrets, logs, states and settings.
+The first boot creates a `default` workspace.
 
 | page | url | scope |
 | --- | --- | --- |
@@ -300,10 +295,6 @@ relocated into one automatically.
 | **Servers** · **Logs** · **Workspace settings** | `/w/<workspace>/servers` · `/w/<workspace>/logs` · `/w/<workspace>/settings` | the selected workspace |
 | **Global Overview** | `/global/overview` | host vitals plus every server from every workspace |
 | **Global settings** | `/global/settings` | Listener, Authentication, Host vitals, Backups, TLS, Interface, Paths |
-
-Every page is bookmarked by its own URL: the workspace id is part of it, so a link opens the same
-workspace even in a browser that never selected it. `/` opens **Global Overview**. The sidebar lists
-the panel-wide pages first, then the selected workspace's.
 
 <details>
 <summary><b>🗂 What lives where</b></summary>
@@ -334,6 +325,7 @@ An entry is a few lines. Add one with **➕ Add server**, or write it into the s
 ```
 
 `dataEnvs` declares a data directory once: it is exported to the process *and* picked up by Backups.
+
 **Every field, every placeholder, the port-conflict policies (including adopting a server that
 restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.md).**
 
@@ -352,9 +344,9 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | relocate a pre-workspaces state directory and stamp every config for this release (`--dry-run`, `--yes`) |
-| `home-hosted init` | scaffold a project that keeps `state/` and its data in the repo |
+| `home-hosted init` | scaffold a self-contained project (`HHOSTED_HOME` sets to the repo) |
 | `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (interactive) |
-| `home-hosted ui-update` | bring an installed UI up to date, or pick a release (`--old`, `--check`) |
+| `home-hosted ui-update` | bring an installed UI up to date automatically (official UI) or pick a release (`--old`, `--check`) |
 | `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
 
 <details>
@@ -389,16 +381,6 @@ for a launcher that pins one; a workspace picked in the UI keeps its own. `start
 
 <details>
 <summary><b>🧭 Upgrading, and why the panel sometimes refuses to start</b></summary>
-
-> **Breaking in 0.7 — workspaces.** State moved under `$HHOSTED_HOME/.hh`: global files at its top
-> level, one directory per workspace. Settings split into panel-wide **Global settings** and
-> per-workspace **Workspace settings**, backups became two-level, and `--config` now points at the
-> default workspace's servers file. The old `servers.config.json` becomes
-> `.hh/default/servers.config.json`.
-
-Relocation is automatic: the CLI relocates a pre-`.hh` `$HHOSTED_HOME` before any command runs, so an
-existing instance keeps working after the upgrade. `home-hosted migrate` reports what it moved and
-stamps every file for this release:
 
 ```bash
 home-hosted migrate --dry-run   # print the steps, write nothing
@@ -634,7 +616,7 @@ plus types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 <details>
 <summary><b>🔗 Interesting resources</b></summary>
 
-- [dsh-home-hosted](https://github.com/NamesMT/dsh-home-hosted) — home-hosted servers management with boot autostart from inside [DeepSeek Harness](https://github.com/deepseek-ai/dsh)
+- [dsh-home-hosted](https://github.com/NamesMT/dsh-home-hosted) — home-hosted servers management with boot autostart from inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 <sub><i>+ PR to add yours</i></sub>
 
