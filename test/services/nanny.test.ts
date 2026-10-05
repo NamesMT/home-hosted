@@ -266,11 +266,17 @@ describe('nanny', () => {
     // Not `toBeGreaterThan(0)`: `runtimeMs` is `Date.now() - startedAt`, and the child here is
     // killed the moment its state file appears, so on a fast machine it exits inside the same
     // millisecond — a legitimate 0. Asserting on that tests the clock's resolution, not the
-    // nanny, and it flaked in a full-suite run. What must hold is that a runtime was recorded
-    // at all, and that it is not nonsense.
+    // nanny. What must hold is that a runtime was recorded at all, and that it is not nonsense.
     expect(Number.isFinite(exit.runtimeMs)).toBe(true)
     expect(exit.runtimeMs).toBeGreaterThanOrEqual(0)
-    expect(linesOf(logFile).some(line => line.text.includes('exited with signal SIGTERM'))).toBe(true)
+
+    // Waited for, not read once. `finish()` emits this line into the log's pending buffer,
+    // *then* writes `lastExit` to the state file, *then* disposes — which is what flushes. So
+    // the instant `lastExit` is visible the log line may still be in memory, and a single read
+    // races that flush. It passed six times locally and failed on a loaded macOS runner. The
+    // sibling test above waits for its lines the same way, for the same reason.
+    await waitFor('the nanny to log how it exited', () =>
+      linesOf(logFile).some(line => line.text.includes('exited with signal SIGTERM')) ? true : undefined)
     await waitFor('the child process to exit', () => isAlive(childPid) ? undefined : true)
     await waitFor('the nanny process to exit', () => isAlive(nannyPid) ? undefined : true)
   })
