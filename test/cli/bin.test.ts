@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -109,7 +109,10 @@ describe('the published bin', () => {
    */
   it('starts the daemon when the sources entry runs from a foreign cwd', () => {
     const cwd = tempDir()
-    const entry = ['--import', path.join(root, 'node_modules', 'tsx', 'dist', 'loader.mjs'), path.join(root, 'src', 'cli.ts')]
+    // A `file://` URL, not a path: the ESM loader refuses a Windows `D:\...` specifier
+    // (`ERR_UNSUPPORTED_ESM_URL_SCHEME`), and a bare `tsx` cannot resolve at all from the
+    // foreign cwd this test deliberately runs in. `pathToFileURL` is right on all three.
+    const entry = ['--import', pathToFileURL(path.join(root, 'node_modules', 'tsx', 'dist', 'loader.mjs')).href, path.join(root, 'src', 'cli.ts')]
     const env = { ...process.env, HHOSTED_HOME: cwd, HHOSTED_PROJECT: cwd }
 
     const up = spawnSync(process.execPath, [...entry, 'up', '--home', cwd, '--port', '6395', '--no-autostart'], {
