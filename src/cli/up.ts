@@ -39,7 +39,11 @@ interface RawUpArgs {
 export function toUpFlags(args: RawUpArgs): UpFlags {
   let port: number | undefined
   if (args.port !== undefined) {
-    port = Number.parseInt(args.port, 10)
+    // The whole argument must be a decimal integer. `Number.parseInt` takes a prefix, so a
+    // partial parse slipped past the range check as a *valid* port: `--port 1e3` started the
+    // panel on port 1 (privileged, and not what anyone typed) and `--port 8000x` on 8000.
+    const raw = args.port.trim()
+    port = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN
     if (!Number.isInteger(port) || port <= 0 || port > 65535)
       fail(`invalid port: ${args.port}`)
   }
