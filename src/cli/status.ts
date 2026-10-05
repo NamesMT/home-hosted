@@ -30,7 +30,15 @@ export async function runStatus(json: boolean): Promise<void> {
   if (json) {
     // The token is what authorises a local shutdown; a script only needs the rest.
     const { token: _token, ...safe } = runtime
-    process.stdout.write(`${JSON.stringify({ running, answering: probe.reachable, degraded: probe.degraded, ...safe }, null, 2)}\n`)
+    // `logsDir` belongs here too: the text output prints it, and a script asking for JSON needs
+    // the same paths — the panel console's file is not where a *server's* log lives.
+    process.stdout.write(`${JSON.stringify({
+      running,
+      answering: probe.reachable,
+      degraded: probe.degraded,
+      ...safe,
+      logsDir: path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs'),
+    }, null, 2)}\n`)
     if (!running)
       process.exitCode = 1
     return

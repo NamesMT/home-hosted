@@ -171,3 +171,36 @@ describe('status paths', () => {
     }
   })
 })
+
+/**
+ * `status` has two outputs, and they must name the same paths.
+ *
+ * The text output gained the per-server log directory when the README's layout table started
+ * naming those files; the `--json` output did not, so a script asking for the machine-readable
+ * form got `logFile` (the panel console) and nothing for a server's logs. Two renderings of one
+ * command are one behaviour, and this pins them together.
+ */
+describe('status paths in both outputs', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-status-json-'))
+
+  it('names the per-server log directory in text and in JSON', () => {
+    const started = runCli(['up', '--home', dir, '--port', '6497', '--no-autostart'])
+    try {
+      expect(started.status, started.stderr).toBe(0)
+      const logsDir = path.join(dir, '.hh', 'default', '.logs')
+
+      const text = runCli(['status', '--home', dir])
+      expect(text.stdout).toContain(logsDir)
+
+      const json = runCli(['status', '--home', dir, '--json'])
+      const parsed = JSON.parse(json.stdout) as { logsDir?: string, logFile?: string }
+      expect(parsed.logsDir).toBe(logsDir)
+      // And the console log stays distinct from it, in both.
+      expect(parsed.logFile).not.toBe(parsed.logsDir)
+      expect(text.stdout).toContain(parsed.logFile!)
+    }
+    finally {
+      runCli(['down', '--home', dir])
+    }
+  })
+})
