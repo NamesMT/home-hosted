@@ -43,7 +43,29 @@ export async function runLogs(input: { lines?: string, follow?: boolean, json?: 
 
   if (input.follow === true) {
     const { followLog } = await import('#src/helpers/daemon-log')
-    await followLog(daemonLogPath, lines === 0 ? DEFAULT_LINES : lines, chunk => process.stdout.write(chunk))
+    const count = lines === 0 ? DEFAULT_LINES : lines
+    if (input.json !== true) {
+      await followLog(daemonLogPath, count, chunk => process.stdout.write(chunk))
+      return
+    }
+    // `--follow --json` used to ignore `--json` and print raw text, which the synopsis
+    // (`logs [--lines <n>] [--follow] [--json]`) advertised as composable. A stream has no
+    // single document, so the machine-readable form of it is one JSON object per line — each
+    // carrying the same `path` the one-shot form reports, so a consumer needs no out-of-band
+    // knowledge of which file it is reading.
+    const emit = (line: string): void => {
+      process.stdout.write(`${JSON.stringify({ path: daemonLogPath, line })}\n`)
+    }
+    // A chunk can end mid-line, so lines are only emitted once their newline has arrived.
+    let pending = ''
+    await followLog(daemonLogPath, count, (chunk) => {
+      pending += chunk
+      const parts = pending.split('\n')
+      pending = parts.pop() ?? ''
+      for (const part of parts) emit(part)
+    })
+    if (pending.length > 0)
+      emit(pending)
     return
   }
 

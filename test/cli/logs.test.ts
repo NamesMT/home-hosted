@@ -168,6 +168,51 @@ describe('runLogs', () => {
     // A shell can hand over a padded value; that is still the number it looks like.
     expect(await capture(home('a\nb\nc\n'), { lines: ' 2 ' })).toContain('c')
   })
+
+  /**
+   * `--follow --json` must emit one JSON object per line.
+   *
+   * It used to ignore `--json` entirely and print raw text, while the synopsis
+   * (`logs [--lines <n>] [--follow] [--json]`) advertised the flags as composable. A stream has no
+   * single document, so its machine-readable form is one object per line — each carrying the
+   * `path` the one-shot form reports, since a consumer following a panel should not need
+   * out-of-band knowledge of which file it is reading.
+   */
+  it('emits one JSON object per line when following', async () => {
+    const root = home('a\nb\n\nc\n')
+    const written: string[] = []
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string) => {
+      written.push(String(chunk))
+      return true
+    }) as never)
+
+    try {
+      process.env.HHOSTED_HOME = root
+      vi.resetModules()
+      const { runLogs } = await import('#src/cli/logs')
+      // `followLog` polls until interrupted, so the signal ends it.
+      const running = runLogs({ follow: true, json: true })
+      await new Promise(resolve => setTimeout(resolve, 600))
+      process.emit('SIGINT')
+      await running
+    }
+    finally {
+      spy.mockRestore()
+    }
+
+    const parsed = written
+      .join('')
+      .split('\n')
+      .filter(line => line.length > 0)
+      .map(line => JSON.parse(line) as { path: string, line: string })
+
+    // Every object names the file it came from — the one-shot form's `path`.
+    expect(parsed.length).toBeGreaterThan(0)
+    expect(parsed.every(entry => entry.path.endsWith(path.join('.hh', '.logs', 'home-hosted.log')))).toBe(true)
+    // The blank line the panel wrote is output the person asked for, so it is an object too —
+    // and no fragment of it is emitted as a line of its own.
+    expect(parsed.map(entry => entry.line)).toEqual(['a', 'b', '', 'c'])
+  })
 })
 
 describe('followLog', () => {

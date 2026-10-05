@@ -105,7 +105,7 @@ const LOGS_SECTION: OptionSection = {
   lines: [
     ['--lines <n>', 'how many lines to show (default 50, `all` for everything)'],
     ['--follow', 'keep printing as the panel writes (like tail -f)'],
-    ['--json', 'print machine-readable JSON'],
+    ['--json', 'print machine-readable JSON (one object per line with --follow)'],
   ],
 }
 

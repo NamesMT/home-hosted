@@ -522,6 +522,7 @@ doing and anything it could not finish:
 home-hosted logs              # the last 50 lines
 home-hosted logs --follow     # keep printing, like tail -f
 home-hosted logs --lines all  # the whole thing, including the rotation
+home-hosted logs --json       # { path, lines } — or one object per line with --follow
 ```
 
 It is the same file `status` names, and reading it needs no session or API token — a panel that
