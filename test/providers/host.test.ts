@@ -88,20 +88,30 @@ describe('host sampling', () => {
  * reports 0 when there is no swap at all, and that case is skipped rather than faked.
  */
 describe('host alerts that need a real reading', () => {
+  /**
+   * Every assertion below is about *one* alert kind.
+   *
+   * A busy CI runner also breaches the load threshold — the macOS gate caught exactly that,
+   * reporting `load 7.16/cpu exceeds 2` while these tests expected no alerts at all. An
+   * alert list is not a set to compare wholesale; it is this machine's combined opinion, and
+   * only the part under test is ours to predict.
+   */
+  const swapAlerts = (alerts: string[]): string[] => alerts.filter(alert => alert.includes('swap'))
+  const memoryAlerts = (alerts: string[]): string[] => alerts.filter(alert => alert.includes('memory'))
+
   it('alerts on swap when the threshold is below what the machine reports', async () => {
     const { swapUsedPercent } = memoryInfo()
     // Half of whatever is actually used, so the comparison is satisfied by construction.
-    const threshold = swapUsedPercent / 2
-    const sample = await sampleHost(config({ diskPaths: [], swapUsedPercent: threshold, memoryUsedPercent: 100 }), t => t)
+    const sample = await sampleHost(config({ diskPaths: [], swapUsedPercent: swapUsedPercent / 2, memoryUsedPercent: 100 }), t => t)
 
     if (swapUsedPercent === 0) {
-      // No swap on this machine (a container, typically): nothing can breach it.
-      expect(sample.alerts, 'no swap to alert on').toEqual([])
+      // No swap on this machine — macOS runners, typically — so nothing can breach it.
+      expect(swapAlerts(sample.alerts), 'no swap to alert on').toEqual([])
       return
     }
-    expect(sample.alerts.some(alert => alert.includes('swap'))).toBe(true)
+    expect(swapAlerts(sample.alerts)).toHaveLength(1)
     // The wording is what a person reads, so pin the shape of it.
-    expect(sample.alerts.find(alert => alert.includes('swap'))).toMatch(/^swap is \d+\.\d% used$/)
+    expect(swapAlerts(sample.alerts)[0]).toMatch(/^swap is \d+\.\d% used$/)
   })
 
   it('alerts on memory when the threshold is below what the machine reports', async () => {
@@ -111,16 +121,20 @@ describe('host alerts that need a real reading', () => {
     const sample = await sampleHost(config({ diskPaths: [], memoryUsedPercent: memoryUsedPercent / 2, swapUsedPercent: 100 }), t => t)
 
     if (memoryUsedPercent === 0) {
-      expect(sample.alerts).toEqual([])
+      expect(memoryAlerts(sample.alerts)).toEqual([])
       return
     }
-    expect(sample.alerts.some(alert => alert.includes('memory'))).toBe(true)
-    expect(sample.alerts.find(alert => alert.includes('memory'))).toMatch(/^memory is \d+\.\d% used$/)
+    expect(memoryAlerts(sample.alerts)).toHaveLength(1)
+    expect(memoryAlerts(sample.alerts)[0]).toMatch(/^memory is \d+\.\d% used$/)
   })
 
   it('treats a zero threshold as disabled, for both', async () => {
     // `0` disables an individual alert; it must not read as "alert on anything".
     const sample = await sampleHost(config({ diskPaths: [], swapUsedPercent: 0, memoryUsedPercent: 0 }), t => t)
-    expect(sample.alerts).toEqual([])
+    expect(swapAlerts(sample.alerts)).toEqual([])
+    expect(memoryAlerts(sample.alerts)).toEqual([])
+    // The threshold is disabled, not the whole sampler: an unrelated breach still reports.
+    const strict = await sampleHost(config({ diskPaths: [], swapUsedPercent: 0, memoryUsedPercent: 0, loadPerCpu: 1e9 }), t => t)
+    expect(swapAlerts(strict.alerts)).toEqual([])
   })
 })
