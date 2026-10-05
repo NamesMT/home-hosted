@@ -7,6 +7,7 @@ import { computed, nextTick, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import { flash, selectedId } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { repairNumbers } from '@/lib/forms'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -153,12 +154,21 @@ function buildPayload(): Record<string, unknown> {
     logBufferLines: bufferLines === '' ? baseline.logBufferLines : Number(bufferLines),
   })
 
+  /**
+   * An emptied number box reports `''`, which the create/patch schema rejects for the whole
+   * body. Put the inherited value back first, so the field drops out of the diff instead.
+   */
+  const inherited = {
+    restart: defaults?.restart ?? SCHEMA_RESTART,
+    health: defaults?.health ?? SCHEMA_HEALTH,
+    stop: defaults?.stop ?? SCHEMA_STOP,
+  }
+  repairNumbers(form.restart as unknown as Record<string, unknown>, inherited.restart as unknown as Record<string, unknown>)
+  repairNumbers(form.health as unknown as Record<string, unknown>, inherited.health as unknown as Record<string, unknown>)
+  repairNumbers(form.stop as unknown as Record<string, unknown>, inherited.stop as unknown as Record<string, unknown>)
+
   const groups = diffFields(
-    {
-      restart: defaults?.restart ?? SCHEMA_RESTART,
-      health: defaults?.health ?? SCHEMA_HEALTH,
-      stop: defaults?.stop ?? SCHEMA_STOP,
-    },
+    inherited,
     { restart: form.restart, health: form.health, stop: form.stop },
   )
 

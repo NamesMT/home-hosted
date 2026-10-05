@@ -13,6 +13,7 @@ import { changesOpen } from '@/composables/useUi'
 import * as api from '@/lib/api'
 import { waitForEndpoint } from '@/lib/endpoint'
 import { formatBytes, formatDateTime } from '@/lib/format'
+import { repairNumbers } from '@/lib/forms'
 
 /**
  * The panel-wide groups: listener, authentication, TLS, host vitals and backups.
@@ -245,6 +246,17 @@ const authEnabledWithoutPassword = computed(() => form.auth.enabled && !password
 /** Listener, auth, TLS, host vitals and backups — the panel-wide groups. */
 function buildGlobalPatch(view: ControlView): SettingsPatch {
   const patch: SettingsPatch = {}
+
+  /**
+   * An emptied number box reports `''`, which the patch schema rejects for the whole body.
+   * Put the live value back first, so the field drops out of the diff instead of failing it.
+   */
+  if (settings.value !== null) {
+    repairNumbers(form.control as unknown as Record<string, unknown>, view as unknown as Record<string, unknown>)
+    repairNumbers(form.host as unknown as Record<string, unknown>, settings.value.host as unknown as Record<string, unknown>)
+    repairNumbers(form.backups as unknown as Record<string, unknown>, settings.value.backups as unknown as Record<string, unknown>)
+  }
+  repairNumbers(form.auth as unknown as Record<string, unknown>, authConfig(view.auth) as unknown as Record<string, unknown>)
 
   const controlPatch = diffFields(
     {

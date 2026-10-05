@@ -11,6 +11,7 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import { changesOpen } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
+import { repairNumbers } from '@/lib/forms'
 
 /**
  * The selected workspace's own groups: server defaults, log retention,
@@ -203,6 +204,20 @@ watch(activeId, () => {
 /** The workspace-scoped patch: server defaults, log retention, notifications, DDNS. */
 function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
   const patch: WorkspaceSettingsPatch = {}
+
+  /**
+   * An emptied number box reports `''`, which the patch schema rejects for the whole body.
+   * Put the live value back first, so the field drops out of the diff instead of failing it.
+   */
+  repairNumbers(form.defaults as unknown as Record<string, unknown>, defaults as unknown as Record<string, unknown>)
+  const live = selected.value
+  if (live !== null) {
+    repairNumbers(form.logs as unknown as Record<string, unknown>, live.logs as unknown as Record<string, unknown>)
+    repairNumbers(
+      form.notifications.telegram as unknown as Record<string, unknown>,
+      live.notifications.telegram as unknown as Record<string, unknown>,
+    )
+  }
 
   const defaultsPatch = diffFields(
     defaults as unknown as Patch,
