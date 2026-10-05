@@ -191,10 +191,25 @@ interface WalkedFile {
   size: number
 }
 
-/** Sorted, deterministic walk with symlinks resolved and directory loops broken. */
+/**
+ * Sorted, deterministic walk with symlinks resolved and directory loops broken.
+ *
+ * Every read is best-effort: a directory that vanishes mid-walk (a rotated log, a
+ * build directory being cleaned, a container being torn down) must leave it out of
+ * the archive rather than reject `createZip` and turn a backup into a failure.
+ */
 function walk(root: string): WalkedFile[] {
   const files: WalkedFile[] = []
   const seen = new Set<string>()
+
+  const readDir = (absolute: string): string[] => {
+    try {
+      return fs.readdirSync(absolute).sort()
+    }
+    catch {
+      return []
+    }
+  }
 
   const visit = (absolute: string, name: string): void => {
     let stats: fs.Stats
@@ -206,12 +221,19 @@ function walk(root: string): WalkedFile[] {
     }
 
     if (stats.isDirectory()) {
-      const real = fs.realpathSync(absolute)
+      let real: string
+      try {
+        real = fs.realpathSync(absolute)
+      }
+      catch {
+        // A link whose target went away; there is nothing to capture.
+        return
+      }
       if (seen.has(real))
         return
       seen.add(real)
       files.push({ name: `${name}/`, absolute, directory: true, size: 0 })
-      for (const child of fs.readdirSync(absolute).sort())
+      for (const child of readDir(absolute))
         visit(path.join(absolute, child), `${name}/${child}`)
       return
     }
@@ -220,7 +242,7 @@ function walk(root: string): WalkedFile[] {
       files.push({ name, absolute, directory: false, size: stats.size })
   }
 
-  for (const child of fs.readdirSync(root).sort())
+  for (const child of readDir(root))
     visit(path.join(root, child), child)
 
   return files
