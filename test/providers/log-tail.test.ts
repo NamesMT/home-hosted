@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -98,5 +99,40 @@ describe('logTailer', () => {
     const lines = tailer.read()
     expect(lines).toHaveLength(1)
     expect(lines[0]!.stream).toBe('stderr')
+  })
+
+  it('keeps the first line when the tail window starts on a line boundary', async () => {
+    // A backfill reads at most MAX_TAIL_BYTES (256 KiB) from the end, so on any log
+    // past that the offset is `size - 256 KiB`. With five lines of exactly 65536 bytes
+    // that offset is exactly the first byte of line 2, so all four lines the window
+    // holds are whole — and `slice(1)` dropped the complete first one unconditionally,
+    // losing one real history line per reattach.
+    const file = await tempFile()
+    const tailer = new LogTailer(file)
+    const exactLine = (marker: string, bytes: number): string => {
+      const empty = `${JSON.stringify({ ts: 1, stream: 'stdout', text: marker })}\n`
+      const pad = bytes - Buffer.byteLength(empty)
+      return `${JSON.stringify({ ts: 1, stream: 'stdout', text: marker + 'x'.repeat(pad) })}\n`
+    }
+    const body = ['one', 'two', 'three', 'four', 'five'].map(marker => exactLine(marker, 65_536)).join('')
+    expect(Buffer.byteLength(body)).toBe(5 * 65_536)
+    fs.writeFileSync(file, body)
+
+    const backfill = tailer.readTailLines(5)
+    expect(backfill.map(entry => entry.text[0])).toEqual(['t', 't', 'f', 'f'])
+    // The offset still moved to EOF: the backfill is history, not news.
+    expect(tailer.read()).toEqual([])
+  })
+
+  it('does not lose a real line to a blank leading fragment', async () => {
+    // The window starts inside a whitespace-only line, so the fragment filters out as
+    // blank — and then `slice(1)` removed the first *real* line behind it. Filtering
+    // has to happen after the fragment is dropped, not before.
+    const file = await tempFile()
+    const tailer = new LogTailer(file)
+    fs.writeFileSync(file, `${' '.repeat(300_000)}\n${line('one')}${line('two')}`)
+
+    const backfill = tailer.readTailLines(10)
+    expect(backfill.map(entry => entry.text)).toEqual(['one', 'two'])
   })
 })

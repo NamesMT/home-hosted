@@ -79,9 +79,19 @@ export class LogTailer {
     try {
       const buffer = Buffer.alloc(size - start)
       const bytes = fs.readSync(handle, buffer, 0, buffer.length, start)
-      const raw = buffer.subarray(0, bytes).toString('utf8').split('\n').filter(line => line.trim().length > 0)
-      // A read that starts mid-file begins on a partial line, which is dropped.
-      const lines = start > 0 ? raw.slice(1) : raw
+      const raw = buffer.subarray(0, bytes).toString('utf8').split('\n')
+      // A read that starts mid-file begins on a partial line — but only when the byte
+      // before `start` is not the newline that ended the previous one. Dropping the
+      // first element unconditionally lost one complete line per attach once the log
+      // passed the tail window, and filtering *before* the drop made a blank leading
+      // fragment drop a real line as well.
+      let partialStart = false
+      if (start > 0) {
+        const previous = Buffer.alloc(1)
+        const readBack = fs.readSync(handle, previous, 0, 1, start - 1)
+        partialStart = readBack === 1 && previous[0] !== 0x0A
+      }
+      const lines = (partialStart ? raw.slice(1) : raw).filter(line => line.trim().length > 0)
       return lines.slice(-count)
         .map(parseLogLine)
         .filter((line): line is LogLine => line !== null)
