@@ -469,6 +469,23 @@ function downloadCall(calls: Array<{ url: string, init: RequestInit | undefined 
 }
 
 describe('uiSwitch asset selection', () => {
+  /**
+   * A UI zip is built *before* its release is cut, so the `tag` inside it is the previous
+   * release at best. Recording that instead of the release actually fetched is what makes
+   * a panel re-download and re-install the same UI on every boot.
+   */
+  it('records the release it fetched, not the tag the archive shipped with', async () => {
+    const io = fakeIo()
+    await stubReleaseAndDownload(
+      { tag_name: 'v1.2.3', assets: [twoAssets[0]] },
+      { extra: { 'ui.json': JSON.stringify({ name: 'stock', version: '2.5.0', repo: 'NamesMT/home-hosted', tag: 'v0.6.0' }) } },
+    )
+
+    await runSwitch(['--tag', 'v1.2.3'], io.io)
+
+    expect(installedHome().meta.tag).toBe('v1.2.3')
+  })
+
   it('installs the one asset a release carries without asking', async () => {
     const io = fakeIo()
     const calls = await stubReleaseAndDownload({ tag_name: 'v1.2.3', assets: [twoAssets[0]] })

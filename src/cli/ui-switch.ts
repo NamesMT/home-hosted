@@ -109,7 +109,7 @@ export async function uiSwitch(argv: string[], io: UiSwitchIo): Promise<void> {
     return
   }
 
-  await installFromUrl(assetDownloadUrl(chosen), fallbackUiName(chosen.name ?? ''), context)
+  await installFromUrl(assetDownloadUrl(chosen), fallbackUiName(chosen.name ?? ''), context, release.tag)
 }
 
 async function chooseAsset(assets: GithubAsset[], values: { asset?: string, yes?: boolean }, context: SwitchContext): Promise<GithubAsset | null> {
@@ -168,7 +168,13 @@ async function installFromFile(value: string, context: SwitchContext): Promise<v
   await installFromUrl(source.url, fallbackUiName(new URL(source.url).pathname), context)
 }
 
-async function installFromUrl(url: string, fallbackName: string, context: SwitchContext): Promise<void> {
+/**
+ * `installedTag` is the release the asset came from, never the one inside the archive:
+ * a UI zip is built before its release is cut, so it carries the previous tag at best,
+ * and recording that makes the panel re-install the same UI on every boot. A local file
+ * or a bare URL names no release, so it has none to record.
+ */
+async function installFromUrl(url: string, fallbackName: string, context: SwitchContext, installedTag?: string): Promise<void> {
   const headers: Record<string, string> = {
     'accept': 'application/octet-stream',
     'user-agent': `home-hosted/${context.version}`,
@@ -178,18 +184,18 @@ async function installFromUrl(url: string, fallbackName: string, context: Switch
 
   const download = await downloadToTemp(url, headers, context)
   try {
-    await installArchive(download.file, fallbackName, context)
+    await installArchive(download.file, fallbackName, context, installedTag)
   }
   finally {
     fs.rmSync(download.dir, { recursive: true, force: true })
   }
 }
 
-async function installArchive(archivePath: string, fallbackName: string, context: SwitchContext): Promise<void> {
+async function installArchive(archivePath: string, fallbackName: string, context: SwitchContext, installedTag?: string): Promise<void> {
   const { UiService } = await import('#src/services/ui')
   const { hhDir: dataRoot } = await import('#src/helpers/paths')
   const ui = new UiService({ dataRoot })
-  const result = await ui.install(archivePath, fallbackName)
+  const result = await ui.install(archivePath, fallbackName, installedTag)
 
   if (!result.ok)
     throw new Error(`nothing was installed: ${result.error}`)
