@@ -186,11 +186,14 @@ a minor without one.
   new UI meets an older payload for a while — a required field there rejects the whole frame and
   blanks the app. Request bodies and config keep their strict, defaulted shape.
 - Conventional commits; ESLint via `@antfu/eslint-config`; sparse comments.
-- UI tests live in `uis/stock/test/`: pure modules on node, and a component that is worth
+- UI tests live in `uis/<name>/test/`: pure modules on node, and a component that is worth
   guarding mounts under `// @vitest-environment happy-dom` (see `number-field.test.ts`). Reach for
   that rather than trusting a component to be thin: `NumberField`'s setter assumed the string a text
   input reports, but Vue casts `<input type="number">` to a *number* first, so `raw.trim()` threw and
   every value typed into a numeric field was silently discarded — no pure-module test could see it.
+  The suite resolves `@/…` from the UI that asks, so each UI's own tests can import its own
+  components; a single pinned target made every UI but that one untestable, and resolved a
+  `noc-console` test's `@/lib/proxy` to *stock's* differing copy without a murmur.
 - A destructive action that is one click away confirms in a **popover** (`KillPortButton.vue`),
   never by arming the same button for a second press: an impatient double click on an arming
   button fires it. Keep the safe choice first in the popover's tab order.
