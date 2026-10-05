@@ -94,22 +94,28 @@ describe('hostMonitor', () => {
     const sink = recorder()
     const monitor = new HostMonitor(() => config({ ...ALERTING, intervalMs: 60_000 }), t => t, sink)
 
-    // `sampledAt` is the clock inside `sampleHost`, not the `now` a tick passes —
-    // so the interval is observed through the notifier instead.
     await monitor.tick(100_000)
     expect(sink.events).toHaveLength(1)
-    const firstSample = monitor.view.sampledAt
-    expect(firstSample).not.toBeNull()
 
-    // Inside the interval nothing is re-sampled: `sampleHost` stamps a fresh clock,
-    // so a moved timestamp is exactly what a second sample would look like.
+    // Object identity, not `sampledAt`. A sample assigns a *fresh* view object, so a tick that
+    // skips leaves the reference untouched — and one that samples replaces it.
+    //
+    // `sampledAt` looks like it would work and does not, in either direction: it is a wall
+    // clock (`sampleHost` stamps `Date.now()`), while these ticks move only *simulated* time.
+    // Two samples a tick apart take about a millisecond of real time, so they can land on the
+    // same millisecond — which made this test fail intermittently on CI, and would equally
+    // have let a genuine re-sample inside the interval pass unnoticed.
+    const firstSample = monitor.view
+    expect(firstSample.sampledAt).not.toBeNull()
+
+    // Inside the interval nothing is re-sampled.
     await monitor.tick(110_000)
     await monitor.tick(120_000)
-    expect(monitor.view.sampledAt).toBe(firstSample)
+    expect(monitor.view, 'a tick inside the interval re-sampled').toBe(firstSample)
 
     // Past it, a new sample lands.
     await monitor.tick(200_000)
-    expect(monitor.view.sampledAt).not.toBe(firstSample)
+    expect(monitor.view, 'a tick past the interval did not re-sample').not.toBe(firstSample)
   })
 
   it('stops sampling when disabled, and says so in the view', async () => {
