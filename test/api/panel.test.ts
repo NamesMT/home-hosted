@@ -501,7 +501,7 @@ describe('openapi document', () => {
     // …and the body is the flat stored entry, which the write really returns.
     expect(server).not.toHaveProperty('config')
     expect(server).toHaveProperty('command', 'node')
-    expect(serverSchema(server) instanceof type.errors).toBe(false)
+    expect(serverSchema(server) instanceof type.errors, JSON.stringify(serverSchema(server))).toBe(false)
   })
 })
 
