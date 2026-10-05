@@ -226,6 +226,41 @@ function writeHangingEngine(enginePath: string): void {
   fs.chmodSync(enginePath, 0o755)
 }
 
+/**
+ * An engine that ignores SIGTERM and never answers, so only SIGKILL ends it. Writes
+ * its own pid where the test can read it.
+ */
+function writeStubbornEngine(enginePath: string): string {
+  const pidFile = path.join(path.dirname(enginePath), 'stubborn.pid')
+  fs.mkdirSync(path.dirname(enginePath), { recursive: true })
+  fs.writeFileSync(enginePath, [
+    '#!/bin/sh',
+    'trap "" TERM',
+    `echo $$ > "${pidFile}"`,
+    'while :; do sleep 1; done',
+    '',
+  ].join('\n'))
+  fs.chmodSync(enginePath, 0o755)
+  return pidFile
+}
+
+/** Waits for a pid file written by a just-spawned stub engine. */
+async function waitForPid(pidFile: string): Promise<number | null> {
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline) {
+    try {
+      const pid = Number.parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10)
+      if (Number.isInteger(pid) && pid > 0)
+        return pid
+    }
+    catch {
+      // Not written yet.
+    }
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  return null
+}
+
 /** For the tests that spawn that script rather than just placing it. */
 const spawnsStubEngine = it.runIf(process.platform !== 'win32')
 
@@ -619,6 +654,35 @@ describe('proxyService', () => {
     // request that triggered the probe.
     await expect(service.probeEngineVersion()).resolves.toBeNull()
     await expect(service.installedModules()).resolves.toBeNull()
+  })
+
+  spawnsStubEngine('kills an engine that ignores SIGTERM, instead of leaving it running', async () => {
+    // `exec sleep 30` dies on the polite SIGTERM, so the old test never saw this: the
+    // escalation was scheduled and then cancelled in the same tick by the `finish()`
+    // that resolved the probe, leaving the pathological engine alive and another one
+    // spawned on every later probe.
+    const { service } = await harness({ engineCommandTimeoutMs: 150 })
+    const pidFile = writeStubbornEngine(service.enginePath)
+
+    await expect(service.probeEngineVersion()).resolves.toBeNull()
+    const pid = await waitForPid(pidFile)
+    expect(pid).not.toBeNull()
+
+    try {
+      // SIGKILL is scheduled 500 ms after the timeout: wait it out, then check.
+      const deadline = Date.now() + 5000
+      while (Date.now() < deadline && isProcessAlive(pid!))
+        await new Promise(resolve => setTimeout(resolve, 100))
+      expect(isProcessAlive(pid!)).toBe(false)
+    }
+    finally {
+      try {
+        process.kill(pid!, 'SIGKILL')
+      }
+      catch {
+        // Already dead, which is the point.
+      }
+    }
   })
 
   it('does not ask for the module when DNS-01 is off', async () => {

@@ -1409,19 +1409,26 @@ export class ProxyService {
       let settled = false
       let timer: NodeJS.Timeout | undefined
       let killTimer: NodeJS.Timeout | undefined
+      /** The escalation is cancelled by a real exit, never by `finish`. */
+      const stopEscalation = (): void => {
+        if (killTimer === undefined)
+          return
+        clearTimeout(killTimer)
+        killTimer = undefined
+      }
       const finish = (value: string | null): void => {
         if (settled)
           return
         settled = true
         if (timer !== undefined)
           clearTimeout(timer)
-        if (killTimer !== undefined)
-          clearTimeout(killTimer)
         resolve(value)
       }
       timer = setTimeout(() => {
         // Polite first, then certain: a binary that ignores SIGTERM would otherwise
-        // stay alive after we have already given up on it.
+        // stay alive after we have already given up on it. The escalation outlives
+        // this call on purpose — clearing it here cancelled the SIGKILL in the same
+        // tick and left the pathological engine running.
         child.kill()
         killTimer = setTimeout(() => child.kill('SIGKILL'), 500)
         killTimer.unref()
@@ -1430,8 +1437,15 @@ export class ProxyService {
       child.stdout?.on('data', (chunk: Buffer) => {
         output += chunk.toString('utf8')
       })
-      child.on('error', () => finish(null))
-      child.on('exit', () => finish(output))
+      child.on('error', () => {
+        stopEscalation()
+        finish(null)
+      })
+      child.on('exit', () => {
+        // It really is gone, so there is nothing left to escalate against.
+        stopEscalation()
+        finish(output)
+      })
     })
   }
 
