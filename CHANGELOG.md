@@ -1,6 +1,25 @@
 # Changelog
 
 
+## v0.7.6
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.5...v0.7.6)
+
+### 🩹 Fixes
+
+- **init:** The scaffold's .gitignore ignored the workspace definitions it promises to track ([acfaca5](https://github.com/NamesMT/home-hosted/commit/acfaca5))
+- **cli:** A local call settles when the panel cuts the response mid-body ([4a367d3](https://github.com/NamesMT/home-hosted/commit/4a367d3))
+- **layout:** An unreadable legacy config is reported, not silently abandoned ([c360126](https://github.com/NamesMT/home-hosted/commit/c360126))
+
+### ✅ Tests
+
+- **cli:** Pin ui-update's --check precedence and its refusal to guess ([90768cf](https://github.com/NamesMT/home-hosted/commit/90768cf))
+- **config-watch:** Keep the poll on, so the macOS watch cannot flake ([81d9f2c](https://github.com/NamesMT/home-hosted/commit/81d9f2c))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.5
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.4...v0.7.5)
