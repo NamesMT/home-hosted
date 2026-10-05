@@ -173,6 +173,9 @@ export interface ProxyServiceOptions {
    * `null` means the pair is unknown; a null `url` means it exists but is not up.
    */
   resolveServer: (workspaceId: string, serverId: string) => { url: string | null, message: string | null } | null
+  /** Test seams: the lifecycle steps that wait on a real engine. */
+  waitReady?: () => Promise<boolean>
+  chooseAdmin?: () => Promise<ProxyAdminTransport>
   /**
    * The DNS account a hostname's DNS-01 challenge is written through, by
    * `<workspace>/<account>`. `null` means no account claims the name, so the
@@ -211,6 +214,8 @@ export class ProxyService {
   private moduleCache: Set<string> | null = null
   /** A legacy `engine.json` is reported once, not on every state frame. */
   private legacyChecksumWarned = false
+  /** Why the engine's nanny could not be spawned, cleared on the next start. */
+  private nannyError: string | null = null
   private certCache: { at: number, key: string, days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, local: Map<string, { notAfter: number, lifetimeMs: number }>, views: ProxyCertificateView[] } | null = null
   /** The certificate state the last apply was built from, so a change re-applies once. */
   private certificateSignature: string | null = null
@@ -1498,7 +1503,7 @@ export class ProxyService {
 
     await this.assertPortsFree(config.httpPort, config.httpsPort)
 
-    const admin = await this.chooseAdmin()
+    const admin = await (this.options.chooseAdmin ?? this.chooseAdmin.bind(this))()
     this.admin = admin
     const invalid = this.resolveRoutes().find(view => view.status === 'error')
     if (invalid !== undefined)
@@ -1536,27 +1541,43 @@ export class ProxyService {
       stop: { signal: 'SIGTERM', killGroup: false, graceMs: 10_000, killPortHolders: false },
     })
 
-    this.nanny = spawn(process.execPath, nannyArgv(nannyEntryPoint(), PROXY_ID, specPath, statePath), {
+    const nanny = spawn(process.execPath, nannyArgv(nannyEntryPoint(), PROXY_ID, specPath, statePath), {
       cwd: this.options.engineDir,
       env: { ...process.env, ...env, HHOSTED_HOME: dataRoot, HHOSTED_PROJECT: projectDir },
       stdio: ['ignore', 'ignore', 'ignore'],
       detached: true,
       windowsHide: true,
     })
-    this.nanny.on('exit', () => {
+    // A failure from an earlier attempt must not be read as this one's cause.
+    this.nannyError = null
+    this.nanny = nanny
+    // A spawn that never happens — EMFILE/ENFILE, EACCES, or an execPath that moved —
+    // emits 'error' and no 'exit' at all, and an unhandled 'error' event ends the whole
+    // panel. A failure and a short life clean up identically, once.
+    const nannyGone = (): void => {
+      if (this.nanny !== nanny)
+        return
       this.nanny = null
       // The handle is gone, so nothing it owned is ours to talk to any more — a
       // stale admin.json would have the next apply() reach for a dead socket.
       this.admin = null
       fs.rmSync(this.options.adminPath, { force: true })
       this.options.onStateChange()
+    }
+    nanny.on('error', (error: Error) => {
+      this.nannyError = `the proxy engine's nanny could not be started: ${error.message}`
+      logger.error(`proxy:    ${this.nannyError}`)
+      nannyGone()
     })
+    nanny.on('exit', nannyGone)
 
     const ready = await this.waitReady()
     if (!ready) {
-      this.lastError = `the engine did not answer on its admin endpoint within ${Math.round(READY_TIMEOUT_MS / 1000)}s: ${this.logTail()}`
+      // The specific cause wins: a nanny that never spawned already recorded why.
+      const failure = this.nannyError ?? `the engine did not answer on its admin endpoint within ${Math.round(READY_TIMEOUT_MS / 1000)}s: ${this.logTail()}`
       await this.stop().catch(() => undefined)
-      throw new DetailedError(this.lastError, { statusCode: 502, code: 'ENGINE_NOT_READY' })
+      this.lastError = failure
+      throw new DetailedError(failure, { statusCode: 502, code: 'ENGINE_NOT_READY' })
     }
     this.rememberApplied(config.httpPort, config.httpsPort)
     this.lastError = null
@@ -1708,8 +1729,15 @@ export class ProxyService {
   }
 
   private async waitReady(): Promise<boolean> {
+    if (this.options.waitReady !== undefined)
+      return this.options.waitReady()
     const deadline = Date.now() + READY_TIMEOUT_MS
     while (Date.now() < deadline) {
+      // The nanny that was going to bring the engine up is gone — a spawn that
+      // failed, or one that died with its child. Nothing answers after that, so the
+      // rest of the deadline would only delay the failure that is already recorded.
+      if (this.nanny === null)
+        return false
       try {
         const result = await this.request('GET', '/config/')
         if (result.status < 400)

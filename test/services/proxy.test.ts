@@ -98,6 +98,11 @@ interface Harness {
   settings: GlobalSettingsStore
   dir: string
   options: ProxyServiceOptions
+  /**
+   * Makes the nanny spawn fail, the way a moved `process.execPath` or an exhausted fd
+   * table does. Returns the restored property, so the failure lasts exactly one call.
+   */
+  breakNannySpawn: () => () => void
 }
 
 async function harness(overrides: Partial<ProxyServiceOptions> = {}): Promise<Harness> {
@@ -124,7 +129,28 @@ async function harness(overrides: Partial<ProxyServiceOptions> = {}): Promise<Ha
     onStateChange: () => undefined,
     ...overrides,
   }
-  return { service: new ProxyService(options), settings, dir, options }
+  // The defaults stay fast at every point where `start()` would otherwise wait on a
+  // real engine; the port preflight stays real, and the tests that want it relaxed say so.
+  options.waitReady = overrides.waitReady ?? (async () => false)
+  options.chooseAdmin = overrides.chooseAdmin ?? (async () => ({ kind: 'unix', path: path.join(dir, 'state', 'admin.sock') }))
+
+  return {
+    service: new ProxyService(options),
+    settings,
+    dir,
+    options,
+    breakNannySpawn: () => {
+      // The spawn itself still has to fail for real: `spawn` resolves the error
+      // asynchronously, which is what emits 'error' rather than 'exit'.
+      const saved = process.execPath
+      Object.defineProperty(process, 'execPath', {
+        value: path.join(dir, 'gone-node'),
+        configurable: true,
+        writable: true,
+      })
+      return () => Object.defineProperty(process, 'execPath', { value: saved, configurable: true, writable: true })
+    },
+  }
 }
 
 /**
@@ -826,6 +852,34 @@ describe('proxyService', () => {
     const { service } = await harness()
     await expect(service.start()).rejects.toThrow('switched off')
     await expect(service.apply()).resolves.toBeUndefined()
+  })
+
+  it('survives a nanny that cannot be spawned, and reads as a failure', async () => {
+    // A spawn that never happens emits 'error' and no 'exit'. Without a handler that
+    // event is an uncaught exception, and Node 24 ends the whole panel — which is what
+    // an exhausted fd table (EMFILE/ENFILE), EACCES or a moved node binary produces.
+    const { service, settings, options, breakNannySpawn } = await harness()
+    writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
+    settings.updateProxy({ enabled: true, httpPort: 4480, httpsPort: 4443 })
+    // The real readiness poll, so this also proves it comes back the moment the nanny
+    // is gone rather than waiting out the whole 20s deadline.
+    delete options.waitReady
+
+    const restore = breakNannySpawn()
+    let failure: unknown
+    try {
+      failure = await service.start().then(() => null, (error: unknown) => error)
+    }
+    finally {
+      restore()
+    }
+
+    // The start rejected with the spawn's own reason instead of the generic timeout:
+    // `waitReady()` only comes back that fast because the nanny is already gone.
+    expect((failure as { code?: string }).code).toBe('ENGINE_NOT_READY')
+    expect((failure as Error).message).toContain('could not be started')
+    // The nanny was never there, so no stale admin record is left to be reused.
+    expect(fs.existsSync(options.adminPath)).toBe(false)
   })
 
   it('calls a public name on the engine’s own CA a fallback, and says when it tries again', async () => {
