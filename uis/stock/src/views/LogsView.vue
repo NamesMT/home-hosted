@@ -25,6 +25,9 @@ const servers = ref<api.LogServerInfo[]>([])
 const selected = ref<string | null>(null)
 const mode = ref<'disk' | 'live'>('disk')
 const tail = ref('2000')
+/** `''` means every stream. Server output interleaves stdout and stderr, so reading one alone
+ * is how an operator finds why an entry crashed without the noise around it. */
+const stream = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const diskLines = ref<LogLine[]>([])
@@ -51,6 +54,13 @@ const tailOptions = [
   { value: '500', label: '500 lines' },
   { value: '2000', label: '2000 lines' },
   { value: '5000', label: '5000 lines' },
+]
+
+const streamOptions = [
+  { value: '', label: 'All streams' },
+  { value: 'stdout', label: 'stdout' },
+  { value: 'stderr', label: 'stderr' },
+  { value: 'system', label: 'system' },
 ]
 
 const totalPersisted = computed(() => servers.value.reduce((sum, server) => sum + server.sizeBytes, 0))
@@ -91,7 +101,11 @@ async function loadTail(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const history = await api.fetchLogHistory(workspace.activeId.value, id, { tail: Number(tail.value) })
+    const history = await api.fetchLogHistory(workspace.activeId.value, id, {
+      tail: Number(tail.value),
+      // Absent, not empty, for "all streams": the server treats a missing key as no filter.
+      ...(stream.value.length > 0 ? { stream: stream.value } : {}),
+    })
     if (token !== tailRequest)
       return
     diskLines.value = history.lines
@@ -131,7 +145,7 @@ function select(id: string): void {
   void router.replace({ query: { ...route.query, server: id } })
 }
 
-watch([selected, tail, mode], () => {
+watch([selected, tail, stream, mode], () => {
   if (mode.value === 'disk')
     void loadTail()
 }, { immediate: false })
@@ -230,6 +244,14 @@ onMounted(async () => {
           :options="tailOptions"
           class="w-32"
           aria-label="Tail size"
+        />
+
+        <SelectField
+          v-if="mode === 'disk'"
+          v-model="stream"
+          :options="streamOptions"
+          class="w-32"
+          aria-label="Stream"
         />
 
         <AppButton v-if="mode === 'disk'" size="sm" :loading="loading" @click="loadTail">
