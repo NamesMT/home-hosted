@@ -250,6 +250,9 @@ async function captureUis(page) {
     const dist = path.join(uisDir, name, 'dist')
     await withPanel(name, name === 'stock' ? null : dist, async (url) => {
       await shoot(page, url, `ui-${name}`, { settle: 2600, expect: 'gateway' })
+      // The reverse proxy is panel-wide and one of the headline features, but it is not
+      // the landing page — so the tour would never show it without its own pass.
+      await shoot(page, `${url}proxy`, `ui-${name}-proxy`, { settle: 2200, expect: 'Reverse Proxy' })
     })
   }
 }

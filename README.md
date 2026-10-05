@@ -25,7 +25,7 @@ them, watches them, restarts what dies, and shows you one page of what is going 
 
 <div align="center">
 
-![Six views of the panel: the stock UI, the NOC-console, and UI examples](docs/media/tour.gif)
+![Eight views of the panel: the stock UI and its reverse proxy, the NOC-console, and UI examples](docs/media/tour.gif)
 
 <sub>The stock panel, the [NOC-console](./uis/noc-console) that ships alongside it (for TUI and
 shortcuts wizards), and UI directions you could build yourself —
@@ -293,8 +293,10 @@ The first boot creates a `default` workspace.
 | --- | --- | --- |
 | **Overview** | `/w/<workspace>` | the selected workspace: its servers, counts and live status |
 | **Servers** · **Logs** · **Workspace settings** | `/w/<workspace>/servers` · `/w/<workspace>/logs` · `/w/<workspace>/settings` | the selected workspace |
+| **One server** | `/w/<workspace>/servers/<id>` | that entry: config, live logs, resources |
 | **Global Overview** | `/global/overview` | host vitals plus every server from every workspace |
 | **Global settings** | `/global/settings` | Listener, Authentication, Host vitals, Backups, TLS, Interface, Paths |
+| **Reverse Proxy** | `/proxy` | panel-wide: one engine, every workspace's servers ([REVERSE_PROXY.md](./docs/REVERSE_PROXY.md)) |
 
 <details>
 <summary><b>🗂 What lives where</b></summary>
@@ -564,7 +566,10 @@ run.json                     the running panel (pid, url, token, mode 0600)
 <details>
 <summary><b>Which ports does it use?</b></summary>
 
-Just the control panel, `3999` by default. Supervised servers use the ports you give them.
+The control panel, `3999` by default. Supervised servers use the ports you give them. The reverse
+proxy is the one panel-wide listener, and only when you switch it on: `80`/`443` for automatic HTTPS,
+or `4480`/`4443` unprivileged with your router forwarding to them
+([REVERSE_PROXY.md](./docs/REVERSE_PROXY.md#ports)).
 
 </details>
 
