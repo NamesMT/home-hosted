@@ -1,6 +1,30 @@
 # Changelog
 
 
+## v0.7.8
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.7...v0.7.8)
+
+### 🩹 Fixes
+
+- **api:** Declare the stored entry POST/PATCH really return, not a view ([abce4b4](https://github.com/NamesMT/home-hosted/commit/abce4b4))
+- **metrics:** Escape a label value, so a Windows disk path does not break the scrape ([26fce4f](https://github.com/NamesMT/home-hosted/commit/26fce4f))
+- **identity:** Read a Windows-escaped quote as a literal, not a delimiter ([57e8047](https://github.com/NamesMT/home-hosted/commit/57e8047))
+- **ui:** Name every toggle switch, and stop three ways a live view showed stale state ([ada0c58](https://github.com/NamesMT/home-hosted/commit/ada0c58))
+- **ui:** Show the panel's reason when an uploaded restore fails ([9056e85](https://github.com/NamesMT/home-hosted/commit/9056e85))
+- **ui:** Confirm destructive actions in a popover, and keep a route edit through a live frame ([c8ad4b6](https://github.com/NamesMT/home-hosted/commit/c8ad4b6))
+- **ui:** A cleared required number no longer refuses the whole save ([06b50ae](https://github.com/NamesMT/home-hosted/commit/06b50ae))
+
+### ✅ Tests
+
+- **cli:** Pin the colour seam every command prints through ([33ccad9](https://github.com/NamesMT/home-hosted/commit/33ccad9))
+- Stop two intermittent full-suite failures, and make them say why ([5cbafdf](https://github.com/NamesMT/home-hosted/commit/5cbafdf))
+- **config:** Cover the dependency validation that reports cycles and dangling ids ([43e2485](https://github.com/NamesMT/home-hosted/commit/43e2485))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.7
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.6...v0.7.7)
