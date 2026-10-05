@@ -8,11 +8,58 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+/**
+ * How long a swap reading is reused.
+ *
+ * Reading swap off Linux costs a *process spawn*: `sysctl` on macOS, and a full PowerShell
+ * start on Windows, where `wmic` no longer exists. The host is sampled every 15 s by default,
+ * so that was 5,760 spawns a day — minutes of process churn for one number that moves slowly
+ * and only feeds an alert threshold and a Prometheus gauge.
+ *
+ * A stale-by-a-minute reading is not a lie anyone acts on, and the alternative is worse: the
+ * spawn happens inside the sample, so it also delays the whole state frame.
+ */
+const SWAP_CACHE_MS = 60_000
+
+let swapCache: { at: number, percent: number } | null = null
+
+/**
+ * Whether a cached reading may be reused.
+ *
+ * Separate from the reading itself so the rule can be tested anywhere — the read is
+ * `sysctl`/PowerShell, which no CI runner but macOS and Windows can perform, and a bug here
+ * would be one that only shows up as either a stale alert or a spawn storm.
+ *
+ * A stamp in the future (a backwards wall-clock step) counts as stale: with a plain
+ * `now - at < ttl` it computes a negative age, which is "fresh", and the reading would stick
+ * until wall time caught back up — potentially hours after an NTP correction.
+ */
+export function isSwapCacheFresh(cache: { at: number } | null, now: number, ttlMs = SWAP_CACHE_MS): boolean {
+  if (cache === null)
+    return false
+  const age = now - cache.at
+  return age >= 0 && age < ttlMs
+}
+
 /** Swap usage per platform: /proc on Linux, sysctl on macOS, CIM on Windows. */
-async function swapUsedPercent(): Promise<number> {
+async function swapUsedPercent(now = Date.now()): Promise<number> {
   if (process.platform === 'linux')
     return 0 // filled by memoryInfo below
 
+  if (isSwapCacheFresh(swapCache, now))
+    return swapCache!.percent
+
+  const percent = await readSwapUsedPercent()
+  swapCache = { at: now, percent }
+  return percent
+}
+
+/** Forgets the cached reading. Exposed for tests, which must not see each other's value. */
+export function resetSwapCache(): void {
+  swapCache = null
+}
+
+async function readSwapUsedPercent(): Promise<number> {
   if (process.platform === 'darwin') {
     try {
       const { stdout } = await execFileAsync('sysctl', ['-n', 'vm.swapusage'], { timeout: 3000 })

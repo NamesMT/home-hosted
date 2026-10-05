@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { availableMemoryBytes, emptyHostView, macAvailableBytes, memoryInfo, sampleHost } from '#src/providers/host'
+import { availableMemoryBytes, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, sampleHost } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -236,5 +236,48 @@ describe('availableMemoryBytes', () => {
     // A failed vm_stat read must not silently become "everything is used", which is the
     // symptom being fixed.
     expect(availableMemoryBytes('darwin', 100_000 * 16384, '')).toBeNull()
+  })
+})
+
+/**
+ * The swap cache, which exists because reading swap spawns a process.
+ *
+ * `sysctl` on macOS and a full PowerShell start on Windows — `wmic` is gone — and the host is
+ * sampled every 15 s, so that was 5,760 spawns a day for one slowly-moving number that only
+ * feeds an alert threshold and a Prometheus gauge. The rule is tested rather than the read,
+ * because no Linux runner can perform the read.
+ */
+describe('isSwapCacheFresh', () => {
+  it('reuses a reading inside the window, and refuses one outside it', () => {
+    const cache = { at: 1000 }
+    expect(isSwapCacheFresh(cache, 1000)).toBe(true)
+    expect(isSwapCacheFresh(cache, 1000 + 59_999)).toBe(true)
+    // Exactly at the TTL is expired: the boundary is "younger than", not "no older than".
+    expect(isSwapCacheFresh(cache, 1000 + 60_000)).toBe(false)
+    expect(isSwapCacheFresh(cache, 1000 + 60_001)).toBe(false)
+  })
+
+  it('never reuses an absent reading', () => {
+    // The first sample must spawn; a null cache is not a value of zero.
+    expect(isSwapCacheFresh(null, 5000)).toBe(false)
+  })
+
+  it('treats a clock that went backwards as stale, not as fresh', () => {
+    // A wall clock that jumps back would otherwise pin the reading forever.
+    expect(isSwapCacheFresh({ at: 10_000 }, 5_000)).toBe(false)
+  })
+
+  it('spawns at most once a minute at the default sampling interval', () => {
+    // The property that matters: 15 s sampling over an hour is 240 samples, and this
+    // collapses them to 60 reads — the difference between 5,760 and 1,440 spawns a day.
+    let reads = 0
+    let cache: { at: number } | null = null
+    for (let t = 0; t < 3_600_000; t += 15_000) {
+      if (!isSwapCacheFresh(cache, t)) {
+        reads += 1
+        cache = { at: t }
+      }
+    }
+    expect(reads).toBe(60)
   })
 })
