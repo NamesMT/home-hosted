@@ -168,6 +168,13 @@ function handleMessage(raw: string): void {
 
 function openServerStream(workspaceId: string, serverId: string, buffer: LogBuffer): void {
   const key = serverKey(workspaceId, serverId)
+  // Every connect replays the panel's last 200 buffered lines, so anything kept from a
+  // previous connection would be shown twice — leaving the Logs page for Persisted and
+  // coming back, or a server detail view unmounting, did exactly that. Start clean; this
+  // is the one place a stream begins.
+  buffer.lines = []
+  buffer.version.value += 1
+  logRevision.value += 1
   const source = new EventSource(`/api/servers/${encodeURIComponent(serverId)}/stream${api.workspaceQuery(workspaceId)}`)
   const listener = (event: Event): void => {
     const message = event as MessageEvent<string>

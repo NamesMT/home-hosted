@@ -76,22 +76,35 @@ async function loadServers(): Promise<void> {
   }
 }
 
+/**
+ * Bumped per request, so a slow answer cannot overwrite a newer one. Picking server B
+ * while A's tail is still in flight used to leave the header on B and the viewer showing
+ * A's lines — whichever request landed last won, whatever the user asked for.
+ */
+let tailRequest = 0
+
 async function loadTail(): Promise<void> {
   const id = selected.value
   if (id === null || mode.value === 'live')
     return
+  const token = ++tailRequest
   loading.value = true
   error.value = null
   try {
     const history = await api.fetchLogHistory(workspace.activeId.value, id, { tail: Number(tail.value) })
+    if (token !== tailRequest)
+      return
     diskLines.value = history.lines
     diskVersion.value += 1
   }
   catch (caught) {
+    if (token !== tailRequest)
+      return
     error.value = caught instanceof Error ? caught.message : String(caught)
   }
   finally {
-    loading.value = false
+    if (token === tailRequest)
+      loading.value = false
   }
 }
 

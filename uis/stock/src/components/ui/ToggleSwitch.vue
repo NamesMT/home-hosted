@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { SwitchRoot, SwitchThumb } from 'reka-ui'
+import { useId } from 'vue'
 import { cn } from '@/lib/cn'
 import { focusRing } from '@/lib/ui'
 
@@ -21,6 +22,14 @@ const props = withDefaults(defineProps<{
   srOnly: false,
 })
 
+/**
+ * The text lives in a sibling `<label>`, which names nothing: a label only names a
+ * control by wrapping it or by `for`, and `SwitchRoot` renders a `<button>`. So the
+ * switch had no accessible name at all — a screen reader read every one of these as
+ * just "switch". Point the button at the text with `aria-labelledby`.
+ */
+const labelId = useId()
+
 const model = defineModel<boolean>({ default: false })
 </script>
 
@@ -29,6 +38,7 @@ const model = defineModel<boolean>({ default: false })
     <SwitchRoot
       v-model="model"
       :disabled="props.disabled"
+      :aria-labelledby="labelId"
       :class="cn(
         'relative inline-flex h-[18px] w-8 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-150',
         'data-[state=checked]:border-accent data-[state=checked]:bg-accent',
@@ -42,7 +52,7 @@ const model = defineModel<boolean>({ default: false })
       />
     </SwitchRoot>
     <label class="min-w-0 cursor-pointer select-none" @click="!props.disabled && (model = !model)">
-      <span :class="cn('block text-xs text-ink', props.srOnly && 'sr-only')">{{ props.label }}</span>
+      <span :id="labelId" :class="cn('block text-xs text-ink', props.srOnly && 'sr-only')">{{ props.label }}</span>
       <span v-if="props.hint" class="block text-2xs text-faint">{{ props.hint }}</span>
     </label>
   </div>

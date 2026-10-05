@@ -17,11 +17,18 @@ const restart = defineModel<RestartConfig>('restart', { required: true })
 const health = defineModel<HealthConfig>('health', { required: true })
 const stop = defineModel<StopConfig>('stop', { required: true })
 
-/** NumberField speaks `number | null`; stored config never carries null here. */
+/**
+ * NumberField speaks `number | null`; stored config never carries null here.
+ *
+ * A cleared, non-nullable field reads as `NaN`, not `null` (`readNumber`), so `??`
+ * alone let it through: the saved payload then failed schema validation with
+ * "maxRetries must be a number (was NaN)" and the whole form could not be saved.
+ * Fall back rather than storing a value no schema accepts.
+ */
 function required(get: () => number, set: (value: number) => void, fallback = 0) {
   return computed<number | null>({
     get,
-    set: value => set(value ?? fallback),
+    set: value => set(value === null || Number.isNaN(value) ? fallback : value),
   })
 }
 

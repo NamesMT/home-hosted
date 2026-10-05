@@ -178,6 +178,39 @@ describe('useServerLogs', () => {
 
     scope.stop()
   })
+
+  /**
+   * The panel replays its last 200 buffered lines on every connect, so a buffer kept
+   * across connections showed that tail twice — LogsView drops the id when you switch to
+   * Persisted and re-acquires it on the way back, and ServerDetailView does the same on a
+   * remount. Starting a stream is the moment to forget the previous one's lines.
+   */
+  it('does not replay a previous connection\'s tail into a fresh stream', async () => {
+    const scope = effectScope()
+    const id = ref<string | null>('beta')
+    const logs = scope.run(() => useServerLogs(() => 'default', id))!
+    await nextTick()
+
+    const tail = [line('a'), line('b')]
+    latest().emit('log', logFrame(tail, 'beta'))
+    expect(texts(logs.lines())).toEqual(['a', 'b'])
+
+    // Leave the live view and come back: a new source, and the panel replays its tail.
+    id.value = null
+    await nextTick()
+    id.value = 'beta'
+    await nextTick()
+
+    const second = latest()
+    expect(second).not.toBe(FakeEventSource.instances[0])
+    second.emit('log', logFrame(tail, 'beta'))
+
+    // The replay replaced the buffer, so the tail appears once.
+    expect(texts(logs.lines())).toEqual(['a', 'b'])
+    expect(logs.count.value).toBe(2)
+
+    scope.stop()
+  })
 })
 
 /** The buffers are keyed per server, so a snapshot is just the texts in order. */
