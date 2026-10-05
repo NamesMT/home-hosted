@@ -68,6 +68,14 @@ platform-specific break fail before shipping rather than on someone's machine. I
 `dry-run`, because that is exactly what a rehearsal needs to exercise. Every job carries a
 `timeout-minutes`, so a wedged runner is reported instead of sitting out GitHub's 6-hour default.
 
+**Read the skip count, not just the tick.** Linux has no skips; macOS and Windows currently report a
+handful (Windows more), all from platform guards — `spawnsStubEngine` cannot drive a stub engine on
+Windows, and the signal tests cannot trap there. Those numbers move as tests are added, so what to
+watch is the *shape*: a new skip appearing on a platform, or a suite that reports a clean pass where
+a guard should have fired. A test that *returns early* instead of skipping reports a **pass**, so it
+hides a platform that never exercised the code — use `it.runIf`/`it.skipIf` with the condition
+computed at **module load**, since those are evaluated at collection time, before any `beforeAll`.
+
 **`npm publish` exiting 0 is the whole answer.** The registry can take up to ten minutes to show a
 package it has already accepted — that is npm's queue, not this run's, and polling it once cost five
 minutes of every release. Do not put that poll back, and do not hold other work waiting for a
