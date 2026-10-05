@@ -38,7 +38,9 @@
     "typescript"
   ],
   "imports": {
-    "#src/*": "./src/*"
+    "#src/*": "./src/*",
+    "#src/providers/ddns": "./src/providers/ddns/index.ts",
+    "#src/providers/proxy": "./src/providers/proxy/index.ts"
   },
   "exports": {
     ".": "./dist/cli.js",
