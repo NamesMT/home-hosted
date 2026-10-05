@@ -339,6 +339,23 @@ describe('logs route', () => {
   })
 
   /**
+   * Both filters at once. Each widens the window on its own; together they must still apply in
+   * order (stream first, then search) and report a count that is honest about what was read,
+   * rather than the window requested.
+   */
+  it('applies a stream filter and a search together', async () => {
+    const created = await withServer()
+    seedLogs(created, 400)
+
+    const body = await (await request(created.app, '/api/logs/web?stream=stderr&search=line-1&tail=50')).json() as { lines: Array<{ stream: string, text: string }>, searched: number }
+    // 400 lines, every other one stderr, so the search window holds ~200 stderr lines.
+    expect(body.searched).toBe(200)
+    expect(body.lines.length).toBeGreaterThan(0)
+    expect(body.lines.every(line => line.stream === 'stderr')).toBe(true)
+    expect(body.lines.every(line => line.text.includes('line-1'))).toBe(true)
+  })
+
+  /**
    * The number in that header is read by a person, so it must not claim to have searched more
    * lines than exist. A short log with a search used to answer "searched 5000 lines".
    */
