@@ -163,8 +163,9 @@ and `GET /api/settings` includes `ui` — which UI is being served, and its meta
 
 An entry body is partial by design: `POST /api/servers` and `PATCH /api/servers/:id` take only the
 fields the person decided, and the workspace's **Server defaults** fill the rest. Sending a value the
-person never chose freezes it against those defaults, so build the body as a diff
-(`inheritBaseline` and `diffFields` in `src/shared/patch-diff.ts`).
+person never chose freezes it against those defaults, so build the body as a diff: `diffFields` comes
+from `src/shared/patch-diff.ts`, while comparing against the defaults (`inheritBaseline`) is each
+UI's own job — see `uis/stock/src/components/server/addServerForm.ts`.
 
 ### Failures
 

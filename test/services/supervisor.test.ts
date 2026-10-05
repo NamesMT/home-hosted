@@ -452,6 +452,42 @@ describe('supervisor', () => {
     expect(idle.error).toContain(`nothing is listening on port ${port}`)
   })
 
+  /**
+   * `spawn` throws synchronously for a command it cannot use at all, and the bootstrap
+   * schema accepts an empty `command` (as does the editor, gated only on the block being
+   * enabled). That throw must not escape `start()`: it would reject after `status` was
+   * already set to `starting`, wedging the entry with no pid until a daemon restart.
+   */
+  it('reports a bootstrap that cannot spawn, and still starts the server', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, {
+      bootstrap: { command: '', args: [], timeoutMs: 5000 },
+    })])
+
+    // A throw here would leave the entry `starting` forever; it has to resolve.
+    const result = await supervisor.start('web')
+    expect(result.ok).toBe(true)
+    await waitForStatus(supervisor, 'web', 'running')
+
+    const lines = supervisor.logLines('web').map(entry => entry.text)
+    expect(lines.some(text => text.includes('bootstrap could not start'))).toBe(true)
+    // The entry is genuinely up, not merely reported as such.
+    expect(view(supervisor, 'web').pid).not.toBeNull()
+  })
+
+  /** An empty command is the reachable case; a NUL byte is the same synchronous throw. */
+  it('survives a bootstrap command that is unusable, not only an empty one', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, {
+      bootstrap: { command: 'node\0evil', args: [], timeoutMs: 5000 },
+    })])
+
+    const result = await supervisor.start('web')
+    expect(result.ok).toBe(true)
+    await waitForStatus(supervisor, 'web', 'running')
+    expect(view(supervisor, 'web').status).toBe('running')
+  })
+
   it('runs bootstrap once, streams its output, and then starts the server', async () => {
     const port = await freePort()
     const { supervisor } = await makeSupervisor([httpServerConfig(port, {
@@ -843,6 +879,23 @@ describe('supervisor', () => {
     expect(view(supervisor, 'idle').status).toBe('running')
     expect(view(supervisor, 'idle').health).toBe('disabled')
   })
+
+  /**
+   * A live store outlives its supervisor — `PanelService.remove()` disposes a workspace's
+   * supervisor and only then drops the runtime — so a discarded `onChange` unsubscribe
+   * leaves the disposed supervisor, its entries and its ring buffers reachable for the
+   * rest of the session, and its `sync()` still runs on every later store change.
+   */
+  it('detaches from the store when disposed', async () => {
+    const harness = await makeSupervisor([])
+    const { supervisor, store } = harness
+
+    const attached = store.listenerCount
+    expect(attached).toBeGreaterThan(0)
+
+    await supervisor.dispose()
+    expect(store.listenerCount).toBe(attached - 1)
+  })
 })
 
 /**
@@ -892,6 +945,28 @@ describe('persistent entries', () => {
       ...overrides,
     }
   }
+
+  /**
+   * `--no-autostart` skips the reattach pass, and a hand edit can add a persistent entry
+   * after boot, so the panel can hold an entry with no child and no pid while its nanny
+   * and real server are still running. A stop must adopt it first — otherwise the early
+   * return answers `stopped` and the server keeps serving behind that answer.
+   */
+  it('stops a live persistent entry the panel never attached to', async () => {
+    const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
+    const pid = await fakeNanny(nannyDir, 'keep')
+
+    // Deliberately no startAll: this is the `--no-autostart` boot.
+    expect(view(supervisor, 'keep').pid).toBeNull()
+
+    const result = await supervisor.stop('keep')
+    expect(result.ok).toBe(true)
+
+    expect(isAlive(pid)).toBe(false)
+    expect(view(supervisor, 'keep').status).toBe('stopped')
+    // The state file is consumed, so a later boot cannot reattach to a stopped entry.
+    expect(readNannyState(nannyStatePath(nannyDir, 'keep'))).toBeNull()
+  })
 
   it('reattaches to a running entry instead of starting a second copy', async () => {
     const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])

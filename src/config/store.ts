@@ -157,6 +157,11 @@ export class WorkspaceStore {
     return () => this.listeners.delete(listener)
   }
 
+  /** How many listeners are attached; a disposed owner must not add to it. */
+  get listenerCount(): number {
+    return this.listeners.size
+  }
+
   getServer(id: string): ServerConfig | undefined {
     return this.servers.find(server => server.id === id)
   }

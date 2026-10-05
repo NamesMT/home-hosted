@@ -177,6 +177,8 @@ export class Supervisor {
 
   private readonly entries = new Map<string, Entry>()
   private readonly tickTimer: NodeJS.Timeout
+  /** Detaches this supervisor from the store's listener set in `dispose()`. */
+  private readonly storeUnsubscribe: () => void
   private disposed = false
 
   constructor(
@@ -191,7 +193,10 @@ export class Supervisor {
       logger.warn(`removed ${swept} unread nanny spec file(s) from ${this.options.nannyDir}`)
 
     this.sync()
-    this.store.onChange(() => this.sync())
+    // Kept so `dispose()` can let go: the store outlives the supervisor (a removed
+    // workspace's store is still referenced while the panel tears it down), and a
+    // discarded unsubscribe leaves the disposed supervisor and its buffers reachable.
+    this.storeUnsubscribe = this.store.onChange(() => this.sync())
     // A throw inside the tick must not become an unhandled rejection: on Node 24
     // that ends the process, and this timer is what keeps every server watched.
     this.tickTimer = setInterval(() => {
@@ -452,6 +457,7 @@ export class Supervisor {
   async dispose(): Promise<void> {
     this.disposed = true
     clearInterval(this.tickTimer)
+    this.storeUnsubscribe()
     for (const entry of this.entries.values()) this.clearRetry(entry)
     // Persistent entries are left running on purpose: their nannies outlive this
     // process, which is exactly what `down` is not allowed to end for them.
@@ -538,6 +544,17 @@ export class Supervisor {
     // Set first: a start that is still bootstrapping (no child yet) checks this
     // after every await and aborts, instead of spawning behind our back.
     entry.stopping = true
+
+    // A persistent entry whose nanny is running but which this panel never attached to
+    // — `--no-autostart` skips the reattach pass, and a hand edit can add one after boot
+    // — has no child and no pid, so the early return below would answer "stopped" while
+    // the nanny and the real server kept running. Adopt it first so the stop has a
+    // handle to reach, which is what `startAll()` does for a disabled entry.
+    if (entry.config.persistent && entry.child === null && entry.pid === null) {
+      await this.resumePersistent(entry).catch((error: unknown) => {
+        logger.error(`could not reattach the persistent server ${entry.config.id} to stop it`, error)
+      })
+    }
 
     if (entry.child === null && entry.pid === null) {
       entry.stopping = false
@@ -914,12 +931,25 @@ export class Supervisor {
         this.log(entry, 'system', `[bootstrap] ${text}`)
     })
 
-    const child = spawn(resolveCommand(spec.command, cwd, projectDir), args, {
-      cwd,
-      env: { ...process.env, ...resolveRecord(spec.env, vars) },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    })
+    // `spawn` throws synchronously for a command it cannot use at all — an empty
+    // string, a NUL byte, a cwd reached through a regular file. Letting that escape
+    // would reject `start()` after it already set `status = 'starting'`, leaving the
+    // entry wedged in `starting` with no pid until the daemon restarts. A bootstrap
+    // is best-effort anyway: report it and let the entry start.
+    let child: ChildProcess
+    try {
+      child = spawn(resolveCommand(spec.command, cwd, projectDir), args, {
+        cwd,
+        env: { ...process.env, ...resolveRecord(spec.env, vars) },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
+    }
+    catch (error) {
+      this.log(entry, 'system', `bootstrap could not start: ${(error as Error).message} — continuing anyway`)
+      entry.bootstrapDone = true
+      return
+    }
     child.stdout?.on('data', chunk => splitter.push('stdout', chunk))
     child.stderr?.on('data', chunk => splitter.push('stderr', chunk))
 

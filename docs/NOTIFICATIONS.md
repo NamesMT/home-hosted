@@ -19,7 +19,7 @@ opt-in, and the bot token never leaves the secrets file.
 TOKEN='123456:ABC...'
 WS='?workspace=default'   # every notifications route is workspace-scoped; omit for the default one
 
-curl -X POST "http://127.0.0.1:3999/api/notifications/token$WS" \
+curl -X PUT "http://127.0.0.1:3999/api/notifications/token$WS" \
   -H 'content-type: application/json' -H "Authorization: Bearer $HH_TOKEN" \
   -d "{\"botToken\":\"$TOKEN\"}"
 

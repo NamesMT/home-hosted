@@ -186,8 +186,9 @@ normal process, so it is still subject to:
   own lifecycle to be the only thing that decides.
 - **A container.** Docker stops everything in the container's PID namespace, so persistence means the
   panel's lifetime inside that container, not the host's.
-- **Windows, on the forced path.** `taskkill /T` walks the parent tree, and `down --force` uses it;
-  the graceful path (which is what `down` normally takes) leaves a persistent entry alone.
+- **Windows, on the forced path.** `taskkill /T` walks the parent tree, and `down` takes that path
+  automatically when the panel has not exited 20s after the shutdown request; the graceful path
+  (which is what `down` normally takes) leaves a persistent entry alone.
 
 ## Editing fields
 

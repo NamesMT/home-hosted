@@ -79,7 +79,7 @@ refused.
 
 | `tls` | What it means |
 | --- | --- |
-| `auto` | The engine decides. A public name gets a Let's Encrypt certificate (HTTP-01 or TLS-ALPN-01, with ZeroSSL as fallback and renewal in the background). A local-only name gets the engine's own locally-trusted CA. |
+| `auto` | The engine decides. A public name gets a Let's Encrypt certificate (HTTP-01 or TLS-ALPN-01, with renewal in the background). A local-only name gets the engine's own locally-trusted CA. |
 | `off` | Plain HTTP on the http port, no certificate. |
 | `manual` | One of the uploaded pairs, whichever covers the hostname (the engine picks by SNI). A route set to this with no pair covering it is refused, rather than quietly given a certificate from somewhere else. |
 
@@ -115,9 +115,9 @@ back asks the CA instead of serving the old pair. A **disabled** route keeps its
 certificate: it is still configured, and switching it back on should not cost a new
 issuance.
 
-The wait can be shortened by giving the engine's own issuer a shorter `lifetime` in the
-generated policy; the row reads the interval from the certificate, so the confirmation
-follows whatever is configured.
+The panel derives that wait from the certificate itself: certmagic renews once a third of
+the lifetime is left, so two thirds of it is the wait — about 8 hours for the engine's own
+12-hour CA. The interval is read, never configured, so there is no knob to shorten it.
 
 A hostname **no route claims** gets a page saying so, on both ports — not a redirect into
 a handshake that cannot finish. A visitor with no hostname at all (a bare IP on the HTTPS

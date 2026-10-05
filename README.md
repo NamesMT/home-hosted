@@ -579,7 +579,9 @@ or `4480`/`4443` unprivileged with your router forwarding to them
 
 Yes. Process trees are sampled from Win32_Process, termination uses `taskkill /T`, and the shipped
 examples avoid POSIX-only commands. CPU temperature and swap are best-effort where the OS does not
-expose them to an unprivileged process, and adopting a self-restarted process is Linux/macOS only.
+expose them to an unprivileged process. Adopting a self-restarted process works on Windows too, off
+its argv instead of the environment marker; a launcher whose real process is a `.cmd` shim is the one
+case it cannot see through, and `kill` is the answer there.
 
 </details>
 
