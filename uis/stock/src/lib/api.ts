@@ -335,9 +335,13 @@ export async function restoreUploadedBackup(file: File, confirm: boolean, option
     form.append('include', JSON.stringify(options.include))
 
   const response = await fetch(`/api/backups/restore?confirm=${confirm}`, { method: 'POST', body: form })
-  const payload = await response.json().catch(() => null) as RestorePlan | null
-  if (!response.ok)
-    throw new Error(payload?.error ?? `restore failed with ${response.status}`)
+  const payload = await response.json().catch(() => null) as (RestorePlan & { message?: string }) | null
+  if (!response.ok) {
+    // The API's one error envelope is `{ message, code, detail }`; reading `error`
+    // showed every failure here as "restore failed with 400". `error` stays as a
+    // fallback because a successful `RestorePlan` carries its own refusal reason there.
+    throw new Error(payload?.message ?? payload?.error ?? `restore failed with ${response.status}`)
+  }
   return payload as RestorePlan
 }
 
