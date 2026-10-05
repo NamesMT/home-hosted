@@ -59,3 +59,26 @@ export function repairNumbers<T extends Record<string, unknown>>(next: T, curren
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+/**
+ * Whether a live config object is a genuine change from the one a form was filled from.
+ *
+ * Extracted from `ServerConfigView`'s watcher so it can be tested directly: that view reads
+ * its config from a composable rather than a prop, so the guard had no test at all — while its
+ * `uis/stock` counterpart, which does take a prop, pins both of its behaviours.
+ *
+ * The comparison is by value, because the control plane re-creates every config object on each
+ * state frame: an identity check would call every frame a change and wipe whatever the user had
+ * typed. `snapshot` must be an *independent copy* of what the form was filled from — a live
+ * reference would move with the store and the guard would stop noticing real changes.
+ */
+export function isLiveConfigChange(next: unknown, snapshot: unknown): boolean {
+  if (next === null || next === undefined)
+    return false
+  return JSON.stringify(next) !== JSON.stringify(snapshot ?? null)
+}
+
+/** An independent copy, so a snapshot can never alias the live state it is compared against. */
+export function detachConfig<T>(config: T): T {
+  return JSON.parse(JSON.stringify(config)) as T
+}

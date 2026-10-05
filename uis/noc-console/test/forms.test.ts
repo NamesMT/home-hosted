@@ -1,6 +1,6 @@
 import { ddnsConfigSchema, settingsPatchSchema, workspaceSettingsPatchSchema } from '@shared/contracts'
 import { describe, expect, it } from 'vitest'
-import { repairNumbers } from '../src/lib/forms'
+import { detachConfig, isLiveConfigChange, repairNumbers } from '../src/lib/forms'
 
 /**
  * `v-model.number` writes an empty **string** when an `<input type="number">` is cleared —
@@ -117,5 +117,53 @@ describe('the DDNS draft', () => {
   it('produces a body the server schema accepts', () => {
     const body = { enabled: true, intervalMs: 300000, ttl: 1, ipv4: { enabled: true, url: '' }, ipv6: { enabled: false, url: '' }, accounts: [], domains: [] }
     expect(Array.isArray(ddnsConfigSchema(body)), 'the repaired body was rejected').toBe(false)
+  })
+})
+
+/**
+ * The live-config guard, which `ServerConfigView` uses to decide whether a state frame may
+ * replace what the user has typed.
+ *
+ * `uis/stock`'s editor pins both of its behaviours, but that component takes its config as a
+ * prop while this view reads a composable — so noc's guard had no test at all. The logic is
+ * extracted here to make it testable without mounting the whole view.
+ */
+describe('isLiveConfigChange', () => {
+  const live = { label: 'web', port: 3000, restart: { maxRetries: 3 } }
+
+  it('treats a re-sent but equal config as no change, so typed edits survive', () => {
+    // The control plane re-creates every object each frame: equal by value is not a change.
+    expect(isLiveConfigChange({ ...live, restart: { maxRetries: 3 } }, detachConfig(live))).toBe(false)
+  })
+
+  it('treats a real server-side change as one', () => {
+    expect(isLiveConfigChange({ ...live, label: 'renamed-elsewhere' }, detachConfig(live))).toBe(true)
+  })
+
+  it('ignores a null or absent config rather than reloading on it', () => {
+    // A frame before the server is known must not clear the form.
+    expect(isLiveConfigChange(null, detachConfig(live))).toBe(false)
+    expect(isLiveConfigChange(undefined, detachConfig(live))).toBe(false)
+  })
+
+  it('compares by value, so mutating the snapshot shape is still detected', () => {
+    const snapshot = detachConfig(live)
+    expect(isLiveConfigChange({ ...live, port: null }, snapshot)).toBe(true)
+  })
+})
+
+describe('detachConfig', () => {
+  /**
+   * The guard's snapshot must not alias live state. If it did, a store that mutated a config in
+   * place would move the snapshot with it and `isLiveConfigChange` would answer `false` for a
+   * real change — the form would silently stop following the server. `uis/stock` detaches for
+   * the same reason, and AGENTS.md records the aliasing trap.
+   */
+  it('returns a copy that does not move with the original', () => {
+    const original = { label: 'web', restart: { maxRetries: 3 } }
+    const snapshot = detachConfig(original)
+    original.restart.maxRetries = 9
+    expect(snapshot.restart.maxRetries).toBe(3)
+    expect(isLiveConfigChange(original, snapshot)).toBe(true)
   })
 })

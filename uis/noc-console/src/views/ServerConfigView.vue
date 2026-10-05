@@ -10,6 +10,7 @@ import ConfirmButton from '@/components/ConfirmButton.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { configChangesOpen, flash, selectedId } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { detachConfig, isLiveConfigChange } from '@/lib/forms'
 import { workspacePath } from '@/router'
 
 const props = defineProps<{ id: string }>()
@@ -153,14 +154,17 @@ function load(cfg: ServerConfig): void {
     bootstrapRunOnce: cfg.bootstrap?.runOnce ?? true,
     backupIgnoreGenerated: cfg.backupIgnoreGenerated !== false,
   })
-  source = cfg
+  // Detached, not the live reference: `source` is what a later frame is compared against, so an
+  // alias would move with the store and the guard would stop noticing real changes. `uis/stock`
+  // detaches for the same reason, and the aliasing trap is recorded in AGENTS.md.
+  source = detachConfig(cfg)
 }
 
 // The control plane rebuilds every config object on each state frame; only a
 // genuine change may replace what the user has typed so far.
 watch(config, (next) => {
-  if (next && JSON.stringify(next) !== JSON.stringify(source))
-    load(next)
+  if (isLiveConfigChange(next, source))
+    load(next as ServerConfig)
 }, { immediate: true })
 
 const bindValue = computed(() => (form.bind === 'custom' ? form.customBind.trim() : form.bind))
