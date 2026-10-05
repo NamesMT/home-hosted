@@ -2,6 +2,7 @@ import type { ConfigMigration } from '#src/config/migrations'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
@@ -191,5 +192,40 @@ describe('migration runner', () => {
     const { config, applied } = applyConfigMigrations({ servers: [] }, CONFIG_SCHEMA)
     expect(applied).toEqual([])
     expect(config).toEqual({ servers: [] })
+  })
+})
+
+/**
+ * Every workspace default must be a value an entry can actually hold.
+ *
+ * `mergeDefaults` writes each default into the entry it is merging, so a key the entry schema
+ * does not accept would be injected and then *rejected* — a workspace default that breaks the
+ * entries it applies to. `defaultsSchema` is deliberately a subset of `serverSchema` (8 of 23:
+ * a default only makes sense for the things a person would want uniform), and nothing pinned
+ * that direction.
+ *
+ * The keys are read from the schema source rather than a hand-copied list, which is the thing
+ * that would drift. The runtime half proves the stronger property: a merge of all eight
+ * defaults still validates as an entry.
+ */
+describe('workspace defaults fit the entry they merge into', () => {
+  it('has no default key the entry schema would reject', async () => {
+    const { mergeDefaults } = await import('#src/config/schema')
+    const { defaultsSchema, serverSchema } = await import('#src/shared/contracts')
+
+    const defaults = defaultsSchema({}) as Record<string, unknown>
+    const merged = mergeDefaults(defaults, { id: 'web', command: 'node' })
+
+    // The whole default set applied to a minimal entry must still be a valid entry, or the
+    // merge writes something the schema refuses. `instanceof type.errors`, not `instanceof
+    // Error`: ArkType's errors are not Errors, so the latter check never fires and the guard
+    // would pass whatever the schema did — which is how this assertion was written first.
+    const parsed = serverSchema(merged)
+    if (parsed instanceof type.errors)
+      throw new Error(`merging workspace defaults produced an invalid entry: ${parsed.summary}`)
+
+    // And each group that carried a default actually landed on the merged entry.
+    for (const key of Object.keys(defaults))
+      expect(merged, `default "${key}" vanished in the merge`).toHaveProperty(key)
   })
 })

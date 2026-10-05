@@ -410,6 +410,10 @@ either is a last resort, and never an accidental one.
   `contracts.ts` are deliberate.
 - ArkType: an optional property (`'x?'`) rejects an explicit `undefined` (omit the key). Fields a UI
   must clear are `'type | null?'`.
+- **`instanceof type.errors`, never `instanceof Error`,** for a schema result: ArkType's errors are
+  not `Error`s, so `x instanceof Error` is false for a valid *and* an invalid payload. Six tests
+  asserted `expect(schema(v) instanceof Error).toBe(false)` as a conformance check and could never
+  have failed; pass the real `type.errors` plus `JSON.stringify(x)` so a failure prints the payload.
 - Server args are logged *before* `${VAR}` expansion, so an expanded secret never reaches the log
   buffer, disk, SSE or Telegram.
 - Backups are zips; a password makes them WinZip AES-256/AE-2, and zero-byte entries stay

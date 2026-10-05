@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { serversFileSchema, workspaceSettingsSchema } from '#src/config/schema'
 import { SEED_SERVERS_FILE, SEED_WORKSPACE_SETTINGS } from '#src/config/seed'
@@ -337,8 +338,8 @@ describe('workspaceStore', () => {
 describe('shipped seeds', () => {
   it('ship no servers, and seeds that themselves validate', () => {
     expect(SEED_SERVERS_FILE.servers).toEqual([])
-    expect(workspaceSettingsSchema(SEED_WORKSPACE_SETTINGS) instanceof Error).toBe(false)
-    expect(serversFileSchema(SEED_SERVERS_FILE) instanceof Error).toBe(false)
+    expect(workspaceSettingsSchema(SEED_WORKSPACE_SETTINGS) instanceof type.errors, JSON.stringify(workspaceSettingsSchema(SEED_WORKSPACE_SETTINGS))).toBe(false)
+    expect(serversFileSchema(SEED_SERVERS_FILE) instanceof type.errors, JSON.stringify(serversFileSchema(SEED_SERVERS_FILE))).toBe(false)
   })
 })
 

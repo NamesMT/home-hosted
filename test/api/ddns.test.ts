@@ -1,5 +1,6 @@
 import type { Fixture } from './fixture'
 import fs from 'node:fs'
+import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ddnsViewSchema } from '#src/shared/contracts'
 import { makeFixture } from './fixture'
@@ -64,7 +65,9 @@ describe('gET /api/ddns', () => {
 
     const view = await body<DdnsBody>(response)
     expect(view).toMatchObject({ config: { enabled: false }, credentials: [], status: { records: [] } })
-    expect(ddnsViewSchema(view) instanceof Error).toBe(false)
+    // `instanceof type.errors`, not `instanceof Error`: ArkType's errors are not Errors, so the
+    // latter is false for a valid *and* an invalid payload — the assertion could never fail.
+    expect(ddnsViewSchema(view) instanceof type.errors, JSON.stringify(ddnsViewSchema(view))).toBe(false)
     expect(view.providers.map(provider => provider.id)).toContain('cloudflare')
   })
 

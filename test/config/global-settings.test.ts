@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { globalSettingsSchema } from '#src/config/schema'
@@ -50,7 +51,7 @@ describe('globalSettingsStore', () => {
     expect(store.host.intervalMs).toBe(15000)
     expect(store.backups.keep).toBe(5)
     // The writable shape still validates, and carries its stamp.
-    expect(globalSettingsSchema(read(file)) instanceof Error).toBe(false)
+    expect(globalSettingsSchema(read(file)) instanceof type.errors, JSON.stringify(globalSettingsSchema(read(file)))).toBe(false)
     expect(read(file).meta.schema).toBe(CONFIG_SCHEMA)
   })
 
@@ -218,7 +219,7 @@ describe('globalSettingsStore', () => {
 describe('shipped global seed', () => {
   it('validates and declares no workspace-scoped block', () => {
     const parsed = globalSettingsSchema(SEED_GLOBAL_SETTINGS)
-    expect(parsed instanceof Error).toBe(false)
+    expect(parsed instanceof type.errors, JSON.stringify(parsed)).toBe(false)
     for (const key of ['defaults', 'logs', 'notifications', 'ddns'])
       expect(SEED_GLOBAL_SETTINGS).not.toHaveProperty(key)
   })

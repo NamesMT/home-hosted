@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { type } from 'arktype'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { isProcessAlive } from '#src/providers/port'
 import { proxyViewSchema } from '#src/shared/contracts'
@@ -90,7 +91,8 @@ describe('gET /api/proxy', () => {
     expect(response.status).toBe(200)
     const body = await response.json() as ProxyBody
     // The schema is the contract: a drift here fails loudly rather than in the UI.
-    expect(proxyViewSchema(body) instanceof Error).toBe(false)
+    // See ddns.test.ts: `instanceof Error` is always false for an ArkType result.
+    expect(proxyViewSchema(body) instanceof type.errors, JSON.stringify(proxyViewSchema(body))).toBe(false)
     expect(body.config).toMatchObject({ enabled: false, httpPort: 80, httpsPort: 443 })
     expect(body.engine).toMatchObject({ installed: false, version: null })
     expect(body.status.state).toBe('off')
