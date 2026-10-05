@@ -86,6 +86,17 @@ async function tempDir(): Promise<string> {
   return dir
 }
 
+/**
+ * Skips the real listener preflight for a test that is about what happens *after* it.
+ * The preflight binds/asks about real ports, so a test that does not care about them
+ * must not depend on 80/443 — or on any port — being free on the machine running it.
+ * `vi.restoreAllMocks()` in `afterEach` puts the original back.
+ */
+function stubPortPreflight(): void {
+  vi.spyOn(ProxyService.prototype as unknown as { assertPortsFree: () => Promise<void> }, 'assertPortsFree')
+    .mockResolvedValue(undefined)
+}
+
 function config(input: Record<string, unknown>) {
   const parsed = proxyConfigSchema(input)
   if (parsed instanceof type.errors)
@@ -824,23 +835,27 @@ describe('proxyService', () => {
   it('routes an upstream on the scheme’s default port, and does not block the table', async () => {
     // One route on :80 used to read as invalid, and render() throws PROXY_ROUTE_INVALID
     // for the whole table on a single bad route — every apply and start was blocked.
-    const { service, settings, options: opts } = await harness()
-    writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
-    const engine = await stubEngine(opts)
+    // No listener is bound here: the bug is about the renderer, and a real preflight
+    // against :80/:443 would make this test depend on the host those ports are on.
+    const { service, settings } = await harness()
     settings.updateProxy({
       enabled: true,
+      httpPort: 4480,
+      httpsPort: 4443,
       routes: [
         { id: 'plain', host: 'plain.example.com', target: 'external', url: 'http://10.0.0.5:80' },
         { id: 'secure', host: 'secure.example.com', target: 'external', url: 'https://10.0.0.6:443' },
       ],
     })
-    try {
-      expect(service.routeViews().map(view => view.status)).toEqual(['ok', 'ok'])
-      await service.apply({ force: true })
-    }
-    finally {
-      await engine.stop()
-    }
+
+    const views = service.routeViews()
+    expect(views.map(view => [view.status, view.upstream])).toEqual([
+      ['ok', '10.0.0.5:80'],
+      ['ok', '10.0.0.6:443'],
+    ])
+    // The same guard `apply()` and `start()` go through, with nothing to listen on:
+    // a table with an unusable route used to make this throw for all of it.
+    expect(() => (service as unknown as { render: () => unknown }).render()).not.toThrow()
   })
 
   it('is off, then stopped with a reason once it is switched on without an engine', async () => {
@@ -1054,6 +1069,9 @@ describe('proxyService', () => {
     // an exhausted fd table (EMFILE/ENFILE), EACCES or a moved node binary produces.
     const { service, settings, options, breakNannySpawn } = await harness()
     writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
+    // The nanny spawn is what this is about; the listener ports are not, and a real
+    // preflight would make it depend on :80/:443 being free on the host.
+    stubPortPreflight()
     settings.updateProxy({ enabled: true, httpPort: 4480, httpsPort: 4443 })
     // The real readiness poll, so this also proves it comes back the moment the nanny
     // is gone rather than waiting out the whole 20s deadline.
@@ -1083,6 +1101,8 @@ describe('proxyService', () => {
     // started another stuck sync.
     const { service, options, settings } = await harness()
     writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
+    // Only the admin request is under test; the listener preflight is not.
+    stubPortPreflight()
     settings.updateProxy({ enabled: true, httpPort: 4480, httpsPort: 4443 })
     const admin = http.createServer((_request, response) => {
       response.writeHead(200, { 'content-type': 'application/json' })
