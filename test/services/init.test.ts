@@ -1,4 +1,5 @@
 import type { InitOptions } from '#src/services/init'
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -62,6 +63,46 @@ describe('scaffold contents', () => {
     expect(ignore).toContain('!state/.hh/*/settings.json')
     expect(ignore).toContain('!state/.hh/*/servers.config.json')
     expect(ignore).toContain('data/')
+  })
+
+  /**
+   * The patterns above are only *text* until git is asked. `state/.hh/*` excludes the
+   * workspace directory itself, and git does not descend into an excluded directory, so
+   * the file-level negations matched nothing and a scaffolded project kept its own
+   * `servers.config.json` out of the repo. Asserting the strings were present is what
+   * let that ship; this asks `git check-ignore` instead.
+   */
+  it('actually leaves the workspace definitions trackable, and the secrets ignored', async () => {
+    const dir = await tempDir()
+    scaffold({ ...options(), dir, install: false, git: false })
+    fs.writeFileSync(path.join(dir, '.gitignore'), projectGitignore())
+    fs.mkdirSync(path.join(dir, 'state', '.hh', 'default', '.logs'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'state', '.hh', 'workspaces.json'), '{}')
+    fs.writeFileSync(path.join(dir, 'state', '.hh', 'default', 'settings.json'), '{}')
+    fs.writeFileSync(path.join(dir, 'state', '.hh', 'default', 'servers.config.json'), '{}')
+    fs.writeFileSync(path.join(dir, 'state', '.hh', 'default', '.secrets.json'), '{}')
+    fs.writeFileSync(path.join(dir, 'state', '.hh', 'default', '.logs', 'web.jsonl'), '')
+
+    // `git init` is what makes check-ignore meaningful; it touches only this temp dir.
+    execFileSync('git', ['init', '-q'], { cwd: dir })
+
+    const ignored = (file: string): boolean => {
+      try {
+        execFileSync('git', ['check-ignore', '-q', file], { cwd: dir })
+        return true
+      }
+      catch {
+        return false
+      }
+    }
+
+    // The definitions a clone needs.
+    expect(ignored('state/.hh/workspaces.json')).toBe(false)
+    expect(ignored('state/.hh/default/settings.json')).toBe(false)
+    expect(ignored('state/.hh/default/servers.config.json')).toBe(false)
+    // The things that must never be committed.
+    expect(ignored('state/.hh/default/.secrets.json')).toBe(true)
+    expect(ignored('state/.hh/default/.logs/web.jsonl')).toBe(true)
   })
 
   it('detects the first package manager on PATH, preferring pnpm', () => {

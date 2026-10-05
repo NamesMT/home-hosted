@@ -55,6 +55,10 @@ export function projectManifest(name: string): string {
  * `settings.json` + `servers.config.json`) are un-ignored explicitly.
  */
 export function projectGitignore(): string {
+  // `state/.hh/*` excludes the workspace *directories*, and git will not descend into
+  // an excluded directory — so the file-level negations below can never match unless
+  // the directories themselves are un-ignored first. Without `!state/.hh/*/` the
+  // workspace definitions stayed out of the very repo this scaffold creates.
   return `node_modules/
 
 # home-hosted: state is local, the workspace definitions are tracked
@@ -62,6 +66,7 @@ state/.hh/*
 !state/.hh/settings.json
 !state/.hh/workspaces.json
 state/.hh/*/*
+!state/.hh/*/
 !state/.hh/*/settings.json
 !state/.hh/*/servers.config.json
 data/
