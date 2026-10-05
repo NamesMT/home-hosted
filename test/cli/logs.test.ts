@@ -170,3 +170,48 @@ describe('followLog', () => {
     expect(chunks.join('')).toContain('after-rotation')
   })
 })
+
+describe('followLog preserves what it reads', () => {
+  /**
+   * A poll can land mid-line or mid-blank-run, and the bytes must survive either way.
+   *
+   * The first version rewrote each chunk with `replace(/\n+$/, '\n')`, meant to stop a
+   * partially written last line being "glued" to the next read. It did something else
+   * entirely: it collapsed a trailing run of newlines to one, so a blank line the panel had
+   * written was **eaten** — the read offset had already advanced past it, so nothing brought
+   * it back. Blank lines are common in this log (section breaks, stack traces), and `logs` is
+   * a diagnostic command: quietly dropping its output is the worst thing it can do.
+   *
+   * A partial line is not a problem to solve. Printing the fragment and letting the next poll
+   * append the rest is exactly what `tail -f` does.
+   */
+  async function followWriting(writes: Array<[string, number]>): Promise<string> {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-follow-'))
+    dirs.push(dir)
+    const file = path.join(dir, 'app.log')
+    fs.writeFileSync(file, '')
+    const chunks: string[] = []
+    const following = followLog(file, 10, chunk => chunks.push(chunk), 20)
+    await new Promise(resolve => setTimeout(resolve, 50))
+    for (const [text, wait] of writes) {
+      fs.appendFileSync(file, text)
+      await new Promise(resolve => setTimeout(resolve, wait))
+    }
+    process.emit('SIGINT')
+    await following
+    return chunks.join('')
+  }
+
+  it('keeps a blank line that a poll caught at the end of a chunk', async () => {
+    expect(await followWriting([['a\n\n', 150], ['b\n', 150]])).toBe('a\n\nb\n')
+  })
+
+  it('keeps a run of blank lines', async () => {
+    expect(await followWriting([['x\n\n\n\n', 150], ['y\n', 150]])).toBe('x\n\n\n\ny\n')
+  })
+
+  it('keeps a partial line, without duplicating or dropping it', async () => {
+    // The half-line is printed as it stands and completed by the next read.
+    expect(await followWriting([['hel', 120], ['lo\n', 150]])).toBe('hello\n')
+  })
+})

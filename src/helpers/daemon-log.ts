@@ -120,8 +120,12 @@ export async function followLog(
           const length = size - offset
           const buffer = Buffer.alloc(length)
           fs.readSync(handle, buffer, 0, length, offset)
-          // `trimEnd` so a partially written last line is not glued to the next read.
-          write(buffer.toString('utf8').replace(/\n+$/, '\n'))
+          // Written exactly as read. A poll can land mid-line, and printing the fragment is
+          // what `tail -f` does — the rest arrives on the next poll and concatenates. What
+          // must NOT happen is rewriting the bytes: collapsing a trailing run of newlines
+          // (`replace(/\n+$/, '\n')`) silently ate blank lines, because the offset had already
+          // advanced past them. A blank line the panel wrote is output the person asked for.
+          write(buffer.toString('utf8'))
         }
         finally {
           fs.closeSync(handle)
