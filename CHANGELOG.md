@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.7.11
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.10...v0.7.11)
+
+### 🩹 Fixes
+
+- **noc-console:** An emptied proxy port is not a string ([6accea6](https://github.com/NamesMT/home-hosted/commit/6accea6))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.10
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.9...v0.7.10)
