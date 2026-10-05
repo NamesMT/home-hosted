@@ -12,8 +12,9 @@ level: `settings.json` (listener, auth, TLS policy, host vitals, backups, revers
 `.backups/`, `.ui/`, `.logs/` (the panel console), `.proxy/` (the reverse-proxy engine, its generated
 configuration and its nanny state), and `run.json` — the live daemon's pid/url/token, 0600. Every workspace owns
 `.hh/<id>/`: `settings.json` (server defaults, log retention, notifications, DDNS), `servers.config.json`,
-`.secrets.json` (0600: Telegram bot token and DDNS credentials sealed with AES-256-GCM under
-`HHOSTED_DDNS_SECRET`), `.logs/`, and `.state/` (a persistent entry's nanny state plus its 0600 spawn
+`.secrets.json` (0600: Telegram bot token, plus DDNS credentials sealed with AES-256-GCM under
+`HHOSTED_DDNS_SECRET` — only DDNS is sealed, because it is the one thing replayed to a third party),
+`.logs/`, and `.state/` (a persistent entry's nanny state plus its 0600 spawn
 spec until the nanny reads it, plus `ddns.json`). A pre-`.hh` instance is relocated automatically by
 `ensureLayout()` (`src/config/layout.ts`). The package ships **no servers**: never commit a config, a
 seed entry, or a path that names one.

@@ -132,7 +132,7 @@ naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fall
 | `GET /api/events` | **the live feed**: `hello` carries the full state, then `state`, `server`, `log` |
 | `GET /api/servers/:id/stream` | one server's `server` + `log` frames |
 | `POST /api/servers/:id/{start,stop,restart}`, `/api/servers/{start-all,stop-all}` | lifecycle (workspace-scoped) |
-| `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop (`403`-safe: supervised listeners are refused) |
+| `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop (`409` when nothing can be freed — a supervised listener is refused, never killed) |
 | `GET` / `POST /api/servers`, `PATCH` / `DELETE /api/servers/:id` | the entries themselves, in one workspace |
 | `GET /api/logs`, `/api/logs/:id?tail=&search=`, `/api/logs/:id/download?file=` | persisted logs, for one workspace |
 | `GET` / `PATCH /api/settings` | the panel-wide settings (`control.label`, host thresholds, backups, UI) |

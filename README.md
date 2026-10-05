@@ -347,7 +347,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | relocate a pre-workspaces state directory and stamp every config for this release (`--dry-run`, `--yes`) |
-| `home-hosted init` | scaffold a self-contained project (`HHOSTED_HOME` sets to the repo) |
+| `home-hosted init` | scaffold a self-contained project, whose scripts keep state in the repo (`--home ./state`) |
 | `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (interactive) |
 | `home-hosted ui-update` | bring an installed UI up to date automatically (official UI) or pick a release (`--old`, `--check`) |
 | `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
