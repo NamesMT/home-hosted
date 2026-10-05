@@ -143,6 +143,27 @@ describe('migrateLayout', () => {
     expect(fs.existsSync(path.join(home, '.tls'))).toBe(false)
   })
 
+  /**
+   * An unreadable legacy file must not be abandoned in silence. The layout marker and
+   * `workspaces.json` are written either way, so `hasLegacyLayout()` is false afterwards
+   * and `migrateLayout()` never looks at that file again — leaving the user's server
+   * definitions unread beside a panel that supervises nothing.
+   */
+  it('warns instead of silently abandoning a legacy config it cannot read', async () => {
+    const home = await makeLegacyHome()
+    fs.writeFileSync(path.join(home, 'servers.config.json'), '{ truncated')
+    const { migrateLayout } = await import('#src/config/layout')
+
+    const result = migrateLayout()
+
+    // It says so, by name.
+    expect(result.warnings.some(warning => warning.includes('servers.config.json') && warning.includes('could not be read'))).toBe(true)
+    // …and the only copy of the definitions is still there to recover by hand.
+    expect(fs.existsSync(path.join(home, 'servers.config.json'))).toBe(true)
+    // While the readable half really did migrate.
+    expect(fs.existsSync(path.join(home, '.hh', '.control-secrets.json'))).toBe(true)
+  })
+
   it('leaves state the new stores and parsers can read', async () => {
     const home = await makeLegacyHome()
     const { migrateLayout } = await import('#src/config/layout')

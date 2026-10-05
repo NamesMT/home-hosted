@@ -36,6 +36,22 @@ function readJson(file: string): Record<string, unknown> | null {
   }
 }
 
+/**
+ * A legacy file, with "absent" told apart from "present but unreadable".
+ *
+ * `readJson` collapses both into `null`, and a split that is skipped reads exactly like
+ * one with nothing to do — so a corrupt legacy config used to be abandoned silently
+ * while `workspaces.json` was still created, after which `hasLegacyLayout()` is false
+ * and no later run ever looks at that file again. The definitions would sit unread
+ * beside a panel supervising nothing.
+ */
+function readLegacy(file: string): { parsed: Record<string, unknown> | null, unreadable: boolean } {
+  if (!fs.existsSync(file))
+    return { parsed: null, unreadable: false }
+  const parsed = readJson(file)
+  return { parsed, unreadable: parsed === null }
+}
+
 function writeJson(file: string, value: unknown, mode?: number): void {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, mode === undefined ? {} : { mode })
@@ -155,10 +171,16 @@ export function migrateLayout(): LayoutMigrationResult {
   const warnings: string[] = []
   fs.mkdirSync(hhDir, { recursive: true })
 
-  const legacyConfig = readJson(legacy.configPath)
+  const legacyConfig = readLegacy(legacy.configPath)
   let configSplit = false
-  if (legacyConfig !== null) {
-    const split = splitConfig(legacyConfig)
+  if (legacyConfig.unreadable) {
+    // The file stays on disk: it is the only copy of the definitions, and the split
+    // must not swallow it. `migrateLayout()` is deliberately not run again, so this
+    // warning is the one chance to say so.
+    warnings.push(`${legacy.configPath} could not be read — it was NOT migrated and is still there; fix or remove it, then move the file in by hand`)
+  }
+  if (legacyConfig.parsed !== null) {
+    const split = splitConfig(legacyConfig.parsed)
     const destinations = [
       path.join(hhDir, 'settings.json'),
       path.join(hhDir, 'default', 'settings.json'),
@@ -180,10 +202,13 @@ export function migrateLayout(): LayoutMigrationResult {
     }
   }
 
-  const legacySecrets = readJson(legacy.secretsPath)
+  const legacySecrets = readLegacy(legacy.secretsPath)
   let secretsSplit = false
-  if (legacySecrets !== null) {
-    const split = splitSecrets(legacySecrets)
+  if (legacySecrets.unreadable) {
+    warnings.push(`${legacy.secretsPath} could not be read — it was NOT migrated and is still there; a panel without it starts on the default password`)
+  }
+  if (legacySecrets.parsed !== null) {
+    const split = splitSecrets(legacySecrets.parsed)
     const destinations = [path.join(hhDir, '.control-secrets.json'), path.join(hhDir, 'default', '.secrets.json')]
     const taken = destinations.filter(file => fs.existsSync(file))
     if (taken.length > 0) {
