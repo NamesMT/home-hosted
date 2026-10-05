@@ -344,6 +344,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts) |
 | `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`) |
 | `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
+| `home-hosted logs` | read the panel's own console output — the file `up` redirects it into (`--lines`, `--follow`, `--json`) |
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | relocate a pre-workspaces state directory and stamp every config for this release (`--dry-run`, `--yes`) |
@@ -362,6 +363,7 @@ up, restart       -c/--config -p/--port --host --open --no-autostart --foregroun
 
 down              (no flags)
 status            --json
+logs              --lines <n> --follow --json
 start, stop       <id> [-w/--workspace <id>]   (both need the panel up)
 init              --dir --name --pm --no-install -y/--yes
 set-password      --clear
@@ -506,6 +508,24 @@ specific:
 ---
 
 ## ❓ FAQ
+
+<details>
+<summary><b>The panel is up but something is wrong — where do I look?</b></summary>
+
+`home-hosted logs` prints the panel's own console output, which is where it reports what it is
+doing and anything it could not finish:
+
+```bash
+home-hosted logs              # the last 50 lines
+home-hosted logs --follow     # keep printing, like tail -f
+home-hosted logs --lines all  # the whole thing, including the rotation
+```
+
+It is the same file `status` names, and reading it needs no session or API token — a panel that
+is answering badly is exactly when you cannot get one. `up` prints the tail automatically when
+the panel fails to start.
+
+</details>
 
 <details>
 <summary><b>Is it a systemd replacement?</b></summary>

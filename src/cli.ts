@@ -39,6 +39,7 @@ const SYNOPSIS: Record<string, string> = {
   'down': 'home-hosted down',
   'restart': 'home-hosted restart [options]',
   'status': 'home-hosted status [--json]',
+  'logs': 'home-hosted logs [--lines <n>] [--follow] [--json]',
   'start': 'home-hosted start <id> [--workspace <id>]',
   'stop': 'home-hosted stop <id> [--workspace <id>]',
   'set-password': 'home-hosted set-password',
@@ -55,6 +56,7 @@ const SUMMARIES: Record<string, string> = {
   'down': 'stop it, and everything it supervises',
   'restart': 'down, then up',
   'status': 'is it running, where, and how to reach it',
+  'logs': 'show the panel\'s own console output',
   'start': 'start one server, leaving the panel up',
   'stop': 'stop one server, leaving the panel up',
   'set-password': 'set the panel password without the API',
@@ -94,6 +96,15 @@ const UP_SECTION: OptionSection = {
 const STATUS_SECTION: OptionSection = {
   heading: 'Options for status',
   lines: [
+    ['--json', 'print machine-readable JSON'],
+  ],
+}
+
+const LOGS_SECTION: OptionSection = {
+  heading: 'Options for logs',
+  lines: [
+    ['--lines <n>', 'how many lines to show (default 50, `all` for everything)'],
+    ['--follow', 'keep printing as the panel writes (like tail -f)'],
     ['--json', 'print machine-readable JSON'],
   ],
 }
@@ -252,6 +263,7 @@ const UP_COMMANDS = new Set(['up', 'restart'])
 
 const SECTIONS: Record<string, OptionSection> = {
   'status': STATUS_SECTION,
+  'logs': LOGS_SECTION,
   'start': SERVER_SECTION,
   'stop': SERVER_SECTION,
   'set-password': SET_PASSWORD_SECTION,
@@ -309,6 +321,7 @@ const COMMANDS = {
   'down': () => import('#src/cli/down').then(module => module.downCommand),
   'restart': () => import('#src/cli/restart').then(module => module.restartCommand(CLI_ENTRY)),
   'status': () => import('#src/cli/status').then(module => module.statusCommand),
+  'logs': () => import('#src/cli/logs').then(module => module.logsCommand),
   'start': () => import('#src/cli/server').then(module => module.startCommand),
   'stop': () => import('#src/cli/server').then(module => module.stopCommand),
   'set-password': () => import('#src/cli/set-password').then(module => module.setPasswordCommand),

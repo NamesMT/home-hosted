@@ -7,13 +7,13 @@ import process from 'node:process'
 import { defineCommand } from 'citty'
 import { buildDaemonArgv } from '#src/cli/args'
 import { bold, delay, dim, fail, green, paint } from '#src/cli/io'
+import { rotateLog, tailLog } from '#src/helpers/daemon-log'
 import { runtimeArgs } from '#src/helpers/runtime'
 import { versionMismatchNote } from '#src/helpers/version'
 
 /** `up` starts the panel; without `--foreground` it re-spawns itself detached. */
 
 const DEFAULT_PORT = 3999
-const LOG_ROTATE_BYTES = 5 * 1024 * 1024
 
 export const upArgs = {
   config: { type: 'string', alias: 'c', description: 'the default workspace\'s servers config (default: <state>/.hh/default/servers.config.json)' },
@@ -52,28 +52,6 @@ export function toUpFlags(args: RawUpArgs): UpFlags {
     open: args.open === true,
     foreground: args.foreground === true,
     printConfig: args.printConfig === true,
-  }
-}
-
-/** One rotation is enough for a console log. */
-function rotateLog(file: string): void {
-  try {
-    if (fs.statSync(file).size < LOG_ROTATE_BYTES)
-      return
-    fs.rmSync(`${file}.1`, { force: true })
-    fs.renameSync(file, `${file}.1`)
-  }
-  catch {
-    // no log yet
-  }
-}
-
-function tailLog(file: string, lines = 15): string {
-  try {
-    return fs.readFileSync(file, 'utf8').split('\n').slice(-lines).join('\n').trimEnd()
-  }
-  catch {
-    return ''
   }
 }
 

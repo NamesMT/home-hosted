@@ -24,6 +24,7 @@ seed entry, or a path that names one.
 ```sh
 pnpm run up|down|restart|status    # detached; `down` asks /_hh/shutdown, signals are the fallback
 pnpm run start                     # up --foreground (systemd, docker, a foreground shell)
+pnpm exec tsx src/cli.ts logs      # the panel's own console output (--lines, --follow, --json)
 pnpm dev                           # tsx-watch panel :6000 + the stock UI's Vite :6001 (proxies /api), state in .dev-state/
 pnpm dev --ui noc-console          # the same, for another UI; --port/--ui-port override
 pnpm run build                     # dist/cli.js + the stock UI (uis/stock/dist)

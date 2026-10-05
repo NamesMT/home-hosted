@@ -30,7 +30,7 @@ describe('cli smoke', () => {
     const help = runCli(['--help'])
     expect(help.status).toBe(0)
 
-    for (const command of ['up', 'down', 'restart', 'status', 'start', 'stop', 'set-password', 'set-token', 'migrate', 'init', 'ui-switch', 'ui-revert'])
+    for (const command of ['up', 'down', 'restart', 'status', 'logs', 'start', 'stop', 'set-password', 'set-token', 'migrate', 'init', 'ui-switch', 'ui-revert'])
       expect(help.stdout, command).toContain(command)
 
     for (const flag of ['--config', '--port', '--host', '--open', '--no-autostart', '--foreground', '--print-config', '--home', '--project'])
