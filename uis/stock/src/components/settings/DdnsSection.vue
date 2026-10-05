@@ -3,6 +3,7 @@ import type { DdnsAccount, DdnsConfig, DdnsProviderInfo, DdnsRecordState, DdnsRe
 import type { DraftAccount, DraftConfig, DraftDomain } from '@/lib/ddns'
 import type { Tone } from '@/lib/status'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CheckField from '@/components/ui/CheckField.vue'
@@ -554,15 +555,18 @@ defineExpose({ reload: load })
     </div>
 
     <template #footer>
-      <AppButton
+      <!-- Behind a popover: the credentials are sealed on disk and cannot be read back,
+           so one click here is unrecoverable — and it sits beside "Save credentials". -->
+      <ConfirmButton
         v-if="credentialAccount !== null && credentialsSet(credentialAccount.id)"
-        size="sm"
-        variant="danger-ghost"
+        label="Forget"
+        confirm-label="Forget them"
+        title="Forget the stored credentials?"
+        hint="They are removed from disk and cannot be read back; you would need to paste them again."
+        :loading="credentialBusy"
         :disabled="credentialBusy"
-        @click="clearCredentials"
-      >
-        Forget
-      </AppButton>
+        @confirm="clearCredentials"
+      />
       <AppButton size="sm" variant="ghost" :disabled="credentialBusy" @click="credentialsOpen = false">
         Cancel
       </AppButton>
