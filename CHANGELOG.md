@@ -1,6 +1,19 @@
 # Changelog
 
 
+## v0.7.7
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.6...v0.7.7)
+
+### 🩹 Fixes
+
+- **api:** Turning authentication off could leave the panel exposed through the proxy ([81cd870](https://github.com/NamesMT/home-hosted/commit/81cd870))
+- **api:** Clearing the password could leave the panel exposed through the proxy ([fd06627](https://github.com/NamesMT/home-hosted/commit/fd06627))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.6
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.5...v0.7.6)
