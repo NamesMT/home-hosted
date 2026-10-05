@@ -149,6 +149,26 @@ describe('a tail larger than one read chunk', () => {
     expect(tail.map(line => line.ts)).toEqual([1_700_000_000_000 + 1197, 1_700_000_000_000 + 1198, 1_700_000_000_000 + 1199])
   })
 
+  /**
+   * The route widens its window to `MAX_TAIL` (5000) whenever a search is present, so the
+   * truncation had a second symptom: a match near the start of that window was never read, and
+   * the UI reported "no results" for a line that exists.
+   */
+  it('reaches a match that sits at the start of the search window', async () => {
+    const { files, dir } = await makeLogs()
+    await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
+    const marked = (i: number): string =>
+      JSON.stringify({ ts: 1_700_000_000_000 + i, stream: 'stdout', text: i === 10 ? 'NEEDLE' : `line ${i} ${'x'.repeat(120)}` })
+    await fs.promises.writeFile(
+      path.join(dir, 'logs', 'web.log'),
+      `${Array.from({ length: 5000 }, (_, i) => marked(i)).join('\n')}\n`,
+    )
+
+    const window = files.readTail('web', 5000)
+    expect(window).toHaveLength(5000)
+    expect(window.filter(line => line.text.includes('NEEDLE'))).toHaveLength(1)
+  })
+
   it('pads a short current file from its rotation, in order', async () => {
     const { files, dir } = await makeLogs()
     await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
