@@ -292,7 +292,7 @@ describe('logs route', () => {
     expect(body.searched).toBeNull()
   })
 
-  it('filters by stream and reports the wider window it searched', async () => {
+  it('filters by stream and reports the window it searched', async () => {
     const created = await withServer()
     seedLogs(created, 60)
 
@@ -301,9 +301,26 @@ describe('logs route', () => {
     expect(stderr.lines.every(line => line.stream === 'stderr')).toBe(true)
 
     const searched = await (await request(created.app, '/api/logs/web?search=line-1&tail=50')).json() as { lines: Array<{ text: string }>, searched: number }
-    // Search widens to the 5000-line window, otherwise an older match looks like "no results".
-    expect(searched.searched).toBe(5000)
+    // The search *widens* its window to 5000 lines so an older match is not reported as "no
+    // results" — but it reports how many lines it actually had to look at, not the window it
+    // asked for. This log holds 60, and the UI prints the number verbatim.
+    expect(searched.searched).toBe(60)
     expect(searched.lines.every(line => line.text.includes('line-1'))).toBe(true)
+  })
+
+  /**
+   * The number in that header is read by a person, so it must not claim to have searched more
+   * lines than exist. A short log with a search used to answer "searched 5000 lines".
+   */
+  it('never reports searching more lines than the log holds', async () => {
+    const created = await withServer()
+    seedLogs(created, 100)
+
+    for (const lines of [10, 50, 500, 5000]) {
+      const body = await (await request(created.app, `/api/logs/web?search=line-1&tail=${lines}`)).json() as { searched: number }
+      expect(body.searched, `tail=${lines}`).toBeLessThanOrEqual(100)
+      expect(body.searched, `tail=${lines}`).toBeGreaterThan(0)
+    }
   })
 
   it('downloads a known rotated file and refuses a name outside the rotation set', async () => {

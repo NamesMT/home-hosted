@@ -74,6 +74,13 @@ export function createLogsRoute(deps: AppDeps) {
         let lines = runtime.logFiles.readTail(id, window)
         if (query.stream !== undefined && query.stream.length > 0)
           lines = lines.filter(line => line.stream === query.stream)
+
+        // What the search actually looked at, which is not always what it asked for: a log
+        // shorter than the window yields fewer lines, and the UI prints this number verbatim
+        // ("searched 5000 lines"). Reporting the *requested* window told a person reading a
+        // 100-line log that 5000 lines had been searched.
+        const windowLines = lines.length
+
         if (search.length > 0) {
           const needle = search.toLowerCase()
           lines = lines.filter(line => line.text.toLowerCase().includes(needle))
@@ -84,7 +91,7 @@ export function createLogsRoute(deps: AppDeps) {
           enabled: info.enabled,
           sizeBytes: info.sizeBytes,
           files: info.files.map(file => file.name),
-          searched: search.length > 0 ? window : null,
+          searched: search.length > 0 ? windowLines : null,
           lines: lines.slice(-tail),
         })
       },
