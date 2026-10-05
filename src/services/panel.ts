@@ -514,6 +514,10 @@ function stateSignature(state: AppState): string {
     state.host.alerts.join(','),
     state.backups.files.length,
     state.backups.entries.length,
+    // Which UI the panel serves. `ui.status()` reads the installed `ui.json`, so an upload
+    // or a revert is news the moment it happens — and without this it was only picked up when
+    // something else moved, which the host sample eventually does (up to one interval later).
+    `${state.ui.custom}:${state.ui.meta?.name ?? ''}:${state.ui.meta?.version ?? ''}`,
     // The proxy is the one panel-wide service whose live state changes on its own
     // (a start, a stop, a rejected route), so it has to be part of the signature.
     state.proxy === undefined

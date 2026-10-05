@@ -475,6 +475,48 @@ describe('panelService', () => {
     }
   })
 
+  /**
+   * `ui` is part of the state frame — Global Settings → Interface reads which UI is installed
+   * straight from it — but it was missing from `stateSignature`, the gate that decides whether
+   * a frame is published at all. A UI upload or revert therefore published nothing on its own;
+   * it surfaced only when something *else* moved, which the host sample eventually does.
+   *
+   * Asserting on the published frames rather than their count: the host sample is in the
+   * signature too, so a count can move for reasons that have nothing to do with `ui`.
+   */
+  it('carries the served UI change into a published frame', async () => {
+    const { panel, frames, dispose } = await makeHarness()
+
+    try {
+      const patched = panel as unknown as { options: { ui: { status: () => unknown } } }
+      let custom = false
+      patched.options.ui.status = () => (custom
+        ? { custom: true, dir: '/tmp/custom-ui', meta: { name: 'mine', version: '1.0.0' } }
+        : { custom: false, dir: '/tmp/stock-ui', meta: null })
+
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > 0)
+      expect(frames.at(-1)?.ui).toMatchObject({ custom: false })
+
+      // Freeze what the signature already tracks, so the only thing that can make this frame
+      // new is `ui` itself.
+      const host = (patched as unknown as { options: { hostMonitor: { current: unknown, tick: () => Promise<void> } } }).options.hostMonitor
+      const fixed = { ...(host.current as object) }
+      host.tick = async () => { host.current = fixed }
+
+      const before = frames.length
+      custom = true
+      panel.notifyStateChange()
+      await new Promise(resolve => setTimeout(resolve, 200))
+
+      expect(frames.length, 'a UI change published no frame').toBeGreaterThan(before)
+      expect(frames.at(-1)?.ui).toMatchObject({ custom: true, meta: { name: 'mine' } })
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('sees a hand edit through its own watchers, without a restart', async () => {
     const { panel, frames, dispose } = await makeHarness()
 
