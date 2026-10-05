@@ -29,7 +29,39 @@ export function splitCommandLine(line: string): string[] {
   let quoted = false
   let started = false
 
-  for (const char of line.trim()) {
+  const chars = [...line.trim()]
+  for (let index = 0; index < chars.length; index += 1) {
+    const char = chars[index]!
+
+    // A backslash run escapes only the quote that follows it; any other backslash is a
+    // literal path separator. Node emits `\"` for an argument's own quote, and treating
+    // that quote as a delimiter closed the argument early — so the rest of the line
+    // (including the *next* argument) was swallowed into the same word, and an entry
+    // whose argv contains a quote was not recognized as its own successor.
+    if (char === '\\') {
+      let run = 0
+      while (chars[index + run] === '\\') run += 1
+      const next = chars[index + run]
+      if (next !== '"') {
+        current += '\\'.repeat(run)
+        started = true
+        index += run - 1
+        continue
+      }
+      // 2n backslashes then a quote: n literal backslashes, and the quote is a real
+      // delimiter. 2n+1: n literal backslashes and a literal quote.
+      current += '\\'.repeat(Math.floor(run / 2))
+      started = true
+      if (run % 2 === 1) {
+        current += '"'
+        index += run
+        continue
+      }
+      quoted = !quoted
+      index += run
+      continue
+    }
+
     if (char === '"') {
       quoted = !quoted
       // A quote is both a delimiter and proof that a (possibly empty) word exists.

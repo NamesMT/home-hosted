@@ -47,6 +47,26 @@ describe('splitCommandLine', () => {
   it('treats quotes as delimiters, not content', () => {
     expect(splitCommandLine('node "" --x')).toEqual(['node', '', '--x'])
   })
+
+  /**
+   * Node escapes an argument's own quote as `\"`. Reading that quote as a delimiter closed
+   * the argument early, so everything after it — including the *next* argument — was
+   * swallowed into the same word. An entry whose argv carries a quote then failed to
+   * recognize its own detached successor, which is the case `follow`/`reclaim` exist for.
+   */
+  it('reads an escaped quote as a literal, not as a delimiter', () => {
+    expect(splitCommandLine('node -e "a\\"b" x')).toEqual(['node', '-e', 'a"b', 'x'])
+    expect(splitCommandLine('node -e "console.log(\\"hi\\")" --port 4000'))
+      .toEqual(['node', '-e', 'console.log("hi")', '--port', '4000'])
+  })
+
+  /** The Windows rule: 2n backslashes then a quote is n backslashes and a delimiter. */
+  it('counts a backslash run before a quote', () => {
+    // One literal backslash, and the quote is a delimiter.
+    expect(splitCommandLine('node "a\\\\" b')).toEqual(['node', 'a\\', 'b'])
+    // A backslash that escapes nothing stays a path separator.
+    expect(splitCommandLine('node "C:\\a\\x.js" plain')).toEqual(['node', 'C:\\a\\x.js', 'plain'])
+  })
 })
 
 describe('matchesSpawn', () => {
