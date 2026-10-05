@@ -55,12 +55,6 @@ export function formatRatio(value: number | null): string {
   return `${(value * 100).toFixed(value >= 0.999 ? 0 : 1)}%`
 }
 
-export function formatPercent(value: number | null, digits = 0): string {
-  if (value === null || !Number.isFinite(value))
-    return '—'
-  return `${value.toFixed(digits)}%`
-}
-
 export function formatAgo(ts: number | null, now: number): string {
   if (ts === null)
     return 'never'
@@ -101,12 +95,6 @@ export function formatBytesShort(bytes: number | null): string {
 }
 
 /** `12.4 MB/s` style rates, used for log volume and disk throughput. */
-export function formatBytesRate(bytes: number | null): string {
-  if (bytes === null || !Number.isFinite(bytes))
-    return '—'
-  return `${formatBytesShort(bytes)}/s`
-}
-
 export function formatCpuPercent(value: number | null): string {
   if (value === null || !Number.isFinite(value))
     return '—'

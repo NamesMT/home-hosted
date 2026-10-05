@@ -465,10 +465,6 @@ export function validateRouteDraft(draft: RouteDraft, options: { others: readonl
   return errors
 }
 
-export function hasRouteErrors(errors: RouteErrors): boolean {
-  return Object.keys(errors).length > 0
-}
-
 /** What the target column reads: who a route forwards to. */
 export function targetSummary(route: ProxyRoute, workspaces: readonly ProxyWorkspace[]): string {
   if (route.target === 'panel')

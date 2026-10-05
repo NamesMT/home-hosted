@@ -59,15 +59,6 @@ export function recordSample(series: ServerSeries, server: ServerView, now: numb
   trim(series)
 }
 
-export function seriesTotal(values: (number | null)[]): number {
-  let total = 0
-  for (const value of values) {
-    if (value !== null)
-      total += value
-  }
-  return total
-}
-
 export function seriesMax(values: (number | null)[]): number {
   let max = 0
   for (const value of values) {
