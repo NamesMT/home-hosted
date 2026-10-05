@@ -526,6 +526,31 @@ describe('settings route: listener and UI upload', () => {
     expect(created.settings.control.host).toBe('local')
   })
 
+  /**
+   * Turning authentication off exposes the panel a second way — through a reverse-proxy
+   * route with `target: "panel"`, which serves this control panel on a public hostname.
+   * The proxy's own guard runs when a *route* is written, so it cannot see a later
+   * settings write: a route added while auth was on would stay served, unauthenticated.
+   */
+  it('refuses to disable authentication while a proxy route serves the panel', async () => {
+    const created = await fixture()
+    created.settings.updateProxy({
+      enabled: true,
+      routes: [{ id: 'panel', host: 'panel.lan', target: 'panel', tls: 'auto' }],
+    })
+
+    const response = await request(created.app, '/api/settings', 'PATCH', { control: { auth: { enabled: false } } })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'PROXY_EXPOSURE_BLOCKED' })
+    // Refused before the change lands, so nothing was written.
+    expect(created.settings.control.auth.enabled).toBe(true)
+
+    // A route that does not point at the panel is still fine to leave unauthenticated.
+    created.settings.updateProxy({ routes: [{ id: 'site', host: 'site.lan', target: 'external', url: 'http://10.0.0.5:8080' }] })
+    const allowed = await request(created.app, '/api/settings', 'PATCH', { control: { auth: { enabled: false } } })
+    expect(allowed.status).toBe(200)
+  })
+
   it('rejects a UI upload with no file field', async () => {
     const created = await fixture()
     const form = new FormData()

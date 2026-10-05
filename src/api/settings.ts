@@ -14,7 +14,7 @@ import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
-import { checkExposure } from '#src/services/exposure'
+import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { buildControlView } from '#src/services/state'
 import {
   settingsPatchSchema,
@@ -87,6 +87,19 @@ export function createSettingsRoute(deps: AppDeps) {
       )
       if (exposure.blockedReason !== null)
         throw new DetailedError(exposure.blockedReason, { statusCode: 400, code: 'EXPOSURE_BLOCKED' })
+
+      // Turning authentication off is also an exposure *through the proxy*: a route with
+      // `target: "panel"` serves this control panel on a public hostname, and the proxy's
+      // own guard cannot see a later settings write. Without this, a panel route written
+      // while auth was on stays served after auth is switched off.
+      const proxyExposure = checkProxyExposure(
+        deps.proxy.config,
+        patch.control?.auth?.enabled ?? current.auth.enabled,
+        deps.auth.passwordSet,
+        deps.auth.usingDefaultPassword,
+      )
+      if (proxyExposure !== null)
+        throw new DetailedError(proxyExposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })
 
       const previous = { trustProxy: current.auth.trustProxy, tlsEnabled: current.tls.enabled }
       try {
