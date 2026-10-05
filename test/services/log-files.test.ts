@@ -178,3 +178,35 @@ describe('a tail larger than one read chunk', () => {
     expect(files.readTail('web', 4).map(line => line.ts)).toEqual([98, 99, 100, 101].map(offset => 1_700_000_000_000 + offset))
   })
 })
+
+/**
+ * The values the Logs page actually offers, against a log of realistic size.
+ *
+ * The dropdown is 200 / 500 / 2000 / 5000, and one 256 KB read window holds only ~1300 lines
+ * at 200 bytes each — so "2000 lines" and "5000 lines" were silently short for ordinary
+ * content, not just for an API caller asking for an extreme. This pins the numbers a person
+ * picks from the UI rather than a synthetic tail.
+ */
+describe('the tail sizes the Logs page offers', () => {
+  it('returns as many lines as the dropdown says, from a real-size log', async () => {
+    const { files, dir } = await makeLogs()
+    await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
+    const total = 3000
+    const line = (i: number): string =>
+      JSON.stringify({ ts: 1_700_000_000_000 + i, stream: 'stdout', text: `line ${i} ${'x'.repeat(180)}` })
+    await fs.promises.writeFile(
+      path.join(dir, 'logs', 'web.log'),
+      `${Array.from({ length: total }, (_, i) => line(i)).join('\n')}\n`,
+    )
+
+    // 200 bytes a line is ~730 KB of file, so any window smaller than the whole thing proves
+    // the reader grew to meet the request.
+    for (const asked of [200, 500, 2000]) {
+      expect(files.readTail('web', asked), `asked ${asked}`).toHaveLength(asked)
+    }
+    // More than the file holds: everything there is, and the true oldest line first.
+    const all = files.readTail('web', 5000)
+    expect(all).toHaveLength(total)
+    expect(all[0]!.ts).toBe(1_700_000_000_000)
+  })
+})
