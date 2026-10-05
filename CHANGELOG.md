@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.7.16
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.15...v0.7.16)
+
+### 🔥 Performance
+
+- **cli:** Read only the tail `logs` needs, not both whole files ([7351b20](https://github.com/NamesMT/home-hosted/commit/7351b20))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.15
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.13...v0.7.15)
