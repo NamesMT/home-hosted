@@ -142,14 +142,17 @@ describe('restart, for one server or the panel', () => {
    * so a bare call must still take the down-then-up path rather than reaching `/_hh`.
    */
   it('keeps bare `restart` meaning the panel, not a server', async () => {
-    // Asserted without writing a run.json at all: `runDown` would otherwise signal the pid in
-    // it, and the fixture's pid is this very test process — which is exactly how an earlier
-    // draft got its worker SIGKILLed. With no run.json, `down` says nothing is running and
-    // returns, so the panel path is observable and harmless.
-    const result = await runCli(['restart'])
+    // `--print-config` is what makes this safe: bare `restart` runs `down` then `up`, and a
+    // real `up` would detach a daemon — which is slow, and on Windows leaves the state
+    // directory locked for the cleanup that follows. `--print-config` returns from `up`
+    // before it detaches, so the panel path is observable and nothing is started.
+    //
+    // No run.json either: `down` would otherwise signal the pid in it, and the fixture's pid
+    // is this very test process. That is how an earlier draft shot its own worker.
+    const result = await runCli(['restart', '--print-config'])
 
-    expect(result.stdout).toContain('not running')
-    // A server action would have refused for a different reason entirely.
+    // The panel path prints the effective config, which a server action never would.
+    expect(result.stdout).toContain('servers')
     expect(result.stderr).not.toContain('server id')
   })
 
