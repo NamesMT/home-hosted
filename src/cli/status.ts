@@ -1,3 +1,4 @@
+import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, dim, green, paint } from '#src/cli/io'
@@ -11,7 +12,7 @@ export const statusArgs = {
 export async function runStatus(json: boolean): Promise<void> {
   const { isProcessAlive, probeRuntime, readRuntime } = await import('#src/helpers/daemon')
   const { UiService } = await import('#src/services/ui')
-  const { hhDir: dataRoot } = await import('#src/helpers/paths')
+  const { hhDir: dataRoot, workspaceDir, DEFAULT_WORKSPACE_ID } = await import('#src/helpers/paths')
   const runtime = readRuntime()
 
   if (runtime === null) {
@@ -52,12 +53,19 @@ export async function runStatus(json: boolean): Promise<void> {
     ['state', runtime.dataRoot],
     ['internal', runtime.configPath],
     ['log', runtime.logFile],
+    // The per-server logs sit beside the workspace's config, not beside the console log — and
+    // the README says `status` prints the paths, so the one an operator needs to read a
+    // *server's* log belongs here too.
+    ['serverlogs', path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs')],
     ['ui', ui.custom ? `custom — ${ui.status().meta?.name ?? 'installed'} (revert with \`home-hosted ui-revert\`)` : 'stock'],
   ]
 
   process.stdout.write(`${bold(`home-hosted ${runtime.version}`)}\n`)
+  // Width from the rows, not a literal: the column was hard-coded at 8 until a 10-character
+  // label ("serverlogs") was added and pushed every value out of alignment.
+  const width = Math.max(...rows.map(([label]) => label.length))
   for (const [label, value] of rows)
-    process.stdout.write(`  ${dim(label.padEnd(8))} ${value}\n`)
+    process.stdout.write(`  ${dim(label.padEnd(width))} ${value}\n`)
   if (!running)
     process.exitCode = 1
 }
