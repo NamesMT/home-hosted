@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.7.14
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.13...v0.7.14)
+
+### 🔥 Performance
+
+- **host:** Cache the swap reading, which cost a process spawn per sample ([1f9fdc8](https://github.com/NamesMT/home-hosted/commit/1f9fdc8))
+
+### ✅ Tests
+
+- **host-monitor:** Detect a re-sample by identity, not by a wall clock ([55c5917](https://github.com/NamesMT/home-hosted/commit/55c5917))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.13
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.12...v0.7.13)
