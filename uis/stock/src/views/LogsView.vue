@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { LogLine } from '@shared/contracts'
 import { ArrowDownToLine, CircleAlert, FileText, RefreshCw, ScrollText, Trash2 } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import LogViewer from '@/components/log/LogViewer.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -28,6 +28,13 @@ const tail = ref('2000')
 /** `''` means every stream. Server output interleaves stdout and stderr, so reading one alone
  * is how an operator finds why an entry crashed without the noise around it. */
 const stream = ref('')
+/** Case-insensitive substring filter. Sent only when non-empty: the server reads a wider window
+ * than the tail, so a match older than the last N lines is found rather than reported as "no
+ * results". */
+const search = ref('')
+/** How many lines the last search actually looked at, as the server reported it — what it read,
+ * not the window it was asked for. Null when not searching. */
+const searched = ref<number | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const diskLines = ref<LogLine[]>([])
@@ -103,12 +110,15 @@ async function loadTail(): Promise<void> {
   try {
     const history = await api.fetchLogHistory(workspace.activeId.value, id, {
       tail: Number(tail.value),
-      // Absent, not empty, for "all streams": the server treats a missing key as no filter.
+      // Absent, not empty, for both filters: the server treats a missing key as "no filter",
+      // and an empty string as a filter that matches nothing.
       ...(stream.value.length > 0 ? { stream: stream.value } : {}),
+      ...(search.value.trim().length > 0 ? { search: search.value.trim() } : {}),
     })
     if (token !== tailRequest)
       return
     diskLines.value = history.lines
+    searched.value = history.searched ?? null
     diskVersion.value += 1
   }
   catch (caught) {
@@ -149,6 +159,26 @@ watch([selected, tail, stream, mode], () => {
   if (mode.value === 'disk')
     void loadTail()
 }, { immediate: false })
+
+/**
+ * The search box is debounced, not watched directly: typing is a keystroke-by-keystroke event and
+ * each request reads and parses up to 5000 lines server-side, so a request per character would be
+ * one per keystroke for no benefit. 300 ms is one request per pause in typing.
+ */
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+watch(search, () => {
+  if (searchTimer !== null)
+    clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    searchTimer = null
+    if (mode.value === 'disk')
+      void loadTail()
+  }, 300)
+})
+onScopeDispose(() => {
+  if (searchTimer !== null)
+    clearTimeout(searchTimer)
+})
 
 // Switching workspace changes the whole set of log files under the same ids.
 watch(() => workspace.activeId.value, () => {
@@ -254,6 +284,15 @@ onMounted(async () => {
           aria-label="Stream"
         />
 
+        <input
+          v-if="mode === 'disk'"
+          v-model="search"
+          type="search"
+          class="w-44 min-w-0 rounded-control border border-line bg-panel px-2.5 py-1.5 text-xs text-ink outline-none transition-colors placeholder:text-faint focus:border-accent/50"
+          aria-label="Search the log"
+          placeholder="search the tail window"
+        >
+
         <AppButton v-if="mode === 'disk'" size="sm" :loading="loading" @click="loadTail">
           <RefreshCw class="size-3.5" />Reload
         </AppButton>
@@ -289,6 +328,11 @@ onMounted(async () => {
         </span>
         <span v-if="mode === 'disk' && diskLines.length > 0" class="ml-auto font-mono text-2xs text-faint">
           loaded {{ diskLines.length }} lines
+        </span>
+        <!-- The window the search read, not the one it asked for: on a log shorter than the
+             5000-line window the two differ, and this number is read by a person. -->
+        <span v-if="mode === 'disk' && searched !== null" class="font-mono text-2xs text-faint">
+          · searched {{ searched }} lines
         </span>
       </div>
 
