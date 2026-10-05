@@ -101,12 +101,14 @@ describe('logTailer', () => {
     expect(lines[0]!.stream).toBe('stderr')
   })
 
-  it('keeps the first line when the tail window starts on a line boundary', async () => {
-    // A backfill reads at most MAX_TAIL_BYTES (256 KiB) from the end, so on any log
-    // past that the offset is `size - 256 KiB`. With five lines of exactly 65536 bytes
-    // that offset is exactly the first byte of line 2, so all four lines the window
-    // holds are whole — and `slice(1)` dropped the complete first one unconditionally,
-    // losing one real history line per reattach.
+  it('keeps every line asked for when a window starts on a line boundary', async () => {
+    // Five lines of exactly 65536 bytes each. The reader starts with a 256 KiB window, whose
+    // offset is exactly the first byte of line 2, so no partial line is cut and `slice(1)`
+    // must not drop a complete one — the bug this test was written for.
+    //
+    // It used to expect four lines, because four was all a fixed 256 KiB window held. That was
+    // the truncation asserting itself: the request is for five. The window now grows until it
+    // has them, so the answer is all five — and the first is still not lost to the boundary.
     const file = await tempFile()
     const tailer = new LogTailer(file)
     const exactLine = (marker: string, bytes: number): string => {
@@ -119,7 +121,7 @@ describe('logTailer', () => {
     fs.writeFileSync(file, body)
 
     const backfill = tailer.readTailLines(5)
-    expect(backfill.map(entry => entry.text[0])).toEqual(['t', 't', 'f', 'f'])
+    expect(backfill.map(entry => entry.text.trimEnd().replace(/x+$/, ''))).toEqual(['one', 'two', 'three', 'four', 'five'])
     // The offset still moved to EOF: the backfill is history, not news.
     expect(tailer.read()).toEqual([])
   })
@@ -134,5 +136,37 @@ describe('logTailer', () => {
 
     const backfill = tailer.readTailLines(10)
     expect(backfill.map(entry => entry.text)).toEqual(['one', 'two'])
+  })
+})
+
+/**
+ * The request is in lines; the window was in bytes.
+ *
+ * A persistent entry's JSONL carries whatever its server printed, so a line can be a stack
+ * trace. With a fixed 256 KiB window, ~1500-byte lines gave 178 of the 200 lines asked for,
+ * and the oldest line handed back was not the oldest asked for — so a panel reattaching to a
+ * running entry silently showed a shorter history than the entry's own logs held.
+ */
+describe('a backfill with long lines', () => {
+  it('returns every line asked for, oldest first', async () => {
+    const file = await tempFile()
+    const tailer = new LogTailer(file)
+    const body = Array.from({ length: 2000 }, (_, i) =>
+      `${JSON.stringify({ ts: 1_700_000_000_000 + i, stream: 'stdout', text: `long output ${i} ${'x'.repeat(1400)}` })}\n`).join('')
+    fs.writeFileSync(file, body)
+
+    const backfill = tailer.readTailLines(200)
+    expect(backfill).toHaveLength(200)
+    // The oldest is the 200th from the end, not an arbitrary later one.
+    expect(backfill[0]!.ts).toBe(1_700_000_000_000 + 1800)
+    expect(backfill.at(-1)!.ts).toBe(1_700_000_000_000 + 1999)
+  })
+
+  it('still returns everything a short log holds, without inventing lines', async () => {
+    const file = await tempFile()
+    const tailer = new LogTailer(file)
+    fs.writeFileSync(file, `${JSON.stringify({ ts: 1, stream: 'stdout', text: 'only' })}\n`)
+
+    expect(tailer.readTailLines(200)).toHaveLength(1)
   })
 })

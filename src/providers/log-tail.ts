@@ -15,8 +15,18 @@ import fs from 'node:fs'
 /** One poll reads at most this much, so a burst cannot stall the tick. */
 const MAX_BYTES_PER_READ = 256 * 1024
 
-/** A backfill reads at most this much from the end of the file. */
-const MAX_TAIL_BYTES = 256 * 1024
+/**
+ * The window a backfill starts with, and the ceiling it may grow to.
+ *
+ * It has to grow because the request is in *lines* and the window is in *bytes*: a
+ * persistent entry's JSONL carries whatever its server printed, so one line can be a stack
+ * trace. A fixed 256 KB window returned 178 of the 200 lines asked for at ~1500-byte lines,
+ * and the oldest line handed back was not the oldest asked for. The ceiling keeps a bounded
+ * request bounded — a log of nothing but megabyte lines stops growing rather than being read
+ * whole.
+ */
+const BACKFILL_INITIAL_BYTES = 256 * 1024
+const BACKFILL_MAX_BYTES = 8 * 1024 * 1024
 
 /** A partial line longer than this is dropped rather than buffered without bound. */
 const MAX_CARRY_CHARS = 1024 * 1024
@@ -67,7 +77,6 @@ export class LogTailer {
     if (size === 0 || count <= 0)
       return []
 
-    const start = Math.max(0, size - MAX_TAIL_BYTES)
     let handle: number
     try {
       handle = fs.openSync(this.file, 'r')
@@ -77,24 +86,36 @@ export class LogTailer {
     }
 
     try {
-      const buffer = Buffer.alloc(size - start)
-      const bytes = fs.readSync(handle, buffer, 0, buffer.length, start)
-      const raw = buffer.subarray(0, bytes).toString('utf8').split('\n')
-      // A read that starts mid-file begins on a partial line — but only when the byte
-      // before `start` is not the newline that ended the previous one. Dropping the
-      // first element unconditionally lost one complete line per attach once the log
-      // passed the tail window, and filtering *before* the drop made a blank leading
-      // fragment drop a real line as well.
-      let partialStart = false
-      if (start > 0) {
-        const previous = Buffer.alloc(1)
-        const readBack = fs.readSync(handle, previous, 0, 1, start - 1)
-        partialStart = readBack === 1 && previous[0] !== 0x0A
+      let window = Math.min(size, BACKFILL_INITIAL_BYTES)
+      for (;;) {
+        const start = size - window
+        const buffer = Buffer.alloc(window)
+        const bytes = fs.readSync(handle, buffer, 0, buffer.length, start)
+        const raw = buffer.subarray(0, bytes).toString('utf8').split('\n')
+        // A read that starts mid-file begins on a partial line — but only when the byte
+        // before `start` is not the newline that ended the previous one. Dropping the
+        // first element unconditionally lost one complete line per attach once the log
+        // passed the tail window, and filtering *before* the drop made a blank leading
+        // fragment drop a real line as well.
+        let partialStart = false
+        if (start > 0) {
+          const previous = Buffer.alloc(1)
+          const readBack = fs.readSync(handle, previous, 0, 1, start - 1)
+          partialStart = readBack === 1 && previous[0] !== 0x0A
+        }
+        const lines = (partialStart ? raw.slice(1) : raw).filter(line => line.trim().length > 0)
+
+        // Enough for the request, the whole file, or the ceiling: stop. Otherwise the window
+        // was too small for lines this long, so read more rather than returning short.
+        const grew = window < size && window < BACKFILL_MAX_BYTES
+        if (lines.length >= count || !grew) {
+          return lines.slice(-count)
+            .map(parseLogLine)
+            .filter((line): line is LogLine => line !== null)
+        }
+
+        window = Math.min(size, window * 4)
       }
-      const lines = (partialStart ? raw.slice(1) : raw).filter(line => line.trim().length > 0)
-      return lines.slice(-count)
-        .map(parseLogLine)
-        .filter((line): line is LogLine => line !== null)
     }
     catch {
       return []
