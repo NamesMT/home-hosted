@@ -465,4 +465,50 @@ describe('uiUpdate', () => {
     const installed = JSON.parse(fs.readFileSync(path.join(root, '.hh', '.ui', 'ui.json'), 'utf8')) as Record<string, unknown>
     expect(installed.tag).toBe('v1.2.3')
   })
+
+  /** `--check` documents itself as installing nothing, so it has to outrank `--tag`. */
+  it('installs nothing under --check, even when --tag names a release', async () => {
+    const root = tempDir('hh-ui-cli-')
+    process.env.HHOSTED_HOME = root
+    fs.mkdirSync(path.join(root, '.hh', '.ui'), { recursive: true })
+    fs.writeFileSync(path.join(root, '.hh', '.ui', 'ui.json'), JSON.stringify({ name: 'noc-console', repo: OWN_REPO, tag: 'v0.6.0', asset: 'ui.zip' }))
+    const before = fs.readFileSync(path.join(root, '.hh', '.ui', 'ui.json'), 'utf8')
+
+    let downloaded = false
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      if (!String(input).includes('/releases/'))
+        downloaded = true
+      return new Response(JSON.stringify({ tag_name: 'v1.2.3', assets: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+
+    vi.resetModules()
+    const { uiUpdate } = await import('#src/cli/ui-update')
+    await uiUpdate(['--check', '--tag', 'v1.2.3'], io)
+
+    expect(downloaded).toBe(false)
+    expect(fs.readFileSync(path.join(root, '.hh', '.ui', 'ui.json'), 'utf8')).toBe(before)
+  })
+
+  /**
+   * Without a terminal there is nothing to ask, and guessing at someone else's UI is
+   * the one thing this command must not do.
+   */
+  it('refuses to pick between releases when it cannot ask', async () => {
+    const root = tempDir('hh-ui-cli-')
+    process.env.HHOSTED_HOME = root
+    fs.mkdirSync(path.join(root, '.hh', '.ui'), { recursive: true })
+    fs.writeFileSync(path.join(root, '.hh', '.ui', 'ui.json'), JSON.stringify({ name: 'my-ui', repo: 'someone/their-ui', tag: 'v1.0.0', asset: 'my-ui.zip' }))
+
+    // Two candidates, so there is a real choice to make and nothing may guess at it.
+    const releases = [
+      { tag_name: 'v3.0.0', assets: [{ name: 'my-ui.zip', url: 'https://api.github.com/asset/3' }] },
+      { tag_name: 'v2.0.0', assets: [{ name: 'my-ui.zip', url: 'https://api.github.com/asset/2' }] },
+    ]
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify(releases), { status: 200, headers: { 'content-type': 'application/json' } }))
+
+    vi.resetModules()
+    const { uiUpdate } = await import('#src/cli/ui-update')
+    // `prompt` is only wired up when stdin is a TTY; under vitest it is not.
+    await expect(uiUpdate([], io)).rejects.toThrow(/run it in a terminal/)
+  })
 })
