@@ -1,6 +1,31 @@
 # Changelog
 
 
+## v0.7.13
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.12...v0.7.13)
+
+### 🚀 Enhancements
+
+- **cli:** Add `restart <id>`, so the shell can restart one server ([b8c3fc6](https://github.com/NamesMT/home-hosted/commit/b8c3fc6))
+
+### 🩹 Fixes
+
+- **host:** Read macOS available memory the way macOS defines it ([9841aaa](https://github.com/NamesMT/home-hosted/commit/9841aaa))
+
+### ✅ Tests
+
+- **cli:** Cover the published bin, and the cwd condition that hid a broken import ([116e90f](https://github.com/NamesMT/home-hosted/commit/116e90f))
+- **cli:** Pass the tsx loader as a file URL, so the new bin test runs on Windows ([16e1e7c](https://github.com/NamesMT/home-hosted/commit/16e1e7c))
+- **cli:** Cover the interactive half of io.ts, which was 42.5% ([deb713b](https://github.com/NamesMT/home-hosted/commit/deb713b))
+- **host:** Reach the swap and memory alerts, which nothing crossed ([b6ba75f](https://github.com/NamesMT/home-hosted/commit/b6ba75f))
+- **host:** Scope each alert assertion to its own alert kind ([76ee4cc](https://github.com/NamesMT/home-hosted/commit/76ee4cc))
+- **cli:** Stop the bare-restart test from detaching a daemon ([4131a0e](https://github.com/NamesMT/home-hosted/commit/4131a0e))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.12
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.11...v0.7.12)
