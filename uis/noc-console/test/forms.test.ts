@@ -1,4 +1,4 @@
-import { settingsPatchSchema, workspaceSettingsPatchSchema } from '@shared/contracts'
+import { ddnsConfigSchema, settingsPatchSchema, workspaceSettingsPatchSchema } from '@shared/contracts'
 import { describe, expect, it } from 'vitest'
 import { repairNumbers } from '../src/lib/forms'
 
@@ -88,5 +88,34 @@ describe('repairNumbers', () => {
     repairNumbers(logs, { maxBytes: 10_000_000, keep: 5 })
     const workspace = workspaceSettingsPatchSchema({ logs })
     expect(Array.isArray(workspace), `rejected: ${JSON.stringify(logs)}`).toBe(false)
+  })
+})
+
+/**
+ * The DDNS panel publishes its own patch, and `saveDdns` has no client-side schema to catch a
+ * bad value first — the server's `ddnsConfigSchema` is what rejects it. `intervalMs` and `ttl`
+ * are required numbers there, so an emptied box (`''` from `v-model.number`) refused the save.
+ */
+describe('the DDNS draft', () => {
+  it('repairs the two required numbers against the live config', () => {
+    const draft = {
+      enabled: true,
+      intervalMs: EMPTY,
+      ttl: EMPTY,
+      ipv4: { enabled: true, url: '' },
+      ipv6: { enabled: false, url: '' },
+      accounts: [],
+      domains: [],
+    }
+    const live = { ...draft, intervalMs: 300000, ttl: 1 }
+    repairNumbers(draft as unknown as Record<string, unknown>, live as unknown as Record<string, unknown>)
+
+    expect(draft.intervalMs).toBe(300000)
+    expect(draft.ttl).toBe(1)
+  })
+
+  it('produces a body the server schema accepts', () => {
+    const body = { enabled: true, intervalMs: 300000, ttl: 1, ipv4: { enabled: true, url: '' }, ipv6: { enabled: false, url: '' }, accounts: [], domains: [] }
+    expect(Array.isArray(ddnsConfigSchema(body)), 'the repaired body was rejected').toBe(false)
   })
 })

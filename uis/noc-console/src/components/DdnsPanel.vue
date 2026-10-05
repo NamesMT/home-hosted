@@ -8,6 +8,7 @@ import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@/lib/ddns'
 import { formatAgo } from '@/lib/format'
+import { repairNumbers } from '@/lib/forms'
 
 /**
  * The policy rides the page's patch, so the settings Save writes it; only credentials
@@ -91,9 +92,15 @@ function setOptional(target: DraftDomain, key: 'zone' | 'ttl', value: string | n
 
 /** Publishes the pending block to the page's patch; null means "nothing to save". */
 function syncPatch(): void {
-  patch.value = draft.value === null || baseline.value === null || ddnsConfigEquals(draft.value, baseline.value)
-    ? null
-    : toDdnsConfig(draft.value)
+  if (draft.value === null || baseline.value === null) {
+    patch.value = null
+    return
+  }
+  // `intervalMs` and `ttl` are required numbers, and an emptied box reports `''` — which the
+  // server's `ddnsConfigSchema` rejects, and this path has no client-side schema to catch it
+  // first. Put the live value back, so the field drops out of the change instead of failing it.
+  repairNumbers(draft.value as unknown as Record<string, unknown>, baseline.value as unknown as Record<string, unknown>)
+  patch.value = ddnsConfigEquals(draft.value, baseline.value) ? null : toDdnsConfig(draft.value)
 }
 
 function apply(next: Awaited<ReturnType<typeof api.fetchDdns>>, keepDraft = false): void {
