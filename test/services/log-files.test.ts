@@ -107,3 +107,54 @@ describe('log files', () => {
     expect(written).toContain('written on dispose')
   })
 })
+
+/**
+ * A tail larger than one read chunk, which used to be silently truncated.
+ *
+ * The reader opened the file once, took a single fixed 256 KB window and stopped. A JSONL line
+ * here runs a couple of hundred bytes, so that window holds roughly 1500 of them — while the
+ * route accepts `tail=5000`. Asking for 5000 returned 1464 and dropped 3536 lines with no
+ * error, and the oldest line handed back was not the one asked for.
+ */
+describe('a tail larger than one read chunk', () => {
+  const jsonLine = (i: number): string =>
+    JSON.stringify({ ts: 1_700_000_000_000 + i, stream: 'stdout', text: `line ${i} ${'x'.repeat(120)}` })
+
+  it('returns every line asked for, oldest first, when the window must grow', async () => {
+    const { files, dir } = await makeLogs()
+    // ~890 KB, comfortably past the 256 KB window once.
+    const total = 5000
+    await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
+    await fs.promises.writeFile(
+      path.join(dir, 'logs', 'web.log'),
+      `${Array.from({ length: total }, (_, i) => jsonLine(i)).join('\n')}\n`,
+    )
+
+    const tail = files.readTail('web', total)
+    expect(tail).toHaveLength(total)
+    // The oldest line is the one at index 0 — the truncation showed up here first.
+    expect(tail[0]!.ts).toBe(1_700_000_000_000)
+    expect(tail.at(-1)!.ts).toBe(1_700_000_000_000 + total - 1)
+  })
+
+  it('still honours a small tail exactly', async () => {
+    const { files, dir } = await makeLogs()
+    await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
+    await fs.promises.writeFile(
+      path.join(dir, 'logs', 'web.log'),
+      `${Array.from({ length: 1200 }, (_, i) => jsonLine(i)).join('\n')}\n`,
+    )
+
+    const tail = files.readTail('web', 3)
+    expect(tail.map(line => line.ts)).toEqual([1_700_000_000_000 + 1197, 1_700_000_000_000 + 1198, 1_700_000_000_000 + 1199])
+  })
+
+  it('pads a short current file from its rotation, in order', async () => {
+    const { files, dir } = await makeLogs()
+    await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
+    await fs.promises.writeFile(path.join(dir, 'logs', 'web.log'), `${jsonLine(100)}\n${jsonLine(101)}\n`)
+    await fs.promises.writeFile(path.join(dir, 'logs', 'web.log.1'), `${jsonLine(98)}\n${jsonLine(99)}\n`)
+
+    expect(files.readTail('web', 4).map(line => line.ts)).toEqual([98, 99, 100, 101].map(offset => 1_700_000_000_000 + offset))
+  })
+})

@@ -187,6 +187,15 @@ export class LogFiles {
     }
   }
 
+  /**
+   * The last `tail` parseable lines of one file.
+   *
+   * Reads backwards, growing the window until it has enough lines. It used to read exactly one
+   * fixed chunk, which silently truncated: a JSONL line here is a couple of hundred bytes, so
+   * one 256 KB chunk holds roughly 1500 of them, while the route accepts `tail=5000`. Asking
+   * for 5000 returned 1464 and dropped 3536 lines with no error — the oldest line handed back
+   * was not the oldest asked for.
+   */
   private readTailChunk(file: string, tail: number): LogLine[] {
     let handle: number
     try {
@@ -198,23 +207,40 @@ export class LogFiles {
 
     try {
       const size = fs.fstatSync(handle).size
-      const length = Math.min(size, READ_CHUNK_BYTES)
-      const buffer = Buffer.alloc(length)
-      fs.readSync(handle, buffer, 0, length, size - length)
+      if (size === 0)
+        return []
 
-      const text = buffer.toString('utf8')
-      // A mid-file cut can leave a partial first line, which is dropped.
-      const raw = text.split('\n').filter(entry => entry.trim().length > 0)
-      const parsed: LogLine[] = []
-      for (const entry of raw.slice(size > length ? 1 : 0)) {
-        try {
-          parsed.push(JSON.parse(entry) as LogLine)
+      let start = Math.max(0, size - READ_CHUNK_BYTES)
+      let parsed: LogLine[] = []
+
+      // One extra loop's worth of margin, because a partial line at the window's start is
+      // dropped and a line can be long: growing beats guessing the exact byte count.
+      while (true) {
+        const length = size - start
+        const buffer = Buffer.alloc(length)
+        fs.readSync(handle, buffer, 0, length, start)
+
+        // A mid-file cut leaves a partial first line. A JSONL log is one object per line, so a
+        // fragment cannot parse and the loop below skips it — but the whole-file case has no
+        // fragment, which is what `start > 0` distinguishes.
+        const raw = buffer.toString('utf8').split('\n')
+        parsed = []
+        for (const entry of start > 0 ? raw.slice(1) : raw) {
+          if (entry.trim().length === 0)
+            continue
+          try {
+            parsed.push(JSON.parse(entry) as LogLine)
+          }
+          catch {
+            // A partial line, or a torn write at the file's end.
+          }
         }
-        catch {
-          // Partial line from a rotation boundary.
-        }
+
+        if (parsed.length >= tail || start === 0)
+          return parsed.slice(-tail)
+
+        start = Math.max(0, start - READ_CHUNK_BYTES)
       }
-      return parsed.slice(-tail)
     }
     finally {
       fs.closeSync(handle)
