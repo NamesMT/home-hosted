@@ -53,6 +53,19 @@ UI and every UI zip, lets changelogen write the changelog, bump `package.json`, 
 trusted publishing (OIDC, no token). npm only offers a trusted publisher for a package that already
 exists, so the first release has to be published by hand.
 
+Four workflows, and the split is deliberate:
+
+| workflow | runs on | what it proves |
+| --- | --- | --- |
+| `quickcheck.yml` / `test.yml` | every push and PR | lint, types, the whole suite with coverage — Linux only |
+| `cross-platform.yml` | the release gate, or by hand | the same suite on macOS and Windows |
+| `release.yml` | dispatched with a version | the platform gate, then tag, publish, release assets |
+
+The platform gate is not a per-push job on purpose: it is the expensive half, and it is what makes a
+platform-specific break fail before shipping rather than on someone's machine. It also runs on a
+`dry-run`, because that is exactly what a rehearsal needs to exercise. Every job carries a
+`timeout-minutes`, so a wedged runner is reported instead of sitting out GitHub's 6-hour default.
+
 ### Which version to dispatch
 
 Below 1.0 the **minor is the breaking channel**: a fix or a non-breaking feature is a **patch**
