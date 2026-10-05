@@ -369,8 +369,8 @@ export function newRouteDraft(): RouteDraft {
 }
 
 /**
- * The panel accepts an upstream with or without a scheme, but it has to carry a
- * port — `parseUpstream` dials it as one.
+ * The panel accepts an upstream with or without a scheme, and a port is optional
+ * because every scheme has a default one — the panel fills in :80 or :443.
  */
 export function parseUpstream(value: string): { host: string, port: string } | null {
   const trimmed = value.trim()
@@ -380,9 +380,14 @@ export function parseUpstream(value: string): { host: string, port: string } | n
   const authority = match?.groups?.authority
   if (authority === undefined || authority.length === 0)
     return null
-  const separator = authority.lastIndexOf(':')
-  if (separator <= 0 || separator === authority.length - 1)
+  // An empty port (`host:`) is not one the panel could use, and `lastIndexOf` reads
+  // the colons of an IPv6 literal as a port unless they are told apart first.
+  if (authority.endsWith(':') || /\s/.test(authority))
     return null
+  const scheme = trimmed.slice(0, trimmed.indexOf(':')).toLowerCase()
+  const separator = authority.lastIndexOf(':')
+  if (separator <= 0)
+    return { host: authority, port: scheme === 'https' ? '443' : '80' }
   const port = authority.slice(separator + 1)
   if (!/^\d{1,5}$/.test(port))
     return null

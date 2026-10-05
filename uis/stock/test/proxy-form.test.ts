@@ -222,11 +222,14 @@ describe('validateRouteDraft', () => {
     expect(validateRouteDraft(draft, { others: [existing], workspaces }).host).toBeTruthy()
   })
 
-  it('wants an upstream with a port for an external target', () => {
+  it('wants a dialable upstream for an external target', () => {
     const base = { ...newRouteDraft(), host: 'app.example.com', target: 'external' as const }
-    expect(validateRouteDraft({ ...base, url: 'http://10.0.0.5' }, { others: [], workspaces }).url).toBeTruthy()
+    // A port is optional — the panel fills in the scheme's default — so only an
+    // address that could never be dialled is refused.
+    expect(validateRouteDraft({ ...base, url: 'http://10.0.0.5' }, { others: [], workspaces })).toEqual({})
     expect(validateRouteDraft({ ...base, url: 'http://10.0.0.5:8080' }, { others: [], workspaces })).toEqual({})
     expect(validateRouteDraft({ ...base, url: '10.0.0.5:8080' }, { others: [], workspaces })).toEqual({})
+    expect(validateRouteDraft({ ...base, url: 'not a url' }, { others: [], workspaces }).url).toBeTruthy()
   })
 
   it('does not ask for a server when the target is the panel or an upstream', () => {
@@ -252,10 +255,18 @@ describe('parseUpstream', () => {
     expect(parseUpstream('https://nas.local:9000/x')).toEqual({ host: 'nas.local', port: '9000' })
   })
 
+  it('fills in the scheme’s default port when none is typed', () => {
+    // The panel keeps a default port — `new URL('http://10.0.0.5:80').port` is `''` —
+    // so a dialog that called this unusable refused a upstream the panel accepts.
+    expect(parseUpstream('http://10.0.0.5')).toEqual({ host: '10.0.0.5', port: '80' })
+    expect(parseUpstream('https://srv.lan')).toEqual({ host: 'srv.lan', port: '443' })
+    expect(parseUpstream('10.0.0.5')).toEqual({ host: '10.0.0.5', port: '80' })
+  })
+
   it('refuses anything it could not dial', () => {
     expect(parseUpstream('')).toBeNull()
-    expect(parseUpstream('http://10.0.0.5')).toBeNull()
     expect(parseUpstream('http://10.0.0.5:')).toBeNull()
+    expect(parseUpstream('http://10.0.0.5:abc')).toBeNull()
   })
 })
 

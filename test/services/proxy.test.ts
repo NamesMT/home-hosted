@@ -425,8 +425,20 @@ describe('host and upstream parsing', () => {
     expect(parseUpstream('https://srv.lan:8443')).toEqual({ dial: 'srv.lan:8443', tls: true })
     expect(parseUpstream(' 127.0.0.1:8080 ')).toEqual({ dial: '127.0.0.1:8080', tls: false })
     expect(parseUpstream('')).toBeNull()
-    expect(parseUpstream('10.0.0.5')).toBeNull()
+    expect(parseUpstream('10.0.0.5')).toEqual({ dial: '10.0.0.5:80', tls: false })
     expect(parseUpstream('not a url')).toBeNull()
+  })
+
+  it('keeps the scheme’s default port, which URL normalizes away', () => {
+    // `new URL('http://10.0.0.5:80').port` is `''`, so the default port read as "no
+    // port" and a usable upstream was refused — and one such route made render()
+    // throw PROXY_ROUTE_INVALID for the whole table, blocking every apply and start.
+    expect(parseUpstream('http://10.0.0.5:80')).toEqual({ dial: '10.0.0.5:80', tls: false })
+    expect(parseUpstream('10.0.0.5:80')).toEqual({ dial: '10.0.0.5:80', tls: false })
+    expect(parseUpstream('https://srv.lan:443')).toEqual({ dial: 'srv.lan:443', tls: true })
+    // A non-default port on the other scheme is not normalized, and stays as typed.
+    expect(parseUpstream('https://srv.lan:80')).toEqual({ dial: 'srv.lan:80', tls: true })
+    expect(parseUpstream('http://srv.lan:443')).toEqual({ dial: 'srv.lan:443', tls: false })
   })
 })
 
@@ -682,6 +694,28 @@ describe('proxyService', () => {
     expect(blocked?.message).toContain('routed twice')
   })
 
+  it('routes an upstream on the scheme’s default port, and does not block the table', async () => {
+    // One route on :80 used to read as invalid, and render() throws PROXY_ROUTE_INVALID
+    // for the whole table on a single bad route — every apply and start was blocked.
+    const { service, settings, options: opts } = await harness()
+    writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
+    const engine = await stubEngine(opts)
+    settings.updateProxy({
+      enabled: true,
+      routes: [
+        { id: 'plain', host: 'plain.example.com', target: 'external', url: 'http://10.0.0.5:80' },
+        { id: 'secure', host: 'secure.example.com', target: 'external', url: 'https://10.0.0.6:443' },
+      ],
+    })
+    try {
+      expect(service.routeViews().map(view => view.status)).toEqual(['ok', 'ok'])
+      await service.apply({ force: true })
+    }
+    finally {
+      await engine.stop()
+    }
+  })
+
   it('is off, then stopped with a reason once it is switched on without an engine', async () => {
     const { service, settings } = await harness()
     expect(service.status()).toMatchObject({ state: 'off', lastError: null })
@@ -880,6 +914,33 @@ describe('proxyService', () => {
     expect((failure as Error).message).toContain('could not be started')
     // The nanny was never there, so no stale admin record is left to be reused.
     expect(fs.existsSync(options.adminPath)).toBe(false)
+  })
+
+  it('rejects a truncated admin answer instead of waiting for one that never ends', async () => {
+    // The engine sends headers and half a body, then destroys the socket. With only
+    // 'data' and 'end' on the response, the promise never settled at all — so apply(),
+    // waitReady() and the panel tick's sync() awaited forever, and every later tick
+    // started another stuck sync.
+    const { service, options, settings } = await harness()
+    writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
+    settings.updateProxy({ enabled: true, httpPort: 4480, httpsPort: 4443 })
+    const admin = http.createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.write('{"partial":')
+      setTimeout(() => response.socket?.destroy(), 50)
+    })
+    await new Promise<void>(resolve => admin.listen(0, '127.0.0.1', resolve))
+    const port = (admin.address() as AddressInfo).port
+    fs.mkdirSync(options.stateDir, { recursive: true })
+    fs.writeFileSync(options.adminPath, JSON.stringify({ kind: 'tcp', host: '127.0.0.1', port, origin: `http://127.0.0.1:${port}` }))
+    try {
+      ;(service as unknown as { admin: unknown }).admin = { kind: 'tcp', host: '127.0.0.1', port, origin: `http://127.0.0.1:${port}` }
+
+      await expect(service.apply({ force: true })).rejects.toMatchObject({ code: 'ENGINE_UNREACHABLE' })
+    }
+    finally {
+      await new Promise<void>(resolve => admin.close(() => resolve()))
+    }
   })
 
   it('calls a public name on the engine’s own CA a fallback, and says when it tries again', async () => {

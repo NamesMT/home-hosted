@@ -64,7 +64,7 @@ panel did not start is ever killed.
 | `enabled` | A disabled route stays configured but is not served. |
 | `target` | `server` (a supervised entry), `panel` (this control panel), `external` (any `host:port`). |
 | `workspace` + `server` | For `target: "server"` — an id is only unique inside its workspace. The upstream address is resolved live; a stopped entry leaves the hostname dark and the page says so. |
-| `url` | For `target: "external"`, e.g. `http://10.0.0.5:8080`. An `https://` upstream is dialled with TLS, and **its certificate is not verified** — a homelab upstream behind a self-signed certificate works, and so does an impostor. |
+| `url` | For `target: "external"`, e.g. `http://10.0.0.5:8080`. The port is optional: without one the scheme's own default is used (`:80` for `http:`, `:443` for `https:`). An `https://` upstream is dialled with TLS, and **its certificate is not verified** — a homelab upstream behind a self-signed certificate works, and so does an impostor. |
 | `path` | Optional prefix, so one hostname can serve several apps. |
 | `tls` | `auto` (default), `off`, `manual`. |
 

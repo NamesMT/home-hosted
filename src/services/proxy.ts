@@ -1709,6 +1709,22 @@ export class ProxyService {
       headers.origin = admin.origin
 
     return new Promise((resolve, reject) => {
+      // The engine can answer with headers and half a body and then destroy the
+      // socket. Only the first outcome wins, so a late 'error' after 'end' is noise.
+      let settled = false
+      const succeed = (value: { status: number, body: string }): void => {
+        if (settled)
+          return
+        settled = true
+        resolve(value)
+      }
+      const fail = (error: unknown): void => {
+        if (settled)
+          return
+        settled = true
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
+
       const request = http.request({
         ...(admin.kind === 'unix' ? { socketPath: admin.path } : { host: admin.host, port: admin.port }),
         method,
@@ -1718,10 +1734,15 @@ export class ProxyService {
       }, (response) => {
         const chunks: Buffer[] = []
         response.on('data', (chunk: Buffer) => chunks.push(chunk))
-        response.on('end', () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }))
+        response.on('end', () => succeed({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }))
+        // A truncated response is not an answer: without these the promise never
+        // settles, and everything awaiting it — apply(), start()'s waitReady() and
+        // the panel tick's sync() — waits for good.
+        response.on('error', fail)
+        response.on('aborted', () => fail(new Error('the engine closed the connection before it answered')))
       })
       request.on('timeout', () => request.destroy(new Error('the engine did not answer in time')))
-      request.on('error', reject)
+      request.on('error', fail)
       if (payload !== null)
         request.write(payload)
       request.end()
@@ -1793,9 +1814,11 @@ export function parseUpstream(value: string): { dial: string, tls: boolean } | n
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
   try {
     const url = new URL(withScheme)
-    if (url.port.length === 0)
-      return null
-    return { dial: `${url.hostname}:${url.port}`, tls: url.protocol === 'https:' }
+    // `new URL` normalizes a default port away, and the scheme's own default is a
+    // port all the same: without this, `http://10.0.0.5:80` was refused, and a route
+    // in that state made the whole table read as invalid.
+    const port = url.port.length > 0 ? url.port : url.protocol === 'https:' ? '443' : '80'
+    return { dial: `${url.hostname}:${port}`, tls: url.protocol === 'https:' }
   }
   catch {
     return null
