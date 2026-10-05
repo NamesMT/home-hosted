@@ -58,10 +58,18 @@ async function loadServers(): Promise<void> {
   }
 }
 
+/**
+ * Bumped per request, so a slow answer cannot overwrite a newer one. Picking another server
+ * while a tail is still in flight used to leave the header on the new one and the viewer
+ * showing the old one's lines — whichever request landed last won.
+ */
+let tailRequest = 0
+
 async function loadTail(): Promise<void> {
   const id = selectedId.value
   if (id === null || activeId.value.length === 0)
     return
+  const token = ++tailRequest
   loading.value = true
   error.value = null
   try {
@@ -70,14 +78,19 @@ async function loadTail(): Promise<void> {
       search: search.value,
       ...(stream.value.length > 0 ? { stream: stream.value } : {}),
     }, activeId.value)
+    if (token !== tailRequest)
+      return
     diskLines.value = history.lines
     searched.value = history.searched
   }
   catch (caught) {
+    if (token !== tailRequest)
+      return
     error.value = message(caught)
   }
   finally {
-    loading.value = false
+    if (token === tailRequest)
+      loading.value = false
   }
 }
 
