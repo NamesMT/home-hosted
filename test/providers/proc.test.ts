@@ -33,13 +33,23 @@ describe('process sampler', () => {
     const sampler = new ProcessSampler()
     await sampler.sample(process.pid)
 
+    // Busy until the sampler reports a number, rather than for a fixed 120 ms. Windows
+    // updates its CPU counters on a coarse tick and reports some processes with empty time
+    // fields, so a single short spin occasionally produced a null on a busy CI runner — and
+    // "expected null not to be null" says nothing about which of those happened.
     let spin = 0
-    const until = Date.now() + 120
-    while (Date.now() < until) spin += Math.sqrt(spin + 1)
+    const deadline = Date.now() + 5000
+    let second = await sampler.sample(process.pid)
+    while ((second!.cpuPercent === null || second!.cpuPercent === 0) && Date.now() < deadline) {
+      const until = Date.now() + 60
+      while (Date.now() < until) spin += Math.sqrt(spin + 1)
+      second = await sampler.sample(process.pid)
+    }
 
-    const second = await sampler.sample(process.pid)
-    expect(second!.cpuPercent).not.toBeNull()
-    expect(second!.cpuPercent!).toBeGreaterThan(0)
+    // Named separately: a null means the platform reported no time for this tree at all,
+    // while a zero means the counters did not move. They are different problems.
+    expect(second!.cpuPercent, `the sampler reported no CPU time for this tree after spinning (spin=${Math.round(spin)})`).not.toBeNull()
+    expect(second!.cpuPercent!, 'the CPU counters did not advance while this process spun').toBeGreaterThan(0)
   })
 
   it('returns null for a process that does not exist', async () => {
