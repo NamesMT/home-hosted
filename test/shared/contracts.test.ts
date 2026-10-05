@@ -281,33 +281,39 @@ describe('view contracts', () => {
   })
 })
 
-/** The control plane must stay server-agnostic: no blessed paths, no blessed ids. */
+/**
+ * The control plane must stay server-agnostic: no blessed ids, no blessed paths.
+ *
+ * Scans every source file rather than a hand-kept list: a list is exactly how this
+ * rots — `src/providers/proc.ts` named a real server in a comment and stayed green
+ * for releases, because it was never on the list to begin with. A file added
+ * tomorrow is covered without anyone remembering to add it.
+ */
 describe('genericity', () => {
-  const coreFiles = [
-    'src/index.ts',
-    'src/app.ts',
-    'src/config/schema.ts',
-    'src/config/store.ts',
-    'src/services/supervisor.ts',
-    'src/services/events.ts',
-    'src/services/log-buffer.ts',
-    'src/helpers/paths.ts',
-    'src/helpers/template.ts',
-    'src/providers/process.ts',
-    'src/providers/port.ts',
-    'src/shared/contracts.ts',
-    'src/shared/patch-diff.ts',
-    'src/api/state.ts',
-    'src/api/events.ts',
-    'src/api/static.ts',
-    'src/api/servers/$.routes.ts',
-  ]
+  /** Every `.ts` under `src/`, so a new module is covered the moment it exists. */
+  async function sourceFiles(dir: string): Promise<string[]> {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true })
+    const found: string[] = []
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory())
+        found.push(...await sourceFiles(full))
+      else if (entry.name.endsWith('.ts'))
+        found.push(full)
+    }
+    return found
+  }
 
   it('has no server-specific global config or placeholders', async () => {
-    for (const file of coreFiles) {
-      const text = await fs.promises.readFile(path.join(packageRoot, file), 'utf8')
-      expect(text, `${file} must not know about omniroute`).not.toMatch(/omniroute/i)
-      expect(text, `${file} must not define a dataDir/staticDir global`).not.toMatch(/\b(dataDir|staticDir)\b/)
+    const files = await sourceFiles(path.join(packageRoot, 'src'))
+    // Guard the guard: an empty or broken walk would make this pass vacuously.
+    expect(files.length).toBeGreaterThan(100)
+
+    for (const file of files) {
+      const text = await fs.promises.readFile(file, 'utf8')
+      const relative = path.relative(packageRoot, file)
+      expect(text, `${relative} must not know about a particular server`).not.toMatch(/\b(omniroute|gitea|jellyfin|nextcloud|plex|sonarr|radarr)\b/i)
+      expect(text, `${relative} must not define a dataDir/staticDir global`).not.toMatch(/\b(dataDir|staticDir)\b/)
     }
   })
 })
