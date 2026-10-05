@@ -23,10 +23,18 @@ export default defineConfig({
       // A floor, not a target: it fails the run when a change quietly drops a whole
       // area (a route factory, a provider) out of the suite.
       thresholds: {
-        statements: 75,
-        branches: 63,
-        functions: 80,
-        lines: 75,
+        'statements': 75,
+        'branches': 63,
+        'functions': 80,
+        'lines': 75,
+        // Per-area floors on top of the global ones. The global statement floor sat
+        // 9 points below the real number, so `src/services/panel.ts` — 201 statements,
+        // the wiring `runControlPlane` depends on — stayed at 0% without moving it.
+        // A floor just under each area's own level catches that: the area it belongs
+        // to moves, even when the whole-suite average does not.
+        'src/services/**': { statements: 80 },
+        'src/config/**': { statements: 88 },
+        'src/shared/**': { statements: 95 },
       },
       // v8 only reports files a test actually imported, so without this the gate is
       // blind to whatever nothing imports — and a whole area can leave the suite
