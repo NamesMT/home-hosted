@@ -17,6 +17,7 @@ import {
   authChanged,
   backupsBaseline,
   backupsPatch,
+  controlPartEdited,
   controlPatch,
   createGlobalForm,
   followRebinding,
@@ -26,6 +27,7 @@ import {
   isBlockEdited,
   listenerBaseline,
   listenerChanged,
+  rememberControlPart,
   tlsChanged,
 } from '@/components/settings/settingsForm'
 import TlsSection from '@/components/settings/TlsSection.vue'
@@ -136,10 +138,21 @@ function syncFromLive(): void {
 
   const view = controlView.value
   if (view !== null) {
-    fill('control', () => {
+    // The three control groups are guarded separately. One shared snapshot meant a Reset in
+    // any of them re-baselined the others, so a pending edit elsewhere was discarded by the
+    // next frame.
+    if (!controlPartEdited(form, snapshots.control, 'listener')) {
       Object.assign(form.control, listenerBaseline(view))
+      rememberControlPart(form, snapshots, 'listener')
+    }
+    if (!controlPartEdited(form, snapshots.control, 'auth')) {
       Object.assign(form.auth, authBaseline(view.auth))
-    })
+      rememberControlPart(form, snapshots, 'auth')
+    }
+    if (!controlPartEdited(form, snapshots.control, 'tls')) {
+      form.control.tlsEnabled = view.tls.enabled
+      rememberControlPart(form, snapshots, 'tls')
+    }
   }
   const host = hostConfig.value
   if (host !== null)
@@ -238,19 +251,19 @@ function resetListener(): void {
     form.control.host = baseline.host
     form.control.openBrowser = baseline.openBrowser
   }
-  remember('control')
+  rememberControlPart(form, snapshots, 'listener')
 }
 
 function resetAuth(): void {
   if (controlView.value !== null)
     Object.assign(form.auth, authBaseline(controlView.value.auth))
-  remember('control')
+  rememberControlPart(form, snapshots, 'auth')
 }
 
 function resetTls(): void {
   if (controlView.value !== null)
     form.control.tlsEnabled = controlView.value.tls.enabled
-  remember('control')
+  rememberControlPart(form, snapshots, 'tls')
 }
 
 function scrollToSection(id: string): void {

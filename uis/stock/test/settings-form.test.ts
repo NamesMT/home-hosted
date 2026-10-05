@@ -6,6 +6,7 @@ import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import {
   authBaseline,
+  controlPartEdited,
   controlPatch,
   createGlobalForm,
   createWorkspaceForm,
@@ -14,6 +15,7 @@ import {
   isBlockEdited,
   listenerBaseline,
   numberModel,
+  rememberControlPart,
   workspaceBlockSnapshot,
 } from '../src/components/settings/settingsForm'
 
@@ -244,5 +246,50 @@ describe('nested policy groups', () => {
     // A shallow copy would have aliased `http`, so the snapshot would have moved too.
     expect(snapshot.health.http.expectStatusBelow).toBe(400)
     expect(isBlockEdited(snapshot, workspaceBlockSnapshot(form, 'defaults'))).toBe(true)
+  })
+})
+
+/**
+ * Listeners, Authentication and TLS are one `control` block in the form but three groups on
+ * screen, each with its own Reset. Snapshotting them together meant a Reset in one
+ * re-baselined the others: rename the panel, then reset the session lifetime, and the next
+ * state frame silently discarded the rename.
+ */
+describe('the control sub-groups', () => {
+  it('keeps a pending listener edit when another group is reset', () => {
+    const form = createGlobalForm()
+    const snapshots: Record<string, unknown> = {}
+    // The page has just filled from live state.
+    for (const part of ['listener', 'auth', 'tls'] as const)
+      rememberControlPart(form, snapshots, part)
+
+    // The user renames the panel, then changes the session lifetime and presses its Reset.
+    form.control.label = 'My panel'
+    expect(controlPartEdited(form, snapshots.control, 'listener')).toBe(true)
+
+    form.auth.sessionTtlMs = 123_456
+    Object.assign(form.auth, authBaseline(controlView(true).auth))
+    rememberControlPart(form, snapshots, 'auth')
+
+    // The listener edit is still pending, so the next frame leaves it alone.
+    expect(controlPartEdited(form, snapshots.control, 'listener')).toBe(true)
+    expect(form.control.label).toBe('My panel')
+    // …while the reset group is clean again.
+    expect(controlPartEdited(form, snapshots.control, 'auth')).toBe(false)
+  })
+
+  it('does not report an untouched group as edited', () => {
+    const form = createGlobalForm()
+    const snapshots: Record<string, unknown> = {}
+    for (const part of ['listener', 'auth', 'tls'] as const)
+      rememberControlPart(form, snapshots, part)
+
+    for (const part of ['listener', 'auth', 'tls'] as const)
+      expect(controlPartEdited(form, snapshots.control, part), part).toBe(false)
+
+    form.control.tlsEnabled = !form.control.tlsEnabled
+    expect(controlPartEdited(form, snapshots.control, 'tls')).toBe(true)
+    expect(controlPartEdited(form, snapshots.control, 'listener')).toBe(false)
+    expect(controlPartEdited(form, snapshots.control, 'auth')).toBe(false)
   })
 })

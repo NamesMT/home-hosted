@@ -308,6 +308,38 @@ export function globalBlockSnapshot(form: GlobalSettingsForm, block: GlobalFormB
   }
 }
 
+/** The three independent groups the `control` block covers on screen. */
+export type ControlPart = 'listener' | 'auth' | 'tls'
+
+/** One control group's own snapshot, so each can be tracked and reset separately. */
+export function controlPartSnapshot(form: GlobalSettingsForm, part: ControlPart): unknown {
+  if (part === 'auth')
+    return { ...form.auth }
+  if (part === 'tls')
+    return form.control.tlsEnabled
+  return { label: form.control.label, port: form.control.port, host: form.control.host, openBrowser: form.control.openBrowser }
+}
+
+/**
+ * Has one control group been edited since its own snapshot?
+ *
+ * The block snapshot cannot answer this: Listener, Authentication and TLS each have their
+ * own Reset button, and a Reset in one re-baselined all three — so renaming the panel and
+ * then resetting the session lifetime let the next state frame silently discard the rename.
+ */
+export function controlPartEdited(form: GlobalSettingsForm, snapshot: unknown, part: ControlPart): boolean {
+  if (snapshot === undefined)
+    return false
+  const parts = snapshot as Partial<Record<ControlPart, unknown>>
+  return isBlockEdited(parts[part], controlPartSnapshot(form, part))
+}
+
+/** Re-baseline one control group, leaving the other two pending. */
+export function rememberControlPart(form: GlobalSettingsForm, snapshots: FormSnapshots, part: ControlPart): void {
+  const current = (snapshots.control ?? {}) as Partial<Record<ControlPart, unknown>>
+  snapshots.control = { ...current, [part]: controlPartSnapshot(form, part) }
+}
+
 export function workspaceBlockSnapshot(form: WorkspaceSettingsForm, block: WorkspaceFormBlock): unknown {
   switch (block) {
     case 'defaults': return {
