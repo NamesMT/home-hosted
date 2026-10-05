@@ -121,7 +121,14 @@ function stepMatch(delta: number): void {
   scrollToRow(matches.value[currentMatch.value]!)
 }
 
-watch(total, () => {
+/**
+ * Follow the tail on every batch, keyed on `version` rather than the visible line count.
+ *
+ * The buffer is capped at MAX_CLIENT_LINES, so once it is full the count never changes
+ * again — and a watcher on it stops firing, silently ending auto-follow while the footer
+ * still said "streaming". `version` changes on every batch, cap or not.
+ */
+watch(() => [props.version, total.value], () => {
   if (follow.value) {
     currentMatch.value = 0
     requestAnimationFrame(scrollToBottom)
