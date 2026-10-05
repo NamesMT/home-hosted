@@ -79,8 +79,10 @@ function resolveExisting(target: string): string {
  * outside it into the archive. Both sides check with this.
  */
 export function isInsideResolved(parent: string, child: string): boolean {
-  const realParent = fs.existsSync(parent) ? fs.realpathSync(parent) : path.resolve(parent)
-  return isInside(realParent, resolveExisting(path.resolve(child)))
+  // Both sides go through `resolveExisting`, so a symlinked ancestor of either — `/var`
+  // on macOS, a symlinked home — cancels out instead of making the comparison
+  // asymmetric and rejecting a legitimate target.
+  return isInside(resolveExisting(path.resolve(parent)), resolveExisting(path.resolve(child)))
 }
 
 /** One declared data path, with the verdict the UI shows. */
