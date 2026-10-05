@@ -962,14 +962,7 @@ export class ProxyService {
     // with names no process. Ask first, so the answer names the pid to stop.
     await this.assertPortsFree(this.config.httpPort, this.config.httpsPort)
 
-    const result = await this.request('POST', '/load', rendered).catch((error: unknown) => {
-      this.lastError = `the engine did not accept the configuration: ${error instanceof Error ? error.message : String(error)}`
-      throw new DetailedError(this.lastError, { statusCode: 502, code: 'ENGINE_UNREACHABLE' })
-    })
-    if (result.status >= 400) {
-      this.lastError = engineMessage(result.body) ?? `the engine rejected the configuration (HTTP ${result.status})`
-      throw new DetailedError(this.lastError, { statusCode: 400, code: 'PROXY_CONFIG_REJECTED' })
-    }
+    await this.postConfiguration(rendered)
 
     // Only now is this the configuration: the file the engine boots from must never
     // hold a revision it refused.
@@ -1027,15 +1020,28 @@ export class ProxyService {
     return removed
   }
 
-  /** Hands a configuration to the running engine without touching the file on disk. */
-  private async loadIntoEngine(rendered: Record<string, unknown>): Promise<void> {
+  /**
+   * Posts one rendered configuration to the engine's admin endpoint and reports a refusal.
+   *
+   * The three call sites used to spell this out themselves, and one of them forgot to record
+   * `lastError` — which is what `status()` shows as the proxy's state, so a configuration the
+   * engine refused could leave the panel reporting the proxy as healthy. Keeping both the
+   * message and the state in one place is the point.
+   */
+  private async postConfiguration(rendered: unknown): Promise<void> {
     const result = await this.request('POST', '/load', rendered).catch((error: unknown) => {
-      throw new DetailedError(`the engine did not accept the configuration: ${error instanceof Error ? error.message : String(error)}`, { statusCode: 502, code: 'ENGINE_UNREACHABLE' })
+      this.lastError = `the engine did not accept the configuration: ${error instanceof Error ? error.message : String(error)}`
+      throw new DetailedError(this.lastError, { statusCode: 502, code: 'ENGINE_UNREACHABLE' })
     })
     if (result.status >= 400) {
-      const message = engineMessage(result.body) ?? `the engine rejected the configuration (HTTP ${result.status})`
-      throw new DetailedError(message, { statusCode: 400, code: 'PROXY_CONFIG_REJECTED' })
+      this.lastError = engineMessage(result.body) ?? `the engine rejected the configuration (HTTP ${result.status})`
+      throw new DetailedError(this.lastError, { statusCode: 400, code: 'PROXY_CONFIG_REJECTED' })
     }
+  }
+
+  /** Hands a configuration to the running engine without touching the file on disk. */
+  private async loadIntoEngine(rendered: Record<string, unknown>): Promise<void> {
+    await this.postConfiguration(rendered)
   }
 
   /** Advances `previous.json` only for a configuration the engine accepted. */
@@ -1109,11 +1115,10 @@ export class ProxyService {
     const current = fs.existsSync(this.options.configPath) ? fs.readFileSync(this.options.configPath, 'utf8') : null
     const previous = fs.readFileSync(this.options.previousConfigPath, 'utf8')
 
-    const result = await this.request('POST', '/load', JSON.parse(previous) as unknown)
-    if (result.status >= 400) {
-      this.lastError = engineMessage(result.body) ?? `the engine rejected the configuration (HTTP ${result.status})`
-      throw new DetailedError(this.lastError, { statusCode: 400, code: 'PROXY_CONFIG_REJECTED' })
-    }
+    // Routed through the same helper as every other load: this path used to let a bare
+    // request failure escape without recording `lastError`, and without the one error shape
+    // the rest of the panel speaks.
+    await this.postConfiguration(JSON.parse(previous) as unknown)
 
     // 0600 here too: reverting must not hand back a world-readable configuration
     // that carries the DNS-01 challenge password.

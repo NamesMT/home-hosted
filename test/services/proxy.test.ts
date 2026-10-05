@@ -371,7 +371,14 @@ describe('which account answers a challenge', () => {
  * A stand-in engine: a live process the panel could stop (if it ever tried), and an
  * admin endpoint that records every configuration handed to it.
  */
-async function stubEngine(options: ProxyServiceOptions): Promise<{ loads: any[], pid: number, stop: () => Promise<void> }> {
+/**
+ * A stand-in for the engine's admin endpoint.
+ *
+ * `reject` makes `/load` answer the way a real engine does for a configuration it will not
+ * accept, which is the only way to reach the refusal handling — the default stub always
+ * accepts, so nothing exercised that path's `lastError`.
+ */
+async function stubEngine(options: ProxyServiceOptions, reject?: { status: number, message: string }): Promise<{ loads: any[], pid: number, stop: () => Promise<void> }> {
   const engine = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
   const loads: any[] = []
   const admin = http.createServer((request, response) => {
@@ -379,6 +386,10 @@ async function stubEngine(options: ProxyServiceOptions): Promise<{ loads: any[],
     request.on('data', chunk => body += chunk)
     request.on('end', () => {
       loads.push(JSON.parse(body))
+      if (reject !== undefined) {
+        response.writeHead(reject.status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: reject.message }))
+        return
+      }
       response.writeHead(200, { 'content-type': 'application/json' }).end('{}')
     })
   })
@@ -1022,6 +1033,42 @@ describe('proxyService', () => {
     await expect(service.retryCertificate('lan')).rejects.toMatchObject({ code: 'PROXY_CERT_NOT_MANAGED' })
     await expect(service.retryCertificate('off')).rejects.toMatchObject({ code: 'PROXY_CERT_NOT_MANAGED' })
     await expect(service.retryCertificate('ghost')).rejects.toMatchObject({ code: 'PROXY_ROUTE_UNKNOWN' })
+  })
+
+  /**
+   * `status()` reports `lastError` as the proxy's state, so a configuration the engine refused
+   * has to record it — otherwise the panel keeps describing a broken proxy as healthy.
+   *
+   * The retry path loaded its configuration through its own copy of the rejection handling
+   * that never assigned `lastError`; the other two paths did. That is why the three are one
+   * helper now, and why this drives `retryCertificate` rather than `apply`.
+   */
+  it('records the refusal when the engine rejects a configuration', async () => {
+    const { service, options, settings } = await harness()
+    writeStubEngine(service.enginePath, ['dns.providers.acmeproxy'])
+    settings.updateProxy({
+      enabled: true,
+      httpPort: 18080,
+      httpsPort: 18443,
+      routes: [{ id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' }],
+    })
+    const engine = await stubEngine(options, { status: 400, message: 'not a valid configuration' })
+
+    try {
+      await service.initialize()
+
+      await expect(service.retryCertificate('git')).rejects.toMatchObject({ code: 'PROXY_CONFIG_REJECTED' })
+
+      const status = service.status()
+      expect(status.lastError, 'a refused configuration was not recorded').toBeTruthy()
+      expect(status.lastError).toContain('not a valid configuration')
+      // The engine itself is alive, so `running` is right — what matters is the recorded error,
+      // which the panel shows beside a running engine rather than instead of it.
+      expect(status.state).toBe('running')
+    }
+    finally {
+      await engine.stop()
+    }
   })
 
   it('does not start anything for a config that is only switched off', async () => {
