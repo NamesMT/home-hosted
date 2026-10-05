@@ -77,3 +77,50 @@ describe('host sampling', () => {
     expect(view.enabled).toBe(false)
   })
 })
+
+/**
+ * The swap alert and the memory alert, which nothing crossed.
+ *
+ * `sampleHost` builds its alerts inline, so the only way to reach one is to breach a real
+ * reading — and a threshold "above what any machine can report" (as the quiet case above
+ * uses) can never fire. The threshold here is derived from what this machine actually
+ * reports, so it is reached without depending on how busy the runner is: a `swap` line
+ * reports 0 when there is no swap at all, and that case is skipped rather than faked.
+ */
+describe('host alerts that need a real reading', () => {
+  it('alerts on swap when the threshold is below what the machine reports', async () => {
+    const { swapUsedPercent } = memoryInfo()
+    // Half of whatever is actually used, so the comparison is satisfied by construction.
+    const threshold = swapUsedPercent / 2
+    const sample = await sampleHost(config({ diskPaths: [], swapUsedPercent: threshold, memoryUsedPercent: 100 }), t => t)
+
+    if (swapUsedPercent === 0) {
+      // No swap on this machine (a container, typically): nothing can breach it.
+      expect(sample.alerts, 'no swap to alert on').toEqual([])
+      return
+    }
+    expect(sample.alerts.some(alert => alert.includes('swap'))).toBe(true)
+    // The wording is what a person reads, so pin the shape of it.
+    expect(sample.alerts.find(alert => alert.includes('swap'))).toMatch(/^swap is \d+\.\d% used$/)
+  })
+
+  it('alerts on memory when the threshold is below what the machine reports', async () => {
+    const { memoryUsedPercent } = memoryInfo()
+    // The quiet case above uses 100, which no machine reaches; this one is reached by
+    // construction whenever anything at all is allocated.
+    const sample = await sampleHost(config({ diskPaths: [], memoryUsedPercent: memoryUsedPercent / 2, swapUsedPercent: 100 }), t => t)
+
+    if (memoryUsedPercent === 0) {
+      expect(sample.alerts).toEqual([])
+      return
+    }
+    expect(sample.alerts.some(alert => alert.includes('memory'))).toBe(true)
+    expect(sample.alerts.find(alert => alert.includes('memory'))).toMatch(/^memory is \d+\.\d% used$/)
+  })
+
+  it('treats a zero threshold as disabled, for both', async () => {
+    // `0` disables an individual alert; it must not read as "alert on anything".
+    const sample = await sampleHost(config({ diskPaths: [], swapUsedPercent: 0, memoryUsedPercent: 0 }), t => t)
+    expect(sample.alerts).toEqual([])
+  })
+})
