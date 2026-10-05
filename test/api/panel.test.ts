@@ -3,7 +3,7 @@ import type { Fixture } from './fixture'
 import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { serverSchema } from '#src/shared/contracts'
 import { makeFixture, makeView } from './fixture'
 
@@ -255,6 +255,28 @@ describe('metrics', () => {
     expect(text).not.toContain('hh_server_response_ms{server="idle"')
     expect(text).not.toContain('hh_server_rss_bytes{server="idle"')
     expect(text).not.toContain('hh_server_uptime_ratio_24h')
+  })
+
+  /**
+   * A label value has to be escaped for the exposition format, where only `\\`, `"` and
+   * `\n` are special. `diskPaths` is user config, and a Windows path is the reachable
+   * case: `C:\Users\me` emitted `\U`, not a valid escape, so a scraper rejected the whole
+   * sample. The ids are charset-constrained by their schemas; the paths are not.
+   */
+  it('escapes a disk path that carries a backslash', async () => {
+    const created = await fixture()
+    // The host view's disk paths come from the resolved config, so drive the route the
+    // way a real Windows panel would report it.
+    const view = created.panel.getState().host
+    const patched = { ...view, disks: [{ path: 'C:\\Users\\me', totalBytes: 100, freeBytes: 50, usedPercent: 50 }] }
+    vi.spyOn(created.panel, 'getState').mockReturnValue({ ...created.panel.getState(), host: patched })
+
+    const text = await (await created.app.request('/api/metrics')).text()
+    const line = text.split('\n').find(entry => entry.startsWith('hh_host_disk_used_percent'))
+    expect(line).toBeDefined()
+    // Every backslash is doubled, so no bare `\U` survives.
+    expect(line).toContain('mount="C:\\\\Users\\\\me"')
+    expect(line).not.toContain('C:\\Users\\me')
   })
 })
 

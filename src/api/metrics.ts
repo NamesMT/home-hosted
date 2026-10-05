@@ -3,9 +3,21 @@ import type { ServerView } from '#src/shared/contracts'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 
+/**
+ * Escapes a value for the quoted form of a Prometheus label, per the exposition
+ * format: only `\\`, `"` and a newline are special, and each needs a backslash.
+ *
+ * A raw Windows path is the reachable case — `diskPaths` is user config and
+ * `C:\Users\me` emits `\U`, which is not a valid escape, so the scraper rejects the
+ * whole sample. The ids are charset-constrained by their schemas, but the paths are not.
+ */
+function labelValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
+}
+
 /** A server id repeats across workspaces, so every sample names both. */
 function labels(server: ServerView): string {
-  return `server="${server.id}",workspace="${server.workspaceId ?? ''}"`
+  return `server="${labelValue(server.id)}",workspace="${labelValue(server.workspaceId ?? '')}"`
 }
 
 /**
@@ -64,7 +76,7 @@ export function createMetricsRoute(deps: AppDeps) {
         .map(server => `hh_server_cpu_percent{${labels(server)}} ${server.resources!.cpuPercent}`)
       metric('hh_server_cpu_percent', 'CPU percent of the server process tree', cpu)
 
-      const disks = host.disks.map(disk => `hh_host_disk_used_percent{mount="${disk.path}"} ${disk.usedPercent.toFixed(2)}`)
+      const disks = host.disks.map(disk => `hh_host_disk_used_percent{mount="${labelValue(disk.path)}"} ${disk.usedPercent.toFixed(2)}`)
       metric('hh_host_disk_used_percent', 'Disk usage percent per configured path', disks)
 
       metric('hh_host_memory_used_percent', 'Memory usage percent', [`hh_host_memory_used_percent ${host.memoryUsedPercent.toFixed(2)}`])
