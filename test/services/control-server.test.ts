@@ -232,27 +232,34 @@ describe('control server', () => {
 describe('control server over TLS', () => {
   let cert = ''
   let key = ''
-  let openssl = true
+
+  // Module-load detection: `it.runIf` is evaluated at collection time, before any hook, and an
+  // early return inside the test would be reported as a pass rather than a skip.
+  const openssl = ((): boolean => {
+    try {
+      execFileSync('openssl', ['version'], { stdio: 'ignore' })
+      return true
+    }
+    catch {
+      return false
+    }
+  })()
 
   beforeAll(async () => {
+    if (!openssl)
+      return
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-control-tls-'))
     try {
       execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(dir, 'key.pem'), '-out', path.join(dir, 'cert.pem'), '-days', '3', '-subj', '/CN=hh.test'], { stdio: 'ignore' })
       cert = await fs.promises.readFile(path.join(dir, 'cert.pem'), 'utf8')
       key = await fs.promises.readFile(path.join(dir, 'key.pem'), 'utf8')
     }
-    catch {
-      openssl = false
-    }
     finally {
       await fs.promises.rm(dir, { recursive: true, force: true })
     }
   })
 
-  it('serves https and reflects the scheme in the endpoint', async () => {
-    if (!openssl)
-      return
-
+  it.runIf(openssl)('serves https and reflects the scheme in the endpoint', async () => {
     const port = await freePort()
     const server = tracked(new ControlServer({
       fetch: () => new Response('secure'),

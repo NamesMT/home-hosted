@@ -7,7 +7,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { logger } from '#src/helpers/logger'
 import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
@@ -17,16 +17,20 @@ import { proxyConfigSchema } from '#src/shared/contracts'
 
 const dirs: string[] = []
 
-let openssl = true
-
-beforeAll(() => {
+/**
+ * Detected at module load, not in a hook: `it.runIf` is evaluated when the suite is collected,
+ * before `beforeAll` runs. Returning early inside the test instead makes vitest report a *pass*
+ * on a machine without openssl, which claims coverage the run did not have.
+ */
+const openssl = ((): boolean => {
   try {
     execFileSync('openssl', ['version'], { stdio: 'ignore' })
+    return true
   }
   catch {
-    openssl = false
+    return false
   }
-})
+})()
 
 /**
  * A real pair. Expiry is tested by moving the clock, not by backdating the
@@ -1170,9 +1174,7 @@ describe('proxyService', () => {
     }
   })
 
-  it('calls a public name on the engine’s own CA a fallback, and says when it tries again', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('calls a public name on the engine’s own CA a fallback, and says when it tries again', async () => {
     const { service, options, settings } = await harness()
     // What the engine leaves behind when the CA will not issue for a public name.
     const pair = makePair('git.example.com')
@@ -1220,9 +1222,7 @@ describe('proxyService', () => {
     expect(service.routeViews()[0]?.certificate?.message).not.toContain('rejectedIdentifier')
   })
 
-  it('refuses to serve a pair that expired in place, and says so', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('refuses to serve a pair that expired in place, and says so', async () => {
     const { service, settings, options } = await harness()
     // The upload path rejects an already-expired pair; this is the one it cannot see —
     // a pair that was valid when stored and expired since, which is a matter of the
@@ -1251,9 +1251,7 @@ describe('proxyService', () => {
     }
   })
 
-  it('serves the usable pair, and marks the shadowed one unused', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('serves the usable pair, and marks the shadowed one unused', async () => {
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'good', makePair('good.example.com'))
     writePair(options.tlsDir, 'old', brokenPair())
@@ -1270,9 +1268,7 @@ describe('proxyService', () => {
     expect(service.certificateViews().map(entry => [entry.id, entry.used])).toEqual([['good', true], ['old', false]])
   })
 
-  it('reflects a route edit in `used` at once, not after the cache turns over', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('reflects a route edit in `used` at once, not after the cache turns over', async () => {
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'wild', makePair('*.example.com'))
     writePair(options.tlsDir, 'exact', makePair('special.example.com'))
@@ -1290,9 +1286,7 @@ describe('proxyService', () => {
     expect(service.certificateViews().map(entry => [entry.id, entry.used])).toEqual([['wild', true], ['exact', true]])
   })
 
-  it('marks only one of two identical pairs as the one being served', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('marks only one of two identical pairs as the one being served', async () => {
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'wild', makePair('*.example.com'))
     writePair(options.tlsDir, 'exact', makePair('special.example.com'))
@@ -1309,9 +1303,7 @@ describe('proxyService', () => {
     ])
   })
 
-  it('notices a stored pair that was replaced by an expired one', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('notices a stored pair that was replaced by an expired one', async () => {
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'p', makePair('p.example.com'))
     settings.updateProxy({
