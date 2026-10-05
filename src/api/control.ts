@@ -76,4 +76,23 @@ export function createControlRoute(deps: AppDeps) {
         return c.json(result, statusForAction(result))
       },
     )
+
+    // The panel's own `restart` is the daemon; this is one entry. The UI has had a Restart
+    // button on every server card, and the supervisor has always had `restart()`, so the
+    // shell was the only client that could not do it.
+    .post(
+      '/servers/:id/restart',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Restart one server, without a session (local token required)',
+        responses: { 200: { description: 'Restarted' }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
+      }),
+      validate('query', workspaceQuerySchema),
+      async (c) => {
+        assertLocalCall(c, 'restart a server')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.restart(c.req.param('id'))
+        return c.json(result, statusForAction(result))
+      },
+    )
 }

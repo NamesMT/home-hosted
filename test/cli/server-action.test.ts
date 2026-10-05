@@ -47,6 +47,9 @@ afterEach(async () => {
     server.closeAllConnections()
     server.close(() => resolve())
   })))
+  // Dropped per test, not only at the end: a run.json naming this process is what `down`
+  // would signal, and leaving one behind made a later test shoot its own worker.
+  await fs.promises.rm(path.join(home, '.hh', 'run.json'), { force: true })
 })
 
 afterAll(async () => {
@@ -96,6 +99,83 @@ function writeRuntime(url: string, version = '0.9.9'): void {
     token: 'local-token',
   }, null, 2)}\n`)
 }
+
+describe('restart, for one server or the panel', () => {
+  /**
+   * `restart <id>` is the shell's counterpart to the UI's per-server Restart button, which
+   * the CLI could not do at all. It must reach the same kind of control route `start`/`stop`
+   * use, and leave the panel itself alone.
+   */
+  it('sends a per-server restart over the local control channel', async () => {
+    const created = await panel(200, JSON.stringify({ ok: true }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['restart', 'web'])
+    expect(result.status).toBe(0)
+    // "restarted", not "stopped": the verb is the action.
+    expect(result.stdout).toContain('restarted web')
+    expect(created.seen.path).toBe('/_hh/servers/web/restart')
+    expect(created.seen.token).toBe('local-token')
+  })
+
+  it('carries the workspace through', async () => {
+    const created = await panel(200, JSON.stringify({ ok: true }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['restart', 'web', '--workspace', 'staging'])
+    expect(result.status).toBe(0)
+    expect(created.seen.path).toBe('/_hh/servers/web/restart?workspace=staging')
+    expect(result.stdout).toContain('restarted staging/web')
+  })
+
+  it('reports a refused restart as its reason, and exits 1', async () => {
+    const created = await panel(409, JSON.stringify({ ok: false, error: 'server "web" is disabled' }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['restart', 'web'])
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('server "web" is disabled')
+  })
+
+  /**
+   * The id is optional, and that is the delicate half: `restart` meant the panel before this,
+   * so a bare call must still take the down-then-up path rather than reaching `/_hh`.
+   */
+  it('keeps bare `restart` meaning the panel, not a server', async () => {
+    // Asserted without writing a run.json at all: `runDown` would otherwise signal the pid in
+    // it, and the fixture's pid is this very test process — which is exactly how an earlier
+    // draft got its worker SIGKILLed. With no run.json, `down` says nothing is running and
+    // returns, so the panel path is observable and harmless.
+    const result = await runCli(['restart'])
+
+    expect(result.stdout).toContain('not running')
+    // A server action would have refused for a different reason entirely.
+    expect(result.stderr).not.toContain('server id')
+  })
+
+  it('does not reach the control channel when no id is given', async () => {
+    const created = await panel(200, JSON.stringify({ ok: true }))
+    writeRuntime(created.url)
+
+    // `restart --workspace x` without an id is refused *before* anything is attempted, so
+    // this proves the id-less path never routes to `/_hh` — and it must not run `down`
+    // either, because the run.json here names this very process as the panel.
+    const result = await runCli(['restart', '--workspace', 'staging'])
+
+    expect(result.status).toBe(1)
+    expect(created.seen.path, 'the control channel must not be touched').toBeUndefined()
+    expect(result.stderr).toContain('needs a server id')
+  })
+
+  it('refuses --workspace without an id, and says what to write instead', async () => {
+    const created = await panel(200, JSON.stringify({ ok: true }))
+    writeRuntime(created.url)
+
+    const result = await runCli(['restart', '--workspace', 'staging'])
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('needs a server id')
+  })
+})
 
 describe('start/stop against a live panel', () => {
   it('sends the run.json token to /_hh and reports what the panel answered', async () => {

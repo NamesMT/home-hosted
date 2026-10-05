@@ -37,7 +37,7 @@ const HEADER = 'home-hosted — a control panel for the processes on your home s
 const SYNOPSIS: Record<string, string> = {
   'up': 'home-hosted up [options]',
   'down': 'home-hosted down',
-  'restart': 'home-hosted restart [options]',
+  'restart': 'home-hosted restart [<id>] [options]',
   'status': 'home-hosted status [--json]',
   'logs': 'home-hosted logs [--lines <n>] [--follow] [--json]',
   'start': 'home-hosted start <id> [--workspace <id>]',
@@ -54,7 +54,7 @@ const SYNOPSIS: Record<string, string> = {
 const SUMMARIES: Record<string, string> = {
   'up': 'start it in the background (detached)',
   'down': 'stop it, and everything it supervises',
-  'restart': 'down, then up',
+  'restart': 'down then up — or one server, given an id',
   'status': 'is it running, where, and how to reach it',
   'logs': 'show the panel\'s own console output',
   'start': 'start one server, leaving the panel up',
@@ -113,6 +113,19 @@ const SERVER_SECTION: OptionSection = {
   heading: 'Arguments for start/stop',
   lines: [
     ['<id>', 'the server id from servers.config.json'],
+  ],
+}
+
+// `restart <id>` acts on one entry; bare `restart` acts on the panel, so the id is optional
+// and reads under `up`'s heading alongside its flags.
+const RESTART_SECTION: OptionSection = {
+  heading: 'Options for restart',
+  lines: [
+    // Its own section, not `UP_SECTION`: `restart` takes an id and `up` does not, and
+    // advertising one there would document a flag `up` rejects.
+    ['<id>', 'restart just this server, leaving the panel up (optional)'],
+    ['-w, --workspace <id>', 'the workspace to act in, with an id'],
+    ...UP_SECTION.lines,
   ],
 }
 
@@ -264,6 +277,7 @@ const UP_COMMANDS = new Set(['up', 'restart'])
 const SECTIONS: Record<string, OptionSection> = {
   'status': STATUS_SECTION,
   'logs': LOGS_SECTION,
+  'restart': RESTART_SECTION,
   'start': SERVER_SECTION,
   'stop': SERVER_SECTION,
   'set-password': SET_PASSWORD_SECTION,
@@ -284,7 +298,7 @@ export function commandHelp(command: string): string {
   if (synopsis === undefined)
     return USAGE
 
-  const section = UP_COMMANDS.has(command) ? UP_SECTION : SECTIONS[command]
+  const section = SECTIONS[command] ?? (UP_COMMANDS.has(command) ? UP_SECTION : undefined)
   const options = section === undefined ? dim('no options') : renderSection(section)
 
   return [

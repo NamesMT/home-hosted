@@ -340,10 +340,11 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | --- | --- |
 | `home-hosted up` | start the panel detached, and keep it alive in the background |
 | `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
-| `home-hosted restart` | `down`, then `up` |
+| `home-hosted restart` | `down`, then `up` — or `restart <id>` to restart one server, leaving the panel up |
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts) |
 | `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`) |
 | `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
+| `home-hosted restart <id>` | restart one server, nothing else (`--workspace <id>`) — the same as the panel's per-server Restart |
 | `home-hosted logs` | read the panel's own console output — the file `up` redirects it into (`--lines`, `--follow`, `--json`) |
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
@@ -359,12 +360,13 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 `home-hosted <command> --help` prints what that command takes.
 
 ```text
-up, restart       -c/--config -p/--port --host --open --no-autostart --foreground --print-config
+up                -c/--config -p/--port --host --open --no-autostart --foreground --print-config
 
 down              (no flags)
 status            --json
 logs              --lines <n> --follow --json
 start, stop       <id> [-w/--workspace <id>]   (both need the panel up)
+restart           [<id>] [-w/--workspace <id>]  (no id: the panel; with one: that server)
 init              --dir --name --pm --no-install -y/--yes
 set-password      --clear
 set-token         --generate --clear
@@ -377,7 +379,8 @@ every command     --home <dir> --project <dir>       (or $HHOSTED_HOME, $HHOSTED
 env vars          HHOSTED_PASSWORD, HHOSTED_MIGRATE=allow, HHOSTED_TOKEN, GITHUB_TOKEN or GH_TOKEN
 ```
 
-`up` and `restart` share the same flags: `restart` is `down`, then `up` with exactly what it was given.
+`up` and `restart` share the same flags: bare `restart` is `down`, then `up` with exactly what it was
+given. Given a server id — `restart web` — it restarts only that entry, and the panel keeps running.
 `-c/--config` is the **default workspace's** servers file (`<state>/.hh/default/servers.config.json`),
 for a launcher that pins one; a workspace picked in the UI keeps its own. `start`/`stop` omit
 `--workspace` to act in the panel's default workspace.

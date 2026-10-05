@@ -3,14 +3,18 @@ import { defineCommand } from 'citty'
 import { fail, green } from '#src/cli/io'
 
 /**
- * `start`/`stop` for one supervised server.
+ * `start`/`stop`/`restart` for one supervised server.
  *
  * The supervisor lives inside the daemon, so a single server cannot be started or
  * stopped without it: these drive the running panel over its local control channel
  * (the same token `down` uses), which needs no session and no API token.
+ *
+ * `restart` shares the name with the panel's own restart, which is why the id is optional:
+ * bare `restart` stays "down, then up", and `restart <id>` is one entry — the same thing the
+ * UI's per-server Restart button does, which the shell could not.
  */
 
-export type ServerAction = 'start' | 'stop'
+export type ServerAction = 'start' | 'stop' | 'restart'
 
 interface ActionBody {
   ok?: boolean
@@ -45,14 +49,23 @@ export async function runServerAction(action: ServerAction, id: string, workspac
     fail(`the panel answered ${answer.status}`)
   }
 
-  process.stdout.write(`${green(action === 'start' ? 'started' : 'stopped')} ${workspace === undefined ? '' : `${workspace}/`}${id}\n`)
+  // The past tense is the verb: `restart` says "restarted", not "stopped".
+  const verb = action === 'start' ? 'started' : action === 'stop' ? 'stopped' : 'restarted'
+  process.stdout.write(`${green(verb)} ${workspace === undefined ? '' : `${workspace}/`}${id}\n`)
+}
+
+/** One line of help per action, since `restart` has two meanings to keep apart. */
+const DESCRIPTION: Record<ServerAction, string> = {
+  start: 'start one server (the panel keeps running)',
+  stop: 'stop one server (the panel keeps running)',
+  restart: 'restart one server (the panel keeps running)',
 }
 
 function serverCommand(action: ServerAction) {
   return defineCommand({
     meta: {
       name: action,
-      description: action === 'start' ? 'start one server (the panel keeps running)' : 'stop one server (the panel keeps running)',
+      description: DESCRIPTION[action],
     },
     args: {
       // `required: false` keeps citty's own refusal out of the way: the message below
@@ -72,3 +85,4 @@ function serverCommand(action: ServerAction) {
 
 export const startCommand = serverCommand('start')
 export const stopCommand = serverCommand('stop')
+export const restartServerCommand = serverCommand('restart')

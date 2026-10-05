@@ -23,6 +23,7 @@ seed entry, or a path that names one.
 
 ```sh
 pnpm run up|down|restart|status    # detached; `down` asks /_hh/shutdown, signals are the fallback
+                                   # `restart <id>` restarts one server via /_hh, panel stays up
 pnpm run start                     # up --foreground (systemd, docker, a foreground shell)
 pnpm exec tsx src/cli.ts logs      # the panel's own console output (--lines, --follow, --json)
 pnpm dev                           # tsx-watch panel :6000 + the stock UI's Vite :6001 (proxies /api), state in .dev-state/

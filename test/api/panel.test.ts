@@ -323,7 +323,7 @@ describe('/_hh/shutdown', () => {
   })
 })
 
-describe('/_hh/servers/:id/start|stop', () => {
+describe('/_hh/servers/:id/start|stop|restart', () => {
   const local = { 'x-home-hosted-token': 'runtime-token' }
 
   it('drives one server with the run.json token, no session needed', async () => {
@@ -337,13 +337,30 @@ describe('/_hh/servers/:id/start|stop', () => {
       calls.push(`stop ${id}`)
       return { ok: true }
     }
+    // `restart` is the UI's per-server button; the shell reaches it through this route.
+    created.supervisor.restart = async (id) => {
+      calls.push(`restart ${id}`)
+      return { ok: true }
+    }
 
-    for (const action of ['start', 'stop'] as const) {
+    for (const action of ['start', 'stop', 'restart'] as const) {
       const response = await created.app.request(`/_hh/servers/web/${action}`, { method: 'POST', headers: local })
       expect(response.status, action).toBe(200)
       expect(await response.json(), action).toEqual({ ok: true })
     }
-    expect(calls).toEqual(['start web', 'stop web'])
+    expect(calls).toEqual(['start web', 'stop web', 'restart web'])
+  })
+
+  it('routes a per-server restart, and refuses it without a local token', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    // The workspace pair is what scopes it: two workspaces may both have a "web".
+    created.supervisor.restart = async id => ({ ok: true, id })
+
+    const allowed = await created.app.request('/_hh/servers/web/restart?workspace=default', { method: 'POST', headers: local })
+    expect(allowed.status).toBe(200)
+
+    const refused = await created.app.request('/_hh/servers/web/restart', { method: 'POST' })
+    expect(refused.status).toBe(403)
   })
 
   it('refuses a missing token, and a caller that is not on this machine', async () => {
