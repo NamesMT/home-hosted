@@ -1,6 +1,40 @@
 # Changelog
 
 
+## v0.7.5
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.4...v0.7.5)
+
+### 🩹 Fixes
+
+- **supervisor:** A bootstrap that cannot spawn, a stop that reached nothing, a leaked listener ([6a8457d](https://github.com/NamesMT/home-hosted/commit/6a8457d))
+- **backups:** A restore may not write through a symlink out of the declared path ([6a0620d](https://github.com/NamesMT/home-hosted/commit/6a0620d))
+- **proxy:** A nanny that cannot be spawned no longer ends the panel ([17b7bfe](https://github.com/NamesMT/home-hosted/commit/17b7bfe))
+- **backups:** Resolve both sides of the path check, so macOS paths are not refused ([6e5fd35](https://github.com/NamesMT/home-hosted/commit/6e5fd35))
+- **proxy:** An upstream on the scheme's default port is usable ([0e416ef](https://github.com/NamesMT/home-hosted/commit/0e416ef))
+- **log-tail:** A backfill no longer drops a whole line ([55fc689](https://github.com/NamesMT/home-hosted/commit/55fc689))
+- **proxy:** The engine probe really escalates to SIGKILL ([f2a556b](https://github.com/NamesMT/home-hosted/commit/f2a556b))
+- **proxy:** A stop kills every surviving pid, not just one ([f79d706](https://github.com/NamesMT/home-hosted/commit/f79d706))
+- **proxy:** One route per host and path, and no ACME for dotted digits ([7db5287](https://github.com/NamesMT/home-hosted/commit/7db5287))
+- **archive:** A directory vanishing mid-walk does not fail the backup ([7e80fa2](https://github.com/NamesMT/home-hosted/commit/7e80fa2))
+- **cli:** Ui-update records the release it fetched, not the archive's stale tag ([8fc0f92](https://github.com/NamesMT/home-hosted/commit/8fc0f92))
+- **cli:** Ui-switch records the release it fetched, not the archive's stale tag ([881643d](https://github.com/NamesMT/home-hosted/commit/881643d))
+
+### 📖 Documentation
+
+- Correct the proxy certificate route, and list the proxy endpoints ([d6fb79a](https://github.com/NamesMT/home-hosted/commit/d6fb79a))
+- Fix six claims the code contradicts ([b168cd6](https://github.com/NamesMT/home-hosted/commit/b168cd6))
+
+### ✅ Tests
+
+- **contracts:** Scan every source file for genericity, not a hand-kept list ([bda6cea](https://github.com/NamesMT/home-hosted/commit/bda6cea))
+- **coverage:** Floor each area, so a whole module cannot quietly drop out ([5facd96](https://github.com/NamesMT/home-hosted/commit/5facd96))
+- **proxy:** Keep the default-port regression off real listener ports ([88ffd67](https://github.com/NamesMT/home-hosted/commit/88ffd67))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.4
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.3...v0.7.4)
