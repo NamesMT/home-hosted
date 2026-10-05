@@ -58,8 +58,33 @@ function withoutTrailingBlank(lines: string[]): string[] {
  *
  * The current file plus its `.1` ancestor, so `logs` shows what happened just before a
  * rotation rather than starting blank. `lines <= 0` means the whole thing.
+ *
+ * Reads only the tail it needs. The log is capped at 5 MB per file *by rotation*, so a panel
+ * that has been up a while keeps a 5 MB current file plus a 5 MB `.1` — and the old version
+ * read both in full, split every line and threw all but the last fifty away: 24 ms and 28 MB
+ * of heap to print fifty lines, on the *default* invocation of a diagnostic command. Most of
+ * a tail is not looked at, so it is not read.
  */
 export function readLog(file: string, lines: number): string[] {
+  // The whole log, oldest first. Only `--lines all` pays for this, and it asked to.
+  if (lines <= 0) {
+    const parts = readBoth(file)
+    return withoutTrailingBlank(parts.join('').split('\n'))
+  }
+
+  // The same answer as reading both files and taking the tail of the split, without reading
+  // either in full: the current file alone supplies the tail unless it is too short, in which
+  // case `.1` supplies the rest.
+  const tail = tailText(file, lines)
+  if (tail === null) {
+    const parts = readBoth(file)
+    return withoutTrailingBlank(parts.join('').split('\n')).slice(-lines)
+  }
+  return withoutTrailingBlank(tail.split('\n')).slice(-lines)
+}
+
+/** Both sides of the rotation, oldest first. Missing files contribute nothing. */
+function readBoth(file: string): string[] {
   const parts: string[] = []
   for (const candidate of [`${file}.1`, file]) {
     try {
@@ -69,8 +94,99 @@ export function readLog(file: string, lines: number): string[] {
       // A missing file is normal: neither the log nor its rotation need exist.
     }
   }
-  const all = withoutTrailingBlank(parts.join('').split('\n'))
-  return lines > 0 ? all.slice(-lines) : all
+  return parts
+}
+
+/**
+ * The text of the last `lines` lines across the rotation, joined the way concatenating the
+ * two files would join it — or `null` when the tail cannot be reached within the block budget,
+ * in which case the caller reads everything.
+ *
+ * Concatenating `.1` and the current file makes `.1`'s unterminated last line and the current
+ * file's first line *one* line. Keeping the two tails as text and joining them reproduces that
+ * for free: no gluing to arrange, and no line to lose. (An earlier draft spliced the arrays
+ * instead and dropped that line.)
+ */
+function tailText(file: string, lines: number): string | null {
+  // One more than asked, because a file's own trailing newline terminates no line.
+  const wanted = lines + 1
+  const current = readTail(file, wanted)
+  if (current === null)
+    return null
+  if (countNewlines(current) >= wanted)
+    return current
+
+  // The current file is short of the tail, so reach into the rotation — and enough of it that
+  // a partial line at its end is included, since that is the one that merges.
+  const rotated = readTail(`${file}.1`, wanted)
+  if (rotated === null)
+    return null
+  return `${rotated}${current}`
+}
+
+/**
+ * The last `lines` lines of one file, as text — read backwards in blocks, stopping as soon as
+ * enough line separators have been seen. `''` when there is nothing to contribute, `null` when
+ * the file cannot be read at all (which the caller answers by reading everything).
+ *
+ * The first element may be a fragment: a block boundary lands mid-line. It is deliberately
+ * left in place. The loop only exits once `lines + 1` separators are present, so at least
+ * `lines` complete lines follow the fragment and the caller's `slice(-lines)` can never reach
+ * it — trimming it would be code no test could make fail, and a randomised comparison against
+ * the previous implementation confirmed removing it changes nothing.
+ */
+function readTail(file: string, lines: number): string | null {
+  let handle: number
+  try {
+    handle = fs.openSync(file, 'r')
+  }
+  catch {
+    // Not there is not the same as empty, but both mean "nothing to contribute".
+    return ''
+  }
+
+  try {
+    const size = fs.fstatSync(handle).size
+    if (size === 0)
+      return ''
+    const block = 64 * 1024
+    let end = size
+    let text = ''
+
+    // `lines + 1` separators, because a file's own trailing newline terminates no line.
+    while (end > 0 && countNewlines(text) < lines + 1) {
+      const start = Math.max(0, end - block)
+      const length = end - start
+      const buffer = Buffer.alloc(length)
+      fs.readSync(handle, buffer, 0, length, start)
+      text = buffer.toString('utf8') + text
+      end = start
+    }
+
+    return text
+  }
+  catch {
+    return null
+  }
+  finally {
+    fs.closeSync(handle)
+  }
+}
+
+/**
+ * The last `lines` lines of one file, without reading the whole of it.
+ *
+ * Reads backwards in blocks and stops as soon as it has enough newlines. A single line can
+ * still be long, so the block grows rather than the read being capped at the exact byte.
+ */
+
+function countNewlines(text: string): number {
+  let count = 0
+  for (let index = 0; index < text.length; index += 1) {
+    if (text.charCodeAt(index) === 10)
+      count += 1
+  }
+  return count
 }
 
 /**

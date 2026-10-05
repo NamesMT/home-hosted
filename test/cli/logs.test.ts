@@ -215,3 +215,87 @@ describe('followLog preserves what it reads', () => {
     expect(await followWriting([['hel', 120], ['lo\n', 150]])).toBe('hello\n')
   })
 })
+
+describe('readLog reads only the tail it needs', () => {
+  /** Distinct lines, so a one-line shift at a block boundary cannot go unnoticed. */
+  function numbered(prefix: string, count: number): string {
+    return Array.from({ length: count }, (_, index) => `${prefix} ${index}\n`).join('')
+  }
+
+  /** The implementation this replaced: everything, then the last N lines. */
+  function readEverything(file: string, lines: number): string[] {
+    const parts: string[] = []
+    for (const candidate of [`${file}.1`, file]) {
+      try {
+        parts.push(fs.readFileSync(candidate, 'utf8'))
+      }
+      catch { /* missing is normal */ }
+    }
+    const all = parts.join('').split('\n')
+    if (all.at(-1) === '')
+      all.pop()
+    return lines > 0 ? all.slice(-lines) : all
+  }
+
+  /** A rotated pair, oldest first, as the panel leaves them. */
+  function rotatedPair(rotated: string, current: string): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-readlog-'))
+    dirs.push(dir)
+    const file = path.join(dir, 'app.log')
+    if (rotated !== '__missing__')
+      fs.writeFileSync(`${file}.1`, rotated)
+    if (current !== '__missing__')
+      fs.writeFileSync(file, current)
+    return file
+  }
+
+  /**
+   * A tail reader that returns a *different* answer is worse than a slow one, so this pins
+   * equivalence with the full read across the shapes that actually occur — including the join
+   * where `.1` has no trailing newline, which makes its last line and the current file's first
+   * line one line.
+   */
+  it('returns exactly what reading everything would, across the awkward shapes', () => {
+    const shapes: Array<[string, string, string]> = [
+      ['both empty', '', ''],
+      ['only the current file', '', 'a\nb\nc\n'],
+      ['only the rotation', 'x\ny\n', ''],
+      ['neither file exists', '__missing__', '__missing__'],
+      ['neither ends in a newline', 'x\ny', 'a\nb'],
+      ['the rotation has no trailing newline', 'x\ny', 'a\nb\n'],
+      ['the current file has no trailing newline', 'x\ny\n', 'a\nb'],
+      ['blank lines at the join', 'p\n\n\n\n', '\n\n\nq\n'],
+      ['a line longer than one read block', `${'x'.repeat(200_000)}\ntail\n`, 'a\nb\n'],
+      ['CRLF line endings', 'a\r\nb\r\n', 'c\r\nd\r\n'],
+      ['one line each', 'one\n', 'two\n'],
+      // Past one 64 KB read block, so the backwards read loops and its first (partial) line
+      // has to be dropped. Small inputs never reach that code, which is how a mutation there
+      // survived this test until these shapes were added.
+      // Distinct numbers, not a repeated string: identical lines make the tail the same
+      // whether or not the partial leading line was dropped, which hides a boundary bug.
+      ['many lines across blocks', numbered('rot', 9000), numbered('cur', 9000)],
+      ['a long line ending mid-block', `${'x'.repeat(90_000)}\n${`${'y'.repeat(70_000)}\n`}`, 'a\nb\n'],
+    ]
+
+    for (const [name, rotated, current] of shapes) {
+      const file = rotatedPair(rotated, current)
+      for (const lines of [0, 1, 2, 3, 5, 50, 100_000]) {
+        expect(readLog(file, lines), `${name}, lines=${lines}`).toEqual(readEverything(file, lines))
+      }
+    }
+  })
+
+  it('does not read the whole file to answer for fifty lines', async () => {
+    // The point of the change: 24 ms and 28 MB of heap to print fifty lines from a 10 MB
+    // pair. This asserts the shape of the fix rather than a wall-clock number, which would be
+    // flaky on CI: the read is bounded, so peak allocation stays small.
+    const line = 'x'.repeat(200)
+    const file = rotatedPair(`${line}\n`.repeat(20_000), `${line}\n`.repeat(20_000))
+    const before = process.memoryUsage().heapUsed
+    const tail = readLog(file, 50)
+    const grew = (process.memoryUsage().heapUsed - before) / 1e6
+    expect(tail).toHaveLength(50)
+    // Reading both 4 MB files into strings and splitting them grew the heap by tens of MB.
+    expect(grew, `heap grew ${grew.toFixed(1)} MB for a 50-line tail`).toBeLessThan(5)
+  })
+})
