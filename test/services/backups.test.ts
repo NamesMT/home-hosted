@@ -710,6 +710,44 @@ describe('backup service', () => {
     expect(reloaded).toBe(1)
   })
 
+  /**
+   * The declared path is where a restore may write, and a symlink standing inside it
+   * does not extend that: `cpSync` follows links already present in the destination,
+   * so without a realpath check an archive could plant a file anywhere such a link
+   * pointed — an uploads or cache directory is a routine thing to link — and report
+   * success.
+   */
+  it('refuses to write through a symlink that leaves the declared data path', async () => {
+    const fixture = await makeFixture()
+
+    // A link inside the declared path, pointing outside it.
+    const outside = path.join(fixture.root, 'outside')
+    fs.mkdirSync(outside, { recursive: true })
+    fs.symlinkSync(outside, path.join(fixture.dataDir, 'escape'))
+
+    // An archive that carries a file under the linked subpath.
+    const archive = path.join(fixture.root, 'escape.zip')
+    await makeZip(archive, {
+      'manifest.json': JSON.stringify({
+        version: 1,
+        createdAt: Date.now(),
+        hostname: 'elsewhere',
+        data: [{ slug: slugifyPath(fixture.dataDir), path: fixture.dataDir, origin: 'app:DATA_DIR', workspace: 'default' }],
+      }),
+      [`data/${slugifyPath(fixture.dataDir)}/escape/planted.txt`]: 'evil\n',
+    })
+
+    const plan = await fixture.service.restore(archive, { confirm: true })
+    // A success carries no `error` key at all, so this also proves the restore
+    // proceeded rather than bailing out earlier for an unrelated reason.
+    expect(plan.error).toBeUndefined()
+    expect(plan.applied).toContain(fixture.dataDir)
+    // Nothing the archive carried reached the directory the link points at.
+    expect(fs.existsSync(path.join(outside, 'planted.txt'))).toBe(false)
+    // …and the link is not replaced by a real directory either.
+    expect(fs.lstatSync(path.join(fixture.dataDir, 'escape')).isSymbolicLink()).toBe(true)
+  })
+
   it('rejects an archive with entries outside the expected layout', async () => {
     const fixture = await makeFixture()
     const payload = path.join(fixture.root, 'payload.txt')

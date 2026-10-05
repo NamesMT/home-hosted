@@ -53,6 +53,36 @@ export function isInside(parent: string, child: string): boolean {
   return !path.isAbsolute(relative) && (relative.length === 0 || !relative.startsWith('..'))
 }
 
+/** Resolves symlinks on the deepest existing ancestor, keeping the rest verbatim. */
+function resolveExisting(target: string): string {
+  let prefix = target
+  const rest: string[] = []
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(prefix), ...rest)
+    }
+    catch {
+      const parent = path.dirname(prefix)
+      if (parent === prefix)
+        return target
+      rest.unshift(path.basename(prefix))
+      prefix = parent
+    }
+  }
+}
+
+/**
+ * `isInside` after resolving symlinks, so a link inside a declared path cannot stand
+ * for somewhere else. `cpSync` follows links already present in the tree it writes
+ * into* — a link to an uploads or cache directory is routine — which would let an
+ * archive write outside the path the config declared, and on capture let a file from
+ * outside it into the archive. Both sides check with this.
+ */
+export function isInsideResolved(parent: string, child: string): boolean {
+  const realParent = fs.existsSync(parent) ? fs.realpathSync(parent) : path.resolve(parent)
+  return isInside(realParent, resolveExisting(path.resolve(child)))
+}
+
 /** One declared data path, with the verdict the UI shows. */
 export interface BackupPath {
   path: string
@@ -677,7 +707,16 @@ export class BackupService {
 
         addItem(
           { ...base, restorable: true, note: target.path === archivedPath ? null : `restored from ${archivedPath}` },
-          () => fs.cpSync(from, target.path, { recursive: true, force: true }),
+          // `cpSync` follows symlinks already in the destination tree, so a link
+          // standing inside the declared path would carry the archive's files out of
+          // it. The destination of each entry is what is checked, because that is
+          // where the link is resolved; the links themselves are never recreated,
+          // which is the stated invariant.
+          () => fs.cpSync(from, target.path, {
+            recursive: true,
+            force: true,
+            filter: (_source, destination) => isInsideResolved(target.path, destination),
+          }),
           aliases,
         )
       }

@@ -453,10 +453,15 @@ describe('supervisor', () => {
   })
 
   /**
-   * `spawn` throws synchronously for a command it cannot use at all, and the bootstrap
-   * schema accepts an empty `command` (as does the editor, gated only on the block being
-   * enabled). That throw must not escape `start()`: it would reject after `status` was
-   * already set to `starting`, wedging the entry with no pid until a daemon restart.
+   * The bootstrap schema accepts an empty `command` (as does the editor, gated only on
+   * the block being enabled), and a command `spawn` cannot use is reported rather than
+   * escaping `start()`: a rejection there lands after `status` was already `starting`,
+   * wedging the entry with no pid until a daemon restart.
+   *
+   * How the failure surfaces is platform-specific — Linux throws synchronously from
+   * `spawn`, macOS and Windows report it on the child's `error` event — so this pins
+   * the behaviour that must hold on every platform: the start resolves and the entry
+   * really comes up.
    */
   it('reports a bootstrap that cannot spawn, and still starts the server', async () => {
     const port = await freePort()
@@ -464,18 +469,17 @@ describe('supervisor', () => {
       bootstrap: { command: '', args: [], timeoutMs: 5000 },
     })])
 
-    // A throw here would leave the entry `starting` forever; it has to resolve.
     const result = await supervisor.start('web')
     expect(result.ok).toBe(true)
     await waitForStatus(supervisor, 'web', 'running')
 
     const lines = supervisor.logLines('web').map(entry => entry.text)
-    expect(lines.some(text => text.includes('bootstrap could not start'))).toBe(true)
+    expect(lines.some(text => text.includes('bootstrap could not start') || text.includes('bootstrap failed'))).toBe(true)
     // The entry is genuinely up, not merely reported as such.
     expect(view(supervisor, 'web').pid).not.toBeNull()
   })
 
-  /** An empty command is the reachable case; a NUL byte is the same synchronous throw. */
+  /** A NUL byte is the other command `spawn` refuses outright. */
   it('survives a bootstrap command that is unusable, not only an empty one', async () => {
     const port = await freePort()
     const { supervisor } = await makeSupervisor([httpServerConfig(port, {
