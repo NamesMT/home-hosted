@@ -1,17 +1,45 @@
+import type { Plugin } from 'vite'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import { configDefaults, defineConfig } from 'vitest/config'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
 
+/**
+ * `@/…` has to mean the UI that is asking, not one fixed UI.
+ *
+ * Each UI declares `@` → its own `src` (`uis/vite.shared.ts`), so a single hardcoded alias
+ * can only ever be right for one of them. With `@` pinned to `uis/stock/src`, a `noc-console`
+ * component could not be mounted by a test at all, and — worse — a `noc-console` test that
+ * imported `@/lib/proxy` silently resolved to *stock's* copy of it, which differs. Tests are
+ * the one place a wrong module is not caught by the build, so resolve from the importer.
+ */
+function perUiAlias(): Plugin {
+  // .../uis/<name>/src/... or .../uis/<name>/test/...
+  const fromUi = /[/\\]uis[/\\]([^/\\]+)[/\\]/
+  return {
+    name: 'hh:per-ui-alias',
+    enforce: 'pre',
+    async resolveId(source, importer) {
+      if (!source.startsWith('@/') || !importer)
+        return null
+      const match = fromUi.exec(importer)
+      if (match === null)
+        return null
+      const target = path.join(root, 'uis', match[1]!, 'src', source.slice(2))
+      return await this.resolve(target, importer, { skipSelf: true })
+    },
+  }
+}
+
 export default defineConfig({
-  // The SPA's own aliases, so its modules are testable from `uis/stock/test/`:
-  // pure logic directly, and a component with `// @vitest-environment happy-dom`
-  // at the top of the file (the rest of the suite stays on node).
-  plugins: [vue()],
+  // Each UI's own aliases, so its modules are testable from `uis/<name>/test/`: pure logic
+  // directly, and a component with `// @vitest-environment happy-dom` at the top of the file
+  // (the rest of the suite stays on node).
+  plugins: [perUiAlias(), vue()],
   resolve: {
     alias: {
-      '@': `${root}uis/stock/src`,
       '@shared': `${root}src/shared`,
     },
   },
