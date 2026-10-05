@@ -11,6 +11,11 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
 
+    # The suite is ~30 s here with coverage, so this only has to be wide enough not to trip
+    # a slow runner. Without it a hung test waits out GitHub's 6-hour default before anyone
+    # is told — which is exactly what happened once on the cross-platform gate.
+    timeout-minutes: 15
+
     strategy:
       matrix:
         node: [24.x]

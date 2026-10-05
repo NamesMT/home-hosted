@@ -56,6 +56,10 @@ jobs:
     # A dry run still runs the gate — that is the point of rehearsing it.
     if: ${{ always() && needs.cross-platform.result == 'success' }}
     runs-on: ubuntu-latest
+    # Verify, lint/type/test, build the CLI and every UI, then tag and publish — a few
+    # minutes. A stalled runner here parks a release, so bound it rather than waiting out
+    # GitHub's 6-hour default.
+    timeout-minutes: 30
     env:
       VERSION: ${{ inputs.version }}
       TAG: v${{ inputs.version }}

@@ -36,6 +36,13 @@ jobs:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
 
+    # A whole run is ~2.5 min (the suite itself ~80 s), so this is a wide margin. Without
+    # it a stalled runner — a hung test, a wedged setup step — sits for GitHub's 6-hour
+    # default before anything is reported, and the release gate is parked behind it.
+    # Windows has stalled here once already; the re-run is what told us it was the runner
+    # and not the commit.
+    timeout-minutes: 15
+
     strategy:
       # Both platforms report in one run: a Windows-only break should not hide the
       # macOS result, and vice versa.
@@ -70,5 +77,10 @@ jobs:
       # No --coverage on purpose. The thresholds are calibrated on Linux, where the
       # platform-guarded tests actually execute; running them here would fail a
       # correct skip. Coverage stays the ubuntu job's business.
+      #
+      # ~80 s in practice on both platforms. The step timeout is tighter than the job's
+      # so a hung suite is reported *as* the suite, with the annotation on the step that
+      # hung, rather than as an opaque job timeout.
       - name: Test
+        timeout-minutes: 10
         run: pnpm exec vitest run

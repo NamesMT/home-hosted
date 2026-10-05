@@ -11,6 +11,9 @@ on:
 jobs:
   main:
     runs-on: ubuntu-latest
+    # Lint, types and a full build — a couple of minutes. A stalled runner should not sit
+    # for GitHub's 6-hour default before the push is reported as broken.
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v7
