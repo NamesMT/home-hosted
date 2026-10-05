@@ -139,6 +139,26 @@ describe('auth routes', () => {
     expect(await response.json()).toMatchObject({ code: 'EXPOSED_WITHOUT_PASSWORD' })
   })
 
+  /**
+   * Clearing the password is a second way authentication disappears, so the proxy's
+   * exposure rule has to hold here as well: a route with `target: "panel"` serves this
+   * control panel on a public hostname, and that guard only runs when a route is written.
+   */
+  it('refuses to clear a password while a proxy route serves the panel', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    created.settings.updateProxy({
+      enabled: true,
+      routes: [{ id: 'panel', host: 'panel.lan', target: 'panel', tls: 'auto' }],
+    })
+    const cookie = await signIn(created, 'correct horse')
+
+    const response = await created.app.request('/api/auth/password', { method: 'DELETE', headers: { cookie } })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'PROXY_EXPOSURE_BLOCKED' })
+    // The password is still there: nothing was cleared.
+    expect(created.auth.passwordSet).toBe(true)
+  })
+
   it('demands the current password to change an existing one', async () => {
     const created = await fixture({ password: 'correct horse' })
     const cookie = await signIn(created, 'correct horse')

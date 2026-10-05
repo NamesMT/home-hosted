@@ -9,7 +9,7 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middleware/auth'
 import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
-import { checkExposure } from '#src/services/exposure'
+import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { loginSchema, passwordSchema, sessionViewSchema } from '#src/shared/contracts'
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
@@ -150,6 +150,14 @@ export function createAuthRoute(deps: AppDeps) {
             code: 'EXPOSED_WITHOUT_PASSWORD',
           })
         }
+
+        // Clearing the password is the other way authentication goes away, so the
+        // proxy's own exposure rule has to hold here too: a route with `target: "panel"`
+        // serves this control panel on a public hostname, and that guard only runs when a
+        // route is written.
+        const proxyExposure = checkProxyExposure(deps.proxy.config, false, false, false)
+        if (proxyExposure !== null)
+          throw new DetailedError(proxyExposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })
 
         deps.auth.clearPassword()
         deps.panel.settings.updateControl({ auth: { enabled: false } })
