@@ -1,6 +1,42 @@
 # Changelog
 
 
+## v0.7.12
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.11...v0.7.12)
+
+### 🚀 Enhancements
+
+- **cli:** Add `home-hosted logs`, so the panel's own output is reachable ([2d1979a](https://github.com/NamesMT/home-hosted/commit/2d1979a))
+
+### 🩹 Fixes
+
+- **noc-console:** An emptied number box no longer refuses the whole save ([085e620](https://github.com/NamesMT/home-hosted/commit/085e620))
+- **noc-console:** Repair the DDNS draft too, which the last pass missed ([218ecca](https://github.com/NamesMT/home-hosted/commit/218ecca))
+- **panel:** Publish a frame when the served UI changes ([ad34ba3](https://github.com/NamesMT/home-hosted/commit/ad34ba3))
+- **cli:** Resolve the two directory imports, so `up` works from any directory ([17a61a2](https://github.com/NamesMT/home-hosted/commit/17a61a2))
+
+### 💅 Refactors
+
+- **proxy:** One place that posts a configuration, so a refusal is always recorded ([48a1454](https://github.com/NamesMT/home-hosted/commit/48a1454))
+- **ui:** Drop five helpers nothing calls ([a1c3936](https://github.com/NamesMT/home-hosted/commit/a1c3936))
+
+### 📖 Documentation
+
+- Say which workflow runs when, and why the platform gate is not per-push ([3f3cba5](https://github.com/NamesMT/home-hosted/commit/3f3cba5))
+
+### ✅ Tests
+
+- **proc:** Make the CPU-sample flake say what went wrong, and stop it flaking ([2144cfa](https://github.com/NamesMT/home-hosted/commit/2144cfa))
+
+### 🤖 CI
+
+- Bound every job, so a stalled runner is reported instead of parked ([4d130e4](https://github.com/NamesMT/home-hosted/commit/4d130e4))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.7.11
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.10...v0.7.11)
