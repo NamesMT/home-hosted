@@ -15,14 +15,29 @@ import { ref } from 'vue'
  */
 const pending: Array<{ query?: Record<string, unknown> }> = []
 
-vi.mock('@/lib/api', () => ({
-  fetchLogHistory: (_workspace: string, _id: string, query: Record<string, unknown>) => {
-    pending.push({ query })
-    return Promise.resolve({ lines: [{ ts: 1, stream: 'stderr', text: 'boom' }], searched: null })
-  },
-  fetchLogServers: async () => [{ serverId: 'web', sizeBytes: 10, files: [{ name: 'web.log', sizeBytes: 10 }] }],
-  clearLogs: async () => ({}),
-}))
+vi.mock('@/lib/api', async (importOriginal) => {
+  // Spread the real module: the view does `import * as api`, and a plain object returned from
+  // here has no module namespace, so Vue's ref-unwrapping on `api.<fn>` throws
+  // ("No __v_isRef export is defined on the mock"). Keeping the real shape and overriding only
+  // the two calls this test drives avoids testing a fixture instead of the view.
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    fetchLogHistory: (_workspace: string, _id: string, query: Record<string, unknown>) => {
+      pending.push({ query })
+      return Promise.resolve({ lines: [{ ts: 1, stream: 'stderr', text: 'boom' }], searched: null })
+    },
+    fetchLogServers: async () => [{
+      serverId: 'web',
+      label: 'web',
+      status: 'running',
+      enabled: true,
+      sizeBytes: 10,
+      files: [],
+    }],
+    clearLogs: async () => ({}),
+  }
+})
 vi.mock('@/composables/useControlPlane', () => ({
   useServerLogs: () => ({ lines: () => [], version: ref(0) }),
   resetLogs: () => {},
@@ -51,7 +66,15 @@ beforeEach(() => {
 describe('logs stream filter', () => {
   it('asks for the chosen stream and omits it for all streams', async () => {
     const LogsView = (await import('@/views/LogsView.vue')).default
-    const wrapper = mount(LogsView)
+    const wrapper = mount(LogsView, {
+      global: {
+        // `LogViewer` renders `Tip`, which needs reka-ui's `TooltipProvider` — supplied by the
+        // app shell, absent in a bare mount. Stubbing the tip keeps the test on the filter
+        // instead of on the tooltip plumbing, and the alternative (wrapping every mount in a
+        // provider) would make this file about the view's whole tree.
+        stubs: { Tip: { template: '<span><slot /></span>' } },
+      },
+    })
     await flushPromises()
 
     // The first load carries no stream filter.
