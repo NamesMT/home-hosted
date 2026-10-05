@@ -54,11 +54,6 @@ async function swapUsedPercent(now = Date.now()): Promise<number> {
   return percent
 }
 
-/** Forgets the cached reading. Exposed for tests, which must not see each other's value. */
-export function resetSwapCache(): void {
-  swapCache = null
-}
-
 async function readSwapUsedPercent(): Promise<number> {
   if (process.platform === 'darwin') {
     try {
