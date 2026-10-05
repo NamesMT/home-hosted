@@ -60,7 +60,12 @@ function isAlive(pid: number): boolean {
   }
 }
 
-async function waitFor<T>(probe: () => T | undefined, timeoutMs = 30_000): Promise<T> {
+/**
+ * A budget deliberately below the global 30s test timeout. Set equal to it, vitest always
+ * wins the race and the failure reads "Test timed out in 30000ms" with no cause; below it,
+ * this throws its own error naming what never happened.
+ */
+async function waitFor<T>(probe: () => T | undefined, timeoutMs = 20_000): Promise<T> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     const value = probe()

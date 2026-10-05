@@ -82,8 +82,14 @@ async function seedControlPort(home: string): Promise<void> {
  * Runs `up --foreground` and resolves what it printed. The guard must exit on its
  * own; if it does not, the child would stay alive as a panel, so the timeout kills
  * it and the case fails on the missing output rather than hanging the suite.
+ *
+ * The budget is deliberately loose. This spawns `tsx`, and each refusal takes ~1.2s
+ * alone but much longer while the rest of the suite is running: a tighter limit let
+ * the whole-suite run exceed it, and the kill surfaced as `status` being `null` — an
+ * assertion failure that says nothing about the guard. `killed` is reported so the
+ * next occurrence names the real cause.
  */
-async function runUp(home: string, timeoutMs = 6000): Promise<{ status: number | null, stdout: string, stderr: string }> {
+async function runUp(home: string, timeoutMs = 30000): Promise<{ status: number | null, stdout: string, stderr: string, killed: boolean }> {
   await seedControlPort(home)
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'up', '--foreground', '--no-autostart'], {
@@ -101,6 +107,7 @@ async function runUp(home: string, timeoutMs = 6000): Promise<{ status: number |
       stderr += chunk
     })
     let settled = false
+    let killed = false
     let timer: NodeJS.Timeout | undefined
     const finish = (status: number | null): void => {
       if (settled)
@@ -108,14 +115,21 @@ async function runUp(home: string, timeoutMs = 6000): Promise<{ status: number |
       settled = true
       if (timer !== undefined)
         clearTimeout(timer)
-      resolve({ status, stdout, stderr })
+      resolve({ status, stdout, stderr, killed })
     }
     timer = setTimeout(() => {
+      killed = true
       child.kill('SIGKILL')
       finish(null)
     }, timeoutMs)
     child.once('close', status => finish(status))
   })
+}
+
+/** A kill says "the guard never exited", not "the guard answered the wrong thing". */
+function expectRefused(result: { status: number | null, stdout: string, stderr: string, killed: boolean }): void {
+  expect(result.killed, `up was still running after the budget and had to be killed\nstdout: ${result.stdout}\nstderr: ${result.stderr}`).toBe(false)
+  expect(result.status).toBe(1)
 }
 
 describe('startup guard: an unreadable file stops `up`', () => {
@@ -126,7 +140,7 @@ describe('startup guard: an unreadable file stops `up`', () => {
 
     const result = await runUp(home)
 
-    expect(result.status).toBe(1)
+    expectRefused(result)
     expect(result.stderr).toContain('refusing to start')
     expect(result.stderr).toContain('workspace "default"')
     expect(result.stderr).toContain('cannot parse')
@@ -143,7 +157,7 @@ describe('startup guard: an unreadable file stops `up`', () => {
 
     const result = await runUp(home)
 
-    expect(result.status).toBe(1)
+    expectRefused(result)
     expect(result.stderr).toContain('duplicate id')
     expect(fs.existsSync(path.join(home, '.hh', 'run.json'))).toBe(false)
   })
@@ -159,7 +173,7 @@ describe('startup guard: an unreadable file stops `up`', () => {
 
     const result = await runUp(home)
 
-    expect(result.status).toBe(1)
+    expectRefused(result)
     expect(result.stderr).toContain('refusing to start')
     expect(result.stderr).toContain('workspace "default"')
     expect(result.stderr).toContain('schema 99')
@@ -173,7 +187,7 @@ describe('startup guard: an unreadable file stops `up`', () => {
 
     const result = await runUp(home)
 
-    expect(result.status).toBe(1)
+    expectRefused(result)
     expect(result.stderr).toContain('refusing to start')
     expect(fs.existsSync(path.join(home, '.hh', 'run.json'))).toBe(false)
   })
