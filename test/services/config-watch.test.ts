@@ -32,10 +32,16 @@ async function until(predicate: () => boolean, timeoutMs = 4000): Promise<void> 
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
 describe('configWatch', () => {
+  /**
+   * `pollMs` stays on here, unlike the fs.watch-specific cases below: macOS does not
+   * guarantee that `fs.watch` fires for a plain overwrite, which made this the one test
+   * that failed CI at random. Production always runs the poll alongside the watch (2000ms
+   * by default) for exactly that reason, so this pins the combination the panel relies on.
+   */
   it('sees a hand edit of the file it was pointed at', async () => {
     const file = await makeFile()
     let calls = 0
-    const watch = new ConfigWatch({ file, onChange: () => calls++, debounceMs: 20, pollMs: 0 })
+    const watch = new ConfigWatch({ file, onChange: () => calls++, debounceMs: 20, pollMs: 50 })
     watch.start()
 
     try {
