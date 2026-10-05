@@ -1,6 +1,22 @@
 # Changelog
 
 
+## v0.7.17
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.16...v0.7.17)
+
+### 🩹 Fixes
+
+- **logs:** Honour a tail larger than one read chunk ([751caaf](https://github.com/NamesMT/home-hosted/commit/751caaf))
+
+### ✅ Tests
+
+- **logs:** Pin the search-window symptom of the truncation ([5b95b26](https://github.com/NamesMT/home-hosted/commit/5b95b26))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.16
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.15...v0.7.16)
