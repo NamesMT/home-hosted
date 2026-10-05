@@ -309,6 +309,36 @@ describe('logs route', () => {
   })
 
   /**
+   * A stream filter keeps only some of the lines, so it has to read a wider window than the
+   * display tail — exactly as `search` already did. It did not, so "the last 500 stderr lines"
+   * meant "the stderr lines among the last 500 overall": with every other line stderr and 500
+   * asked for, it returned ~250 of the 500 that exist. Both UIs send `stream`, and the header
+   * above the viewer is where a person sees the shortfall.
+   */
+  it('widens the window for a stream filter, so the tail is really that stream', async () => {
+    const created = await withServer()
+    seedLogs(created, 4000)
+
+    const asked = await (await request(created.app, '/api/logs/web?stream=stderr&tail=500')).json() as { lines: Array<{ stream: string, ts: number }> }
+    // 4000 lines, every other one stderr, so 2000 exist and 500 were asked for.
+    expect(asked.lines).toHaveLength(500)
+    expect(asked.lines.every(line => line.stream === 'stderr')).toBe(true)
+    // The newest 500 stderr lines, in order — not the stderr lines from a mixed window.
+    expect(asked.lines.at(-1)!.ts).toBe(3999)
+    expect(asked.lines[0]!.ts).toBe(3999 - 2 * 499)
+  })
+
+  it('still returns an honest short answer when the log holds fewer than asked', async () => {
+    const created = await withServer()
+    seedLogs(created, 40)
+
+    const asked = await (await request(created.app, '/api/logs/web?stream=stderr&tail=500')).json() as { lines: Array<{ stream: string }> }
+    // 40 lines, 20 of them stderr: no widening can invent more.
+    expect(asked.lines).toHaveLength(20)
+    expect(asked.lines.every(line => line.stream === 'stderr')).toBe(true)
+  })
+
+  /**
    * The number in that header is read by a person, so it must not claim to have searched more
    * lines than exist. A short log with a search used to answer "searched 5000 lines".
    */

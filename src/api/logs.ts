@@ -66,14 +66,21 @@ export function createLogsRoute(deps: AppDeps) {
         const tail = Number.isNaN(requested) ? DEFAULT_TAIL : Math.min(Math.max(requested, MIN_TAIL), MAX_TAIL)
 
         const info = runtime.logFiles.info(id)
-        // Search reads a wider window than the display tail, otherwise a match older
-        // than the last N lines would look like "no results".
         const search = query.search?.trim() ?? ''
-        const window = search.length > 0 ? Math.max(tail, MAX_TAIL) : tail
+        const stream = query.stream ?? ''
+
+        /**
+         * A filter that keeps only *some* of the lines has to read a wider window than the
+         * display tail, or "the last 500 stderr lines" silently means "the stderr lines among
+         * the last 500 overall" — 50 of them, in a log where every tenth line is stderr, and
+         * 500 exist. `search` already widened for exactly this reason; `stream` is the same
+         * shape of filter and did not, so it was short whenever the two streams interleave.
+         */
+        const window = search.length > 0 || stream.length > 0 ? Math.max(tail, MAX_TAIL) : tail
 
         let lines = runtime.logFiles.readTail(id, window)
-        if (query.stream !== undefined && query.stream.length > 0)
-          lines = lines.filter(line => line.stream === query.stream)
+        if (stream.length > 0)
+          lines = lines.filter(line => line.stream === stream)
 
         // What the search actually looked at, which is not always what it asked for: a log
         // shorter than the window yields fewer lines, and the UI prints this number verbatim

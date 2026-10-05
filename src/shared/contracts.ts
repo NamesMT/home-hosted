@@ -1331,7 +1331,12 @@ export type FreePortResult = typeof freePortResultSchema.infer
 
 export const logHistoryQuerySchema = type({
   tail: 'string?',
-  /** Case-insensitive substring filter over the tail window. */
+  /**
+   * Case-insensitive substring filter. Both this and `stream` are filters, so the route reads a
+   * wider window than `tail` and applies them to that: filtering only the display tail would
+   * report an older match as "no results", and "the last N stderr lines" as whatever happened
+   * to fall in a window sized for all streams. `searched` reports how many lines were read.
+   */
   search: 'string?',
   stream: '"stdout" | "stderr" | "system"?',
 })
