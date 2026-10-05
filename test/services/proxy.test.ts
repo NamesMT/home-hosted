@@ -1334,3 +1334,65 @@ describe('proxyService', () => {
     expect(service.view().certificates).toEqual([])
   })
 })
+
+/**
+ * The certificate-failure log is read once per route per state frame, so it is memoised.
+ *
+ * `obtainFailures()` reads the engine's log (bounded at 2 MB by rotation), splits every line
+ * and keeps the last 400 — ~1.3 ms. `routeViews()` calls it **per route**, and `routeViews()`
+ * runs in `view()` for every state frame and in `sync()` every tick, so ten routes meant ~13 ms
+ * of blocking synchronous I/O per second for a file that changes only when the engine tries to
+ * obtain a certificate.
+ *
+ * The test above already proves the cache is not stale after an append. These pin the other two
+ * ways it could be wrong: an unchanged log must not be re-read, and a **rotated** log must be.
+ */
+describe('the failure-log cache', () => {
+  const failureLine = (identifier: string, error: string): string =>
+    `${JSON.stringify({ ts: 1, stream: 'stderr', text: JSON.stringify({ logger: 'tls.obtain', msg: 'could not get certificate from issuer', identifier, error }) })}\n`
+
+  it('reads the log once while it is unchanged, and again once it moves', async () => {
+    const { service, options, settings } = await harness()
+    settings.updateProxy({ routes: [
+      { id: 'a', host: 'a.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+      { id: 'b', host: 'b.example.com', target: 'external', url: 'http://10.0.0.5:3001' },
+    ] })
+    fs.mkdirSync(options.logDir, { recursive: true })
+    const logFile = path.join(options.logDir, 'proxy.log')
+    fs.writeFileSync(logFile, failureLine('a.example.com', 'first failure'))
+
+    const readSpy = vi.spyOn(fs, 'readFileSync')
+    try {
+      // Ten passes over two routes, with nothing written: the log is read once in total.
+      for (let i = 0; i < 10; i++)
+        service.routeViews()
+      const logReads = readSpy.mock.calls.filter(([target]) => String(target) === logFile).length
+      expect(logReads, `read the log ${logReads} times for an unchanged file`).toBe(1)
+
+      // A change is seen immediately.
+      fs.appendFileSync(logFile, failureLine('b.example.com', 'second failure'))
+      const after = service.routeViews()
+      expect(after.find(view => view.route.id === 'b')?.certificate?.message).toContain('second failure')
+    }
+    finally {
+      readSpy.mockRestore()
+    }
+  })
+
+  it('notices a rotation that replaces the file', async () => {
+    // `up`/the nanny rotates to `.1` and starts a fresh log. A cache keyed on mtime alone can
+    // serve the old content when the replacement lands in the same millisecond.
+    const { service, options, settings } = await harness()
+    settings.updateProxy({ routes: [{ id: 'a', host: 'a.example.com', target: 'external', url: 'http://10.0.0.5:3000' }] })
+    fs.mkdirSync(options.logDir, { recursive: true })
+    const logFile = path.join(options.logDir, 'proxy.log')
+    fs.writeFileSync(logFile, failureLine('a.example.com', 'before rotation'))
+    expect(service.routeViews()[0]?.certificate?.message).toContain('before rotation')
+
+    // Rotate: the current file becomes `.1` and a fresh one carries the new reason.
+    fs.renameSync(logFile, `${logFile}.1`)
+    fs.writeFileSync(logFile, failureLine('a.example.com', 'after rotation'))
+
+    expect(service.routeViews()[0]?.certificate?.message).toContain('after rotation')
+  })
+})

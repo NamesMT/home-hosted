@@ -212,6 +212,9 @@ export class ProxyService {
   private nanny: ChildProcess | null = null
   private admin: ProxyAdminTransport | null = null
   private lastError: string | null = null
+
+  /** The parsed failure map, keyed on the log's identity — see `obtainFailures`. */
+  private failureCache: { stamp: string, failures: Map<string, string> } | null = null
   /** The installed binary's modules, read once per process; an install clears it. */
   private moduleCache: Set<string> | null = null
   /** A legacy `engine.json` is reported once, not on every state frame. */
@@ -715,17 +718,48 @@ export class ProxyService {
   /**
    * The last thing the engine said about obtaining a certificate, per name. Caddy
    * has no admin endpoint that lists failures, so its own log is the source.
+   *
+   * Memoised on the file's identity and mtime, because this is called **per route** from
+   * `routeViews()` — which `view()` runs for every state frame and `sync()` runs every tick.
+   * Each call read the whole log (bounded at 2 MB by rotation), split every line and kept the
+   * last 400: ~1.3 ms each, so ~13 ms of blocking synchronous I/O per second at ten routes,
+   * for a file that only changes when the engine tries to obtain a certificate.
+   *
+   * The key is `ino` + `mtimeMs` + size, not mtime alone: rotation replaces the file, and a
+   * replacement can land in the same millisecond as the previous read.
    */
   private obtainFailures(): Map<string, string> {
-    const failures = new Map<string, string>()
-    let text: string
+    const file = path.join(this.options.logDir, `${PROXY_ID}.log`)
+
+    let stamp: string
     try {
-      text = fs.readFileSync(path.join(this.options.logDir, `${PROXY_ID}.log`), 'utf8')
+      const stats = fs.statSync(file)
+      stamp = `${stats.ino}:${stats.mtimeMs}:${stats.size}`
     }
     catch {
-      return failures
+      // No log is a real answer, and it must not be cached as one: the engine may write it a
+      // moment from now.
+      this.failureCache = null
+      return new Map()
     }
 
+    if (this.failureCache !== null && this.failureCache.stamp === stamp)
+      return this.failureCache.failures
+
+    let text: string
+    try {
+      text = fs.readFileSync(file, 'utf8')
+    }
+    catch {
+      return new Map()
+    }
+
+    const failures = this.parseFailures(text, new Map())
+    this.failureCache = { stamp, failures }
+    return failures
+  }
+
+  private parseFailures(text: string, failures: Map<string, string>): Map<string, string> {
     for (const line of text.trimEnd().split('\n').slice(-400)) {
       let inner: Record<string, unknown>
       try {
