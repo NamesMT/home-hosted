@@ -14,7 +14,7 @@ configuration and its nanny state), and `run.json` — the live daemon's pid/url
 `.hh/<id>/`: `settings.json` (server defaults, log retention, notifications, DDNS), `servers.config.json`,
 `.secrets.json` (0600: Telegram bot token, plus DDNS credentials sealed with AES-256-GCM under
 `HHOSTED_DDNS_SECRET` — only DDNS is sealed, because it is the one thing replayed to a third party),
-`.logs/`, and `.state/` (a persistent entry's nanny state plus its 0600 spawn
+`.logs/` (per server, `<id>.log` plus `<id>.log.1` … when it rotates), and `.state/` (a persistent entry's nanny state plus its 0600 spawn
 spec until the nanny reads it, plus `ddns.json`). A pre-`.hh` instance is relocated automatically by
 `ensureLayout()` (`src/config/layout.ts`). The package ships **no servers**: never commit a config, a
 seed entry, or a path that names one.

@@ -579,7 +579,7 @@ run.json                     the running panel (pid, url, token, mode 0600)
 <workspace>/settings.json    server defaults, log retention, notifications, DDNS
 <workspace>/servers.config.json  your servers, plus meta: which release and schema wrote it
 <workspace>/.secrets.json    Telegram token + DDNS credentials (mode 0600)
-<workspace>/.logs/           rotated per-server logs + history
+<workspace>/.logs/           per-server logs: <id>.log, rotated to <id>.log.1 … (newest first)
 <workspace>/.state/          persistent entries' nanny state
 ```
 
