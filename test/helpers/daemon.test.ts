@@ -229,4 +229,29 @@ describe('requestControl', () => {
     expect(await requestControl(validRuntime({ probeUrl: notJson }), '/_hh/servers/web/stop')).toEqual({ status: 403, body: null })
     expect(await requestControl(validRuntime({ probeUrl: 'http://127.0.0.1:1' }), '/_hh/servers/web/stop', 500)).toBeNull()
   })
+
+  /**
+   * `timeoutMs` is on the *request*, so it stops covering the call once the headers are
+   * in. A socket that dies mid-body — notably the panel rebinding its listener, which
+   * `afterResponse()` does precisely because that kills the answering connection — used
+   * to leave this promise unsettled for ever, hanging `down`/`start`/`stop` with it.
+   */
+  it('settles when the response is cut after its headers', async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json', 'content-length': '1000' })
+      res.write('{"ok":')
+      setTimeout(() => res.socket?.destroy(), 20)
+    })
+    servers.push(server)
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as net.AddressInfo
+
+    const settled = await Promise.race([
+      requestControl(validRuntime({ probeUrl: `http://127.0.0.1:${port}` }), '/_hh/servers/web/stop', 5000),
+      // The request timeout is 5s; a hang would show up well before this.
+      new Promise(resolve => setTimeout(resolve, 3000, 'HUNG')),
+    ])
+
+    expect(settled).toBeNull()
+  })
 })

@@ -142,6 +142,12 @@ function localCall(runtime: Runtime, path: string, method: 'GET' | 'POST', token
         body += chunk
       })
       response.once('end', () => resolve({ status: response.statusCode ?? 0, body }))
+      // The `timeout` below is on the *request*, so it stops covering the call once the
+      // headers are in. A socket that dies mid-body — the panel rebinding its listener is
+      // the documented case — otherwise leaves this promise unsettled for ever, and
+      // `down`/`start`/`stop` hang with it.
+      response.once('aborted', () => resolve(null))
+      response.once('error', () => resolve(null))
     })
 
     request.once('error', () => resolve(null))
