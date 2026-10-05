@@ -1,6 +1,34 @@
 # Changelog
 
 
+## v0.7.15
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.13...v0.7.15)
+
+### 🔥 Performance
+
+- **host:** Cache the swap reading, which cost a process spawn per sample ([1f9fdc8](https://github.com/NamesMT/home-hosted/commit/1f9fdc8))
+
+### 🩹 Fixes
+
+- **cli:** `logs --follow` was eating blank lines ([e2adb02](https://github.com/NamesMT/home-hosted/commit/e2adb02))
+
+### 💅 Refactors
+
+- **host:** Drop resetSwapCache, which nothing calls ([497ee17](https://github.com/NamesMT/home-hosted/commit/497ee17))
+
+### 🏡 Chore
+
+- **release:** V0.7.14 ([b9d4d19](https://github.com/NamesMT/home-hosted/commit/b9d4d19))
+
+### ✅ Tests
+
+- **host-monitor:** Detect a re-sample by identity, not by a wall clock ([55c5917](https://github.com/NamesMT/home-hosted/commit/55c5917))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.14
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.13...v0.7.14)
