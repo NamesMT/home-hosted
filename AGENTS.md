@@ -68,6 +68,11 @@ platform-specific break fail before shipping rather than on someone's machine. I
 `dry-run`, because that is exactly what a rehearsal needs to exercise. Every job carries a
 `timeout-minutes`, so a wedged runner is reported instead of sitting out GitHub's 6-hour default.
 
+**`npm publish` exiting 0 is the whole answer.** The registry can take up to ten minutes to show a
+package it has already accepted — that is npm's queue, not this run's, and polling it once cost five
+minutes of every release. Do not put that poll back, and do not hold other work waiting for a
+release to become visible.
+
 ### Which version to dispatch
 
 Below 1.0 the **minor is the breaking channel**: a fix or a non-breaking feature is a **patch**
