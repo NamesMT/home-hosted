@@ -65,14 +65,14 @@ function isAlive(pid: number): boolean {
  * wins the race and the failure reads "Test timed out in 30000ms" with no cause; below it,
  * this throws its own error naming what never happened.
  */
-async function waitFor<T>(probe: () => T | undefined, timeoutMs = 20_000): Promise<T> {
+async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 20_000): Promise<T> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     const value = probe()
     if (value !== undefined)
       return value
     if (Date.now() > deadline)
-      throw new Error('waitFor timed out')
+      throw new Error(`waitFor timed out after ${timeoutMs}ms: ${what}`)
     await new Promise(resolve => setTimeout(resolve, 50))
   }
 }
@@ -162,7 +162,7 @@ describe('nanny', () => {
       stop: { signal: 'SIGTERM', killGroup: false, graceMs: 2000, killPortHolders: false },
     }, specPath, statePath)
 
-    const grandPid = await waitFor(() => {
+    const grandPid = await waitFor('the successor to write its pid file', () => {
       try {
         return Number.parseInt(fs.readFileSync(grandPidFile, 'utf8'), 10)
       }
@@ -181,8 +181,8 @@ describe('nanny', () => {
 
     // The child is gone, so the nanny must be too — the successor it left behind is a
     // different process, with its own pipes, and is not this nanny's to hold open.
-    await waitFor(() => readNannyState(statePath)?.lastExit !== undefined ? true : undefined)
-    await waitFor(() => isAlive(nannyPid) ? undefined : true)
+    await waitFor('the nanny to record its last exit', () => readNannyState(statePath)?.lastExit !== undefined ? true : undefined)
+    await waitFor('the nanny process to exit', () => isAlive(nannyPid) ? undefined : true)
     expect(isAlive(grandPid)).toBe(true)
   })
 
@@ -224,12 +224,12 @@ describe('nanny', () => {
       stop: { signal: 'SIGTERM', killGroup: false, graceMs: 2000, killPortHolders: false },
     }, specPath, statePath)
 
-    await waitFor(() => linesOf(logFile).some(line => line.text === 'hello') ? true : undefined)
-    await waitFor(() => linesOf(logFile).some(line => line.text === 'careful' && line.stream === 'stderr') ? true : undefined)
+    await waitFor('the child\'s stdout to reach the log', () => linesOf(logFile).some(line => line.text === 'hello') ? true : undefined)
+    await waitFor('the child\'s stderr to reach the log', () => linesOf(logFile).some(line => line.text === 'careful' && line.stream === 'stderr') ? true : undefined)
     // The spec holds expanded secrets, so it must not outlive the spawn that read it.
-    await waitFor(() => fs.existsSync(specPath) ? undefined : true)
+    await waitFor('the spawn spec to be consumed and swept', () => fs.existsSync(specPath) ? undefined : true)
 
-    const state = await waitFor(() => readNannyState(statePath) ?? undefined)
+    const state = await waitFor('the nanny state file to appear', () => readNannyState(statePath) ?? undefined)
     expect(state.serverId).toBe('keep')
     expect(state.nannyPid).toBe(nannyPid)
     expect(state.childPid).not.toBeNull()
@@ -254,19 +254,19 @@ describe('nanny', () => {
       args: ['-e', 'setInterval(() => {}, 1000)'],
     }, specPath, statePath)
 
-    const state = await waitFor(() => readNannyState(statePath) ?? undefined)
+    const state = await waitFor('the nanny state file to appear', () => readNannyState(statePath) ?? undefined)
     const childPid = state.childPid
     if (childPid === null)
       throw new Error('the nanny recorded no child')
 
     process.kill(nannyPid, 'SIGTERM')
 
-    const exit = await waitFor(() => readNannyState(statePath)?.lastExit ?? undefined)
+    const exit = await waitFor('the nanny to record an exit', () => readNannyState(statePath)?.lastExit ?? undefined)
     expect(exit.signal).toBe('SIGTERM')
     expect(exit.runtimeMs).toBeGreaterThan(0)
     expect(linesOf(logFile).some(line => line.text.includes('exited with signal SIGTERM'))).toBe(true)
-    await waitFor(() => isAlive(childPid) ? undefined : true)
-    await waitFor(() => isAlive(nannyPid) ? undefined : true)
+    await waitFor('the child process to exit', () => isAlive(childPid) ? undefined : true)
+    await waitFor('the nanny process to exit', () => isAlive(nannyPid) ? undefined : true)
   })
 
   it.runIf(process.platform !== 'win32')('never leaves a child behind when the stop beats the spawn', async () => {
@@ -281,11 +281,11 @@ describe('nanny', () => {
     const nannyPid = await startNanny(baseSpec(dir), specPath, statePath)
     process.kill(nannyPid, 'SIGTERM')
 
-    await waitFor(() => isAlive(nannyPid) ? undefined : true)
+    await waitFor('the nanny process to exit', () => isAlive(nannyPid) ? undefined : true)
     const state = readNannyState(statePath)
     if (state?.childPid != null) {
       expect(state.lastExit?.signal).toBe('SIGTERM')
-      await waitFor(() => isAlive(state.childPid!) ? undefined : true)
+      await waitFor('the adopted child to exit', () => isAlive(state.childPid!) ? undefined : true)
     }
   })
 
@@ -306,7 +306,7 @@ describe('nanny', () => {
       stop: { signal: 'SIGTERM', killGroup: false, graceMs: 2000, killPortHolders: false },
     }, specPath, statePath)
 
-    const exit = await waitFor(() => readNannyState(statePath)?.lastExit ?? undefined)
+    const exit = await waitFor('the nanny to record an exit', () => readNannyState(statePath)?.lastExit ?? undefined)
     // Both null is the panel's "never got off the ground".
     expect(exit.code).toBeNull()
     expect(exit.signal).toBeNull()
