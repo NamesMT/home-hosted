@@ -49,3 +49,18 @@ export function ddnsConfigEquals(a: DdnsConfig | DraftConfig | null, b: DdnsConf
     return a === b
   return JSON.stringify(toDdnsConfig(a)) === JSON.stringify(toDdnsConfig(b))
 }
+
+/** The schema's own defaults for the two required numbers, in one place. */
+export const DDNS_DEFAULTS = { intervalMs: 300000, ttl: 1 } as const
+
+/**
+ * Which value a required DDNS number should actually hold.
+ *
+ * `NumberField` reports `NaN` for a cleared box on a non-nullable field, and
+ * `JSON.stringify` turns that into `null` — which `ddnsConfigSchema` rejects, refusing the
+ * whole workspace-settings save rather than that one field. Fall back to the schema's
+ * default; the panel would have applied it anyway.
+ */
+export function requiredDdnsNumber(value: number | null, key: keyof typeof DDNS_DEFAULTS): number {
+  return value === null || Number.isNaN(value) ? DDNS_DEFAULTS[key] : value
+}

@@ -2,7 +2,7 @@
 import type { ListenerDraft } from '../src/lib/proxy'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { reactive } from 'vue'
+import { nextTick, reactive } from 'vue'
 import ListenerPanel from '../src/components/proxy/ListenerPanel.vue'
 import { UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT } from '../src/lib/proxy'
 
@@ -55,5 +55,42 @@ describe('the listener panel', () => {
   it('asks for the ACME e-mail only when a public hostname needs one', () => {
     expect(mountPanel(draft({ email: '' }), 'gitea.example.com').text()).toContain('An e-mail is needed')
     expect(mountPanel(draft({ email: 'me@example.com' }), null).text()).not.toContain('An e-mail is needed')
+  })
+})
+
+/**
+ * A cleared port box reports `NaN`, which used to be written straight into the draft and
+ * then rejected by the client's own `proxyPatchSchema` — the raw "httpPort must be a number
+ * (was NaN)" in the footer, and every other pending proxy edit lost with it. The ports are
+ * required, so an empty box keeps the last valid value.
+ */
+describe('clearing a port', () => {
+  it('does not write NaN into the draft', async () => {
+    const form = reactive(draft())
+    const wrapper = mountPanel(form)
+    await nextTick()
+
+    const portInput = wrapper.findAll('input[type="number"]')[0]!
+    expect((portInput.element as HTMLInputElement).value).toBe('80')
+    // Select-all then delete is the ordinary way to retype a value.
+    await portInput.setValue('')
+    await nextTick()
+
+    expect(Number.isNaN(form.httpPort as number)).toBe(false)
+    expect(form.httpPort).toBe(80)
+
+    wrapper.unmount()
+  })
+
+  it('accepts a new valid port', async () => {
+    const form = reactive(draft())
+    const wrapper = mountPanel(form)
+    await nextTick()
+
+    await wrapper.findAll('input[type="number"]')[0]!.setValue('8080')
+    await nextTick()
+    expect(form.httpPort).toBe(8080)
+
+    wrapper.unmount()
   })
 })

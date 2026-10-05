@@ -18,7 +18,7 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
-import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@/lib/ddns'
+import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '@/lib/ddns'
 import { formatAgo } from '@/lib/format'
 
 /**
@@ -111,6 +111,16 @@ function setOptional(target: DraftDomain, key: 'zone' | 'ttl', value: string | n
     delete target[key]
   else
     (target as Record<string, unknown>)[key] = value
+}
+
+/**
+ * A required numeric field the NumberField can report as empty. See
+ * `requiredDdnsNumber` for why a cleared box must not stay cleared.
+ */
+function setRequired(target: DraftConfig | null, key: 'intervalMs' | 'ttl', value: number | null): void {
+  if (target === null)
+    return
+  target[key] = requiredDdnsNumber(value, key)
 }
 
 /** Publishes the pending block to the page's patch; null means "nothing to save". */
@@ -290,8 +300,23 @@ defineExpose({ reload: load })
           hint="A pass runs on the interval below; a provider is only called when the address actually changed."
           wide
         />
-        <NumberField v-model="draft.intervalMs" label="Check every (ms)" :min="60000" :step="60000" hint="60000 is one minute; the default is five." />
-        <NumberField v-model="draft.ttl" label="TTL (s)" :min="1" hint="1 means automatic where the provider supports it." />
+        <!-- Both keys are required, so a cleared box falls back to the schema's default
+             rather than storing null, which the panel rejects for the whole save. -->
+        <NumberField
+          :model-value="draft.intervalMs"
+          label="Check every (ms)"
+          :min="60000"
+          :step="60000"
+          hint="60000 is one minute; the default is five."
+          @update:model-value="value => setRequired(draft, 'intervalMs', value)"
+        />
+        <NumberField
+          :model-value="draft.ttl"
+          label="TTL (s)"
+          :min="1"
+          hint="1 means automatic where the provider supports it."
+          @update:model-value="value => setRequired(draft, 'ttl', value)"
+        />
         <ToggleSwitch v-model="draft.ipv4.enabled" label="Detect IPv4" hint="Needed for A records." />
         <ToggleSwitch v-model="draft.ipv6.enabled" label="Detect IPv6" hint="Needed for AAAA records." />
       </FieldGroup>

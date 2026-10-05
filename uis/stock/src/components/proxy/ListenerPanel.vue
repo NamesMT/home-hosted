@@ -43,6 +43,19 @@ function useStandard(): void {
   form.value.httpPort = 80
   form.value.httpsPort = 443
 }
+
+/**
+ * The ports are required numbers, and a cleared `NumberField` reports `NaN`. Written
+ * through, that made the client's own `proxyPatchSchema` throw "httpPort must be a number
+ * (was NaN)" before any request — no hint, and every pending proxy edit lost with it.
+ * Keep the last valid value while the box is empty.
+ */
+function keepPort(value: number | null, key: 'httpPort' | 'httpsPort'): void {
+  if (value === null || Number.isNaN(value))
+    return
+  if (value >= 1 && value <= 65535)
+    form.value[key] = Math.trunc(value)
+}
 </script>
 
 <template>
@@ -63,8 +76,22 @@ function useStandard(): void {
       wide
     />
 
-    <NumberField v-model="form.httpPort" label="HTTP port" :min="1" :max="65535" hint="ACME HTTP-01 challenges and the redirect to HTTPS." />
-    <NumberField v-model="form.httpsPort" label="HTTPS port" :min="1" :max="65535" hint="Where certificates are served." />
+    <NumberField
+      :model-value="form.httpPort"
+      label="HTTP port"
+      :min="1"
+      :max="65535"
+      hint="ACME HTTP-01 challenges and the redirect to HTTPS."
+      @update:model-value="value => keepPort(value, 'httpPort')"
+    />
+    <NumberField
+      :model-value="form.httpsPort"
+      label="HTTPS port"
+      :min="1"
+      :max="65535"
+      hint="Where certificates are served."
+      @update:model-value="value => keepPort(value, 'httpsPort')"
+    />
 
     <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
       <AppButton size="xs" variant="secondary" @click="useFallback">

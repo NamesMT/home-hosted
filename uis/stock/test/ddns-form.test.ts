@@ -3,7 +3,7 @@ import { ddnsConfigSchema } from '@shared/contracts'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { reactive } from 'vue'
-import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@/lib/ddns'
+import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '@/lib/ddns'
 
 function config(): DdnsConfig {
   const parsed = ddnsConfigSchema({
@@ -75,5 +75,32 @@ describe('toDdnsConfig', () => {
   it('treats null as "nothing pending"', () => {
     expect(ddnsConfigEquals(null, null)).toBe(true)
     expect(ddnsConfigEquals(config(), null)).toBe(false)
+  })
+})
+
+/**
+ * `intervalMs` and `ttl` are required by the schema, but a non-nullable `NumberField`
+ * reports `NaN` for a cleared box — `JSON.stringify` turns that into `null`, and the panel
+ * refused the WHOLE workspace-settings save for it. This is the rule the section's setter
+ * applies.
+ */
+describe('requiredDdnsNumber', () => {
+  it('falls back to the schema default for an emptied field', () => {
+    expect(requiredDdnsNumber(Number.NaN, 'intervalMs')).toBe(300000)
+    expect(requiredDdnsNumber(Number.NaN, 'ttl')).toBe(1)
+    expect(requiredDdnsNumber(null, 'ttl')).toBe(1)
+  })
+
+  it('keeps a value the person actually typed', () => {
+    expect(requiredDdnsNumber(60000, 'intervalMs')).toBe(60000)
+    expect(requiredDdnsNumber(3600, 'ttl')).toBe(3600)
+  })
+
+  it('produces a body the schema accepts, where null would not', () => {
+    // The whole point: a NaN written through becomes `null` in the body, and that is what
+    // the panel rejects — taking the entire workspace-settings save with it.
+    const valid = { enabled: true, intervalMs: 300000, ttl: requiredDdnsNumber(Number.NaN, 'ttl') }
+    expect(JSON.parse(JSON.stringify(valid)).ttl).toBe(1)
+    expect(JSON.parse(JSON.stringify({ ...valid, ttl: Number.NaN })).ttl).toBeNull()
   })
 })
