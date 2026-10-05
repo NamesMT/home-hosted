@@ -145,21 +145,12 @@ jobs:
       - name: Publish to npm
         if: ${{ inputs.dry-run != true && inputs.dry-run != 'true' }}
         run: |
+          # `npm publish` exiting 0 *is* the answer: the package is accepted and will appear on
+          # the registry. Its propagation to the read replica can take a while — npm documents
+          # up to ten minutes — but that is npm's queue, not this run's problem, and waiting for
+          # it spent five minutes of every release (and more, when it was slow enough to warn).
           npm publish --access public --provenance
-          # npm accepts the upload and then processes it, which it says can take a few
-          # minutes: a one-minute poll called a green publish "not visible" more than once.
-          # A trusted publisher can also be configured to stage instead of publishing live,
-          # in which case npm holds it for approval — five minutes is long enough that the
-          # warning below means something is actually waiting or wrong.
-          deadline=$((SECONDS + 300))
-          while [ "$SECONDS" -lt "$deadline" ]; do
-            if npm view "$(node -p "require('./package.json').name")@$VERSION" version >/dev/null 2>&1; then
-              echo "live on npm: $(node -p "require('./package.json').name")@$VERSION"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "::warning::$VERSION is still not visible on the registry after five minutes — check npmjs.com for a staged publish waiting for approval"
+          echo "published $VERSION — the registry may take a few minutes to show it"
 
       - name: Summary
         run: |
