@@ -1,8 +1,11 @@
 import type { ProxyRouteView } from '@shared/contracts'
+import { proxyPatchSchema } from '@shared/contracts'
+import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import {
   CERTIFICATE_STATE_META,
   certificateTitle,
+  keepPort,
   routeCertificate,
   slugifyCertificateId,
   uniqueCertificateId,
@@ -58,5 +61,41 @@ describe('the certificate list', () => {
   it('shows the label, and the id when there is none', () => {
     expect(certificateTitle({ id: 'home', label: 'Home wildcard' })).toBe('Home wildcard')
     expect(certificateTitle({ id: 'home', label: '  ' })).toBe('home')
+  })
+})
+
+/**
+ * `v-model.number` writes an empty **string** when a port box is cleared — not a number and
+ * not null. That string reached `patchProxy`'s own `proxyPatchSchema`, which rejected the
+ * whole patch with "httpPort must be a number (was a string)" before sending anything, so
+ * clearing one port to retype it lost every other pending proxy edit. Ordinary editing.
+ */
+describe('keepPort', () => {
+  it('keeps the last valid port while the box is empty', () => {
+    expect(keepPort('', 80)).toBe(80)
+    expect(keepPort('', 443)).toBe(443)
+    expect(keepPort('abc', 80)).toBe(80)
+    expect(keepPort(null, 80)).toBe(80)
+    expect(keepPort(undefined, 80)).toBe(80)
+  })
+
+  it('refuses a value the schema would refuse', () => {
+    expect(keepPort('0', 80)).toBe(80)
+    expect(keepPort('70000', 80)).toBe(80)
+    expect(keepPort('-1', 80)).toBe(80)
+  })
+
+  it('takes a valid port, as a string or a number', () => {
+    expect(keepPort('8080', 80)).toBe(8080)
+    expect(keepPort(8443, 443)).toBe(8443)
+    // The input reports an integer; a float is truncated rather than sent.
+    expect(keepPort('8080.7', 80)).toBe(8080)
+  })
+
+  it('produces a body the client-side schema accepts', () => {
+    // This is the point: the draft is validated by `proxyPatchSchema` before the request.
+    const draft = { httpPort: keepPort('', 80), httpsPort: keepPort('8080', 443) }
+    expect(draft).toEqual({ httpPort: 80, httpsPort: 8080 })
+    expect(proxyPatchSchema(draft) instanceof type.errors).toBe(false)
   })
 })

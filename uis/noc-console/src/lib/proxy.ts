@@ -203,6 +203,20 @@ export function parseResolvers(value: string): string[] {
 }
 
 /**
+ * Which port a listener field should actually hold, given what its input reported.
+ *
+ * `v-model.number` writes an empty **string** when the box is cleared — not a number and not
+ * null — and that string reached `patchProxy`'s own `proxyPatchSchema`, which rejects the
+ * whole patch with "httpPort must be a number (was a string)" before sending anything, taking
+ * every other pending proxy edit with it. Clearing a box to retype a value is ordinary, so
+ * keep the last valid port while it is empty.
+ */
+export function keepPort(value: unknown, current: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535 ? Math.trunc(parsed) : current
+}
+
+/**
  * The account picker's options. The empty value is the single-account fallback, so a
  * one-account setup needs no per-route choice; an account that cannot answer a
  * challenge is still listed, marked, so a person sees why it is not a candidate.

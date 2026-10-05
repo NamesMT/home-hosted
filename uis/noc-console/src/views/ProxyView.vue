@@ -17,6 +17,7 @@ import {
   firstPublicHost,
   formatBytes,
   isPrivilegedPort,
+  keepPort,
   proxyPatch,
   requiresEmail,
   retryInLabel,
@@ -53,6 +54,11 @@ const busy = ref<ProxyAction | null>(null)
 
 const form = ref<ListenerDraft>({ enabled: false, httpPort: 80, httpsPort: 443, email: '', staging: false, dns01: false, resolvers: '' })
 const routes = ref<RouteDraft[]>([])
+
+/** `keepPort` owns the rule; this reads the input and writes the draft. */
+function setPort(value: unknown, key: 'httpPort' | 'httpsPort'): void {
+  form.value[key] = keepPort(value, form.value[key])
+}
 
 const dialogOpen = ref(false)
 const editing = ref<RouteDraft | null>(null)
@@ -453,13 +459,27 @@ function removeCertificate(certificate: ProxyCertificateView): void {
 
                 <label class="field">
                   <span class="field__label">http port</span>
-                  <input v-model.number="form.httpPort" inputmode="numeric" type="number" min="1" max="65535">
+                  <input
+                    :value="form.httpPort"
+                    inputmode="numeric"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    @input="setPort(($event.target as HTMLInputElement).value, 'httpPort')"
+                  >
                   <span class="field__hint">acme http-01 and the redirect to https</span>
                 </label>
 
                 <label class="field">
                   <span class="field__label">https port</span>
-                  <input v-model.number="form.httpsPort" inputmode="numeric" type="number" min="1" max="65535">
+                  <input
+                    :value="form.httpsPort"
+                    inputmode="numeric"
+                    type="number"
+                    min="1"
+                    max="65535"
+                    @input="setPort(($event.target as HTMLInputElement).value, 'httpsPort')"
+                  >
                   <span class="field__hint">where certificates are served</span>
                 </label>
 
