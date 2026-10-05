@@ -1,6 +1,7 @@
+import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { emptyHostView, memoryInfo, sampleHost } from '#src/providers/host'
+import { availableMemoryBytes, emptyHostView, macAvailableBytes, memoryInfo, sampleHost } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -136,5 +137,104 @@ describe('host alerts that need a real reading', () => {
     // The threshold is disabled, not the whole sampler: an unrelated breach still reports.
     const strict = await sampleHost(config({ diskPaths: [], swapUsedPercent: 0, memoryUsedPercent: 0, loadPerCpu: 1e9 }), t => t)
     expect(swapAlerts(strict.alerts)).toEqual([])
+  })
+})
+
+/**
+ * macOS memory, which read as 90%+ used on a healthy Mac.
+ *
+ * `os.freemem()` is libuv's `free_count` alone on Darwin, while macOS keeps as much RAM as
+ * it can in *inactive* and *speculative* pages — file cache it drops on demand. A user of
+ * 0.7.3 reported a Mac "always at 90+ RAM", and that was this: the same fallback that is
+ * correct on Linux (where libuv reads `MemAvailable`) is wrong there.
+ *
+ * The parser is tested against real `vm_stat` text because no Linux runner can execute the
+ * macOS branch — the page size in particular is 16384 on Apple silicon, not 4096.
+ */
+describe('macAvailableBytes', () => {
+  const VM_STAT = [
+    'Mach Virtual Memory Statistics: (page size of 16384 bytes)',
+    'Pages free:                              100000.',
+    'Pages active:                           1000000.',
+    'Pages inactive:                          500000.',
+    'Pages speculative:                        25000.',
+    'Pages throttled:                              0.',
+    'Pages wired down:                        200000.',
+    'Pages purgeable:                          10000.',
+    '"Translation faults":                  999999999.',
+  ].join('\n')
+
+  it('counts free, inactive, speculative and purgeable at the size vm_stat reports', () => {
+    // 100000 + 500000 + 25000 + 10000 = 635000 pages of 16384 bytes.
+    expect(macAvailableBytes(VM_STAT)).toBe(635_000 * 16384)
+  })
+
+  it('does not count active or wired pages as available', () => {
+    // They are genuinely in use; counting them would flip the bug the other way.
+    const withHugeActive = VM_STAT.replace('Pages active:                           1000000.', 'Pages active:                          99999999.')
+    expect(macAvailableBytes(withHugeActive)).toBe(635_000 * 16384)
+  })
+
+  it('falls back for a page size when the header is absent', () => {
+    // Older `vm_stat` printed no header; the count still has to be usable.
+    const headerless = VM_STAT.split('\n').slice(1).join('\n')
+    const parsed = macAvailableBytes(headerless)
+    // Either a real page size was found, or the reading is refused — never a wrong number
+    // derived from assuming 4096.
+    if (parsed !== null)
+      expect(parsed).toBe(635_000 * getconfPageSize())
+  })
+
+  it('refuses a reading it cannot take, rather than inventing a percentage', () => {
+    expect(macAvailableBytes('')).toBeNull()
+    expect(macAvailableBytes('Mach Virtual Memory Statistics: (page size of 4096 bytes)')).toBeNull()
+  })
+
+  it('reports "unknown" instead of 100% used when the reading fails', () => {
+    // The percentage must never be fabricated from a failed read.
+    expect(macAvailableBytes('nothing useful here')).toBeNull()
+  })
+})
+
+/** The same value `getconf PAGESIZE` gives, read here so the test matches the code path. */
+function getconfPageSize(): number {
+  // eslint-disable-next-line ts/no-require-imports
+  const { execFileSync } = require('node:child_process') as typeof import('node:child_process')
+  return Number.parseInt(execFileSync('getconf', ['PAGESIZE'], { encoding: 'utf8' }).trim(), 10)
+}
+
+/**
+ * Which reader each platform's fallback uses — the decision that *was* the bug.
+ *
+ * `memoryInfo` cannot exercise this on a Linux runner: `/proc/meminfo` answers first, so the
+ * fallback never runs and a test of the whole function proves nothing about it. This is the
+ * seam, and getting it wrong is what made a healthy Mac report 90%+ used.
+ */
+describe('availableMemoryBytes', () => {
+  const VM_STAT = [
+    'Mach Virtual Memory Statistics: (page size of 16384 bytes)',
+    'Pages free:                              100000.',
+    'Pages inactive:                          500000.',
+    'Pages speculative:                        25000.',
+    'Pages purgeable:                          10000.',
+  ].join('\n')
+
+  it('uses the OS reading on Linux and Windows', () => {
+    expect(availableMemoryBytes('linux', 12_345)).toBe(12_345)
+    expect(availableMemoryBytes('win32', 12_345)).toBe(12_345)
+  })
+
+  it('uses vm_stat on macOS, and never the free-page count', () => {
+    // This is the assertion the old code would fail: `os.freemem()` is `free_count` alone,
+    // which excludes the inactive and speculative pages macOS calls reclaimable.
+    const available = availableMemoryBytes('darwin', 100_000 * 16384, VM_STAT)
+    expect(available).toBe(635_000 * 16384)
+    expect(available, 'the macOS path took os.freemem()').not.toBe(100_000 * 16384)
+  })
+
+  it('reports unknown rather than falling back to a wrong number', () => {
+    // A failed vm_stat read must not silently become "everything is used", which is the
+    // symptom being fixed.
+    expect(availableMemoryBytes('darwin', 100_000 * 16384, '')).toBeNull()
   })
 })

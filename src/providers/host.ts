@@ -1,5 +1,5 @@
 import type { HostConfig, HostView } from '#src/shared/contracts'
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -45,7 +45,20 @@ async function swapUsedPercent(): Promise<number> {
   return 0
 }
 
-/** `/proc/meminfo` counts cache as available, which `os.freemem()` does not. */
+/**
+ * Memory used, as a percentage of what the machine actually has.
+ *
+ * The definition matters more than the arithmetic, and it differs per platform:
+ *
+ * - Linux: `/proc/meminfo`'s `MemAvailable` already excludes cache, because Linux counts
+ *   page cache as reclaimable. `os.freemem()` happens to read the same value here.
+ * - macOS: **`os.freemem()` is wrong for this.** libuv reports `host_statistics64`'s
+ *   `free_count` alone, while macOS keeps as much RAM as it can in *inactive* and
+ *   speculative* pages — file cache it drops on demand. A perfectly healthy Mac therefore
+ *   reads as 90%+ used, which is the report a user brought back from a 0.7.3 panel. Read
+ *   `vm_stat` and count what macOS itself counts as available.
+ * - Windows: `os.freemem()` is the free physical page count, which is the ordinary reading.
+ */
 export function memoryInfo(): { memoryUsedPercent: number, swapUsedPercent: number } {
   try {
     const info = fs.readFileSync('/proc/meminfo', 'utf8')
@@ -62,8 +75,84 @@ export function memoryInfo(): { memoryUsedPercent: number, swapUsedPercent: numb
   }
   catch {
     const total = os.totalmem()
-    const free = os.freemem()
-    return { memoryUsedPercent: total > 0 ? ((total - free) / total) * 100 : 0, swapUsedPercent: 0 }
+    const available = availableMemoryBytes(process.platform, os.freemem())
+    return {
+      memoryUsedPercent: total > 0 && available !== null ? Math.max(0, Math.min(100, ((total - available) / total) * 100)) : 0,
+      swapUsedPercent: 0,
+    }
+  }
+}
+
+/**
+ * Which "available memory" reading a platform's fallback should use.
+ *
+ * Split out from `memoryInfo` because the branch it decides is otherwise unreachable off
+ * macOS: Linux answers from `/proc/meminfo` first, so the fallback never runs there and no
+ * Linux test can prove which reader was chosen. Taking the platform and the OS reading as
+ * arguments makes the decision testable on any runner, which matters — using the wrong
+ * reader here is the whole macOS bug.
+ */
+export function availableMemoryBytes(platform: NodeJS.Platform, osFree: number, vmStat?: string): number | null {
+  if (platform !== 'darwin')
+    return osFree
+  return macAvailableBytes(vmStat)
+}
+
+/**
+ * What macOS counts as available: free + inactive + speculative pages.
+ *
+ * `vm_stat` reports pages, so the page size is needed — and it is not always 4096 (Apple
+ * silicon uses 16384 for the physical page size, and `vm_stat` has printed a `page size of`
+ * header since macOS 11). Both are handled: the header when it is there, `getpagesize` when
+ * it is not.
+ *
+ * Returns `null` when the reading cannot be taken, so the caller reports "unknown" rather
+ * than inventing a percentage.
+ */
+export function macAvailableBytes(vmStat?: string): number | null {
+  try {
+    const text = vmStat ?? execFileSync('vm_stat', { timeout: 3000, encoding: 'utf8' })
+    const pageSize = Number.parseInt(/page size of (\d+) bytes/.exec(text)?.[1] ?? '', 10)
+
+    const pages = (label: string): number => {
+      // "Pages free:                           12345."
+      const found = new RegExp(`^${label}:\\s+(\\d+)`, 'm').exec(text)?.[1]
+      return Number.parseInt(found ?? '', 10)
+    }
+
+    // Without the header, ask the OS: `sysconf(_SC_PAGESIZE)` through node's own binding.
+    const size = Number.isFinite(pageSize) && pageSize > 0 ? pageSize : getPageSize()
+    if (!Number.isFinite(size) || size <= 0)
+      return null
+
+    let totalPages = 0
+    let sawAny = false
+    // Free plus everything the OS will hand back without swapping. `purgeable` is counted
+    // by macOS as reclaimable, and omitting it under-reports available memory on a Mac
+    // running an app that marks memory purgeable.
+    for (const label of ['Pages free', 'Pages inactive', 'Pages speculative', 'Pages purgeable']) {
+      const value = pages(label)
+      if (Number.isFinite(value)) {
+        totalPages += value
+        sawAny = true
+      }
+    }
+
+    return sawAny ? totalPages * size : null
+  }
+  catch {
+    return null
+  }
+}
+
+/** The OS page size, without adding a dependency for one sysconf. */
+function getPageSize(): number {
+  try {
+    // `getconf` is POSIX and present on every macOS; it prints the same value vm_stat uses.
+    return Number.parseInt(execFileSync('getconf', ['PAGESIZE'], { timeout: 3000, encoding: 'utf8' }).trim(), 10)
+  }
+  catch {
+    return Number.NaN
   }
 }
 
