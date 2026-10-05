@@ -5,6 +5,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { nextTick, ref } from 'vue'
 import RouteDialog from '../src/components/proxy/RouteDialog.vue'
+import { applyRouteDraft } from '../src/lib/proxy'
 
 /**
  * Editing an existing route hands the dialog a row of the page's reactive route
@@ -100,5 +101,52 @@ describe('the route dialog', () => {
 
     const picker = dialog.findAll('select').find(select => select.findAll('option').some(option => option.text().includes('Home zone')))
     expect(picker).toBeUndefined()
+  })
+})
+
+/**
+ * A state frame arriving while the dialog is open re-clones the route list, and
+ * `cloneRoutes` mints a fresh `key` per row. Matching the edited row by `key` then found
+ * nothing, so the edit was dropped and the dialog closed as if it had saved.
+ */
+describe('applying a dialog result', () => {
+  const route = (id: string, host: string): RouteDraft => ({
+    id,
+    host,
+    target: 'external',
+    workspace: '',
+    server: '',
+    url: 'http://10.0.0.5:8080',
+    path: '',
+    tls: 'off',
+    enabled: true,
+    dnsAccount: '',
+    key: `row-${id}`,
+  })
+
+  it('edits the row it was opened from, even after the list is re-cloned', () => {
+    const held = route('gitea', 'git.example.com')
+    // The list as it looks after one live frame: same ids, brand-new row keys — which is
+    // exactly what `cloneRoutes` produces.
+    const recloned = [{ ...route('gitea', 'git.example.com'), key: 'fresh-1' }, { ...route('media', 'media.example.com'), key: 'fresh-2' }]
+    expect(recloned[0]!.key).not.toBe(held.key)
+
+    const next = { ...held, host: 'git2.example.com' }
+    const applied = applyRouteDraft(recloned, held, next)
+
+    expect(applied.map(entry => entry.host)).toEqual(['git2.example.com', 'media.example.com'])
+    // The other rows keep their own identity.
+    expect(applied[1]!.id).toBe('media')
+  })
+
+  it('appends when the dialog is adding, not editing', () => {
+    const added = applyRouteDraft([route('gitea', 'git.example.com')], null, route('media', 'media.example.com'))
+    expect(added.map(entry => entry.id)).toEqual(['gitea', 'media'])
+  })
+
+  it('leaves the list alone when the edited id is gone', () => {
+    // The row was deleted underneath the dialog: nothing to replace, and nothing lost.
+    const applied = applyRouteDraft([route('media', 'media.example.com')], route('gitea', 'git.example.com'), route('gitea', 'new.example.com'))
+    expect(applied.map(entry => entry.id)).toEqual(['media'])
   })
 })

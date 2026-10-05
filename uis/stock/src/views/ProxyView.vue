@@ -14,6 +14,7 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
 import * as api from '@/lib/api'
 import {
+  applyRouteDraft,
   cloneListenerDraft,
   cloneRoutes,
   firstPublicHost,
@@ -197,10 +198,11 @@ function openEdit(route: RouteDraft): void {
   dialogOpen.value = true
 }
 
+/**
+ * Matched by route `id`, not by the row's `key` — see `applyRouteDraft`.
+ */
 function applyRoute(next: RouteDraft): void {
-  routes.value = editing.value === null
-    ? [...routes.value, next]
-    : routes.value.map(route => (route.key === editing.value?.key ? next : route))
+  routes.value = applyRouteDraft(routes.value, editing.value, next)
   editing.value = null
 }
 

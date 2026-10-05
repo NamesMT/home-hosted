@@ -226,6 +226,21 @@ export function cloneRoutes(routes: readonly ProxyRoute[]): RouteDraft[] {
 }
 
 /**
+ * Applies a dialog result to the draft list.
+ *
+ * `edited` is matched by route **id**, never by the row's `key`: a state frame arriving
+ * while the dialog is open re-clones the list and mints a fresh key per row, so the row
+ * the dialog was opened from no longer matches by key — and the edit was then dropped
+ * with the dialog closing as if it had saved. An id survives the re-clone. `null` means
+ * the dialog is adding, which is why the add case is not "no match found".
+ */
+export function applyRouteDraft(routes: readonly RouteDraft[], edited: RouteDraft | null, next: RouteDraft): RouteDraft[] {
+  if (edited === null)
+    return [...routes, next]
+  return routes.map(route => (route.id === edited.id ? next : route))
+}
+
+/**
  * The wire shape of a route: a row key is a UI detail, and the schema rejects
  * undeclared keys.
  */
