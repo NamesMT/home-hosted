@@ -134,6 +134,40 @@ describe('runLogs', () => {
     const root = home(null)
     expect(await capture(root, {})).toContain('no output yet')
   })
+
+  /**
+   * A *partly* numeric count is not a typo, and must not become a number nobody asked for.
+   *
+   * An unreadable count falls back to the default on purpose. But `Number.parseInt` also accepts a
+   * prefix, so `1e3` meant 1 line where the caller reasonably meant 1000, and `0x10` parsed as 0 —
+   * the "whole log" sentinel, so a bounded request became unbounded. The whole trimmed argument now
+   * has to be a decimal integer.
+   */
+  it('falls back to the default rather than a partial parse', async () => {
+    const root = home(`${Array.from({ length: 200 }, (_, i) => `line-${i}`).join('\n')}\n`)
+
+    for (const raw of ['1e3', '0x10', '12abc', '3.7']) {
+      const printed = (await capture(root, { lines: raw })).split('\n').filter(line => line.startsWith('line-')).length
+      expect(printed, `--lines ${raw} printed ${printed} lines`).toBe(50)
+    }
+  })
+
+  it('still honours a real count, `all`, and a negative as everything', async () => {
+    const root = home(`${Array.from({ length: 200 }, (_, i) => `line-${i}`).join('\n')}\n`)
+    const printed = async (raw: string): Promise<number> =>
+      (await capture(root, { lines: raw })).split('\n').filter(line => line.startsWith('line-')).length
+
+    expect(await printed('5')).toBe(5)
+    expect(await printed('150')).toBe(150)
+    // `0x10` must not reach the "everything" branch that a negative legitimately reaches.
+    expect(await printed('-1')).toBe(200)
+    expect(await printed('all')).toBe(200)
+  })
+
+  it('accepts surrounding whitespace on a real count', async () => {
+    // A shell can hand over a padded value; that is still the number it looks like.
+    expect(await capture(home('a\nb\nc\n'), { lines: ' 2 ' })).toContain('c')
+  })
 })
 
 describe('followLog', () => {
