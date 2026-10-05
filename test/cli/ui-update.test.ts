@@ -411,3 +411,58 @@ describe('autoUpdateOfficialUi', () => {
     expect(installedMeta(root).tag).toBe('v1.0.0')
   })
 })
+
+/**
+ * `uiUpdate()` is the CLI entry: it resolves `$HHOSTED_HOME` at import time, so each
+ * case points it at its own temp home and re-imports.
+ *
+ * This exists because `UiService.install()` records the tag the *caller* names, and
+ * this caller is the one that forgot to: the archive's own `tag` is the previous
+ * release at best (a zip is built before its release is cut), and a panel that
+ * recorded it re-downloaded and re-installed the same UI on every boot.
+ */
+describe('uiUpdate', () => {
+  const savedHome = process.env.HHOSTED_HOME
+
+  afterEach(() => {
+    if (savedHome === undefined)
+      delete process.env.HHOSTED_HOME
+    else
+      process.env.HHOSTED_HOME = savedHome
+    vi.resetModules()
+  })
+
+  /** A terminal-less run: `--tag` names the release, so nothing has to be chosen. */
+  const io = {
+    write: () => {},
+    prompt: async () => '',
+    style: { bold: (text: string) => text, dim: (text: string) => text, green: (text: string) => text },
+  }
+
+  it('records the release it fetched, not the tag the archive shipped with', async () => {
+    const root = tempDir('hh-ui-cli-')
+    process.env.HHOSTED_HOME = root
+    fs.mkdirSync(path.join(root, '.hh', '.ui'), { recursive: true })
+    // A UI whose own metadata names an older tag than the release being installed.
+    fs.writeFileSync(path.join(root, '.hh', '.ui', 'ui.json'), JSON.stringify({ name: 'noc-console', repo: OWN_REPO, tag: 'v0.6.0', asset: 'ui.zip' }))
+    fs.writeFileSync(path.join(root, '.hh', '.ui', 'index.html'), '<!doctype html><title>old</title>')
+
+    // The downloaded zip carries the build-time tag, which is a release behind.
+    const zipPath = await uiZip('ui.zip')
+    const archive = fs.readFileSync(zipPath)
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/releases/'))
+        return new Response(JSON.stringify({ tag_name: 'v1.2.3', assets: [{ name: 'ui.zip', url: 'https://api.github.com/asset/1' }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response(archive, { status: 200 })
+    })
+
+    vi.resetModules()
+    const { uiUpdate } = await import('#src/cli/ui-update')
+    await uiUpdate(['--tag', 'v1.2.3'], io)
+
+    // The installed tag is the release, so the next boot sees it as current.
+    const installed = JSON.parse(fs.readFileSync(path.join(root, '.hh', '.ui', 'ui.json'), 'utf8')) as Record<string, unknown>
+    expect(installed.tag).toBe('v1.2.3')
+  })
+})

@@ -362,7 +362,10 @@ async function installTag(
   try {
     const { UiService } = await import('#src/services/ui')
     const { hhDir: dataRoot } = await import('#src/helpers/paths')
-    const result = await new UiService({ dataRoot }).install(download.file, assetName)
+    // The release being fetched is the tag to record, never the one inside the archive:
+    // a zip is built before its release is cut, so it carries the previous tag at best,
+    // and a panel that records that re-installs the same UI on every boot.
+    const result = await new UiService({ dataRoot }).install(download.file, assetName, release.tag)
 
     if (!result.ok)
       throw new Error(`nothing was installed: ${result.error}`)
