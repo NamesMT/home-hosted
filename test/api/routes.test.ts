@@ -497,17 +497,31 @@ describe('notifications route', () => {
 describe('tls route', () => {
   let cert = ''
   let key = ''
-  let openssl = true
+
+  /**
+   * Detected at module load, not in `beforeAll`: `it.runIf` is evaluated when the suite is
+   * collected, before any hook runs. The previous shape returned early inside the test, which
+   * vitest reports as a *pass* — so a machine without openssl claimed to have exercised the
+   * route. A skip says what actually happened.
+   */
+  const openssl = ((): boolean => {
+    try {
+      execFileSync('openssl', ['version'], { stdio: 'ignore' })
+      return true
+    }
+    catch {
+      return false
+    }
+  })()
 
   beforeAll(async () => {
+    if (!openssl)
+      return
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-api-tls-'))
     try {
       execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(dir, 'key.pem'), '-out', path.join(dir, 'cert.pem'), '-days', '3', '-subj', '/CN=hh.test'], { stdio: 'ignore' })
       cert = await fs.promises.readFile(path.join(dir, 'cert.pem'), 'utf8')
       key = await fs.promises.readFile(path.join(dir, 'key.pem'), 'utf8')
-    }
-    catch {
-      openssl = false
     }
     finally {
       await fs.promises.rm(dir, { recursive: true, force: true })
@@ -525,10 +539,7 @@ describe('tls route', () => {
     expect(await response.json()).toMatchObject({ code: 'INVALID_CERTIFICATE' })
   })
 
-  it('stores a real pair and clears it again', async () => {
-    if (!openssl)
-      return
-
+  it.runIf(openssl)('stores a real pair and clears it again', async () => {
     const created = await fixture()
     const saved = await request(created.app, '/api/settings/tls', 'POST', { certificate: cert, privateKey: key })
     expect(saved.status).toBe(200)
@@ -539,10 +550,7 @@ describe('tls route', () => {
     expect(created.tls.present).toBe(false)
   })
 
-  it('rebuilds the listener after uploading while https is already on', async () => {
-    if (!openssl)
-      return
-
+  it.runIf(openssl)('rebuilds the listener after uploading while https is already on', async () => {
     const created = await fixture()
     created.settings.updateControl({ tls: { enabled: true } })
     let restarts = 0
