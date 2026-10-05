@@ -1,6 +1,27 @@
 # Changelog
 
 
+## v0.7.4
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.3...v0.7.4)
+
+### 🩹 Fixes
+
+- **nanny:** Arm the stop traps before the child exists ([ec61e16](https://github.com/NamesMT/home-hosted/commit/ec61e16))
+
+### 📖 Documentation
+
+- **README:** Revise README ([0086a64](https://github.com/NamesMT/home-hosted/commit/0086a64))
+
+### ✅ Tests
+
+- **panel:** Cover the real PanelService, and refresh the stale README media ([a031a61](https://github.com/NamesMT/home-hosted/commit/a031a61))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+- Trung Dang ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.3
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.2...v0.7.3)
