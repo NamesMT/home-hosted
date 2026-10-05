@@ -10,13 +10,20 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { serverKey } from '#src/services/events'
-import { freePortResultSchema, logQuerySchema, serverCreateSchema, serverPatchSchema, serverViewSchema } from '#src/shared/contracts'
+import { freePortResultSchema, logQuerySchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
 
 const idParam = type({ id: 'string >= 1' })
 /** Pending SSE writes per connection; log frames are dropped past it, state is not. */
 const MAX_PENDING_WRITES = 200
 const serverResponse = type({ server: serverViewSchema })
 const serversResponse = type({ servers: serverViewSchema.array() })
+/**
+ * A write answers the *stored* entry, not a view: `addServer`/`updateServer` return the
+ * `ServerConfig` they committed, which is flat and carries no live status. Declaring the
+ * view here was wrong and quietly misled clients — a consumer reading `server.config`
+ * off a create got `undefined` with no error anywhere.
+ */
+const storedServerResponse = type({ server: serverSchema })
 const okResponse = type({ ok: 'boolean' })
 const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
 
@@ -46,7 +53,7 @@ export function createServersRoute(deps: AppDeps) {
         tags: ['servers'],
         summary: 'Add a server to a workspace',
         responses: {
-          201: { description: 'Created', content: jsonBody(serverResponse) },
+          201: { description: 'Created', content: jsonBody(storedServerResponse) },
           400: ERROR_RESPONSES[400],
         },
       }),
@@ -258,7 +265,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .patch(
       '/:id',
-      describeRoute({ tags: ['servers'], summary: 'Edit a server', responses: { 200: { description: 'The server', content: jsonBody(serverResponse) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Edit a server', responses: { 200: { description: 'The server', content: jsonBody(storedServerResponse) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404] } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       validate('json', serverPatchSchema),

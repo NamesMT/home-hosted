@@ -2,7 +2,9 @@ import type { AppState } from '#src/shared/contracts'
 import type { Fixture } from './fixture'
 import fs from 'node:fs'
 import path from 'node:path'
+import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
+import { serverSchema } from '#src/shared/contracts'
 import { makeFixture, makeView } from './fixture'
 
 /**
@@ -430,6 +432,37 @@ describe('openapi document', () => {
       '/api/backups',
       '/healthz',
     ]))
+  })
+
+  /**
+   * The document is a promise to clients, so the shape it declares has to be the shape
+   * the route actually answers. A write returns the *stored* entry — flat, no `config`
+   * wrapper and no live status — while a read returns a view; declaring the view for both
+   * silently misled a consumer reading `server.config` off a create, which got `undefined`
+   * with no error anywhere.
+   */
+  it('declares the flat stored entry for a write, and the view for a read', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      paths: Record<string, { post?: { responses: Record<string, { content?: Record<string, { schema?: { properties?: Record<string, { properties?: Record<string, unknown>, required?: string[] }> } }> }> } }>
+    }
+
+    // What the document says the `server` field is.
+    const schema = spec.paths['/api/servers']!.post!.responses['201']!.content!['application/json']!.schema!
+    const declared = schema.properties!.server!
+    const declaredKeys = Object.keys(declared.properties ?? {})
+
+    // A view declares `config` (the entry nested inside it); the stored entry does not.
+    const response = await form(created.app, '/api/servers', 'POST', { id: 'web', command: 'node', args: ['x.js'] })
+    expect(response.status).toBe(201)
+    const { server } = await response.json() as { server: Record<string, unknown> }
+
+    // The document and the body must agree on which of the two shapes this is.
+    expect(declaredKeys.includes('config')).toBe(server.config !== undefined)
+    // …and the body is the flat stored entry, which the write really returns.
+    expect(server).not.toHaveProperty('config')
+    expect(server).toHaveProperty('command', 'node')
+    expect(serverSchema(server) instanceof type.errors).toBe(false)
   })
 })
 
