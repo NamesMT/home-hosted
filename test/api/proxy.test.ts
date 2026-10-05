@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { type } from 'arktype'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { isProcessAlive } from '#src/providers/port'
 import { proxyViewSchema } from '#src/shared/contracts'
 import { makeFixture } from './fixture'
@@ -41,17 +41,23 @@ interface ProxyBody {
   message?: string
 }
 
-/** A real self-signed pair, the way `tls.test.ts` makes one. */
-let openssl = true
-
-beforeAll(() => {
+/**
+ * A real self-signed pair, the way `tls.test.ts` makes one.
+ *
+ * Detected at module load, not in a hook: `it.runIf` is evaluated when the suite is collected,
+ * before `beforeAll` runs. The previous shape returned early inside each test, which vitest
+ * reports as a *pass* — so a machine without openssl claimed to have exercised the TLS routes.
+ * The repo's idiom is `it.runIf`; see the sibling fix in `tls.test.ts` and `routes.test.ts`.
+ */
+const openssl = ((): boolean => {
   try {
     execFileSync('openssl', ['version'], { stdio: 'ignore' })
+    return true
   }
   catch {
-    openssl = false
+    return false
   }
-})
+})()
 
 function certificateFor(host: string): { certificate: string, privateKey: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-proxy-cert-'))
@@ -244,9 +250,7 @@ describe('pOST /api/proxy/engine', () => {
 })
 
 describe('pUT /api/proxy/tls', () => {
-  it('keeps a pair while a route still serves it', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('keeps a pair while a route still serves it', async () => {
     const fixture = await makeApp()
     // An uploaded pair, covering the name a manual route will use.
     const pair = certificateFor('manual.example.com')
@@ -273,9 +277,7 @@ describe('pUT /api/proxy/tls', () => {
     expect(fixture.settings.proxy.certificates).toHaveLength(1)
   })
 
-  it('removes a pair once no route serves it', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('removes a pair once no route serves it', async () => {
     const fixture = await makeApp()
     await fixture.app.request('/api/proxy/certificates/mine', {
       method: 'PUT',
@@ -307,9 +309,7 @@ describe('pUT /api/proxy/tls', () => {
     expect(states).toEqual({ pub: 'pending', lan: 'local', plain: 'off' })
   })
 
-  it('refuses a pair that is not a certificate', async () => {
-    if (!openssl)
-      return
+  it.runIf(openssl)('refuses a pair that is not a certificate', async () => {
     const fixture = await makeApp()
     const response = await fixture.app.request('/api/proxy/certificates/mine', {
       method: 'PUT',
