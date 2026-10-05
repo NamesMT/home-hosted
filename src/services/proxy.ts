@@ -176,6 +176,8 @@ export interface ProxyServiceOptions {
   /** Test seams: the lifecycle steps that wait on a real engine. */
   waitReady?: () => Promise<boolean>
   chooseAdmin?: () => Promise<ProxyAdminTransport>
+  /** How long a stop waits for SIGTERM before escalating; shortened in tests. */
+  stopGraceMs?: number
   /**
    * The DNS account a hostname's DNS-01 challenge is written through, by
    * `<workspace>/<account>`. `null` means no account claims the name, so the
@@ -1620,13 +1622,17 @@ export class ProxyService {
           logger.warn(`proxy:    could not signal pid ${pid}`, error)
         }
       }
-      const deadline = Date.now() + 10_000
+      const deadline = Date.now() + (this.options.stopGraceMs ?? 10_000)
       while (Date.now() < deadline && pids.some(pid => isProcessAlive(pid)))
         await new Promise(resolve => setTimeout(resolve, 100))
-      const survivor = pids.find(pid => isProcessAlive(pid))
-      if (survivor !== undefined) {
+      // Every survivor, not just the first: a nanny and a child that both ignore
+      // SIGTERM left the second one holding :80/:443 while the state file, admin.json
+      // and applied.json were removed right after — a later boot had no record to
+      // stop it by, and the port preflight kept refusing on a pid the panel would
+      // not touch.
+      for (const pid of pids.filter(isProcessAlive)) {
         try {
-          process.kill(survivor, 'SIGKILL')
+          process.kill(pid, 'SIGKILL')
         }
         catch {
           // Already gone between the check and the signal.

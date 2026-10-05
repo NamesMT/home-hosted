@@ -217,6 +217,42 @@ describe('dNS-01 policy grouping', () => {
 })
 
 /**
+ * Two live processes that ignore SIGTERM, standing in for a nanny and its child. Each
+ * writes its pid only after the handler is installed, so a stop cannot race the spawn
+ * and reach a process that still dies on the default action.
+ */
+async function twoStubbornProcesses(dir: string): Promise<{ pids: number[], stop: () => void }> {
+  const launch = (name: string): number => {
+    const pidFile = path.join(dir, name)
+    const script = [
+      'process.on("SIGTERM", () => {})',
+      `require("node:fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid))`,
+      'setInterval(() => {}, 1000)',
+    ].join(';')
+    const child = spawn(process.execPath, ['-e', script], { stdio: 'ignore' })
+    return child.pid!
+  }
+  const pids = [launch('nanny.pid'), launch('child.pid')]
+  const deadline = Date.now() + 5000
+  while (Date.now() < deadline && !['nanny.pid', 'child.pid'].every(name => fs.existsSync(path.join(dir, name))))
+    await new Promise(resolve => setTimeout(resolve, 25))
+
+  return {
+    pids,
+    stop: () => {
+      for (const pid of pids) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        }
+        catch {
+          // Already dead.
+        }
+      }
+    },
+  }
+}
+
+/**
  * An engine that never answers. `exec` replaces the shell, so the kill reaches the
  * process that is actually sleeping.
  */
@@ -950,6 +986,39 @@ describe('proxyService', () => {
     const { service } = await harness()
     await expect(service.start()).rejects.toThrow('switched off')
     await expect(service.apply()).resolves.toBeUndefined()
+  })
+
+  it('kills every survivor of a stop, not just the first pid', async () => {
+    // A nanny and a child that both ignore SIGTERM: killing only `pids.find(...)`
+    // left the second one alive holding :80/:443, while the state file was removed
+    // right after — a later boot had no record to stop it by.
+    // A short grace: the escalation is what this test is about, not the 10s wait.
+    const { service, options, dir } = await harness({ stopGraceMs: 300 })
+    const stub = await twoStubbornProcesses(dir)
+    fs.mkdirSync(options.stateDir, { recursive: true })
+    writeNannyState(nannyStatePath(options.stateDir, 'proxy'), {
+      serverId: 'proxy',
+      nannyPid: stub.pids[0]!,
+      childPid: stub.pids[1]!,
+      startedAt: Date.now(),
+      logFile: '',
+      heartbeatAt: Date.now(),
+    })
+
+    try {
+      await service.stop()
+
+      // The stop waited out its grace and then escalated, so both are dead — polled,
+      // because a signalled process takes a moment to actually leave.
+      const deadline = Date.now() + 5000
+      while (Date.now() < deadline && stub.pids.some(isProcessAlive))
+        await new Promise(resolve => setTimeout(resolve, 50))
+      for (const pid of stub.pids)
+        expect(isProcessAlive(pid)).toBe(false)
+    }
+    finally {
+      stub.stop()
+    }
   })
 
   it('survives a nanny that cannot be spawned, and reads as a failure', async () => {
