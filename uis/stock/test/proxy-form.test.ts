@@ -53,6 +53,12 @@ describe('isPublicHost', () => {
     for (const host of ['nas.local', 'panel.lan', 'box.home.arpa', 'printer', 'localhost', '192.168.1.10', 'thing.internal', 'demo.example'])
       expect(isPublicHost(host), host).toBe(false)
   })
+
+  it('does not call dotted digits a public name', () => {
+    // More than four octets is still an address written out, not a name a CA could
+    // issue for — the panel attempted ACME for it and the page showed "acme".
+    expect(isPublicHost('1.2.3.4.5')).toBe(false)
+  })
 })
 
 describe('cloneRoutes', () => {
@@ -219,6 +225,13 @@ describe('validateRouteDraft', () => {
   it('refuses a hostname routed twice for the same path', () => {
     const existing = { ...newRouteDraft(), id: 'gitea', host: 'gitea.example.com' }
     const draft = { ...newRouteDraft(), id: 'other', host: 'GITEA.example.com' }
+    expect(validateRouteDraft(draft, { others: [existing], workspaces }).host).toBeTruthy()
+  })
+
+  it('reads `/app` and `/app/` as one path', () => {
+    // The panel renders overlapping matchers for them, so one shadows the other.
+    const existing = { ...newRouteDraft(), id: 'a', host: 'app.example.com', path: '/app' }
+    const draft = { ...newRouteDraft(), id: 'b', host: 'app.example.com', path: '/app/' }
     expect(validateRouteDraft(draft, { others: [existing], workspaces }).host).toBeTruthy()
   })
 

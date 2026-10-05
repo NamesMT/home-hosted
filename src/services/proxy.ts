@@ -1165,11 +1165,19 @@ export class ProxyService {
     }
   }
 
+  /** The route's path as an engine prefix: trailing slashes are not a different route. */
+  private static pathKey(path: string): string {
+    const trimmed = path.trim()
+    return trimmed.replace(/\/+$/, '')
+  }
+
   /** Every route, resolved far enough to render. */
   private resolveRoutes(exclude?: ReadonlySet<string>): ResolvedRoute[] {
     const seen = new Map<string, string>()
     return this.config.routes.filter(route => exclude?.has(route.id) !== true).map((route): ResolvedRoute => {
-      const key = `${route.host.toLowerCase()}${route.path}`
+      // `/app` and `/app/` render overlapping matchers, so one would silently shadow
+      // the other; they are the same route for this check.
+      const key = `${route.host.toLowerCase()}${ProxyService.pathKey(route.path)}`
       const clash = seen.get(key)
       if (clash !== undefined)
         return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.host}" is routed twice (${clash} and ${route.id})` }
@@ -1903,7 +1911,7 @@ export function validateProxyConfig(config: ProxyConfig, dnsAccount?: (ref: stri
       errors.push(`route id "${route.id}" is used twice`)
     ids.add(route.id)
 
-    const key = `${route.host.toLowerCase()}${route.path}`
+    const key = `${route.host.toLowerCase()}${route.path.trim().replace(/\/+$/, '')}`
     if (seen.has(key))
       errors.push(`"${route.host}" is routed twice`)
     seen.add(key)
@@ -1946,7 +1954,10 @@ export function isPublicHost(host: string): boolean {
     return false
   if (LOCAL_TLDS.some(tld => name.endsWith(tld)))
     return false
-  return !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(name)
+  // A name, not an address: four octets is an IPv4 literal, and anything longer still
+  // reads as dotted digits rather than a registrable name — ACME would be attempted
+  // for `1.2.3.4.5`, which no CA can issue for.
+  return !/^\d{1,3}(?:\.\d{1,3}){3,}$/.test(name)
 }
 
 /** Caddy answers with `{"error": "..."}`; that sentence is the useful part. */

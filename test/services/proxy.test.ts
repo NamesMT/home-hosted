@@ -414,6 +414,17 @@ describe('validateProxyConfig', () => {
     expect(errors).toContain('"ONE.example.com" is routed twice')
   })
 
+  it('reads `/app` and `/app/` as the same path', () => {
+    // The two render overlapping matchers, so one silently shadows the other.
+    const overlapping = config({
+      routes: [
+        { id: 'a', host: 'app.example.com', path: '/app' },
+        { id: 'b', host: 'app.example.com', path: '/app/' },
+      ],
+    })
+    expect(validateProxyConfig(overlapping)).toContain('"app.example.com" is routed twice')
+  })
+
   it('needs a workspace and a server for an entry route, and a url for an external one', () => {
     const errors = validateProxyConfig(config({ routes: [{ id: 'a', host: 'a.example.com' }, { id: 'b', host: 'b.example.com', target: 'external', url: 'not a url' }] }))
     expect(errors).toContain('route "a" needs a workspace and a server')
@@ -488,6 +499,9 @@ describe('host and upstream parsing', () => {
     expect(isPublicHost('box.internal')).toBe(false)
     expect(isPublicHost('localhost')).toBe(false)
     expect(isPublicHost('192.168.1.10')).toBe(false)
+    // More than four octets is still dotted digits, not a registrable name — ACME was
+    // attempted for it and could never succeed.
+    expect(isPublicHost('1.2.3.4.5')).toBe(false)
   })
 
   it('reads an upstream as host:port, with or without a scheme', () => {
@@ -787,6 +801,19 @@ describe('proxyService', () => {
       routes: [
         { id: 'a', host: 'same.example.com', target: 'external', url: 'http://10.0.0.5:1' },
         { id: 'b', host: 'same.example.com', target: 'external', url: 'http://10.0.0.5:2' },
+      ],
+    })
+    const blocked = service.routeViews().find(view => view.status === 'error')
+    expect(blocked?.route.id).toBe('b')
+    expect(blocked?.message).toContain('routed twice')
+  })
+
+  it('refuses `/app` and `/app/` on one host, which would shadow each other', async () => {
+    const { service, settings } = await harness()
+    settings.updateProxy({
+      routes: [
+        { id: 'a', host: 'same.example.com', path: '/app', target: 'external', url: 'http://10.0.0.5:1' },
+        { id: 'b', host: 'same.example.com', path: '/app/', target: 'external', url: 'http://10.0.0.5:2' },
       ],
     })
     const blocked = service.routeViews().find(view => view.status === 'error')

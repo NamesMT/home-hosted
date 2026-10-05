@@ -55,7 +55,6 @@ export type ProxyAction = 'install' | 'start' | 'stop' | 'apply' | 'revert'
 
 export const ROUTE_ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
 const HOST_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/i
-const IPV4_PATTERN = /^\d{1,3}(?:\.\d{1,3}){3}$/
 
 /** The reserved and homelab TLDs a public CA cannot serve (`isPublicHost` in the panel). */
 const LOCAL_TLDS = ['.localhost', '.local', '.internal', '.home.arpa', '.lan', '.home', '.test', '.invalid', '.example']
@@ -172,7 +171,9 @@ export function isPublicHost(host: string): boolean {
     return false
   if (LOCAL_TLDS.some(tld => name.endsWith(tld)))
     return false
-  return !IPV4_PATTERN.test(name)
+  // Four octets is an IPv4 literal, and more still reads as dotted digits rather
+  // than a registrable name — a CA could never issue for `1.2.3.4.5`.
+  return !/^\d{1,3}(?:\.\d{1,3}){3,}$/.test(name)
 }
 
 export function isPrivilegedPort(port: number): boolean {
@@ -402,7 +403,8 @@ export function validateRouteDraft(draft: RouteDraft, options: { others: readonl
     errors.host = 'a hostname is required'
   else if (!HOST_PATTERN.test(host))
     errors.host = 'a hostname of letters, digits, dots and dashes, e.g. home.example.com'
-  else if (options.others.some(other => other.host.trim().toLowerCase() === host.toLowerCase() && other.path === draft.path))
+  // `/app` and `/app/` render overlapping matchers, so one would shadow the other.
+  else if (options.others.some(other => other.host.trim().toLowerCase() === host.toLowerCase() && other.path.replace(/\/+$/, '') === draft.path.replace(/\/+$/, '')))
     errors.host = `"${host}" is already routed for this path`
 
   if (draft.path.length > 0 && !draft.path.startsWith('/'))
