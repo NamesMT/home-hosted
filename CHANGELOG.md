@@ -1,6 +1,23 @@
 # Changelog
 
 
+## v0.7.10
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.9...v0.7.10)
+
+### 🩹 Fixes
+
+- **noc-console:** Carry the route-edit guard and the tail race fix into the other UI ([e34a30c](https://github.com/NamesMT/home-hosted/commit/e34a30c))
+
+### ✅ Tests
+
+- Resolve `@/…` from the UI that asks, so every UI's own tests can mount a component ([6738cbd](https://github.com/NamesMT/home-hosted/commit/6738cbd))
+- **noc-console:** Pin the log-tail race, and record the alias rule in AGENTS.md ([7f0b189](https://github.com/NamesMT/home-hosted/commit/7f0b189))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.7.9
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.7...v0.7.9)
