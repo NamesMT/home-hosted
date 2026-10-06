@@ -5,6 +5,9 @@
  */
 import type { DdnsConfig } from '#src/shared/contracts'
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import process from 'node:process'
 import { type } from 'arktype'
 import { ddnsConfigSchema } from '#src/shared/contracts'
@@ -23,6 +26,47 @@ export const hasOpenssl = ((): boolean => {
   try {
     execFileSync('openssl', ['version'], { stdio: 'ignore' })
     return true
+  }
+  catch {
+    return false
+  }
+})()
+
+/**
+ * Whether `openssl req` accepts an explicit validity window (`-not_before`/`-not_after`).
+ *
+ * Added in OpenSSL 3.2, so a distro on 3.0 cannot mint a not-yet-valid certificate. A test for that
+ * window has to skip rather than fail there — and a *real* probe, not a version comparison: the flag
+ * is what matters, and `openssl` is often LibreSSL on macOS, whose version numbering differs.
+ */
+export const hasOpensslExplicitDates = ((): boolean => {
+  if (!hasOpenssl)
+    return false
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-openssl-dates-'))
+    try {
+      execFileSync('openssl', [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        path.join(dir, 'k.pem'),
+        '-out',
+        path.join(dir, 'c.pem'),
+        '-subj',
+        '/CN=probe',
+        '-not_before',
+        '20300101000000Z',
+        '-not_after',
+        '20300201000000Z',
+      ], { stdio: 'ignore' })
+      return true
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   }
   catch {
     return false

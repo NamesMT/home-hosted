@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TlsStore, validatePair } from '#src/services/tls'
-import { hasOpenssl } from '../support/capabilities'
+import { hasOpenssl, hasOpensslExplicitDates } from '../support/capabilities'
 
 let dir = ''
 let cert = ''
@@ -82,6 +82,50 @@ describe('tls pair validation', () => {
   it.runIf(hasOpenssl)('accepts a matching, unexpired pair', () => {
     expect(validatePair(cert, key)).toEqual({ ok: true })
   })
+
+  /**
+   * Both ends of the validity window, not just the expiry.
+   *
+   * A certificate whose `notBefore` is in the future was accepted and stored, and
+   * `POST /settings/tls` then restarts the panel onto HTTPS — where every browser refuses it, so the
+   * user is locked out of the UI with no way back except the filesystem. Only `validTo` was checked.
+   */
+  it.runIf(hasOpensslExplicitDates)('rejects a pair that is not valid yet', () => {
+    const futureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-tls-future-'))
+    try {
+      execFileSync('openssl', [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        path.join(futureDir, 'key.pem'),
+        '-out',
+        path.join(futureDir, 'cert.pem'),
+        '-subj',
+        '/CN=hh.test',
+        '-not_before',
+        '20300101000000Z',
+        '-not_after',
+        '20300201000000Z',
+      ], { stdio: 'ignore' })
+      const futureCert = fs.readFileSync(path.join(futureDir, 'cert.pem'), 'utf8')
+      const futureKey = fs.readFileSync(path.join(futureDir, 'key.pem'), 'utf8')
+
+      const result = validatePair(futureCert, futureKey)
+      expect(result.ok, 'a certificate browsers will refuse must not be accepted').toBe(false)
+      expect(result.error).toContain('not valid until')
+
+      // The store is the path the route uses, so the same pair must not be written there either.
+      const store = new TlsStore(path.join(futureDir, 'store'))
+      expect(store.save(futureCert, futureKey).ok).toBe(false)
+      expect(store.present, 'nothing may be written for a pair that is not valid yet').toBe(false)
+    }
+    finally {
+      fs.rmSync(futureDir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('tls store', () => {
@@ -119,6 +163,49 @@ describe('tls store', () => {
     expect(status.fingerprint).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/)
     expect(status.daysRemaining).toBeGreaterThan(0)
     expect(status.error).toBeNull()
+  })
+
+  /**
+   * The settings page names the real reason, and does not confuse it with a key mismatch.
+   *
+   * With only the expiry checked, a certificate valid from the future showed a positive
+   * `daysRemaining` and a null `error` — the UI called it healthy while browsers refused it.
+   */
+  it.runIf(hasOpensslExplicitDates)('reports a pair that is not valid yet, keeping the key verdict separate', () => {
+    const futureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-tls-future-status-'))
+    try {
+      execFileSync('openssl', [
+        'req',
+        '-x509',
+        '-newkey',
+        'rsa:2048',
+        '-nodes',
+        '-keyout',
+        path.join(futureDir, 'key.pem'),
+        '-out',
+        path.join(futureDir, 'cert.pem'),
+        '-subj',
+        '/CN=future.test',
+        '-not_before',
+        '20300101000000Z',
+        '-not_after',
+        '20300201000000Z',
+      ], { stdio: 'ignore' })
+      const store = new TlsStore(path.join(futureDir, 'store'))
+      fs.mkdirSync(store.directory, { recursive: true })
+      fs.writeFileSync(store.certPath, fs.readFileSync(path.join(futureDir, 'cert.pem')))
+      fs.writeFileSync(store.keyPath, fs.readFileSync(path.join(futureDir, 'key.pem')))
+
+      const status = store.status(true)
+      expect(status.error, 'not-yet-valid is the reason to show').toContain('not valid until')
+      // The key genuinely matches this certificate; reporting the window problem as a key mismatch
+      // would send the reader to fix the wrong file.
+      expect(status.keyMatches, 'the key does match, and the UI should say so').toBe(true)
+      expect(status.daysRemaining).toBeGreaterThan(0)
+    }
+    finally {
+      fs.rmSync(futureDir, { recursive: true, force: true })
+    }
   })
 
   it.runIf(hasOpenssl)('refuses to store a mismatched pair', async () => {

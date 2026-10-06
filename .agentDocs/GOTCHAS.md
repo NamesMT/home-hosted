@@ -156,6 +156,14 @@ line in `AGENTS.md` instead.
   encryption flags are cached and refreshed in the background.
 - **Server args are logged *before* `${VAR}` expansion**, so an expanded secret never reaches the
   log buffer, disk, SSE or Telegram.
+- **A certificate is valid only *inside* its window.** `validatePair` checked `validTo` alone, so a
+  pair whose `notBefore` is in the future was accepted, stored, and made the panel restart onto HTTPS
+  — where every browser refuses it, locking the user out with no way back but the filesystem. Both
+  ends are now checked in one `validityError()`, which `status()` also uses: the UI names the real
+  reason instead of reporting a positive `daysRemaining` and no error. `keyMatches` is a separate
+  field on purpose — a window problem must not read as a key mismatch and send you to the wrong file.
+  `-not_before`/`-not_after` need OpenSSL ≥ 3.2, so the tests probing that window are behind
+  `hasOpensslExplicitDates` (probed, not version-compared: macOS ships LibreSSL).
 
 ## Schemas and types
 

@@ -126,14 +126,34 @@ export class TlsStore {
         validTo: validTo.toISOString(),
         daysRemaining,
         fingerprint: x509.fingerprint256,
-        keyMatches: validatePair(pair.cert, pair.key).ok,
-        error: daysRemaining < 0 ? 'the certificate has expired' : null,
+        // The key comparison alone: `validatePair` also fails a certificate that is outside its
+        // validity window, and reporting that as "the key does not match" would be wrong.
+        keyMatches: pair.cert.length > 0 && publicKeysMatch(pair.cert, pair.key),
+        // Same guard the upload path uses, so the UI names the real reason — a certificate that is not
+        // valid *yet* reads as such instead of looking healthy with a positive `daysRemaining`.
+        error: validityError(x509),
       }
     }
     catch (error) {
       return { ...base, error: `invalid certificate: ${error instanceof Error ? error.message : String(error)}` }
     }
   }
+}
+
+/** Whether the certificate's validity window covers now. Both ends, from one place. */
+function validityError(x509: X509Certificate, now = Date.now()): string | null {
+  if (new Date(x509.validFrom).getTime() > now)
+    return `the certificate is not valid until ${x509.validFrom}`
+  if (new Date(x509.validTo).getTime() < now)
+    return `the certificate expired on ${x509.validTo}`
+  return null
+}
+
+/** Whether the private key is the one that certificate was issued for. */
+function publicKeysMatch(certificate: string, privateKey: string): boolean {
+  const fromKey = createPublicKey(createPrivateKey(privateKey)).export({ type: 'spki', format: 'der' })
+  const fromCert = new X509Certificate(certificate).publicKey.export({ type: 'spki', format: 'der' })
+  return Buffer.from(fromKey).equals(Buffer.from(fromCert))
 }
 
 /** Checks the certificate parses, is time-valid, and matches the private key. */
@@ -147,20 +167,19 @@ export function validatePair(certificate: string, privateKey: string): { ok: boo
   }
 
   try {
-    const key = createPrivateKey(privateKey)
-    const fromKey = createPublicKey(key).export({ type: 'spki', format: 'der' })
-    const fromCert = x509.publicKey.export({ type: 'spki', format: 'der' })
-    if (!Buffer.from(fromKey).equals(Buffer.from(fromCert))) {
+    if (!publicKeysMatch(certificate, privateKey))
       return { ok: false, error: 'the private key does not match the certificate' }
-    }
   }
   catch (error) {
     return { ok: false, error: `private key is not a valid PEM: ${error instanceof Error ? error.message : String(error)}` }
   }
 
-  if (new Date(x509.validTo).getTime() < Date.now()) {
-    return { ok: false, error: `the certificate expired on ${x509.validTo}` }
-  }
+  // Both ends of the window. Checking only `validTo` accepted a certificate whose `notBefore` is in
+  // the future — browsers refuse one, so `POST /settings/tls` saved it and moved the panel to HTTPS
+  // answering with an untrusted certificate.
+  const invalid = validityError(x509)
+  if (invalid !== null)
+    return { ok: false, error: invalid }
 
   return { ok: true }
 }
