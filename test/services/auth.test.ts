@@ -81,6 +81,28 @@ describe('auth service', () => {
     expect(auth.isRequired()).toBe(true)
   })
 
+  /**
+   * The boot password stops being handed out the moment it is replaced.
+   *
+   * A panel that has never had its password changed serves the session view with the literal
+   * `DEFAULT_PASSWORD` so the person can log in at all — a deliberate exposure. What must never
+   * happen is that it keeps being served after a real password is set, because `defaultPassword`
+   * travels to the browser in that response. Nothing asserted the gate.
+   */
+  it('stops exposing the boot password once a real one is set', async () => {
+    const { auth, secrets } = await makeAuth({ enabled: true })
+
+    // Fresh state: no password at all, so nothing is exposed either.
+    secrets.setPassword('hh', { isDefault: true })
+    expect(auth.usingDefaultPassword).toBe(true)
+    expect(auth.sessionView(false).defaultPassword, 'the boot password is served while it is the one in use').toBe('hh')
+
+    // A real password replaces it, and the flag goes with it.
+    auth.setPassword('a-real-password')
+    expect(auth.usingDefaultPassword).toBe(false)
+    expect(auth.sessionView(false).defaultPassword, 'the boot password must not outlive its use').toBeNull()
+  })
+
   it('logs in, validates the session and signs out', async () => {
     const { auth } = await makeAuth()
     auth.setPassword('a-good-password')
