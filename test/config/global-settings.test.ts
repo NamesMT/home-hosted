@@ -240,11 +240,19 @@ describe('settings key lists', () => {
   it('names every group each parser reads, so a working key is never reported as ignored', () => {
     // The keys a parser knows must cover the groups it parses. Read from source so a new group in
     // `parse.ts` is covered without editing this test.
+    //
+    // Normalized to LF first: a Windows checkout has CRLF, where a `\n}\n` boundary is never found —
+    // the slice then ran past this function into the next one and picked up *its* groups. The suite
+    // caught it on the platform gate, not here.
     const source = fs.readFileSync(path.join(process.cwd(), 'src', 'config', 'parse.ts'), 'utf8')
+      .replaceAll('\r\n', '\n')
 
     const groupsOf = (fn: string): string[] => {
-      const body = source.slice(source.indexOf(`export function ${fn}`))
-      const scoped = body.slice(0, body.indexOf('\n}\n'))
+      const start = source.indexOf(`export function ${fn}(`)
+      const end = source.indexOf('\n}\n', start)
+      if (start === -1 || end === -1)
+        throw new Error(`could not isolate ${fn} in src/config/parse.ts`)
+      const scoped = source.slice(start, end)
       return [...scoped.matchAll(/\['([a-z]+)', [a-zA-Z]+Schema/g)].map(m => m[1]!)
     }
 
