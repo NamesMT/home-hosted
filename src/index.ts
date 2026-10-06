@@ -32,7 +32,7 @@ import {
 } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
-import { isPortFree } from '#src/providers/port'
+import { isPortFree, listPortHolders } from '#src/providers/port'
 import { AcmeChallengeService } from '#src/services/acme-challenge'
 import { AuthService, DEFAULT_PASSWORD } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
@@ -178,7 +178,11 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   }
 
   if (!(await isPortFree(intended.port))) {
-    logger.error(`control port ${intended.port} is already in use — is another home-hosted running?`)
+    // The question this used to ask — "is another home-hosted running?" — is answerable from what
+    // the probe already consulted, so it is answered rather than asked. A pid is what makes the
+    // next step possible: `ps -p <pid>`, or the panel's own Free-port button.
+    const holders = await listPortHolders(intended.port)
+    logger.error(`control port ${intended.port} is already in use${holders.length > 0 ? ` by pid ${holders.join(', ')}` : ''} — another home-hosted, or something else on this port`)
     process.exit(1)
   }
 

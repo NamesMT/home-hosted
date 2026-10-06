@@ -192,3 +192,40 @@ describe('startup guard: an unreadable file stops `up`', () => {
     expect(fs.existsSync(path.join(home, '.hh', 'run.json'))).toBe(false)
   })
 })
+
+/**
+ * A busy control port names the process holding it.
+ *
+ * The message used to ask "is another home-hosted running?" — a question the code had already
+ * answered, since the preflight lists the port's listeners. A pid is what makes the next step
+ * possible, so it is reported. This asserts the *reported* pid is the holder, not merely that some
+ * number appears: the test keeps the listening socket open itself, so it knows which pid to expect.
+ */
+describe('startup guard: a busy control port', () => {
+  it('names the pid holding it, and exits 1', async () => {
+    const home = makeHome()
+    seedWorkspace(home)
+    const port = await freeDevPort()
+
+    // Hold the port from this process, so the expected pid is our own.
+    const holder = net.createServer()
+    await new Promise<void>(resolve => holder.listen(port, '127.0.0.1', resolve))
+    // The preflight runs before the config guard, so the port has to be the one it will check.
+    fs.mkdirSync(path.join(home, '.hh'), { recursive: true })
+    fs.writeFileSync(path.join(home, '.hh', 'settings.json'), `${JSON.stringify({
+      meta: { writtenBy: 'test', schema: 1 },
+      control: { port },
+    }, null, 2)}\n`)
+
+    try {
+      const result = await runUp(home)
+      expectRefused(result)
+      const output = `${result.stdout}${result.stderr}`
+      expect(output).toContain('already in use')
+      expect(output, 'the holder should be named by pid').toContain(`by pid ${process.pid}`)
+    }
+    finally {
+      await new Promise<void>(resolve => holder.close(() => resolve()))
+    }
+  })
+})
