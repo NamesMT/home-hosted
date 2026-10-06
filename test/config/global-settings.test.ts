@@ -4,7 +4,7 @@ import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
-import { globalSettingsSchema } from '#src/config/schema'
+import { GLOBAL_SETTINGS_KEYS, globalSettingsSchema, WORKSPACE_SETTINGS_KEYS } from '#src/config/schema'
 import { SEED_GLOBAL_SETTINGS } from '#src/config/seed'
 import { ConfigError, GlobalSettingsStore } from '#src/config/settings'
 
@@ -222,5 +222,48 @@ describe('shipped global seed', () => {
     expect(parsed instanceof type.errors, JSON.stringify(parsed)).toBe(false)
     for (const key of ['defaults', 'logs', 'notifications', 'ddns'])
       expect(SEED_GLOBAL_SETTINGS).not.toHaveProperty(key)
+  })
+})
+
+/**
+ * Every group a parser reads must be named in that parser's `keys` list.
+ *
+ * `parseGrouped` reports any key absent from `keys` as **unrecognized** and says the release *ignores*
+ * it — while the loop directly below still parses the group and puts it in the result. So one list
+ * entry missing produces a config that works and a warning that says it does not.
+ *
+ * Nothing enforced the relationship: both are plain arrays, so adding a group without its key compiles
+ * and every test still passes (measured). This pins it, and the check reads the shipped constants
+ * rather than restating them.
+ */
+describe('settings key lists', () => {
+  it('names every group each parser reads, so a working key is never reported as ignored', () => {
+    // The keys a parser knows must cover the groups it parses. Read from source so a new group in
+    // `parse.ts` is covered without editing this test.
+    const source = fs.readFileSync(path.join(process.cwd(), 'src', 'config', 'parse.ts'), 'utf8')
+
+    const groupsOf = (fn: string): string[] => {
+      const body = source.slice(source.indexOf(`export function ${fn}`))
+      const scoped = body.slice(0, body.indexOf('\n}\n'))
+      return [...scoped.matchAll(/\['([a-z]+)', [a-zA-Z]+Schema/g)].map(m => m[1]!)
+    }
+
+    // Global settings: every parsed group is a declared key.
+    for (const group of groupsOf('parseGlobalSettings')) {
+      if (group === 'meta')
+        continue
+      expect(GLOBAL_SETTINGS_KEYS as readonly string[], `global group '${group}'`).toContain(group)
+    }
+
+    // Workspace settings: the same rule.
+    for (const group of groupsOf('parseWorkspaceSettings')) {
+      if (group === 'meta')
+        continue
+      expect(WORKSPACE_SETTINGS_KEYS as readonly string[], `workspace group '${group}'`).toContain(group)
+    }
+
+    // Anti-vacuity: the extraction must actually find the groups, or the loops prove nothing.
+    expect(groupsOf('parseGlobalSettings').length).toBeGreaterThan(0)
+    expect(groupsOf('parseWorkspaceSettings').length).toBeGreaterThan(0)
   })
 })
