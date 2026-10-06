@@ -385,6 +385,9 @@ given. Given a server id — `restart web` — it restarts only that entry, and 
 for a launcher that pins one; a workspace picked in the UI keeps its own. `start`/`stop` omit
 `--workspace` to act in the panel's default workspace.
 
+A misspelled command names the one you meant — `home-hosted restar` answers `did you mean \`restart\`?`
+— and stays quiet when nothing is close, rather than guessing.
+
 </details>
 
 <details>
@@ -595,6 +598,11 @@ The control panel, `3999` by default. Supervised servers use the ports you give 
 proxy is the one panel-wide listener, and only when you switch it on: `80`/`443` for automatic HTTPS,
 or `4480`/`4443` unprivileged with your router forwarding to them
 ([REVERSE_PROXY.md](./docs/REVERSE_PROXY.md#ports)).
+
+**If that port is taken, `up` names who holds it** — the pid and the command line, when the OS will
+tell it — rather than only reporting the number. A `follow` entry adopts the process that replaced it;
+an unrelated listener is never signalled
+([SERVERS.md](./docs/SERVERS.md#a-busy-port)).
 
 </details>
 
