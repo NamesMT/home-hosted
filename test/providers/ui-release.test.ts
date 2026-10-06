@@ -1,5 +1,6 @@
 import type { UiSourceContext } from '#src/providers/ui-release'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -278,6 +279,52 @@ describe('downloadToTemp', () => {
     expect(calls[0]!.init?.redirect).toBe('follow')
     expect(calls[0]!.init?.headers).toEqual({ accept: 'application/octet-stream' })
     expect(lines).toEqual(['<d>downloaded 9 B</d>\n'])
+  })
+
+  /**
+   * A token must not follow a redirect off GitHub.
+   *
+   * `downloadToTemp` uses `redirect: 'follow'`, and an asset URL can 302 to a CDN — so the token
+   * that was deliberately gated to GitHub in `installFromUrl` would ride along unless the runtime
+   * strips it. It does: undici drops `authorization` on a cross-origin redirect. That is a property
+   * of the runtime, not of this code, which is exactly why it needs pinning — a swap to another
+   * fetch implementation, or a change to `redirect`, would reopen it silently.
+   *
+   * Driven against two real loopback servers, because a stubbed `fetch` cannot answer the question.
+   */
+  it('does not carry the token across a cross-origin redirect', async () => {
+    const seen: Array<{ host: string, authorization: string | null }> = []
+    const attacker = http.createServer((req, res) => {
+      seen.push({ host: req.headers.host ?? '', authorization: req.headers.authorization ?? null })
+      res.writeHead(200, { 'content-type': 'application/zip' })
+      res.end('zip-bytes')
+    })
+    await new Promise<void>(resolve => attacker.listen(0, '127.0.0.1', resolve))
+    const attackerPort = (attacker.address() as { port: number }).port
+
+    const github = http.createServer((_req, res) => {
+      res.writeHead(302, { Location: `http://127.0.0.1:${attackerPort}/ui.zip` })
+      res.end()
+    })
+    await new Promise<void>(resolve => github.listen(0, '127.0.0.1', resolve))
+    const githubPort = (github.address() as { port: number }).port
+
+    const { context } = makeContext()
+    try {
+      const downloaded = await downloadToTemp(
+        `http://127.0.0.1:${githubPort}/ui.zip`,
+        { authorization: 'Bearer secret-token' },
+        context,
+      )
+      expect(fs.readFileSync(downloaded.file, 'utf8')).toBe('zip-bytes')
+      expect(seen, 'the redirect target must be reached').toHaveLength(1)
+      expect(seen[0]!.authorization, 'the token must not follow the redirect').toBeNull()
+      fs.rmSync(downloaded.dir, { recursive: true, force: true })
+    }
+    finally {
+      await new Promise<void>(resolve => github.close(() => resolve()))
+      await new Promise<void>(resolve => attacker.close(() => resolve()))
+    }
   })
 
   it('writes nothing at all when the caller asked for quiet', async () => {
