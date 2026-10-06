@@ -102,11 +102,23 @@ describe('history store', () => {
     expect(history.summarize('web', 24 * HOUR).uptimeRatio).toBeNull()
   })
 
-  it('does not exceed 100 percent when runtimes overlap the window', async () => {
+  it('counts only the part of a run that falls inside the window', async () => {
     const { history } = await makeHistory()
     const now = Date.now()
+
+    // A 24h run that ended 12h ago: half of it lies outside a 24h window, so half counts. This
+    // reported 1 before — the clamp kept the whole run and never looked at when it happened.
+    history.record('web', { type: 'exit', detail: 'code 0', runtimeMs: 24 * HOUR }, now - 12 * HOUR)
+    expect(history.summarize('web', 24 * HOUR, now).uptimeRatio).toBeCloseTo(0.5, 2)
+  })
+
+  it('does not exceed 100 percent when a run is longer than the window', async () => {
+    const { history } = await makeHistory()
+    const now = Date.now()
+    // 40h of uptime inside a 24h window, and still running — the whole window was up.
     history.record('web', { type: 'exit', detail: 'code 0', runtimeMs: 40 * HOUR }, now - HOUR)
-    expect(history.summarize('web', 24 * HOUR, now).uptimeRatio).toBe(1)
+    history.record('web', { type: 'start', detail: 'run' }, now - HOUR)
+    expect(history.summarize('web', 24 * HOUR, now, now - HOUR).uptimeRatio).toBe(1)
   })
 
   it('persists across instances and flushes on dispose', async () => {

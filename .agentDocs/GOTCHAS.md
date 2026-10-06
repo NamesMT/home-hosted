@@ -188,6 +188,12 @@ line in `AGENTS.md` instead.
   nothing pruned it either, so a re-added id showed the old entry's crash time — `HistoryStore.forget()`
   now runs beside `logFiles.clear()` in the same branch. A per-**id** artifact needs reclaiming on
   removal; check both stores when adding a third.
+- **Uptime is a windowed figure, so clip each run to the window.** Recorded `runtimeMs` is the whole
+  run, and it ends at its own event's `ts`. `Math.min(runtimeMs, windowMs)` only stopped a run from
+  *exceeding* the window; it never looked at *when* the run happened, so a 24h run that ended 12h before
+  `now` reported **100% up** for a 24h window it half-sat outside. Clip the start against the window's
+  own start (`event.ts - Math.max(event.ts - runtimeMs, since)`). The test that should have caught it
+  asserted `1` for a run that was down for the last hour — a test can codify the bug.
 - **`EPERM` from `process.kill(pid, 0)` means the process is ALIVE, not gone.** Two copies of
   `isProcessAlive` disagreed: `helpers/daemon.ts` read `EPERM` correctly, `providers/port.ts` returned
   `false`. That predicate is the first line of `nannyIsAlive`, so a nanny owned by another user read as

@@ -81,10 +81,16 @@ export class HistoryStore {
     const mine = this.events.filter(event => event.serverId === serverId)
     const recent = mine.filter(event => event.ts >= since)
 
+    // Each recorded runtime ends at its own event, so only the part that falls inside the window
+    // counts. `Math.min(runtimeMs, windowMs)` alone kept the *whole* run: a 24h run that ended 12h
+    // before `now` sits half outside a 24h window, and was reported as 100% up. Clipping the start
+    // against `since` is what makes the number mean "up during this window".
     let upMs = 0
     for (const event of recent) {
-      if (event.runtimeMs !== undefined)
-        upMs += Math.min(event.runtimeMs, windowMs)
+      if (event.runtimeMs === undefined)
+        continue
+      const startedAt = event.ts - event.runtimeMs
+      upMs += event.ts - Math.max(startedAt, since)
     }
     if (runningSince !== null)
       upMs += Math.max(0, now - Math.max(runningSince, since))
