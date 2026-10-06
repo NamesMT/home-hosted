@@ -85,4 +85,6 @@ function serverCommand(action: ServerAction) {
 
 export const startCommand = serverCommand('start')
 export const stopCommand = serverCommand('stop')
-export const restartServerCommand = serverCommand('restart')
+// `restart` is deliberately absent: bare `restart` means the *panel*, and `restart <id>` is handled by
+// `cli/restart.ts` through the same `runServerAction`. A `restartServerCommand` used to be exported
+// here — never wired into the command surface, so it read as an entry point nothing could reach.

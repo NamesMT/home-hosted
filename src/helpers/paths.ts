@@ -46,17 +46,12 @@ export const DEFAULT_WORKSPACE_ID = 'default'
 
 /** Panel-wide settings: listener, auth, TLS policy, host vitals, backups. */
 export const globalSettingsPath = path.join(hhDir, 'settings.json')
-/** Regenerated for editor autocomplete; kept beside the file it describes. */
-export const globalSettingsSchemaPath = path.join(hhDir, 'settings.schema.json')
 /** Password hash + API token hash; written with mode 0600. */
 export const globalSecretsPath = path.join(hhDir, '.control-secrets.json')
 /** The workspace registry: ids and labels. */
 export const workspacesPath = path.join(hhDir, 'workspaces.json')
-export const workspacesSchemaPath = path.join(hhDir, 'workspaces.schema.json')
 /** Uploaded TLS PEM pair (the key is written 0600). */
 export const tlsDir = path.join(hhDir, '.tls')
-/** Default archive directory; `backups.dir` resolves against `hhDir`. */
-export const defaultBackupsDirName = '.backups'
 /** The panel's own console log. */
 export const daemonLogPath = path.join(hhDir, '.logs', 'home-hosted.log')
 /** `run.json` records the live control plane. */
@@ -96,17 +91,9 @@ export function workspaceSettingsPath(id: string): string {
   return path.join(workspaceDir(id), 'settings.json')
 }
 
-export function workspaceSettingsSchemaPath(id: string): string {
-  return path.join(workspaceDir(id), 'settings.schema.json')
-}
-
 /** The servers a workspace supervises. */
 export function workspaceServersPath(id: string): string {
   return path.join(workspaceDir(id), 'servers.config.json')
-}
-
-export function workspaceServersSchemaPath(id: string): string {
-  return path.join(workspaceDir(id), 'servers.config.schema.json')
 }
 
 /** Workspace secrets: Telegram bot token and DDNS credentials. Mode 0600. */
