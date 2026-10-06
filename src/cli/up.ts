@@ -60,11 +60,12 @@ export function toUpFlags(args: RawUpArgs): UpFlags {
 }
 
 export async function runUp(flags: UpFlags, entry: string): Promise<void> {
-  const { runControlPlane } = await import('#src/index')
-
   // `--print-config` reports the effective config and returns; it never detaches,
   // because there would be a daemon left with nothing to serve.
   if (flags.foreground || flags.printConfig) {
+    // Imported here rather than at the top of the function: detaching does not need the daemon's
+    // graph at all, and loading it costs ~1s of the parent's ~2.5s before the child even spawns.
+    const { runControlPlane } = await import('#src/index')
     await runControlPlane({
       configPath: flags.config,
       port: flags.port,
