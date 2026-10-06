@@ -1,6 +1,7 @@
 import type { ArgsDef } from 'citty'
 import path from 'node:path'
 import process from 'node:process'
+import { nearestWord } from './nearest'
 
 /**
  * The argument work that happens *before* citty: `--home`/`--project` have to
@@ -119,6 +120,28 @@ function aliasesOf(def: ArgsDef[string]): string[] {
   return Array.isArray(def.alias) ? def.alias : [def.alias]
 }
 
+/**
+ * Every spelling that reaches one declared option: the key, its kebab form, each alias, and the
+ * `no-` negation citty gives a boolean. `findArg` accepts on this set and the suggestion offers from
+ * it, so a suggestion can never name a spelling the parser would then refuse.
+ */
+function namesOf(key: string, def: NonNullable<ArgsDef[string]>): string[] {
+  return [key, kebab(key), ...aliasesOf(def)]
+}
+
+/** The spellings of every option this command declares, for a suggestion. */
+function declaredOptionNames(argsDef: ArgsDef): string[] {
+  const names: string[] = []
+  for (const [key, def] of Object.entries(argsDef)) {
+    if (def === undefined || def.type === 'positional')
+      continue
+    names.push(...namesOf(key, def))
+    if (def.type === 'boolean')
+      names.push(...namesOf(key, def).map(name => `no-${name}`))
+  }
+  return names
+}
+
 function findArg(argsDef: ArgsDef, name: string): ArgsDef[string] | undefined {
   for (const [key, def] of Object.entries(argsDef)) {
     if (def === undefined)
@@ -127,8 +150,7 @@ function findArg(argsDef: ArgsDef, name: string): ArgsDef[string] | undefined {
     // not a second way to spell `start web`.
     if (def.type === 'positional')
       continue
-    const names = new Set([key, kebab(key), ...aliasesOf(def)])
-    if (names.has(name))
+    if (namesOf(key, def).includes(name))
       return def
     // `--no-<flag>` is citty's negation of a declared boolean, never an option.
     if (def.type === 'boolean' && (name === `no-${key}` || name === `no-${kebab(key)}`))
@@ -169,8 +191,13 @@ export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined)
     const equals = body.indexOf('=')
     const name = equals === -1 ? body : body.slice(0, equals)
     const def = name.length === 0 ? undefined : findArg(argsDef, name)
-    if (def === undefined)
-      return `Unknown option '${token}'`
+    if (def === undefined) {
+      // The valid names are right here in `argsDef`, so a near miss can name the option it meant —
+      // `--autostart` for `--no-autostart` is the case that matters. A far-off name gets nothing.
+      const suggested = nearestWord(name, declaredOptionNames(argsDef))
+      const hint = suggested === null ? '' : ` — did you mean \`--${suggested}\`?`
+      return `Unknown option '${token}'${hint}`
+    }
     // A string option consumes the next token, unless it was given inline.
     if (def.type === 'string' && equals === -1 && argv[index + 1] === undefined)
       return `Option '${token}' needs a value`

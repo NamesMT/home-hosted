@@ -196,6 +196,23 @@ describe('rejectUnknownFlags', () => {
    * nothing — `--autostart` where `--no-autostart` was meant would start the
    * panel with the wrong policy.
    */
+  /**
+   * A mistyped flag names the one it meant, the way a mistyped command does.
+   *
+   * `rejectUnknownFlags` already holds the `ArgsDef`, so the valid names are all there — an unknown
+   * option needs no more information than an unknown command to say which one was meant. `--autostart`
+   * for `--no-autostart` is the case that matters: the old message named only the mistake.
+   */
+  it('suggests the closest option when one is misspelled', () => {
+    // One edit from `--port`.
+    expect(rejectUnknownFlags(['--prt'], args)).toContain('did you mean `--port`?')
+    // A transposition of a declared flag, and one that is only reachable as `--no-<flag>`.
+    expect(rejectUnknownFlags(['--pritn-config'], args)).toContain('did you mean `--print-config`?')
+    expect(rejectUnknownFlags(['--no-autostar'], args)).toContain('did you mean `--no-autostart`?')
+    // Nothing close: say nothing rather than guessing.
+    expect(rejectUnknownFlags(['--zzzzzz'], args)).toBe('Unknown option \'--zzzzzz\'')
+  })
+
   it('refuses an option nobody declared, and a stray argument', () => {
     expect(rejectUnknownFlags(['--bogus'], args)).toBe('Unknown option \'--bogus\'')
     expect(rejectUnknownFlags(['--open'], args)).toBe('Unknown option \'--open\'')

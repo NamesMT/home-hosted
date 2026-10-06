@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
 import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
 import { cyan, dim, fail, heading } from './cli/io'
+import { nearestWord } from './cli/nearest'
 import { NANNY_COMMAND } from './helpers/runtime'
 import { appVersion } from './helpers/version'
 
@@ -218,36 +219,12 @@ const ENVIRONMENT_SECTION: OptionSection = {
 }
 
 /**
- * The command name a typo most likely meant, or null when nothing is close.
- *
- * Levenshtein distance, capped: only a genuinely near miss is worth naming, because suggesting an
- * unrelated command is worse than suggesting none. The candidates come from `SYNOPSIS`, the same
- * source the reference renders, so a suggestion can never name a command that does not exist.
+ * The command name a typo most likely meant, or null when nothing is close. The candidates are
+ * `SYNOPSIS`, the same source the reference renders, so a suggestion cannot name a command the CLI
+ * does not have.
  */
-export function suggestCommand(input: string, candidates: readonly string[] = Object.keys(SYNOPSIS)): string | null {
-  const distance = (a: string, b: string): number => {
-    // Iterative single-row DP, so a long word costs no matrix.
-    let previous = Array.from({ length: b.length + 1 }, (_, i) => i)
-    for (let i = 1; i <= a.length; i += 1) {
-      const current = [i]
-      for (let j = 1; j <= b.length; j += 1) {
-        const substitution = previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1)
-        current[j] = Math.min(current[j - 1]! + 1, previous[j]! + 1, substitution)
-      }
-      previous = current
-    }
-    return previous[b.length]!
-  }
-
-  const best = candidates
-    .map(name => ({ name, d: distance(input.toLowerCase(), name.toLowerCase()) }))
-    .sort((left, right) => left.d - right.d || left.name.localeCompare(right.name))[0]
-
-  if (best === undefined)
-    return null
-  // Half the shorter word, rounded down, is the usual "close enough" bound. `restar`→`restart` is 1;
-  // `stats`→`status` is 2; `zebra` is far from every command and gets nothing.
-  return best.d <= Math.floor(Math.min(input.length, best.name.length) / 2) ? best.name : null
+export function suggestCommand(input: string): string | null {
+  return nearestWord(input, Object.keys(SYNOPSIS))
 }
 
 /** The command list of the full reference, aligned as it always was. */

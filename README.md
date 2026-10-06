@@ -385,8 +385,9 @@ given. Given a server id — `restart web` — it restarts only that entry, and 
 for a launcher that pins one; a workspace picked in the UI keeps its own. `start`/`stop` omit
 `--workspace` to act in the panel's default workspace.
 
-A misspelled command names the one you meant — `home-hosted restar` answers `did you mean \`restart\`?`
-— and stays quiet when nothing is close, rather than guessing.
+A misspelled command or option names the one you meant — `home-hosted restar` answers
+`did you mean \`restart\`?`, and `up --prt 4000` answers `did you mean \`--port\`?`. Both stay quiet
+when nothing is close, rather than guessing.
 
 </details>
 
