@@ -203,4 +203,31 @@ describe('status paths in both outputs', () => {
       runCli(['down', '--home', dir])
     }
   })
+
+  /**
+   * Every row the text form prints must have a JSON counterpart.
+   *
+   * Both gaps found here were the same mistake — a field added to one output and not the other:
+   * `logsDir` (text only) and `ui` (printed as a row, absent from JSON, so a script could not
+   * learn which UI is installed). This pins the specific field that was missing.
+   */
+  it('reports the installed UI in both outputs', () => {
+    const started = runCli(['up', '--home', dir, '--port', '6498', '--no-autostart'])
+    try {
+      expect(started.status, started.stderr).toBe(0)
+
+      const text = runCli(['status', '--home', dir])
+      expect(text.stdout, 'the text form has a ui row').toMatch(/^ {2}ui +stock$/m)
+
+      const parsed = JSON.parse(runCli(['status', '--home', dir, '--json']).stdout) as {
+        ui?: { custom?: boolean, name?: string }
+      }
+      expect(parsed.ui, 'text prints a ui row, so JSON must carry it too').toBeDefined()
+      expect(parsed.ui!.custom).toBe(false)
+      expect(parsed.ui!.name).toBe('stock')
+    }
+    finally {
+      runCli(['down', '--home', dir])
+    }
+  })
 })

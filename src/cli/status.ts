@@ -27,6 +27,12 @@ export async function runStatus(json: boolean): Promise<void> {
   const running = isProcessAlive(runtime.pid)
   const probe = running ? await probeRuntime(runtime) : { reachable: false, degraded: false }
 
+  // Read once, above both outputs, so they cannot disagree about which UI is installed — the text
+  // form prints it as a row and a script asking for JSON needs it just as much.
+  const ui = new UiService({ dataRoot })
+  const uiMeta = ui.status().meta
+  const uiLabel = ui.custom ? uiMeta?.name ?? 'installed' : 'stock'
+
   if (json) {
     // The token is what authorises a local shutdown; a script only needs the rest.
     const { token: _token, ...safe } = runtime
@@ -38,6 +44,7 @@ export async function runStatus(json: boolean): Promise<void> {
       degraded: probe.degraded,
       ...safe,
       logsDir: path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs'),
+      ui: { custom: ui.custom, name: uiLabel, version: uiMeta?.version ?? null },
     }, null, 2)}\n`)
     if (!running)
       process.exitCode = 1
@@ -51,7 +58,6 @@ export async function runStatus(json: boolean): Promise<void> {
       ? paint('33', 'running — a server needs attention')
       : probe.reachable ? green('running') : paint('33', 'running, but not answering')
 
-  const ui = new UiService({ dataRoot })
   const rows: Array<[string, string]> = [
     ['status', state],
     ['pid', running ? `${runtime.pid} · up ${uptime}` : String(runtime.pid)],
@@ -65,7 +71,7 @@ export async function runStatus(json: boolean): Promise<void> {
     // the README says `status` prints the paths, so the one an operator needs to read a
     // *server's* log belongs here too.
     ['serverlogs', path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs')],
-    ['ui', ui.custom ? `custom — ${ui.status().meta?.name ?? 'installed'} (revert with \`home-hosted ui-revert\`)` : 'stock'],
+    ['ui', ui.custom ? `custom — ${uiLabel} (revert with \`home-hosted ui-revert\`)` : 'stock'],
   ]
 
   process.stdout.write(`${bold(`home-hosted ${runtime.version}`)}\n`)
