@@ -207,6 +207,29 @@ describe('pATCH /api/proxy', () => {
     expect(body.message).toContain('panel.example.com')
   })
 
+  /**
+   * `tls: "off"` is not a reason to skip the exposure bar — it makes the exposure *worse*.
+   *
+   * The engine dials the panel on `127.0.0.1` (`proxy.ts`), and the `/api` guard treats a loopback
+   * request as local while authentication is enabled but unarmed. So a plain-HTTP panel route with
+   * no password set serves the whole panel to anyone who can reach that hostname. The exposure rule
+   * is the only thing standing between those two facts, and it was filtering such routes out.
+   */
+  it('checks a tls:off panel route against exposure too', async () => {
+    const fixture = await makeApp()
+    fixture.settings.updateControl({ auth: { enabled: true } })
+
+    const response = await fixture.app.request('/api/proxy', patch({
+      enabled: true,
+      routes: [{ id: 'panel', host: 'panel.example.com', target: 'panel', tls: 'off' }],
+    }))
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as ProxyBody
+    expect(body.code).toBe('PROXY_EXPOSURE_BLOCKED')
+    expect(body.message).toContain('panel.example.com')
+  })
+
   it('saves a LAN-only route with no e-mail, and reports the entry it cannot find', async () => {
     const fixture = await makeApp()
     const response = await fixture.app.request('/api/proxy', patch({

@@ -55,7 +55,13 @@ export function checkProxyExposure(
 ): string | null {
   if (!proxy.enabled)
     return null
-  const panelRoutes = proxy.routes.filter(route => route.enabled && route.target === 'panel' && route.tls !== 'off')
+  // Every enabled route to the panel, whatever its `tls` says. `tls: "off"` was excluded here, and
+  // that was backwards: the engine dials the panel on `127.0.0.1`, the `/api` guard reads a
+  // loopback request as local while auth is enabled but unarmed, and so a plain-HTTP panel route
+  // with no password set served the whole panel to anyone reaching that hostname — the same
+  // exposure as a `tls: "auto"` one, but in the clear. A route pointing at the panel is exposure
+  // and obeys this bar, which is what the rule already said in prose.
+  const panelRoutes = proxy.routes.filter(route => route.enabled && route.target === 'panel')
   if (panelRoutes.length === 0)
     return null
 

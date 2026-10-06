@@ -74,7 +74,11 @@ the plain port for `tls: "off"`, path included. A route that is switched off is 
 
 A route pointing at the panel is exposure, and answers to the same rule as binding the
 listener beyond loopback: authentication on and a non-default password, or the save is
-refused.
+refused. `tls` does not change that bar — it is about who can reach the panel, not whether
+the hop is encrypted, and `tls: "off"` is if anything the worse case. The engine upstreams a
+panel route to `127.0.0.1`, which the panel's own guard reads as a local request, so a
+plain-HTTP route with no password set would serve the panel to anyone who reached that
+hostname.
 
 ## HTTPS
 

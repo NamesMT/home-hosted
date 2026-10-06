@@ -93,11 +93,18 @@ describe('reverse proxy exposure', () => {
     expect(checkProxyExposure(on, true, false)).toContain('panel.example.com')
   })
 
-  it('ignores a disabled route and one that serves plain HTTP', () => {
+  it('ignores a disabled route, but not one that merely serves plain HTTP', () => {
     const disabled = proxy({ enabled: true, routes: [{ ...panelRoute, enabled: false }] })
     expect(checkProxyExposure(disabled, false, false)).toBeNull()
 
+    // `tls: "off"` used to be skipped here, which was backwards. The engine upstreams a panel route
+    // to `127.0.0.1`, the `/api` guard reads a loopback request as local while auth is enabled but
+    // unarmed, so a plain-HTTP panel route with no password set served the panel to anyone who
+    // reached that hostname — the same exposure as an `auto` one, in the clear. The bar is about who
+    // can reach the panel, not about whether the hop is encrypted.
     const plain = proxy({ enabled: true, routes: [{ ...panelRoute, tls: 'off' }] })
-    expect(checkProxyExposure(plain, false, false)).toBeNull()
+    expect(checkProxyExposure(plain, false, false)).toContain('authentication is disabled and no password is set')
+    expect(checkProxyExposure(plain, true, true, false)).toBeNull()
+    expect(checkProxyExposure(plain, true, false)).toContain('no password is set')
   })
 })
