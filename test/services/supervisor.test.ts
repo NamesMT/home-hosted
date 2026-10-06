@@ -1341,6 +1341,30 @@ describe('the real server view', () => {
  * `docs/DDNS.md` and `docs/REVERSE_PROXY.md` for their own settings while the server field itself was
  * absent from the only table a person reads. Nothing compared the two lists.
  */
+/**
+ * Every entry the panel keeps under `.hh` must appear in the README's layout.
+ *
+ * `.proxy/` was missing: the reverse proxy's engine, its generated config and its state live there, and
+ * the table is the one place a person looks to understand what the panel put on their disk. AGENTS.md
+ * listed it, `docs/REVERSE_PROXY.md` names it three times, and the README — the entry point — did not.
+ *
+ * Read from `paths.ts` rather than from a copied list, so a new state directory cannot go unlisted.
+ */
+describe('the documented state layout', () => {
+  it('names every top-level entry under .hh', () => {
+    const paths = fs.readFileSync(fileURLToPath(new URL('../../src/helpers/paths.ts', import.meta.url)), 'utf8')
+    const topLevel = new Set([...paths.matchAll(/path\.join\(hhDir,\s*'([^']+)'/g)].map(m => m[1]!))
+
+    // Anti-vacuity: the list must actually carry the known entries.
+    expect(topLevel.size, 'the hhDir joins must have been parsed').toBeGreaterThanOrEqual(8)
+    expect(topLevel.has('settings.json')).toBe(true)
+
+    const readme = fs.readFileSync(fileURLToPath(new URL('../../README.md', import.meta.url)), 'utf8')
+    const missing = [...topLevel].filter(entry => !readme.includes(`.hh/${entry}`) && !readme.includes(entry))
+    expect(missing, 'a state entry the layout table never mentions').toEqual([])
+  })
+})
+
 describe('the documented field reference', () => {
   it('names every field serverSchema accepts', () => {
     const contracts = fs.readFileSync(fileURLToPath(new URL('../../src/shared/contracts.ts', import.meta.url)), 'utf8')

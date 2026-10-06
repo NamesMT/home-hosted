@@ -583,6 +583,7 @@ workspaces.json              the registry: ids and labels, in selector order
 .ui/                         an installed custom UI
 .backups/                    zip archives
 .logs/                       the panel's own console log
+.proxy/                      the reverse proxy's engine, its config and state
 run.json                     the running panel (pid, url, token, mode 0600)
 
 <workspace>/settings.json    server defaults, log retention, notifications, DDNS
