@@ -267,11 +267,23 @@ export class SecretsStore {
   private cacheKey = ''
   private ddnsKeyCache: { salt: string, key: Buffer } | null = null
   private readonly warnedAccounts = new Set<string>()
+  private warnedDefaultSecret = false
   private readonly ddnsSecret: string
 
   constructor(private readonly file: string, ddnsSecret?: string, private readonly scope: SecretsScope = 'all') {
     const candidate = (ddnsSecret ?? process.env.HHOSTED_DDNS_SECRET ?? '').trim()
     this.ddnsSecret = candidate.length > 0 ? candidate : DEFAULT_DDNS_SECRET
+  }
+
+  /**
+   * Whether the DDNS credentials are sealed under the built-in key.
+   *
+   * Sealing is what stops a leaked *file* — a backup, a committed state directory — from handing over
+   * the DNS credentials. Under the default the key is the literal `hh`, so anyone holding the file can
+   * open it. The docs say so; this is the same fact for code that wants to say so at runtime.
+   */
+  get usingDefaultDdnsSecret(): boolean {
+    return this.ddnsSecret === DEFAULT_DDNS_SECRET
   }
 
   get path(): string {
@@ -499,6 +511,13 @@ export class SecretsStore {
       .filter((entry): entry is [string, PlainDdnsRecord] => isPlainDdns(entry[1]))
     if (plain.length === 0)
       return contents
+
+    // Warned here rather than at startup: this is the moment credentials exist to protect, so a panel
+    // with no DDNS accounts stays quiet. The condition and the message are asserted in the test.
+    if (this.usingDefaultDdnsSecret && !this.warnedDefaultSecret) {
+      this.warnedDefaultSecret = true
+      logger.warn(`ddns: credentials are sealed under the built-in key — set HHOSTED_DDNS_SECRET to protect them if this state directory is ever copied or committed (docs/DDNS.md)`)
+    }
 
     const kdf = contents.ddnsKdf ?? newDdnsKdf()
     const key = this.ddnsKey(kdf)

@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_DDNS_SECRET, SecretsStore } from '#src/config/secrets'
+import { logger } from '#src/helpers/logger'
 
 const dirs: string[] = []
 
@@ -111,6 +112,39 @@ describe('ddns credentials at rest', () => {
     expect(DEFAULT_DDNS_SECRET).toBe('hh')
     expect(fs.readFileSync(file, 'utf8')).not.toContain('cf-token-value')
     expect(new SecretsStore(file).getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'cf-token-value' })
+  })
+
+  /**
+   * Sealing is what stops a leaked *file* handing over the DNS credentials — under the built-in key the
+   * key is the literal `hh`, so anyone holding the file can open it. The docs said so; nothing at
+   * runtime did, and a user who never opens `docs/DDNS.md` reasonably reads "AES-256-GCM" as protected.
+   *
+   * Both directions asserted: a warning on every start would be noise, and there are no credentials to
+   * protect until an account exists.
+   */
+  it('warns once when credentials are sealed under the built-in key', async () => {
+    const warnings: string[] = []
+    const savedWarn = logger.warn
+    logger.warn = ((...args: unknown[]) => { warnings.push(String(args[0])) }) as typeof logger.warn
+    try {
+      const withDefault = new SecretsStore(await tempFile())
+      expect(withDefault.usingDefaultDdnsSecret).toBe(true)
+      withDefault.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
+      const aboutSecret = (): number => warnings.filter(line => line.includes('HHOSTED_DDNS_SECRET')).length
+      expect(aboutSecret(), 'warned exactly once').toBe(1)
+
+      // A second write must not warn again.
+      withDefault.setDdnsCredentials('cf2', 'cloudflare', { apiToken: 'another-token' })
+      expect(aboutSecret(), 'still just the once').toBe(1)
+
+      const explicit = new SecretsStore(await tempFile(), 'a-real-secret')
+      expect(explicit.usingDefaultDdnsSecret).toBe(false)
+      explicit.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
+      expect(aboutSecret(), 'a set secret says nothing').toBe(1)
+    }
+    finally {
+      logger.warn = savedWarn
+    }
   })
 })
 

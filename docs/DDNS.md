@@ -30,7 +30,9 @@ credentials button saves on its own, being a secret. Provider credentials never 
 
 Credentials live in the workspace's `.secrets.json` (0600), keyed by the account `id` and sealed with
 AES-256-GCM under `HHOSTED_DDNS_SECRET` — set your own, or the default `hh` only stops a casual
-read. The block above is the workspace's `.hh/<workspace>/settings.json`; the credentials are cached
+read. The panel logs a warning when it seals credentials under that default, so a copied state
+directory is not the first time you hear about it. The block above is the workspace's
+`.hh/<workspace>/settings.json`; the credentials are cached
 separately in `.secrets.json`, both beside that workspace's `servers.config.json`. The account does
 not have to be saved first, and the provider is stored with the entry, so an id that later changes
 provider does not silently keep the old secret. Removing an account drops its credentials on the next
