@@ -156,8 +156,15 @@ function select(id: string): void {
 }
 
 watch([selected, tail, stream, mode], () => {
-  if (mode.value === 'disk')
+  if (mode.value === 'disk') {
     void loadTail()
+  }
+  else {
+    // `searched` describes the last *disk* search, and live mode has no search box. Clearing it
+    // rather than only hiding the label keeps the state honest for any other reader — the same
+    // choice `noc-console` makes for the same count.
+    searched.value = null
+  }
 }, { immediate: false })
 
 /**
@@ -330,8 +337,9 @@ onMounted(async () => {
           loaded {{ diskLines.length }} lines
         </span>
         <!-- The window the search read, not the one it asked for: on a log shorter than the
-             5000-line window the two differ, and this number is read by a person. -->
-        <span v-if="mode === 'disk' && searched !== null" class="font-mono text-2xs text-faint">
+             5000-line window the two differ, and this number is read by a person. No mode guard
+             needed — leaving disk mode clears the value. -->
+        <span v-if="searched !== null" class="font-mono text-2xs text-faint">
           · searched {{ searched }} lines
         </span>
       </div>

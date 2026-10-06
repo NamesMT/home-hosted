@@ -176,3 +176,45 @@ describe('logs search box', () => {
     wrapper.unmount()
   })
 })
+
+/**
+ * `searched` describes the last *disk* search, and live mode has no search box.
+ *
+ * `noc-console` hides the label with a mode guard; `stock` did too. Both left the *value* stale,
+ * so the state outlived the context that gave it meaning — anything else reading it (a future
+ * copy button, a title, a test) would pick up a count from a request that is no longer current.
+ * Both now clear it on the way out, which is the stronger of the two fixes and lets the label
+ * drop its mode guard.
+ */
+describe('the searched count is cleared when leaving disk mode', () => {
+  it('does not survive a switch to the live stream', async () => {
+    const LogsView = (await import('@/views/LogsView.vue')).default
+    const wrapper = mount(LogsView, {
+      global: { stubs: { Tip: { template: '<span><slot /></span>' } } },
+    })
+    await flushPromises()
+
+    // Answer the disk load with a searched count.
+    const api = await import('@/lib/api')
+    vi.spyOn(api, 'fetchLogHistory').mockResolvedValue({
+      lines: [{ ts: 1, stream: 'stdout', text: 'hit' }],
+      searched: 42,
+    } as never)
+    const search = wrapper.find('input[type="search"]')
+    await search.setValue('hit')
+    await new Promise(resolve => setTimeout(resolve, 350))
+    await flushPromises()
+    expect(wrapper.text()).toContain('searched 42 lines')
+
+    // Switch to the live stream: the count described a disk request, so it goes.
+    const live = wrapper.findAll('button').find(button => /live/i.test(button.text()))
+    if (live !== undefined)
+      await live.trigger('click')
+    else
+      await wrapper.findAll('option').find(option => option.text().includes('Live'))?.trigger('click')
+    await flushPromises()
+    expect(wrapper.text(), 'live mode must not show a disk search count').not.toContain('searched')
+
+    wrapper.unmount()
+  })
+})
