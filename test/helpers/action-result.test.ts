@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { missingServer, statusForAction } from '#src/helpers/action-result'
+import { missingServer, statusForAction, unknownServerError } from '#src/helpers/action-result'
 
 /**
  * The status a per-server action answers with: 404 when the entry does not exist, 409 when it exists
@@ -46,5 +46,23 @@ describe('statusForAction', () => {
 
   it('is 409 for a failure with no message at all', () => {
     expect(statusForAction({ ok: false })).toBe(409)
+  })
+})
+
+/**
+ * The route-side twin of `missingServer()` must say exactly the same thing.
+ *
+ * `api/logs.ts` and `api/servers/$.routes.ts` each carried a byte-identical private copy of this, seven
+ * call sites between them — two homes for one wire contract (message, 404, `UNKNOWN_SERVER` code), which
+ * is the drift that already happened once for `request`. Both now call this, and the pair is asserted
+ * together so they cannot disagree about the wording a client sees.
+ */
+describe('unknownServerError', () => {
+  it('matches the message the action path uses, and answers 404', () => {
+    const error = unknownServerError('web')
+    expect(error.message).toBe(missingServer('web').error)
+    expect(error.message).toBe('unknown server "web"')
+    expect((error as unknown as { statusCode?: number }).statusCode).toBe(404)
+    expect((error as unknown as { code?: string }).code).toBe('UNKNOWN_SERVER')
   })
 })

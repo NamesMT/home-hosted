@@ -1,3 +1,5 @@
+import { DetailedError } from '@namesmt/utils'
+
 /** The internal marker. A symbol so it never survives `JSON.stringify`. */
 export const UNKNOWN_SERVER: unique symbol = Symbol('hh.unknownServer')
 
@@ -22,6 +24,18 @@ export interface ActionResult {
 /** The one shape a missing entry takes, so the marker and the message cannot drift apart. */
 export function missingServer(id: string): ActionResult {
   return { ok: false, error: `unknown server "${id}"`, [UNKNOWN_SERVER]: true }
+}
+
+/**
+ * The same failure where the caller throws instead of answering — the route side of `missingServer()`.
+ *
+ * `api/logs.ts` and `api/servers/$.routes.ts` each carried a byte-identical private copy of this, with
+ * six call sites between them. Two copies of a wire contract (the message, the 404, the `UNKNOWN_SERVER`
+ * code) is the drift that already happened once for `request`: a change landing in one UI and not the
+ * other. Defining it beside the message keeps one owner for the wording.
+ */
+export function unknownServerError(id: string): DetailedError {
+  return new DetailedError(`unknown server "${id}"`, { statusCode: 404, code: 'UNKNOWN_SERVER' })
 }
 
 /** Unknown ids are 404; a server that exists but cannot act is a 409. */

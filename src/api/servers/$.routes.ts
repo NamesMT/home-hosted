@@ -4,7 +4,7 @@ import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { streamSSE } from 'hono/streaming'
 import { ConfigError } from '#src/config/store'
-import { statusForAction } from '#src/helpers/action-result'
+import { statusForAction, unknownServerError } from '#src/helpers/action-result'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
@@ -26,10 +26,6 @@ const serversResponse = type({ servers: serverViewSchema.array() })
 const storedServerResponse = type({ server: serverSchema })
 const okResponse = type({ ok: 'boolean' })
 const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
-
-function unknownServer(id: string): DetailedError {
-  return new DetailedError(`unknown server "${id}"`, { statusCode: 404, code: 'UNKNOWN_SERVER' })
-}
 
 export function createServersRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -105,7 +101,7 @@ export function createServersRoute(deps: AppDeps) {
         const { id } = c.req.valid('param')
         const server = runtime.supervisor.views().find(entry => entry.id === id)
         if (!server)
-          throw unknownServer(id)
+          throw unknownServerError(id)
         return c.json({ server })
       },
     )
@@ -119,7 +115,7 @@ export function createServersRoute(deps: AppDeps) {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
         if (!runtime.store.getServer(id))
-          throw unknownServer(id)
+          throw unknownServerError(id)
 
         const { limit } = c.req.valid('query')
         const parsed = limit === undefined ? Number.NaN : Number.parseInt(limit, 10)
@@ -138,7 +134,7 @@ export function createServersRoute(deps: AppDeps) {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
         if (!runtime.store.getServer(id))
-          throw unknownServer(id)
+          throw unknownServerError(id)
 
         return streamSSE(c, async (stream) => {
           let closed = false
@@ -301,7 +297,7 @@ export function createServersRoute(deps: AppDeps) {
         }
         catch (error) {
           if (error instanceof ConfigError)
-            throw unknownServer(id)
+            throw unknownServerError(id)
           throw error
         }
       },
