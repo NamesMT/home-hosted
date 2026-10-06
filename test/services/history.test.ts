@@ -54,6 +54,36 @@ describe('history store', () => {
     expect(summary.lastCrashAt).toBe(now - 100 * HOUR)
   })
 
+  /**
+   * `events` must be the events of the window the summary is *about*.
+   *
+   * The counts and the uptime ratio are computed over `windowMs`, but `events` returned the last
+   * eight of all time — so a server that last ran three days ago showed its stale events under a
+   * panel whose empty state reads "No events in the last 24 hours". Two symptoms from one mismatch:
+   * stale events rendered with no indication of age, and a caption that was true only by accident.
+   */
+  it('returns only the events inside the window it summarizes', async () => {
+    const { history } = await makeHistory()
+    const now = Date.now()
+
+    // Well outside the window.
+    history.record('web', { type: 'start', detail: 'run' }, now - 100 * HOUR)
+    history.record('web', { type: 'crash', detail: 'old', runtimeMs: 1000 }, now - 99 * HOUR)
+    // Inside it.
+    history.record('web', { type: 'start', detail: 'run' }, now - 2 * HOUR)
+    history.record('web', { type: 'crash', detail: 'recent', runtimeMs: 1000 }, now - 1 * HOUR)
+
+    const summary = history.summarize('web', 24 * HOUR, now)
+    expect(summary.crashes).toBe(1)
+    expect(summary.events.map(event => event.detail)).toEqual(['run', 'recent'])
+    for (const event of summary.events)
+      expect(event.ts, 'every event belongs to the window').toBeGreaterThanOrEqual(now - 24 * HOUR)
+
+    // And an all-time lookback still sees them, so nothing was discarded from the store itself.
+    expect(history.all().length).toBe(4)
+    expect(history.summarize('web', 365 * 24 * HOUR, now).events.length).toBe(4)
+  })
+
   it('derives uptime from recorded runtimes plus the in-flight interval', async () => {
     const { history } = await makeHistory()
     const now = Date.now()

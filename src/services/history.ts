@@ -83,7 +83,7 @@ export class HistoryStore {
       lastCrashAt: lastCrash?.ts ?? null,
       lastExitAt: lastExit?.ts ?? null,
       lastRuntimeMs: lastExit?.runtimeMs ?? null,
-      events: mine.slice(-EVENTS_IN_VIEW),
+      events: recent.slice(-EVENTS_IN_VIEW),
     }
   }
 
