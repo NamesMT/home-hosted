@@ -78,7 +78,10 @@ describe('the plain-object predicate has one definition', () => {
           walk(full)
         }
         else if (/\.tsx?$/.test(entry.name)) {
-          found.push({ rel: path.relative(root, full), body: fs.readFileSync(full, 'utf8') })
+          // POSIX form, so the comparison below is the same on Windows: `path.relative` returns
+          // backslashes there, and a literal expectation would pass on Linux and fail on Windows.
+          const rel = path.relative(root, full).replaceAll('\\', '/')
+          found.push({ rel, body: fs.readFileSync(full, 'utf8') })
         }
       }
     }
