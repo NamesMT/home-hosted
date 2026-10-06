@@ -133,6 +133,7 @@ naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fall
 | `GET /api/servers/:id/stream` | one server's `server` + `log` frames |
 | `POST /api/servers/:id/{start,stop,restart}`, `/api/servers/{start-all,stop-all}` | lifecycle (workspace-scoped) |
 | `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop (`409` when nothing can be freed — a supervised listener is refused, never killed) |
+| `POST /api/servers/:id/clear-logs` | forget the buffered lines; the file on disk is cleared separately through `DELETE /api/logs/:id` |
 | `GET` / `POST /api/servers`, `PATCH` / `DELETE /api/servers/:id` | the entries themselves, in one workspace |
 | `GET /api/logs`, `/api/logs/:id?tail=&search=`, `/api/logs/:id/download?file=` | persisted logs, for one workspace |
 | `GET` / `PATCH /api/settings` | the panel-wide settings (`control.label`, host thresholds, backups, UI) |
@@ -141,7 +142,9 @@ naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fall
 | `POST` / `DELETE /api/settings/tls` | upload or clear a PEM pair |
 | `GET` / `PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `PUT` / `DELETE /api/proxy/certificates/:id`, `POST /api/proxy/routes/:id/retry-certificate` | the panel-wide reverse proxy: engine, route table, its uploaded PEM pairs. Its live view also rides in the state frame as an optional `proxy` — read it defensively |
 | `GET` / `POST /api/backups`, `/api/backups/restore`, `/api/backups/:name/download` | archives; entries are global (`global:settings`, `global:secrets`, `global:tls`) or per workspace, whose leaves are `workspace:<id>:settings`, `:servers`, `:secrets` plus `data:<path>`; a create/restore body `include` selects them |
+| `POST` / `DELETE /api/auth/password` | set the panel password, or clear it and disable auth. `POST` needs the current one unless none is set; an empty password is refused |
 | `POST` / `DELETE /api/notifications/token`, `/api/notifications/test`, `/detect-chats` | Telegram, per workspace |
+| `GET` / `PUT /api/ddns`, `PUT` / `DELETE /api/ddns/credentials/:id`, `POST /api/ddns/check` | dynamic DNS, per workspace: the policy plus live per-record state, one account's sealed credentials (write-only — the view exposes ids and whether each is set, never the values), and a pass run now |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | the session |
 | `GET /healthz` | liveness — **no session**, and `503` when an autostart server has crashed |
 | `GET /api/metrics` | Prometheus text (needs a session) |
