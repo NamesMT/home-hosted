@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import process from 'node:process'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { logger } from '#src/helpers/logger'
+import { isRecord } from '#src/shared/shape'
 
 /** Node's scrypt defaults, pinned so a hash stays verifiable across versions. */
 const COST = { N: 16384, r: 8, p: 1 } as const
@@ -155,10 +156,6 @@ export function apiTokenRecord(token: string, now = Date.now()): ApiTokenRecord 
     hint: token.slice(0, API_TOKEN_HINT_CHARS),
     updatedAt: now,
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** A field map: strings only, empty values dropped; anything else reads as absent. */

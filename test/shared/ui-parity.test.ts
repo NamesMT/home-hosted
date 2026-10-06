@@ -47,3 +47,66 @@ describe('the UIs share one proxy form', () => {
       expect(uiProxy(ui), `${ui} keeps cloneRoutes`).toContain('export function cloneRoutes')
   })
 })
+
+/**
+ * One plain-object predicate for every untyped boundary.
+ *
+ * It had **eight** private copies — five in `src/` and three in the UIs — and two of them accepted
+ * an array, which `typeof` calls an object. Searching by name found only some of them: the rest were
+ * called `isRecordValue` or `isPlainObject`, or were an inline expression. So this guard matches the
+ * **body**, not the identifier, which is the only way the next copy gets caught however it is named.
+ */
+describe('the plain-object predicate has one definition', () => {
+  /**
+   * Matches the *definition* shape, not a passing narrow check.
+   *
+   * `isRecord`'s body is the whole pattern; an inline narrowing like `typeof x === 'object' && x
+   * !== null && 'key' in x` is a different thing (it needs the `in` test, which the predicate cannot
+   * express) and is left alone. The two forms this catches are the ones that were copied:
+   * `return typeof v === 'object' && v !== null && !Array.isArray(v)` and the same as a ternary.
+   */
+  const PREDICATE = /typeof \w+ === 'object' && \w+ !== null && !Array\.isArray\(\w+\)/g
+
+  const sources = (): Array<{ rel: string, body: string }> => {
+    const found: Array<{ rel: string, body: string }> = []
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist')
+            continue
+          walk(full)
+        }
+        else if (/\.tsx?$/.test(entry.name)) {
+          found.push({ rel: path.relative(root, full), body: fs.readFileSync(full, 'utf8') })
+        }
+      }
+    }
+    walk(path.join(root, 'src'))
+    walk(path.join(root, 'uis'))
+    return found
+  }
+
+  it('lives only in the shared module', () => {
+    const files = sources()
+    // Anti-vacuity: the walk is meant to see the whole tree, not an empty list.
+    expect(files.length).toBeGreaterThan(100)
+
+    const holders = files
+      .filter(file => PREDICATE.test(file.body))
+      .map(file => file.rel)
+      .sort()
+
+    expect(holders).toEqual(['src/shared/shape.ts'])
+  })
+
+  it('is reached through `@shared` from a UI and `#src` from the core', () => {
+    const shape = fs.readFileSync(path.join(root, 'src', 'shared', 'shape.ts'), 'utf8')
+    expect(shape).toContain('export function isRecord')
+    // The array half is the reason this exists; a variant without it is the bug, not a style choice.
+    expect(shape).toContain('!Array.isArray(value)')
+
+    expect(fs.readFileSync(path.join(root, 'uis', 'stock', 'src', 'lib', 'api.ts'), 'utf8')).toContain('from \'@shared/shape\'')
+    expect(fs.readFileSync(path.join(root, 'uis', 'noc-console', 'src', 'lib', 'api.ts'), 'utf8')).toContain('from \'@shared/shape\'')
+  })
+})

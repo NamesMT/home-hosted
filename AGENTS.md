@@ -125,6 +125,15 @@ a minor without one.
 - `src/api/**` — one file per URL group (`$.routes.ts` = several routes), mirroring the path.
 - `src/shared/contracts.ts` — every ArkType schema (config, API and SSE DTOs), shared with the UIs;
   the OpenAPI spec is generated from it, never hand-written.
+- `src/shared/shape.ts` — `isRecord`, the one plain-object predicate. It had **nine** definitions
+  across `src/` and the UIs — seven strict (one of them an inline ternary, not a named function,
+  which is why grepping for the name missed it) and two that accepted an **array**, because
+  `typeof [] === 'object'` is true. A caller that then reads a property gets `undefined` rather than
+  a failure, and `Object.entries` yields the *indices*. Those two were unobservable on the payloads
+  they saw, which is why nothing caught them. Consolidating needed no new dependency edge: `@shared`
+  is already imported for runtime values by both UIs.
+  `test/shared/ui-parity.test.ts` now matches the predicate's **body** rather than its name, so the
+  next copy is caught however it is called — the name-based search found only some of these.
 - `src/shared/proxy-form.ts` — the reverse-proxy form both UIs edit (the route draft, the save
   patch, the checks the panel would otherwise answer with a 400). It exists because `uis/stock` and
   `uis/noc-console` had **40 byte-identical declarations** and eight commits touched both files,

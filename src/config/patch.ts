@@ -1,7 +1,4 @@
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
+import { isRecord } from '#src/shared/shape'
 /** Nested groups a patch merges into instead of replacing. */
 export const SERVER_MERGE_KEYS = new Set(['restart', 'health', 'stop'])
 export const CONTROL_MERGE_KEYS = new Set(['auth', 'tls'])

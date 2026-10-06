@@ -11,6 +11,7 @@ import {
   proxyConfigSchema,
   serverSchema,
 } from '#src/shared/contracts'
+import { isRecord } from '#src/shared/shape'
 
 export { backupsSchema, controlSchema, ddnsConfigSchema, defaultsSchema, hostSchema, logsSchema, notificationsSchema, proxyConfigSchema, serverSchema }
 
@@ -66,10 +67,6 @@ export type ResolvedWorkspaceConfig = ResolvedWorkspaceSettings & { servers: Ser
 export const GLOBAL_SETTINGS_KEYS = ['$schema', 'meta', 'control', 'host', 'backups', 'proxy'] as const
 export const WORKSPACE_SETTINGS_KEYS = ['$schema', 'meta', 'defaults', 'logs', 'notifications', 'ddns'] as const
 export const SERVERS_FILE_KEYS = ['$schema', 'meta', 'servers'] as const
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 /**
  * Resolves one entry against the workspace's server defaults. A group (`restart`,

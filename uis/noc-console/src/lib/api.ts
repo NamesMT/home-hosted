@@ -41,6 +41,7 @@ import {
   workspaceSettingsViewSchema,
   workspaceViewSchema,
 } from '@shared/contracts'
+import { isRecord } from '@shared/shape'
 import { type } from 'arktype'
 import { selectedWorkspaceId } from '@/lib/selection'
 
@@ -139,10 +140,6 @@ export function serverStreamUrl(id: string, workspace?: string | null): string {
 }
 
 /** Raised when the control plane wants a login before it will answer. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,

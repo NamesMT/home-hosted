@@ -37,6 +37,7 @@ import {
   workspaceSettingsViewSchema,
   workspaceViewSchema,
 } from '@shared/contracts'
+import { isRecord } from '@shared/shape'
 import { type } from 'arktype'
 import { rpc } from '@/lib/rpc'
 
@@ -86,10 +87,6 @@ export class AuthRequiredError extends Error {
   constructor() {
     super('authentication required')
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 /** One `?workspace=<id>` qualifier; omitted lets the panel pick its default. */

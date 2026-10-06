@@ -1,3 +1,4 @@
+import { isRecord } from '@shared/shape'
 /**
  * Repairs a form whose numeric boxes were emptied before it is diffed against live config.
  *
@@ -54,10 +55,6 @@ export function repairNumbers<T extends Record<string, unknown>>(next: T, curren
       repairNumbers(value, isRecord(live) ? live : {})
   }
   return next
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**

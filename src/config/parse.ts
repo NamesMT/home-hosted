@@ -19,6 +19,7 @@ import {
   WORKSPACE_SETTINGS_KEYS,
 } from '#src/config/schema'
 import { appVersion } from '#src/helpers/version'
+import { isRecord } from '#src/shared/shape'
 
 export interface ConfigParse<T> {
   /** Null when something made the file unusable; `errors` says why. */
@@ -33,10 +34,6 @@ export interface ConfigParse<T> {
   schemaVersion: number
   /** What wrote it, when the file says. */
   writtenBy: string | null
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 type Validator = (input: unknown) => unknown

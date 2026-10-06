@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { logger } from '#src/helpers/logger'
 import { hasLegacyLayout, hhDir, legacy, workspacesPath } from '#src/helpers/paths'
+import { isRecord } from '#src/shared/shape'
 
 /**
  * One-time relocation of a pre-workspace `$HHOSTED_HOME` into the current layout:
@@ -29,7 +30,7 @@ const KNOWN_TOP_LEVEL = new Set(['$schema', 'meta', 'control', 'defaults', 'logs
 function readJson(file: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'))
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null
+    return isRecord(parsed) ? parsed : null
   }
   catch {
     return null

@@ -12,6 +12,7 @@ import { resolveTemplate } from '#src/helpers/template'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { serverTemplateVars } from '#src/services/supervisor'
 import { isGeneratedPath } from '#src/shared/generated'
+import { isRecord } from '#src/shared/shape'
 
 const MANIFEST = 'manifest.json'
 const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data'])
@@ -258,10 +259,6 @@ function readText(file: string): string | null {
   catch {
     return null
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**
