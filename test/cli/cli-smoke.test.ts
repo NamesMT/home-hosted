@@ -280,12 +280,18 @@ describe('status paths in both outputs', () => {
       const text = runCli(['status', '--home', dir])
       expect(text.stdout, 'the text form has a ui row').toMatch(/^ {2}ui +stock$/m)
 
-      const parsed = JSON.parse(runCli(['status', '--home', dir, '--json']).stdout) as {
-        ui?: { custom?: boolean, name?: string }
-      }
+      const jsonOut = runCli(['status', '--home', dir, '--json']).stdout
+      const parsed = JSON.parse(jsonOut) as { ui?: { custom?: boolean, name?: string } }
       expect(parsed.ui, 'text prints a ui row, so JSON must carry it too').toBeDefined()
       expect(parsed.ui!.custom).toBe(false)
       expect(parsed.ui!.name).toBe('stock')
+
+      // The run.json token authorises a local shutdown, so it must not reach a script's stdout —
+      // which is a file, a pipe and often a CI log. A running panel is what makes this meaningful:
+      // the other `status --json` fixture has no `run.json`, so it cannot leak one either way.
+      const token = (JSON.parse(fs.readFileSync(path.join(dir, '.hh', 'run.json'), 'utf8')) as { token?: string }).token
+      expect(token, 'the running panel must have a token, or this proves nothing').toBeTruthy()
+      expect(jsonOut, 'the status token must not be printed').not.toContain(token!)
     }
     finally {
       runCli(['down', '--home', dir])
