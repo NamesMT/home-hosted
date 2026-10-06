@@ -98,6 +98,27 @@ describe('public IP detection', () => {
     expect(isPublicAddress('fe80::1', 'AAAA')).toBe(false)
     expect(isPublicAddress('fd00::1', 'AAAA')).toBe(false)
     expect(isPublicAddress('2606:4700::1111', 'AAAA')).toBe(true)
+
+    // The ranges the prefix checks missed. Each of these passes `isIP(value) === 6`, so the guard
+    // is the only thing between them and a published AAAA record — and the function's own comment
+    // says it returns "the first address that is really public".
+    for (const ip of [
+      '::ffff:127.0.0.1', // IPv4-mapped loopback
+      '::ffff:10.0.0.1', // IPv4-mapped private
+      '::ffff:192.168.1.5', // IPv4-mapped private
+      '::127.0.0.1', // IPv4-compatible loopback
+      'ff02::1', // multicast
+      'ff05::1:3', // multicast, site-local scope
+      '2001:db8::1', // documentation
+      '3fff::1', // documentation (RFC 9637)
+      '64:ff9b::1.2.3.4', // IPv4/IPv6 translation
+      '2002::1', // 6to4
+      '2001::1', // Teredo
+    ])
+      expect(isPublicAddress(ip, 'AAAA'), ip).toBe(false)
+
+    // And a plain global unicast address is still accepted, so the rule is not simply "refuse".
+    expect(isPublicAddress('2a00:1450:4001:80e::200e', 'AAAA')).toBe(true)
   })
 
   it('falls back through the endpoint list', async () => {
