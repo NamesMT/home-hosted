@@ -1,6 +1,5 @@
-export function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour12: false })
-}
+// The subset both UIs share; see that module for why only these four live there.
+export { formatAgo, formatClock, formatDuration, relativeFrom } from '@shared/ui-format'
 
 /** `HH:MM:SS.mmm` — the log viewer needs the sub-second part to be useful. */
 export function formatClockMs(ts: number): string {
@@ -25,47 +24,13 @@ export function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' })
 }
 
-export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0)
-    return '—'
-  const seconds = Math.floor(ms / 1000)
-  if (seconds < 60)
-    return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60)
-    return `${minutes}m ${seconds % 60}s`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24)
-    return `${hours}h ${minutes % 60}m`
-  return `${Math.floor(hours / 24)}d ${hours % 24}h`
-}
-
-export function relativeFrom(ts: number, now: number): string {
-  const delta = Math.max(0, ts - now)
-  if (delta < 1000)
-    return 'now'
-  if (delta < 60000)
-    return `in ${Math.ceil(delta / 1000)}s`
-  return `in ${Math.ceil(delta / 60000)}m`
-}
-
 export function formatRatio(value: number | null): string {
-  if (value === null)
+  // `!Number.isFinite` as in `formatCpuPercent` and `formatBytesShort` beside it: the contract is
+  // `number | null`, so the type permits a NaN, which would render as the literal `NaN%` rather than
+  // the em-dash that means unknown. Its sibling in `noc-console` had the same gap.
+  if (value === null || !Number.isFinite(value))
     return '—'
   return `${(value * 100).toFixed(value >= 0.999 ? 0 : 1)}%`
-}
-
-export function formatAgo(ts: number | null, now: number): string {
-  if (ts === null)
-    return 'never'
-  const delta = Math.max(0, now - ts)
-  if (delta < 60_000)
-    return `${Math.floor(delta / 1000)}s ago`
-  if (delta < 3_600_000)
-    return `${Math.floor(delta / 60_000)}m ago`
-  if (delta < 86_400_000)
-    return `${Math.floor(delta / 3_600_000)}h ago`
-  return `${Math.floor(delta / 86_400_000)}d ago`
 }
 
 export function formatBytes(bytes: number): string {

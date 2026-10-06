@@ -1,6 +1,9 @@
-export function formatClock(ts: number): string {
-  return new Date(ts).toLocaleTimeString(undefined, { hour12: false })
-}
+// The subset both UIs share; see that module for why only these four live there.
+// Imported as well as re-exported: `formatMsHint` below calls `formatDuration`, and a re-export
+// does not bring the name into this module's scope.
+import { formatDuration } from '@shared/ui-format'
+
+export { formatAgo, formatClock, formatDuration, relativeFrom } from '@shared/ui-format'
 
 export function formatStamp(ts: number): string {
   const date = new Date(ts)
@@ -10,21 +13,6 @@ export function formatStamp(ts: number): string {
 
 export function formatDateTime(ts: number): string {
   return new Date(ts).toLocaleString(undefined, { hour12: false })
-}
-
-export function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0)
-    return '—'
-  const seconds = Math.floor(ms / 1000)
-  if (seconds < 60)
-    return `${seconds}s`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60)
-    return `${minutes}m ${seconds % 60}s`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24)
-    return `${hours}h ${minutes % 60}m`
-  return `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
 /** Compact htop-style uptime: `3d04h`, `2h11m`, `07m42s`, `42s`. */
@@ -45,15 +33,6 @@ export function formatUptime(ms: number): string {
   return `${seconds}s`
 }
 
-export function relativeFrom(ts: number, now: number): string {
-  const delta = Math.max(0, ts - now)
-  if (delta < 1000)
-    return 'now'
-  if (delta < 60000)
-    return `in ${Math.ceil(delta / 1000)}s`
-  return `in ${Math.ceil(delta / 60000)}m`
-}
-
 export function formatRatio(value: number | null): string {
   // `!Number.isFinite` for the same reason every sibling here checks it: the contract is
   // `number | null`, so the type permits a `NaN` a future producer could compute (a `0/0` ratio),
@@ -61,19 +40,6 @@ export function formatRatio(value: number | null): string {
   if (value === null || !Number.isFinite(value))
     return '—'
   return `${(value * 100).toFixed(value >= 0.999 ? 0 : 1)}%`
-}
-
-export function formatAgo(ts: number | null, now: number): string {
-  if (ts === null)
-    return 'never'
-  const delta = Math.max(0, now - ts)
-  if (delta < 60_000)
-    return `${Math.floor(delta / 1000)}s ago`
-  if (delta < 3_600_000)
-    return `${Math.floor(delta / 60_000)}m ago`
-  if (delta < 86_400_000)
-    return `${Math.floor(delta / 3_600_000)}h ago`
-  return `${Math.floor(delta / 86_400_000)}d ago`
 }
 
 export function formatBytes(bytes: number | null): string {
