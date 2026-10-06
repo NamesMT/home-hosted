@@ -4,6 +4,7 @@ import {
   backupDownloadUrl,
   clearPassword,
   clearProxyCertificate,
+  ddnsView,
   deleteBackup,
   fetchProxy,
   fetchSession,
@@ -23,6 +24,7 @@ import {
   uploadProxyCertificate,
   uploadUi,
 } from '#src/shared/api-client'
+import { makeFixture, makeView } from '../api/fixture'
 
 /**
  * The panel API client both UIs share.
@@ -126,6 +128,26 @@ describe('request', () => {
   })
 })
 
+describe('the ddns contract is validated at the boundary', () => {
+  /**
+   * `ddnsView` was never called by a test — the only uncovered function in this module — so its
+   * mismatch path was unexercised. Driven through the real fixture rather than a hand-written payload:
+   * the contract is 9 KB of config, and a fixture I typed would pin my guess at it.
+   */
+  it('accepts what the panel actually sends and rejects a payload that is not one', async () => {
+    const created = await makeFixture({ views: [makeView('web')] })
+    try {
+      const real = await (await created.app.request('/api/ddns')).json()
+      await expect(ddnsView(real)).resolves.toMatchObject({ credentials: [] })
+      await expect(ddnsView({ nonsense: true })).rejects.toThrow(/ddns contract mismatch/)
+      await expect(ddnsView(null)).rejects.toThrow(/ddns contract mismatch/)
+    }
+    finally {
+      await created.cleanup()
+    }
+  })
+})
+
 describe('the proxy contract is validated at the boundary', () => {
   it('accepts a real payload and rejects a malformed one', async () => {
     stub(proxyPayload)
@@ -164,10 +186,27 @@ describe('the proxy contract is validated at the boundary', () => {
     expect(lastCall(mock)[1]?.method).toBe('PUT')
     expect(JSON.parse(String(lastCall(mock)[1]?.body))).toMatchObject({ label: 'label', certificate: 'CERT' })
 
-    // A `FormData` body must not carry the JSON content type — the boundary is set by the runtime.
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true, meta: null, ui: {} }), { status: 200 })))
+    // A `FormData` body must not carry the JSON content type — the runtime sets the boundary.
+    const mock2 = vi.fn(async () => new Response(JSON.stringify({ ok: true, meta: null, ui: {} }), { status: 200 }))
+    vi.stubGlobal('fetch', mock2)
     await uploadUi(new File(['x'], 'ui.zip'))
-    vi.unstubAllGlobals()
+    const init = lastCall(mock2)[1]
+    expect(init?.body).toBeInstanceOf(FormData)
+    expect(init?.headers).toBeUndefined()
+  })
+
+  it('rejects a certificate the schema refuses, before sending it', async () => {
+    // The label may be empty — the schema defaults it — but a certificate or key may not: it requires
+    // at least one character. Asserted both ways, since assuming the label was required is what the
+    // first version of this test got wrong.
+    const ok = stub(proxyPayload)
+    await expect(uploadProxyCertificate('id', '', 'CERT', 'KEY')).resolves.toBeDefined()
+    expect(ok, 'an empty label is valid').toHaveBeenCalledTimes(1)
+
+    const mock = vi.fn()
+    vi.stubGlobal('fetch', mock)
+    await expect(uploadProxyCertificate('id', 'label', '', 'KEY')).rejects.toThrow()
+    expect(mock, 'a body without a certificate must not reach the server').not.toHaveBeenCalled()
   })
 })
 
