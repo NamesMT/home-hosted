@@ -125,6 +125,13 @@ a minor without one.
 - `src/api/**` — one file per URL group (`$.routes.ts` = several routes), mirroring the path.
 - `src/shared/contracts.ts` — every ArkType schema (config, API and SSE DTOs), shared with the UIs;
   the OpenAPI spec is generated from it, never hand-written.
+- `src/shared/proxy-form.ts` — the reverse-proxy form both UIs edit (the route draft, the save
+  patch, the checks the panel would otherwise answer with a 400). It exists because `uis/stock` and
+  `uis/noc-console` had **40 byte-identical declarations** and eight commits touched both files,
+  one of them literally "carry the fix into the other UI". **Nothing here may import Vue**: the UIs
+  bundle it as a devDependency while the published package does not ship it, so `cloneRoutes`
+  (which needs `toRaw`) stays in each UI. `test/shared/ui-parity.test.ts` fails if either UI
+  re-declares a shared member.
 - `src/config/` — split by scope. `settings.ts` (`GlobalSettingsStore`: `.hh/settings.json` — listener,
   auth, TLS policy, host vitals, backups) and `store.ts` (`WorkspaceStore`: a workspace's
   `settings.json` + `servers.config.json`, validate/merge/atomic commit, reporting

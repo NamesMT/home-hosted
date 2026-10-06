@@ -233,8 +233,10 @@ pnpm run build:uis                        # every UI, zipped; releases attach th
 
 Only `stock` ships inside the npm package; the rest are release assets you install from Global
 settings.
-`pnpm run quickcheck` type-checks every UI, and `pnpm test` picks up any `test/*.test.ts` you add
-(use relative imports — the `@` alias points at `stock`).
+`pnpm run quickcheck` type-checks every UI, and `pnpm test` picks up any `test/*.test.ts` you add.
+`@/…` resolves from the UI that asks — each UI's own `src`, so a test can import its own components
+and logic directly; use `@shared/…` for what the panel and the UIs genuinely share
+(`src/shared/`), and never import runtime server code (`@server` is types only).
 
 ## A worked example
 
