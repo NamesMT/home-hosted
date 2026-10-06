@@ -55,7 +55,10 @@ export function relativeFrom(ts: number, now: number): string {
 }
 
 export function formatRatio(value: number | null): string {
-  if (value === null)
+  // `!Number.isFinite` for the same reason every sibling here checks it: the contract is
+  // `number | null`, so the type permits a `NaN` a future producer could compute (a `0/0` ratio),
+  // and `NaN` would render as the literal `NaN%` rather than the em-dash that means unknown.
+  if (value === null || !Number.isFinite(value))
     return '—'
   return `${(value * 100).toFixed(value >= 0.999 ? 0 : 1)}%`
 }
