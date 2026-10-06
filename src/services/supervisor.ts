@@ -1367,9 +1367,12 @@ export class Supervisor {
       : code === null && signal === null && entry.lastError !== null
     const detail = neverStarted
       ? (entry.lastError ?? 'the entry could not start')
+      // Both exits go through one formatter. This branch used to hand-roll `code ${code}`, so a
+      // supervised entry's log read "exited with code 137" while a nanny-run one got the hint
+      // explaining it — the same event, described differently depending on how it was run.
       : nannyExit !== null
         ? describeNannyExit(nannyExit)
-        : signal !== null ? `signal ${signal}` : `code ${code}`
+        : describeNannyExit({ code, signal, runtimeMs: 0, at: Date.now() } as NannyExit)
     const ranForMs = nannyExit?.runtimeMs ?? (entry.startedAt === null ? 0 : Date.now() - entry.startedAt)
 
     // Recorded for *every* exit, not only the ones that end in `crashed`: the

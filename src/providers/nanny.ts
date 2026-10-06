@@ -1,5 +1,6 @@
 import type { NannyExit, NannySpec, NannyState } from '#src/shared/contracts'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { type } from 'arktype'
@@ -123,9 +124,47 @@ export function clearNannyState(file: string): void {
   fs.rmSync(file, { force: true })
 }
 
-/** The same wording the supervisor uses for a child's exit, so history reads alike. */
+/**
+ * The same wording the supervisor uses for a child's exit, so history reads alike — plus a hint
+ * when the code has a conventional meaning, because `code 137` alone tells an operator nothing and
+ * that is the one they most want explained (a container limit or the kernel OOM killer).
+ *
+ * The hint is worded as a possibility, never a claim: 128+N is a shell convention, and a program
+ * is free to exit 137 for its own reasons — a JVM reports OOM that way itself. 126 and 127 are
+ * firmer, since the shell sets those when it cannot run the command at all.
+ */
 export function describeNannyExit(exit: NannyExit): string {
-  return exit.signal !== null ? `signal ${exit.signal}` : `code ${exit.code}`
+  if (exit.signal !== null)
+    return `signal ${exit.signal}`
+  const hint = exitCodeHint(exit.code)
+  return hint === null ? `code ${exit.code}` : `code ${exit.code} (${hint})`
+}
+
+/** What a conventional exit code usually means, or null when there is nothing to add. */
+function exitCodeHint(code: number | null): string | null {
+  if (code === null || code === 0)
+    return null
+  if (code === 126)
+    return 'the command is not executable'
+  if (code === 127)
+    return 'the command was not found'
+  if (code <= 128 || code > 128 + 64)
+    return null
+  const signal = signalName(code - 128)
+  if (signal === null)
+    return null
+  return code === 137
+    ? `${signal} — which the kernel sends when memory runs out`
+    : `${signal}, if the shell reported the kill`
+}
+
+/** `SIGKILL` for 9, or null when the number names nothing. */
+function signalName(number: number): string | null {
+  for (const [name, value] of Object.entries(os.constants.signals)) {
+    if (value === number)
+      return name
+  }
+  return null
 }
 
 /**
