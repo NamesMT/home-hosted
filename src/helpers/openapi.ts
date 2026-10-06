@@ -15,4 +15,5 @@ export const ERROR_RESPONSES = {
   400: { description: 'The request was rejected', content: jsonBody(apiErrorSchema) },
   401: { description: 'No valid session', content: jsonBody(apiErrorSchema) },
   404: { description: 'Unknown id', content: jsonBody(apiErrorSchema) },
+  413: { description: 'The body is larger than this route accepts', content: jsonBody(apiErrorSchema) },
 } as const

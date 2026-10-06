@@ -8,6 +8,7 @@ import { Readable } from 'node:stream'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
+import { bodyLimit } from 'hono/body-limit'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
@@ -109,7 +110,22 @@ export function createBackupsRoute(deps: AppDeps) {
     .post('/backups/restore', describeRoute({
       tags: ['backups'],
       summary: 'Plan or apply a restore from a stored or uploaded archive',
-      responses: { 200: { description: 'The plan', content: jsonBody(restorePlanSchema) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404] },
+      responses: { 200: { description: 'The plan', content: jsonBody(restorePlanSchema) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404], 413: ERROR_RESPONSES[413] },
+    }),
+    /**
+     * Bound the body **while it arrives**, not after.
+     *
+     * The handler's own checks read `Content-Length` first — a header a chunked request simply does
+     * not send — and then compare `file.size` after `parseBody()` has already buffered the whole
+     * body into memory. So an upload with no length is buffered in full and *then* refused: the
+     * ceiling was a memory limit rather than a guard. This middleware counts chunks and aborts at the
+     * cap, which is the half the header check cannot do.
+     */
+    bodyLimit({
+      maxSize: MAX_UPLOAD_BYTES,
+      onError: () => {
+        throw new DetailedError(`the upload is larger than ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
+      },
     }), async (c) => {
       const confirm = c.req.query('confirm') === 'true'
       const contentType = c.req.header('content-type') ?? ''
