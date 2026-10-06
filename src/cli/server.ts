@@ -54,18 +54,15 @@ export async function runServerAction(action: ServerAction, id: string, workspac
   process.stdout.write(`${green(verb)} ${workspace === undefined ? '' : `${workspace}/`}${id}\n`)
 }
 
-/** One line of help per action, since `restart` has two meanings to keep apart. */
-const DESCRIPTION: Record<ServerAction, string> = {
-  start: 'start one server (the panel keeps running)',
-  stop: 'stop one server (the panel keeps running)',
-  restart: 'restart one server (the panel keeps running)',
-}
-
 function serverCommand(action: ServerAction) {
   return defineCommand({
+    // No `description`: `cli.ts` owns the one copy (`SYNOPSIS` + `SUMMARIES`) and renders it through
+    // `commandHelp`, which `main()` intercepts before citty sees `--help`. citty's own usage printer is
+    // the only reader of a subcommand description here and it never runs (`runCommand`, not `runMain`),
+    // so a copy in the module is unreachable text that drifts — `migrate`, `up` and `ui-update` had all
+    // diverged by the time this was noticed.
     meta: {
       name: action,
-      description: DESCRIPTION[action],
     },
     args: {
       // `required: false` keeps citty's own refusal out of the way: the message below

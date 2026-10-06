@@ -214,7 +214,7 @@ async function installArchive(archivePath: string, fallbackName: string, context
  * the invocation changes and the helpers do not.
  */
 export const uiSwitchCommand = defineCommand({
-  meta: { name: 'ui-switch', description: 'install a UI from a release asset, a zip file or a URL' },
+  meta: { name: 'ui-switch' },
   run: async ({ rawArgs }) => {
     await uiSwitch(rawArgs, {
       write: text => process.stdout.write(text),

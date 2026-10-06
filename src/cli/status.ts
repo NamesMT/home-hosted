@@ -112,7 +112,7 @@ function formatDuration(ms: number): string {
 }
 
 export const statusCommand = defineCommand({
-  meta: { name: 'status', description: 'is it running, where, and how to reach it' },
+  meta: { name: 'status' },
   args: statusArgs,
   run: async ({ args }) => {
     await runStatus(args.json === true)

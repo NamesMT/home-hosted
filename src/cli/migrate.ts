@@ -164,7 +164,7 @@ export async function runMigrate(config: string | undefined, dryRun: boolean, ye
 }
 
 export const migrateCommand = defineCommand({
-  meta: { name: 'migrate', description: 'bring the state up to this release\'s layout and schema' },
+  meta: { name: 'migrate' },
   args: migrateArgs,
   run: async ({ args }) => {
     await runMigrate(args.config, args.dryRun === true, args.yes === true)

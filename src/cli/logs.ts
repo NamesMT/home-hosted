@@ -125,10 +125,9 @@ export async function runLogs(input: { lines?: string, follow?: boolean, json?: 
 }
 
 export const logsCommand = defineCommand({
-  meta: {
-    name: 'logs',
-    description: 'show the panel\'s own console output',
-  },
+  // No `description`: the one copy is `SUMMARIES` in `cli.ts`. See `server.ts` for why a module copy
+  // here is unreachable.
+  meta: { name: 'logs' },
   args: logsArgs,
   async run({ args }) {
     try {

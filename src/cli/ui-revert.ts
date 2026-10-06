@@ -18,7 +18,7 @@ export async function runUiRevert(): Promise<void> {
 }
 
 export const uiRevertCommand = defineCommand({
-  meta: { name: 'ui-revert', description: 'go back to the stock control panel UI' },
+  meta: { name: 'ui-revert' },
   run: async () => {
     await runUiRevert()
   },

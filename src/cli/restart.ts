@@ -14,7 +14,7 @@ import { runUp, toUpFlags, upArgs } from '#src/cli/up'
  */
 export function restartCommand(entry: string) {
   return defineCommand({
-    meta: { name: 'restart', description: 'down then up — or one server, given an id' },
+    meta: { name: 'restart' },
     args: {
       ...upArgs,
       // Declared here rather than in `server.ts` because only `restart` takes it bare: for

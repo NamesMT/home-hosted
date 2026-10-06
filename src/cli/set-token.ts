@@ -91,7 +91,7 @@ async function verifyToken(base: string, token: string): Promise<boolean | null>
 }
 
 export const setTokenCommand = defineCommand({
-  meta: { name: 'set-token', description: 'set the API token that scripts and agents use' },
+  meta: { name: 'set-token' },
   args: setTokenArgs,
   run: async ({ args }) => {
     await runSetToken(args.generate === true, args.clear === true)

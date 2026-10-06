@@ -142,7 +142,7 @@ async function waitForStartup(child: ChildProcess, timeoutMs = 20000) {
 
 export function upCommand(entry: string) {
   return defineCommand({
-    meta: { name: 'up', description: 'start the panel in the background (detached)' },
+    meta: { name: 'up' },
     args: upArgs,
     run: async ({ args }) => {
       await runUp(toUpFlags(args), entry)

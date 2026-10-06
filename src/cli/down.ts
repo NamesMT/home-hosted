@@ -118,7 +118,7 @@ function forceStop(pid: number): void {
 }
 
 export const downCommand = defineCommand({
-  meta: { name: 'down', description: 'stop it, and everything it supervises' },
+  meta: { name: 'down' },
   run: async () => {
     await runDown()
   },

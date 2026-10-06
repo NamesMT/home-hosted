@@ -42,7 +42,7 @@ export async function runSetPassword(clear: boolean): Promise<void> {
 }
 
 export const setPasswordCommand = defineCommand({
-  meta: { name: 'set-password', description: 'set the panel password without the API' },
+  meta: { name: 'set-password' },
   args: setPasswordArgs,
   run: async ({ args }) => {
     await runSetPassword(args.clear === true)

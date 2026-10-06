@@ -385,7 +385,7 @@ async function installTag(
  * function so they can be exercised without a terminal.
  */
 export const uiUpdateCommand = defineCommand({
-  meta: { name: 'ui-update', description: 'update the installed UI to match this panel, or pick a release' },
+  meta: { name: 'ui-update' },
   run: async ({ rawArgs }) => {
     await uiUpdate(rawArgs, {
       write: text => process.stdout.write(text),

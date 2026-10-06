@@ -42,6 +42,29 @@ describe('cli smoke', () => {
     expect(help.stdout).not.toContain('\x1B[')
   })
 
+  /**
+   * A command module must not restate its own description.
+   *
+   * `cli.ts` holds the one copy (`SYNOPSIS` + `SUMMARIES`) and renders it through `commandHelp`, which
+   * `main()` intercepts *before* citty sees `--help`. `runCommand` — not `runMain` — is used precisely so
+   * citty's own usage printer never runs, and that printer is the only thing that reads a subcommand's
+   * `meta.description`. So each module's copy was unreachable, and three had already drifted:
+   * `migrate` said "bring the state up to this release's layout and schema" while the help said
+   * "bring the config up to this release's schema", with `up` and `ui-update` diverging too.
+   *
+   * Checked every CLI output path before deleting them: the divergent text appeared in none.
+   */
+  it('keeps each command description in one place, not two', () => {
+    const dir = path.join(root, 'src', 'cli')
+    const offenders = fs.readdirSync(dir)
+      .filter(name => name.endsWith('.ts'))
+      // `nanny.ts` is the one exemption, and it is deliberate: it is dispatched *before* the curated
+      // surface (`cli.ts`, "citty owns its own `--help` for it"), so its description really is read.
+      .filter(name => name !== 'nanny.ts')
+      .filter(name => /meta:\s*\{[\s\S]{0,200}?description:/.test(fs.readFileSync(path.join(dir, name), 'utf8')))
+    expect(offenders, 'the summary lives in cli.ts; a module copy is unreachable and drifts').toEqual([])
+  })
+
   it('scopes `--help` to the command it follows', () => {
     const up = runCli(['up', '--help'])
     expect(up.status).toBe(0)

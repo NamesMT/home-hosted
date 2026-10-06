@@ -86,7 +86,7 @@ export async function runInit(options: { dir?: string, name?: string, pm?: strin
 }
 
 export const initCommand = defineCommand({
-  meta: { name: 'init', description: 'scaffold a project that keeps its state in the repo' },
+  meta: { name: 'init' },
   args: initArgs,
   run: async ({ args }) => {
     await runInit({
