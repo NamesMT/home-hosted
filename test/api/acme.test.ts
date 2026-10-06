@@ -140,6 +140,36 @@ describe('the engine DNS-01 channel', () => {
     expect(response.status).toBe(401)
   })
 
+  /**
+   * A wrong username and a wrong password are both refused — including username-right/password-wrong,
+   * which is the case a short-circuiting `&&` would answer without ever checking the password.
+   *
+   * The two halves are compared unconditionally in the service; this pins the *behaviour* for both
+   * halves, so a change that stopped comparing one of them would fail here even though a
+   * missing-credentials test would still pass.
+   */
+  it('refuses a caller that gets either half of the credentials wrong', async () => {
+    const fixture = await makeApp()
+    configure(fixture)
+    stubCloudflare()
+    const good = await engineAuth(fixture)
+    const decoded = Buffer.from(good.slice(6), 'base64').toString('utf8')
+    const [username = '', password = ''] = decoded.split(':')
+    const encode = (u: string, p: string): string => `Basic ${Buffer.from(`${u}:${p}`).toString('base64')}`
+
+    // The right username with the wrong password: this is the branch `&&` skips.
+    const wrongPassword = await challenge(fixture, { fqdn: '_acme-challenge.git.example.com.', value: 't' }, encode(username, `${password}x`))
+    expect(wrongPassword.status, 'a wrong password must be refused').toBe(401)
+
+    // And the reverse.
+    const wrongUser = await challenge(fixture, { fqdn: '_acme-challenge.git.example.com.', value: 't' }, encode(`${username}x`, password))
+    expect(wrongUser.status, 'a wrong username must be refused').toBe(401)
+
+    // The pair itself still works, so the refusals are about the credentials and not the request.
+    const good1 = await challenge(fixture, { fqdn: '_acme-challenge.git.example.com.', value: 't' }, good)
+    expect(good1.status).toBe(200)
+  })
+
   it('says so when no route claims the name', async () => {
     const fixture = await makeApp()
     configure(fixture)

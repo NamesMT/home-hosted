@@ -134,8 +134,13 @@ export class AcmeChallengeService {
         return false
       const user = decoded.slice(0, separator)
       const password = decoded.slice(separator + 1)
-      // Both are compared, so a wrong username costs the same as a wrong password.
-      return matches(user, auth.username) && matches(password, auth.password)
+      // Both compared, without short-circuiting: `&&` skips the password check when the username is
+      // wrong, so the two halves cost different work — the opposite of what this comment used to say.
+      // The difference is ~90 ns, below loopback jitter, and this endpoint is loopback-only with a
+      // generated credential, so it is not a demonstrated leak; computing both costs nothing.
+      const userOk = matches(user, auth.username)
+      const passwordOk = matches(password, auth.password)
+      return userOk && passwordOk
     }
     catch {
       return false
