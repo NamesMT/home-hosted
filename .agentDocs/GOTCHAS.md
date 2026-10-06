@@ -178,6 +178,13 @@ line in `AGENTS.md` instead.
   field on purpose — a window problem must not read as a key mismatch and send you to the wrong file.
   `-not_before`/`-not_after` need OpenSSL ≥ 3.2, so the tests probing that window are behind
   `hasOpensslExplicitDates` (probed, not version-compared: macOS ships LibreSSL).
+- **A removed server must take its log files with it.** `sync()` deleted the entry and unfollowed the
+  relay but left `<id>.log` and its rotations on disk; only the explicit `DELETE /api/logs/:id` route
+  called `logFiles.clear`. The files accumulated for every server a panel had ever run, and — the part
+  that bites — **re-adding an id** served the *previous* server's lines as if they were the new one's,
+  since nothing distinguishes a stale file from a current one. Safe to clear in `sync()` because a
+  config that fails to parse keeps the last trusted server list, so a transient bad edit never reads as
+  "every server was removed".
 - **The nanny's `pending` slot is unreachable, and the ordering is what makes it so.** `runNanny`
   installs its SIGTERM/SIGINT traps and only then spawns, with the `pending` variable holding a signal
   that lands "in between". Nothing in that block awaits, and Node runs a signal handler only *between*

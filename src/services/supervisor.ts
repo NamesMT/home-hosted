@@ -670,6 +670,13 @@ export class Supervisor {
       if (!config) {
         this.entries.delete(id)
         this.relay.unfollow(id)
+        // The entry is gone, so its log files are history nothing will ever serve — and leaving them
+        // was not harmless: re-adding an id (a rename-back, a config edit, a restore) made `readTail`
+        // return the *previous* server's lines as if they were the new one's. Only the explicit
+        // `DELETE /api/logs/:id` used to clear them, and a removed server never hits that route.
+        // Safe here because a config that fails to parse keeps the last trusted server list, so a
+        // transient bad edit does not read as "every server was removed".
+        this.options.logFiles.clear(id)
         void this.stopEntry(entry).catch((error: unknown) => {
           logger.error(`could not stop the removed server ${id}`, error)
         })

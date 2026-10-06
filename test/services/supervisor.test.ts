@@ -1223,6 +1223,38 @@ describe('persistent entries', () => {
   })
 })
 
+/**
+ * Removing a server must reclaim its log files.
+ *
+ * They used to stay: `sync()` deleted the entry and unfollowed the relay, and only the explicit
+ * `DELETE /api/logs/:id` route ever called `logFiles.clear`. Two consequences, and the second is the
+ * one that bites — the files accumulate for every server a panel has ever run, and **re-adding an id**
+ * (a rename-back, a config edit, a restore) made `readTail` serve the previous server's lines as if
+ * they were the new one's, because nothing distinguishes a stale file from a current one.
+ */
+describe('a removed server', () => {
+  it('takes its log files with it, so a re-added id starts clean', async () => {
+    const harness = await makeSupervisor([{ id: 'web', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] }])
+    const { supervisor, store, logFiles } = harness
+
+    await supervisor.start('web')
+    await waitFor(() => view(supervisor, 'web').status === 'running')
+    supervisor.logLines('web') // touch the buffer so the entry is live
+    logFiles.append('web', { ts: 1, stream: 'stdout', text: 'HISTORY OF THE OLD ENTRY' })
+    logFiles.flush()
+    expect(logFiles.readTail('web', 10).some(line => line.text.includes('HISTORY OF THE OLD ENTRY'))).toBe(true)
+
+    // Drop it the way a config edit does: the store stops listing the id, then syncs.
+    store.removeServer('web')
+    await waitFor(() => supervisor.views().length === 0)
+
+    expect(
+      logFiles.readTail('web', 10).some(line => line.text.includes('HISTORY OF THE OLD ENTRY')),
+      'the removed entry\'s history must not survive to be served under the same id',
+    ).toBe(false)
+  })
+})
+
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
