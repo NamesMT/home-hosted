@@ -49,9 +49,12 @@ pnpm dev                           # tsx-watch panel :6000 + the stock UI's Vite
 pnpm dev --ui noc-console          # the same, for another UI; --port/--ui-port override
 pnpm run build                     # dist/cli.js + the stock UI (uis/stock/dist)
 pnpm run build:uis                 # every UI under uis/, zipped into uis/dist/ (release assets)
-pnpm run quickcheck                # eslint + tsc + vue-tsc for every UI under uis/
+pnpm run quickcheck                # eslint + tsc + vue-tsc + the doc links — NOT the tests
 pnpm exec vitest run               # `pnpm test` is vitest in watch mode
-pnpm run check                     # quickcheck + vitest run --coverage
+pnpm run check                     # ← THE GATE: quickcheck + vitest run --coverage. Run this before
+                                   #   every push — CI's `test.yml` is `pnpm test --coverage`, so an
+                                   #   area floor failing there fails the push while `quickcheck` stays
+                                   #   green. That divergence cost a day of red CI (2026-10-06).
 pnpm run set-password              # non-interactive through HHOSTED_PASSWORD
 pnpm run set-token                 # --generate prints a new API token once
 pnpm run migrate                   # bring the config up to this release's schema

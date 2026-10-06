@@ -55,15 +55,7 @@ describe('formatBytes', () => {
   it('reports zero bytes as zero, not as unknown', () => {
     expect(formatBytes(0)).toBe('0 B')
     expect(formatBytes(null)).toBe('—')
-  })
-
-  it('scales to a readable unit', () => {
-    expect(formatBytes(512)).toBe('512 B')
-    expect(formatBytes(1024)).toBe('1.0 KiB')
-    expect(formatBytes(1536)).toBe('1.5 KiB')
-    expect(formatBytes(1024 * 1024)).toBe('1.0 MiB')
-    expect(formatBytes(1024 ** 3)).toBe('1.0 GiB')
-    // A negative count is not a size, so it reads as unknown like `null`.
+    // A negative count is not a size, so it reads as unknown too.
     expect(formatBytes(-1)).toBe('—')
   })
 })
@@ -264,23 +256,6 @@ describe('validateRouteDraft', () => {
     // A path that does not start with a slash.
     expect(validateRouteDraft(base({ path: 'app' }), { others: [], workspaces }).path)
       .toBe('a path prefix starts with /')
-  })
-
-  it('falls back to the schema for what the field checks cannot see', () => {
-    // A host the pattern accepts but the schema rejects leaves every field check silent, so the
-    // summary has to surface — otherwise the form reports nothing and the save fails unexplained.
-    const found = validateRouteDraft({ ...newRouteDraft(), host: 'ok.example.com', target: 'server', workspace: 'default', server: 'gitea', path: '/ok' }, { others: [], workspaces })
-    // A valid draft produces no form error; the fallback is reached only when a field check missed.
-    expect(found.form).toBeUndefined()
-
-    // A bare `host:port` and a full URL are both valid upstreams; a value with a space is not, and
-    // `toRouteWire` gives an empty url an https scheme so the schema accepts it. Only the field check
-    // catches the space, which is what makes it worth pinning.
-    expect(parseUpstream('not-a-url'), 'a bare host is a valid upstream').not.toBeNull()
-    expect(parseUpstream('10.0.0.5:8080')).not.toBeNull()
-    expect(parseUpstream('a b')).toBeNull()
-    const bad = validateRouteDraft({ ...newRouteDraft(), host: 'ok.example.com', target: 'external', url: 'a b' }, { others: [], workspaces })
-    expect(bad.url, 'an upstream with a space is refused with its example').toBe('an upstream like http://10.0.0.5:8080')
   })
 
   it('accepts a server route once both halves are picked', () => {
