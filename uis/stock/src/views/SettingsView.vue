@@ -297,7 +297,7 @@ onBeforeUnmount(() => observer?.disconnect())
           The panel keeps supervising with the config it already had; fixing the file reloads it on its own.
         </p>
       </Notice>
-      <Notice v-else-if="workspace.configWarnings.value.length > 0" tone="warn" title="Some keys in this workspace's config are not recognized" class="mb-4">
+      <Notice v-else-if="workspace.configWarnings.value.length > 0" tone="warn" title="This workspace's config has a warning" class="mb-4">
         <p v-for="warning in workspace.configWarnings.value" :key="warning" class="font-mono">
           {{ warning }}
         </p>
