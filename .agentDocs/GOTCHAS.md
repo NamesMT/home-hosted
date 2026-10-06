@@ -188,6 +188,12 @@ line in `AGENTS.md` instead.
   nothing pruned it either, so a re-added id showed the old entry's crash time — `HistoryStore.forget()`
   now runs beside `logFiles.clear()` in the same branch. A per-**id** artifact needs reclaiming on
   removal; check both stores when adding a third.
+- **A URL scheme you do not support is a mistake, not a hostname.** `parseUpstream` prefixed a bare
+  string with `http://` for convenience, and did it after testing only `^https?://` — so `ftp://x.com`
+  became `http://ftp://x.com`, which `new URL` happily parses as hostname **`ftp`**. The route reported
+  `status: 'ok'` and the engine was handed `ftp:80`, silently. Reject any explicit scheme that is not
+  http/https before prefixing; the same function is the save-time validator, so the refusal reaches the
+  user with the "needs an upstream like …" message.
 - **Uptime is a windowed figure, so clip each run to the window.** Recorded `runtimeMs` is the whole
   run, and it ends at its own event's `ts`. `Math.min(runtimeMs, windowMs)` only stopped a run from
   *exceeding* the window; it never looked at *when* the run happened, so a 24h run that ended 12h before

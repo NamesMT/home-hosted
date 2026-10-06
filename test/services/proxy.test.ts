@@ -444,6 +444,25 @@ describe('validateProxyConfig', () => {
     expect(validateProxyConfig(overlapping)).toContain('"app.example.com" is routed twice')
   })
 
+  /**
+   * A foreign scheme is a mistake, not a hostname.
+   *
+   * `ftp://x.com` used to fall through the "no http(s) prefix, so add one" branch and become
+   * `http://ftp://x.com`, which parses: hostname `ftp`, dial target `ftp:80`. The route then reported
+   * `status: 'ok'` and the engine was handed a nonsense upstream, with nothing said.
+   */
+  it('refuses an upstream whose scheme is neither http nor https', () => {
+    // A `.lan` host, so the public-name rules (an ACME address) stay out of the way.
+    const forUrl = (url: string) => validateProxyConfig(config({ routes: [{ id: 'a', host: 'app.lan', target: 'external', url }] }))
+
+    for (const url of ['ftp://x.com', 'file:///etc/passwd', 'gopher://h.com'])
+      expect(forUrl(url), url).toContain('route "a" needs an upstream like http://10.0.0.5:8080')
+
+    // The forms a person actually types still work.
+    for (const url of ['http://10.0.0.5:8080', 'https://example.com', '10.0.0.5:8080', 'example.com'])
+      expect(forUrl(url), url).toEqual([])
+  })
+
   it('needs a workspace and a server for an entry route, and a url for an external one', () => {
     const errors = validateProxyConfig(config({ routes: [{ id: 'a', host: 'a.example.com' }, { id: 'b', host: 'b.example.com', target: 'external', url: 'not a url' }] }))
     expect(errors).toContain('route "a" needs a workspace and a server')

@@ -1879,7 +1879,14 @@ export function parseUpstream(value: string): { dial: string, tls: boolean } | n
   const trimmed = value.trim()
   if (trimmed.length === 0)
     return null
-  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
+  // An explicit scheme that is neither http nor https is a mistake, not a hostname: `ftp://x.com` used
+  // to fall through to the prefixing branch, become `http://ftp://x.com`, parse with hostname `ftp`,
+  // and report `status: 'ok'` with a dial target of `ftp:80`.
+  const explicit = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed)
+  if (explicit !== null && !/^https?$/i.test(explicit[1]!))
+    return null
+
+  const withScheme = explicit === null ? `http://${trimmed}` : trimmed
   try {
     const url = new URL(withScheme)
     // `new URL` normalizes a default port away, and the scheme's own default is a
