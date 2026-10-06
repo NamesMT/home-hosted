@@ -31,6 +31,7 @@ servers and its state together.
 | --- | --- |
 | `command`, `args`, `cwd` | what to run, with `{placeholders}` resolved per entry |
 | `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config |
+| `enabled` | `true` (default) starts it; `false` keeps the entry in the config but refuses to start it, stops it if it is running, and leaves a disabled `persistent` entry unattached at boot |
 | `port`, `bind` | enables the readiness wait, health checks and the conflict preflight; `local` keeps it on `127.0.0.1` |
 | `onPortConflict` | `block` (default), `warn`, `follow`, `reclaim`, or `kill` — see below |
 | `persistent` | run it under its own nanny so it survives the panel — see below |

@@ -1334,6 +1334,46 @@ describe('the real server view', () => {
  * The direction that matters most is code → docs: a placeholder added to `serverTemplateVars` and left
  * undocumented is invisible unless someone reads the source.
  */
+/**
+ * Every field `serverSchema` accepts must be named in the field reference.
+ *
+ * `enabled` was the one exception — it governs whether an entry runs at all, and it appeared in
+ * `docs/DDNS.md` and `docs/REVERSE_PROXY.md` for their own settings while the server field itself was
+ * absent from the only table a person reads. Nothing compared the two lists.
+ */
+describe('the documented field reference', () => {
+  it('names every field serverSchema accepts', () => {
+    const contracts = fs.readFileSync(fileURLToPath(new URL('../../src/shared/contracts.ts', import.meta.url)), 'utf8')
+    const start = contracts.indexOf('export const serverSchema = type({')
+    // Bracket-match the object literal rather than guessing where it ends.
+    let depth = 0
+    let end = start
+    for (let i = contracts.indexOf('{', start); i < contracts.length; i++) {
+      if (contracts[i] === '{') {
+        depth += 1
+      }
+      else if (contracts[i] === '}') {
+        depth -= 1
+        if (depth === 0) {
+          end = i
+          break
+        }
+      }
+    }
+    const fields = [...contracts.slice(start, end).matchAll(/^\s+'?(\w+)'?\s*:/gm)]
+      .map(m => m[1]!)
+      .filter(name => name !== 'return')
+
+    // Anti-vacuity: the block must actually hold the known field set.
+    expect(fields.length, 'serverSchema must have been parsed').toBeGreaterThanOrEqual(20)
+    expect(fields).toContain('enabled')
+
+    const doc = fs.readFileSync(fileURLToPath(new URL('../../docs/SERVERS.md', import.meta.url)), 'utf8')
+    const missing = fields.filter(name => !doc.includes(name))
+    expect(missing, 'a field the config accepts but the reference never names').toEqual([])
+  })
+})
+
 describe('the documented placeholder table', () => {
   it('lists exactly what the code expands', async () => {
     const { serverTemplateVars } = await import('#src/services/supervisor')
