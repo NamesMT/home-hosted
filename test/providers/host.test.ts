@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { availableMemoryBytes, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, sampleHost } from '#src/providers/host'
+import { availableMemoryBytes, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, sampleHost, usedPercent } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -18,6 +18,44 @@ describe('host sampling', () => {
     expect(memoryUsedPercent).toBeLessThanOrEqual(100)
     expect(swapUsedPercent).toBeGreaterThanOrEqual(0)
     expect(swapUsedPercent).toBeLessThanOrEqual(100)
+  })
+
+  /**
+   * The clamp, tested against the *estimate* that makes it necessary.
+   *
+   * `MemAvailable` is a kernel estimate and can exceed `MemTotal`, and `SwapFree` can exceed
+   * `SwapTotal` — either makes the raw ratio negative. The alert is `used >= threshold`, so a
+   * negative reading does not merely look odd: it **suppresses the memory alert**. The bounds test
+   * above passes on any ordinary machine, which is exactly why this needs a case that is impossible
+   * to satisfy by luck.
+   */
+  it('clamps a percentage the kernel can make nonsensical', () => {
+    // `available > total` is the real case: MemAvailable is an estimate, SwapFree can exceed
+    // SwapTotal, and the raw ratio goes negative — which would suppress the alert rather than trip it.
+    // free > total, the MemAvailable case
+    expect(usedPercent(1200, 1000)).toBe(0)
+    expect(usedPercent(1000, 1000)).toBe(0)
+    expect(usedPercent(400, 1000)).toBe(60)
+    // Over-100 cannot arise from the subtraction, but the bound is stated rather than assumed.
+    expect(usedPercent(-500, 1000)).toBe(100)
+    // A meaningless denominator is 0, not NaN or Infinity.
+    expect(usedPercent(10, 0)).toBe(0)
+    expect(usedPercent(0, 0)).toBe(0)
+    for (const [used, total] of [[1200, 1000], [0, 0], [-500, 1000], [400, 1000]] as const) {
+      const value = usedPercent(used, total)
+      expect(Number.isFinite(value), `usedPercent(${used}, ${total})`).toBe(true)
+      expect(value).toBeGreaterThanOrEqual(0)
+      expect(value).toBeLessThanOrEqual(100)
+    }
+  })
+
+  it('reports bounds a live sampling cannot violate', () => {
+    const { memoryUsedPercent, swapUsedPercent } = memoryInfo()
+    for (const [name, value] of [['memory', memoryUsedPercent], ['swap', swapUsedPercent]] as const) {
+      expect(Number.isFinite(value), `${name} must be finite`).toBe(true)
+      expect(value, `${name} must not be negative`).toBeGreaterThanOrEqual(0)
+      expect(value, `${name} must not exceed 100`).toBeLessThanOrEqual(100)
+    }
   })
 
   it('measures a real filesystem', async () => {

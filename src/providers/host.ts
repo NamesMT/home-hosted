@@ -101,25 +101,38 @@ async function readSwapUsedPercent(): Promise<number> {
  *   `vm_stat` and count what macOS itself counts as available.
  * - Windows: `os.freemem()` is the free physical page count, which is the ordinary reading.
  */
+
+/**
+ * How much of `total` is not `free`, as a percentage clamped into `[0, 100]`; 0 when `total` is
+ * meaningless.
+ *
+ * `MemAvailable` is a kernel *estimate* and can exceed `MemTotal`, and `SwapFree` can exceed
+ * `SwapTotal` — both make the raw ratio negative. That matters more than a strange display: the
+ * alert is `used >= threshold`, so a negative reading silently **suppresses** the memory alert
+ * entirely. The fallback branch already clamped for exactly this reason; the `/proc` branch did not,
+ * so the two disagreed on the same quantity.
+ */
+export function usedPercent(free: number, total: number): number {
+  if (!(total > 0))
+    return 0
+  return Math.max(0, Math.min(100, ((total - free) / total) * 100))
+}
+
 export function memoryInfo(): { memoryUsedPercent: number, swapUsedPercent: number } {
   try {
     const info = fs.readFileSync('/proc/meminfo', 'utf8')
     const read = (key: string): number => Number.parseInt(new RegExp(`^${key}:\\s+(\\d+)`, 'm').exec(info)?.[1] ?? '0', 10)
-    const total = read('MemTotal')
-    const available = read('MemAvailable')
-    const swapTotal = read('SwapTotal')
-    const swapFree = read('SwapFree')
 
     return {
-      memoryUsedPercent: total > 0 ? ((total - available) / total) * 100 : 0,
-      swapUsedPercent: swapTotal > 0 ? ((swapTotal - swapFree) / swapTotal) * 100 : 0,
+      memoryUsedPercent: usedPercent(read('MemAvailable'), read('MemTotal')),
+      swapUsedPercent: usedPercent(read('SwapFree'), read('SwapTotal')),
     }
   }
   catch {
     const total = os.totalmem()
     const available = availableMemoryBytes(process.platform, os.freemem())
     return {
-      memoryUsedPercent: total > 0 && available !== null ? Math.max(0, Math.min(100, ((total - available) / total) * 100)) : 0,
+      memoryUsedPercent: available === null ? 0 : usedPercent(available, total),
       swapUsedPercent: 0,
     }
   }
@@ -255,7 +268,7 @@ async function diskUsage(target: string): Promise<HostView['disks'][number] | nu
       path: target,
       totalBytes,
       freeBytes,
-      usedPercent: totalBytes > 0 ? ((totalBytes - freeBytes) / totalBytes) * 100 : 0,
+      usedPercent: usedPercent(freeBytes, totalBytes),
     }
   }
   catch {
