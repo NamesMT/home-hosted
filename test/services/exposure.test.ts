@@ -47,6 +47,26 @@ describe('control panel exposure', () => {
     expect(state).toEqual({ exposed: true, blockedReason: null })
   })
 
+  /**
+   * The third argument was never passed by any test in this file, so this branch — `defaults to false`
+   * — was never taken. It is the strictest case: a bind beyond loopback with auth armed and a password
+   * set is allowed, and must be refused while that password is still the boot one.
+   */
+  it('refuses an exposed bind while the password is still the default', () => {
+    const state = checkExposure(control('lan', { enabled: true }), true, true)
+    expect(state.exposed).toBe(true)
+    // Asserted against `null` first: `.toContain` on a null reason reports a vitest argument error
+    // rather than the property that failed.
+    expect(state.blockedReason, 'an armed panel on the boot password is still a way in').not.toBeNull()
+    expect(state.blockedReason!).toContain('default password')
+
+    // And it does not fire where the other two guards would, so the ordering is real.
+    expect(checkExposure(control('local'), true, true).blockedReason).toBeNull()
+    const noPassword = checkExposure(control('lan', { enabled: true }), false, true).blockedReason
+    expect(noPassword).not.toBeNull()
+    expect(noPassword!).toContain('no password')
+  })
+
   it('names the missing piece in the reason', () => {
     expect(checkExposure(control('lan', { enabled: true }), false).blockedReason).toContain('no password')
     expect(checkExposure(control('lan', { enabled: false }), false).blockedReason).toContain('authentication is disabled')
