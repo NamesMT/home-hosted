@@ -188,9 +188,13 @@ session, 403 bad token or origin, 404 unknown id, 409 conflict, 413 too large.
 | --- | --- |
 | `hello` | `{ ts, state }` — the first frame, the complete snapshot |
 | `state` | `{ ts, state }` — anything changed: a status, a resource sample, host vitals, a workspace |
-| `server` | `{ ts, serverId, server }` — one entry, `server.workspaceId` says which workspace |
-| `log` | `{ ts, serverId, lines }` — new output (dropped under backpressure, never state) |
+| `server` | `{ ts, workspaceId, serverId, server }` — one entry |
+| `log` | `{ ts, workspaceId, serverId, lines }` — new output (dropped under backpressure, never state) |
 | `ping` | the current time, every 15 s |
+
+`workspaceId` is on every `server` and `log` frame the panel sends, and the schema marks it optional only
+so an **older** panel still parses: treat a frame without it as ambiguous and look the id up rather than
+guessing, because a server id is unique only inside its workspace.
 
 `GET /api/events` takes `?logs=0` to skip log frames and `?serverId=<id>` to follow one server — but
 it matches on the id alone, so an id used in two workspaces mixes their frames. Use
