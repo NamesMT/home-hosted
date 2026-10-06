@@ -1323,3 +1323,37 @@ describe('the real server view', () => {
     expect(parsed instanceof type.errors, `real view violates its contract: ${String((parsed as { summary?: string }).summary)}`).toBe(false)
   })
 })
+
+/**
+ * Every placeholder the code expands must be in the documented table, and vice versa.
+ *
+ * `AGENTS.md` listed eight while `serverTemplateVars` provided eleven — `{label}`, `{displayHost}` and
+ * `{lanIp}` were missing, so an agent following the rules would not know they existed. It now points at
+ * [`docs/SERVERS.md`](docs/SERVERS.md) instead of holding a copy, and this keeps that table honest.
+ *
+ * The direction that matters most is code → docs: a placeholder added to `serverTemplateVars` and left
+ * undocumented is invisible unless someone reads the source.
+ */
+describe('the documented placeholder table', () => {
+  it('lists exactly what the code expands', async () => {
+    const { serverTemplateVars } = await import('#src/services/supervisor')
+    const provided = new Set(Object.keys(serverTemplateVars({
+      id: 'web',
+      command: 'node',
+      label: 'Web',
+      port: 4010,
+      bind: 'local',
+      cwd: '.',
+    } as never)))
+
+    // Anti-vacuity: the vars object must actually carry the known set.
+    expect(provided.size).toBeGreaterThanOrEqual(11)
+    expect(provided.has('id')).toBe(true)
+
+    const doc = fs.readFileSync(fileURLToPath(new URL('../../docs/SERVERS.md', import.meta.url)), 'utf8')
+    const documented = new Set([...doc.matchAll(/`\{(\w+)\}`/g)].map(m => m[1]))
+
+    const undocumented = [...provided].filter(name => !documented.has(name))
+    expect(undocumented, 'a placeholder the code expands but the docs never mention').toEqual([])
+  })
+})

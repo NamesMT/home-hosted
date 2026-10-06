@@ -100,8 +100,9 @@ nobody reads is worse than a long file.
 - **Server-agnostic.** No blessed ids, no `dataDir`-style globals: a server gets only its own
   `command`/`args`/`env`/`dataEnvs`/`envFile`/`bootstrap`. A test fails if a core file learns one.
 - **Paths.** `dataRoot` is state, under `dataRoot/.hh`; `projectDir` is the base for relative entry
-  paths. `{id}{port}{host}{bind}{cwd}{projectDir}{dataRoot}{home}` and `${ENV}` expand in config;
-  there is no package-relative state.
+  paths. `{…}` placeholders and `${ENV}` expand in config — the full list is the table in
+  [`docs/SERVERS.md`](docs/SERVERS.md), which is what to keep in step. There is no package-relative
+  state.
 - **Secrets never enter the config.** Only policy goes in a config file; every secret is 0600.
 - **Never expose beyond loopback without auth and a non-default password.** `checkExposure()` is the
   single rule, enforced at startup, on every settings write, and in the UI. `checkProxyExposure()` is
