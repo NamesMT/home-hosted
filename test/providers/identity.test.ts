@@ -105,6 +105,35 @@ describe('matchesSpawn', () => {
     expect(matchesSpawn({ words: argv }, { ...entrySpawn, command: 'node' })).toBe(process.platform === 'win32')
   })
 
+  /**
+   * Two different files that share a basename are not the same program.
+   *
+   * The doc above `matchesSpawn` states this outright — "/tmp/evil/server.js never covers
+   * /srv/web/server.js" — but the comparison fell back to `path.basename` on **both** sides, so any
+   * executable with the same name matched wherever it lived. That is not cosmetic: a false match here
+   * makes the panel believe a process it did not spawn is its own entry, so `follow` adopts a
+   * stranger and `reclaim`/`kill` may remove one.
+   *
+   * The basename fallback is still needed for the case it was written for — the config says a bare
+   * `node`, the process table reports `/usr/bin/node` — which is why the rule is "only when the
+   * configured command carries no directory", not "drop the fallback".
+   */
+  it('refuses a different file that merely shares a basename', () => {
+    const entry = { command: '/srv/web/server.js', args: ['--port', '4000'], cwd: '/srv/web' }
+    expect(matchesSpawn({ words: ['/tmp/evil/server.js', '--port', '4000'] }, entry)).toBe(false)
+    // And the reverse: the entry's own path must not be matched by another directory's copy.
+    const other = { command: '/tmp/evil/server.js', args: ['--port', '4000'], cwd: '/tmp/evil' }
+    expect(matchesSpawn({ words: ['/srv/web/server.js', '--port', '4000'] }, other)).toBe(false)
+  })
+
+  it('still accepts a bare configured command against a resolved image', () => {
+    // The case the fallback exists for, and the reason it is narrowed rather than removed.
+    const entry = { command: 'node', args: ['-e', 'x'], cwd: '/srv/web' }
+    expect(matchesSpawn({ words: ['/usr/bin/node', '-e', 'x'] }, entry)).toBe(true)
+    // A bare command with a different name still must not match.
+    expect(matchesSpawn({ words: ['/usr/bin/other', '-e', 'x'] }, entry)).toBe(false)
+  })
+
   it('never matches on the image alone when the args differ', () => {
     expect(matchesSpawn({ words: ['other.exe', '--different'], imagePath: process.execPath }, entrySpawn)).toBe(false)
   })

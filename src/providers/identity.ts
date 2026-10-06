@@ -110,13 +110,31 @@ function sameArg(a: string, b: string): boolean {
   return normalize(a) === normalize(b)
 }
 
-/** The same file spelled differently (`node`, `node.exe`, a relative path) compares equal. */
+/** Whether a value names a file with no directory part, under either platform's separator. */
+function isBare(value: string): boolean {
+  return !value.includes('/') && !value.includes('\\')
+}
+
+/**
+ * The same file spelled differently compares equal — but only while one of the two spellings is a
+ * bare name, which is the case the fallback exists for: the config says `node` and the process table
+ * reports `/usr/bin/node`, or the reverse on Windows.
+ *
+ * When **both** spellings name a directory, they are two different files. Comparing basenames
+ * unconditionally made `/tmp/evil/server.js` match `/srv/web/server.js`, and a false match here is
+ * not cosmetic: the panel would treat a process it never spawned as its own entry, so `follow` adopts
+ * a stranger and `reclaim`/`kill` may remove one.
+ */
 function sameWord(a: string, b: string): boolean {
   const left = comparable(a)
   const right = comparable(b)
-  if (left === right || path.basename(left) === path.basename(right))
+  if (left === right)
     return true
-  return path.extname(b) === '' && path.basename(left, path.extname(left)) === right
+  if (!isBare(left) && !isBare(right))
+    return false
+  return path.basename(left) === path.basename(right)
+    || (path.extname(b) === '' && path.basename(left, path.extname(left)) === right)
+    || (path.extname(a) === '' && path.basename(right, path.extname(right)) === left)
 }
 
 /**
@@ -124,7 +142,9 @@ function sameWord(a: string, b: string): boolean {
  * `spawn` would have looked it up — the image Path, or the first word of the command line
  * — and the words after it must open with the entry's args, compared literally. So
  * `spawn --port 4000` also covers `spawn -p 4000 --extra`, which is what a self-restarting
- * wrapper does, while `/tmp/evil/server.js` never covers `/srv/web/server.js`.
+ * wrapper does, while `/tmp/evil/server.js` never covers `/srv/web/server.js` — two paths that name
+ * a directory are different files, and the basename fallback applies only while one spelling is bare
+ * (see `sameWord`).
  *
  * `words` must already be the process's own argv. A command-line *string* is only correct
  * on Windows, where the OS hands one out; `/proc/<pid>/cmdline` quotes are literal bytes

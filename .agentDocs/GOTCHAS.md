@@ -15,6 +15,13 @@ line in `AGENTS.md` instead.
   idempotent. It moves rather than copies, never overwrites an existing `.hh` file, and removes a
   legacy directory only when every entry in it actually moved — a refused move must not become a
   delete.
+- **A basename is not an identity.** `sameWord` compares two spellings of the same file, and it fell
+  back to `path.basename` on **both** sides — so `/tmp/evil/server.js` matched `/srv/web/server.js`,
+  the exact guarantee the comment above it claimed to make. A false match here is not cosmetic:
+  `matchesSpawn` decides whether a process is *this entry's*, so the panel would adopt a stranger on
+  `follow`, or remove one on `reclaim`/`kill`. The fallback is needed while one spelling is bare (the
+  config says `node`, the process table says `/usr/bin/node`); it must not apply when both name a
+  directory.
 - **Port preflight re-probes after 300 ms**: a just-closed listener can still complete a handshake.
 - **The CLI's port preflight runs before its config guard**, so a busy default port turns config
   tests red for the wrong reason. Dev and test instances stay in the 6xxx range.
