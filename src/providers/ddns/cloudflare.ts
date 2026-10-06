@@ -53,6 +53,12 @@ async function call<T>(
  * Walks the host's parents through `GET /zones?name=`, which is how the
  * reference image resolves a zone without a pasted zone id; the id is cached in
  * the panel's state file, so it usually costs nothing.
+ *
+ * A cached id is **confirmed before use**, the same way `findRecord` treats its own. It was returned
+ * outright, so a stale id — the zone deleted, the API token swapped to another account, a restored
+ * `ddns.json` — made every later call address a zone the token cannot see, and the walk that would have
+ * found the right one never ran: the update failed permanently, with the provider's error for a zone
+ * that is not even the host's. One extra request per run, and only when a cache exists.
  */
 async function resolveZone(
   host: string,
@@ -60,8 +66,15 @@ async function resolveZone(
   context: DdnsContext,
   cached: string | undefined,
 ): Promise<CloudflareZone | null> {
-  if (cached !== undefined)
-    return { id: cached, name: host }
+  if (cached !== undefined) {
+    const confirmed = await call<CloudflareZone>(`/zones/${cached}`, headers, context)
+    if (confirmed.error === null && confirmed.data !== null)
+      return { id: cached, name: host }
+    // A network failure is not evidence the id is wrong; anything the API answered means the walk
+    // should decide instead.
+    if (confirmed.status === 0)
+      throw new Error(confirmed.error ?? 'could not reach Cloudflare')
+  }
 
   const labels = host.split('.')
   for (let index = 0; index <= labels.length - 2; index++) {

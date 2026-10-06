@@ -162,6 +162,56 @@ describe('cloudflare', () => {
     expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toBe('Bearer tok')
   })
 
+  /**
+   * A cached zone id is confirmed before it is used.
+   *
+   * It was returned outright, so a stale id — the zone deleted, the token swapped to another account,
+   * a restored `ddns.json` — addressed a zone the token cannot see on *every* later call, and the walk
+   * that would have found the right one never ran: the update failed permanently with the provider's
+   * error for a zone that is not even the host's. `findRecord` already validated its own cached id and
+   * fell back to the list; `resolveZone` did not, which is the asymmetry this pins.
+   */
+  it('discards a cached zone the API no longer knows, and walks instead', async () => {
+    const { fetch, calls } = recorder((url, init) => {
+      if (url.endsWith('/zones/stale'))
+        return json({ success: false, errors: [{ code: 10000, message: 'Unable to authenticate' }] }, 404)
+      if (url.includes('/zones?name='))
+        return url.includes('name=example.com') ? json({ success: true, result: [{ id: 'zone1', name: 'example.com' }] }) : json({ success: true, result: [] })
+      // A creation (POST) as well as a patch: the record does not exist yet under the real zone.
+      if (init?.method === 'POST' || init?.method === 'PATCH')
+        return json({ success: true, result: { id: 'rec2' } })
+      return json({ success: true, result: [] })
+    })
+
+    const result = await updater(cloudflareProvider)(
+      record({ host: 'home.example.com', cache: { zoneId: 'stale' } }),
+      { credentials: { apiToken: 'tok' }, fetch },
+    )
+
+    expect(result).toMatchObject({ ok: true, changed: true })
+    // The zone walk ran, and the corrected id is what gets cached for next time.
+    expect(calls.some(call => call.url.includes('/zones?name=')), 'the walk must run').toBe(true)
+    expect(result.cache).toEqual({ zoneId: 'zone1', recordId: 'rec2' })
+    expect(calls.some(call => call.url.includes('/zones/stale/dns_records'))).toBe(false)
+  })
+
+  it('keeps a cached zone that the API confirms', async () => {
+    const { fetch, calls } = recorder((url, init) => {
+      if (url.endsWith('/zones/zone1'))
+        return json({ success: true, result: { id: 'zone1', name: 'example.com' } })
+      if (init?.method === 'PATCH')
+        return json({ success: true, result: { id: 'rec1' } })
+      return json({ success: true, result: [{ id: 'rec1', content: '198.51.100.1', ttl: 1, proxied: false }] })
+    })
+    const result = await updater(cloudflareProvider)(
+      record({ host: 'home.example.com', cache: { zoneId: 'zone1', recordId: 'rec1' } }),
+      { credentials: { apiToken: 'tok' }, fetch },
+    )
+    expect(result).toMatchObject({ ok: true })
+    // One confirmation request, and no zone walk.
+    expect(calls.some(call => call.url.includes('/zones?name=')), 'no walk when the cache holds').toBe(false)
+  })
+
   it('reports an already-current record without writing', async () => {
     const { fetch, calls } = recorder((url) => {
       if (url.includes('/zones?name='))
