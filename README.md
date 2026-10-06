@@ -424,7 +424,7 @@ Everything binds `127.0.0.1` until you say otherwise.
 - **A password is required to expose the panel.** Replace the default, then bind to `lan` — in the
   UI, in the config, or with `--host lan`. The same guard applies in all three places.
 - **Sessions** live in memory only; the cookie is `HttpOnly` and `SameSite=Strict`, and the login
-  route locks out repeated failures per IP.
+  route locks out repeated failures per IP — see the `trustProxy` note below for when that is advisory.
 - **API tokens** for scripts and agents: `home-hosted set-token --generate` prints one once, and a
   request proves itself with `Authorization: Bearer …` — the same access as a signed-in browser,
   stored as a SHA-256 hash, revoked with `set-token --clear`.
@@ -438,7 +438,11 @@ Everything binds `127.0.0.1` until you say otherwise.
   `.hh/<workspace>/.secrets.json`, all mode `0600`; the TLS pair sits in `.hh/.tls/`. DDNS credentials
   are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET` (default `hh` — set your own).
 - **Behind a proxy** turn on `trustProxy` and let `cookieSecure: auto` add `Secure` on https, or
-  upload a PEM pair and let home-hosted terminate TLS itself.
+  upload a PEM pair and let home-hosted terminate TLS itself. Only turn it on when the proxy is the
+  only way in: it trusts `x-forwarded-*` from any peer, and the client address then comes from the
+  caller's own header — so the per-IP lockout counts per *forged* address and stops throttling brute
+  force. Keep the bind on `local` with the proxy on this machine, or put an authenticating gateway in
+  front. The panel warns at startup when the combination is exposed.
 
 ---
 
