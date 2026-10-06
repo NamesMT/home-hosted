@@ -151,7 +151,9 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
         return app.fetch(request)
       },
       trustProxy: () => settings.control.auth.trustProxy,
-      tls: () => (settings.control.tls.enabled ? tls.load() : null),
+      // `servable()`, not `load()`: srvx throws synchronously on a pair whose key does not match the
+      // certificate, which fails the boot with a raw OpenSSL code. A rejected pair falls back to http.
+      tls: () => (settings.control.tls.enabled ? tls.servable() : null),
     },
     { host: intended.host, port: intended.port, tls: settings.control.tls.enabled },
   )

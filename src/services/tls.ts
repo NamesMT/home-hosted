@@ -4,6 +4,7 @@ import { createPrivateKey, createPublicKey, X509Certificate } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { logger } from '#src/helpers/logger'
 
 /**
  * Stores an uploaded PEM pair and reports what it contains.
@@ -80,6 +81,27 @@ export class TlsStore {
     return { ok: true }
   }
 
+  /**
+   * The pair to serve, or `null` when there is nothing servable.
+   *
+   * `load()` returns whatever is on disk, and `serve({ tls })` **throws synchronously** on a pair that
+   * does not match (`ERR_OSSL_X509_KEY_VALUES_MISMATCH`) — before `listen()`'s `ready()`/`error` race
+   * can catch it. A mismatched pair therefore fails the reboot: hand-copied files, a restore, or a
+   * crash between `save()`'s two writes all reach it, and the panel reports an OpenSSL code instead of
+   * booting on http or naming the problem. Validated here, where the answer is still recoverable.
+   */
+  servable(): { cert: string, key: string } | null {
+    const pair = this.load()
+    if (pair === null)
+      return null
+    const validation = validatePair(pair.cert, pair.key)
+    if (!validation.ok) {
+      logger.warn(`the stored TLS pair will not be served: ${validation.error ?? 'it is not usable'}`)
+      return null
+    }
+    return pair
+  }
+
   clear(): void {
     for (const file of [this.certPath, this.keyPath]) {
       try {
@@ -118,6 +140,10 @@ export class TlsStore {
       const x509 = new X509Certificate(pair.cert)
       const validTo = new Date(x509.validTo)
       const daysRemaining = Math.floor((validTo.getTime() - Date.now()) / 86_400_000)
+      // The key verdict is computed once, and never by `validatePair`: that also fails a certificate
+      // outside its validity window, so a window problem would read as "the key does not match" and
+      // send the reader to the wrong file.
+      const keyMatches = publicKeysMatch(pair.cert, pair.key)
       return {
         ...base,
         subject: x509.subject.replace(/\n/g, ', '),
@@ -126,12 +152,11 @@ export class TlsStore {
         validTo: validTo.toISOString(),
         daysRemaining,
         fingerprint: x509.fingerprint256,
-        // The key comparison alone: `validatePair` also fails a certificate that is outside its
-        // validity window, and reporting that as "the key does not match" would be wrong.
-        keyMatches: pair.cert.length > 0 && publicKeysMatch(pair.cert, pair.key),
-        // Same guard the upload path uses, so the UI names the real reason — a certificate that is not
-        // valid *yet* reads as such instead of looking healthy with a positive `daysRemaining`.
-        error: validityError(x509),
+        keyMatches,
+        // The same guards the upload path and `servable()` use, so the page names the real reason — and
+        // a pair the server refuses is never shown as healthy while the panel quietly serves http. A
+        // `keyMatches: false` with a null `error` read as "enabled and fine".
+        error: validityError(x509) ?? (keyMatches ? null : 'the private key does not match the certificate'),
       }
     }
     catch (error) {

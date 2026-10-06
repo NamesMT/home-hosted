@@ -215,6 +215,51 @@ describe('tls store', () => {
     expect(store.present).toBe(false)
   })
 
+  /**
+   * A pair that cannot be served is refused, not handed to srvx.
+   *
+   * `serve({ tls })` **throws synchronously** on a mismatched pair
+   * (`ERR_OSSL_X509_KEY_VALUES_MISMATCH`) — before `listen()`'s `ready()`/`error` race can catch it —
+   * so `start()` propagates it and the panel does not boot at all. `save()` cannot be made atomic
+   * across two files, and a pair also reaches disk by hand-copy, a restore, or a crash between the
+   * writes; the guard is what keeps any of those from bricking the next start.
+   *
+   * Written directly into the store's own paths, since `save()` refuses this pair by design.
+   */
+  it.runIf(hasOpenssl)('does not serve a pair whose key does not match', async () => {
+    const store = new TlsStore(path.join(dir, 'unservable'))
+    fs.mkdirSync(store.directory, { recursive: true })
+    fs.writeFileSync(store.certPath, cert)
+    fs.writeFileSync(store.keyPath, otherKey)
+
+    expect(store.present, 'the files are there, so `present` is honest').toBe(true)
+    expect(store.servable(), 'but they must not be handed to the server').toBeNull()
+  })
+
+  /**
+   * A pair the server refuses must not read as healthy.
+   *
+   * `status()` reported `keyMatches: false` with a **null** `error` for a mismatched pair, so the page
+   * said TLS was enabled and fine while `servable()` had quietly fallen back to http. The two fields
+   * answer different questions, and both are now filled.
+   */
+  it.runIf(hasOpenssl)('reports a mismatched pair as an error, keeping the key verdict', () => {
+    const store = new TlsStore(path.join(dir, 'status-mismatch'))
+    fs.mkdirSync(store.directory, { recursive: true })
+    fs.writeFileSync(store.certPath, cert)
+    fs.writeFileSync(store.keyPath, otherKey)
+
+    const status = store.status(true)
+    expect(status.keyMatches).toBe(false)
+    expect(status.error, 'a pair that will not be served must say why').toContain('does not match')
+  })
+
+  it.runIf(hasOpenssl)('serves a pair that does match', async () => {
+    const store = new TlsStore(path.join(dir, 'servable'))
+    store.save(cert, key)
+    expect(store.servable()).toEqual({ cert: expect.stringContaining('BEGIN CERTIFICATE') as unknown as string, key: expect.any(String) as unknown as string })
+  })
+
   it.runIf(hasOpenssl)('clears both files', async () => {
     const store = new TlsStore(path.join(dir, 'cleared'))
     store.save(cert, key)

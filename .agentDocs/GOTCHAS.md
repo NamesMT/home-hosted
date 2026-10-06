@@ -164,6 +164,14 @@ line in `AGENTS.md` instead.
   field on purpose — a window problem must not read as a key mismatch and send you to the wrong file.
   `-not_before`/`-not_after` need OpenSSL ≥ 3.2, so the tests probing that window are behind
   `hasOpensslExplicitDates` (probed, not version-compared: macOS ships LibreSSL).
+- **`serve({ tls })` throws synchronously on a pair whose key does not match.** Not a rejected
+  `ready()` — the throw happens while the context is built, before `listen()`'s `ready()`/`error` race
+  exists, so `listenWithRetry` cannot treat it as a bind failure and `start()` has no fallback: the
+  panel simply does not boot, reported as `ERR_OSSL_X509_KEY_VALUES_MISMATCH`. `save()` cannot be atomic
+  across two files, and a pair also reaches disk by hand-copy or a restore, so `TlsStore.servable()`
+  validates before handing anything to the server and falls back to http with a warning. `status()`
+  reports the mismatch as an `error` too — a `keyMatches: false` with a null error read as "enabled and
+  fine" while the panel served http.
 
 ## Schemas and types
 
