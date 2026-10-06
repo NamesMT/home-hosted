@@ -9,7 +9,7 @@ import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { projectDir } from '#src/helpers/paths'
 import { isZipArchive, listZip } from '#src/providers/archive'
-import { BackupService, resolveBackupPaths, slugifyPath } from '#src/services/backups'
+import { BackupService, isInside, isSafeArchiveEntry, resolveBackupPaths, slugifyPath } from '#src/services/backups'
 import { backupsSchema, serverSchema } from '#src/shared/contracts'
 
 // An absolute path in the platform's own syntax: these fixtures used POSIX `/srv/…`,
@@ -794,5 +794,50 @@ describe('backup service', () => {
     expect(fixture.service.remove(created.file!.name)).toBe(true)
     expect(fixture.service.list()).toHaveLength(0)
     expect(fixture.service.remove(created.file!.name)).toBe(false)
+  })
+})
+
+/**
+ * The archive-entry allowlist is the boundary that stops a crafted backup writing outside the
+ * layout, and it had no test of its own — only two shapes exercised end-to-end through `restore`.
+ *
+ * The shapes below are the ones worth pinning: `..` is made of allowed characters, so a regex
+ * cannot catch it; backslash is a separator on Windows only, so it must be refused as a character
+ * that is simply not allowed; and an archive written on one platform may be restored on another.
+ */
+describe('archive entry allowlist', () => {
+  it('accepts the layout the service itself writes', () => {
+    for (const entry of ['global/settings.json', 'workspaces/a/servers.config.json', 'data/file.txt', 'manifest.json', 'global', './global/settings.json', 'global/settings.json/'])
+      expect(isSafeArchiveEntry(entry), entry).toBe(true)
+  })
+
+  it('refuses anything that could resolve outside the staging directory', () => {
+    const bad = [
+      '../evil',
+      'global/../../evil',
+      './../evil',
+      '/abs/evil',
+      'global/..',
+      'global/.',
+      'global//evil',
+      'notaroot/evil',
+      // A raw backslash is not an allowed character. The root must be a real one, or these are
+      // refused by the root allowlist instead and the character rule goes untested — which is
+      // exactly what a first draft of this list did.
+      'global\\evil',
+      'global/sub\\..\\..\\evil',
+      'data/a\\b',
+
+    ]
+    for (const entry of bad) expect(isSafeArchiveEntry(entry), entry).toBe(false)
+  })
+
+  it('decides containment the way the platform does', () => {
+    expect(isInside('/a/b', '/a/b')).toBe(true)
+    expect(isInside('/a/b', '/a/b/c')).toBe(true)
+    // The prefix trap: `/a/bc` is a sibling, not a child.
+    expect(isInside('/a/b', '/a/bc')).toBe(false)
+    expect(isInside('/a/b', '/a/b/../c')).toBe(false)
+    expect(isInside('/a/b', '/a')).toBe(false)
   })
 })
