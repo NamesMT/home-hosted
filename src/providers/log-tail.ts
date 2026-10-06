@@ -173,15 +173,23 @@ export class LogTailer {
     }
 
     try {
-      const buffer = Buffer.alloc(Math.min(MAX_BYTES_PER_READ, stats.size - this.offset))
-      while (this.offset < stats.size) {
-        const length = Math.min(buffer.length, stats.size - this.offset)
+      // A poll consumes at most `MAX_BYTES_PER_READ`, which is what the constant promises. Sizing the
+      // buffer is not enough: refilling it in a loop until EOF drained a whole backlog in one
+      // synchronous call, and `LogRelay` calls this every 250 ms — so a server flooding its log while
+      // the panel was busy stalled the event loop for the entire catch-up. The remainder waits for the
+      // next poll, which is 250 ms away.
+      const budget = Math.min(MAX_BYTES_PER_READ, stats.size - this.offset)
+      const buffer = Buffer.alloc(budget)
+      let consumed = 0
+      while (consumed < budget && this.offset < stats.size) {
+        const length = Math.min(buffer.length, budget - consumed, stats.size - this.offset)
         const bytes = fs.readSync(handle, buffer, 0, length, this.offset)
         if (bytes <= 0)
           break
         this.offset += bytes
+        consumed += bytes
         this.consume(buffer.subarray(0, bytes).toString('utf8'), lines)
-        if (bytes < buffer.length)
+        if (bytes < length)
           break
       }
     }

@@ -170,3 +170,39 @@ describe('a backfill with long lines', () => {
     expect(tailer.readTailLines(200)).toHaveLength(1)
   })
 })
+
+/**
+ * One `read()` must not drain an unbounded backlog.
+ *
+ * `MAX_BYTES_PER_READ` is documented as "one poll reads at most this much, so a burst cannot stall
+ * the tick" — but the buffer it sizes is *refilled in a loop until EOF*, so the constant bounded the
+ * allocation and not the bytes read. `LogRelay` calls `read()` every 250 ms, and the read is
+ * synchronous, so a server that floods its log while the panel is busy stalls the event loop for the
+ * whole catch-up.
+ *
+ * The test measures the number of bytes each read can hand back rather than asserting on internals:
+ * a backlog several times the constant must leave work for the next poll.
+ */
+describe('log tailer read bound', () => {
+  it('leaves a large backlog for later polls instead of draining it in one', async () => {
+    const file = await tempFile()
+    // 2 MB of well-formed lines: eight times MAX_BYTES_PER_READ (256 KB).
+    const line = `${JSON.stringify({ stream: 'stdout', text: 'x'.repeat(120), ts: 1 })}\n`
+    const total = 2 * 1024 * 1024
+    const content = line.repeat(Math.ceil(total / line.length))
+    await fs.promises.writeFile(file, content)
+
+    const tailer = new LogTailer(file)
+    const first = tailer.read()
+
+    expect(first.length, 'a first read must return lines').toBeGreaterThan(0)
+    // The bound, expressed in the units the comment uses: bytes consumed, not buffer size.
+    const consumed = tailer.position
+    expect(consumed, `one read consumed ${consumed} bytes`).toBeLessThanOrEqual(256 * 1024)
+
+    // And the rest is still there for the next poll, rather than lost.
+    const second = tailer.read()
+    expect(second.length).toBeGreaterThan(0)
+    expect(tailer.position).toBeGreaterThan(consumed)
+  })
+})
