@@ -108,7 +108,15 @@ const signalOptions = [
       />
       <NumberField v-model="expectStatus" label="Expect status" nullable hint="Blank accepts anything below." />
       <NumberField v-model="expectStatusBelow" label="Healthy below status" :min="100" />
-      <TextField v-model="health.http.expectBody" label="Body must contain" placeholder="optional substring" wide />
+      <TextField
+        v-model="health.http.expectBody"
+        label="Body must contain"
+        placeholder="optional substring"
+        wide
+        :hint="health.http.method === 'HEAD' && health.http.expectBody.length > 0
+          ? 'HEAD has no response body, so this check is ignored — use GET, or clear it.'
+          : undefined"
+      />
     </template>
   </FieldGroup>
 

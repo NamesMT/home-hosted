@@ -579,6 +579,14 @@ async function remove(): Promise<void> {
             <label class="field grid__full">
               <span class="field__label">body must contain</span>
               <input v-model="form.httpExpectBody" placeholder="optional substring">
+              <!--
+                A HEAD carries no response body, so the panel's probe skips this check and the server
+                warns at load (`config/parse.ts`). Said here, where the mistake is made, rather than
+                only on the workspace settings page.
+              -->
+              <span v-if="form.httpMethod === 'HEAD' && form.httpExpectBody.length > 0" class="field__hint" style="color: var(--warn)">
+                HEAD has no body, so this is ignored — use GET to check it, or clear it.
+              </span>
             </label>
           </div>
         </div>
