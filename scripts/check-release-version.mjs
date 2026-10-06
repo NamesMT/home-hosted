@@ -10,7 +10,14 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const requested = (process.argv[2] ?? '').trim()
 const { version: current } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Z.-]+)?$/i.test(requested)) {
+/**
+ * A version npm will accept.
+ *
+ * No leading zero, because semver forbids it in a numeric identifier and npm enforces that: `semver.valid('0.7.018')`
+ * is null. The looser `\d+` accepted it, so a typo'd zero passed this guard and failed later at the
+ * publishing step, where the message names changelogen or npm rather than the input.
+ */
+if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Z.-]+)?$/i.test(requested)) {
   console.error(`[release] "${requested}" is not a version — expected 1.2.3 or 1.2.3-rc.1`)
   process.exit(1)
 }
