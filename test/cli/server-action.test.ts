@@ -156,6 +156,22 @@ describe('restart, for one server or the panel', () => {
     expect(result.stderr).not.toContain('server id')
   })
 
+  /**
+   * `--workspace` without an id is refused rather than ignored.
+   *
+   * The panel's own restart is not a per-server idea, so the flag is meaningless there — and
+   * silently running `down` then `up` would restart *every* server while the caller believed it had
+   * scoped the action to one workspace. This branch had no test.
+   */
+  it('refuses `restart --workspace` when no server id is given', async () => {
+    const result = await runCli(['restart', '--workspace', 'default', '--print-config'])
+
+    expect(result.status, 'the flag must be refused, not ignored').toBe(1)
+    expect(result.stderr).toContain('restart --workspace needs a server id')
+    // It names the corrected form, so the reader does not have to infer it.
+    expect(result.stderr).toContain('--workspace <id>')
+  })
+
   it('does not reach the control channel when no id is given', async () => {
     const created = await panel(200, JSON.stringify({ ok: true }))
     writeRuntime(created.url)
