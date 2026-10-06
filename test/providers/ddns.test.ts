@@ -1,7 +1,5 @@
 import type { DdnsFetch, DdnsProvider, DdnsRecord } from '#src/providers/ddns/types'
-import type { DdnsConfig } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
-import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { DDNS_PROVIDERS, ddnsProvider, validateDdnsConfig } from '#src/providers/ddns'
 import { cloudflareProvider } from '#src/providers/ddns/cloudflare'
@@ -21,7 +19,7 @@ import { noipProvider } from '#src/providers/ddns/noip'
 import { porkbunProvider } from '#src/providers/ddns/porkbun'
 import { spaceshipProvider } from '#src/providers/ddns/spaceship'
 import { splitHost } from '#src/providers/ddns/zone'
-import { ddnsConfigSchema } from '#src/shared/contracts'
+import { parseDdnsConfig } from '../support/capabilities'
 
 interface Call { url: string, init: RequestInit | undefined }
 
@@ -43,12 +41,6 @@ function text(body: string, status = 200): Response {
 }
 
 /** ArkType's parsed output, with the error branch thrown away for the test. */
-function ddnsConfig(input: unknown): DdnsConfig {
-  const parsed = ddnsConfigSchema(input)
-  if (parsed instanceof type.errors)
-    throw new Error(parsed.summary)
-  return parsed
-}
 
 /**
  * `update` is optional on the interface because a challenge-only provider has none.
@@ -481,7 +473,7 @@ describe('provider registry', () => {
   })
 
   it('validates accounts, providers and record families', () => {
-    const config = ddnsConfig({
+    const config = parseDdnsConfig({
       accounts: [
         { id: 'cf', provider: 'cloudflare' },
         { id: 'cf', provider: 'cloudflare' },

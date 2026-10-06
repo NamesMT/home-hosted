@@ -4,10 +4,9 @@ import type { DdnsConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DdnsService } from '#src/services/ddns'
-import { ddnsConfigSchema } from '#src/shared/contracts'
+import { parseDdnsConfig } from '../support/capabilities'
 
 const dirs: string[] = []
 
@@ -64,15 +63,9 @@ async function harness(config: DdnsConfig, options: { credentials?: Record<strin
 }
 
 /** ArkType's parsed output, with the error branch thrown away for the test. */
-function ddnsConfig(input: unknown): DdnsConfig {
-  const parsed = ddnsConfigSchema(input)
-  if (parsed instanceof type.errors)
-    throw new Error(parsed.summary)
-  return parsed
-}
 
 function baseConfig(overrides: Record<string, unknown> = {}): DdnsConfig {
-  return ddnsConfig({
+  return parseDdnsConfig({
     enabled: true,
     intervalMs: 60000,
     accounts: [{ id: 'cf', provider: 'cloudflare' }],
