@@ -341,7 +341,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted up` | start the panel detached, and keep it alive in the background |
 | `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
 | `home-hosted restart` | `down`, then `up` — or `restart <id>` to restart one server, leaving the panel up |
-| `home-hosted status` | pid, URL, health, uptime, state and log paths — the panel's console *and* the per-server directory, naming the `<id>.log` convention once logs exist (`--json` for scripts) |
+| `home-hosted status` | pid, URL, health, uptime, state and log paths — the panel's console *and* the per-server directory, naming the `<id>.log` convention once logs exist (`--json` for scripts; stopped answers `{ running: false, initialised }`, where `initialised: false` means nothing was ever set up here) |
 | `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`) |
 | `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
 | `home-hosted restart <id>` | restart one server, nothing else (`--workspace <id>`) — the same as the panel's per-server Restart |
