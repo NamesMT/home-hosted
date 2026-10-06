@@ -188,6 +188,11 @@ line in `AGENTS.md` instead.
   nothing pruned it either, so a re-added id showed the old entry's crash time — `HistoryStore.forget()`
   now runs beside `logFiles.clear()` in the same branch. A per-**id** artifact needs reclaiming on
   removal; check both stores when adding a third.
+- **`EPERM` from `process.kill(pid, 0)` means the process is ALIVE, not gone.** Two copies of
+  `isProcessAlive` disagreed: `helpers/daemon.ts` read `EPERM` correctly, `providers/port.ts` returned
+  `false`. That predicate is the first line of `nannyIsAlive`, so a nanny owned by another user read as
+  absent — `resumePersistent` then consumed its state file (the only record of the entry) and started a
+  **second** copy while the first kept running untracked. One definition now, re-exported.
 - **Removing a workspace must not delete the state file a surviving process is found by.**
   `stopEntry` keeps a persistent entry's nanny state **on purpose** when its pid outlived SIGKILL —
   "its pid is in the state file" is how a later boot reaches a child the stop could not forward. That

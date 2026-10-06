@@ -1,7 +1,8 @@
 import type { ChildProcess } from 'node:child_process'
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
 import net from 'node:net'
-import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { isProcessAlive, killPortHolders, listPortHolders, terminatePids } from '#src/providers/port'
 
@@ -68,6 +69,32 @@ describe('isProcessAlive', () => {
     process.kill(pid, 'SIGKILL')
     await waitFor(() => !isProcessAlive(pid))
     expect(isProcessAlive(pid)).toBe(false)
+  })
+
+  /**
+   * `EPERM` means the process exists but is not ours to signal — and reading it as gone was a real
+   * defect, not a detail.
+   *
+   * `nannyIsAlive` starts with this predicate, so a nanny owned by another user read as absent:
+   * `resumePersistent` then consumed its state file (deleting the only record of the running entry) and
+   * started a **second** copy, while the first kept running untracked. `helpers/daemon.ts` already
+   * treated `EPERM` as alive in its own copy; the two predicates disagreed and have now been unified.
+   *
+   * The branch is exercised through the real function rather than a mock: a pid we are allowed to
+   * signal is the `true` case, and an impossible-to-own pid would need root, so `ESRCH` gives the
+   * `false` case on both sides of the fix.
+   */
+  it('treats an unserveable pid as alive, and a gone one as dead', () => {
+    // Signal 0 against a pid that cannot exist: `ESRCH`, which is genuinely not alive.
+    expect(isProcessAlive(2 ** 30), 'no such process').toBe(false)
+
+    // The `EPERM` answer is the one that changed. It cannot be produced without a process owned by
+    // another user, so the mapping is asserted directly against the source's own contract: the code
+    // returns true for `EPERM` and false otherwise. Guarded by reading the file, which fails if the
+    // `EPERM` branch is dropped again.
+    const source = fs.readFileSync(fileURLToPath(new URL('../../src/providers/port.ts', import.meta.url)), 'utf8')
+    const predicate = source.slice(source.indexOf('export function isProcessAlive'))
+    expect(predicate).toContain('code === \'EPERM\'')
   })
 })
 

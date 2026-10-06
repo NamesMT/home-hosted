@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
-import process from 'node:process'
 import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { runtimePath } from '#src/helpers/paths'
@@ -53,16 +52,13 @@ export function newToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
-/** Signal 0 only probes the pid; `EPERM` still means the process is there. */
-export function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  }
-  catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
+/**
+ * Re-exported from `providers/port.ts` so the two cannot drift on `EPERM` again.
+ *
+ * They already had: this copy treated a process owned by another user as alive (correct) while the
+ * port one treated it as gone, which made a live nanny look absent. One definition, one answer.
+ */
+export { isProcessAlive } from '#src/providers/port'
 
 export interface RuntimeProbe {
   /** The panel answered on its own port — stronger than "the pid exists". */

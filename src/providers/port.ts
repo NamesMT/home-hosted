@@ -44,14 +44,21 @@ export async function killPortHolders(port: number, exclude?: ReadonlySet<number
   return pids
 }
 
-/** Signal 0 asks the OS whether the pid still exists, without touching it. */
+/**
+ * Signal 0 asks the OS whether the pid still exists, without touching it.
+ *
+ * `EPERM` means the process is there but is **not ours to signal** — a port holder owned by another
+ * user is exactly that. Returning `false` for it made `nannyIsAlive` report a live nanny as gone, so
+ * `resumePersistent` consumed its state file and started a second copy of the entry while the first ran
+ * on untracked. `helpers/daemon.ts` already had this right; the two predicates now agree.
+ */
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
     return true
   }
-  catch {
-    return false
+  catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
 }
 
