@@ -30,4 +30,28 @@ describe('isGeneratedPath', () => {
     for (const name of GENERATED_FILES)
       expect(GENERATED_DIRS).not.toContain(name)
   })
+
+  /**
+   * `.git` is deliberately absent from both lists, and the module says why: a package manager can
+   * reinstall `node_modules`, but nobody can restore a commit that was never pushed. It is the
+   * omission a later reader is most likely to "fix" — it looks like an oversight sitting next to
+   * `.cache` and `.next` — so the invariant needs a test, not only a comment.
+   *
+   * The lookalikes matter as much as the directory: `.gitignore` and `.github` are *authored*
+   * content, and catching either with a prefix rule would quietly drop them from every archive.
+   */
+  it('keeps version control, which is not regenerable', () => {
+    expect(isGeneratedPath('.git')).toBe(false)
+    expect(isGeneratedPath('.git/config')).toBe(false)
+    expect(isGeneratedPath('.git/objects/ab/cdef')).toBe(false)
+    expect(isGeneratedPath('repo/.git/HEAD')).toBe(false)
+    // Names that merely begin with `.git` are real files, not the directory.
+    expect(isGeneratedPath('.gitignore')).toBe(false)
+    expect(isGeneratedPath('.gitattributes')).toBe(false)
+    expect(isGeneratedPath('.github/workflows/ci.yml')).toBe(false)
+    expect(isGeneratedPath('vendor/some.git/x')).toBe(false)
+    // And it is absent from the lists themselves, so nothing adds it back by name.
+    expect(GENERATED_DIRS).not.toContain('.git')
+    expect(GENERATED_FILES).not.toContain('.git')
+  })
 })

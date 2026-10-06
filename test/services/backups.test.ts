@@ -67,6 +67,8 @@ async function makeFixture(
     dataPaths?: string[]
     /** Extra global `backups.includePaths`. */
     includePaths?: string[]
+    /** Declare the fixture's own state root, which contains the archive directory. */
+    coverStateRoot?: boolean
     ignoreGenerated?: boolean
     onRestored?: () => void
   } = {},
@@ -95,7 +97,7 @@ async function makeFixture(
   fs.writeFileSync(workspaceSecretsPath, '{ "telegram": null }\n', { mode: 0o600 })
   fs.writeFileSync(workspaceSettingsPath, '{ "logs": {} }\n')
 
-  const parsed = backupsSchema({ dir: '.backups', keep: options.keep ?? 5, enabled: options.enabled ?? true, includePaths: options.includePaths ?? [] })
+  const parsed = backupsSchema({ dir: '.backups', keep: options.keep ?? 5, enabled: options.enabled ?? true, includePaths: options.includePaths ?? (options.coverStateRoot === true ? [dataRoot] : []) })
   if (parsed instanceof type.errors)
     throw new Error(parsed.summary)
 
@@ -278,6 +280,46 @@ describe('backup service', () => {
     expect(names).toContain('workspaces/default/servers.config.json')
     expect(names).toContain('workspaces/default/secrets.json')
     expect(names).toContain(`data/${slugifyPath(fixture.dataDir)}/db.sqlite`)
+  })
+
+  /**
+   * The *global* `backups.includePaths` route into the same rule.
+   *
+   * A sibling test covers a server's `backupPaths` declaring an ancestor of the archive; this is the
+   * other entry point into `resolveBackupPaths`, and a bug in one does not show up in the other.
+   * The rule that actually protects this is in `declaredData` — it marks such a path `included:
+   * false` with the note `contains the backup directory`, so the copy never starts. The guard inside
+   * `copyInto` is a second line that this route does not reach.
+   *
+   * Reachability is ordinary rather than contrived: the state root is exactly the directory a person
+   * would name to back everything up, and `.backups` lives inside it.
+   */
+  it('never copies the archive directory into itself', async () => {
+    // One fixture, declaring *its own* state root: `.backups` sits inside `<root>/.hh`, so this is
+    // the real reachable case — a person naming the state root to back everything up. (An earlier
+    // version of this test built two fixtures and passed the first one's root to the second, which
+    // pointed the include path at an unrelated temp directory and never reached the guard.)
+    const fixture = await makeFixture({ coverStateRoot: true })
+    const archiveDir = fixture.service.directory
+    expect(path.basename(archiveDir)).toBe('.backups')
+    expect(isInside(fixture.dataRoot, archiveDir), 'the archive lives under the state root').toBe(true)
+    expect(fixture.config.includePaths, 'the state root is the declared path').toEqual([fixture.dataRoot])
+
+    // The path is listed but not included, which is what stops the copy — assert that first, so a
+    // failure says "the rule changed" rather than "the archive looks odd".
+    const view = fixture.service.view()
+    const asData = view.entries.flatMap(entry => entry.items).find(item => item.path === fixture.dataRoot)
+    expect(asData, 'the state root is offered as a data leaf').toMatchObject({ included: false, note: 'contains the backup directory' })
+
+    const result = await fixture.service.create()
+    expect(result.ok, result.error).toBe(true)
+
+    const names = (await listZip(path.join(archiveDir, result.file!.name))).map(entry => entry.name)
+    // Nothing from inside the backups directory, which is where the archive itself lives.
+    expect(names.filter(name => name.includes('.backups'))).toEqual([])
+    // And it is still a complete archive rather than one truncated by the walk.
+    expect(names).toContain('manifest.json')
+    expect(names).toContain('global/settings.json')
   })
 
   it('leaves generated directories out when the entry asks for it', async () => {
