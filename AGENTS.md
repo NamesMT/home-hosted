@@ -33,6 +33,10 @@ reasoning and the traps.
 
 ## Commands
 
+`pnpm-workspace.yaml` is load-bearing: dropping an `allowBuilds` entry makes `pnpm install` **exit 1**
+(`Ignored build scripts: esbuild@0.24.2` — measured, not inferred). Keep the file's own comments
+explaining why each entry is there.
+
 ```sh
 pnpm run up|down|restart|status    # detached; `down` asks /_hh/shutdown, signals are the fallback
                                    # `restart <id>` restarts one server via /_hh, panel stays up
