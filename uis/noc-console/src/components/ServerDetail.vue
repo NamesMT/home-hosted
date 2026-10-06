@@ -190,7 +190,15 @@ function ledClass(status: ServerStatus): string {
         <button type="button" class="btn btn--sm btn--ghost" title="clear the in-memory buffer (c)" @click="clearBuffer">
           clear buffer
         </button>
-        <ConfirmButton label="remove" confirm-label="confirm remove" tone="danger" :disabled="busy" @confirm="remove" />
+        <ConfirmButton
+          label="remove"
+          confirm-label="confirm remove"
+          tone="danger"
+          title="Remove this server?"
+          hint="It leaves servers.config.json: its process stops, and its logs and crash history are deleted."
+          :disabled="busy"
+          @confirm="remove"
+        />
       </div>
 
       <div class="row">

@@ -709,6 +709,8 @@ function removeCertificate(certificate: ProxyCertificateView): void {
                     label="remove"
                     confirm-label="confirm remove"
                     tone="danger"
+                    title="Delete this certificate pair?"
+                    hint="Refused while a route still serves it — switch those routes to another TLS mode first."
                     :disabled="certBusy"
                     @confirm="removeCertificate(certificate)"
                   />

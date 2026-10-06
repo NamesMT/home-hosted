@@ -347,6 +347,8 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
                 label="forget"
                 confirm-label="confirm forget"
                 tone="danger"
+                title="Forget the stored credentials?"
+                hint="They are deleted from disk and cannot be read back; you would paste them again."
                 :disabled="credentialBusy"
                 @confirm="clearCredentials(account)"
               />
@@ -410,7 +412,14 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
             </div>
             <div class="field field--check">
               <span class="view__spacer" />
-              <ConfirmButton label="remove" confirm-label="confirm remove" tone="danger" @confirm="removeDomain(domain)" />
+              <ConfirmButton
+                label="remove"
+                confirm-label="confirm remove"
+                tone="danger"
+                title="Remove this hostname from the draft?"
+                hint="Nothing is deleted yet — `reset` brings it back, and nothing leaves the panel until you save."
+                @confirm="removeDomain(domain)"
+              />
             </div>
           </div>
 

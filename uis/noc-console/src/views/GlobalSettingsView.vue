@@ -725,6 +725,8 @@ async function revertUi(): Promise<void> {
                 label="Revert to stock"
                 confirm-label="Confirm revert"
                 tone="danger"
+                title="Delete the uploaded UI?"
+                hint="It is deleted, not archived — re-installing means uploading the zip again."
                 :disabled="uiBusy"
                 @confirm="revertUi"
               />
@@ -1113,6 +1115,8 @@ async function revertUi(): Promise<void> {
                 label="Remove certificate"
                 confirm-label="Confirm remove"
                 tone="danger"
+                title="Delete this certificate pair?"
+                hint="TLS stays on but has nothing to serve, so the panel falls back to http once the listener rebinds."
                 @confirm="removeCertificate"
               />
               <button

@@ -464,7 +464,7 @@ const SECTIONS = [
     <Modal
       v-model:open="confirmRemove"
       title="Remove this server?"
-      :description="`${label} is removed from servers.config.json. Its process is stopped and its persisted logs stay on disk.`"
+      :description="`${label} is removed from servers.config.json: its process is stopped, and its logs and crash history are deleted with it.`"
       width="w-[min(92vw,26rem)]"
     >
       <p class="text-xs text-muted">

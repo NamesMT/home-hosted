@@ -339,7 +339,15 @@ async function remove(): Promise<void> {
         <span class="mono">{{ changedCount }}</span> unsaved {{ changedCount === 1 ? 'change' : 'changes' }}
       </button>
       <span v-else-if="config" class="view__count">in sync</span>
-      <ConfirmButton v-if="server" label="remove server" confirm-label="confirm remove" tone="danger" @confirm="remove" />
+      <ConfirmButton
+        v-if="server"
+        label="remove server"
+        confirm-label="confirm remove"
+        tone="danger"
+        title="Remove this server?"
+        hint="It leaves servers.config.json: its process stops, and its logs and crash history are deleted."
+        @confirm="remove"
+      />
       <button type="button" class="btn btn--sm" @click="back">
         cancel
       </button>

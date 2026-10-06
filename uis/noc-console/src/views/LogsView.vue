@@ -262,7 +262,15 @@ onScopeDispose(() => {
       <button type="button" class="btn btn--sm" :disabled="loading" @click="refresh">
         refresh <kbd class="kbd">R</kbd>
       </button>
-      <ConfirmButton label="clear" confirm-label="confirm clear" tone="danger" :disabled="selectedId === null" @confirm="clearFile" />
+      <ConfirmButton
+        label="clear"
+        confirm-label="confirm clear"
+        tone="danger"
+        title="Delete the stored logs for this server?"
+        hint="The stored files and the lines shown here are both cleared; the server keeps logging."
+        :disabled="selectedId === null"
+        @confirm="clearFile"
+      />
     </div>
 
     <div class="logpage">
