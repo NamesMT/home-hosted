@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import type { LogStream, NannyExit, NannySpec, NannyState } from '#src/shared/contracts'
 import process from 'node:process'
-import { NANNY_HEARTBEAT_MS, nannyLogFile, writeNannyState } from '#src/providers/nanny'
+import { describeNannyExit, NANNY_HEARTBEAT_MS, nannyLogFile, writeNannyState } from '#src/providers/nanny'
 import { spawnManaged, terminate } from '#src/providers/process'
 import { LineSplitter } from '#src/services/log-buffer'
 import { LogFiles } from '#src/services/log-files'
@@ -108,7 +108,10 @@ export async function runNanny(spec: NannySpec, statePath: string): Promise<void
       stdout.flush('stdout')
       stderr.flush('stderr')
       lastExit = { code, signal, at: Date.now(), runtimeMs }
-      emit('system', note ?? (signal !== null ? `persistent: exited with signal ${signal}` : `persistent: exited with code ${code}`))
+      // The same formatter the panel uses, so the reason an entry died reads identically in the
+      // nanny's mirror and in the panel's own log. Hand-rolling it here meant this line lost the
+      // exit-code hint that the panel's line gained.
+      emit('system', note ?? `persistent: exited with ${describeNannyExit(lastExit)}`)
       persistState()
       logFiles.dispose()
       // The panel reads the real cause from the state file; this is only the mirror.
