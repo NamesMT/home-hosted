@@ -33,6 +33,13 @@ reasoning and the traps.
 
 ## Commands
 
+First run: `pnpm install --frozen-lockfile` (Node ≥ 24, pnpm). Stack: TypeScript on Node, Hono +
+srvx for the panel, ArkType at every boundary, Vue 3 + Vite + Tailwind v4 for the UIs, Vitest for
+tests (the CLI is bundled by `vite.server.config.ts`), `@antfu/eslint-config` for lint and formatting.
+
+`pnpm run <script>` for anything whose name collides with a pnpm built-in — a bare `pnpm up` runs
+pnpm's own update, not this project's.
+
 ```sh
 pnpm run up|down|restart|status    # detached; `down` asks /_hh/shutdown, signals are the fallback
                                    # `restart <id>` restarts one server via /_hh, panel stays up
