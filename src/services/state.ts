@@ -2,9 +2,8 @@ import type { GlobalSettingsStore } from '#src/config/settings'
 import type { AuthService } from '#src/services/auth'
 import type { BackupService } from '#src/services/backups'
 import type { ControlEndpoint } from '#src/services/control-server'
-import type { HostMonitor } from '#src/services/host-monitor'
 import type { TlsStore } from '#src/services/tls'
-import type { ControlConfig, ControlView, DdnsStatus, HostView, LogsConfig, ServerDefaults, ServerView, TelegramStatus, WorkspaceView } from '#src/shared/contracts'
+import type { ControlConfig, ControlView, DdnsStatus, LogsConfig, ServerDefaults, ServerView, TelegramStatus, WorkspaceView } from '#src/shared/contracts'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { checkExposure } from '#src/services/exposure'
@@ -70,10 +69,6 @@ export function buildControlView(
 
 export function buildBackupsView(backups: BackupService): ReturnType<BackupService['view']> {
   return backups.view()
-}
-
-export function buildHostView(hostMonitor: HostMonitor): HostView {
-  return hostMonitor.view
 }
 
 /** One workspace's subtree of the state frame. */
