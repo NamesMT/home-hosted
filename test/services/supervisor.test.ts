@@ -1264,6 +1264,36 @@ describe('a removed server', () => {
   })
 })
 
+/**
+ * A NUL in an environment key must not stop the entry from starting.
+ *
+ * `spawn` **throws** on one — `must be a string without null bytes` — so the entry crashed with Node's
+ * raw message naming an invisible character, and none of its other variables loaded. A NUL is reachable
+ * from both sides: an `envFile` line (the parser takes the text before the first `=`, whatever it is)
+ * and a JSON config, where `\u0000` is a legal escape.
+ */
+describe('an environment key with a null byte', () => {
+  it('is dropped, and the rest of the environment still loads', async () => {
+    // Built with `String.fromCharCode(0)` rather than written in the source: a literal NUL in a string
+    // here is itself enough to make `spawn` refuse the args array, which is the defect under test.
+    const NUL = String.fromCharCode(0)
+    const harness = await makeSupervisor([{
+      id: 'web',
+      command: process.execPath,
+      args: ['-e', 'console.log(JSON.stringify({ good: process.env.GOOD, nulls: Object.keys(process.env).filter(k => k.charCodeAt(0) === 0).length }))'],
+      env: { GOOD: 'yes', [`ODD${NUL}KEY`]: 'would have crashed spawn' },
+    }])
+
+    const result = await harness.supervisor.start('web')
+    expect(result.ok, `spawn must not throw: ${result.error ?? ''}`).toBe(true)
+    await waitFor(() => harness.supervisor.logLines('web').some(line => line.text.includes('null byte')))
+    // Its sibling variable is intact: dropping one key must not drop the layer.
+    await waitFor(() => harness.supervisor.logLines('web').some(line => line.text.includes('"good":"yes"')))
+    // And the child saw no NUL-keyed variable at all.
+    await waitFor(() => harness.supervisor.logLines('web').some(line => line.text.includes('"nulls":0')))
+  })
+})
+
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)

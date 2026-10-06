@@ -1034,6 +1034,18 @@ export class Supervisor {
     for (const key of Object.keys(dataEnvs))
       env[key] = path.resolve(cwd, env[key]!)
 
+    // `spawn` **throws** on an env key containing a NUL, so the entry failed to start with Node's raw
+    // message naming an invisible character: `The property 'options.env[…]' must be a string without
+    // null bytes`. A NUL reaches here from either side — an `envFile` line (the parser takes the text
+    // before the first `=`, whatever it is) or a JSON config (`\u0000` is a legal escape). Dropped
+    // rather than fatal, so one bad key does not stop the other thirty from loading.
+    for (const key of Object.keys(env)) {
+      if (!key.includes('\0'))
+        continue
+      delete env[key]
+      this.log(entry, 'system', 'ignored an environment key containing a null byte')
+    }
+
     return {
       command,
       args: expandEnvList(resolveTemplates(entry.config.args, vars), expansionVars),
