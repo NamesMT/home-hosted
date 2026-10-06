@@ -110,6 +110,12 @@ export function createBackupsRoute(deps: AppDeps) {
 
       try {
         if (contentType.includes('multipart/form-data')) {
+          // `parseInt` is deliberate here and is not the prefix bug it resembles elsewhere: this
+          // value is a header Node has already validated. A non-decimal `Content-Length` gets a
+          // 400 from the HTTP parser before any handler runs (verified by sending a raw
+          // `Content-Length: 1e12`), so the only shapes that arrive are decimal — and a partial
+          // parse cannot make an oversized upload pass. This is a pre-flight check anyway; the
+          // body is parsed and counted below.
           const declared = Number.parseInt(c.req.header('content-length') ?? '0', 10)
           if (Number.isFinite(declared) && declared > MAX_UPLOAD_BYTES)
             throw new DetailedError(`the upload is larger than ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })

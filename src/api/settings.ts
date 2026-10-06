@@ -170,6 +170,9 @@ export function createSettingsRoute(deps: AppDeps) {
       summary: 'Replace the panel UI with an uploaded static build',
       responses: { 200: { description: 'Installed' }, 400: ERROR_RESPONSES[400], 413: { description: 'Too large' } },
     }), async (c) => {
+      // Pre-flight only; `file.size` below is the authoritative check. `parseInt` is safe because
+      // Node's HTTP parser rejects a non-decimal `Content-Length` with a 400 before any handler
+      // runs — see the same note in `api/backups.ts`.
       const declared = Number.parseInt(c.req.header('content-length') ?? '0', 10)
       if (Number.isFinite(declared) && declared > MAX_UI_UPLOAD_BYTES)
         throw new DetailedError(`the upload is larger than ${Math.round(MAX_UI_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
