@@ -136,8 +136,15 @@ watch(search, () => {
 })
 
 watch(mode, (next) => {
-  if (next === 'disk')
+  // The tail, stream and search controls are all disk-only, and so is the "searched n lines"
+  // label that describes the last search. Clearing it on the way out means returning to disk
+  // cannot show a count from a request that is no longer the current one.
+  if (next === 'disk') {
     void loadTail()
+  }
+  else {
+    searched.value = null
+  }
 })
 
 // A workspace switch swaps the server list under the selection; drop the old
