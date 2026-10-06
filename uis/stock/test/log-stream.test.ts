@@ -217,3 +217,37 @@ describe('useServerLogs', () => {
 function texts(lines: LogLine[]): string[] {
   return lines.map(entry => entry.text)
 }
+
+/**
+ * Two viewers of the same server share one connection, and it closes only when the last leaves.
+ *
+ * The refcount is what makes that true, and it had no test — the case it protects is the awkward
+ * one: a server detail view and a docked log panel watching the same entry. Closing on the first
+ * release would break the other viewer's live output; never closing leaks a connection per visit.
+ */
+describe('sharing one stream between two viewers', () => {
+  it('closes only when the last viewer leaves', async () => {
+    const workspace = ref<string | null>('default')
+    const server = ref<string | null>('shared')
+
+    const first = effectScope()
+    const second = effectScope()
+    first.run(() => useServerLogs(workspace, server))
+    second.run(() => useServerLogs(workspace, server))
+    await nextTick()
+
+    // One connection for two viewers, not two.
+    expect(FakeEventSource.instances).toHaveLength(1)
+    const source = latest()
+
+    first.stop()
+    await nextTick()
+    // The remaining viewer still has its stream.
+    expect(source.closed).toBe(false)
+
+    second.stop()
+    await nextTick()
+    // Now nothing holds it, so it closes.
+    expect(source.closed).toBe(true)
+  })
+})
