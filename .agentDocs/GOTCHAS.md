@@ -87,6 +87,12 @@ line in `AGENTS.md` instead.
 
 ## Config
 
+- **`cookieSecure: auto` depends on srvx, not on this repo.** `secureCookie` reads
+  `new URL(c.req.url).protocol`, and behind a proxy that is `https:` only because srvx rewrites
+  `url.protocol` from `x-forwarded-proto` when `trustProxy` is on
+  (`srvx/dist/_chunks/_trust-proxy.mjs`) — so the session cookie's `Secure` flag on a proxied panel
+  rests on a dependency's internals. Verified by reading it, not assumed; if a srvx upgrade changes
+  that, the flag silently stops appearing and only a browser would notice.
 - **A workspace's config is re-read whenever its files change on disk**, and the watch is on the
   *directory*: an editor's save is a temporary file renamed over the target, so the inode changes
   and the name does not. A two-second poll backs it up where `fs.watch` is undependable. The store
