@@ -188,6 +188,11 @@ line in `AGENTS.md` instead.
   nothing pruned it either, so a re-added id showed the old entry's crash time — `HistoryStore.forget()`
   now runs beside `logFiles.clear()` in the same branch. A per-**id** artifact needs reclaiming on
   removal; check both stores when adding a third.
+- **Normalise a route path in one place, not two.** `ProxyService.pathKey` strips trailing slashes and
+  uses that to refuse `/app` + `/app/` as a clash; `matchFor` in `proxy-config.ts` built its matchers
+  from the *raw* value. So the two forms were declared the same route and rendered differently — and
+  worse, `/app/` produced `['/app/', '/app//*']`, with a doubled slash. Caddy matches `path` exactly, so
+  the bare `/app` the panel reported as covered was never matched. Strip before building matchers.
 - **A URL scheme you do not support is a mistake, not a hostname.** `parseUpstream` prefixed a bare
   string with `http://` for convenience, and did it after testing only `^https?://` — so `ftp://x.com`
   became `http://ftp://x.com`, which `new URL` happily parses as hostname **`ftp`**. The route reported

@@ -169,6 +169,22 @@ describe('renderCaddyConfig', () => {
     })
     const http = (rendered.apps as any).http
     expect(http.servers.https.routes[0].match[0].path).toEqual(['/gitea', '/gitea/*'])
+
+    // A trailing slash is the same prefix, and must render the same matchers.
+    // `ProxyService.pathKey` already treats the two as one route and refuses a pair of them as a clash,
+    // so emitting different matchers made a route that did not clash behave differently: Caddy matches
+    // `path` exactly, so `/gitea/` produced `['/gitea/', '/gitea/*']` and never matched the bare
+    // `/gitea` the panel reported as covered.
+    for (const path of ['/gitea/', 'gitea/', '/gitea//']) {
+      const variant = render({
+        config: config({ email: 'me@example.com' }),
+        admin: unixAdmin,
+        engineDir: '/state/engine',
+        manual: [],
+        routes: [{ host: 'app.example.com', path, dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
+      })
+      expect((variant.apps as any).http.servers.https.routes[0].match[0].path, path).toEqual(['/gitea', '/gitea/*'])
+    }
   })
 
   it('verifies nothing on a local upstream that speaks TLS', () => {

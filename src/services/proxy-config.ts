@@ -203,8 +203,14 @@ function matchFor(route: ProxyUpstreamRoute): Record<string, unknown> {
   const match: Record<string, unknown> = { host: [route.host] }
   const prefix = route.path.trim()
   if (prefix.length > 0) {
-    const base = prefix.startsWith('/') ? prefix : `/${prefix}`
-    match.path = base === '/' ? ['/*'] : [base, `${base.replace(/\/$/, '')}/*`]
+    const leading = prefix.startsWith('/') ? prefix : `/${prefix}`
+    // Trailing slashes are stripped *before* the matchers are built, because
+    // `ProxyService.pathKey` already treats `/app` and `/app/` as the same route and refuses two of
+    // them as a clash. Emitting them differently made the pair clash-free and yet behave differently:
+    // Caddy matches `path` exactly, so `/app/` produced `["/app/", "/app/*"]` and never matched the
+    // bare `/app` the panel reported as covered.
+    const base = leading.replace(/\/+$/, '')
+    match.path = base.length === 0 ? ['/*'] : [base, `${base}/*`]
   }
   return match
 }
