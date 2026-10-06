@@ -6,8 +6,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { type } from 'arktype'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { projectDir } from '#src/helpers/paths'
+import * as archive from '#src/providers/archive'
 import { isZipArchive, listZip } from '#src/providers/archive'
 import { BackupService, isInside, isSafeArchiveEntry, resolveBackupPaths, slugifyPath } from '#src/services/backups'
 import { backupsSchema, serverSchema } from '#src/shared/contracts'
@@ -543,6 +544,44 @@ describe('backup service', () => {
    * That pairing is the documented reason the `used` sets exist, and nothing pinned it: both entries
    * here carry `origin: 'app:DATA_DIR'`, and only one target may take each.
    */
+  /**
+   * A burst of `list()` calls must queue **one** refresh, not one per call.
+   *
+   * `list()` is synchronous and runs on every state frame, while reading an archive's encryption flag
+   * is async — so it schedules a background refresh. Without the single-flight, a frame that calls
+   * `list()` (and the page calls it more than once) would queue a read per call, per file.
+   *
+   * Counted through the real `listZip`, since the coalescing is private state: the assertion is the
+   * number of reads a burst produces, which is the thing the comment actually promises.
+   */
+  it('coalesces a burst of list() calls into one refresh', async () => {
+    const fixture = await makeFixture()
+    // Two real archives, so a refresh has something to read.
+    const backupDir = path.join(fixture.dataRoot, '.backups')
+    fs.mkdirSync(backupDir, { recursive: true })
+    for (const name of ['probe-one.zip', 'probe-two.zip'])
+      await makeZip(path.join(backupDir, name), { 'x.txt': 'x' })
+
+    const spy = vi.spyOn(archive, 'listZip')
+    try {
+      for (let i = 0; i < 25; i += 1)
+        fixture.service.list()
+
+      // Let the scheduled refresh settle before counting.
+      await vi.waitFor(() => {
+        expect(spy.mock.calls.length).toBeGreaterThan(0)
+      })
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      expect(fixture.service.list().length).toBe(2)
+      // One refresh read both archives once. A per-call refresh would be 25+ reads.
+      expect(spy.mock.calls.length, 'reads for 25 list() calls').toBeLessThanOrEqual(4)
+    }
+    finally {
+      spy.mockRestore()
+    }
+  })
+
   it('restores two data paths that share one origin onto separate targets', async () => {
     const firstDir = path.join(os.tmpdir(), 'shared-origin-a')
     const secondDir = path.join(os.tmpdir(), 'shared-origin-b')
