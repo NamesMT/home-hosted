@@ -11,6 +11,11 @@ line in `AGENTS.md` instead.
 
 - **`run.json` is the daemon's identity and `down`'s credential.** Keep `runtimeSchema` in sync with
   the `Runtime` written in `src/index.ts`. It lives at `.hh/run.json`.
+- **A test or script that reads a file as text must not assume the line ending.** A Windows checkout
+  has CRLF, so `indexOf('\n}\n')` found nothing, the slice ran past the function it meant to isolate and
+  picked up the *next* one's contents — `global group 'defaults'` failing against the global keys list.
+  Linux CI passed; only the platform gate caught it. Normalize (`replaceAll('\r\n', '\n')`) **and throw
+  when the boundary is missing**, because silent bleed is the failure mode.
 - **`ensureLayout()` runs before any command resolves a state path** (the CLI pre-pass) and is
   idempotent. It moves rather than copies, never overwrites an existing `.hh` file, and removes a
   legacy directory only when every entry in it actually moved — a refused move must not become a
