@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TlsStore, validatePair } from '#src/services/tls'
+import { hasOpenssl } from '../support/capabilities'
 
 let dir = ''
 let cert = ''
@@ -15,22 +16,13 @@ let otherKey = ''
  *
  * Detected at module load, not in `beforeAll`: `it.runIf`/`it.skipIf` are evaluated when the
  * suite is collected, which happens before any hook runs. The alternative — an early `return
- * expect(true).toBe(true)` inside each test — reports a *pass* on a machine without openssl, so
+ * expect(true).toBe(true)` inside each test — reports a *pass* on a machine without hasOpenssl, so
  * a runner that cannot exercise the parsing paths says everything is fine. A skip is the honest
  * signal, and the repo already has the idiom (`it.runIf` in nanny/proc/port tests).
  */
-const openssl = ((): boolean => {
-  try {
-    execFileSync('openssl', ['version'], { stdio: 'ignore' })
-    return true
-  }
-  catch {
-    return false
-  }
-})()
 
 beforeAll(async () => {
-  if (!openssl)
+  if (!hasOpenssl)
     return
   dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-tls-'))
 
@@ -63,10 +55,10 @@ beforeAll(async () => {
     otherKey = await fs.promises.readFile(path.join(dir, 'other-key.pem'), 'utf8')
   }
   catch (error) {
-    // Not folded into the skip: `openssl version` succeeded, so a failure *here* is a broken
+    // Not folded into the skip: `hasOpenssl version` succeeded, so a failure *here* is a broken
     // fixture, not a missing tool. Swallowing it would run the assertions against empty strings
     // and report whatever that produced.
-    throw new Error(`could not generate a self-signed pair with openssl: ${String(error)}`)
+    throw new Error(`could not generate a self-signed pair with hasOpenssl: ${String(error)}`)
   }
 })
 
@@ -81,13 +73,13 @@ describe('tls pair validation', () => {
     expect(validatePair('not a cert', key).error).toContain('certificate')
   })
 
-  it.runIf(openssl)('reports a mismatched private key', () => {
+  it.runIf(hasOpenssl)('reports a mismatched private key', () => {
     const result = validatePair(cert, otherKey)
     expect(result.ok).toBe(false)
     expect(result.error).toContain('does not match')
   })
 
-  it.runIf(openssl)('accepts a matching, unexpired pair', () => {
+  it.runIf(hasOpenssl)('accepts a matching, unexpired pair', () => {
     expect(validatePair(cert, key)).toEqual({ ok: true })
   })
 })
@@ -106,7 +98,7 @@ describe('tls store', () => {
     expect(store.status(true).error).toContain('no certificate')
   })
 
-  it.runIf(openssl)('stores the pair with a private key that is not world readable', async () => {
+  it.runIf(hasOpenssl)('stores the pair with a private key that is not world readable', async () => {
     const store = new TlsStore(path.join(dir, 'stored'))
 
     expect(store.save(cert, key)).toEqual({ ok: true })
@@ -117,7 +109,7 @@ describe('tls store', () => {
     expect(store.load()?.cert).toContain('BEGIN CERTIFICATE')
   })
 
-  it.runIf(openssl)('describes the certificate for the settings page', async () => {
+  it.runIf(hasOpenssl)('describes the certificate for the settings page', async () => {
     const store = new TlsStore(path.join(dir, 'described'))
     store.save(cert, key)
 
@@ -129,14 +121,14 @@ describe('tls store', () => {
     expect(status.error).toBeNull()
   })
 
-  it.runIf(openssl)('refuses to store a mismatched pair', async () => {
+  it.runIf(hasOpenssl)('refuses to store a mismatched pair', async () => {
     const store = new TlsStore(path.join(dir, 'rejected'))
     const result = store.save(cert, otherKey)
     expect(result.ok).toBe(false)
     expect(store.present).toBe(false)
   })
 
-  it.runIf(openssl)('clears both files', async () => {
+  it.runIf(hasOpenssl)('clears both files', async () => {
     const store = new TlsStore(path.join(dir, 'cleared'))
     store.save(cert, key)
     store.clear()

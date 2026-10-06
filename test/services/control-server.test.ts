@@ -8,6 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { ControlServer } from '#src/services/control-server'
+import { hasOpenssl } from '../support/capabilities'
 
 /**
  * The panel's own listener. Moving it is the one operation that can make the panel
@@ -235,18 +236,9 @@ describe('control server over TLS', () => {
 
   // Module-load detection: `it.runIf` is evaluated at collection time, before any hook, and an
   // early return inside the test would be reported as a pass rather than a skip.
-  const openssl = ((): boolean => {
-    try {
-      execFileSync('openssl', ['version'], { stdio: 'ignore' })
-      return true
-    }
-    catch {
-      return false
-    }
-  })()
 
   beforeAll(async () => {
-    if (!openssl)
+    if (!hasOpenssl)
       return
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-control-tls-'))
     try {
@@ -259,7 +251,7 @@ describe('control server over TLS', () => {
     }
   })
 
-  it.runIf(openssl)('serves https and reflects the scheme in the endpoint', async () => {
+  it.runIf(hasOpenssl)('serves https and reflects the scheme in the endpoint', async () => {
     const port = await freePort()
     const server = tracked(new ControlServer({
       fetch: () => new Response('secure'),

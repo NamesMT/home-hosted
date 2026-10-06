@@ -8,6 +8,7 @@ import path from 'node:path'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { missingServer } from '#src/helpers/action-result'
+import { hasOpenssl } from '../support/capabilities'
 import { makeFixture, makeView } from './fixture'
 
 /**
@@ -502,21 +503,12 @@ describe('tls route', () => {
   /**
    * Detected at module load, not in `beforeAll`: `it.runIf` is evaluated when the suite is
    * collected, before any hook runs. The previous shape returned early inside the test, which
-   * vitest reports as a *pass* — so a machine without openssl claimed to have exercised the
+   * vitest reports as a *pass* — so a machine without hasOpenssl claimed to have exercised the
    * route. A skip says what actually happened.
    */
-  const openssl = ((): boolean => {
-    try {
-      execFileSync('openssl', ['version'], { stdio: 'ignore' })
-      return true
-    }
-    catch {
-      return false
-    }
-  })()
 
   beforeAll(async () => {
-    if (!openssl)
+    if (!hasOpenssl)
       return
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-api-tls-'))
     try {
@@ -540,7 +532,7 @@ describe('tls route', () => {
     expect(await response.json()).toMatchObject({ code: 'INVALID_CERTIFICATE' })
   })
 
-  it.runIf(openssl)('stores a real pair and clears it again', async () => {
+  it.runIf(hasOpenssl)('stores a real pair and clears it again', async () => {
     const created = await fixture()
     const saved = await request(created.app, '/api/settings/tls', 'POST', { certificate: cert, privateKey: key })
     expect(saved.status).toBe(200)
@@ -551,7 +543,7 @@ describe('tls route', () => {
     expect(created.tls.present).toBe(false)
   })
 
-  it.runIf(openssl)('rebuilds the listener after uploading while https is already on', async () => {
+  it.runIf(hasOpenssl)('rebuilds the listener after uploading while https is already on', async () => {
     const created = await fixture()
     created.settings.updateControl({ tls: { enabled: true } })
     let restarts = 0

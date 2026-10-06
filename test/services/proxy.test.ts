@@ -15,23 +15,15 @@ import { isProcessAlive } from '#src/providers/port'
 import { groupDns01Policies, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
 import { proxyConfigSchema } from '#src/shared/contracts'
 import { isPublicHost } from '#src/shared/proxy-form'
+import { hasOpenssl } from '../support/capabilities'
 
 const dirs: string[] = []
 
 /**
  * Detected at module load, not in a hook: `it.runIf` is evaluated when the suite is collected,
  * before `beforeAll` runs. Returning early inside the test instead makes vitest report a *pass*
- * on a machine without openssl, which claims coverage the run did not have.
+ * on a machine without hasOpenssl, which claims coverage the run did not have.
  */
-const openssl = ((): boolean => {
-  try {
-    execFileSync('openssl', ['version'], { stdio: 'ignore' })
-    return true
-  }
-  catch {
-    return false
-  }
-})()
 
 /**
  * A real pair. Expiry is tested by moving the clock, not by backdating the
@@ -1175,7 +1167,7 @@ describe('proxyService', () => {
     }
   })
 
-  it.runIf(openssl)('calls a public name on the engine’s own CA a fallback, and says when it tries again', async () => {
+  it.runIf(hasOpenssl)('calls a public name on the engine’s own CA a fallback, and says when it tries again', async () => {
     const { service, options, settings } = await harness()
     // What the engine leaves behind when the CA will not issue for a public name.
     const pair = makePair('git.example.com')
@@ -1223,7 +1215,7 @@ describe('proxyService', () => {
     expect(service.routeViews()[0]?.certificate?.message).not.toContain('rejectedIdentifier')
   })
 
-  it.runIf(openssl)('refuses to serve a pair that expired in place, and says so', async () => {
+  it.runIf(hasOpenssl)('refuses to serve a pair that expired in place, and says so', async () => {
     const { service, settings, options } = await harness()
     // The upload path rejects an already-expired pair; this is the one it cannot see —
     // a pair that was valid when stored and expired since, which is a matter of the
@@ -1252,7 +1244,7 @@ describe('proxyService', () => {
     }
   })
 
-  it.runIf(openssl)('serves the usable pair, and marks the shadowed one unused', async () => {
+  it.runIf(hasOpenssl)('serves the usable pair, and marks the shadowed one unused', async () => {
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'good', makePair('good.example.com'))
     writePair(options.tlsDir, 'old', brokenPair())
@@ -1269,7 +1261,7 @@ describe('proxyService', () => {
     expect(service.certificateViews().map(entry => [entry.id, entry.used])).toEqual([['good', true], ['old', false]])
   })
 
-  it.runIf(openssl)('reflects a route edit in `used` at once, not after the cache turns over', async () => {
+  it.runIf(hasOpenssl)('reflects a route edit in `used` at once, not after the cache turns over', async () => {
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'wild', makePair('*.example.com'))
     writePair(options.tlsDir, 'exact', makePair('special.example.com'))
@@ -1287,7 +1279,7 @@ describe('proxyService', () => {
     expect(service.certificateViews().map(entry => [entry.id, entry.used])).toEqual([['wild', true], ['exact', true]])
   })
 
-  it.runIf(openssl)('marks only one of two identical pairs as the one being served', async () => {
+  it.runIf(hasOpenssl)('marks only one of two identical pairs as the one being served', async () => {
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'wild', makePair('*.example.com'))
     writePair(options.tlsDir, 'exact', makePair('special.example.com'))
@@ -1304,7 +1296,7 @@ describe('proxyService', () => {
     ])
   })
 
-  it.runIf(openssl)('notices a stored pair that was replaced by an expired one', async () => {
+  it.runIf(hasOpenssl)('notices a stored pair that was replaced by an expired one', async () => {
     const { service, settings, options } = await harness()
     writePair(options.tlsDir, 'p', makePair('p.example.com'))
     settings.updateProxy({
