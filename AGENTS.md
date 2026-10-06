@@ -13,11 +13,10 @@ nanny state), and `run.json` (the live daemon's pid/url/token, 0600). Every work
 `.hh/<id>/`: `settings.json` (server defaults, log retention, notifications, DDNS),
 `servers.config.json`, `.secrets.json` (0600: Telegram token, plus DDNS credentials sealed with
 AES-256-GCM under `HHOSTED_DDNS_SECRET` — only DDNS is sealed, because it is the one thing replayed
-to a third party), `.logs/`
-(per server, `<id>.log` plus `<id>.log.1` when it rotates), and `.state/` (nanny state, its 0600
-spawn spec until read, `ddns.json`). A pre-`.hh` instance is relocated automatically by
-`ensureLayout()`. **The package ships no servers**: never commit a config, a seed entry, or a path
-that names one.
+to a third party), `.logs/` (per server, `<id>.log` plus `<id>.log.1` when it rotates), and
+`.state/` (nanny state, its 0600 spawn spec until read, `ddns.json`). A pre-`.hh` instance is
+relocated automatically by `ensureLayout()`. **The package ships no servers**: never commit a config,
+a seed entry, or a path that names one.
 
 ## Deeper docs
 
@@ -65,7 +64,9 @@ free: an installed panel or another dev instance may hold it, and the CLI's port
 Dispatched from `.github/workflows/release.yml` with a version (`-f dry-run=true` to rehearse). It
 verifies the version, lints/types/tests, builds the CLI and every UI zip, lets changelogen write the
 changelog and bump `package.json`, commits and tags `v<version>`, creates the GitHub release with the
-UI bundles attached, and publishes to npm through trusted publishing (OIDC, no token).
+UI bundles attached, and publishes to npm through trusted publishing (OIDC, no token). npm only
+offers a trusted publisher for a package that **already exists**, so a first-ever release has to be
+published by hand.
 
 ```sh
 gh workflow run release.yml -f version=0.6.3
