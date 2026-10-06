@@ -3,7 +3,7 @@ import type { DdnsConfig } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { ddnsProvider, validateDdnsConfig } from '#src/providers/ddns'
+import { DDNS_PROVIDERS, ddnsProvider, validateDdnsConfig } from '#src/providers/ddns'
 import { cloudflareProvider } from '#src/providers/ddns/cloudflare'
 import { desecProvider } from '#src/providers/ddns/desec'
 import { digitaloceanProvider } from '#src/providers/ddns/digitalocean'
@@ -672,5 +672,65 @@ describe('namecheap through the XML API', () => {
       { name: '_acme-challenge', type: 'TXT', address: 'a value with spaces', mxPref: '10', ttl: '1800' },
       { name: '@', type: 'MX', address: 'mail.example.com.', mxPref: '20', ttl: '300' },
     ])
+  })
+})
+
+/**
+ * Every provider answers the same question: "can these credentials drive you?".
+ *
+ * `validate` is what the settings form and the config validator both call, and a provider whose
+ * version says yes to nothing — or yes to everything — fails late: the account saves, and the DNS
+ * update rejects it hours later, when a certificate is trying to renew. Only two of the fourteen
+ * had it tested (cloudflare, namecheap-api), which is exactly how the other twelve would drift.
+ *
+ * The loop runs over the registry rather than a hand-written list, so a new provider is covered by
+ * existing, not by remembering to add a case.
+ */
+describe('every ddns provider validates credentials', () => {
+  it('refuses null and an empty object, naming what is missing', () => {
+    for (const provider of DDNS_PROVIDERS) {
+      for (const credentials of [null, {}]) {
+        const verdict = provider.validate(credentials)
+        expect(verdict, `${provider.id} must refuse ${JSON.stringify(credentials)}`).not.toBeNull()
+      }
+    }
+  })
+
+  it('refuses blank values, not just absent ones', () => {
+    for (const provider of DDNS_PROVIDERS) {
+      // A form leaves empty strings behind, so this is the shape a save actually carries. Both
+      // spellings are checked separately: `''` is the untouched input, `' '` is one a person
+      // typed a space into, and a provider that only trims for one of them lets the other through.
+      for (const blank of ['', ' ']) {
+        const blanks: Record<string, string> = {}
+        for (const field of provider.fields)
+          blanks[field.key] = blank
+        expect(provider.validate(blanks), `${provider.id} must refuse ${JSON.stringify(blank)} fields`).not.toBeNull()
+      }
+    }
+  })
+
+  it('accepts a filled-in form and says nothing', () => {
+    for (const provider of DDNS_PROVIDERS) {
+      const filled: Record<string, string> = {}
+      for (const field of provider.fields)
+        filled[field.key] = `value-for-${field.key}`
+      expect(provider.validate(filled), `${provider.id} must accept every field filled`).toBeNull()
+    }
+  })
+
+  it('declares the metadata the form and the config validator read', () => {
+    for (const provider of DDNS_PROVIDERS) {
+      expect(provider.id, `${provider.id} needs an id`).toMatch(/^[a-z0-9-]+$/)
+      expect(provider.label.length, `${provider.id} needs a label`).toBeGreaterThan(0)
+      expect(provider.docsUrl, `${provider.id} should link its own docs`).toMatch(/^https:\/\//)
+      expect(provider.fields.length, `${provider.id} needs at least one field`).toBeGreaterThan(0)
+      expect(provider.families.length, `${provider.id} needs a record family`).toBeGreaterThan(0)
+      // A duplicate key would make one field shadow another in the form.
+      const keys = provider.fields.map(field => field.key)
+      expect(new Set(keys).size, `${provider.id} has a duplicate field key`).toBe(keys.length)
+    }
+    // Anti-vacuity: the registry is the thing being covered, so it must not be empty.
+    expect(DDNS_PROVIDERS.length).toBeGreaterThanOrEqual(14)
   })
 })
