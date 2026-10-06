@@ -168,7 +168,10 @@ What that changes:
   workspace's `.logs/`, because there is no pipe to carry the output.
 - **A crash while the panel is away is reported, not restarted.** Retries and backoff remain the
   panel's job, so an entry that dies with nobody watching shows up as **crashed** on the next boot
-  with the exit code in its log.
+  with the reason in its log — the exit code, explained when it has a conventional meaning
+  (`code 137 (SIGKILL — which the kernel sends when memory runs out)`), because that is the one an
+  operator would otherwise have to look up. `home-hosted status` prints the directory those files
+  live in, and names the `<id>.log` convention once there is one to read.
 - **Port policies still apply, as a fallback.** A persistent entry reattaches from its state file
   before any preflight runs, so `onPortConflict` matters only when that state is gone — and `follow`
   is then the policy that adopts instead of blocking.

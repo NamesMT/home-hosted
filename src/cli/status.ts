@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
@@ -69,8 +70,15 @@ export async function runStatus(json: boolean): Promise<void> {
     ['log', runtime.logFile],
     // The per-server logs sit beside the workspace's config, not beside the console log — and
     // the README says `status` prints the paths, so the one an operator needs to read a
-    // *server's* log belongs here too.
-    ['serverlogs', path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs')],
+    // *server's* log belongs here too. The filename convention is part of the answer: knowing the
+    // directory does not tell you that the entry `api` writes `api.log`, and `home-hosted logs`
+    // reads the *panel's* console, not a server's, so there is otherwise no CLI hint at all.
+    // Shown only when the directory exists, because naming a convention for logs never written
+    // would send someone looking for a file that is not there.
+    ['serverlogs', (() => {
+      const dir = path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs')
+      return fs.existsSync(dir) ? `${dir} (one file per server: <id>.log)` : dir
+    })()],
     ['ui', ui.custom ? `custom — ${uiLabel} (revert with \`home-hosted ui-revert\`)` : 'stock'],
   ]
 
