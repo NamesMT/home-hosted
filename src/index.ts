@@ -39,7 +39,7 @@ import { BackupService } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
 import { ControlServer } from '#src/services/control-server'
 import { EventHub } from '#src/services/events'
-import { checkExposure, checkProxyExposure } from '#src/services/exposure'
+import { checkExposure, checkProxyExposure, proxyTrustWarning } from '#src/services/exposure'
 import { HostMonitor } from '#src/services/host-monitor'
 import { PanelService } from '#src/services/panel'
 import { ProxyService } from '#src/services/proxy'
@@ -173,6 +173,11 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     logger.info('bind the panel back to `local`, or set a password with `home-hosted set-password` and enable auth in Global Settings')
     process.exit(1)
   }
+  // Not a refusal: `true` has legitimate uses, and the real peer is not reachable once the header is
+  // trusted. Saying so is what stops the lockout reading as a control it is not.
+  const trustWarning = proxyTrustWarning({ ...configured, host: intended.host })
+  if (trustWarning !== null)
+    logger.warn(trustWarning)
 
   if (options.printConfig) {
     printEffectiveConfig(settings, registry, options)

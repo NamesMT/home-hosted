@@ -110,7 +110,7 @@ async function clearPasswordValue(): Promise<void> {
     <ToggleSwitch
       v-model="auth.trustProxy"
       label="Behind a trusted reverse proxy"
-      hint="Trust x-forwarded-* headers for the client address and protocol."
+      hint="Trust x-forwarded-* for the client address and protocol. The address then comes from the caller's own header, so login lockout counts per forged address — keep the bind on local with the proxy on this machine, or leave this off."
       class="sm:col-span-2"
     />
     <NumberField v-model="maxLoginAttempts" label="Max login attempts" :min="1" hint="Failures before a temporary lockout." />

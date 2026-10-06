@@ -76,3 +76,25 @@ export function checkProxyExposure(
     return `the reverse proxy would serve the control panel at ${hosts} but it still uses the default password — change it first`
   return null
 }
+
+/**
+ * A warning for the combination that makes the login lockout advisory.
+ *
+ * `trustProxy: true` tells srvx to trust `x-forwarded-*` from **any** peer, and it resolves the client
+ * address from the leftmost entry of `x-forwarded-for` — a value the caller controls. Login failures are
+ * keyed on that address, so a client that rotates the header never accumulates them: measured, 30 wrong
+ * passwords from 30 forged addresses produced **zero** 429s, against 27 from a fixed address.
+ *
+ * This is a warning rather than a refusal because `true` has legitimate uses — a proxy on another host —
+ * and, once the header is trusted, the real peer is not reachable through srvx (`#remoteAddress` is
+ * private), so the panel cannot re-key the lockout on it. Prefer `host: local` with the proxy on this
+ * machine, or leave `trustProxy` off and reach the panel directly.
+ */
+export function proxyTrustWarning(control: ControlConfig): string | null {
+  if (!control.auth.trustProxy || !isExposed(control.host))
+    return null
+  return `auth.trustProxy is on while the panel is bound to ${control.host}: the client address comes from `
+    + `the caller's own x-forwarded-for header, so the login lockout (maxLoginAttempts/lockoutMs) counts `
+    + `per forged address and can be bypassed. Keep the bind on local with the proxy on this machine, or `
+    + `put an authenticating gateway in front`
+}

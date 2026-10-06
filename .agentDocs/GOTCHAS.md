@@ -154,6 +154,14 @@ line in `AGENTS.md` instead.
 - **Backups are zips.** A password makes them WinZip AES-256/AE-2, and zero-byte entries stay
   unencrypted on purpose (p7zip 16.02 reports a CRC failure otherwise). `list()` is sync, so
   encryption flags are cached and refreshed in the background.
+- **`trustProxy: true` makes the login lockout advisory.** It trusts `x-forwarded-*` from *any* peer,
+  and srvx resolves the client address from the **leftmost** `x-forwarded-for` entry — a value the
+  caller writes. Failures are keyed on that address, so a client rotating the header never accumulates
+  them: measured, 30 wrong passwords from 30 forged addresses produced **zero** 429s against 27 from a
+  fixed one. A startup warning fires for the dangerous combination (`trustProxy` on with a non-loopback
+  bind). Not preventable in the app: once the header is trusted, srvx's real peer is `#remoteAddress`,
+  private, so the lockout cannot be re-keyed on it. `trustProxy: "loopback"` is a middle option srvx
+  supports but the schema does not expose yet; a remote proxy genuinely needs `true`.
 - **Compare a secret with `secretEqual`, never `!==`.** `!==` short-circuits at the first differing
   byte, so a caller who can measure response time recovers the secret one byte at a time. The `/_hh`
   channel is the case that matters: it sits outside `/api`, so the run.json token is the *only* guard,

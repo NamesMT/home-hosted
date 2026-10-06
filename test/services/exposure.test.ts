@@ -1,6 +1,6 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { checkExposure, checkProxyExposure } from '#src/services/exposure'
+import { checkExposure, checkProxyExposure, proxyTrustWarning } from '#src/services/exposure'
 import { authSchema, controlSchema, proxyConfigSchema } from '#src/shared/contracts'
 
 function control(host: string, auth: Record<string, unknown> = {}) {
@@ -91,6 +91,29 @@ describe('control panel exposure', () => {
 
   it('rejects unknown auth keys', () => {
     expect(authSchema({ enabled: true, typo: 1 } as unknown) instanceof type.errors).toBe(true)
+  })
+})
+
+describe('trusting a proxy on an exposed bind', () => {
+  /**
+   * The combination that makes the login lockout advisory.
+   *
+   * `trustProxy: true` trusts `x-forwarded-*` from any peer, and srvx resolves the client address from
+   * the caller's own `x-forwarded-for`. Failures are keyed on that address, so rotating the header
+   * never accumulates them — measured, 30 wrong passwords from 30 forged addresses gave **zero** 429s
+   * against 27 from a fixed one. Warned rather than refused: a remote proxy is a real setup, and the
+   * true peer is not reachable through srvx once the header is trusted.
+   */
+  it('warns only for the exposed combination', () => {
+    const trusted = (host: string): string | null =>
+      proxyTrustWarning(control(host, { enabled: true, trustProxy: true }))
+
+    expect(trusted('lan'), 'the exposed case').toContain('x-forwarded-for')
+    expect(trusted('0.0.0.0')).not.toBeNull()
+    // A loopback bind is the fix, so it must not warn.
+    expect(trusted('local'), 'loopback is the remedy').toBeNull()
+    // And trustProxy off is the other fix.
+    expect(proxyTrustWarning(control('lan', { enabled: true, trustProxy: false }))).toBeNull()
   })
 })
 
