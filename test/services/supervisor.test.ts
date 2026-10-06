@@ -79,6 +79,7 @@ interface SupervisorHarness {
   ddns: DdnsService
   nannyDir: string
   logDir: string
+  logFiles: LogFiles
   /** How many times the supervisor has told the panel that something may have moved. */
   stateChanges: () => number
 }
@@ -152,6 +153,7 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
     ddns,
     nannyDir,
     logDir: logFiles.directory,
+    logFiles,
     stateChanges: () => stateChanges,
   }
 }
@@ -264,6 +266,55 @@ describe('supervisor', () => {
     const lines = supervisor.logLines('boom').map(entry => entry.text)
     expect(lines.some(text => text.includes('restart 1/2 in 50ms'))).toBe(true)
     expect(lines.some(text => text.includes('restart 2/2 in 100ms'))).toBe(true)
+  })
+
+  /**
+   * An argument that expands from the environment must not reach the log.
+   *
+   * `resolveSpawn` expands `args` for the child but keeps `loggedArgs` pre-expansion, and that is
+   * the whole reason the two exist: `${API_TOKEN}` in an argv would otherwise land in the ring
+   * buffer, the rotated files, the SSE frames and any Telegram notice — four durable places, one of
+   * them off this machine. The rule was a comment and nothing else, so this pins it.
+   */
+  it('logs the placeholder, never the value it expands to', async () => {
+    let cleanupEnvFile: string | null = null
+    const secret = 'super-secret-token-value'
+    // The token must come from the *expansion* source, not the entry's own `env`. `expansionVars` is
+    // `process.env` plus the env file — an entry's `config.env` is not consulted when expanding its
+    // own argv, so declaring it there would leave the placeholder literal and prove nothing.
+    const envFile = path.join(os.tmpdir(), `hh-leaky-${Date.now()}.env`)
+    await fs.promises.writeFile(envFile, `LEAKY_TOKEN=${secret}\n`)
+    const { supervisor, logDir, logFiles } = await makeSupervisor([{
+      id: 'leaky',
+      command: process.execPath,
+      // eslint-disable-next-line no-template-curly-in-string -- the literal placeholder is the point
+      args: ['-e', 'setTimeout(() => {}, 250)', '${LEAKY_TOKEN}'],
+      envFile,
+    }])
+    cleanupEnvFile = envFile
+
+    await supervisor.start('leaky')
+    await waitForStatus(supervisor, 'leaky', 'running')
+
+    const lines = supervisor.logLines('leaky').map(entry => entry.text).join('\n')
+    // The literal placeholder is expected when the value is unavailable — but here it IS available
+    // from the env file, so the assertion that matters is simply that the value never appears.
+    expect(lines, 'the expanded secret must never be logged').not.toContain(secret)
+
+    // And not in the *log* it writes, which is the durable copy that leaves this machine. The
+    // config file is where the value is declared, so it naturally holds it — not asserted here.
+    // Lines are buffered, so flush before reading rather than racing the interval.
+    logFiles.flush()
+    const written = (fs.existsSync(logDir) ? fs.readdirSync(logDir) : []).map(name => path.join(logDir, name))
+    expect(written.length, 'the entry should have written a log').toBeGreaterThan(0)
+    for (const file of written) {
+      const content = fs.readFileSync(file, 'utf8')
+      expect(content, `${path.basename(file)} must not carry the secret`).not.toContain(secret)
+    }
+
+    await supervisor.dispose()
+    if (cleanupEnvFile !== null)
+      fs.rmSync(cleanupEnvFile, { force: true })
   })
 
   it('keeps the spawn error when a command cannot be started', async () => {
