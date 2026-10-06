@@ -139,11 +139,22 @@ line in `AGENTS.md` instead.
 
 ## How to test
 
-`pnpm exec vitest run`; `pnpm run quickcheck` for lint and types. Two habits this repo has learned:
+`pnpm exec vitest run`; `pnpm run quickcheck` for lint and types. Habits this repo has paid for:
 
 - **A test input must fail for the reason the test claims.** An input refused by an *earlier* check
-  pins nothing about the rule you meant to test. Verify by weakening that rule and watching the test
-  fail; if it still passes, the input was rejected earlier.
+  pins nothing about the rule you meant to test. Weaken that rule and watch the test fail; if it
+  still passes, the input was rejected earlier.
 - **Instrument the branch a test claims to reach.** A temporary `console.error` inside it, then run
-  that one test — if the probe never fires, the test is decoration. A passing test is not evidence
-  it pinned anything.
+  that one test — if the probe never fires, the test is decoration. A passing test is not evidence it
+  pinned anything. The same applies to the *guard*: break the one you name in the comment, and if
+  nothing fails, a different guard is the one running.
+- **Verify on the real surface, not only in a unit test.** Two bugs this session were invisible to a
+  green suite: a unit test passed while a live panel printed a bare exit code, and a page dropped a
+  host-computed reason while its helper returned it. Drive the actual command or render the actual
+  page.
+- **A test that compares a path to a literal is a Windows bug.** `path.relative` returns backslashes
+  there, so normalize (`.replaceAll('\\', '/')`) before asserting equality. Interpolating a path into
+  a *message* is safe; comparing it is not. Only the platform gate catches this.
+- **Check the fixture wiring, not just the assertion.** Two correct fixtures can be combined into
+  nonsense — one passing its `dataRoot` into another pointed the input at an unrelated temp
+  directory, and the test passed while exercising nothing.
