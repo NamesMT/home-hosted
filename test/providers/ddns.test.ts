@@ -544,6 +544,25 @@ describe('provider registry', () => {
     expect(errors.some(error => error.includes('asks for A twice'))).toBe(true)
     expect(errors.some(error => error.includes('unknown account'))).toBe(true)
   })
+
+  /**
+   * A `zone` is a short-circuit for the split heuristic, so one that does not contain the host is worse
+   * than useless: `splitHost` returns the **whole** fqdn as the record name. GoDaddy was then asked for
+   * `exmple.com/records/A/home.example.com` — a domain that is not the user's — and reported success.
+   */
+  it('refuses a zone the host is not inside', () => {
+    const withZone = (zone: string, host = 'home.example.com') => parseDdnsConfig({
+      accounts: [{ id: 'gd', provider: 'godaddy' }],
+      domains: [{ host, account: 'gd', types: ['A'], zone }],
+    })
+
+    for (const zone of ['exmple.com', 'other.com'])
+      expect(validateDdnsConfig(withZone(zone)), zone).toContainEqual(expect.stringContaining('which it is not inside'))
+
+    // A correct zone, a deeper host, and a zone that *is* the host all pass.
+    for (const [zone, host] of [['example.com', 'home.example.com'], ['example.com', 'a.b.example.com'], ['home.example.com', 'home.example.com']] as const)
+      expect(validateDdnsConfig(withZone(zone, host)), `${host} in ${zone}`).toEqual([])
+  })
 })
 
 describe('namecheap through the XML API', () => {

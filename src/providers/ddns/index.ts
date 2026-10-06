@@ -77,6 +77,13 @@ export function validateDdnsConfig(config: DdnsConfig): string[] {
       errors.push(`"${domain.host}" points at unknown account "${domain.account}"`)
       continue
     }
+    // A `zone` is a short-circuit for the split heuristic, so one that does not contain the host makes
+    // `splitHost` return the **whole** fqdn as the record name — GoDaddy was then asked for
+    // `exmple.com/records/A/home.example.com`, a domain that is not the user's, and reported success.
+    const zone = domain.zone?.trim().toLowerCase()
+    if (zone !== undefined && zone.length > 0 && domain.host.toLowerCase() !== zone && !domain.host.toLowerCase().endsWith(`.${zone}`))
+      errors.push(`"${domain.host}" has zone "${domain.zone}", which it is not inside — a zone is the registered domain the record lives in`)
+
     const provider = ddnsProvider(account.provider)
     if (provider !== null) {
       for (const recordType of domain.types) {

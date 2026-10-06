@@ -51,7 +51,9 @@ Header fields:
 | `domains[]` | — | `host`, `account`, `types` (`A`/`AAAA`, default `A`), `proxied` (default off; Cloudflare only), optional `ttl`, `zone`, `enabled`. |
 
 Per-hostname `zone` pins the registered domain — only needed where a provider has to be told the apex
-and the guess is wrong (`home.example.co.uk` is handled; an unusual suffix may not be).
+and the guess is wrong (`home.example.co.uk` is handled; an unusual suffix may not be). It must be a
+domain the host is **inside**: a typo is refused on save, because the record name would otherwise become
+the whole hostname and the write would go to a domain that is not yours.
 
 ## Providers
 
