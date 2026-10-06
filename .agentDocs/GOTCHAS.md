@@ -163,7 +163,7 @@ line in `AGENTS.md` instead.
   that one test — if the probe never fires, the test is decoration. A passing test is not evidence
   it pinned anything.
 - **A heuristic tuned for one input shape does not transfer to another.** `nearestWord`'s "half the
-  shorter word" bound is right for long command names (`stats`→`status`, distance 2) and wrong for
+  shorter word" bound is right for long command names (`stats`→`status`, distance 1) and wrong for
   short option names, which share prefixes: `--no-open` scored 3 from `--no-yes` and passed a bound of
   3, so the hint named an unrelated flag. It needs a second, absolute bound. The tell is a threshold
   written as a *fraction* of the input: ask what happens when the input is short, or when two valid

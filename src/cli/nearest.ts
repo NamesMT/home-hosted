@@ -37,7 +37,7 @@ export function nearestWord(input: string, candidates: readonly string[]): strin
   // Two bounds, because one is not enough for option names.
   //
   // The proportional bound alone ("half the shorter word") is what a long command needs:
-  // `stats`→`status` is 2 apart and should be suggested. But short option names share prefixes —
+  // `stats`→`status` is 1 apart and should be suggested. But short option names share prefixes —
   // `no-open` and `no-yes` are three apart while their meaningful halves are unrelated, so half of
   // six let it through and the hint named the wrong flag (`--no-open` where `--no-autostart` was
   // meant). Requiring the distance to also be small in absolute terms rejects a match carried by a
