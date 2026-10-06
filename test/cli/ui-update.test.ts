@@ -277,7 +277,8 @@ describe('syncOfficialUi', () => {
   })
 
   it('still reports a failure that is not an Error at all', async () => {
-    const root = homeWith({ name: 'noc-console', repo: OWN_REPO, tag: 'v1.0.0', asset: 'ui.zip' })
+    // The fixture is written to disk and used by `home`/`process.env`; nothing here needs its path.
+    homeWith({ name: 'noc-console', repo: OWN_REPO, tag: 'v1.0.0', asset: 'ui.zip' })
     await stubRelease('v1.2.3', [{ name: 'ui.zip', url: 'https://api.github.com/asset/1' }])
 
     // A bare string out of `install`: the seam is all `UiService` needs to be.
@@ -289,7 +290,6 @@ describe('syncOfficialUi', () => {
     } as unknown as UiService
 
     await expect(syncOfficialUi(throwing, '1.2.3')).resolves.toEqual({ kind: 'failed', error: 'the disk went away' })
-    expect(root).toBeTruthy()
   })
 
   it('reports every failure as a value, and leaves the old UI serving', async () => {

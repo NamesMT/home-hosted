@@ -188,7 +188,8 @@ describe('migrateLayout', () => {
   })
 
   it('is idempotent: a second call changes nothing', async () => {
-    const home = await makeLegacyHome()
+    // Seeding the legacy home is the point; this test compares the two trees, not a path.
+    await makeLegacyHome()
     const { migrateLayout } = await import('#src/config/layout')
     const { hhDir } = await import('#src/helpers/paths')
 
@@ -219,7 +220,6 @@ describe('migrateLayout', () => {
     }
     walkAfter(hhDir)
     expect([...after.entries()]).toEqual([...snapshot.entries()])
-    expect(home).toBeTruthy()
   })
 
   it('still migrates a legacy home that only has a secrets file', async () => {
