@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseNetstatListeners } from '#src/providers/port'
+import { parseNetstatListeners, parsePids } from '#src/providers/port'
 import { parsePsOutput, parseWindowsCsv } from '#src/providers/proc'
 
 describe('posix ps parsing', () => {
@@ -67,5 +67,43 @@ describe('windows netstat parsing', () => {
     expect(parseNetstatListeners(output, 4010)).toEqual([4242])
     expect(parseNetstatListeners(output, 3999)).toEqual([1111])
     expect(parseNetstatListeners(output, 6000)).toEqual([])
+  })
+})
+
+/**
+ * The two shapes `listPortHolders` actually receives.
+ *
+ * `lsof -ti` prints one pid per line; `fuser <port>/tcp` prints them space-separated on a single
+ * line, with a leading space (both confirmed against the real binaries on this machine). The
+ * parser splits on `\s+` so one branch covers both — and this feeds `killPortHolders`, which sends
+ * SIGKILL, so a shape it mis-read would target an unrelated process.
+ */
+describe('port-holder pid parsing', () => {
+  const self = process.pid
+
+  it('reads lsof output, one pid per line', () => {
+    expect(parsePids('1718640\n')).toEqual([1718640])
+    expect(parsePids('1718640\n1718641\n')).toEqual([1718640, 1718641])
+  })
+
+  it('reads fuser output, space-separated with a leading space', () => {
+    expect(parsePids(` ${1718746}\n`)).toEqual([1718746])
+    expect(parsePids(` ${1718746} 1718747\n`)).toEqual([1718746, 1718747])
+  })
+
+  it('drops the empty leading cell, pid 0, and our own process', () => {
+    // The leading space is what produces an empty first element — it must not become a pid.
+    expect(parsePids('  123\n')).toEqual([123])
+    expect(parsePids('0\n')).toEqual([])
+    expect(parsePids(`${self}\n`)).toEqual([])
+    expect(parsePids('')).toEqual([])
+  })
+
+  it('never returns a pid it invented from a partial or negative number', () => {
+    // No decimal pid appears in these, so nothing may be returned — a stray `1` here would be a
+    // real process. (A digit-leading token *is* parsed: `12abc` -> 12, but that shape is not
+    // something lsof or fuser emit, and the callers only ever pass real pids to `kill`.)
+    for (const bogus of ['abc', '0x1F', '-1234', '   '])
+      expect(parsePids(bogus), `"${bogus}" must not yield a pid`).toEqual([])
   })
 })

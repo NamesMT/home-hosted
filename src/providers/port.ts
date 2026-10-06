@@ -149,7 +149,15 @@ export async function listPortHolders(port: number): Promise<number[]> {
   }
 }
 
-function parsePids(stdout: string): number[] {
+/**
+ * Pids from `lsof -ti` (one per line) or `fuser` (space-separated, on one line, with a leading
+ * space) — both shapes arrive here, which is why the split is on `\s+` rather than `\n`.
+ *
+ * Exported for its test: this feeds `killPortHolders`, which sends SIGKILL, so a parser that
+ * picked up the wrong number would kill an unrelated process. The filter is not decorative —
+ * `Number.parseInt('')` is NaN for the empty leading cell, and a pid of 0 or our own is dropped.
+ */
+export function parsePids(stdout: string): number[] {
   return [...new Set(
     stdout.split(/\s+/)
       .map(entry => Number.parseInt(entry, 10))
