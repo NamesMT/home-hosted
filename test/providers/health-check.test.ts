@@ -83,14 +83,33 @@ describe('probeHttp', () => {
     expect(missing.detail).toContain('does not contain')
   })
 
-  it('falls back to the status check on HEAD', async () => {
+  /**
+   * A `HEAD` cannot satisfy a body requirement, and the probe must **say** it skipped the check.
+   *
+   * This test used to assert only `healthy === true` for a `HEAD` with `expectBody` set, which codified
+   * the silent skip as correct. The consequence is real: `http` mode with `forceRestartAfterMs` exists
+   * to restart a server that stopped working, and a probe that quietly drops its assertion never
+   * reports unhealthy — so nothing restarts and no alert fires. The config parser warns at load too.
+   */
+  it('reports that a HEAD skipped the body check rather than passing silently', async () => {
     const port = await httpServer((_req, res) => {
       res.writeHead(200)
       res.end('body')
     })
 
-    const result = await probeHttp('127.0.0.1', port, { ...defaults, method: 'HEAD', expectBody: 'body', timeoutMs: 2000 })
-    expect(result.healthy).toBe(true)
+    const head = await probeHttp('127.0.0.1', port, { ...defaults, method: 'HEAD', expectBody: 'body', timeoutMs: 2000 })
+    expect(head.healthy).toBe(true)
+    expect(head.detail, 'the card and log read this line').toContain('body check was skipped')
+
+    // HEAD with no body requirement is an ordinary status check, and says nothing extra.
+    const plain = await probeHttp('127.0.0.1', port, { ...defaults, method: 'HEAD', expectBody: '', timeoutMs: 2000 })
+    expect(plain.healthy).toBe(true)
+    expect(plain.detail).not.toContain('skipped')
+
+    // The same requirement with GET is checked, and fails when the body does not match.
+    const get = await probeHttp('127.0.0.1', port, { ...defaults, method: 'GET', expectBody: 'not-in-the-body', timeoutMs: 2000 })
+    expect(get.healthy).toBe(false)
+    expect(get.detail).toContain('does not contain')
   })
 
   it('reports a refused connection', async () => {

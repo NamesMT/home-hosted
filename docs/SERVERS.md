@@ -34,7 +34,7 @@ servers and its state together.
 | `port`, `bind` | enables the readiness wait, health checks and the conflict preflight; `local` keeps it on `127.0.0.1` |
 | `onPortConflict` | `block` (default), `warn`, `follow`, `reclaim`, or `kill` — see below |
 | `persistent` | run it under its own nanny so it survives the panel — see below |
-| `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body) |
+| `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body — a `HEAD` carries no body, so it is warned about and the body check is skipped) |
 | `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway |
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |

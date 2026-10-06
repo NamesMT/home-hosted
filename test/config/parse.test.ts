@@ -11,6 +11,45 @@ function parse(servers: unknown[]): { errors: string[], warnings: string[] } {
   return parseServersFile({ servers }, {})
 }
 
+describe('cross-field validation', () => {
+  /**
+   * `HEAD` cannot satisfy a body requirement, so the probe skips the assertion.
+   *
+   * Measured with the real probe: `method: HEAD` with `expectBody` set reported a server **healthy**
+   * whose body did not match the requirement, while the same config with `GET` correctly reported
+   * unhealthy. A health check that silently stops checking is worse than one that fails, because a
+   * failing one restarts or alerts and this one did neither.
+   */
+  it('warns when a HEAD probe is asked to check a body it cannot see', () => {
+    const { errors, warnings } = parse([{
+      id: 'app',
+      command: 'node',
+      health: { mode: 'http', http: { method: 'HEAD', expectBody: 'ready' } },
+    }])
+
+    expect(errors).toEqual([])
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('"app"')
+    expect(warnings[0]).toContain('HEAD')
+    expect(warnings[0]).toContain('ignored')
+  })
+
+  it('says nothing for the combinations that work', () => {
+    const cases = [
+      // A body requirement with GET is checked normally.
+      { mode: 'http', http: { method: 'GET', expectBody: 'ready' } },
+      // HEAD with no body requirement asserts only the status.
+      { mode: 'http', http: { method: 'HEAD', expectBody: '' } },
+      // `port` mode never reads the response at all.
+      { mode: 'port', http: { method: 'HEAD', expectBody: 'ready' } },
+    ]
+    for (const health of cases) {
+      const { warnings } = parse([{ id: 'app', command: 'node', health }])
+      expect(warnings, JSON.stringify(health)).toEqual([])
+    }
+  })
+})
+
 describe('dependency validation', () => {
   it('reports a dependency on an id that is not in the file', () => {
     const { errors, warnings } = parse([{ id: 'app', command: 'node', dependsOn: ['ghost'] }])

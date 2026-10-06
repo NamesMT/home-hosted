@@ -45,12 +45,19 @@ export async function probeHttp(host: string, port: number, options: HttpProbeOp
       return { healthy: false, ms, detail: `status ${response.status} is >= ${options.expectStatusBelow}` }
     }
 
-    if (options.expectBody.length > 0 && options.method !== 'HEAD') {
+    // A `HEAD` cannot carry a body, so a configured body requirement is skipped — said in the detail
+    // rather than passed over in silence. The card and the log read this line, and `HTTP 200` looked
+    // identical whether or not the assertion ran; the config parser also warns at load.
+    const bodySkipped = options.expectBody.length > 0 && options.method === 'HEAD'
+    if (options.expectBody.length > 0 && !bodySkipped) {
       const body = await response.text()
       if (!body.includes(options.expectBody)) {
         return { healthy: false, ms, detail: `body does not contain ${JSON.stringify(options.expectBody)}` }
       }
     }
+
+    if (bodySkipped)
+      return { healthy: true, ms, detail: `HTTP ${response.status} (a HEAD carries no body, so the body check was skipped)` }
 
     return { healthy: true, ms, detail: `HTTP ${response.status}` }
   }

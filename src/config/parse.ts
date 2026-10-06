@@ -263,18 +263,31 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
     result.servers.push({ ...server, port: server.port ?? null })
   })
 
-  // Dangling dependencies and cycles are reported, never fatal: supervision still runs.
-  warnings.push(...validateDependencies(result.servers))
+  // Cross-field problems are reported, never fatal: supervision still runs.
+  warnings.push(...validateCrossField(result.servers))
 
   return result
 }
 
-/** Dangling dependencies and cycles are reported, not fatal: supervision still runs. */
-function validateDependencies(servers: ServerConfig[]): string[] {
+/**
+ * Config that validates field-by-field but is wrong as a whole.
+ *
+ * Warned rather than refused, because supervision still runs and a hard failure would take a working
+ * panel down over a setting one field away from correct.
+ */
+function validateCrossField(servers: ServerConfig[]): string[] {
   const ids = new Set(servers.map(server => server.id))
   const errors: string[] = []
 
   for (const server of servers) {
+    const { health } = server
+    // A `HEAD` response carries no body, so the probe skips the assertion — and a health check that
+    // silently stops checking is worse than one that fails, because nothing says it did. Measured with
+    // the real probe: `method: HEAD` plus a body requirement reported a server healthy whose body did
+    // not match. Left as a warning: the entry still runs, and the person is told what to change.
+    if (health.mode === 'http' && health.http.method === 'HEAD' && health.http.expectBody.length > 0)
+      errors.push(`"${server.id}" requires a response body with method HEAD, which has none — the body check is ignored`)
+
     for (const dependency of server.dependsOn) {
       if (dependency === server.id)
         errors.push(`"${server.id}" depends on itself`)
