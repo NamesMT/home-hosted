@@ -4,9 +4,7 @@ import type { AppState, ServerView, WorkspaceView } from '@shared/contracts'
  * A server id is only unique inside its workspace, so every client-side map
  * (log buffers, sparkline series, stream refcounts) keys on the pair.
  */
-export function serverKey(workspaceId: string, serverId: string): string {
-  return `${workspaceId}/${serverId}`
-}
+export { serverKey } from '@shared/server-key'
 
 /**
  * The state frame's servers are typed from the request-shaped schema, where

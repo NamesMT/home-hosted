@@ -3,11 +3,16 @@ import type { MaybeRefOrGetter, Ref } from 'vue'
 import type { AppStateView } from '@/lib/api'
 import type { ServerSeries } from '@/lib/telemetry'
 import { parseBind, sseMessageSchema } from '@shared/contracts'
+/** The composite key every per-server buffer and series is stored under. */
+// Imported as well as re-exported: this module calls `serverKey` itself, and a re-export does not
+// bring the name into scope.
+import { serverKey } from '@shared/server-key'
 import { type } from 'arktype'
 import { computed, onScopeDispose, readonly, ref, toValue, watch } from 'vue'
 import { useSession } from '@/composables/useSession'
 import { useToasts } from '@/composables/useToasts'
 import * as api from '@/lib/api'
+
 import { createSeries, recordSample } from '@/lib/telemetry'
 
 export type ConnectionState = 'connecting' | 'open' | 'closed'
@@ -23,10 +28,7 @@ const now = ref(Date.now())
 const series = new Map<string, ServerSeries>()
 const notifier = useToasts()
 
-/** The composite key every per-server buffer and series is stored under. */
-export function serverKey(workspaceId: string, serverId: string): string {
-  return `${workspaceId}/${serverId}`
-}
+export { serverKey } from '@shared/server-key'
 
 interface LogBuffer {
   lines: LogLine[]

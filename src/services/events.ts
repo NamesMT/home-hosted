@@ -1,4 +1,5 @@
 import type { SseMessage } from '#src/shared/contracts'
+import { serverKey } from '#src/shared/server-key'
 
 export type EventListener = (message: SseMessage) => void
 
@@ -12,9 +13,9 @@ const ALL = '*'
  * workspace's log lines to a subscriber watching another workspace's server of
  * the same name.
  */
-export function serverKey(workspaceId: string, serverId: string): string {
-  return `${workspaceId}/${serverId}`
-}
+// One definition, in `src/shared`: the UIs subscribe with the same key, and a divergence here would
+// route frames to the wrong bucket with nothing to error on. Re-exported so callers are unchanged.
+export { serverKey } from '#src/shared/server-key'
 
 export class EventHub {
   private readonly listeners = new Map<string, Set<EventListener>>()
