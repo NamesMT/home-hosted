@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { missingServer } from '#src/helpers/action-result'
 import { makeFixture, makeView } from './fixture'
 
 /**
@@ -111,7 +112,7 @@ describe('servers route', () => {
 
     expect((await request(created.app, '/api/servers/web/start', 'POST')).status).toBe(200)
 
-    created.supervisor.start = async () => ({ ok: false, error: 'unknown server "web"' })
+    created.supervisor.start = async () => (missingServer('web'))
     expect((await request(created.app, '/api/servers/web/start', 'POST')).status).toBe(404)
 
     // A server that exists but cannot start is a conflict, not a missing thing.
@@ -175,7 +176,7 @@ describe('servers route', () => {
     expect(refused.status).toBe(409)
     expect(await refused.json()).toMatchObject({ code: 'FREE_PORT_FAILED' })
 
-    created.supervisor.freePort = async () => ({ ok: false, port: null, terminated: [], forced: [], skipped: [], free: true, error: 'unknown server "web"' })
+    created.supervisor.freePort = async () => ({ port: null, terminated: [], forced: [], skipped: [], free: true, ...missingServer('web') })
     expect((await request(created.app, '/api/servers/web/free-port', 'POST')).status).toBe(404)
   })
 

@@ -276,7 +276,9 @@ export function createServersRoute(deps: AppDeps) {
         }
         catch (error) {
           if (error instanceof ConfigError) {
-            const status = error.message.startsWith('unknown server') ? 404 : 400
+            // Branch on the exception's *code*, not its message: `startsWith('unknown server')` read
+            // any future message with that prefix — "unknown serverless runtime" — as a missing id.
+            const status = error.code === 'UNKNOWN_SERVER' ? 404 : 400
             throw new DetailedError(error.message, { statusCode: status, code: status === 404 ? 'UNKNOWN_SERVER' : 'INVALID_SERVER' })
           }
           throw error

@@ -13,6 +13,17 @@ import { globalSettingsPath } from '#src/helpers/paths'
 
 export class ConfigError extends Error {
   override name = 'ConfigError'
+  /**
+   * The *kind* of config problem, when a caller has to branch on it rather than just report it.
+   * `UNKNOWN_SERVER` is the one case today: the servers route answers 404 for a missing id and 400
+   * for an invalid patch, and it decided that by matching the message text.
+   */
+  readonly code: 'UNKNOWN_SERVER' | undefined
+
+  constructor(message: string, code?: 'UNKNOWN_SERVER') {
+    super(message)
+    this.code = code
+  }
 }
 
 /**

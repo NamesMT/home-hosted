@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { missingServer } from '#src/helpers/action-result'
 import { computeBackoff } from '#src/helpers/backoff'
 import { bindHost, displayHost, lanAddress } from '#src/helpers/bind'
 import { expandEnvList, expandEnvRecord, loadEnvFile, resolveEnvFilePath } from '#src/helpers/env-file'
@@ -268,7 +269,7 @@ export class Supervisor {
   async start(id: string, options: { retry?: boolean } = {}): Promise<StartResult> {
     const entry = this.entries.get(id)
     if (!entry)
-      return { ok: false, error: `unknown server "${id}"` }
+      return missingServer(id)
     if (!entry.config.enabled)
       return { ok: false, error: `server "${id}" is disabled` }
     if (entry.status === 'running' || entry.status === 'starting' || entry.starting)
@@ -327,7 +328,7 @@ export class Supervisor {
   async stop(id: string): Promise<StartResult> {
     const entry = this.entries.get(id)
     if (!entry)
-      return { ok: false, error: `unknown server "${id}"` }
+      return missingServer(id)
     return this.stopEntry(entry)
   }
 
@@ -348,7 +349,7 @@ export class Supervisor {
     const entry = this.entries.get(id)
     const empty: FreePortResult & { error?: string } = { ok: false, port: null, terminated: [], forced: [], skipped: [], free: false }
     if (!entry)
-      return { ...empty, error: `unknown server "${id}"` }
+      return { ...empty, ...missingServer(id) }
 
     const port = entry.config.port
     if (port === null)

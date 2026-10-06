@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { missingServer } from '#src/helpers/action-result'
 import { serverSchema } from '#src/shared/contracts'
 import { makeFixture, makeView } from './fixture'
 
@@ -376,7 +377,7 @@ describe('/_hh/servers/:id/start|stop|restart', () => {
   it('answers a refusal with the supervisor’s reason, 409 for that and 404 for an unknown id', async () => {
     const created = await fixture()
     created.supervisor.start = async () => ({ ok: false, error: 'server "web" is disabled' })
-    created.supervisor.stop = async id => ({ ok: false, error: `unknown server "${id}"` })
+    created.supervisor.stop = async id => missingServer(id)
 
     const refused = await created.app.request('/_hh/servers/web/start', { method: 'POST', headers: local })
     expect(refused.status).toBe(409)

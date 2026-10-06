@@ -280,7 +280,7 @@ export class WorkspaceStore {
     const list = (this.rawServers.servers as Record<string, unknown>[] | undefined) ?? []
     const index = list.findIndex(entry => entry.id === id)
     if (index < 0)
-      throw new ConfigError(`unknown server "${id}"`)
+      throw new ConfigError(`unknown server "${id}"`, 'UNKNOWN_SERVER')
 
     const draft = structuredClone(this.rawServers)
     const entry = (draft.servers as Record<string, unknown>[])[index]!
@@ -363,7 +363,7 @@ export class WorkspaceStore {
     const before = list.length
     draft.servers = list.filter(entry => entry.id !== id)
     if ((draft.servers as unknown[]).length === before)
-      throw new ConfigError(`unknown server "${id}"`)
+      throw new ConfigError(`unknown server "${id}"`, 'UNKNOWN_SERVER')
     this.commitServers(draft)
   }
 
