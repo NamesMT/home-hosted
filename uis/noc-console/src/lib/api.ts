@@ -153,9 +153,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (response.status === 401 && isRecord(payload) && payload.code === 'AUTH_REQUIRED') {
       throw new AuthRequiredError()
     }
+    // `message` first, then a bare `error` field — the same read `stock`'s copy makes. Without the
+    // fallback the two UIs showed different text for the same failed call: only `/acme` answers that
+    // shape today, but the message is what a person sees, and the copies should not disagree.
     const message = isRecord(payload) && typeof payload.message === 'string'
       ? payload.message
-      : `request failed with ${response.status}`
+      : isRecord(payload) && 'error' in payload
+        ? String(payload.error)
+        : `request failed with ${response.status}`
     throw new Error(message)
   }
 
