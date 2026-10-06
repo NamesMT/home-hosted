@@ -18,13 +18,16 @@ to a third party), `.logs/` (per server, `<id>.log` plus `<id>.log.1` when it ro
 relocated automatically by `ensureLayout()`. **The package ships no servers**: never commit a config,
 a seed entry, or a path that names one.
 
-## Deeper docs
+## Docs
 
-Read on demand, not every session. `AGENTS.md` holds orientation and the hard rules; these hold the
-reasoning and the traps.
+Three tiers, so a reader loads only what the task needs: **this file** (orientation and the rules —
+read every session), **`.agentDocs/`** (depth — read on demand), and **`docs/`** (for a person using the
+package, not for an agent). The section map for every repo in this workspace is
+[`.agentDocs/AGENTS-SKELETON.md`](.agentDocs/AGENTS-SKELETON.md).
 
 | file | what it covers |
 | --- | --- |
+| [`.agentDocs/AGENTS-SKELETON.md`](.agentDocs/AGENTS-SKELETON.md) | the canonical section names and order, and the required content |
 | [`.agentDocs/ARCHITECTURE.md`](.agentDocs/ARCHITECTURE.md) | what each module owns and why; UI versioning |
 | [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md) | the traps this codebase already paid for, with causes |
 | [`.agentDocs/COMPATIBILITY.md`](.agentDocs/COMPATIBILITY.md) | config and UI compatibility, migrations |
@@ -63,46 +66,25 @@ The published bin is `home-hosted`, with an `hh` alias: both names run the same 
 free: an installed panel or another dev instance may hold it, and the CLI's port preflight runs
 *before* its config guard, so a busy default port turns config tests red for the wrong reason.
 
-## Releases
+## Conventions
 
-Dispatched from `.github/workflows/release.yml` with a version (`-f dry-run=true` to rehearse). It
-verifies the version, lints/types/tests, builds the CLI and every UI zip, lets changelogen write the
-changelog and bump `package.json`, commits and tags `v<version>`, creates the GitHub release with the
-UI bundles attached, and publishes to npm through trusted publishing (OIDC, no token). npm only
-offers a trusted publisher for a package that **already exists**, so a first-ever release has to be
-published by hand.
-
-```sh
-gh workflow run release.yml -f version=0.6.3
-```
-
-Four workflows, and the split is deliberate:
-
-| workflow | runs on | what it proves |
-| --- | --- | --- |
-| `quickcheck.yml` / `test.yml` | every push and PR | lint, types, the whole suite with coverage — Linux only |
-| `cross-platform.yml` | the release gate, or by hand | the same suite on macOS and Windows |
-| `release.yml` | dispatched with a version | the platform gate, then tag, publish, release assets |
-
-The platform gate is not a per-push job on purpose: it is the expensive half, and it is what makes a
-platform-specific break fail before shipping rather than on someone's machine. Every job carries a
-`timeout-minutes`, so a wedged runner is reported instead of sitting out GitHub's 6-hour default.
-
-**Read the skip count, not just the tick.** Linux has no skips; macOS and Windows report a handful
-(Windows more), all from platform guards. What to watch is the *shape*: a new skip appearing, or a
-clean pass where a guard should have fired. **A test that returns early instead of skipping reports a
-pass**, hiding a platform that never ran the code — use `it.runIf`/`it.skipIf` with the condition
-computed at **module load**.
-
-**`npm publish` exiting 0 is the whole answer.** The registry can take up to ten minutes to show a
-package it has accepted — npm's queue, not this run's. Do not poll it, and do not hold work waiting.
-
-### Which version to dispatch
-
-Below 1.0 the **minor is the breaking channel**: a fix or non-breaking feature is a **patch**, while a
-minor means someone has to read the release notes and act. A `feat:` commit does not decide this —
-ask what the user has to do about it. Never edit `package.json` by hand; changelogen bumps inside the
-workflow. `scripts/check-release-version.mjs` refuses a patch while a breaking commit is pending.
+- **Server-agnostic core; UIs are clients.** `#src/*` inside `src/`; UIs use `@shared/*` (and
+  `@server` for types only).
+- **ArkType at every runtime boundary.** Routes use `validate('json'|'query'|'param', schema)` then
+  `c.req.valid(...)`; ad-hoc payloads use `parseOrThrow`. Schemas reject undeclared keys.
+- **Every failure is a `DetailedError`** (`@namesmt/utils`), mapped by `src/helpers/error.ts` into one
+  envelope `{ message, code, detail }`. Never hand-roll `c.json({ error })`.
+- **Document routes with `describeRoute` + `jsonBody(schema)`**; `jsonBody` needs a real schema.
+- **Patch schemas carry no defaults**; nested groups merge key-by-key and an explicit `null` clears a
+  key. `ddns`'s `accounts`/`domains` are **replaced** — a merge cannot express removing a hostname.
+- **Two-sided bounds read inclusively** (`'1 <= number.integer <= 512'`). `test/shared/contracts.test.ts`
+  pins every boundary and the patch/schema parity — update it with any schema change.
+- **A new response *field* is optional (`'x?'`)** and read defensively: an upgrade writes a new UI
+  while an old panel keeps serving, so a required field blanks the app.
+- **A single on/off setting is a `ToggleSwitch`**; `CheckField` is only for picking items out of a set.
+- **A destructive action one click away confirms in a popover**, never by arming the same button for a
+  second press — an impatient double click fires an armed button. Safe choice first in tab order.
+- **Conventional commits**; ESLint via `@antfu/eslint-config` owns formatting; sparse comments.
 
 ## Rules that matter
 
@@ -148,37 +130,6 @@ nobody reads is worse than a long file.
   process groups vs `taskkill /T`, graceful fallbacks, no shell utilities assumed.
 - **Writes are atomic** (`writeFileAtomic`) and validated before commit.
 
-## Conventions
-
-- **Server-agnostic core; UIs are clients.** `#src/*` inside `src/`; UIs use `@shared/*` (and
-  `@server` for types only).
-- **ArkType at every runtime boundary.** Routes use `validate('json'|'query'|'param', schema)` then
-  `c.req.valid(...)`; ad-hoc payloads use `parseOrThrow`. Schemas reject undeclared keys.
-- **Every failure is a `DetailedError`** (`@namesmt/utils`), mapped by `src/helpers/error.ts` into one
-  envelope `{ message, code, detail }`. Never hand-roll `c.json({ error })`.
-- **Document routes with `describeRoute` + `jsonBody(schema)`**; `jsonBody` needs a real schema.
-- **Patch schemas carry no defaults**; nested groups merge key-by-key and an explicit `null` clears a
-  key. `ddns`'s `accounts`/`domains` are **replaced** — a merge cannot express removing a hostname.
-- **Two-sided bounds read inclusively** (`'1 <= number.integer <= 512'`). `test/shared/contracts.test.ts`
-  pins every boundary and the patch/schema parity — update it with any schema change.
-- **A new response *field* is optional (`'x?'`)** and read defensively: an upgrade writes a new UI
-  while an old panel keeps serving, so a required field blanks the app.
-- **A single on/off setting is a `ToggleSwitch`**; `CheckField` is only for picking items out of a set.
-- **A destructive action one click away confirms in a popover**, never by arming the same button for a
-  second press — an impatient double click fires an armed button. Safe choice first in tab order.
-- **Conventional commits**; ESLint via `@antfu/eslint-config` owns formatting; sparse comments.
-
-## Conciseness (applies everywhere)
-
-**Prune verbose; keep correctness.** This covers code, comments, user docs and agent docs alike.
-
-- Code: say it once, name it well; a comment only for non-obvious *intent*, never to restate the line.
-- Docs: one idea per sentence, prefer a table or a line to a paragraph. Cut a sentence that would not
-  change what a reader does.
-- Delete history that `git log` already holds. Keep the *rule* that came out of it, not the story —
-  a path list of where something used to live is archaeology, not guidance.
-- Do not drop a caveat to save a line. Concise means no filler, not fewer facts.
-
 ## How to work here
 
 - **Check who calls it before you change it.** Grep the callers and the tests that name it, and say
@@ -196,14 +147,26 @@ nobody reads is worse than a long file.
   class: one shared implementation, one formatter, one guard. That is the work, not a follow-up to
   ask for. Say what you changed and what it now prevents, and keep it inside the task's scope rather
   than refactoring the world.
-- **Verify before claiming, and say which direction you checked.** A passing test is not evidence it
-  pinned anything — see [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md) for the habits that catch
-  this. Mark anything unverified as unverified.
+- **Verify before claiming, and say what you checked.** A green test proves only what it asserts —
+  **break the thing it guards and watch it fail.** If it still passes, either the test is decoration
+  or a different guard is running; find out which. Where a stub cannot answer the question, drive the
+  real thing. Mark anything unverified as unverified.
 - **If recall of this project is missing** (a compacted or fresh session, a different machine), read
   this file, `.agentDocs/`, and `git log` before acting, and ask 1–3 targeted questions rather than
   reconstructing intent from guesswork.
 - **Leave the docs better than you found them.** Delete what is stale, compact what has grown, and
   never leave a pointer to content that does not exist.
+
+## Conciseness
+
+**Prune verbose; keep correctness.** This covers code, comments, user docs and agent docs alike.
+
+- Code: say it once, name it well; a comment only for non-obvious *intent*, never to restate the line.
+- Docs: one idea per sentence, prefer a table or a line to a paragraph. Cut a sentence that would not
+  change what a reader does.
+- Delete history that `git log` already holds. Keep the *rule* that came out of it, not the story —
+  a path list of where something used to live is archaeology, not guidance.
+- Do not drop a caveat to save a line. Concise means no filler, not fewer facts.
 
 ## User-facing docs
 
@@ -216,6 +179,55 @@ nobody reads is worse than a long file.
 - **UIs move together.** `uis/stock` is not the only client: a change to it — or to a shared contract
   it reads — lands in every other UI under `uis/`, and each altered UI bumps its `ui.json` (see
   [`.agentDocs/ARCHITECTURE.md`](.agentDocs/ARCHITECTURE.md)).
+
+## Releasing
+
+Dispatched from `.github/workflows/release.yml` with a version (`-f dry-run=true` to rehearse). It
+verifies the version, lints/types/tests, builds the CLI and every UI zip, lets changelogen write the
+changelog and bump `package.json`, commits and tags `v<version>`, creates the GitHub release with the
+UI bundles attached, and publishes to npm through trusted publishing (OIDC, no token). npm only
+offers a trusted publisher for a package that **already exists**, so a first-ever release has to be
+published by hand.
+
+```sh
+gh workflow run release.yml -f version=0.6.3
+```
+
+Four workflows, and the split is deliberate:
+
+| workflow | runs on | what it proves |
+| --- | --- | --- |
+| `quickcheck.yml` / `test.yml` | every push and PR | lint, types, the whole suite with coverage — Linux only |
+| `cross-platform.yml` | the release gate, or by hand | the same suite on macOS and Windows |
+| `release.yml` | dispatched with a version | the platform gate, then tag, publish, release assets |
+
+The platform gate is not a per-push job on purpose: it is the expensive half, and it is what makes a
+platform-specific break fail before shipping rather than on someone's machine. Every job carries a
+`timeout-minutes`, so a wedged runner is reported instead of sitting out GitHub's 6-hour default.
+
+**Read the skip count, not just the tick.** Linux has no skips; macOS and Windows report a handful
+(Windows more), all from platform guards. What to watch is the *shape*: a new skip appearing, or a
+clean pass where a guard should have fired. **A test that returns early instead of skipping reports a
+pass**, hiding a platform that never ran the code — use `it.runIf`/`it.skipIf` with the condition
+computed at **module load**.
+
+**`npm publish` exiting 0 is the whole answer.** The registry can take up to ten minutes to show a
+package it has accepted — npm's queue, not this run's. Do not poll it, and do not hold work waiting.
+
+### Which version to dispatch
+
+Below 1.0 the **minor is the breaking channel**: a fix or non-breaking feature is a **patch**, while a
+minor means someone has to read the release notes and act. A `feat:` commit does not decide this —
+ask what the user has to do about it. Never edit `package.json` by hand; changelogen bumps inside the
+workflow. `scripts/check-release-version.mjs` refuses a patch while a breaking commit is pending.
+
+### What the package ships
+
+`pnpm pack` runs `prepack` (a full build) and ships the `files` list in `package.json`: `bin/`,
+`dist/`, `uis/stock/dist`, `README.md`, the five user-facing `docs/*.md`, `AGENTS.md` and `LICENSE`.
+`.agentDocs/` is deliberately not published — it is for agents working in this repo, not for people
+installing the package. The bin falls back to tsx so `pnpm link` works before a build;
+`vue`/`vue-router` are devDependencies because the UIs are prebuilt.
 
 ## Where to extend
 
@@ -230,11 +242,3 @@ nobody reads is worse than a long file.
 - **Capability**: a stateless `src/providers/*` returning plain data; a DDNS provider is one file plus
   a registry line (`src/providers/ddns/index.ts`) — the settings form, credentials and validation
   follow from its metadata. See `docs/DDNS.md`.
-
-## Publishing
-
-`pnpm pack` runs `prepack` (a full build) and ships the `files` list in `package.json`: `bin/`,
-`dist/`, `uis/stock/dist`, `README.md`, the five user-facing `docs/*.md`, `AGENTS.md` and `LICENSE`.
-`.agentDocs/` is deliberately not published — it is for agents working in this repo, not for people
-installing the package. The bin falls back to tsx so `pnpm link` works before a build;
-`vue`/`vue-router` are devDependencies because the UIs are prebuilt.
