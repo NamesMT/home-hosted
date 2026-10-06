@@ -170,6 +170,41 @@ describe('runLogs', () => {
   })
 
   /**
+   * An unreadable log must not be reported as an empty one.
+   *
+   * `readLog` folds every read failure into "nothing there", so an EACCES and a missing file look
+   * identical to it — and the friendly "no output yet" would then claim the panel has written
+   * nothing when it may have written plenty. A panel started by systemd (or as root) and then
+   * read by an ordinary user is the realistic way to meet this.
+   */
+  it('says the log is unreadable rather than claiming the panel wrote nothing', async () => {
+    const root = home('written by someone else\n')
+    const file = path.join(root, '.hh', '.logs', 'home-hosted.log')
+    // `chmod` is not honoured the same way on Windows, and CI runs the suite there.
+    if (process.platform === 'win32')
+      return
+
+    fs.chmodSync(file, 0o000)
+    try {
+      const output = await capture(root, {})
+      expect(output, 'an unreadable log must not read as "no output yet"').not.toContain('no output yet')
+      expect(output).toContain('cannot read')
+      expect(output).toContain(file)
+    }
+    finally {
+      fs.chmodSync(file, 0o644)
+    }
+  })
+
+  it('still treats a missing log as the ordinary empty case', async () => {
+    // Nothing written yet is normal, not an error — and it must keep exiting 0.
+    const root = home(null)
+    const output = await capture(root, {})
+    expect(output).toContain('no output yet')
+    expect(output).not.toContain('cannot read')
+  })
+
+  /**
    * `--follow --json` must emit one JSON object per line.
    *
    * It used to ignore `--json` entirely and print raw text, while the synopsis

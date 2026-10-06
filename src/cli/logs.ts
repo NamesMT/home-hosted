@@ -1,6 +1,7 @@
+import fs from 'node:fs'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, fail } from '#src/cli/io'
+import { bold, dim, fail, paint } from '#src/cli/io'
 
 /** `logs` answers "what has the panel been saying" — the file `up` redirects it into. */
 
@@ -11,6 +12,25 @@ export const logsArgs = {
 } as const
 
 const DEFAULT_LINES = 50
+
+/**
+ * Whether a path exists but cannot be read — the case `readLog` cannot distinguish from absence,
+ * because it folds every failure into "nothing there".
+ *
+ * A *missing* log is normal (a panel that has not started), so only a real permission or IO
+ * refusal is reported. `R_OK` is the question being asked; existence alone would call an
+ * unreadable file readable.
+ */
+function isUnreadable(file: string): boolean {
+  try {
+    fs.accessSync(file, fs.constants.R_OK)
+    return false
+  }
+  catch (error) {
+    // Missing is not unreadable: that is the ordinary empty case.
+    return (error as NodeJS.ErrnoException).code !== 'ENOENT'
+  }
+}
 
 /**
  * `all` or a negative count means the whole log; an unreadable count is a typo, not a reason to
@@ -77,6 +97,16 @@ export async function runLogs(input: { lines?: string, follow?: boolean, json?: 
   }
 
   if (output.length === 0) {
+    // `readLog` treats every read failure as "not there", so an unreadable log and a missing one
+    // look the same here — and this message would claim the panel has written nothing when it may
+    // have written plenty. A panel run as another user (systemd, root) is the realistic case.
+    // Distinguishing them costs one access check, and saying the wrong thing about a diagnostic
+    // command is worse than saying nothing.
+    if (isUnreadable(daemonLogPath)) {
+      process.stdout.write(`${paint('31', 'error')} cannot read ${daemonLogPath} — check its permissions\n`)
+      process.exitCode = 1
+      return
+    }
     // Not an error: a panel that has just started, or never started, has nothing to say.
     process.stdout.write(`${dim(`no output yet — ${daemonLogPath}`)}\n`)
     return
