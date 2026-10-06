@@ -41,12 +41,26 @@ describe('a non-decimal Content-Length never reaches a handler', () => {
           socket.write(`POST /api/backups/import HTTP/1.1\r\nHost: localhost\r\nContent-Type: multipart/form-data\r\nContent-Length: ${header}\r\n\r\n`)
         })
         let data = ''
+        let settled = false
+        const finish = (): void => {
+          if (settled)
+            return
+          settled = true
+          const line = data.split('\r\n')[0] ?? ''
+          // A missing reply must not look like a reply. `expect('').not.toContain('400')` would
+          // pass, so the "gets through" assertion below could hold vacuously if the socket were
+          // merely slow — this makes that impossible.
+          if (line.length === 0)
+            reject(new Error(`no response for Content-Length: ${header}`))
+          else
+            resolve(line)
+        }
         socket.on('data', (chunk) => { data += chunk.toString() })
-        socket.on('end', () => resolve(data.split('\r\n')[0] ?? ''))
+        socket.on('end', finish)
         socket.on('error', reject)
         setTimeout(() => {
           socket.destroy()
-          resolve(data.split('\r\n')[0] ?? '')
+          finish()
         }, 1500)
       })
     }

@@ -428,10 +428,22 @@ describe('static UI', () => {
     // A readable secret one level above the served directory.
     fs.writeFileSync(path.join(created.dir, 'secret.txt'), 'do-not-serve-me')
 
+    // The control: a legitimate asset *is* served, so "the secret was not served" cannot be
+    // satisfied by a route that answers 404 to everything — which is what this test asserted
+    // before, and why it could pass while serving nothing at all.
+    const index = await created.app.request('/')
+    expect(index.status).toBe(200)
+    expect(await index.text()).not.toBe('')
+
     for (const url of ['/%2e%2e/secret.txt', '/assets/%2e%2e%2f%2e%2e/secret.txt', '/..%2fsecret.txt']) {
       const response = await created.app.request(url)
       const body = await response.text()
       expect(body, url).not.toContain('do-not-serve-me')
+      // A 200 here is the SPA fallback (the app answers an unknown route with `index.html`), not
+      // the secret: the body is the UI's own index, which is what the length assertion pins so a
+      // 200 cannot be mistaken for a served file.
+      if (response.status === 200)
+        expect(body, url).toBe(await (await created.app.request('/')).text())
     }
   })
 
