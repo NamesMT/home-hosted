@@ -156,6 +156,29 @@ describe('status paths', () => {
     expect(result.stdout).toContain('home-hosted is not running')
   })
 
+  /**
+   * "Not running" and "never set up" are different answers, and only one of them needs a next step.
+   *
+   * A person who has just installed the package runs `status` in an empty directory and was told
+   * "home-hosted is not running" — true, unhelpful, and indistinguishable from a panel that *was*
+   * set up and has been stopped. The directory has no `workspaces.json`, which is what says whether
+   * anything was ever initialised.
+   */
+  it('tells a never-initialised directory what to do next', () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-fresh-'))
+    try {
+      const result = runCli(['status', '--home', empty])
+      expect(result.status, result.stderr).toBe(1)
+      expect(result.stdout).toContain('home-hosted is not running')
+      // `init` specifically: the *other* branch also offers `up`, so matching either proved nothing
+      // (a mutation that always reported "initialised" passed it).
+      expect(result.stdout, 'a fresh home must name `init`, not just the running state').toContain('home-hosted init')
+    }
+    finally {
+      fs.rmSync(empty, { recursive: true, force: true })
+    }
+  })
+
   it('prints every path it documents, aligned, against a real running panel', () => {
     // Spawned for real: `status` reads run.json, so a fixture on disk is the only honest input.
     // A panel is started in the throwaway home and asked for its status.

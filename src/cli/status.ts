@@ -13,14 +13,20 @@ export const statusArgs = {
 export async function runStatus(json: boolean): Promise<void> {
   const { isProcessAlive, probeRuntime, readRuntime } = await import('#src/helpers/daemon')
   const { UiService } = await import('#src/services/ui')
-  const { hhDir: dataRoot, workspaceDir, DEFAULT_WORKSPACE_ID } = await import('#src/helpers/paths')
+  const { hhDir: dataRoot, workspaceDir, DEFAULT_WORKSPACE_ID, workspacesPath } = await import('#src/helpers/paths')
   const runtime = readRuntime()
 
   if (runtime === null) {
+    // "Not running" and "never set up" are different answers: the first says wait or start it, the
+    // second says there is nothing here yet. `workspaces.json` is what tells them apart — it is
+    // written by the first successful `up`/`init`, so its absence means nothing was ever created.
+    const initialised = fs.existsSync(workspacesPath)
     if (json)
-      process.stdout.write(`${JSON.stringify({ running: false }, null, 2)}\n`)
+      process.stdout.write(`${JSON.stringify({ running: false, initialised }, null, 2)}\n`)
+    else if (initialised)
+      process.stdout.write('home-hosted is not running — start it with `home-hosted up`\n')
     else
-      process.stdout.write('home-hosted is not running\n')
+      process.stdout.write('home-hosted is not running — nothing is set up here yet; `home-hosted init` creates a project, `home-hosted up` starts one here\n')
     process.exitCode = 1
     return
   }
