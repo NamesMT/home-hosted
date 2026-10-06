@@ -67,6 +67,7 @@ panel did not start is ever killed.
 | `url` | For `target: "external"`, e.g. `http://10.0.0.5:8080`. The port is optional: without one the scheme's own default is used (`:80` for `http:`, `:443` for `https:`). An `https://` upstream is dialled with TLS, and **its certificate is not verified** — a homelab upstream behind a self-signed certificate works, and so does an impostor. |
 | `path` | Optional prefix, so one hostname can serve several apps. |
 | `tls` | `auto` (default), `off`, `manual`. |
+| `dnsAccount` | Optional `workspace/account` for a DNS-01 challenge, referencing a DNS account from Settings. Empty picks the workspace's only account that can write TXT records, so a single-account setup needs nothing here. |
 
 The list's hostname is a link to where the route answers — `https://host:<https port>`, or
 the plain port for `tls: "off"`, path included. A route that is switched off is plain text.
