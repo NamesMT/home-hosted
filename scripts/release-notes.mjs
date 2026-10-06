@@ -20,7 +20,11 @@ if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Z.-]+)?$/i.test(v
 }
 
 const file = path.join(fileURLToPath(new URL('..', import.meta.url)), 'CHANGELOG.md')
-const lines = fs.readFileSync(file, 'utf8').split('\n')
+// Split on any line ending. With CR-only the file is one line, so the anchored `^##` never matches
+// and this reports a missing section for a version that exists. Latent rather than live — CI is Linux
+// and a Windows `core.autocrlf` checkout gives CRLF, which works — but the failure is silent and
+// blames the changelog rather than the ending.
+const lines = fs.readFileSync(file, 'utf8').split(/\r\n|\r|\n/)
 const heading = new RegExp(`^##\\s+v?${version.replace(/\./g, '\\.')}\\s*$`)
 // module scope: some repos enable e18e/prefer-static-regex, which flags a regex
 // literal that would be re-created on every callback invocation

@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { describe, expect, it } from 'vitest'
@@ -68,6 +70,42 @@ describe('check-release-version', () => {
    * Unreachable from the workflow — `check-release-version.mjs` runs earlier in the same job — but the
    * script is runnable by hand, and a stack trace names the wrong problem.
    */
+  /**
+   * The extractor must find its section whatever line ending the changelog has.
+   *
+   * `split('\n')` leaves a CR-only file as **one line**, so the anchored `^##` never matches and the
+   * script reports a missing section for a version that exists — blaming the changelog rather than the
+   * ending. Latent rather than live (CI is Linux; a Windows `core.autocrlf` checkout gives CRLF, which
+   * works), but the failure is silent and misdiagnosing.
+   */
+  it('finds the section under every line ending', () => {
+    const repo = path.join(process.cwd())
+    const original = fs.readFileSync(path.join(repo, 'CHANGELOG.md'), 'utf8')
+    // A version that exists in the shipped changelog, so the assertion is about the ending.
+    const version = [...original.matchAll(/^## v(\d+\.\d+\.\d+)/gm)][0]?.[1]
+    expect(version, 'the changelog must have at least one released version').toBeDefined()
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-notes-'))
+    try {
+      // Run the real script against a copy of the real changelog, in each ending.
+      fs.cpSync(path.join(repo, 'scripts'), path.join(dir, 'scripts'), { recursive: true })
+      const body = original.replace(/\r\n|\r/g, '\n')
+      for (const [name, text] of [
+        ['lf', body],
+        ['crlf', body.replace(/\n/g, '\r\n')],
+        ['cr', body.replace(/\n/g, '\r')],
+      ] as const) {
+        fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), text)
+        const result = spawnSync(process.execPath, [path.join(dir, 'scripts', 'release-notes.mjs'), version!], { encoding: 'utf8' })
+        expect(result.status, `${name}: ${result.stderr}`).toBe(0)
+        expect(result.stdout, `${name} must find the section`).toContain(`v${version}`)
+      }
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('refuses a malformed version in release-notes with a usage line, not a stack trace', () => {
     const notes = path.join(process.cwd(), 'scripts', 'release-notes.mjs')
     for (const value of ['0.7.18)', '[', 'nonsense', '']) {
