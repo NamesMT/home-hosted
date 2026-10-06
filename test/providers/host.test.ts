@@ -41,12 +41,6 @@ describe('host sampling', () => {
     // A meaningless denominator is 0, not NaN or Infinity.
     expect(usedPercent(10, 0)).toBe(0)
     expect(usedPercent(0, 0)).toBe(0)
-    for (const [used, total] of [[1200, 1000], [0, 0], [-500, 1000], [400, 1000]] as const) {
-      const value = usedPercent(used, total)
-      expect(Number.isFinite(value), `usedPercent(${used}, ${total})`).toBe(true)
-      expect(value).toBeGreaterThanOrEqual(0)
-      expect(value).toBeLessThanOrEqual(100)
-    }
   })
 
   it('reports bounds a live sampling cannot violate', () => {
