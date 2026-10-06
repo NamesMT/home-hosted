@@ -166,7 +166,7 @@ onMounted(async () => {
           <div v-else class="flex items-start gap-2 rounded-control border border-line-soft bg-panel-2 px-2.5 py-2">
             <ShieldCheck class="mt-0.5 size-3.5 shrink-0 text-ok" />
             <p class="text-2xs leading-4 text-muted">
-              Sessions last {{ Math.round((session?.sessionTtlMs ?? 0) / 86_400_000) }} days. Signing out clears this browser only.
+              Sessions stay signed in for {{ Math.round((session?.sessionTtlMs ?? 0) / 86_400_000) }} days after the last visit — each request extends that window. Signing out clears this browser only.
             </p>
           </div>
         </div>

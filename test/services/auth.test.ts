@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apiTokenRecord, generateApiToken, hashPassword, SecretsStore, verifyApiToken, verifyPassword } from '#src/config/secrets'
 import { AuthService, bearerToken } from '#src/services/auth'
 import { authSchema } from '#src/shared/contracts'
@@ -117,6 +117,39 @@ describe('auth service', () => {
 
     auth.logout(outcome.token)
     expect(auth.validate(outcome.token)).toBeNull()
+  })
+
+  /**
+   * The session lifetime is an **idle** timeout, not an absolute one.
+   *
+   * `validate()` slides `expiresAt` forward on every request, so a session in regular use never
+   * expires — measured at 10x the configured lifetime. The login page said "Sessions last 7 days",
+   * which reads as the absolute reading, and `SessionRecord.createdAt` was written but never read
+   * anywhere, which is the vestige of an absolute cap that was never implemented. The wording now
+   * matches the behaviour and this pins the behaviour, so changing either is deliberate.
+   */
+  it('extends the session on each use, so the lifetime is idle rather than absolute', async () => {
+    vi.useFakeTimers()
+    try {
+      const { auth } = await makeAuth({ sessionTtlMs: 60_000 })
+      auth.setPassword('a-good-password')
+      const outcome = auth.login('a-good-password', '127.0.0.1')
+      if (!outcome.ok)
+        throw new Error('login failed')
+
+      // Used every half-lifetime, it outlives its own nominal lifetime several times over.
+      for (let i = 0; i < 20; i++) {
+        vi.advanceTimersByTime(30_000)
+        expect(auth.validate(outcome.token), `still valid at step ${i}`).not.toBeNull()
+      }
+
+      // Idle for the whole lifetime and it is gone — that is the guarantee it does make.
+      vi.advanceTimersByTime(60_001)
+      expect(auth.validate(outcome.token), 'idle past the lifetime ends it').toBeNull()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rejects a wrong password with 401', async () => {

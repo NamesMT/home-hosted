@@ -176,6 +176,7 @@ export type ServerConfig = Omit<typeof serverSchema.infer, 'port'> & { port: num
  */
 export const authSchema = type({
   enabled: 'boolean = true',
+  /** Idle timeout: a session dies this long after its **last** request, not after login. */
   sessionTtlMs: 'number >= 60000 = 604800000',
   /** `auto` adds `Secure` when the request arrived over https (proxy-aware). */
   cookieSecure: '"auto" | "always" | "never" = "auto"',

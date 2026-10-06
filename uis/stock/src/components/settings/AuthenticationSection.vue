@@ -97,7 +97,7 @@ async function clearPasswordValue(): Promise<void> {
       hint="Every request needs a signed-in session."
       class="sm:col-span-2"
     />
-    <NumberField v-model="sessionTtlMs" label="Session lifetime (ms)" :min="60000" hint="604800000 is one week." />
+    <NumberField v-model="sessionTtlMs" label="Session lifetime (ms)" :min="60000" hint="Idle timeout: 604800000 is one week of no activity. Each request restarts it." />
     <SelectField
       v-model="auth.cookieSecure"
       label="Cookie Secure"

@@ -17,7 +17,10 @@ const ATTEMPT_RECORD_TTL_MS = 60 * 60_000
 
 export interface SessionRecord {
   token: string
-  createdAt: number
+  /**
+   * Slid forward on every validated request, so this is an **idle** timeout — `sessionTtlMs` after the
+   * last visit, not after login. There is deliberately no absolute cap; the login page says so.
+   */
   expiresAt: number
   lastSeenAt: number
   ip: string | null
@@ -231,7 +234,6 @@ export class AuthService {
     const token = crypto.randomBytes(32).toString('base64url')
     this.sessions.set(token, {
       token,
-      createdAt: now,
       expiresAt: now + config.sessionTtlMs,
       lastSeenAt: now,
       ip,
