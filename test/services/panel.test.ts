@@ -323,6 +323,45 @@ describe('panelService', () => {
     }
   })
 
+  /**
+   * A workspace is not removed while one of its processes survived the stop.
+   *
+   * `stopEntry` keeps a persistent entry's nanny state **on purpose** when its pid outlived SIGKILL —
+   * "its pid is in the state file" is how a later boot reaches a child the stop could not forward. That
+   * file sits under `workspaceDir(id)`, which removal deletes recursively, so removing anyway leaves the
+   * process running with nothing that knows its name. The loop used to log the failure and continue.
+   */
+  it('refuses to remove a workspace whose process survived the stop', async () => {
+    const { panel, dispose } = await makeHarness({
+      workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],
+    })
+
+    try {
+      const runtime = panel.requireWorkspace('staging')
+      const dir = path.dirname(runtime.store.path)
+      expect(fs.existsSync(dir)).toBe(true)
+
+      // `makeHarness` seeds `servers` into the *default* workspace, so the removal loop would find
+      // nothing to stop here. Write this workspace's own file, then reload the store it already built.
+      const stuck = { id: 'stuck', command: process.execPath, args: ['-e', 'null'] }
+      fs.writeFileSync(runtime.store.path, JSON.stringify({ $schema: './servers.config.schema.json', servers: [stuck] }, null, 2))
+      runtime.store.reloadFromDisk()
+      expect(runtime.store.servers, 'the workspace must have a server to stop').toHaveLength(1)
+
+      // Exactly what `stopEntry` returns for a pid that outlived SIGKILL.
+      vi.spyOn(runtime.supervisor, 'stop').mockResolvedValue({ ok: false, error: 'pid 4242 survived the stop' })
+
+      await expect(panel.remove('staging')).rejects.toThrow(/survived the stop/)
+      // Nothing was removed: the workspace is still registered and its directory is intact, which is
+      // what keeps the surviving process findable.
+      expect(panel.workspace('staging')).toBeDefined()
+      expect(fs.existsSync(dir), 'the state file that finds the process must survive').toBe(true)
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('resolves a server by its (workspace, server) pair, never by id alone', async () => {
     const { panel, dispose } = await makeHarness({
       workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],

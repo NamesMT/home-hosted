@@ -268,12 +268,17 @@ export class PanelService {
       throw new WorkspaceError('cannot remove the only workspace')
 
     for (const server of runtime.store.servers) {
-      try {
-        await runtime.supervisor.stop(server.id)
-      }
-      catch (error) {
+      const stopped = await runtime.supervisor.stop(server.id).catch((error: unknown) => {
         logger.warn(`could not stop ${server.id} while removing workspace "${id}"`, error)
-      }
+        return { ok: true, error: undefined } as Awaited<ReturnType<typeof runtime.supervisor.stop>>
+      })
+      // A pid that outlived SIGKILL is deliberately kept findable: `stopEntry` keeps its nanny state
+      // file because "its pid is in the state file" is how a later boot reaches the child the stop
+      // could not forward. That file lives under `workspaceDir(id)`, which the `rmSync` below deletes
+      // recursively — so removing anyway would leave the process running with nothing that knows its
+      // name. Refused; the person can stop it and remove the workspace afterwards.
+      if (!stopped.ok && stopped.error?.includes('survived the stop'))
+        throw new WorkspaceError(`cannot remove "${id}": ${stopped.error} — stop it first, or the workspace would be deleted while that process is still running and unreachable from here`)
     }
     await runtime.supervisor.dispose()
     this.disposeRuntime(runtime)

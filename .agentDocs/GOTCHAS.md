@@ -188,6 +188,13 @@ line in `AGENTS.md` instead.
   nothing pruned it either, so a re-added id showed the old entry's crash time — `HistoryStore.forget()`
   now runs beside `logFiles.clear()` in the same branch. A per-**id** artifact needs reclaiming on
   removal; check both stores when adding a third.
+- **Removing a workspace must not delete the state file a surviving process is found by.**
+  `stopEntry` keeps a persistent entry's nanny state **on purpose** when its pid outlived SIGKILL —
+  "its pid is in the state file" is how a later boot reaches a child the stop could not forward. That
+  file lives at `workspaceStateDir(id)`, i.e. *inside* `workspaceDir(id)`, which `PanelService.remove()`
+  deletes recursively. The loop caught the failed stop, logged a warning and continued, so the process
+  kept running with nothing left that knew its name. `remove()` now refuses while a stop reports
+  `survived the stop`.
 - **The nanny's `pending` slot is unreachable, and the ordering is what makes it so.** `runNanny`
   installs its SIGTERM/SIGINT traps and only then spawns, with the `pending` variable holding a signal
   that lands "in between". Nothing in that block awaits, and Node runs a signal handler only *between*
