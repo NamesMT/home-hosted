@@ -190,6 +190,12 @@ describe('runLogs', () => {
       expect(output, 'an unreadable log must not read as "no output yet"').not.toContain('no output yet')
       expect(output).toContain('cannot read')
       expect(output).toContain(file)
+
+      // `--json` must agree. It used to answer `{ lines: [] }` because the check sat below that
+      // branch, so the two forms of one command disagreed about the same file.
+      const json = JSON.parse(await capture(root, { json: true })) as { lines?: unknown[], error?: string }
+      expect(json.error, 'the JSON form must report the refusal, not an empty log').toBe('unreadable')
+      expect(json.lines).toBeUndefined()
     }
     finally {
       fs.chmodSync(file, 0o644)

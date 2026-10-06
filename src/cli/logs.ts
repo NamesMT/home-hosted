@@ -91,22 +91,29 @@ export async function runLogs(input: { lines?: string, follow?: boolean, json?: 
 
   const output = readLog(daemonLogPath, lines)
 
+  // Checked once, before either output form. `readLog` treats every read failure as "not there",
+  // so an unreadable log and a missing one look identical to it — and both surfaces would then
+  // claim the panel has written nothing when it may have written plenty. A panel run as another
+  // user (systemd, root) is the realistic case. Doing this above the `--json` branch is what keeps
+  // the two forms from disagreeing: `--json` used to answer `{ lines: [] }` while the text form
+  // reported the permission problem, because the check sat below it.
+  if (output.length === 0 && isUnreadable(daemonLogPath)) {
+    if (input.json === true) {
+      process.stdout.write(`${JSON.stringify({ path: daemonLogPath, error: 'unreadable' }, null, 2)}\n`)
+    }
+    else {
+      process.stdout.write(`${paint('31', 'error')} cannot read ${daemonLogPath} — check its permissions\n`)
+    }
+    process.exitCode = 1
+    return
+  }
+
   if (input.json === true) {
     process.stdout.write(`${JSON.stringify({ path: daemonLogPath, lines: output }, null, 2)}\n`)
     return
   }
 
   if (output.length === 0) {
-    // `readLog` treats every read failure as "not there", so an unreadable log and a missing one
-    // look the same here — and this message would claim the panel has written nothing when it may
-    // have written plenty. A panel run as another user (systemd, root) is the realistic case.
-    // Distinguishing them costs one access check, and saying the wrong thing about a diagnostic
-    // command is worse than saying nothing.
-    if (isUnreadable(daemonLogPath)) {
-      process.stdout.write(`${paint('31', 'error')} cannot read ${daemonLogPath} — check its permissions\n`)
-      process.exitCode = 1
-      return
-    }
     // Not an error: a panel that has just started, or never started, has nothing to say.
     process.stdout.write(`${dim(`no output yet — ${daemonLogPath}`)}\n`)
     return
