@@ -1,3 +1,4 @@
+import type { NotificationEvent } from '#src/services/notifications'
 import type { AppState, WorkspaceView } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -225,6 +226,19 @@ describe('panelService', () => {
       expect(first!.logsDir).not.toBe(second!.logsDir)
       expect(second!.logsDir.startsWith(second!.store.path)).toBe(false)
       expect(first!.supervisor).not.toBe(second!.supervisor)
+      // A notification cooldown is keyed by `serverId:reason`, with no workspace in the key — which
+      // is only safe because each workspace owns its own service. Prove it behaviourally: one
+      // workspace's flapping `api` must not silence the other's, which is exactly what a shared
+      // service would do. Telegram is switched on for both, or `shouldNotify` answers false for
+      // every event and the assertion below would hold vacuously.
+      expect(first!.notifications).not.toBe(second!.notifications)
+      for (const runtime of [first!, second!])
+        runtime.store.updateNotifications({ telegram: { enabled: true, chatId: '1', cooldownMs: 60_000 } })
+      const flap: NotificationEvent = { serverId: 'api', label: 'api', reason: 'crash', detail: 'boom' }
+      const now = 1_000_000
+      first!.notifications.markSent(flap, now)
+      expect(first!.notifications.shouldNotify(flap, now + 1), 'the same workspace is cooled down').toBe(false)
+      expect(second!.notifications.shouldNotify(flap, now + 1), 'another workspace must not be').toBe(true)
 
       // Each keeps its own label and view.
       expect(panel.workspace('staging')?.label).toBe('Staging')
