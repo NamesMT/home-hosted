@@ -1,5 +1,5 @@
 // The subset both UIs share; see that module for why only these four live there.
-export { formatAgo, formatClock, formatDuration, relativeFrom } from '@shared/ui-format'
+export { formatAgo, formatClock, formatDuration, formatRatio, relativeFrom } from '@shared/ui-format'
 
 /** `HH:MM:SS.mmm` — the log viewer needs the sub-second part to be useful. */
 export function formatClockMs(ts: number): string {
@@ -22,15 +22,6 @@ export function formatDateTime(ts: number): string {
 
 export function formatDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' })
-}
-
-export function formatRatio(value: number | null): string {
-  // `!Number.isFinite` as in `formatCpuPercent` and `formatBytesShort` beside it: the contract is
-  // `number | null`, so the type permits a NaN, which would render as the literal `NaN%` rather than
-  // the em-dash that means unknown. Its sibling in `noc-console` had the same gap.
-  if (value === null || !Number.isFinite(value))
-    return '—'
-  return `${(value * 100).toFixed(value >= 0.999 ? 0 : 1)}%`
 }
 
 export function formatBytes(bytes: number): string {

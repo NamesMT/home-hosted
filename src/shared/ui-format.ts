@@ -1,15 +1,24 @@
 /**
- * Date and duration formatting shared by both UIs.
+ * Formatting both UIs share.
  *
- * These four were byte-identical copies in `uis/stock/src/lib/format.ts` and
- * `uis/noc-console/src/lib/format.ts` — 911 duplicated characters. The cost is not the bytes: fixing
- * `formatRatio`'s missing guard in one UI left the other still rendering `NaN%`, which is exactly the
- * "carry the fix into the other UI" commit that `proxy-form.ts` was created to stop.
+ * These were byte-identical copies in `uis/stock/src/lib/format.ts` and
+ * `uis/noc-console/src/lib/format.ts` — 911 duplicated characters across four functions. The cost is
+ * not the bytes: fixing `formatRatio`'s missing guard in one UI left the other still rendering `NaN%`,
+ * which is exactly the "carry the fix into the other UI" commit that `proxy-form.ts` was created to
+ * stop. `formatRatio` then became identical again once both had the guard, so it moved here too — the
+ * guard was fixed twice before the copy was removed, which is the duplication arguing for itself.
  *
- * Only the functions that are genuinely the same live here. `formatBytes`, `formatRatio` and
- * `formatClockMs` differ between the two products on purpose (unit thresholds, decimal places) and
- * stay where they are.
+ * Only the functions that are genuinely the same live here. `formatBytes`, `formatBytesShort` and
+ * `formatDateTime` differ between the two products on purpose (signatures, unit thresholds, locale
+ * options) and stay where they are.
  */
+
+/** A 0–1 ratio as a percentage. Unknown reads as an em-dash, never the literal `NaN%`. */
+export function formatRatio(value: number | null): string {
+  if (value === null || !Number.isFinite(value))
+    return '—'
+  return `${(value * 100).toFixed(value >= 0.999 ? 0 : 1)}%`
+}
 
 /** Wall-clock time, 24-hour, in the viewer's locale. */
 export function formatClock(ts: number): string {

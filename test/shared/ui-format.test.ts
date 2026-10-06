@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatAgo, formatClock, formatDuration, relativeFrom } from '#src/shared/ui-format'
+import { formatAgo, formatClock, formatDuration, formatRatio, relativeFrom } from '#src/shared/ui-format'
 
 /**
  * The four formatters both UIs share.
@@ -39,6 +39,25 @@ describe('shared UI formatting', () => {
     expect(formatAgo(1_000, 1_000 + 3_600_000)).toBe('1h ago')
     expect(formatAgo(1_000, 1_000 + 3_599_999), 'just under an hour').toBe('59m ago')
     expect(formatAgo(1_000, 1_000 + 86_400_000)).toBe('1d ago')
+  })
+
+  /**
+   * Unknown reads as an em-dash, never the literal `NaN%`.
+   *
+   * This function is why the module exists: its `!Number.isFinite` guard was added to one UI and not
+   * the other, so the same server showed `NaN%` in `stock` and `—` in `noc-console`. Both copies were
+   * identical once both had the guard, which is when it moved here.
+   */
+  it('renders a ratio, and refuses to print NaN', () => {
+    expect(formatRatio(0)).toBe('0.0%')
+    expect(formatRatio(0.5)).toBe('50.0%')
+    expect(formatRatio(0.998)).toBe('99.8%')
+    // 0.999 and up drop the decimal, so a healthy server reads "100%".
+    expect(formatRatio(0.999)).toBe('100%')
+    expect(formatRatio(1)).toBe('100%')
+    expect(formatRatio(null)).toBe('—')
+    expect(formatRatio(Number.NaN), 'unknown, not a measurement').toBe('—')
+    expect(formatRatio(Number.POSITIVE_INFINITY)).toBe('—')
   })
 
   it('renders a clock in 24-hour form', () => {

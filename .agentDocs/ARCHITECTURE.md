@@ -84,6 +84,29 @@ failure, and `Object.entries` yields the *indices*. The `!Array.isArray` half is
 pinned directly. The parity guard matches the predicate's **body**, not its name, because a
 name-based search missed the copies called `isPlainObject`, `isBootAttempt` and one inline ternary.
 
+## What else both UIs share
+
+Four more modules, each created because the same code existed twice — the class above, found again:
+
+| module | what it replaced |
+| --- | --- |
+| `server-key.ts` | `serverKey` was defined **three** times: `services/events.ts` (which dispatches SSE) and each UI's composable (which subscribes). Byte-identical by luck, and a change on one side would route frames to the wrong bucket **silently**. |
+| `ui-format.ts` | Five byte-identical formatters, 911 duplicated characters. The cost showed inside one round: fixing `formatRatio`'s missing guard in `noc-console` left `stock` still rendering `NaN%` — and the guard then had to be fixed **twice**, which is the duplication arguing for itself. |
+| `endpoint.ts` | `waitForEndpoint`, byte-identical and importing nothing. |
+| `api-client.ts` | 25 identical API wrappers plus the `request` helper and `AuthRequiredError`. `request` had **already drifted** — one UI read a bare `error` field, the other did not. |
+
+**The rule for what belongs here, and what does not.** A module moves in when its dependencies already
+resolve within `src/shared/`; it stays out when it would import *upward*. `rpc.ts` needs `AppType` from
+`src/app.ts`, so it stays duplicated in each UI, and the same reasoning keeps the `ddns`/`proxy` helpers
+where they are — they use Vue's `toRaw`. `formatBytes` and `formatDateTime` also stay
+per-UI on purpose: their signatures and unit thresholds genuinely differ between the two products
+(`formatBytes` is `number` in one and `number | null` in the other), which is a distinction worth
+keeping rather than collapsing for tidiness.
+
+**`api-client.ts` carries its own tests, and had to.** The UIs exercised those calls *through the UI*,
+so the move left the module at 25% and dropped `src/shared` below its 95% floor — the coverage job failed
+while `quickcheck` and the platform gate stayed green. Moving code means moving its tests.
+
 ## UI versioning
 
 **`ui.json` is bumped once, when the commit is made** — not on every edit. A commit altering what a

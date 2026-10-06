@@ -3,7 +3,7 @@
 // does not bring the name into this module's scope.
 import { formatDuration } from '@shared/ui-format'
 
-export { formatAgo, formatClock, formatDuration, relativeFrom } from '@shared/ui-format'
+export { formatAgo, formatClock, formatDuration, formatRatio, relativeFrom } from '@shared/ui-format'
 
 export function formatStamp(ts: number): string {
   const date = new Date(ts)
@@ -31,15 +31,6 @@ export function formatUptime(ms: number): string {
   if (minutes > 0)
     return `${String(minutes).padStart(2, '0')}m${String(seconds).padStart(2, '0')}s`
   return `${seconds}s`
-}
-
-export function formatRatio(value: number | null): string {
-  // `!Number.isFinite` for the same reason every sibling here checks it: the contract is
-  // `number | null`, so the type permits a `NaN` a future producer could compute (a `0/0` ratio),
-  // and `NaN` would render as the literal `NaN%` rather than the em-dash that means unknown.
-  if (value === null || !Number.isFinite(value))
-    return '—'
-  return `${(value * 100).toFixed(value >= 0.999 ? 0 : 1)}%`
 }
 
 export function formatBytes(bytes: number | null): string {
