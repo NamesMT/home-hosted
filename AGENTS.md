@@ -33,13 +33,6 @@ reasoning and the traps.
 
 ## Commands
 
-First run: `pnpm install --frozen-lockfile` (Node ≥ 24, pnpm). Stack: TypeScript on Node, Hono +
-srvx for the panel, ArkType at every boundary, Vue 3 + Vite + Tailwind v4 for the UIs, Vitest for
-tests (the CLI is bundled by `vite.server.config.ts`), `@antfu/eslint-config` for lint and formatting.
-
-`pnpm run <script>` for anything whose name collides with a pnpm built-in — a bare `pnpm up` runs
-pnpm's own update, not this project's.
-
 ```sh
 pnpm run up|down|restart|status    # detached; `down` asks /_hh/shutdown, signals are the fallback
                                    # `restart <id>` restarts one server via /_hh, panel stays up
@@ -190,15 +183,15 @@ nobody reads is worse than a long file.
   inside `copyInto` is a second line that route does not reach.
 - **Never overwrite or delete a large section you have not fully understood.** Read it, or say what
   you could not determine and ask.
-- **Do not invent requirements.** Implement what was asked; if something else looks needed, say so
-  and let it be decided.
 - **Report the risk, not only the change** — what could break, what you could not verify, and every
   assumption you made. Worth checking by kind: correctness, security, operational (deploy, host,
   scaling) and integration (dependencies, breaking changes). A confident answer that omits this is
   worth less than a hedged one that has it.
-- **Name the highest-leverage improvement you saw, even when you did not make it.** A fix that
-  removes a whole class of bug beats one that removes an instance; say which it is so the work can be
-  prioritised. Do not silently expand scope to do it.
+- **Fix the root cause, not the instance.** When the same bug keeps reappearing under different
+  names — a copied helper, a rule stated twice, a guard bypassed by a second code path — fix the
+  class: one shared implementation, one formatter, one guard. That is the work, not a follow-up to
+  ask for. Say what you changed and what it now prevents, and keep it inside the task's scope rather
+  than refactoring the world.
 - **Verify before claiming, and say which direction you checked.** A passing test is not evidence it
   pinned anything — see [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md) for the habits that catch
   this. Mark anything unverified as unverified.
