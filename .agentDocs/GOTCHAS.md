@@ -178,6 +178,14 @@ line in `AGENTS.md` instead.
   field on purpose — a window problem must not read as a key mismatch and send you to the wrong file.
   `-not_before`/`-not_after` need OpenSSL ≥ 3.2, so the tests probing that window are behind
   `hasOpensslExplicitDates` (probed, not version-compared: macOS ships LibreSSL).
+- **The nanny's `pending` slot is unreachable, and the ordering is what makes it so.** `runNanny`
+  installs its SIGTERM/SIGINT traps and only then spawns, with the `pending` variable holding a signal
+  that lands "in between". Nothing in that block awaits, and Node runs a signal handler only *between*
+  synchronous runs — measured both ways: a handler raised during a busy-loop did not run until the loop
+  yielded, and an instrumented `onSignal` on the real nanny always saw `spawned=set`. So it is kept as
+  the ordering made visible rather than deleted, and `test/services/nanny.test.ts` pins the ordering
+  (traps before spawn, no `await` in the window) instead of the branch. Insert an `await` there and the
+  test fails — which is the moment `pending` becomes live.
 - **`serve({ tls })` throws synchronously on a pair whose key does not match.** Not a rejected
   `ready()` — the throw happens while the context is built, before `listen()`'s `ready()`/`error` race
   exists, so `listenWithRetry` cannot treat it as a bind failure and `start()` has no fallback: the

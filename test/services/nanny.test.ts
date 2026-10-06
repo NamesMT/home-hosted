@@ -128,6 +128,34 @@ async function startNanny(spec: NannySpec, specPath: string, statePath: string):
 }
 
 describe('nanny', () => {
+  /**
+   * The signal traps must be up before the child exists, and the block between them must stay
+   * synchronous.
+   *
+   * `runNanny` installs its SIGTERM/SIGINT handlers, then spawns. The `pending` slot exists for a
+   * signal landing in between — but nothing in that block awaits, and Node delivers a signal handler
+   * only *between* synchronous runs, so `spawned` is always already set by the time a handler runs.
+   * Both halves measured: a handler raised during a busy-loop never ran until the loop yielded, and
+   * an instrumented `onSignal` on the real nanny always printed `spawned=set`.
+   *
+   * So this pins the *ordering* rather than the `pending` branch, because the branch is unreachable
+   * while the ordering holds — and it is the ordering that keeps it that way. Add an `await` before
+   * `spawnManaged` and this fails, which is the moment `pending` becomes live code.
+   */
+  it('installs its traps before spawning, with no await in between', () => {
+    const source = fs.readFileSync(fileURLToPath(new URL('../../src/services/nanny.ts', import.meta.url)), 'utf8')
+    const traps = source.indexOf('process.on(\'SIGTERM\'')
+    const spawn = source.indexOf('spawnManaged(')
+    expect(traps, 'the SIGTERM trap must be installed').toBeGreaterThan(-1)
+    expect(spawn, 'the spawn must be there').toBeGreaterThan(-1)
+    expect(traps, 'traps before the child exists').toBeLessThan(spawn)
+
+    // The window between the last trap and the spawn assignment must contain no `await`: an await
+    // there is a tick, and a tick is where a signal handler runs.
+    const window = source.slice(traps, source.indexOf('spawned = child'))
+    expect(window, 'no await between the traps and the spawn').not.toMatch(/\bawait\b/)
+  })
+
   it('exits with its child, even when a successor kept its pipes open', async () => {
     // The pattern `follow` exists for: a program restarts itself by spawning a detached
     // successor with inherited stdio and exiting. That successor holds the write end of
