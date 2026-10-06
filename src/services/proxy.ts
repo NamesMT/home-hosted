@@ -108,7 +108,7 @@ function namesOf(x509: X509Certificate): string[] {
 }
 
 /** True when a pair covers this hostname, wildcards included. */
-function coversHost(hosts: readonly string[], host: string): boolean {
+export function coversHost(hosts: readonly string[], host: string): boolean {
   const name = host.toLowerCase()
   return hosts.some((entry) => {
     if (entry === name)
