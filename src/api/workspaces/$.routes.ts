@@ -16,8 +16,10 @@ const removedResponse = type({ ok: 'boolean', removed: type({ id: 'string', labe
 /** A registry failure is an API failure: unknown ids are 404, conflicts 409, the rest 400. */
 function workspaceFailure(error: unknown): never {
   if (error instanceof WorkspaceError) {
-    const unknown = error.message.startsWith('unknown workspace')
-    const conflict = error.message.endsWith('already exists')
+    // The exception carries the kind. Matching the message would misroute a *validation* failure
+    // whose summary happened to begin `unknown workspace` or end `already exists`.
+    const unknown = error.code === 'UNKNOWN_WORKSPACE'
+    const conflict = error.code === 'WORKSPACE_EXISTS'
     throw new DetailedError(error.message, {
       statusCode: unknown ? 404 : conflict ? 409 : 400,
       code: unknown ? 'UNKNOWN_WORKSPACE' : conflict ? 'WORKSPACE_EXISTS' : 'INVALID_WORKSPACE',

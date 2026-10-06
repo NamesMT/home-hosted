@@ -18,8 +18,21 @@ export const workspacesFileSchema = type({
   workspaces: workspaceSchema.array(),
 }).onUndeclaredKey('reject')
 
+/**
+ * The *kind* of registry failure, when a caller has to branch on it rather than just report it.
+ * The workspaces route answers 404 for an unknown id, 409 for a conflict and 400 otherwise, and it
+ * decided that by matching the message text.
+ */
+export type WorkspaceErrorCode = 'UNKNOWN_WORKSPACE' | 'WORKSPACE_EXISTS'
+
 export class WorkspaceError extends Error {
   override name = 'WorkspaceError'
+  readonly code: WorkspaceErrorCode | undefined
+
+  constructor(message: string, code?: WorkspaceErrorCode) {
+    super(message)
+    this.code = code
+  }
 }
 
 const seed = (): Workspace[] => [{ id: DEFAULT_WORKSPACE_ID, label: 'Default' }]
@@ -118,7 +131,7 @@ export class WorkspaceRegistry {
     if (validated instanceof type.errors)
       throw new WorkspaceError(validated.summary)
     if (this.has(id))
-      throw new WorkspaceError(`workspace "${id}" already exists`)
+      throw new WorkspaceError(`workspace "${id}" already exists`, 'WORKSPACE_EXISTS')
 
     const next = [...this.list, validated]
     this.commit(next)
@@ -128,7 +141,7 @@ export class WorkspaceRegistry {
   rename(id: string, label: string): Workspace {
     const index = this.list.findIndex(entry => entry.id === id)
     if (index < 0)
-      throw new WorkspaceError(`unknown workspace "${id}"`)
+      throw new WorkspaceError(`unknown workspace "${id}"`, 'UNKNOWN_WORKSPACE')
 
     const validated = workspaceSchema({ id, label: label.trim() })
     if (validated instanceof type.errors)
@@ -143,7 +156,7 @@ export class WorkspaceRegistry {
   remove(id: string): Workspace {
     const entry = this.get(id)
     if (entry === undefined)
-      throw new WorkspaceError(`unknown workspace "${id}"`)
+      throw new WorkspaceError(`unknown workspace "${id}"`, 'UNKNOWN_WORKSPACE')
     if (this.list.length <= 1)
       throw new WorkspaceError('cannot remove the only workspace')
 

@@ -287,7 +287,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       const resolved = id === undefined || id.length === 0 ? registry.defaultId : id
       const runtime = workspaces.get(resolved)?.runtime
       if (runtime === undefined)
-        throw new WorkspaceError(`unknown workspace "${id ?? resolved}"`)
+        throw new WorkspaceError(`unknown workspace "${id ?? resolved}"`, 'UNKNOWN_WORKSPACE')
       return runtime
     },
     serverViews: (workspaceId?: string) => workspaceId === undefined
@@ -312,7 +312,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       const workspace = registry.rename(id, label)
       const existing = workspaces.get(id)
       if (existing === undefined)
-        throw new WorkspaceError(`unknown workspace "${id}"`)
+        throw new WorkspaceError(`unknown workspace "${id}"`, 'UNKNOWN_WORKSPACE')
       existing.label = workspace.label
       existing.runtime.label = workspace.label
       return existing.runtime.view()
@@ -320,7 +320,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     async remove(id: string) {
       const existing = workspaces.get(id)
       if (existing === undefined)
-        throw new WorkspaceError(`unknown workspace "${id}"`)
+        throw new WorkspaceError(`unknown workspace "${id}"`, 'UNKNOWN_WORKSPACE')
       if (workspaces.size <= 1)
         throw new WorkspaceError('cannot remove the only workspace')
 
