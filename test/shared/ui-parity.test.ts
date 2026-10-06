@@ -107,6 +107,31 @@ describe('the plain-object predicate has one definition', () => {
     return found
   }
 
+  /** Every `@shared/*` import specifier one UI makes, across all of its source files. */
+  function uiImports(ui: string): string[] {
+    const base = path.join(root, 'uis', ui, 'src')
+    const out: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          walk(full)
+        }
+        else if (/\.(?:ts|vue)$/.test(entry.name)) {
+          // Split rather than regex: `from '@shared/x'` is a plain substring, and a pattern here
+          // tripped `regexp/no-unused-capturing-group` whichever way the group was written.
+          for (const part of fs.readFileSync(full, 'utf8').split(`from '`).slice(1)) {
+            const spec = part.slice(0, part.indexOf(`'`))
+            if (spec.startsWith('@shared/'))
+              out.push(spec)
+          }
+        }
+      }
+    }
+    walk(base)
+    return out
+  }
+
   it('lives only in the shared module', () => {
     const files = sources()
     // Anti-vacuity: the walk is meant to see the whole tree, not an empty list.
@@ -126,7 +151,15 @@ describe('the plain-object predicate has one definition', () => {
     // The array half is the reason this exists; a variant without it is the bug, not a style choice.
     expect(shape).toContain('!Array.isArray(value)')
 
-    expect(fs.readFileSync(path.join(root, 'uis', 'stock', 'src', 'lib', 'api.ts'), 'utf8')).toContain('from \'@shared/shape\'')
-    expect(fs.readFileSync(path.join(root, 'uis', 'noc-console', 'src', 'lib', 'api.ts'), 'utf8')).toContain('from \'@shared/shape\'')
+    // Asserted on a module that *needs* it in both UIs rather than one particular file: the previous
+    // version named `lib/api.ts`, which stopped importing `isRecord` once its `request` helper moved
+    // to `@shared/api-client`. A named file is a fixture that rots; the property is that each UI
+    // reaches shared code by the alias.
+    // Counted, not merely matched: a single surviving import in one file satisfied a `toMatch` on the
+    // joined text, so removing every shared import from a UI still passed.
+    for (const ui of ['stock', 'noc-console'])
+      expect(uiImports(ui).length, `${ui} must reach shared code through the alias`).toBeGreaterThan(0)
+    // The alias is used for more than contracts, so the check is not satisfied by one type-only import.
+    expect(uiImports('noc-console').some(spec => spec !== '@shared/contracts')).toBe(true)
   })
 })
