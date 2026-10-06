@@ -182,6 +182,32 @@ nobody reads is worse than a long file.
   a path list of where something used to live is archaeology, not guidance.
 - Do not drop a caveat to save a line. Concise means no filler, not fewer facts.
 
+## How to work here
+
+- **Check who calls it before you change it.** Grep the callers and the tests that name it, and say
+  when the impact is unclear rather than guessing. One guard here looked like the one that runs and
+  was not: `declaredData` marks a path `included: false` so the copy never starts, while the check
+  inside `copyInto` is a second line that route does not reach.
+- **Never overwrite or delete a large section you have not fully understood.** Read it, or say what
+  you could not determine and ask.
+- **Do not invent requirements.** Implement what was asked; if something else looks needed, say so
+  and let it be decided.
+- **Report the risk, not only the change** — what could break, what you could not verify, and every
+  assumption you made. Worth checking by kind: correctness, security, operational (deploy, host,
+  scaling) and integration (dependencies, breaking changes). A confident answer that omits this is
+  worth less than a hedged one that has it.
+- **Name the highest-leverage improvement you saw, even when you did not make it.** A fix that
+  removes a whole class of bug beats one that removes an instance; say which it is so the work can be
+  prioritised. Do not silently expand scope to do it.
+- **Verify before claiming, and say which direction you checked.** A passing test is not evidence it
+  pinned anything — see [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md) for the habits that catch
+  this. Mark anything unverified as unverified.
+- **If recall of this project is missing** (a compacted or fresh session, a different machine), read
+  this file, `.agentDocs/`, and `git log` before acting, and ask 1–3 targeted questions rather than
+  reconstructing intent from guesswork.
+- **Leave the docs better than you found them.** Delete what is stale, compact what has grown, and
+  never leave a pointer to content that does not exist.
+
 ## User-facing docs
 
 `README.md` and the topical `docs/*.md` are for a person, not an agent:
