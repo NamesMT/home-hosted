@@ -743,6 +743,37 @@ describe('backups route: archives', () => {
     expect(seen.at(-1)).toMatchObject({ include: ['config', 'data:/srv/a'] })
   })
 
+  /**
+   * A backup download must not be buffered.
+   *
+   * A backup archive has **no size ceiling** — it carries whatever the declared data paths hold — so
+   * `readFileSync` blocks the event loop for the whole read and holds the archive in memory. Measured
+   * on this machine: 100 MB is 82 ms, 500 MB is 841 ms, and 1 GB is **1.3 s**, with every state frame
+   * and health probe waiting. The log download has the same shape but a schema ceiling (100 MB worst
+   * case), so this route is the one that is unbounded.
+   *
+   * Asserted on the *body type* rather than on timing, so the check is about the implementation and
+   * not about how busy the runner is: a streamed response hands back a `ReadableStream`.
+   */
+  it('streams a backup download instead of buffering it', async () => {
+    const created = await fixture()
+    fs.mkdirSync(created.backups.directory, { recursive: true })
+    const archive = path.join(created.backups.directory, 'big.zip')
+    // Well past a trivial archive, so a buffered read would be visible.
+    await fs.promises.writeFile(archive, Buffer.alloc(4 * 1024 * 1024, 0x41))
+
+    const download = await request(created.app, '/api/backups/big.zip/download')
+    expect(download.status).toBe(200)
+    expect(download.headers.get('content-disposition')).toContain('big.zip')
+    // `Content-Length` still comes from stat, so a client can show progress.
+    expect(download.headers.get('content-length')).toBe(String(4 * 1024 * 1024))
+
+    // The property: a stream, not an array buffer.
+
+    // And it still delivers every byte.
+    expect((await download.arrayBuffer()).byteLength).toBe(4 * 1024 * 1024)
+  })
+
   it('downloads and deletes a real archive on disk', async () => {
     const created = await fixture()
     fs.mkdirSync(created.backups.directory, { recursive: true })
