@@ -60,6 +60,24 @@ describe('check-release-version', () => {
     expect(run('0.7.18-rc.1').code).toBe(0)
   })
 
+  /**
+   * `release-notes.mjs` lifts one CHANGELOG section for the GitHub release body. It interpolates the
+   * version into a `RegExp` escaping only the dots, so any other metacharacter threw
+   * (`0.7.18)` → `Unmatched ')'`) as a stack trace instead of the one-line usage error.
+   *
+   * Unreachable from the workflow — `check-release-version.mjs` runs earlier in the same job — but the
+   * script is runnable by hand, and a stack trace names the wrong problem.
+   */
+  it('refuses a malformed version in release-notes with a usage line, not a stack trace', () => {
+    const notes = path.join(process.cwd(), 'scripts', 'release-notes.mjs')
+    for (const value of ['0.7.18)', '[', 'nonsense', '']) {
+      const result = spawnSync(process.execPath, [notes, value], { encoding: 'utf8' })
+      expect(result.status, value).toBe(1)
+      expect(`${result.stdout}${result.stderr}`, value).toContain('usage: release-notes.mjs')
+      expect(result.stderr, `${value} must not throw`).not.toContain('Unmatched')
+    }
+  })
+
   it('warns about a minor with no breaking commit behind it, without failing', () => {
     // Below 1.0 the minor is the breaking channel, so a minor with none pending is usually a patch
     // that was meant — a warning, not a refusal, since the person may know better.

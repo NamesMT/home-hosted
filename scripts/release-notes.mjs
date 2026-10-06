@@ -10,8 +10,12 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const version = (process.argv[2] ?? '').trim().replace(/^v/, '')
-if (version.length === 0) {
-  console.error('usage: release-notes.mjs <version>')
+// Validated rather than escaped: escaping only the dots left every other metacharacter live, so
+// `0.7.18)` threw `Unmatched ')'` as a stack trace instead of the one-line usage error. Unreachable
+// from the workflow — `check-release-version.mjs` runs earlier in the same job and refuses this first
+// — but the script is runnable by hand, and a stack trace names the wrong problem.
+if (!/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Z.-]+)?$/i.test(version)) {
+  console.error(`usage: release-notes.mjs <version>   (e.g. 0.7.18 or 0.7.18-rc.1)`)
   process.exit(1)
 }
 
