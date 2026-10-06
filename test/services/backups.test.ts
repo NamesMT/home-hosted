@@ -532,6 +532,61 @@ describe('backup service', () => {
     expect(fs.readFileSync(path.join(fixture.dataDir, 'empty.txt'), 'utf8')).toBe('')
   })
 
+  /**
+   * Two archived data paths that share one `origin` must land on two different targets.
+   *
+   * `origin` records which declaration a path came from, and a `global` include path plus a
+   * `backupPaths` value can share one — so matching on origin alone would write *both* archived entries
+   * to the first candidate and leave the second path unrestored. The planner pairs same-origin
+   * declarations by order instead, consuming each target once.
+   *
+   * That pairing is the documented reason the `used` sets exist, and nothing pinned it: both entries
+   * here carry `origin: 'app:DATA_DIR'`, and only one target may take each.
+   */
+  it('restores two data paths that share one origin onto separate targets', async () => {
+    const firstDir = path.join(os.tmpdir(), 'shared-origin-a')
+    const secondDir = path.join(os.tmpdir(), 'shared-origin-b')
+    const fixture = await makeFixture({ includePaths: [firstDir, secondDir] })
+
+    const archive = path.join(fixture.root, 'shared-origin.zip')
+    await makeZip(archive, {
+      'manifest.json': JSON.stringify({
+        version: 1,
+        createdAt: Date.now(),
+        hostname: 'somewhere-else',
+        // Two entries carrying the SAME origin 'global' — the collision the comment describes.
+        // `backupPaths` gets `${serverId}:backupPaths`, so it cannot collide; a global include
+        // path and a second global include path can, and they are what the `used` set exists for.
+        data: [
+          { slug: 'first-app', path: '/home/someone/first-app', origin: 'global', workspace: 'default' },
+          { slug: 'second-app', path: '/home/someone/second-app', origin: 'global', workspace: 'default' },
+        ],
+      }),
+      'global/settings.json': JSON.stringify({ backups: { includePaths: [] } }),
+      'workspaces/default/servers.config.json': JSON.stringify({
+        // Two global include paths, plus the server's own env — the same origin twice.
+        servers: [{ id: 'app', command: 'node', dataEnvs: {}, backupPaths: [] }],
+      }),
+      'data/first-app/first.txt': 'FIRST\n',
+      'data/second-app/second.txt': 'SECOND\n',
+    })
+
+    const plan = await fixture.service.restore(archive, { confirm: false })
+    expect(plan.error).toBeUndefined()
+
+    // Each archived path gets its own target, in the archive's resolve order.
+    expect(plan.items.find(item => item.id === `workspace:default:data:${firstDir}`)).toMatchObject({ restorable: true })
+    expect(plan.items.find(item => item.id === `workspace:default:data:${secondDir}`)).toMatchObject({ restorable: true })
+
+    const applied = await fixture.service.restore(archive, { confirm: true })
+    expect(applied.applied).toContain(firstDir)
+    expect(applied.applied).toContain(secondDir)
+    // The proof the collision is resolved: each file is at its own target, not both at the first.
+    expect(fs.readFileSync(path.join(firstDir, 'first.txt'), 'utf8')).toBe('FIRST\n')
+    expect(fs.readFileSync(path.join(secondDir, 'second.txt'), 'utf8')).toBe('SECOND\n')
+    expect(fs.existsSync(path.join(firstDir, 'second.txt'))).toBe(false)
+  })
+
   it('restores only the items that were selected', async () => {
     const fixture = await makeFixture()
     const created = await fixture.service.create()
