@@ -307,8 +307,11 @@ export function useControlPlane() {
     remove: (workspaceId: string, id: string) => run(async () => {
       await api.removeServer(id, workspaceId)
       unwatchLogs(workspaceId, id)
-      delete logLines[serverKey(workspaceId, id)]
-      delete series[serverKey(workspaceId, id)]
+      const key = serverKey(workspaceId, id)
+      delete logLines[key]
+      delete series[key]
+      // The third per-server map: it had no prune, so every id the session ever sampled stayed in it.
+      lastSample.delete(key)
     }),
     /** Runs an action and surfaces a failure through the shared error state. */
     async act(workspaceId: string, id: string, action: 'start' | 'stop' | 'restart'): Promise<ActionResult | undefined> {
