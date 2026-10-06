@@ -294,6 +294,30 @@ describe('logs route', () => {
     expect(body.searched).toBeNull()
   })
 
+  /**
+   * Search ignores case, in both directions.
+   *
+   * Every existing search assertion uses a lowercase needle against lowercase seeded text, so the two
+   * `toLowerCase()` calls in the route were unpinned — dropping either would have made the search
+   * case-sensitive with the suite still green. Verified through the route: `error`, `ERROR` and
+   * `DISK FULL` all match a line reading `ERROR: Disk Full`, and a non-match returns nothing rather
+   * than the whole window.
+   */
+  it('matches a search regardless of case', async () => {
+    const created = await withServer()
+    created.logFiles.append('web', { ts: 1, stream: 'stdout', text: 'ERROR: Disk Full' })
+    created.logFiles.flush()
+
+    for (const needle of ['error', 'ERROR', 'ErRoR', 'disk full', 'DISK FULL']) {
+      const body = await (await request(created.app, `/api/logs/web?search=${encodeURIComponent(needle)}`)).json() as { lines: Array<{ text: string }> }
+      expect(body.lines.map(line => line.text), needle).toEqual(['ERROR: Disk Full'])
+    }
+
+    // A miss returns nothing — the filter really removes lines, it does not pass everything through.
+    const missed = await (await request(created.app, '/api/logs/web?search=nothing-matches-this')).json() as { lines: unknown[] }
+    expect(missed.lines).toEqual([])
+  })
+
   it('filters by stream and reports the window it searched', async () => {
     const created = await withServer()
     seedLogs(created, 60)
