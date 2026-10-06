@@ -39,6 +39,7 @@ servers and its state together.
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
 | `dependsOn` | ids that must be healthy first; stopped in reverse order |
+| `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from |
 | `resources.maxRssBytes` | restart when the process tree grows past a limit |
 | `bootstrap` | one command to run once before the first start (migrations, warmups) |
 | `backupPaths`, `backupIgnoreGenerated` | extra paths this entry owns, included in backups; the flag (on by default) skips the known build and dependency directories inside them — `node_modules`, `dist`, `.next`, framework caches |
