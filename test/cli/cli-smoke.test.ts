@@ -96,6 +96,28 @@ describe('cli smoke', () => {
     expect(result.stderr).toContain('home-hosted — a control panel')
   })
 
+  /**
+   * A typo should name the command it meant, not just print the whole reference.
+   *
+   * `restar` is one edit from `restart`; printing 25 lines of usage leaves the reader to spot it.
+   * The list comes from `SYNOPSIS`, the same source the reference renders, so a suggestion can never
+   * name a command that does not exist.
+   */
+  it('suggests the closest command when one is misspelled', () => {
+    const typo = runCli(['restar'])
+    expect(typo.status).toBe(1)
+    expect(typo.stderr).toContain('unknown command: restar')
+    expect(typo.stderr, 'a one-edit typo names the command it meant').toContain('did you mean `restart`')
+
+    // A transposition, not just a missing letter.
+    expect(runCli(['stats']).stderr).toContain('did you mean `status`')
+
+    // Nothing close: suggest nothing rather than guessing at an unrelated command.
+    const far = runCli(['zebra'])
+    expect(far.stderr).toContain('unknown command: zebra')
+    expect(far.stderr, 'an unrelated word must not be given a wrong suggestion').not.toContain('did you mean')
+  })
+
   /** The supervisor lives in the daemon, so `start` has to say what it is missing. */
   it('start/stop name the missing piece instead of failing obscurely', () => {
     const noId = runCli(['start'])
