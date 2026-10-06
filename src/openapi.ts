@@ -1,7 +1,7 @@
-import fs from 'node:fs'
 import { Scalar } from '@scalar/hono-api-reference'
 import { openAPIRouteHandler } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
+import { appVersion } from '#src/helpers/version'
 
 const PREFIX = '/openapi'
 
@@ -12,16 +12,6 @@ const PREFIX = '/openapi'
  * UI author has to be able to read it before they can log in.
  */
 /** The version the package was built with, so the spec never drifts from it. */
-function packageVersion(): string {
-  try {
-    const manifest = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string }
-    return manifest.version ?? '0.0.0'
-  }
-  catch {
-    return '0.0.0'
-  }
-}
-
 export function setupOpenAPI(app: Parameters<typeof openAPIRouteHandler>[0]) {
   return appFactory.createApp()
     .get(
@@ -30,7 +20,7 @@ export function setupOpenAPI(app: Parameters<typeof openAPIRouteHandler>[0]) {
         documentation: {
           info: {
             title: 'home-hosted',
-            version: packageVersion(),
+            version: appVersion(),
             description: 'Control plane for the processes you host at home: servers, logs, vitals, backups and settings.',
           },
           tags: [

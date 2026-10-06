@@ -1,11 +1,11 @@
 import type { SubCommandsDef } from 'citty'
-import fs from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
 import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
 import { cyan, dim, fail, heading } from './cli/io'
 import { NANNY_COMMAND } from './helpers/runtime'
+import { appVersion } from './helpers/version'
 
 /**
  * The command line, and nothing else. Two things happen before citty is asked
@@ -345,18 +345,8 @@ export function commandHelp(command: string): string {
   ].join('\n')
 }
 
-function manifestVersion(): string {
-  try {
-    const manifest = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string }
-    return manifest.version ?? '0.0.0'
-  }
-  catch {
-    return '0.0.0'
-  }
-}
-
 function version(): void {
-  process.stdout.write(`${manifestVersion()}\n`)
+  process.stdout.write(`${appVersion()}\n`)
 }
 
 /**
@@ -383,7 +373,7 @@ const COMMANDS = {
 const rootCommand = defineCommand({
   meta: {
     name: 'home-hosted',
-    version: manifestVersion(),
+    version: appVersion(),
     description: 'a control panel for the processes on your home server',
   },
   subCommands: COMMANDS,

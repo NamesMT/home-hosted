@@ -8,8 +8,12 @@ let cached: string | null = null
  * The running release, read from the package manifest.
  *
  * The caller may be `src/**` under tsx or the built `dist/cli.js`, so the manifest
- * is found by walking up rather than by a fixed relative path. `src/cli.ts` keeps
- * its own read because it may only import node builtins statically.
+ * is found by walking up rather than by a fixed relative path, and the name is checked:
+ * a nested manifest must not be trusted as this package's.
+ *
+ * `src/cli.ts` reaches this through a **relative** import, not `#src/*`. That file is the
+ * bootstrap and may only pull in modules that load node builtins statically — a `#src`
+ * import there would pull the daemon graph in before citty is even asked anything.
  */
 export function appVersion(): string {
   if (cached !== null)
