@@ -12,8 +12,9 @@ import { GlobalSettingsStore } from '#src/config/settings'
 import { logger } from '#src/helpers/logger'
 import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
-import { groupDns01Policies, isPublicHost, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
+import { groupDns01Policies, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
 import { proxyConfigSchema } from '#src/shared/contracts'
+import { isPublicHost } from '#src/shared/proxy-form'
 
 const dirs: string[] = []
 

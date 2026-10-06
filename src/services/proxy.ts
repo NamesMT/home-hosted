@@ -46,6 +46,7 @@ import { isPortFree, isProcessAlive, listPortHolders } from '#src/providers/port
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
 import { FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { TlsStore } from '#src/services/tls'
+import { isPublicHost } from '#src/shared/proxy-form'
 
 /** The engine is not a server entry, but it borrows the nanny's shape. */
 const PROXY_ID = 'proxy'
@@ -1977,26 +1978,6 @@ export function validateProxyConfig(config: ProxyConfig, dnsAccount?: (ref: stri
       errors.push(`route "${route.id}": the "${found.provider}" account has no credentials stored yet`)
   }
   return errors
-}
-
-/**
- * A name an ACME CA could issue for. A local-only name gets the engine's own CA
- * instead, so it never needs an account address — requiring one would block the
- * LAN-only setup that has no public DNS at all. The list is the reserved and
- * homelab TLDs a public CA cannot serve.
- */
-const LOCAL_TLDS = ['.localhost', '.local', '.internal', '.home.arpa', '.lan', '.home', '.test', '.invalid', '.example']
-
-export function isPublicHost(host: string): boolean {
-  const name = host.toLowerCase()
-  if (name === 'localhost' || !name.includes('.'))
-    return false
-  if (LOCAL_TLDS.some(tld => name.endsWith(tld)))
-    return false
-  // A name, not an address: four octets is an IPv4 literal, and anything longer still
-  // reads as dotted digits rather than a registrable name — ACME would be attempted
-  // for `1.2.3.4.5`, which no CA can issue for.
-  return !/^\d{1,3}(?:\.\d{1,3}){3,}$/.test(name)
 }
 
 /** Caddy answers with `{"error": "..."}`; that sentence is the useful part. */

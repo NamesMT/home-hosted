@@ -38,6 +38,23 @@ describe('the UIs share one proxy form', () => {
     }
   })
 
+  /**
+   * The panel must not re-declare a shared member either.
+   *
+   * The check above only looked at the UIs, and that blind spot was real: `services/proxy.ts` kept
+   * its own `isPublicHost` and `LOCAL_TLDS` beside the shared pair, and the bodies had already
+   * diverged — the shared copy trims the host, the panel's did not. They agreed on every input I
+   * tried, so nothing broke; the next divergence would not have been so polite.
+   *
+   * `src/**` is the other consumer of `src/shared/`, so it needs the same rule.
+   */
+  it('keeps the panel from re-declaring a shared member', () => {
+    const source = fs.readFileSync(path.join(root, 'src', 'services', 'proxy.ts'), 'utf8')
+    expect(source, 'the panel must not re-declare isPublicHost').not.toMatch(/^export function isPublicHost/m)
+    expect(source, 'the panel must not re-declare LOCAL_TLDS').not.toMatch(/^const LOCAL_TLDS/m)
+    expect(source, 'the panel should read the shared form').toContain('from \'#src/shared/proxy-form\'')
+  })
+
   it('keeps `cloneRoutes` in each UI, because it needs Vue', () => {
     // The one deliberate exception: it calls `toRaw`, and the shared module must not depend on Vue
     // (the UIs bundle it as a devDependency; the published package does not ship it).
