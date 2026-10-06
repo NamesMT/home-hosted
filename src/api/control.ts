@@ -6,6 +6,7 @@ import { statusForAction } from '#src/helpers/action-result'
 import { afterResponse } from '#src/helpers/deferred'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
+import { secretEqual } from '#src/helpers/secret-compare'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
@@ -21,7 +22,9 @@ export function createControlRoute(deps: AppDeps) {
   /** The one place the local channel's credentials are read. */
   function assertLocalCall(c: Context, action: string): void {
     const token = c.req.header('x-home-hosted-token')
-    if (token === undefined || token !== deps.runtimeToken)
+    // Constant-time: this channel is outside `/api`, so the token is the only thing guarding it, and a
+    // byte-by-byte timing recovery by another local user is exactly what it exists to stop.
+    if (token === undefined || !secretEqual(token, deps.runtimeToken))
       throw new DetailedError('invalid token', { statusCode: 403, code: 'INVALID_TOKEN' })
     if (!isLoopbackRequest(c))
       throw new DetailedError(`only this machine may ${action}`, { statusCode: 403, code: 'NOT_LOOPBACK' })

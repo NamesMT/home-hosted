@@ -1,7 +1,7 @@
 import type { DdnsChallengeRecord, DdnsFetch } from '#src/providers/ddns/types'
 import { Buffer } from 'node:buffer'
-import crypto from 'node:crypto'
 import { type } from 'arktype'
+import { secretEqual } from '#src/helpers/secret-compare'
 import { ddnsProvider } from '#src/providers/ddns'
 import { normalizeHost } from '#src/providers/ddns/types'
 
@@ -51,15 +51,6 @@ function reply(message: { fqdn: string, value: string }, status = 200): Response
 
 function failure(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), { status, headers: { 'content-type': 'application/json' } })
-}
-
-/** Constant-time, and length-safe: `timingSafeEqual` throws on differing lengths. */
-function matches(actual: string, expected: string): boolean {
-  const left = Buffer.from(actual, 'utf8')
-  const right = Buffer.from(expected, 'utf8')
-  if (left.length !== right.length)
-    return false
-  return crypto.timingSafeEqual(left, right)
 }
 
 /**
@@ -138,8 +129,8 @@ export class AcmeChallengeService {
       // wrong, so the two halves cost different work — the opposite of what this comment used to say.
       // The difference is ~90 ns, below loopback jitter, and this endpoint is loopback-only with a
       // generated credential, so it is not a demonstrated leak; computing both costs nothing.
-      const userOk = matches(user, auth.username)
-      const passwordOk = matches(password, auth.password)
+      const userOk = secretEqual(user, auth.username)
+      const passwordOk = secretEqual(password, auth.password)
       return userOk && passwordOk
     }
     catch {

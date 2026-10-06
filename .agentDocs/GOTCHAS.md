@@ -154,6 +154,12 @@ line in `AGENTS.md` instead.
 - **Backups are zips.** A password makes them WinZip AES-256/AE-2, and zero-byte entries stay
   unencrypted on purpose (p7zip 16.02 reports a CRC failure otherwise). `list()` is sync, so
   encryption flags are cached and refreshed in the background.
+- **Compare a secret with `secretEqual`, never `!==`.** `!==` short-circuits at the first differing
+  byte, so a caller who can measure response time recovers the secret one byte at a time. The `/_hh`
+  channel is the case that matters: it sits outside `/api`, so the run.json token is the *only* guard,
+  and the documented threat is another local user — precisely someone who cannot read the 0600 file but
+  can time a request. One helper (`src/helpers/secret-compare.ts`) also carries the length check that
+  keeps a truncated header from making `timingSafeEqual` throw a 500.
 - **Server args are logged *before* `${VAR}` expansion**, so an expanded secret never reaches the
   log buffer, disk, SSE or Telegram.
 - **A certificate is valid only *inside* its window.** `validatePair` checked `validTo` alone, so a
