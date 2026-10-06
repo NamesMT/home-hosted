@@ -80,6 +80,7 @@ interface SupervisorHarness {
   nannyDir: string
   logDir: string
   logFiles: LogFiles
+  history: HistoryStore
   /** How many times the supervisor has told the panel that something may have moved. */
   stateChanges: () => number
 }
@@ -154,6 +155,7 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
     nannyDir,
     logDir: logFiles.directory,
     logFiles,
+    history,
     stateChanges: () => stateChanges,
   }
 }
@@ -1235,7 +1237,11 @@ describe('persistent entries', () => {
 describe('a removed server', () => {
   it('takes its log files with it, so a re-added id starts clean', async () => {
     const harness = await makeSupervisor([{ id: 'web', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] }])
-    const { supervisor, store, logFiles } = harness
+    const { supervisor, store, logFiles, history } = harness
+
+    // A crash the removed entry is known for, so its disappearance is measurable.
+    history.record('web', { type: 'crash', detail: 'THE OLD ENTRY' })
+    expect(history.summarize('web', 86_400_000).lastCrashAt).not.toBeNull()
 
     await supervisor.start('web')
     await waitFor(() => view(supervisor, 'web').status === 'running')
@@ -1250,8 +1256,11 @@ describe('a removed server', () => {
 
     expect(
       logFiles.readTail('web', 10).some(line => line.text.includes('HISTORY OF THE OLD ENTRY')),
-      'the removed entry\'s history must not survive to be served under the same id',
+      'the removed entry\'s log lines must not survive to be served under the same id',
     ).toBe(false)
+    // The same reclaim for history: otherwise the card reports "Last crash" for a server that was
+    // never started. Asserted here too, because `forget` in the removal branch is its own wiring.
+    expect(history.summarize('web', 86_400_000).lastCrashAt, 'nor its crash history').toBeNull()
   })
 })
 

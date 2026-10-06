@@ -677,6 +677,9 @@ export class Supervisor {
         // Safe here because a config that fails to parse keeps the last trusted server list, so a
         // transient bad edit does not read as "every server was removed".
         this.options.logFiles.clear(id)
+        // The same reclaim for history: without it a re-added id inherits the old entry's crash time
+        // and events, and the card reports "Last crash" for a server that was never started.
+        this.options.history.forget(id)
         void this.stopEntry(entry).catch((error: unknown) => {
           logger.error(`could not stop the removed server ${id}`, error)
         })

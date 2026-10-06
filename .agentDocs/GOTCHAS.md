@@ -184,7 +184,10 @@ line in `AGENTS.md` instead.
   that bites — **re-adding an id** served the *previous* server's lines as if they were the new one's,
   since nothing distinguishes a stale file from a current one. Safe to clear in `sync()` because a
   config that fails to parse keeps the last trusted server list, so a transient bad edit never reads as
-  "every server was removed".
+  "every server was removed". **History is the same reclaim**: an id is only unique while it exists, and
+  nothing pruned it either, so a re-added id showed the old entry's crash time — `HistoryStore.forget()`
+  now runs beside `logFiles.clear()` in the same branch. A per-**id** artifact needs reclaiming on
+  removal; check both stores when adding a third.
 - **The nanny's `pending` slot is unreachable, and the ordering is what makes it so.** `runNanny`
   installs its SIGTERM/SIGINT traps and only then spawns, with the `pending` variable holding a signal
   that lands "in between". Nothing in that block awaits, and Node runs a signal handler only *between*

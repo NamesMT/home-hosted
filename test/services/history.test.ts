@@ -128,3 +128,38 @@ describe('history store', () => {
     expect(history.all()).toEqual([])
   })
 })
+
+/**
+ * Forgetting a removed server, so an id cannot inherit its predecessor's history.
+ *
+ * An id is only unique while it exists. Nothing pruned on removal, so re-adding an id (a rename-back, a
+ * restore, a config edit) showed the old entry's crash time and events on the new one's card — measured:
+ * a line recorded under `web`, then read back under `web` after a reload, came through intact.
+ */
+describe('forget', () => {
+  it('drops only that server, and stops showing its crash as the last one', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-forget-'))
+    try {
+      const file = path.join(dir, 'history.json')
+      const store = new HistoryStore(file)
+      store.record('gone', { type: 'crash', detail: 'the removed server' })
+      store.record('kept', { type: 'crash', detail: 'still here' })
+      expect(store.summarize('gone', 86_400_000).lastCrashAt).not.toBeNull()
+
+      store.forget('gone')
+
+      expect(store.summarize('gone', 86_400_000).lastCrashAt, 'no crash to report').toBeNull()
+      expect(store.summarize('gone', 86_400_000).events).toEqual([])
+      // The other server is untouched.
+      expect(store.summarize('kept', 86_400_000).lastCrashAt).not.toBeNull()
+
+      // Persisted, so a restart does not bring it back.
+      store.dispose()
+      expect(new HistoryStore(file).summarize('gone', 86_400_000).lastCrashAt).toBeNull()
+      store.dispose()
+    }
+    finally {
+      await fs.promises.rm(dir, { recursive: true, force: true })
+    }
+  })
+})

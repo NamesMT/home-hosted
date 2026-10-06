@@ -56,6 +56,24 @@ export class HistoryStore {
     return [...this.events]
   }
 
+  /**
+   * Drops every event for a server that no longer exists.
+   *
+   * An id is only unique *while* it exists. Nothing pruned on removal, so re-adding an id — a
+   * rename-back, a restore, a config edit — inherited the old entry's crash time and event list, and
+   * the card showed "Last crash" for a server that had never been started. Bounded (5000 events) so it
+   * was never a leak, but wrong in the same way the log files were.
+   */
+  forget(serverId: string): void {
+    this.load()
+    const kept = this.events.filter(event => event.serverId !== serverId)
+    if (kept.length === this.events.length)
+      return
+    this.events = kept
+    this.version += 1
+    this.scheduleSave()
+  }
+
   /** `runningSince` adds the in-flight up-interval so a long-running server shows its real ratio. */
   summarize(serverId: string, windowMs: number, now = Date.now(), runningSince: number | null = null): ServerHistory {
     this.load()
