@@ -208,6 +208,34 @@ describe('healthz', () => {
     expect(await response.json()).toMatchObject({ status: 'degraded' })
   })
 
+  /**
+   * The declared schema must describe **both** answers, not just the 200.
+   *
+   * `healthz` builds its 200 schema inline in the route, and `/openapi/spec.json` publishes it — but
+   * nothing validated the body against it, and the 503 branch shares that response's `content` while
+   * answering a different status. A schema that describes only the happy path is the drift this session
+   * has now found three times (the error envelope's `detail`, six path helpers, a fixture's missing
+   * fields).
+   */
+  it('answers a body its own documented schema accepts, on both statuses', async () => {
+    const schema = type({
+      'status': '"ok" | "degraded"',
+      'uptimeMs': 'number',
+      'servers?': type({ total: 'number', running: 'number', crashed: 'number', unhealthy: 'number' }),
+      'hostAlerts?': 'string[]',
+    })
+
+    const healthy = await fixture()
+    const ok = await (await healthy.app.request('/healthz')).json()
+    expect(schema(ok) instanceof type.errors, `200 body: ${JSON.stringify(schema(ok))}`).toBe(false)
+
+    const degraded = await fixture({
+      views: [makeView('web', { status: 'crashed', config: { id: 'web', command: 'node', autostart: true } as never })],
+    })
+    const bad = await (await degraded.app.request('/healthz')).json()
+    expect(schema(bad) instanceof type.errors, `503 body: ${JSON.stringify(schema(bad))}`).toBe(false)
+  })
+
   it('includes the counts and host alerts for an authenticated caller', async () => {
     const created = await fixture({
       password: 'correct horse',
