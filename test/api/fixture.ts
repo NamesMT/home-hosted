@@ -6,6 +6,7 @@ import type { AppState, Bind, FreePortResult, LogLine, ServerConfig, ServerView 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { type } from 'arktype'
 import { Hono } from 'hono'
 import { createRootApp } from '#src/app'
 import { SecretsStore } from '#src/config/secrets'
@@ -27,6 +28,7 @@ import { ProxyService } from '#src/services/proxy'
 import { buildControlView, buildWorkspaceView } from '#src/services/state'
 import { TlsStore } from '#src/services/tls'
 import { UiService } from '#src/services/ui'
+import { serverViewSchema } from '#src/shared/contracts'
 
 /**
  * The whole panel, wired the way `src/services/panel.ts` wires it, over real stores in
@@ -100,18 +102,57 @@ export interface Fixture {
 }
 
 /** A view carrying every field the panel routes actually read. */
+/**
+ * A server view the contract would accept.
+ *
+ * This used to provide eight of the twenty-one fields and cast the result, so the routes were exercised
+ * against a payload the panel never sends — `ServerCard.vue` reads `server.url`, which was simply absent,
+ * and the link silently never rendered in any of these tests. Every field `serverViewSchema` requires is
+ * now present, and `makeView` asserts its own output so the next omission fails here rather than in a
+ * route test that cannot see it.
+ */
 export function makeView(id: string, overrides: Partial<ServerView> = {}): ServerView {
-  return {
+  const view = {
     id,
+    workspaceId: 'default',
+    config: { id, command: 'node', autostart: false, enabled: true, label: id, port: null, bind: 'local' } as ServerConfig,
+    bindHost: '127.0.0.1',
+    url: null,
     status: 'stopped',
     health: 'disabled',
+    portState: 'unknown',
+    pid: null,
+    adopted: false,
+    startedAt: null,
+    exitCode: null,
+    exitSignal: null,
     restarts: 0,
+    maxRetries: 0,
+    lastError: null,
+    nextRetryAt: null,
+    unhealthySince: null,
+    bufferedLines: 0,
+    history: {
+      windowMs: 86_400_000,
+      uptimeRatio: null,
+      restarts: 0,
+      crashes: 0,
+      forcedRestarts: 0,
+      lastCrashAt: null,
+      lastExitAt: null,
+      lastRuntimeMs: null,
+      events: [],
+    },
     responseMs: null,
     resources: null,
-    history: { crashes: 0, uptimeRatio: null },
-    config: { id, autostart: false, enabled: true, label: id } as ServerConfig,
     ...overrides,
-  } as unknown as ServerView
+  } as ServerView
+
+  // A fixture that cannot fail is worse than none: assert the shape the contract requires.
+  const parsed = serverViewSchema(view)
+  if (parsed instanceof type.errors)
+    throw new Error(`makeView produced a view the contract rejects: ${parsed.summary}`)
+  return view
 }
 
 export interface FixtureOptions {

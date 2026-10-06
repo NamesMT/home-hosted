@@ -1303,3 +1303,23 @@ function isAlive(pid: number): boolean {
     return false
   }
 }
+
+/**
+ * The real server view must satisfy the contract the UIs and the OpenAPI spec publish.
+ *
+ * `test/api/fixture.ts` builds views by hand (`makeView`) with a cast, so nothing validated the **real**
+ * `supervisor.view()` output against `serverViewSchema` — and the fixture's shape is missing fields the
+ * contract requires, including `bindHost`. That is a fixture that cannot fail: it exercises the routes
+ * against a payload the panel never sends.
+ */
+describe('the real server view', () => {
+  it('satisfies serverViewSchema', async () => {
+    const { serverViewSchema } = await import('#src/shared/contracts')
+    const { type } = await import('arktype')
+    const harness = await makeSupervisor([{ id: 'web', command: process.execPath, args: ['-e', 'null'] }])
+    const view = harness.supervisor.views().find(entry => entry.id === 'web')
+    expect(view, 'the supervisor must report the entry').toBeDefined()
+    const parsed = serverViewSchema(view)
+    expect(parsed instanceof type.errors, `real view violates its contract: ${String((parsed as { summary?: string }).summary)}`).toBe(false)
+  })
+})

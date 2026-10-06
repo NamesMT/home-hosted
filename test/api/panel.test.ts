@@ -200,7 +200,7 @@ describe('healthz', () => {
 
   it('reports degraded with 503 when an autostart server has crashed', async () => {
     const created = await fixture({
-      views: [makeView('web', { status: 'crashed', config: { id: 'web', autostart: true } as never })],
+      views: [makeView('web', { status: 'crashed', config: { id: 'web', command: 'node', autostart: true } as never })],
     })
 
     const response = await created.app.request('/healthz')
@@ -232,7 +232,7 @@ describe('metrics', () => {
   it('scrapes as prometheus text and omits a sample it has no reading for', async () => {
     const created = await fixture({
       views: [
-        makeView('web', { status: 'running', restarts: 2, responseMs: 12, resources: { rssBytes: 1024, cpuPercent: 3.5 } as never }),
+        makeView('web', { status: 'running', restarts: 2, responseMs: 12, resources: { rssBytes: 1024, cpuPercent: 3.5, processes: 1, sampledAt: 0 } as never }),
         makeView('idle'),
       ],
     })
