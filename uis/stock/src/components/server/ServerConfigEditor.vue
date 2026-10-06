@@ -325,7 +325,7 @@ async function save(): Promise<void> {
         description="How the port is preflighted and where the process is reachable."
         :columns="2"
       >
-        <NumberField v-model="form.port" label="Port" nullable :min="1" :max="65535" hint="Blank means no port: no probe, no preflight." />
+        <NumberField v-model="form.port" label="Port" nullable :min="1" :max="65535" hint="Blank means the server has no port to probe or preflight." />
         <SelectField
           v-model="form.bind"
           label="Bind address"
@@ -351,8 +351,8 @@ async function save(): Promise<void> {
         description="Whether the supervisor owns this entry at all."
         :columns="3"
       >
-        <ToggleSwitch v-model="form.enabled" label="Enabled" hint="Shows up and can be started at all." />
-        <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Started when the control plane comes up." />
+        <ToggleSwitch v-model="form.enabled" label="Enabled" hint="Off keeps the entry in the config but refuses to start it." />
+        <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Start it whenever the control plane comes up." />
         <ToggleSwitch v-model="form.persistent" label="Persistent" hint="Keeps running when the panel stops; `down` reports it instead of stopping it." />
       </FieldGroup>
 
