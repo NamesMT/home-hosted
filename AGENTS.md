@@ -355,6 +355,10 @@ either is a last resort, and never an accidental one.
 
 ## Gotchas
 
+- **The per-second tick is not a hot spot worth optimising — measured, not assumed.** With 40
+  servers in a fixture, `getState()` costs ~0.22 ms and `sampleMany()` over 40 pids ~15 ms; the
+  state is only published when `stateSignature` changes, and resources are sampled every 5 s rather
+  than every tick. If a future round wants a performance win, measure elsewhere first.
 - `run.json` is the daemon's identity and `down`'s credential; keep `runtimeSchema` in sync with the
   `Runtime` written in `src/index.ts`. It now lives at `.hh/run.json`.
 - **`ensureLayout()` runs before any command resolves a state path** (the CLI pre-pass) and is
