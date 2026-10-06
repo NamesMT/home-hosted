@@ -64,6 +64,14 @@ line in `AGENTS.md` instead.
 - **The per-second tick is not worth optimising — measured.** With 40 servers, `getState()` costs
   ~0.22 ms and `sampleMany()` over 40 pids ~15 ms; the state is published only when the signature
   changes and resources are sampled every 5 s. Measure elsewhere first.
+- **Startup is dominated by module load, not by work — measured, so a future round does not
+  re-derive it.** `src/app.ts` costs ~1.1 s to import, and `#src/shared/contracts` ~0.75 s of that,
+  of which **arktype itself is ~0.43 s**. Nothing runs slowly; the graph is simply large.
+  Two consequences worth knowing: `up` used to import the whole daemon before deciding to detach
+  (~1 s wasted, now deferred — `up` 5.3 s → 2.0 s, and the suite 55 s → 31 s); and the daemon child
+  inherits `process.execArgv`, so under tsx it re-compiles the graph while the **built** CLI does not.
+  That last point is why `--version` is ~0.4 s built against ~2.0 s under tsx, yet `up` is ~1.8 s
+  either way — the child dominates, not the parent.
 
 ## Config
 
