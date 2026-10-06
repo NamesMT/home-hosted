@@ -193,6 +193,8 @@ async function sendTest(): Promise<void> {
         label="Remove token"
         confirm-label="Confirm remove"
         confirm-variant="danger"
+        title="Remove the bot token?"
+        hint="Notifications stop until you paste a token again."
         :disabled="busy"
         @confirm="removeToken"
       />

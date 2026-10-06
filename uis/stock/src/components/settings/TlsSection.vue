@@ -204,6 +204,8 @@ async function removeCertificate(): Promise<void> {
         label="Remove certificate"
         confirm-label="Confirm remove"
         confirm-variant="danger"
+        title="Remove the certificate?"
+        hint="TLS stays on but has nothing to serve, so the panel falls back to http once the listener rebinds."
         :disabled="busy"
         @confirm="removeCertificate"
       />

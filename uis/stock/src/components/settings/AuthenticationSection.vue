@@ -173,6 +173,8 @@ async function clearPasswordValue(): Promise<void> {
           label="Clear password"
           confirm-label="Confirm clear"
           confirm-variant="danger"
+          title="Clear the password?"
+          hint="Authentication is switched off with it, and anyone reaching the panel is let straight in."
           :disabled="passwordSaving"
           @confirm="clearPasswordValue"
         />
