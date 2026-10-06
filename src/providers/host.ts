@@ -54,15 +54,36 @@ async function swapUsedPercent(now = Date.now()): Promise<number> {
   return percent
 }
 
-async function readSwapUsedPercent(): Promise<number> {
+/**
+ * `sysctl -n vm.swapusage` as a percentage. Pure, so the arithmetic is testable with the readings
+ * the platform can actually produce rather than only the ones a runner happens to have.
+ */
+export function swapPercentFromSysctl(stdout: string): number {
+  const total = /total\s*=\s*([\d.]+)M/.exec(stdout)?.[1]
+  const used = /used\s*=\s*([\d.]+)M/.exec(stdout)?.[1]
+  const totalMb = Number.parseFloat(total ?? '0')
+  const usedMb = Number.parseFloat(used ?? '0')
+  // `usedPercent` takes what is *free*, so pass the remainder. macOS counts compressed swap, where
+  // `used` can exceed `total` — and the swap alert is `used >= threshold`, so a negative silently
+  // suppresses it.
+  return usedPercent(Math.max(0, totalMb - usedMb), totalMb)
+}
+
+/** One `Win32_PageFileUsage` CSV row as a percentage; see `swapPercentFromSysctl` for the clamp. */
+export function swapPercentFromPageFile(stdout: string): number {
+  const line = stdout.split(/\r?\n/).slice(1).find(entry => entry.trim().length > 0)
+  const cells = (line ?? '').split(',').map(entry => entry.replace(/"/g, '').trim())
+  const totalMb = Number.parseFloat(cells[0] ?? '0')
+  const usedMb = Number.parseFloat(cells[1] ?? '0')
+  // `CurrentUsage` can exceed `AllocatedBaseSize` when the pagefile has grown since the snapshot.
+  return usedPercent(Math.max(0, totalMb - usedMb), totalMb)
+}
+
+export async function readSwapUsedPercent(): Promise<number> {
   if (process.platform === 'darwin') {
     try {
       const { stdout } = await execFileAsync('sysctl', ['-n', 'vm.swapusage'], { timeout: 3000 })
-      const total = /total\s*=\s*([\d.]+)M/.exec(stdout)?.[1]
-      const used = /used\s*=\s*([\d.]+)M/.exec(stdout)?.[1]
-      const totalMb = Number.parseFloat(total ?? '0')
-      const usedMb = Number.parseFloat(used ?? '0')
-      return totalMb > 0 ? (usedMb / totalMb) * 100 : 0
+      return swapPercentFromSysctl(stdout)
     }
     catch {
       return 0
@@ -73,11 +94,7 @@ async function readSwapUsedPercent(): Promise<number> {
     try {
       const script = 'Get-CimInstance Win32_PageFileUsage | Select-Object AllocatedBaseSize,CurrentUsage | ConvertTo-Csv -NoTypeInformation'
       const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 5000 })
-      const line = stdout.split(/\r?\n/).slice(1).find(entry => entry.trim().length > 0)
-      const cells = (line ?? '').split(',').map(entry => entry.replace(/"/g, '').trim())
-      const totalMb = Number.parseFloat(cells[0] ?? '0')
-      const usedMb = Number.parseFloat(cells[1] ?? '0')
-      return totalMb > 0 ? (usedMb / totalMb) * 100 : 0
+      return swapPercentFromPageFile(stdout)
     }
     catch {
       return 0

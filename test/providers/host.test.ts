@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { availableMemoryBytes, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, sampleHost, usedPercent } from '#src/providers/host'
+import { availableMemoryBytes, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, usedPercent } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -56,6 +56,43 @@ describe('host sampling', () => {
       expect(value, `${name} must not be negative`).toBeGreaterThanOrEqual(0)
       expect(value, `${name} must not exceed 100`).toBeLessThanOrEqual(100)
     }
+  })
+
+  /**
+   * The two non-Linux swap branches, exercised with the readings their platforms actually produce.
+   *
+   * This machine is Linux, so these branches never run in CI — which is how their arithmetic drifted
+   * from the `/proc` branch's: Linux clamped, these did not, and the alert that consumes them is
+   * `used >= threshold`, so a negative silently **suppresses** the swap alert. Passing the real
+   * output shape makes the arithmetic reachable without the platform.
+   */
+  it('reads a macOS vm.swapusage line, clamped', () => {
+    // The real shape: `total = 4096.00M  used = 1024.00M  free = 3072.00M  (encrypted)`.
+    expect(swapPercentFromSysctl('total = 4096.00M  used = 1024.00M  free = 3072.00M')).toBe(25)
+    expect(swapPercentFromSysctl('total = 4096.00M  used = 0.00M  free = 4096.00M')).toBe(0)
+    expect(swapPercentFromSysctl('total = 4096.00M  used = 4096.00M  free = 0.00M')).toBe(100)
+
+    // Compressed swap can report used > total; the raw ratio would be negative here.
+    expect(swapPercentFromSysctl('total = 4096.00M  used = 5120.00M')).toBe(100)
+    // Unparseable output is "nothing known", not "nothing used".
+    expect(swapPercentFromSysctl('')).toBe(0)
+    expect(swapPercentFromSysctl('vm.swapusage: bad')).toBe(0)
+    // A zero total must not divide.
+    expect(swapPercentFromSysctl('total = 0.00M  used = 0.00M')).toBe(0)
+  })
+
+  it('reads a Windows pagefile CSV row, clamped', () => {
+    const header = '\uFEFF"AllocatedBaseSize","CurrentUsage"'
+    expect(swapPercentFromPageFile(`${header}\n"4096","1024"`)).toBe(25)
+    expect(swapPercentFromPageFile(`${header}\n"4096","0"`)).toBe(0)
+    expect(swapPercentFromPageFile(`${header}\n"4096","4096"`)).toBe(100)
+
+    // The pagefile can grow after the snapshot, so CurrentUsage can exceed AllocatedBaseSize.
+    expect(swapPercentFromPageFile(`${header}\n"4096","5120"`)).toBe(100)
+    // PowerShell prints nothing at all when the cmdlet has no rows.
+    expect(swapPercentFromPageFile(header)).toBe(0)
+    expect(swapPercentFromPageFile('')).toBe(0)
+    expect(swapPercentFromPageFile(`${header}\n"0","0"`)).toBe(0)
   })
 
   it('measures a real filesystem', async () => {
