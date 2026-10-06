@@ -169,7 +169,7 @@ export function createSettingsRoute(deps: AppDeps) {
     .post('/settings/ui', describeRoute({
       tags: ['panel'],
       summary: 'Replace the panel UI with an uploaded static build',
-      responses: { 200: { description: 'Installed' }, 400: ERROR_RESPONSES[400], 413: { description: 'Too large' } },
+      responses: { 200: { description: 'Installed' }, 400: ERROR_RESPONSES[400], 413: ERROR_RESPONSES[413] },
     }),
     /**
      * Bound the body **while it arrives**, not after. The checks below read `Content-Length`, which a

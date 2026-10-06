@@ -1,9 +1,11 @@
 import type { ApiErrorBody } from '#src/helpers/error'
 import { DetailedError } from '@namesmt/utils'
+import { type } from 'arktype'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describe, expect, it } from 'vitest'
 import { errorHandler } from '#src/helpers/error'
+import { apiErrorSchema } from '#src/shared/contracts'
 
 /**
  * The one error envelope the API speaks. Every case here is a shape a client can
@@ -112,5 +114,31 @@ describe('errorHandler branch by branch', () => {
     for (const statusCode of [400, 500, 599]) {
       expect(direct(fakeDetailedError({ statusCode })).status, String(statusCode)).toBe(statusCode)
     }
+  })
+})
+
+/**
+ * The **documented** envelope must accept what the handler actually serialises.
+ *
+ * `apiErrorSchema` is what `ERROR_RESPONSES` publishes to OpenAPI, and it required `detail` while
+ * `toErrorBody()` omits that key whenever the error carries none — the common case. Measured on real
+ * routes: `/api/logs/ghost`, `/api/servers/ghost`, `/api/backups/nope` and `/api/settings/ui` all answer
+ * `{ message, code }` and nothing else, so every generated client was told to expect a field that was
+ * usually absent. `ApiErrorBody` had it optional because that is what it serialises.
+ */
+describe('the documented error envelope', () => {
+  it('accepts every body the handler produces', () => {
+    for (const [label, body] of [
+      ['a plain failure', { message: 'unknown server "web"', code: 'UNKNOWN_SERVER' }],
+      ['one with detail', { message: 'nope', code: 'X', detail: { routes: ['a'] } }],
+    ] as const) {
+      expect(apiErrorSchema(body) instanceof type.errors, `${label}: ${JSON.stringify(apiErrorSchema(body))}`).toBe(false)
+    }
+  })
+
+  it('still refuses a body missing the fields clients rely on', () => {
+    // Not merely loosened: `code` and `message` stay required, and unknown keys stay rejected.
+    expect(apiErrorSchema({ message: 'x' }) instanceof type.errors).toBe(true)
+    expect(apiErrorSchema({ message: 'x', code: 'y', extra: 1 }) instanceof type.errors).toBe(true)
   })
 })

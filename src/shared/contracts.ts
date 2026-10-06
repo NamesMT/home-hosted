@@ -1385,12 +1385,21 @@ export const telegramTokenSchema = type({
   botToken: 'string >= 1',
 }).onUndeclaredKey('reject')
 
-/** The single error envelope every route answers failures with. */
+/**
+ * The single error envelope every route answers failures with.
+ *
+ * `detail` is **optional**: `toErrorBody()` omits the key when the error carries none, which is the
+ * common case — measured, `/api/logs/ghost`, `/api/servers/ghost` and `/api/settings/ui` all answer
+ * `{ message, code }` and nothing else. Requiring it here told every OpenAPI client to expect a field
+ * that is usually absent, and disagreed with `ApiErrorBody` in `helpers/error.ts`, which has it
+ * optional because that is what it actually serialises.
+ */
 export const apiErrorSchema = type({
-  message: 'string',
+  'message': 'string',
   /** Stable, machine-readable; `AUTH_REQUIRED` also drives the login redirect. */
-  code: 'string',
-  detail: 'unknown',
+  'code': 'string',
+  /** Structured context when the failure has any — a field list, the routes holding a certificate. */
+  'detail?': 'unknown',
 }).onUndeclaredKey('reject')
 export type ApiError = typeof apiErrorSchema.infer
 
