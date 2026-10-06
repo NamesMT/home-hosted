@@ -39,12 +39,6 @@ export class EventHub {
       this.dispatch(serverKey(message.workspaceId, message.serverId), message)
   }
 
-  get subscriberCount(): number {
-    let total = 0
-    for (const bucket of this.listeners.values()) total += bucket.size
-    return total
-  }
-
   private dispatch(key: string, message: SseMessage): void {
     const bucket = this.listeners.get(key)
     if (!bucket)
