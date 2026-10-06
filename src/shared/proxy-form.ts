@@ -80,7 +80,10 @@ export function firstPublicHost(routes: readonly RouteDraft[]): string | null {
 }
 
 export function formatBytes(bytes: number | null): string {
-  if (bytes === null || bytes <= 0)
+  // Only `null` (and a nonsensical negative) is unknown. **0 is an answer** — an empty log, an empty
+  // backup, a just-started engine — and rendering it as the em-dash claimed the size could not be
+  // measured when it had been measured as nothing.
+  if (bytes === null || bytes < 0)
     return '—'
   const units = ['B', 'KiB', 'MiB', 'GiB']
   let value = bytes
