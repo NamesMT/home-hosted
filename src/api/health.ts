@@ -1,10 +1,10 @@
 import type { AppDeps } from '#src/app'
 import process from 'node:process'
-import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { jsonBody } from '#src/helpers/openapi'
 import { requestIdentity } from '#src/middleware/auth'
+import { healthResponseSchema } from '#src/shared/contracts'
 
 /**
  * Liveness for external monitors. Mounted outside `/api`, so it answers without a
@@ -22,12 +22,7 @@ export function createHealthRoute(deps: AppDeps) {
         responses: {
           200: {
             description: 'Serving',
-            content: jsonBody(type({
-              'status': '"ok" | "degraded"',
-              'uptimeMs': 'number',
-              'servers?': type({ total: 'number', running: 'number', crashed: 'number', unhealthy: 'number' }),
-              'hostAlerts?': 'string[]',
-            })),
+            content: jsonBody(healthResponseSchema),
           },
           503: { description: 'An autostart server has crashed' },
         },

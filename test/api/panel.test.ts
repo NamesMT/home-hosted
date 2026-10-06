@@ -5,7 +5,7 @@ import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { missingServer } from '#src/helpers/action-result'
-import { serverSchema } from '#src/shared/contracts'
+import { healthResponseSchema, serverSchema } from '#src/shared/contracts'
 import { makeFixture, makeView } from './fixture'
 
 /**
@@ -218,12 +218,9 @@ describe('healthz', () => {
    * fields).
    */
   it('answers a body its own documented schema accepts, on both statuses', async () => {
-    const schema = type({
-      'status': '"ok" | "degraded"',
-      'uptimeMs': 'number',
-      'servers?': type({ total: 'number', running: 'number', crashed: 'number', unhealthy: 'number' }),
-      'hostAlerts?': 'string[]',
-    })
+    // The route's own schema, not a transcription: a copy here could drift from the published one and
+    // would then assert the wrong thing while looking like it checked the contract.
+    const schema = healthResponseSchema
 
     const healthy = await fixture()
     const ok = await (await healthy.app.request('/healthz')).json()

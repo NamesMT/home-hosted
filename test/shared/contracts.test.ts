@@ -12,6 +12,7 @@ import {
   ddnsDomainSchema,
   ddnsStatusSchema,
   defaultsSchema,
+  healthResponseSchema,
   healthSchema,
   logBufferLinesSchema,
   logsSchema,
@@ -33,6 +34,7 @@ import {
   serverSchema,
   serverViewSchema,
   settingsPatchSchema,
+  telegramChatsSchema,
   telegramSchema,
   workspaceSettingsPatchSchema,
   workspaceViewSchema,
@@ -519,5 +521,44 @@ describe('reverse proxy schema', () => {
     }))
     expect(view.routes).toEqual([])
     expect(view.certificates).toEqual([])
+  })
+})
+
+/**
+ * The two response schemas that used to be written inline in their routes.
+ *
+ * `AGENTS.md` ("Where to extend") puts route schemas in this file, and these two were the exception —
+ * `/healthz` and `POST /notifications/detect-chats`. `telegramChatsSchema` also described the same two
+ * fields as `TelegramChat` in `providers/telegram.ts`, one shape declared twice.
+ */
+describe('schemas moved out of their routes', () => {
+  it('healthResponseSchema accepts both statuses, and only its own fields', () => {
+    // The 503 body shares this response's `content`, so `degraded` has to be allowed.
+    for (const status of ['ok', 'degraded'] as const)
+      expect(healthResponseSchema({ status, uptimeMs: 1 }) instanceof type.errors, status).toBe(false)
+
+    // The optional halves appear only for an authenticated caller.
+    expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, servers: { total: 0, running: 0, crashed: 0, unhealthy: 0 } }) instanceof type.errors).toBe(false)
+    expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, hostAlerts: ['disk'] }) instanceof type.errors).toBe(false)
+
+    // `uptimeMs` is not optional.
+    expect(healthResponseSchema({ status: 'ok' }) instanceof type.errors).toBe(true)
+
+    // An unknown key is **accepted**, and deliberately: this is a *response* schema, and every request
+    // schema rejects undeclared keys while every view schema tolerates them. A newer panel may add a
+    // field while an older client is still reading this one, so rejecting here would blank that client.
+    expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, extra: true }) instanceof type.errors).toBe(false)
+    // An incomplete `servers` block is a real mistake, not a partial one.
+    expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, servers: { total: 1 } }) instanceof type.errors).toBe(true)
+  })
+
+  it('telegramChatsSchema matches what the provider returns', () => {
+    // `id` is `number | string`: Telegram reports a numeric id for a group and a string for a channel.
+    expect(telegramChatsSchema({ chats: [{ id: 12, title: 'ops' }, { id: '@chan', title: 'chan' }] }) instanceof type.errors).toBe(false)
+    expect(telegramChatsSchema({ chats: [] }) instanceof type.errors).toBe(false)
+    expect(telegramChatsSchema({ chats: [{ id: 1 }] }) instanceof type.errors).toBe(true)
+    expect(telegramChatsSchema({}) instanceof type.errors).toBe(true)
+    // A response schema tolerates an extra key; see the note above.
+    expect(telegramChatsSchema({ chats: [], note: 'newer panel' }) instanceof type.errors).toBe(false)
   })
 })

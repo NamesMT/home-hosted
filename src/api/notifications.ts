@@ -1,13 +1,12 @@
 import type { AppDeps } from '#src/app'
 import { DetailedError } from '@namesmt/utils'
-import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { forgetBots } from '#src/providers/telegram'
-import { notificationActionSchema, telegramTokenSchema } from '#src/shared/contracts'
+import { notificationActionSchema, telegramChatsSchema, telegramTokenSchema } from '#src/shared/contracts'
 
 /**
  * The bot token is written straight to a workspace's secrets file and never into a
@@ -79,7 +78,7 @@ export function createNotificationsRoute(deps: AppDeps) {
         tags: ['notifications'],
         summary: 'List the chats the bot can see',
         responses: {
-          200: { description: 'Chats', content: jsonBody(type({ chats: type({ id: 'string | number', title: 'string' }).array() })) },
+          200: { description: 'Chats', content: jsonBody(telegramChatsSchema) },
           400: ERROR_RESPONSES[400],
         },
       }),

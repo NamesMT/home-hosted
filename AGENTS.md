@@ -74,7 +74,10 @@ free: an installed panel or another dev instance may hold it, and the CLI's port
 - **Server-agnostic core; UIs are clients.** `#src/*` inside `src/`; UIs use `@shared/*` (and
   `@server` for types only).
 - **ArkType at every runtime boundary.** Routes use `validate('json'|'query'|'param', schema)` then
-  `c.req.valid(...)`; ad-hoc payloads use `parseOrThrow`. Schemas reject undeclared keys.
+  `c.req.valid(...)`; ad-hoc payloads use `parseOrThrow`. **A request schema rejects undeclared keys**
+  (`.onUndeclaredKey('reject')`); **a response/view schema does not** — a newer panel may add a field
+  while an older client still reads it, so rejecting there would blank that client. 46 of the 94
+  schemas in `contracts.ts` are responses and omit it on purpose.
 - **Every failure is a `DetailedError`** (`@namesmt/utils`), mapped by `src/helpers/error.ts` into one
   envelope `{ message, code, detail }`. Never hand-roll `c.json({ error })`.
 - **Document routes with `describeRoute` + `jsonBody(schema)`**; `jsonBody` needs a real schema.

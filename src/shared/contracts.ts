@@ -965,6 +965,18 @@ export const telegramStatusSchema = type({
 })
 export type TelegramStatus = typeof telegramStatusSchema.infer
 
+/**
+ * The chats a bot can see, as `POST /notifications/detect-chats` answers them.
+ *
+ * This was declared inline in the route while `TelegramChat` in `providers/telegram.ts` described the
+ * same two fields — one shape written twice, which is the drift this file exists to prevent. The route's
+ * copy also sat outside `contracts/`, against the extension rule in AGENTS.md.
+ */
+export const telegramChatsSchema = type({
+  chats: type({ id: 'string | number', title: 'string' }).array(),
+})
+export type TelegramChats = typeof telegramChatsSchema.infer
+
 export const notificationViewSchema = type({
   telegram: telegramStatusSchema,
 })
@@ -1198,6 +1210,19 @@ export const serverViewSchema = type({
 // `config` is emitted normalized (port is always `number | null`, never absent),
 // while the schema accepts both forms so a hand-written payload still validates.
 export type ServerView = Omit<typeof serverViewSchema.infer, 'config'> & { config: ServerConfig }
+
+/**
+ * What `/healthz` answers, on both statuses — 200 when serving, 503 when an autostart entry has crashed,
+ * which shares this response's `content` in the spec. The detail fields are optional because they are
+ * only included for an authenticated caller.
+ */
+export const healthResponseSchema = type({
+  'status': '"ok" | "degraded"',
+  'uptimeMs': 'number',
+  'servers?': type({ total: 'number', running: 'number', crashed: 'number', unhealthy: 'number' }),
+  'hostAlerts?': 'string[]',
+})
+export type HealthResponse = typeof healthResponseSchema.infer
 
 export const controlViewSchema = type({
   /** The configured panel name, for the shell to render. */
