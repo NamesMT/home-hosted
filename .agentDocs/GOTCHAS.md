@@ -87,6 +87,11 @@ line in `AGENTS.md` instead.
 
 ## Config
 
+- **An upload bound enforced after `parseBody()` is a memory limit, not a guard.** Both upload routes
+  read `Content-Length` first — a header a **chunked** request does not send — and compare `file.size`
+  only after the whole body is already in memory. `bodyLimit` from `hono/body-limit` counts chunks and
+  aborts at the cap, which is the half the header check cannot do. **Check the order, not just the
+  presence, of a size limit.**
 - **`cookieSecure: auto` depends on srvx, not on this repo.** `secureCookie` reads
   `new URL(c.req.url).protocol`, and behind a proxy that is `https:` only because srvx rewrites
   `url.protocol` from `x-forwarded-proto` when `trustProxy` is on

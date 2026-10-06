@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
+import { bodyLimit } from 'hono/body-limit'
 import { ConfigError } from '#src/config/store'
 import { displayHost } from '#src/helpers/bind'
 import { afterResponse } from '#src/helpers/deferred'
@@ -169,10 +170,22 @@ export function createSettingsRoute(deps: AppDeps) {
       tags: ['panel'],
       summary: 'Replace the panel UI with an uploaded static build',
       responses: { 200: { description: 'Installed' }, 400: ERROR_RESPONSES[400], 413: { description: 'Too large' } },
+    }),
+    /**
+     * Bound the body **while it arrives**, not after. The checks below read `Content-Length`, which a
+     * chunked request does not send, and compare `file.size` only after `parseBody()` has buffered
+     * everything — so an upload with no declared length was read into memory in full and then refused.
+     * See the same reasoning in `api/backups.ts`.
+     */
+    bodyLimit({
+      maxSize: MAX_UI_UPLOAD_BYTES,
+      onError: () => {
+        throw new DetailedError(`the upload is larger than ${Math.round(MAX_UI_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
+      },
     }), async (c) => {
-      // Pre-flight only; `file.size` below is the authoritative check. `parseInt` is safe because
-      // Node's HTTP parser rejects a non-decimal `Content-Length` with a 400 before any handler
-      // runs — see the same note in `api/backups.ts`.
+      // Pre-flight only; `file.size` below is the authoritative check for a *declared* length.
+      // `parseInt` is safe because Node's HTTP parser rejects a non-decimal `Content-Length` with a
+      // 400 before any handler runs — see the same note in `api/backups.ts`.
       const declared = Number.parseInt(c.req.header('content-length') ?? '0', 10)
       if (Number.isFinite(declared) && declared > MAX_UI_UPLOAD_BYTES)
         throw new DetailedError(`the upload is larger than ${Math.round(MAX_UI_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
