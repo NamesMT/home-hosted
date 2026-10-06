@@ -151,6 +151,12 @@ line in `AGENTS.md` instead.
   a UI must clear are `'type | null?'`.
 - `ServerView.config.port` is normalized to `number | null`; the hand-narrowed types in
   `contracts.ts` are deliberate.
+- **A list paired with the structure that reads it must be checked with a *mutation*, not a reading.**
+  `parseGrouped` reports a key absent from `keys` as "unrecognized — this release ignores it" while the
+  loop below still parses that group, so one missing entry yields a config that works and a warning
+  saying it does not. Both are plain arrays, so nothing caught it: adding a group the list did not name
+  gave 0 typecheck errors and 0 test failures. **Count the errors a removal produces, and note where
+  they come from** — a guard made of test literals is not the same as one made of production code.
 
 ## How to test
 
