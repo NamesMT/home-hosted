@@ -89,4 +89,27 @@ describe('server config editor', () => {
     expect(document.body.textContent).toContain('health.http.expectStatusBelow')
     wrapper.unmount()
   })
+
+  /**
+   * Clearing the label must not write an empty one.
+   *
+   * Every display falls back with `label ?? id`, and `??` fires on `null`/`undefined`, not on `''` — so a
+   * stored empty label blanked the card and made a notification read ` (web) crashed`. The add dialog
+   * already omitted an empty label for this same field; the editor sent it.
+   */
+  it('omits an emptied label rather than storing a blank one', async () => {
+    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', workspaceId, config: demoConfig() } })
+
+    await inputFor(wrapper, 'Label').setValue('')
+
+    // Clearing it *is* a change, and the review says so.
+    const review = wrapper.findAll('button').find(button => button.text().includes('unsaved'))
+    expect(review, 'clearing the label is a change worth reviewing').toBeDefined()
+    await review!.trigger('click')
+
+    // It is reported as a removal, not as a blank value — `null` is what makes every display fall back to
+    // the id, and an empty string is what blanked it.
+    expect(document.body.textContent).toContain('label')
+    wrapper.unmount()
+  })
 })

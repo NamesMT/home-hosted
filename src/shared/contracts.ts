@@ -525,7 +525,7 @@ const tlsPatchSchema = type({
 }).onUndeclaredKey('reject')
 
 const controlPatchSchema = type({
-  label: '1 <= string <= 60?',
+  label: '1 <= string <= 60 | null?',
   port: '1 <= number.integer <= 65535?',
   host: bindSchema.optional(),
   openBrowser: 'boolean?',

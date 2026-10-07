@@ -17,6 +17,14 @@ export function applyPatch(target: Record<string, unknown>, patch: Record<string
       target[key] = mergeGroup(target[key], value)
       continue
     }
+    // An explicit `null` **removes** the key, exactly as it does inside a group. Setting it instead made the
+    // two paths disagree, and the stored `null` then failed the schema that reads the file:
+    // `servers[0]: label must be a string (was null)`. This was reachable all along — `label` is not in
+    // `SERVER_MERGE_KEYS`, so it took this branch.
+    if (value === null) {
+      delete target[key]
+      continue
+    }
     target[key] = value
   }
 }

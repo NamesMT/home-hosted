@@ -124,7 +124,12 @@ function buildPayload(): Record<string, unknown> {
   const bootstrapTimeoutMs = Number.isFinite(form.bootstrapTimeoutMs) ? form.bootstrapTimeoutMs! : 0
 
   return {
-    label: form.label.trim(),
+    // An emptied label sends **null**, which removes the key, so every display falls back to the id — which
+    // is what the field's own label promises. Sending `label: ''` stored an empty string instead, and
+    // `label ?? id` does not fire on an empty string, so the card went blank and a notification read
+    // ` (web) crashed`. The add dialog omits the key for a new entry, which is right there: there is
+    // nothing to clear yet.
+    label: form.label.trim().length === 0 ? null : form.label.trim(),
     command: form.command.trim(),
     cwd: form.cwd.trim() === '' ? '.' : form.cwd.trim(),
     args: linesToArray(form.args),
