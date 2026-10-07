@@ -1421,3 +1421,38 @@ describe('the documented placeholder table', () => {
     expect(undocumented, 'a placeholder the code expands but the docs never mention').toEqual([])
   })
 })
+
+/**
+ * Stopping a dependency names the dependents it leaves running.
+ *
+ * `stopAll` stops dependents first (`orderByDependencies(...).reverse()`), but a single stop does not
+ * cascade — and it used to say nothing at all, so a person could stop `db` and be told it worked while
+ * `app` kept serving against a database that was gone. The panel reports `app` as running, and nothing
+ * connects the two facts.
+ */
+describe('stopping a dependency', () => {
+  it('names the dependents left running, and stays quiet when there are none', async () => {
+    const harness = await makeSupervisor([
+      { id: 'db', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] },
+      { id: 'app', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'], dependsOn: ['db'] },
+    ])
+
+    // Both up, so the dependent is genuinely active when its dependency stops.
+    await harness.supervisor.startAll()
+    const started = await waitFor(() => harness.supervisor.views().filter(view => view.status === 'running').length === 2)
+    expect(started, 'both servers must be running for this to prove anything').toBe(true)
+
+    await harness.supervisor.stop('db')
+
+    const lines = harness.supervisor.logLines('db', 50).map(line => line.text)
+    expect(lines.some(text => text.includes('still running and depending on this: app')), `log was: ${JSON.stringify(lines.slice(-6))}`).toBe(true)
+
+    // A server nothing depends on says nothing extra.
+    const alone = await makeSupervisor([{ id: 'solo', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] }])
+    await alone.supervisor.startAll()
+    await waitFor(() => alone.supervisor.views()[0]?.status === 'running')
+    await alone.supervisor.stop('solo')
+    const soloLines = alone.supervisor.logLines('solo', 50).map(line => line.text)
+    expect(soloLines.some(text => text.includes('still running and depending on this'))).toBe(false)
+  })
+})

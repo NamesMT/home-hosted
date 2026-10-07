@@ -188,6 +188,13 @@ line in `AGENTS.md` instead.
   nothing pruned it either, so a re-added id showed the old entry's crash time — `HistoryStore.forget()`
   now runs beside `logFiles.clear()` in the same branch. A per-**id** artifact needs reclaiming on
   removal; check both stores when adding a third.
+- **A dependency order must be topological, and the doc must not overstate it.** `dependenciesOf`
+  pushed each dependency *before* recursing, so it returned `[db, disk]` for `app -> db -> disk` — `db`
+  before the thing it needs. `startDependencies` walks that list in order and awaits readiness, so a
+  server was started with its dependency down. `orderByDependencies` in the same file pushed *after*
+  recursing and was always right; the two now agree. Separately, "stopped in reverse order" was true of
+  `stopAll` only — stopping one server does not cascade, and `dependentsOf` had never been called by
+  anything. It now names the dependents a stop leaves running, which is the honest version of the promise.
 - **Normalise a route path in one place, not two.** `ProxyService.pathKey` strips trailing slashes and
   uses that to refuse `/app` + `/app/` as a clash; `matchFor` in `proxy-config.ts` built its matchers
   from the *raw* value. So the two forms were declared the same route and rendered differently — and

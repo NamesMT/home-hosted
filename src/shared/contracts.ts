@@ -155,7 +155,7 @@ export const serverSchema = type({
   health: healthSchema.default(() => ({})),
   stop: stopSchema.default(() => ({})),
   logBufferLines: logBufferLinesSchema.default(() => 500),
-  /** Ids this server needs running first (and healthy); stopped in reverse order. */
+  /** Ids this server needs running first (and healthy); `stop-all` stops dependents before it. */
   dependsOn: type('string[]').default(() => []),
   /** Optional KEY=value file loaded at spawn; its values override `env`. */
   envFile: 'string = ""',

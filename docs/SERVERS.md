@@ -39,7 +39,7 @@ servers and its state together.
 | `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway |
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
-| `dependsOn` | ids that must be healthy first; stopped in reverse order |
+| `dependsOn` | ids that must be healthy first. `stop-all`/`down` stop dependents before their dependencies; stopping **one** server does not cascade — the log names any dependent it left running |
 | `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from |
 | `resources.maxRssBytes` | restart when the process tree grows past a limit |
 | `bootstrap` | one command to run once before the first start (migrations, warmups) |

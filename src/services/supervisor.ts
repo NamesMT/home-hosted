@@ -38,7 +38,7 @@ import {
 import { isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, terminatePids } from '#src/providers/port'
 import { ProcessSampler, processTreePids } from '#src/providers/proc'
 import { resolveCommand, resolveCwd, spawnManaged, terminate, terminatePid } from '#src/providers/process'
-import { dependenciesOf, orderByDependencies } from '#src/services/dependencies'
+import { dependenciesOf, dependentsOf, orderByDependencies } from '#src/services/dependencies'
 import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
 import { LogRelay } from '#src/services/log-relay'
 
@@ -563,6 +563,18 @@ export class Supervisor {
       this.publishServer(entry)
       return { ok: true }
     }
+
+    // Stopping one server does **not** cascade: `stopAll` walks `orderByDependencies(...).reverse()`, so
+    // dependents stop first, but a single stop is a narrow act and the panel does not decide to kill
+    // something the person did not name. What it must not do is stay silent — the dependent is now
+    // running against a dependency that is gone, and nothing else would say so.
+    const orphaned = dependentsOf(entry.config, this.store.servers)
+      .filter((dependent) => {
+        const state = this.entries.get(dependent.id)
+        return state !== undefined && this.isActive(state)
+      })
+    if (orphaned.length > 0)
+      this.log(entry, 'system', `still running and depending on this: ${orphaned.map(dependent => dependent.id).join(', ')}`)
 
     entry.status = 'stopping'
     this.publishServer(entry)
