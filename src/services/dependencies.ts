@@ -27,7 +27,16 @@ export function orderByDependencies(servers: ServerConfig[]): ServerConfig[] {
   return ordered
 }
 
-/** The transitive dependencies of a server, nearest first. */
+/**
+ * The transitive dependencies of a server, **deepest first** — the order they have to be started in, so
+ * every dependency is up before something that depends on it.
+ *
+ * A dependency is pushed *after* its own dependencies are walked, which is what makes that hold. Pushing
+ * it before (the shape this used to have) yielded a list that was not topological: for
+ * `a -> [b, c], b -> [x], c -> [b]` it returned `[b, x, c]`, where `b` precedes `x` even though `b`
+ * depends on `x` — so `startDependencies` started `b` without `x` running and awaited a readiness that
+ * could not arrive.
+ */
 export function dependenciesOf(server: ServerConfig, servers: ServerConfig[]): ServerConfig[] {
   const byId = new Map(servers.map(entry => [entry.id, entry]))
   const found: ServerConfig[] = []
@@ -41,8 +50,8 @@ export function dependenciesOf(server: ServerConfig, servers: ServerConfig[]): S
       const target = byId.get(dependency)
       if (!target)
         continue
-      found.push(target)
       walk(target)
+      found.push(target)
     }
   }
 
