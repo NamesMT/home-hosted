@@ -44,7 +44,14 @@ describe('runtimeArgs', () => {
 
   it('produces the same loader path every time', () => {
     process.execArgv = ['tsx']
-    expect(runtimeArgs()[0]).toBe(runtimeArgs()[0])
+    // Asserted against the *shape*, not one call against itself: `f(x) === f(x)` held for a function
+    // that returned the bare `tsx`, which is the bug the case above exists to prevent. A bare `tsx`
+    // rewrites to a single resolved loader path; `--import tsx` keeps the flag and follows it.
+    const first = runtimeArgs()
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatch(/tsx/)
+    expect(first[0]).not.toBe('tsx')
+    expect(runtimeArgs()).toEqual(first)
   })
 })
 

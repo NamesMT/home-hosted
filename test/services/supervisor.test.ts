@@ -1360,8 +1360,17 @@ describe('the documented state layout', () => {
     expect(topLevel.has('settings.json')).toBe(true)
 
     const readme = fs.readFileSync(fileURLToPath(new URL('../../README.md', import.meta.url)), 'utf8')
-    const missing = [...topLevel].filter(entry => !readme.includes(`.hh/${entry}`) && !readme.includes(entry))
+    // Scoped to the layout table's own rows, not the whole document. A bare
+    // `readme.includes(entry)` fallback made the check near-unfailable: a new state directory named
+    // `logs` or `settings.json` matches README *prose* anywhere ("logs" appears 27 times), so an
+    // entry the layout table never names still passed.
+    const layoutRows = readme.split('\n').filter(line => line.includes('`.hh/') || line.includes('$HHOSTED_HOME/.hh'))
+    const missing = [...topLevel].filter(entry =>
+      !layoutRows.some(row => row.includes(entry)),
+    )
     expect(missing, 'a state entry the layout table never mentions').toEqual([])
+    // Anti-vacuity: the table must actually have been found, or `missing` is trivially empty.
+    expect(layoutRows.length, 'no README layout rows matched').toBeGreaterThan(1)
   })
 })
 

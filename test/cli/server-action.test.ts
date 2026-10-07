@@ -179,19 +179,15 @@ describe('restart, for one server or the panel', () => {
     // `restart --workspace x` without an id is refused *before* anything is attempted, so
     // this proves the id-less path never routes to `/_hh` — and it must not run `down`
     // either, because the run.json here names this very process as the panel.
+    //
+    // This subsumes a sibling case that asserted only exit 1 and `needs a server id`: strictly fewer
+    // assertions over the same two calls, so it could not fail where this one passes. The
+    // "says what to write instead" half lives in the `--print-config` case above, which is the one
+    // that proves the corrected form is named.
     const result = await runCli(['restart', '--workspace', 'staging'])
 
     expect(result.status).toBe(1)
     expect(created.seen.path, 'the control channel must not be touched').toBeUndefined()
-    expect(result.stderr).toContain('needs a server id')
-  })
-
-  it('refuses --workspace without an id, and says what to write instead', async () => {
-    const created = await panel(200, JSON.stringify({ ok: true }))
-    writeRuntime(created.url)
-
-    const result = await runCli(['restart', '--workspace', 'staging'])
-    expect(result.status).toBe(1)
     expect(result.stderr).toContain('needs a server id')
   })
 })

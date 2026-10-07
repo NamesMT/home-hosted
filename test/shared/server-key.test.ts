@@ -14,13 +14,13 @@ describe('serverKey', () => {
     expect(serverKey('alpha', 'web')).not.toBe(serverKey('beta', 'web'))
   })
 
-  it('is stable for the same pair, so a subscribe and a dispatch agree', () => {
-    expect(serverKey('alpha', 'web')).toBe(serverKey('alpha', 'web'))
-  })
-
   it('does not collide when an id contains the separator', () => {
     // `a/b` + `c` and `a` + `b/c` would produce the same string with a naive join; the ids are
     // constrained to `[a-z0-9_-]`, so a slash cannot appear — asserted rather than assumed.
+    //
+    // This is also where determinism is pinned, by the *format*: a second test asserting
+    // `serverKey(a, b) === serverKey(a, b)` held for any function, including one that dropped
+    // `serverId` and collapsed every same-named server into one bucket.
     expect(serverKey('alpha', 'web')).toBe('alpha/web')
     expect(serverKey('alpha', 'web')).not.toBe(serverKey('alpha', 'web/x'))
   })

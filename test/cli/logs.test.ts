@@ -165,8 +165,13 @@ describe('runLogs', () => {
   })
 
   it('accepts surrounding whitespace on a real count', async () => {
-    // A shell can hand over a padded value; that is still the number it looks like.
-    expect(await capture(home('a\nb\nc\n'), { lines: ' 2 ' })).toContain('c')
+    // A shell can hand over a padded value; that is still the number it looks like. Asserted as a
+    // *count* on a file longer than the default (50): the previous version used a 3-line file and
+    // asserted the last line was present, which holds for any count at all — `' 2 '` falling back
+    // to the default 50 still printed it, so removing the trim left the test green.
+    const root = home(`${Array.from({ length: 200 }, (_, i) => `line-${i}`).join('\n')}\n`)
+    const printed = (await capture(root, { lines: ' 2 ' })).split('\n').filter(line => line.startsWith('line-')).length
+    expect(printed).toBe(2)
   })
 
   /**

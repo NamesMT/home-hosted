@@ -1,8 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
 import { spawn } from 'node:child_process'
-import fs from 'node:fs'
 import net from 'node:net'
-import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { isProcessAlive, killPortHolders, listPortHolders, terminatePids } from '#src/providers/port'
 
@@ -88,13 +86,30 @@ describe('isProcessAlive', () => {
     // Signal 0 against a pid that cannot exist: `ESRCH`, which is genuinely not alive.
     expect(isProcessAlive(2 ** 30), 'no such process').toBe(false)
 
-    // The `EPERM` answer is the one that changed. It cannot be produced without a process owned by
-    // another user, so the mapping is asserted directly against the source's own contract: the code
-    // returns true for `EPERM` and false otherwise. Guarded by reading the file, which fails if the
-    // `EPERM` branch is dropped again.
-    const source = fs.readFileSync(fileURLToPath(new URL('../../src/providers/port.ts', import.meta.url)), 'utf8')
-    const predicate = source.slice(source.indexOf('export function isProcessAlive'))
-    expect(predicate).toContain('code === \'EPERM\'')
+    // The `EPERM` answer is the one that changed, and it needs a process owned by another user to
+    // happen for real — so `process.kill` is made to answer the way the OS does. Driving the
+    // predicate this way is what the previous version could not do: it read `port.ts` as *text* and
+    // looked for `code === 'EPERM'`, which passed while the branch was `'EPERM' && false` — the
+    // exact semantics bug it claimed to guard.
+    const original = process.kill
+    try {
+      process.kill = (() => {
+        const error = new Error('operation not permitted') as NodeJS.ErrnoException
+        error.code = 'EPERM'
+        throw error
+      }) as typeof process.kill
+      expect(isProcessAlive(1), 'EPERM means alive but not ours to signal').toBe(true)
+
+      process.kill = (() => {
+        const error = new Error('no such process') as NodeJS.ErrnoException
+        error.code = 'ESRCH'
+        throw error
+      }) as typeof process.kill
+      expect(isProcessAlive(1), 'ESRCH means gone').toBe(false)
+    }
+    finally {
+      process.kill = original
+    }
   })
 })
 

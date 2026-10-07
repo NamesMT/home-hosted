@@ -142,6 +142,10 @@ describe('probeHealth', () => {
       http: { ...defaults, expectBody: 'ready' },
     })
     expect(result.healthy).toBe(true)
+    // The detail is what proves the *http* probe ran: a TCP connect against the same port is
+    // equally healthy, so `healthy === true` alone passed with the mode dispatch deleted and the
+    // configured body requirement silently never evaluated.
+    expect(result.detail, 'the http probe reports the status line').toContain('HTTP 200')
   })
 
   it('tries each candidate host until one answers', async () => {
@@ -156,14 +160,35 @@ describe('probeHealth', () => {
     expect(result.healthy).toBe(true)
   })
 
-  it('reports the last failure when no host answers', async () => {
-    const result = await probeHealth({
+  it('reports unhealthy once every host has been tried', async () => {
+    const port = await tcpServer()
+    const defaults = { path: '/', method: 'GET' as const, expectBody: '', expectStatusBelow: 400, expectStatus: null }
+
+    // The loop has to keep walking: the first host is unroutable and times out, the second refuses
+    // immediately. Reporting the first result would be the bug.
+    const answer = await probeHealth({
+      mode: 'port',
+      hosts: ['192.0.2.1', '127.0.0.1'],
+      port,
+      timeoutMs: 400,
+      http: defaults,
+    })
+    expect(answer.healthy).toBe(true)
+
+    // And when none answers, the answer is a failure with a probe's own detail.
+    //
+    // The test was named "reports the **last** failure", which is not assertable: `probeTcp` returns
+    // a constant detail that names no host, so the first and last failures are byte-identical. The
+    // name claimed a specificity the API cannot expose — checked directly, both readings print
+    // `port did not accept a connection`.
+    const refused = await probeHealth({
       mode: 'port',
       hosts: ['192.0.2.1', '127.0.0.1'],
       port: 9,
-      timeoutMs: 300,
+      timeoutMs: 400,
       http: defaults,
     })
-    expect(result.healthy).toBe(false)
+    expect(refused.healthy).toBe(false)
+    expect(refused.detail, 'the loop returned its own placeholder, not a probe result').not.toBe('not probed')
   })
 })

@@ -634,8 +634,17 @@ describe('panelService', () => {
       panel.reloadAll()
       expect(runtime.store.servers.map(server => server.id)).toEqual(['restored'])
 
-      // Global settings are re-read too, so a restored listener takes effect.
-      expect(settings.control.port).toBeGreaterThan(0)
+      // Global settings are re-read too, so a restored listener takes effect. Asserted against a
+      // value written to disk *after* the store was first loaded: the previous
+      // `expect(settings.control.port).toBeGreaterThan(0)` held either way, since the port defaults
+      // to a valid number and nothing here wrote global settings at all — deleting
+      // `settings.load()` from `reloadAll()` left it green.
+      const onDisk = JSON.parse(fs.readFileSync(settings.path, 'utf8')) as { control?: { label?: string } }
+      onDisk.control = { ...onDisk.control, label: 'restored-panel' }
+      fs.writeFileSync(settings.path, JSON.stringify(onDisk, null, 2))
+
+      panel.reloadAll()
+      expect(settings.control.label, 'reloadAll must re-read the global settings file').toBe('restored-panel')
     }
     finally {
       await dispose()

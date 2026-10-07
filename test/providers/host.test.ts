@@ -245,13 +245,14 @@ describe('macAvailableBytes', () => {
   })
 
   it('falls back for a page size when the header is absent', () => {
-    // Older `vm_stat` printed no header; the count still has to be usable.
+    // Older `vm_stat` printed no header, so the size comes from `getpagesize` instead. Asserted
+    // unconditionally: the old `if (parsed !== null)` guard meant an implementation that refused
+    // *every* headerless reading — the failure the test is named for — still passed.
     const headerless = VM_STAT.split('\n').slice(1).join('\n')
-    const parsed = macAvailableBytes(headerless)
-    // Either a real page size was found, or the reading is refused — never a wrong number
-    // derived from assuming 4096.
-    if (parsed !== null)
-      expect(parsed).toBe(635_000 * getconfPageSize())
+    expect(macAvailableBytes(headerless)).toBe(635_000 * getconfPageSize())
+    // The count is read from the headerless text, so a wrong one shows up as a wrong total: with
+    // the 16384-byte header dropped the free-page figure still has to be the one in the text.
+    expect(macAvailableBytes(headerless)).not.toBe(0)
   })
 
   it('refuses a reading it cannot take, rather than inventing a percentage', () => {

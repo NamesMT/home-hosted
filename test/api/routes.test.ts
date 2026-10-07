@@ -825,10 +825,15 @@ describe('backups route: archives', () => {
     // `Content-Length` still comes from stat, so a client can show progress.
     expect(download.headers.get('content-length')).toBe(String(4 * 1024 * 1024))
 
-    // The property: a stream, not an array buffer.
-
-    // And it still delivers every byte.
-    expect((await download.arrayBuffer()).byteLength).toBe(4 * 1024 * 1024)
+    // The property: a stream, not an array buffer. Measured on the first chunk — a `createReadStream`
+    // body yields a 64 KiB chunk while a `readFileSync` body arrives as one 4 MiB chunk, so the size
+    // tells the two apart. This assertion was missing: the comment sat where it should have been, and
+    // with `readFileSync` restored the test still passed, because both bodies are `ReadableStream`s
+    // and both deliver every byte.
+    const reader = download.body!.getReader()
+    const first = await reader.read()
+    await reader.cancel()
+    expect(first.value!.byteLength, 'the whole archive arrived in one chunk, so it was buffered').toBeLessThan(4 * 1024 * 1024)
   })
 
   it('downloads and deletes a real archive on disk', async () => {

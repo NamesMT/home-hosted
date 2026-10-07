@@ -140,14 +140,19 @@ describe('the published bin', () => {
     expect(result.stdout).toContain('logs')
   })
 
-  it('passes the caller directory through as the project', () => {
-    // The bin documents this: relative entry paths resolve against where you ran it.
-    const cwd = tempDir()
-    const result = runBin(['status'], { cwd, built: true })
-
-    // Not running is a legitimate answer; what matters is that it answered rather than threw.
-    expect(result.status === 0 || result.status === 1).toBe(true)
-    expect(result.stderr).not.toContain('ERR_MODULE_NOT_FOUND')
-    expect(result.stdout.length + result.stderr.length).toBeGreaterThan(0)
-  })
+  /**
+   * There is deliberately no "passes the caller directory through as the project" case for the
+   * built* path.
+   *
+   * The bin sets `cwd: hasBuild ? process.cwd() : root`, so on the built path the child already
+   * inherits the caller's directory as its cwd, and `HHOSTED_PROJECT: process.env.HHOSTED_PROJECT ??
+   * process.cwd()` resolves to that same directory. Deleting the passthrough changed nothing there
+   * (verified: an `init`-based assertion built for this case still passed anyway), which is why the
+   * case that used to sit here — `status` is 0 or 1, no module error, some output appeared — could
+   * not fail.
+   *
+   * The passthrough is load-bearing on the **sources** path, where the bin pins `cwd: root` and the
+   * env var is the only thing carrying the caller's directory. That is covered by the foreign-cwd
+   * test above, which does fail when the passthrough is removed.
+   */
 })
