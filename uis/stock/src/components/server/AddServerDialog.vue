@@ -173,7 +173,7 @@ async function submit(): Promise<void> {
             v-model="form.dependsOn"
             label="Depends on"
             placeholder="postgres, redis"
-            hint="Comma separated; started first, stopped last."
+            hint="Comma separated; started first and waited for until healthy, stopped last."
             class="font-mono text-xs"
           />
         </FieldGroup>

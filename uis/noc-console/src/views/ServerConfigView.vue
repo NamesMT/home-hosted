@@ -472,7 +472,7 @@ async function remove(): Promise<void> {
             <label class="field grid__full">
               <span class="field__label">depends on — comma separated ids</span>
               <input v-model="form.dependsOn" placeholder="db, cache">
-              <span class="field__hint">started first (and healthy); stopped in reverse order</span>
+              <span class="field__hint">started first (and healthy); stopped last — after anything that depends on it</span>
             </label>
           </div>
         </div>
