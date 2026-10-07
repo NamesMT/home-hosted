@@ -1,10 +1,14 @@
 import type { ApiErrorBody } from '#src/helpers/error'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { describe, expect, it } from 'vitest'
 import { errorHandler } from '#src/helpers/error'
+import { parseOrThrow } from '#src/helpers/validate'
 import { apiErrorSchema } from '#src/shared/contracts'
 
 /**
@@ -47,6 +51,8 @@ function fakeDetailedError(fields: { statusCode?: unknown, code?: string, detail
   error.name = 'DetailedError'
   return Object.assign(error, fields)
 }
+
+const root = fileURLToPath(new URL('../..', import.meta.url))
 
 describe('errorHandler over the wire', () => {
   it('maps an HTTPException to HTTP_EXCEPTION with its own status', async () => {
@@ -140,5 +146,32 @@ describe('the documented error envelope', () => {
     // Not merely loosened: `code` and `message` stay required, and unknown keys stay rejected.
     expect(apiErrorSchema({ message: 'x' }) instanceof type.errors).toBe(true)
     expect(apiErrorSchema({ message: 'x', code: 'y', extra: 1 }) instanceof type.errors).toBe(true)
+  })
+})
+
+/**
+ * Both input-rejection paths must report the same `code`.
+ *
+ * `parseOrThrow` set `INVALID_INPUT` while the `validate()` middleware set none, so it fell back to
+ * `DETAILED_ERROR` — the generic value for "a `DetailedError` with no code", which is what a bug looks
+ * like too. A client wanting to render a field list should not have to guess which of two spellings of
+ * "your input was wrong" it received.
+ */
+describe('input rejections', () => {
+  it('share one code, whichever path rejects them', () => {
+    const parseOrThrowCode = () => {
+      try {
+        parseOrThrow(type({ n: 'number' }), { n: 'x' }, 'body')
+      }
+      catch (error) {
+        return (error as { code?: string }).code
+      }
+      return null
+    }
+    expect(parseOrThrowCode()).toBe('INVALID_INPUT')
+
+    // And the middleware's own message, read from source so a change to one is not silent.
+    const validator = fs.readFileSync(path.join(root, 'src/helpers/validator.ts'), 'utf8')
+    expect(validator, 'the validate() middleware must set the same code').toContain('code: \'INVALID_INPUT\'')
   })
 })

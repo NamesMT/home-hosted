@@ -12,7 +12,10 @@ import { validator as standardValidator } from 'hono-openapi'
 export function validate<Target extends keyof ValidationTargets, Schema extends StandardSchemaV1>(target: Target, schema: Schema) {
   return standardValidator(target, schema, (result) => {
     if (result.success === false)
-      throw new DetailedError('validation failed', { statusCode: 400, detail: normalizeIssues(result.error) })
+      // The same `code` and `detail` shape `parseOrThrow` uses: both mean "the input was invalid", and
+      // a client that wants to act on that should not have to tell a generic `DETAILED_ERROR` from a
+      // real one. `detail[]` is the field list either way.
+      throw new DetailedError('validation failed', { statusCode: 400, code: 'INVALID_INPUT', detail: normalizeIssues(result.error) })
   })
 }
 

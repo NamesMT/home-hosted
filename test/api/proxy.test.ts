@@ -241,7 +241,9 @@ describe('pATCH /api/proxy', () => {
     const response = await fixture.app.request('/api/proxy', patch({ httpPort: 0, unexpected: true }))
 
     expect(response.status).toBe(400)
-    expect((await response.json() as ProxyBody).code).toBe('DETAILED_ERROR')
+    // The code is the one every input rejection shares; it was `DETAILED_ERROR`, which is the fallback
+    // for a `DetailedError` with no code at all rather than a decision.
+    expect((await response.json() as ProxyBody).code).toBe('INVALID_INPUT')
   })
 })
 
