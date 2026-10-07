@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.7.20
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.19...v0.7.20)
+
+### 🩹 Fixes
+
+- **cli:** Stop trusting a stale run.json when its pid has been recycled ([4463e20](https://github.com/NamesMT/home-hosted/commit/4463e20))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.19
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.18...v0.7.19)
