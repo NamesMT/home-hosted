@@ -4,7 +4,7 @@ import process from 'node:process'
 import { defineCommand } from 'citty'
 import { dim, fail, green, prompt } from '#src/cli/io'
 import { migrateLayout } from '#src/config/layout'
-import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
+import { applyConfigMigrations, planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { WorkspaceRegistry } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
@@ -103,7 +103,7 @@ export async function runMigrate(config: string | undefined, dryRun: boolean, ye
     }
 
     const meta = typeof raw.meta === 'object' && raw.meta !== null ? raw.meta as { schema?: number, writtenBy?: string } : {}
-    const from = typeof meta.schema === 'number' ? meta.schema : CONFIG_SCHEMA
+    const from = typeof meta.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
     const plan = planConfigMigrations(from)
 
     if (plan.tooNew) {

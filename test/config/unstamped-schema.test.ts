@@ -33,7 +33,9 @@ describe('an unstamped config file', () => {
   it('keeps the readers using the constant rather than the current schema', () => {
     // A source-level check, because the failure needs a future bump to become visible: a reader that
     // defaults to `CONFIG_SCHEMA` is correct today and wrong the day that number changes.
-    for (const file of ['src/config/parse.ts', 'src/config/store.ts']) {
+    // Every reader of a `meta.schema`, not the two that happened to be found first: the CLI's migrate
+    // and the global settings store had the same fallback.
+    for (const file of ['src/config/parse.ts', 'src/config/store.ts', 'src/config/settings.ts', 'src/cli/migrate.ts']) {
       const source = fs.readFileSync(path.join(root, file), 'utf8')
       expect(source, `${file} must import UNSTAMPED_SCHEMA`).toContain('UNSTAMPED_SCHEMA')
       // Any fallback for a *missing* stamp must be the constant, not the current schema. Three
@@ -44,9 +46,11 @@ describe('an unstamped config file', () => {
       expect(source, `${file} must not default a result's schemaVersion to CONFIG_SCHEMA`)
         .not
         .toMatch(/schemaVersion: CONFIG_SCHEMA/)
+      // Case-insensitive: the field is `schemaVersion`, so an uppercase `S` in the pattern silently
+      // matched nothing — which is how the first version of this guard passed a mutation.
       expect(source, `${file} must not initialise a version field to CONFIG_SCHEMA`)
         .not
-        .toMatch(/SchemaVersion = CONFIG_SCHEMA/)
+        .toMatch(/schemaVersion = CONFIG_SCHEMA/i)
     }
   })
 })

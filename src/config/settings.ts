@@ -3,7 +3,7 @@ import type { BackupsConfig, ControlConfig, HostConfig, ProxyConfig, ProxyPatch,
 import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
-import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
+import { planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseTolerant, stampConfig } from '#src/config/parse'
 import { applyPatch, CONTROL_MERGE_KEYS, EMPTY_MERGE_KEYS, PROXY_MERGE_KEYS } from '#src/config/patch'
 import { backupsSchema, controlSchema, globalSettingsSchema, hostSchema, proxyConfigSchema } from '#src/config/schema'
@@ -38,7 +38,7 @@ export class GlobalSettingsStore {
   private resolvedConfig!: ResolvedGlobalConfig
   private error: string | null = null
   private warnings: string[] = []
-  private schemaVersion = CONFIG_SCHEMA
+  private schemaVersion = UNSTAMPED_SCHEMA
   private readonly listeners = new Set<() => void>()
 
   constructor(private readonly file: string = globalSettingsPath, private readonly seed: Record<string, unknown> = SEED_GLOBAL_SETTINGS) {}
