@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ServerView } from '@shared/contracts'
 import type { ServerSeries } from '@/lib/telemetry'
+import { browserServerUrl, pageHostname } from '@shared/server-url'
 import {
   CircleAlert,
   CircleCheck,
@@ -58,6 +59,12 @@ const config = computed(() => props.server.config)
 const label = computed(() => (config.value.label && config.value.label.length > 0 ? config.value.label : props.server.id))
 const commandLine = computed(() => `${config.value.command} ${config.value.args.join(' ')}`.trim())
 const tone = computed(() => serverTone(props.server.status, props.server.health))
+
+/**
+ * The link follows the hostname this page was reached at when the entry binds every interface: its
+ * LAN address is unroutable for a viewer arriving over a public name or a tunnel. See `@shared/server-url`.
+ */
+const serverUrl = computed(() => browserServerUrl(props.server, pageHostname()))
 
 const isRunning = computed(() => props.server.status === 'running')
 const canStart = computed(() => config.value.enabled && ['stopped', 'crashed', 'conflict'].includes(props.server.status))
@@ -169,13 +176,13 @@ function openDetail(): void {
             {{ label }}
           </RouterLink>
           <a
-            v-if="server.url"
-            :href="server.url"
+            v-if="serverUrl"
+            :href="serverUrl"
             target="_blank"
             rel="noreferrer"
             class="shrink-0 text-faint transition-colors duration-150 hover:text-accent"
-            :title="server.url"
-            :aria-label="`Open ${server.url}`"
+            :title="serverUrl"
+            :aria-label="`Open ${serverUrl}`"
           >
             <ExternalLink class="size-3.5" />
           </a>

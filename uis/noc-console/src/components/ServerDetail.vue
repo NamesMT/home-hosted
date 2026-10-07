@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Bind, LogLine, ServerStatus, ServerView } from '@shared/contracts'
 import { parseBind } from '@shared/contracts'
+import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmButton from '@/components/ConfirmButton.vue'
@@ -30,6 +31,11 @@ const { drawerOpen } = useUi()
 
 const config = computed(() => props.server.config)
 const label = computed(() => (config.value.label && config.value.label.length > 0 ? config.value.label : props.server.id))
+/**
+ * The link follows the hostname this page was reached at when the entry binds every interface: its
+ * LAN address is unroutable for a viewer arriving over a public name or a tunnel. See `@shared/server-url`.
+ */
+const serverUrl = computed(() => browserServerUrl(props.server, pageHostname()))
 const series = computed(() => control.seriesOf(props.workspaceId, props.server.id))
 const lines = ref<LogLine[]>([])
 const busy = ref(false)
@@ -160,7 +166,7 @@ function ledClass(status: ServerStatus): string {
         <HealthChip :health="server.health" />
         <span v-if="config.persistent" class="chip chip--neutral" title="runs under its own nanny: it survives a panel stop, and `down` reports it instead of stopping it">persistent</span>
         <span class="view__spacer" />
-        <a v-if="server.url" class="chip chip--accent" :href="server.url" target="_blank" rel="noreferrer">{{ server.url }}</a>
+        <a v-if="serverUrl" class="chip chip--accent" :href="serverUrl" target="_blank" rel="noreferrer">{{ serverUrl }}</a>
       </div>
 
       <div class="row actions--start">

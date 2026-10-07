@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ServerView } from '@shared/contracts'
+import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { Code2, ExternalLink, MoreHorizontal, Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-vue-next'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref, watch } from 'vue'
@@ -72,6 +73,12 @@ const liveLines = computed(() => {
 
 const series = computed(() => workspace.seriesOf(serverId.value))
 const now = control.now
+
+/**
+ * The link follows the hostname this page was reached at when the entry binds every interface: its
+ * LAN address is unroutable for a viewer arriving over a public name or a tunnel. See `@shared/server-url`.
+ */
+const serverUrl = computed(() => (server.value ? browserServerUrl(server.value, pageHostname()) : null))
 
 const cpuValues = computed(() => series.value.cpu)
 const rssValues = computed(() => series.value.rss)
@@ -200,13 +207,13 @@ const SECTIONS = [
         </Tip>
         <span class="font-mono text-xs text-faint">{{ server.id }}</span>
         <a
-          v-if="server.url"
-          :href="server.url"
+          v-if="serverUrl"
+          :href="serverUrl"
           target="_blank"
           rel="noreferrer"
           class="inline-flex items-center gap-1 font-mono text-xs text-accent hover:underline"
         >
-          {{ server.url }}
+          {{ serverUrl }}
           <ExternalLink class="size-3" />
         </a>
       </template>

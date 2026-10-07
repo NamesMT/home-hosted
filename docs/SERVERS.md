@@ -65,6 +65,19 @@ environment (including `envFile`). Every supervised process also gets `HHOSTED_S
 `dataEnvs` is the one that pays for itself twice: the value is exported to the process *and* the path
 is picked up by Backups, so a data directory is declared once.
 
+### The "open server" link
+
+An entry with a `port` gets a link in the UI, and **it follows the hostname you are reading the panel
+at** whenever the entry binds `lan`. The panel's own report of a `lan` entry is this machine's LAN
+address (`http://192.168.1.20:4991`) — true, but unreachable from outside that LAN, which is exactly
+where a public hostname or a tunnel puts you. Reading the panel at `http://box.example:4999` therefore
+links to `http://box.example:4991`.
+
+The entry's port and scheme never change: a server port is plain HTTP whatever the panel is served
+over, and the port belongs to the entry. Two cases keep the reported address instead, because both are
+already correct: a `local` (or specific-IP) entry, which is reachable only at that address, and a
+viewer already on the machine via `localhost`.
+
 ## A busy port
 
 Preflight runs before every start, so two servers cannot silently fight over one port.

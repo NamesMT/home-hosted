@@ -86,7 +86,7 @@ name-based search missed the copies called `isPlainObject`, `isBootAttempt` and 
 
 ## What else both UIs share
 
-Four more modules, each created because the same code existed twice — the class above, found again:
+Five more modules, each created because the same code existed twice — the class above, found again:
 
 | module | what it replaced |
 | --- | --- |
@@ -94,6 +94,7 @@ Four more modules, each created because the same code existed twice — the clas
 | `ui-format.ts` | Five byte-identical formatters, 911 duplicated characters. The cost showed inside one round: fixing `formatRatio`'s missing guard in `noc-console` left `stock` still rendering `NaN%` — and the guard then had to be fixed **twice**, which is the duplication arguing for itself. |
 | `endpoint.ts` | `waitForEndpoint`, byte-identical and importing nothing. |
 | `api-client.ts` | 25 identical API wrappers plus the `request` helper and `AuthRequiredError`. `request` had **already drifted** — one UI read a bare `error` field, the other did not. |
+| `server-url.ts` | the "open server" link: a `lan` entry is reported at the machine's LAN address, unroutable for a viewer on a public hostname. Only the browser knows its own name, so the swap is client-side — and both UIs render that link, so one rule keeps them from disagreeing. |
 
 **The rule for what belongs here, and what does not.** A module moves in when its dependencies already
 resolve within `src/shared/`; it stays out when it would import *upward*. `rpc.ts` needs `AppType` from
