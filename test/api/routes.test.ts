@@ -8,6 +8,7 @@ import path from 'node:path'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { missingServer } from '#src/helpers/action-result'
+import { logger } from '#src/helpers/logger'
 import { hasOpenssl } from '../support/capabilities'
 import { makeFixture, makeView } from './fixture'
 
@@ -581,6 +582,38 @@ describe('tls route', () => {
     expect(restarts).toBe(0)
     await new Promise(resolve => setImmediate(() => setImmediate(resolve)))
     expect(restarts).toBe(1)
+  })
+
+  /**
+   * Clearing the pair must rebuild the listener **and** notice a failure.
+   *
+   * `restart()` closes the listener before re-binding, so a failed bind leaves the panel listening
+   * nowhere. The DELETE path discarded the result — no error, no log — while the POST path right above
+   * checks it, and both call the same method for the same reason.
+   */
+  it.runIf(hasOpenssl)('rebuilds the listener after clearing, and reports a failed rebuild', async () => {
+    const created = await fixture()
+    created.settings.updateControl({ tls: { enabled: true } })
+    let restarts = 0
+    created.controlServer.restart = async () => {
+      restarts += 1
+      return { ok: false, error: 'bind refused' }
+    }
+
+    const errors: string[] = []
+    const realError = logger.error
+    logger.error = ((...args: unknown[]) => { errors.push(args.map(String).join(' ')) }) as typeof logger.error
+    try {
+      expect((await request(created.app, '/api/settings/tls', 'DELETE')).status).toBe(200)
+      expect(restarts).toBe(0)
+      await new Promise(resolve => setImmediate(() => setImmediate(resolve)))
+      expect(restarts).toBe(1)
+    }
+    finally { logger.error = realError }
+
+    // The failure is reported rather than swallowed. The log is the observable proof: without the check
+    // nothing at all is written for a panel that is now listening nowhere.
+    expect(errors.join('\n'), 'a failed rebuild must be logged').toContain('could not reload TLS')
   })
 })
 

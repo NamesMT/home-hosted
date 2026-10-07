@@ -62,7 +62,15 @@ export function createTlsRoute(deps: AppDeps) {
         deps.tls.clear()
         if (deps.panel.settings.control.tls.enabled) {
           afterResponse(async () => {
-            await deps.controlServer.restart()
+            // The result is checked, as on the POST above: `restart()` closes the listener first, so a
+            // failed bind leaves the panel listening **nowhere** — and discarding this made that
+            // completely silent, with the panel still reporting a certificate that is no longer on disk.
+            const result = await deps.controlServer.restart()
+            if (!result.ok)
+              logger.error(`could not reload TLS after removing the pair: ${result.error ?? 'unknown error'}`)
+            // Not `endpoint.url`: it is computed once in the constructor, so it still says whatever the
+            // protocol was at boot. What the listener actually serves is `tls.enabled && servable()`.
+            else logger.info(`control panel reloaded — ${deps.panel.settings.control.tls.enabled && deps.tls.servable() !== null ? 'https' : 'http'}`)
           }, error => logger.error('tls reload failed', error))
         }
         return c.json(review())
