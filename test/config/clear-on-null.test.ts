@@ -1,5 +1,9 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { applyPatch, mergeGroup } from '#src/config/patch'
+import { WorkspaceStore } from '#src/config/store'
 
 /**
  * An explicit `null` **removes** a key, at the top level as well as inside a group.
@@ -34,5 +38,49 @@ describe('clearing a key with null', () => {
     expect(target.label).toBe('Demo')
     applyPatch(target, { label: 'Renamed' }, new Set())
     expect(target.label).toBe('Renamed')
+  })
+})
+
+/**
+ * A field whose `null` is a *value* must survive the change too.
+ *
+ * `serverSchema.port` is `number | null`, where `null` means "no port" rather than "unset" — so removing
+ * the key looks like it could change the meaning. It does not: `parse.ts` normalises `server.port ?? null`
+ * and `store.ts` does the same, so an absent key and an explicit `null` read identically. The file simply
+ * keeps the canonical spelling instead of a key whose only meaning is "no port".
+ */
+describe('a field where null is a value', () => {
+  it('reads the same whether the key is absent or explicitly null', () => {
+    for (const entry of [{ id: 'web', command: 'node', port: null }, { id: 'web', command: 'node' }]) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-nullvalue-'))
+      try {
+        const file = path.join(dir, 'servers.config.json')
+        fs.writeFileSync(file, JSON.stringify({ servers: [entry] }))
+        const store = new WorkspaceStore('default', path.join(dir, 'settings.json'), file)
+        store.load()
+        expect(store.getServer('web')?.port, JSON.stringify(entry)).toBeNull()
+      }
+      finally {
+        fs.rmSync(dir, { recursive: true, force: true })
+      }
+    }
+  })
+
+  it('and clearing it through the store removes the key, still reading as null', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-nullclear-'))
+    try {
+      const file = path.join(dir, 'servers.config.json')
+      fs.writeFileSync(file, JSON.stringify({ servers: [{ id: 'web', command: 'node', port: 4000 }] }))
+      const store = new WorkspaceStore('default', path.join(dir, 'settings.json'), file)
+      store.load()
+
+      store.updateServer('web', { port: null } as never)
+      expect(store.getServer('web')?.port).toBeNull()
+      // The canonical spelling: no key at all, which `parse` normalises back to null.
+      expect(fs.readFileSync(file, 'utf8')).not.toContain('"port"')
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
