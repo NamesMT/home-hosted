@@ -60,7 +60,7 @@ const form = reactive({
     enabled: false,
     sessionTtlMs: 604800000,
     cookieSecure: 'auto' as AuthStatus['cookieSecure'],
-    trustProxy: false,
+    trustProxy: 'off',
     maxLoginAttempts: 5,
     lockoutMs: 60000,
   },
@@ -75,12 +75,21 @@ function joinList(values: readonly string[]): string {
 }
 
 /** Only the config-facing fields of the auth status; the rest is derived. */
+/** The wire value of the three-way choice, from either side — one definition, so a diff cannot compare
+ *  a string against a boolean and report a change nobody made. */
+function toWireTrustProxy(value: boolean | 'loopback' | 'off' | 'any' | string): boolean | 'loopback' {
+  if (value === 'loopback')
+    return 'loopback'
+  return value === 'any' || value === true
+}
+
 function authConfig(status: AuthStatus): Record<string, unknown> {
   return {
     enabled: status.enabled,
     sessionTtlMs: status.sessionTtlMs,
     cookieSecure: status.cookieSecure,
-    trustProxy: status.trustProxy,
+    // Held as a three-way string for the select below, the shape `cookieSecure` already uses.
+    trustProxy: status.trustProxy === 'loopback' ? 'loopback' : status.trustProxy ? 'any' : 'off',
     maxLoginAttempts: status.maxLoginAttempts,
     lockoutMs: status.lockoutMs,
   }
@@ -265,7 +274,8 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
       host: view.host,
       openBrowser: view.openBrowser,
       tls: { enabled: view.tls.enabled },
-      auth: authConfig(view.auth),
+      // The wire shape, matching `next` below. `authConfig` returns the *form* shape and is for hydrating.
+      auth: { ...authConfig(view.auth), trustProxy: toWireTrustProxy(view.auth.trustProxy) },
     },
     {
       label: form.control.label,
@@ -273,7 +283,8 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
       host: form.control.host,
       openBrowser: form.control.openBrowser,
       tls: { enabled: form.control.tlsEnabled },
-      auth: { ...form.auth },
+      // The select holds the three-way choice as a string; the wire form is `boolean | 'loopback'`.
+      auth: { ...form.auth, trustProxy: toWireTrustProxy(form.auth.trustProxy) },
     },
     ['auth'],
   )
@@ -752,9 +763,13 @@ async function revertUi(): Promise<void> {
                 <input v-model="form.auth.enabled" type="checkbox">
                 <span class="field__label">require a password</span>
               </label>
-              <label class="field field--check">
-                <input v-model="form.auth.trustProxy" type="checkbox">
-                <span class="field__label">behind a trusted reverse proxy</span>
+              <label class="field">
+                <span class="field__label">behind a reverse proxy</span>
+                <select v-model="form.auth.trustProxy">
+                  <option value="off">no — ignore x-forwarded-*</option>
+                  <option value="loopback">yes, from this machine only</option>
+                  <option value="any">yes, from any caller</option>
+                </select>
               </label>
               <label class="field">
                 <span class="field__label">session lifetime (ms)</span>

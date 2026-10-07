@@ -437,12 +437,16 @@ Everything binds `127.0.0.1` until you say otherwise.
   `.hh/.control-secrets.json`, each workspace's Telegram bot token and DDNS credentials in its own
   `.hh/<workspace>/.secrets.json`, all mode `0600`; the TLS pair sits in `.hh/.tls/`. DDNS credentials
   are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET` (default `hh` — set your own).
-- **Behind a proxy** turn on `trustProxy` and let `cookieSecure: auto` add `Secure` on https, or
-  upload a PEM pair and let home-hosted terminate TLS itself. Only turn it on when the proxy is the
-  only way in: it trusts `x-forwarded-*` from any peer, and the client address then comes from the
-  caller's own header — so the per-IP lockout counts per *forged* address and stops throttling brute
-  force. Keep the bind on `local` with the proxy on this machine, or put an authenticating gateway in
-  front. The panel warns at startup when the combination is exposed.
+- **Behind a proxy** pick how far to trust it, and let `cookieSecure: auto` add `Secure` on https — or
+  upload a PEM pair and let home-hosted terminate TLS itself.
+  - **`loopback`** trusts `x-forwarded-*` only when the request really came from this machine. That is the
+    right choice for a proxy on the same host: the panel gets the real client address for its lockout and
+    the logs, and a forged header from anywhere else is ignored.
+  - **on** trusts the header from *any* peer. Only when the proxy is the only way in: the client address
+    then comes from the caller's own header, so the per-IP lockout counts per *forged* address and stops
+    throttling brute force. The panel warns at startup when that combination is exposed.
+  - **off** ignores the header entirely. Use it when nothing sits in front, or when the proxy does not set
+    one.
 
 ---
 

@@ -91,7 +91,10 @@ export function checkProxyExposure(
  * machine, or leave `trustProxy` off and reach the panel directly.
  */
 export function proxyTrustWarning(control: ControlConfig): string | null {
-  if (!control.auth.trustProxy || !isExposed(control.host))
+  // `'loopback'` is not the dangerous case: it trusts `x-forwarded-*` only when the peer *is* loopback,
+  // so a forged header from anywhere else is ignored and the lockout keeps counting per real address.
+  // Only the blanket `true` believes whoever asks.
+  if (control.auth.trustProxy !== true || !isExposed(control.host))
     return null
   return `auth.trustProxy is on while the panel is bound to ${control.host}: the client address comes from `
     + `the caller's own x-forwarded-for header, so the login lockout (maxLoginAttempts/lockoutMs) counts `

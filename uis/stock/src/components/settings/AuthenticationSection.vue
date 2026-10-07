@@ -107,10 +107,15 @@ async function clearPasswordValue(): Promise<void> {
         { value: 'never', label: 'Never — plain HTTP' },
       ]"
     />
-    <ToggleSwitch
+    <SelectField
       v-model="auth.trustProxy"
-      label="Behind a trusted reverse proxy"
-      hint="Trust x-forwarded-* for the client address and protocol. The address then comes from the caller's own header, so login lockout counts per forged address — keep the bind on local with the proxy on this machine, or leave this off."
+      label="Behind a reverse proxy"
+      :options="[
+        { value: 'off', label: 'No — ignore x-forwarded-*' },
+        { value: 'loopback', label: 'Yes, from this machine only' },
+        { value: 'any', label: 'Yes, from any caller' },
+      ]"
+      hint="Trust x-forwarded-* for the client address and protocol. 'From this machine only' is the safe choice for a proxy on the same host. 'From any caller' believes the caller's own header, so login lockout counts per forged address and can be bypassed."
       class="sm:col-span-2"
     />
     <NumberField v-model="maxLoginAttempts" label="Max login attempts" :min="1" hint="Failures before a temporary lockout." />

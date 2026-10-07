@@ -114,6 +114,16 @@ describe('trusting a proxy on an exposed bind', () => {
     expect(trusted('local'), 'loopback is the remedy').toBeNull()
     // And trustProxy off is the other fix.
     expect(proxyTrustWarning(control('lan', { enabled: true, trustProxy: false }))).toBeNull()
+
+    /*
+     * `'loopback'` is the third answer, and the one the warning itself recommends — "keep the bind on
+     * local with the proxy on this machine". It trusts `x-forwarded-*` only when the peer *is* loopback,
+     * so a forged header from anywhere else is ignored and the lockout keeps counting per real address.
+     * Measured against a real srvx server from a non-loopback peer: `'loopback'` reported the true peer
+     * `192.168.1.201` while `true` reported the forged `8.8.8.8`.
+     */
+    expect(proxyTrustWarning(control('lan', { enabled: true, trustProxy: 'loopback' }))).toBeNull()
+    expect(proxyTrustWarning(control('0.0.0.0', { enabled: true, trustProxy: 'loopback' }))).toBeNull()
   })
 })
 

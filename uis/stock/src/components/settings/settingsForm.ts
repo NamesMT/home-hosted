@@ -39,7 +39,11 @@ export interface AuthForm {
   enabled: boolean
   sessionTtlMs: number
   cookieSecure: 'auto' | 'always' | 'never'
-  trustProxy: boolean
+  /**
+   * Held as a **string** for the form, because `SelectField` is string-valued by design -- the same
+   * shape `cookieSecure` uses. `authBaseline` converts; the wire form is `boolean | 'loopback'`.
+   */
+  trustProxy: 'off' | 'loopback' | 'any'
   maxLoginAttempts: number
   lockoutMs: number
 }
@@ -142,7 +146,7 @@ export function cloneHealth(health: HealthConfig): HealthConfig {
 export function createGlobalForm(): GlobalSettingsForm {
   return {
     control: { label: 'home-hosted', port: 3999, host: 'local', openBrowser: false, tlsEnabled: false },
-    auth: { enabled: false, sessionTtlMs: 604_800_000, cookieSecure: 'auto', trustProxy: false, maxLoginAttempts: 5, lockoutMs: 60_000 },
+    auth: { enabled: false, sessionTtlMs: 604_800_000, cookieSecure: 'auto', trustProxy: 'off', maxLoginAttempts: 5, lockoutMs: 60_000 },
     host: {
       enabled: true,
       intervalMs: 15_000,
@@ -185,12 +189,35 @@ export function createWorkspaceForm(): WorkspaceSettingsForm {
   }
 }
 
+/**
+ * The wire value of the three-way choice, from either side.
+ *
+ * One definition, so a diff cannot compare a string against a boolean and report a change nobody made.
+ */
+export function toWireTrustProxy(value: AuthForm['trustProxy'] | AuthStatus['trustProxy']): boolean | 'loopback' {
+  if (value === 'loopback')
+    return 'loopback'
+  return value === 'any' || value === true
+}
+
+/** The wire shape of an `AuthStatus`: what a patch carries, and what a diff compares. */
+export function formToAuth(status: AuthStatus): Record<string, unknown> {
+  return {
+    enabled: status.enabled,
+    sessionTtlMs: status.sessionTtlMs,
+    cookieSecure: status.cookieSecure,
+    trustProxy: toWireTrustProxy(status.trustProxy),
+    maxLoginAttempts: status.maxLoginAttempts,
+    lockoutMs: status.lockoutMs,
+  }
+}
+
 export function authBaseline(status: AuthStatus): AuthForm {
   return {
     enabled: status.enabled,
     sessionTtlMs: status.sessionTtlMs,
     cookieSecure: status.cookieSecure as AuthForm['cookieSecure'],
-    trustProxy: status.trustProxy,
+    trustProxy: status.trustProxy === 'loopback' ? 'loopback' : status.trustProxy ? 'any' : 'off',
     maxLoginAttempts: status.maxLoginAttempts,
     lockoutMs: status.lockoutMs,
   }
@@ -258,7 +285,9 @@ export function controlPatch(view: ControlView, form: GlobalSettingsForm): Patch
     port: view.port,
     host: view.host,
     openBrowser: view.openBrowser,
-    auth: authBaseline(view.auth),
+    // `authBaseline` returns the *form* shape (strings), and `next` below is the *wire* shape, so the
+    // comparison is made on the wire shape on both sides.
+    auth: formToAuth(view.auth),
     tls: { enabled: view.tls.enabled },
   }
   const next = {
@@ -266,7 +295,9 @@ export function controlPatch(view: ControlView, form: GlobalSettingsForm): Patch
     port: form.control.port,
     host: form.control.host,
     openBrowser: form.control.openBrowser,
-    auth: { ...form.auth },
+    // Converted the same way `authBaseline` does, so both sides of the diff are the *wire* form. Comparing
+    // a converted `next` against a string-valued `current` made every save carry a spurious `trustProxy`.
+    auth: { ...form.auth, trustProxy: toWireTrustProxy(form.auth.trustProxy) },
     tls: { enabled: form.control.tlsEnabled },
   }
   return diffFields(current, next, ['auth', 'tls'])

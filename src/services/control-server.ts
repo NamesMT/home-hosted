@@ -18,7 +18,8 @@ export interface ControlServerOptions {
   /** A thunk, so the app can be built after this server exists. */
   fetch: (request: Request) => Response | Promise<Response>
   /** Read per (re)bind, so a settings change applies without a restart. */
-  trustProxy: () => boolean
+  /** `boolean | 'loopback'`, passed through to srvx, which understands both. */
+  trustProxy: () => boolean | 'loopback'
   /** The uploaded PEM pair, or null for plain http. Read per (re)bind. */
   tls: () => { cert: string, key: string } | null
 }

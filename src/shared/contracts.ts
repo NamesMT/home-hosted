@@ -181,7 +181,7 @@ export const authSchema = type({
   /** `auto` adds `Secure` when the request arrived over https (proxy-aware). */
   cookieSecure: '"auto" | "always" | "never" = "auto"',
   /** Trust `x-forwarded-*` from a reverse proxy; also drives the client IP. */
-  trustProxy: 'boolean = false',
+  trustProxy: 'boolean | "loopback" = false',
   maxLoginAttempts: 'number.integer >= 1 = 5',
   lockoutMs: 'number >= 1000 = 60000',
 }).onUndeclaredKey('reject')
@@ -475,7 +475,7 @@ const authPatchSchema = type({
   enabled: 'boolean?',
   sessionTtlMs: 'number >= 60000?',
   cookieSecure: '"auto" | "always" | "never"?',
-  trustProxy: 'boolean?',
+  trustProxy: 'boolean | "loopback"?',
   maxLoginAttempts: 'number.integer >= 1?',
   lockoutMs: 'number >= 1000?',
 }).onUndeclaredKey('reject')
@@ -659,7 +659,7 @@ export const authStatusSchema = type({
   blockedReason: 'string | null',
   sessionTtlMs: 'number',
   cookieSecure: 'string',
-  trustProxy: 'boolean',
+  trustProxy: 'boolean | "loopback"',
   maxLoginAttempts: 'number',
   lockoutMs: 'number',
 })
