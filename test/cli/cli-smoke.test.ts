@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -15,6 +16,40 @@ import { describe, expect, it } from 'vitest'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-cli-smoke-'))
+
+/**
+ * A free control port in the dev range, never handed out twice to this file.
+ *
+ * These cases used to pin 6398/6497/6498 literally, while every sibling CLI suite probed for a free
+ * one. Two tests both wanted 6498, and any process already holding it — another test run, a stray
+ * panel — made them fail for a reason that names nothing. The port preflight also runs before the
+ * config guard, so a busy literal port turns a real assertion red under someone else's process.
+ *
+ * The `taken` set matters: a probe closes its socket before returning, so the next call can select
+ * the very port a still-shutting-down panel is about to rebind. A used port is skipped, not re-probed.
+ */
+const taken = new Set<number>()
+function freeDevPort(from = 6500, to = 6599): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const attempt = (port: number): void => {
+      if (port > to) {
+        reject(new Error(`no free port in ${from}-${to}`))
+        return
+      }
+      if (taken.has(port)) {
+        attempt(port + 1)
+        return
+      }
+      const probe = net.createServer()
+      probe.once('error', () => attempt(port + 1))
+      probe.listen(port, '127.0.0.1', () => probe.close(() => {
+        taken.add(port)
+        resolve(port)
+      }))
+    }
+    attempt(from)
+  })
+}
 
 function runCli(args: string[]): { status: number | null, stdout: string, stderr: string } {
   const result = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), ...args], {
@@ -202,10 +237,10 @@ describe('status paths', () => {
     }
   })
 
-  it('prints every path it documents, aligned, against a real running panel', () => {
+  it('prints every path it documents, aligned, against a real running panel', async () => {
     // Spawned for real: `status` reads run.json, so a fixture on disk is the only honest input.
     // A panel is started in the throwaway home and asked for its status.
-    const started = runCli(['up', '--home', dir, '--port', '6398', '--no-autostart'])
+    const started = runCli(['up', '--home', dir, '--port', String(await freeDevPort()), '--no-autostart'])
     try {
       expect(started.status, started.stderr).toBe(0)
       const result = runCli(['status', '--home', dir])
@@ -247,11 +282,11 @@ describe('status paths', () => {
    * The convention is shown only when the directory exists: naming a filename pattern for logs that
    * have never been written sends someone looking for a file that is not there.
    */
-  it('explains the per-server filename only once there are server logs', () => {
+  it('explains the per-server filename only once there are server logs', async () => {
     // Its own home: the tests above share one, and a server log left behind by another case would
     // make the "no convention yet" assertion depend on execution order.
     const own = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-status-convention-'))
-    const started = runCli(['up', '--home', own, '--port', '6498', '--no-autostart'])
+    const started = runCli(['up', '--home', own, '--port', String(await freeDevPort()), '--no-autostart'])
     try {
       expect(started.status, started.stderr).toBe(0)
       const logsDir = path.join(own, '.hh', 'default', '.logs')
@@ -290,8 +325,8 @@ describe('status paths', () => {
 describe('status paths in both outputs', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-status-json-'))
 
-  it('names the per-server log directory in text and in JSON', () => {
-    const started = runCli(['up', '--home', dir, '--port', '6497', '--no-autostart'])
+  it('names the per-server log directory in text and in JSON', async () => {
+    const started = runCli(['up', '--home', dir, '--port', String(await freeDevPort()), '--no-autostart'])
     try {
       expect(started.status, started.stderr).toBe(0)
       const logsDir = path.join(dir, '.hh', 'default', '.logs')
@@ -318,8 +353,8 @@ describe('status paths in both outputs', () => {
    * `logsDir` (text only) and `ui` (printed as a row, absent from JSON, so a script could not
    * learn which UI is installed). This pins the specific field that was missing.
    */
-  it('reports the installed UI in both outputs', () => {
-    const started = runCli(['up', '--home', dir, '--port', '6498', '--no-autostart'])
+  it('reports the installed UI in both outputs', async () => {
+    const started = runCli(['up', '--home', dir, '--port', String(await freeDevPort()), '--no-autostart'])
     try {
       expect(started.status, started.stderr).toBe(0)
 
