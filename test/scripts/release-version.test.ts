@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 /**
  * The guard that decides whether a release may be dispatched.
@@ -13,18 +13,66 @@ import { describe, expect, it } from 'vitest'
  * changelogen or npm rather than about the input. Nothing tested it — which is how I read its own
  * output wrong the first time I ran it (a `| head` in my pipeline reported `head`'s exit code, not
  * the script's).
+ *
+ * **The script reads the root it is run from, so the version-sensitive cases run against a
+ * throwaway root.** They used to assert against this repository's own `package.json` and hardcode
+ * `0.7.18` as "the next patch" — true only while the version here was `0.7.17`, so the release that
+ * landed *that* version turned them red, and the next one would have again. The harness below pins
+ * the same intent (0.7.17 -> 0.7.18) without borrowing the repository's state.
  */
-const script = path.join(process.cwd(), 'scripts', 'check-release-version.mjs')
+const repo = process.cwd()
+const SCRIPT = path.join(repo, 'scripts', 'check-release-version.mjs')
 
-function run(version: string): { code: number, out: string } {
+/** Roots the harness made, removed after each test. */
+const roots: string[] = []
+
+function run(version: string, root?: string): { code: number, out: string } {
   // `execFileSync` returns stdout only, and a successful run puts its *warning* on stderr — so the
   // success path is captured through `spawnSync`, which hands back both streams.
+  const script = root === undefined ? SCRIPT : path.join(root, 'scripts', 'check-release-version.mjs')
   const result = spawnSync(process.execPath, [script, version], { encoding: 'utf8' })
   return {
     code: result.status ?? -1,
     out: `${result.stdout ?? ''}${result.stderr ?? ''}`,
   }
 }
+
+function git(cwd: string, args: string[]): void {
+  const result = spawnSync('git', ['-c', 'user.email=test@example.com', '-c', 'user.name=test', ...args], { cwd, encoding: 'utf8' })
+  if (result.status !== 0)
+    throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`)
+}
+
+/**
+ * A throwaway project root holding the script and a `package.json` of our choosing.
+ *
+ * The script derives its root from its own location, so copying `scripts/` beside a written
+ * `package.json` is what makes the version under test ours. `released` commits land *before* the tag
+ * and `pending` ones after it, which is what makes the tag load-bearing: only the pending range is
+ * what the script reads for breaking changes.
+ */
+function project(options: { version: string, tag?: string, released?: string[], pending?: string[] }): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-release-'))
+  roots.push(dir)
+  fs.cpSync(path.join(repo, 'scripts'), path.join(dir, 'scripts'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'package.json'), `${JSON.stringify({ name: 'hh-release-test', version: options.version })}\n`)
+
+  git(dir, ['init', '-q'])
+  git(dir, ['add', '-A'])
+  git(dir, ['commit', '-q', '-m', 'chore: base'])
+  for (const subject of options.released ?? [])
+    git(dir, ['commit', '-q', '--allow-empty', '-m', subject])
+  if (options.tag !== undefined)
+    git(dir, ['tag', options.tag])
+  for (const subject of options.pending ?? [])
+    git(dir, ['commit', '-q', '--allow-empty', '-m', subject])
+  return dir
+}
+
+afterEach(() => {
+  for (const dir of roots.splice(0))
+    fs.rmSync(dir, { recursive: true, force: true })
+})
 
 describe('check-release-version', () => {
   it('refuses anything that is not a version', () => {
@@ -49,17 +97,60 @@ describe('check-release-version', () => {
   })
 
   it('refuses a version that is not greater than the current one', () => {
-    for (const value of ['0.7.0', '0.7.16', '0.7.17']) {
-      const { code, out } = run(value)
+    const root = project({ version: '0.7.18' })
+    // The current version itself included: a re-dispatched release must not republish.
+    for (const value of ['0.7.0', '0.7.16', '0.7.17', '0.7.18']) {
+      const { code, out } = run(value, root)
       expect(code, value).toBe(1)
       expect(out).toContain('is not greater than the current')
     }
   })
 
-  it('accepts the next patch and the next major', () => {
-    expect(run('0.7.18').code).toBe(0)
-    expect(run('1.0.0').code).toBe(0)
-    expect(run('0.7.18-rc.1').code).toBe(0)
+  it('accepts the next patch, the next major, and a prerelease of the next patch', () => {
+    // A breaking commit already released *before* the tag must not block a patch: the range the
+    // script reads is the pending one, and a guard that scanned all history would refuse forever.
+    const root = project({ version: '0.7.17', tag: 'v0.7.17', released: ['feat!: drop node 18'] })
+    for (const value of ['0.7.18', '1.0.0', '0.7.18-rc.1']) {
+      const { code, out } = run(value, root)
+      expect(code, `${value}: ${out}`).toBe(0)
+    }
+  })
+
+  /**
+   * Below 1.0 the minor is the breaking channel, and this refusal is the reason the script exists —
+   * it had no test at all, so nothing would have noticed it going quiet.
+   */
+  it('refuses a patch while a breaking commit is pending, and takes the same change as a minor', () => {
+    const root = project({ version: '0.7.17', tag: 'v0.7.17', pending: ['feat!: drop node 20'] })
+
+    const { code, out } = run('0.7.18', root)
+    expect(code).toBe(1)
+    expect(out).toContain('breaking commit')
+    // The message names the commit, so the person sees what forced the channel.
+    expect(out).toContain('feat!: drop node 20')
+    // The minor is that channel, so the same tree releases as 0.8.0.
+    expect(run('0.8.0', root).code).toBe(0)
+  })
+
+  it('warns about a minor with no breaking commit behind it, without failing', () => {
+    // Below 1.0 the minor is the breaking channel, so a minor with none pending is usually a patch
+    // that was meant — a warning, not a refusal, since the person may know better.
+    const root = project({ version: '0.7.17', tag: 'v0.7.17' })
+    const { code, out } = run('0.8.0', root)
+    expect(code).toBe(0)
+    expect(out).toContain('no breaking commit pending')
+  })
+
+  /**
+   * The live root, with no version written into the test: whatever this repository carries, the
+   * script must refuse to release it again. Reading the version here is what keeps the assertion
+   * from rotting with the next release.
+   */
+  it('refuses the version this repository already carries', () => {
+    const { version } = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8'))
+    const { code, out } = run(version)
+    expect(code).toBe(1)
+    expect(out).toContain('is not greater than the current')
   })
 
   /**
@@ -79,7 +170,6 @@ describe('check-release-version', () => {
    * works), but the failure is silent and misdiagnosing.
    */
   it('finds the section under every line ending', () => {
-    const repo = path.join(process.cwd())
     const original = fs.readFileSync(path.join(repo, 'CHANGELOG.md'), 'utf8')
     // A version that exists in the shipped changelog, so the assertion is about the ending.
     const version = [...original.matchAll(/^## v(\d+\.\d+\.\d+)/gm)][0]?.[1]
@@ -114,13 +204,5 @@ describe('check-release-version', () => {
       expect(`${result.stdout}${result.stderr}`, value).toContain('usage: release-notes.mjs')
       expect(result.stderr, `${value} must not throw`).not.toContain('Unmatched')
     }
-  })
-
-  it('warns about a minor with no breaking commit behind it, without failing', () => {
-    // Below 1.0 the minor is the breaking channel, so a minor with none pending is usually a patch
-    // that was meant — a warning, not a refusal, since the person may know better.
-    const { code, out } = run('0.8.0')
-    expect(code).toBe(0)
-    expect(out).toContain('no breaking commit pending')
   })
 })
