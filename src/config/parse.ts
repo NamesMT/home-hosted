@@ -2,7 +2,7 @@ import type { MigrationOptions } from '#src/config/migrations'
 import type { ResolvedGlobalConfig, ResolvedWorkspaceSettings } from '#src/config/schema'
 import type { ServerConfig } from '#src/shared/contracts'
 import { type } from 'arktype'
-import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
+import { CONFIG_SCHEMA, planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import {
   backupsSchema,
   controlSchema,
@@ -112,7 +112,7 @@ function parseGrouped<T>(raw: unknown, label: string, definition: GroupedParse<T
   const unknownKeys: string[] = []
   const errors: string[] = []
   const warnings: string[] = []
-  const result: ConfigParse<T> = { config: null, errors, unknownKeys, warnings, schemaVersion: CONFIG_SCHEMA, writtenBy: null }
+  const result: ConfigParse<T> = { config: null, errors, unknownKeys, warnings, schemaVersion: UNSTAMPED_SCHEMA, writtenBy: null }
 
   if (!isRecord(raw)) {
     errors.push(`the ${label} must contain a JSON object`)
@@ -120,7 +120,7 @@ function parseGrouped<T>(raw: unknown, label: string, definition: GroupedParse<T
   }
 
   const meta = isRecord(raw.meta) ? raw.meta : null
-  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : CONFIG_SCHEMA
+  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
   const writtenBy = typeof meta?.writtenBy === 'string' && meta.writtenBy.length > 0 ? meta.writtenBy : null
   result.schemaVersion = schemaVersion
   result.writtenBy = writtenBy
@@ -213,7 +213,7 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
   const unknownKeys: string[] = []
   const errors: string[] = []
   const warnings: string[] = []
-  const result: ServersParse = { servers: [], errors, unknownKeys, warnings, schemaVersion: CONFIG_SCHEMA, writtenBy: null }
+  const result: ServersParse = { servers: [], errors, unknownKeys, warnings, schemaVersion: UNSTAMPED_SCHEMA, writtenBy: null }
 
   if (!isRecord(raw)) {
     errors.push('the servers config must contain a JSON object')
@@ -221,7 +221,7 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
   }
 
   const meta = isRecord(raw.meta) ? raw.meta : null
-  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : CONFIG_SCHEMA
+  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
   const writtenBy = typeof meta?.writtenBy === 'string' && meta.writtenBy.length > 0 ? meta.writtenBy : null
   result.schemaVersion = schemaVersion
   result.writtenBy = writtenBy

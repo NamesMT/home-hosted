@@ -13,7 +13,7 @@ import type {
 import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
-import { CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
+import { planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import { parseServersFile, parseTolerant, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { applyPatch, DDNS_MERGE_KEYS, EMPTY_MERGE_KEYS, NOTIFICATION_MERGE_KEYS, SERVER_MERGE_KEYS } from '#src/config/patch'
 import {
@@ -84,8 +84,8 @@ export class WorkspaceStore {
   private settingsError: string | null = null
   private serversError: string | null = null
   private warnings: string[] = []
-  private settingsSchemaVersion = CONFIG_SCHEMA
-  private serversSchemaVersion = CONFIG_SCHEMA
+  private settingsSchemaVersion = UNSTAMPED_SCHEMA
+  private serversSchemaVersion = UNSTAMPED_SCHEMA
   private readonly listeners = new Set<() => void>()
 
   constructor(

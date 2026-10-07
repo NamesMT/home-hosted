@@ -12,6 +12,18 @@
  */
 export const CONFIG_SCHEMA = 1
 
+/**
+ * The schema of a file that carries no `meta` stamp at all.
+ *
+ * A literal, **not** `CONFIG_SCHEMA`: an unstamped file predates the stamp, so it is the *oldest* shape,
+ * and reading it as the current one would skip every migration the moment `CONFIG_SCHEMA` is bumped —
+ * the file would then be stamped as the new schema without ever being lifted to it. Measured with a
+ * hypothetical `to: 2` step: `from=1` plans 1 step, `from=2` plans none.
+ *
+ * Schema 1 is the shape in use up to and including 0.6.x, which is what an unstamped file is.
+ */
+export const UNSTAMPED_SCHEMA = 1
+
 /** A settings or servers file, as read: whatever keys it carries. */
 export type RawConfig = Record<string, unknown>
 
