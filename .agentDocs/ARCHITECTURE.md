@@ -122,6 +122,13 @@ release workflow passes `HHOSTED_UI_TAG`; anywhere else the build stamps `v<pack
 Do not hand-edit `tag` to chase a release; a stale one makes `ui-update` reinstall the same UI on
 every boot.
 
+**A shared contract is a build input, and the hook cannot see it.** `@shared` is aliased into every UI
+bundle, so a change to `src/shared/contracts.ts` alters what each UI ships — but `stamp-uis.mjs` only
+looks at staged `uis/<name>/*` paths, so a contracts-only commit passes the hook unbumped. Decide it
+by hand: does a UI *call* the changed export at runtime (`serverPatchSchema` is validated client-side
+by both UIs before they send), or does it read it as a *type* only (`serverSchema` is)? Only the
+former changes the asset, and it bumps every UI that calls it.
+
 ## How to test
 
 `pnpm exec vitest run` for the suite, `pnpm run quickcheck` for lint and types. A component worth

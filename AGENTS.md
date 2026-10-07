@@ -191,7 +191,9 @@ nobody reads is worse than a long file.
   commit*. A stale doc is a bug like stale code.
 - **UIs move together.** `uis/stock` is not the only client: a change to it — or to a shared contract
   it reads — lands in every other UI under `uis/`, and each altered UI bumps its `ui.json` (see
-  [`.agentDocs/ARCHITECTURE.md`](.agentDocs/ARCHITECTURE.md)).
+  [`.agentDocs/ARCHITECTURE.md`](.agentDocs/ARCHITECTURE.md)). `src/shared/**` is a UI build input, so
+  a contract a UI *calls* at runtime ships in its bundle and needs the bump — the pre-commit hook only
+  inspects `uis/` paths and stays silent on that commit.
 
 ## Releasing
 

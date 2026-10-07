@@ -1,9 +1,11 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { applyPatch, mergeGroup } from '#src/config/patch'
 import { WorkspaceStore } from '#src/config/store'
+import { serverPatchSchema } from '#src/shared/contracts'
 
 /**
  * An explicit `null` **removes** a key, at the top level as well as inside a group.
@@ -116,6 +118,41 @@ describe('a null written by hand', () => {
       expect(web?.label).toBeUndefined()
       // What every display shows.
       expect(web?.label ?? web?.id).toBe('web')
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+/**
+ * The schemas either side of the write, which the two commits that fixed the *primitive* both missed.
+ *
+ * `applyPatch` deleting on `null` is only reachable if something can *send* `null`. Both UIs validate
+ * their payload with `serverPatchSchema` before saving and PATCH the same shape, so a patch schema that
+ * refused `null` made clearing a Label unsaveable — "label must be a string (was null)" — and the UI test
+ * added alongside it asserted only that the change was *reviewed*, never that it was accepted.
+ */
+describe('the patch schema accepts the null the editor sends', () => {
+  it('takes null for label, and still refuses anything undeclared', () => {
+    expect(serverPatchSchema({ label: null }) instanceof type.errors, 'clearing must be expressible').toBe(false)
+    // A real label and the removal spelling both stay valid.
+    expect(serverPatchSchema({ label: 'Renamed' }) instanceof type.errors).toBe(false)
+    // The strict shape is untouched: an undeclared key is still refused.
+    expect(serverPatchSchema({ nope: 1 }) instanceof type.errors).toBe(true)
+  })
+
+  it('reaches the store, so the key is removed rather than nulled', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-clear-label-'))
+    try {
+      const file = path.join(dir, 'servers.config.json')
+      fs.writeFileSync(file, JSON.stringify({ servers: [{ id: 'web', command: 'node', label: 'Demo' }] }))
+      const store = new WorkspaceStore('default', path.join(dir, 'settings.json'), file)
+      store.load()
+
+      store.updateServer('web', { label: null })
+      expect(store.getServer('web')?.label, 'the display falls back to the id').toBeUndefined()
+      expect(JSON.parse(fs.readFileSync(file, 'utf8')).servers[0], 'the key is absent in the file').not.toHaveProperty('label')
     }
     finally {
       fs.rmSync(dir, { recursive: true, force: true })

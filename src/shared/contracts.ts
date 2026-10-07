@@ -555,7 +555,14 @@ const defaultsPatchSchema = type({
 }).onUndeclaredKey('reject')
 
 const editableFields = {
-  label: 'string?',
+  /**
+   * `null` clears it, the same spelling `serverSchema` accepts and every display's `label ?? id`
+   * fallback needs — an empty string satisfies neither. `serverPatchSchema` is what the editor
+   * validates its payload against and what `PATCH /api/servers/:id` checks, so without this a
+   * cleared Label was refused with "label must be a string (was null)" and could not be saved at all
+   * (`1f58a5d` fixed `applyPatch` and the *control* patch schema, and cited that one in its message).
+   */
+  label: labelOrNullSchema.optional(),
   enabled: 'boolean?',
   autostart: 'boolean?',
   persistent: 'boolean?',
