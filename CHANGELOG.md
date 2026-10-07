@@ -1,6 +1,25 @@
 # Changelog
 
 
+## v0.7.19
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.18...v0.7.19)
+
+### 🩹 Fixes
+
+- **ui:** The open-server link pointed into a LAN the viewer is not on ([8380a7e](https://github.com/NamesMT/home-hosted/commit/8380a7e))
+
+### ✅ Tests
+
+- **release:** Stop the version guard's test asserting against live repo state ([6a9364a](https://github.com/NamesMT/home-hosted/commit/6a9364a))
+- **cli:** Stop four panel boots fighting over hardcoded ports ([1b120f6](https://github.com/NamesMT/home-hosted/commit/1b120f6))
+- Close the guards that let real bugs through, and drop what could not fail ([0ae67d8](https://github.com/NamesMT/home-hosted/commit/0ae67d8))
+- **host:** Skip the headerless page-size case on Windows instead of passing it ([9f8a30d](https://github.com/NamesMT/home-hosted/commit/9f8a30d))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.7.18
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.17...v0.7.18)
