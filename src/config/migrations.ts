@@ -47,6 +47,15 @@ export interface MigrationPlan {
   steps: ConfigMigration[]
   /** The file was written by a release newer than this one. */
   tooNew: boolean
+  /**
+   * The schema the steps actually reach, which is `to` only when the chain is unbroken.
+   *
+   * A **gap** in `configMigrations` — a step lifting 1→2 published without one lifting 2→3 — leaves the
+   * file part-way while `migrate` stamps it as the current schema anyway: it writes
+   * `schema: CONFIG_SCHEMA` unconditionally. The file then claims a shape it does not have, which is the
+   * same silent corruption the unstamped default caused. This makes the gap detectable.
+   */
+  reached: number
 }
 
 export interface MigrationOptions {
@@ -63,7 +72,7 @@ export function planConfigMigrations(from: number, options: MigrationOptions = {
   const steps = migrations
     .filter(migration => migration.to > from && migration.to <= to)
     .sort((a, b) => a.to - b.to)
-  return { from, to, steps, tooNew: from > to }
+  return { from, to, steps, tooNew: from > to, reached: steps.reduce((at, step) => step.to, from) }
 }
 
 /** Applies the plan in order; the caller owns writing the result. */

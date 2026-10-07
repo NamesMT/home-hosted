@@ -114,6 +114,13 @@ export async function runMigrate(config: string | undefined, dryRun: boolean, ye
     if (problem !== null)
       fail(`${target.file} is not a config this release can read: ${problem}`)
 
+    // A chain with a gap would lift the file part-way and then stamp it as the current schema, so the
+    // file would claim a shape it does not have. Refused rather than written.
+    if (plan.reached !== plan.to) {
+      fail(`${target.file} is schema ${from} and this release can only lift it to schema ${plan.reached} — the migration chain in configMigrations has a gap to schema ${plan.to}.
+  That is a bug in this release: report it rather than editing the file.`)
+    }
+
     if (plan.steps.length === 0) {
       const stamped = stampConfig(raw)
       if (JSON.stringify(stamped) !== JSON.stringify(raw))

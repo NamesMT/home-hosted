@@ -54,3 +54,32 @@ describe('an unstamped config file', () => {
     }
   })
 })
+
+/**
+ * A gap in the migration chain must be visible, not silently stamped over.
+ *
+ * `migrate` writes `schema: CONFIG_SCHEMA` unconditionally after applying a plan. With one step published
+ * and `CONFIG_SCHEMA` two versions ahead, the file is lifted part-way and then claims the newest shape —
+ * the same silent corruption the unstamped default caused, arrived at from the other side.
+ */
+describe('a migration chain with a gap', () => {
+  it('reports where it actually reached, so the stamp cannot lie', () => {
+    const only12 = [{ to: 2, describe: 'lifts 1 to 2', apply: (config: Record<string, unknown>) => config }]
+
+    const broken = planConfigMigrations(1, { to: 3, migrations: only12 })
+    expect(broken.to).toBe(3)
+    expect(broken.reached, 'the chain stops at 2, not 3').toBe(2)
+
+    // An unbroken chain reports the target, which is what `migrate` checks before writing.
+    const whole = planConfigMigrations(1, {
+      to: 3,
+      migrations: [...only12, { to: 3, describe: 'lifts 2 to 3', apply: (config: Record<string, unknown>) => config }],
+    })
+    expect(whole.reached).toBe(3)
+  })
+
+  it('and migrate refuses rather than stamping a shape it did not reach', () => {
+    const source = fs.readFileSync(path.join(root, 'src/cli/migrate.ts'), 'utf8')
+    expect(source, 'migrate must compare reached against to').toContain('plan.reached !== plan.to')
+  })
+})
