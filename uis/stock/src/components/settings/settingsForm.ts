@@ -41,7 +41,7 @@ export interface AuthForm {
   cookieSecure: 'auto' | 'always' | 'never'
   /**
    * Held as a **string** for the form, because `SelectField` is string-valued by design -- the same
-   * shape `cookieSecure` uses. `authBaseline` converts; the wire form is `boolean | 'loopback'`.
+   * shape `cookieSecure` uses. `authBaseline`/`formToAuth` convert; the wire form is `boolean | 'loopback'`.
    */
   trustProxy: 'off' | 'loopback' | 'any'
   maxLoginAttempts: number
@@ -295,8 +295,8 @@ export function controlPatch(view: ControlView, form: GlobalSettingsForm): Patch
     port: form.control.port,
     host: form.control.host,
     openBrowser: form.control.openBrowser,
-    // Converted the same way `authBaseline` does, so both sides of the diff are the *wire* form. Comparing
-    // a converted `next` against a string-valued `current` made every save carry a spurious `trustProxy`.
+    // `formToAuth` above converts the same way, so both sides of the diff are the *wire* form. Comparing a
+    // converted `next` against a string-valued `current` made every save carry a spurious `trustProxy`.
     auth: { ...form.auth, trustProxy: toWireTrustProxy(form.auth.trustProxy) },
     tls: { enabled: form.control.tlsEnabled },
   }

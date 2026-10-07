@@ -293,3 +293,55 @@ describe('the control sub-groups', () => {
     expect(controlPartEdited(form, snapshots.control, 'auth')).toBe(false)
   })
 })
+
+/**
+ * The three-way `trustProxy` must survive the form ⇄ wire round trip.
+ *
+ * The form holds it as a string (a select cannot carry a boolean), while the wire form is
+ * `boolean | 'loopback'`. Two conversions that disagree is exactly the bug this guards: converting only
+ * `next` made the diff compare a string against a boolean, so **every save carried a spurious
+ * `trustProxy`** — and a checkbox would have silently turned the safe `'loopback'` into `true`.
+ */
+describe('the three-way trustProxy', () => {
+  const withProxy = (trustProxy: boolean | 'loopback') => ({
+    enabled: true,
+    passwordSet: true,
+    passwordUpdatedAt: 1,
+    apiTokenSet: false,
+    usingDefaultPassword: false,
+    sessionTtlMs: 604_800_000,
+    cookieSecure: 'auto' as const,
+    trustProxy,
+    exposed: false,
+    blockedReason: null,
+    maxLoginAttempts: 5,
+    lockoutMs: 60_000,
+  })
+
+  function viewFor(trustProxy: boolean | 'loopback') {
+    const form = createGlobalForm()
+    return {
+      form,
+      view: { label: form.control.label, port: form.control.port, host: form.control.host, openBrowser: false, auth: withProxy(trustProxy), tls: { enabled: false } } as never,
+    }
+  }
+
+  it('sends nothing when the value is unchanged', () => {
+    for (const value of [false, true, 'loopback'] as const) {
+      const { form, view } = viewFor(value)
+      Object.assign(form.auth, authBaseline(withProxy(value)))
+      expect(controlPatch(view, form), `unchanged ${String(value)}`).toEqual({})
+    }
+  })
+
+  it('sends the wire value the user picked', () => {
+    const { form, view } = viewFor(false)
+    Object.assign(form.auth, authBaseline(withProxy(false)))
+
+    form.auth.trustProxy = 'loopback'
+    expect(controlPatch(view, form)).toEqual({ auth: { trustProxy: 'loopback' } })
+
+    form.auth.trustProxy = 'any'
+    expect(controlPatch(view, form)).toEqual({ auth: { trustProxy: true } })
+  })
+})
