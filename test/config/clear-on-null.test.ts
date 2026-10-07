@@ -84,3 +84,41 @@ describe('a field where null is a value', () => {
     }
   })
 })
+
+/**
+ * A hand-edited `null` must not refuse the whole config.
+ *
+ * The file format already spells "unset" as `null` for `port` and `bootstrap`, so `label` refusing it was
+ * an inconsistency — and an expensive one: `"label": null` made the panel reject the **entire** servers
+ * file with `servers[0] ("web"): label must be a string (was null)`, losing every entry over one field.
+ * It is now accepted and normalised to absent, the same treatment `port` gets.
+ */
+describe('a null written by hand', () => {
+  it('loads, and reads as no label', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-hand-null-'))
+    try {
+      const file = path.join(dir, 'servers.config.json')
+      fs.writeFileSync(file, JSON.stringify({
+        servers: [
+          { id: 'web', command: 'node', label: null, port: null, bootstrap: null },
+          { id: 'api', command: 'node', label: 'API' },
+        ],
+      }))
+      const store = new WorkspaceStore('default', path.join(dir, 'settings.json'), file)
+      store.load()
+
+      // The whole file loads, not just the entry without the nulls.
+      expect(store.configError, 'a null label must not refuse the config').toBeNull()
+      expect(store.getServer('api')?.label, 'the other entry survives').toBe('API')
+
+      const web = store.getServer('web')
+      expect(web).toBeDefined()
+      expect(web?.label).toBeUndefined()
+      // What every display shows.
+      expect(web?.label ?? web?.id).toBe('web')
+    }
+    finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})

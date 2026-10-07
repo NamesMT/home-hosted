@@ -260,7 +260,11 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
       return
     }
     seen.add(server.id)
-    result.servers.push({ ...server, port: server.port ?? null })
+    // `null` and absent both mean "no label", so they are normalised to one spelling here — the same
+    // treatment `port` gets, and what lets a hand-edited `"label": null` load instead of refusing the
+    // whole config.
+    const { label: entryLabel, ...rest } = server
+    result.servers.push({ ...rest, port: server.port ?? null, ...(entryLabel === null || entryLabel === undefined ? {} : { label: entryLabel }) })
   })
 
   // Cross-field problems are reported, never fatal: supervision still runs.

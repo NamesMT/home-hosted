@@ -125,11 +125,21 @@ export const bootstrapSchema = type({
 export type BootstrapConfig = typeof bootstrapSchema.infer
 export const bootstrapOrNullSchema = bootstrapSchema.or(type('null'))
 
+/**
+ * A label that may be written as `null`, which means "no label" — the same spelling `port` and
+ * `bootstrap` already accept in a file.
+ *
+ * `serverSchema.label` was `'string?'`, so a hand-edited `"label": null` refused the **whole config** with
+ * `servers[0] ("web"): label must be a string (was null)`. The write side already tolerates `null`, and every
+ * display falls back with `label ?? id` — which `null` satisfies and `''` does not.
+ */
+export const labelOrNullSchema = type('string | null')
+
 export const logBufferLinesSchema = type('50 <= number.integer <= 100000')
 
 export const serverSchema = type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
-  label: 'string?',
+  label: labelOrNullSchema.optional(),
   enabled: 'boolean = true',
   autostart: 'boolean = false',
   /**
