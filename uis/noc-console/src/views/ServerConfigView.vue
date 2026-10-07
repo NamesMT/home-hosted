@@ -172,7 +172,10 @@ const bindValue = computed(() => (form.bind === 'custom' ? form.customBind.trim(
 function buildPayload(): Record<string, unknown> {
   const expectStatus = form.httpExpectStatus.trim()
   return {
-    label: form.label.trim(),
+    // An emptied label sends **null**, which removes the key so every display falls back to the id. Sending
+    // `label: ''` stored an empty string, and the name is rendered with `v-if="config.label"` / `label ?? id`
+    // — both of which read an empty string as "no name" without falling back, so the entry lost its name.
+    label: form.label.trim().length === 0 ? null : form.label.trim(),
     command: form.command.trim(),
     args: linesToArray(form.args),
     cwd: form.cwd.trim() === '' ? '.' : form.cwd.trim(),

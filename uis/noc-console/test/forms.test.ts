@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { ddnsConfigSchema, settingsPatchSchema, workspaceSettingsPatchSchema } from '@shared/contracts'
 import { describe, expect, it } from 'vitest'
 import { detachConfig, isLiveConfigChange, repairNumbers } from '../src/lib/forms'
@@ -165,5 +166,25 @@ describe('detachConfig', () => {
     original.restart.maxRetries = 9
     expect(snapshot.restart.maxRetries).toBe(3)
     expect(isLiveConfigChange(original, snapshot)).toBe(true)
+  })
+})
+
+/**
+ * An emptied label must send `null`, and both UIs must agree on it.
+ *
+ * `label ?? id` and `v-if="config.label"` both read an empty string as "no name", and neither falls back
+ * to the id — so storing `label: ''` removed an entry's name from the card and made a notification read
+ * ` (web) crashed`. `null` removes the key, which is the only spelling the display treats as "use the id".
+ *
+ * Checked across both UIs because one was fixed and the other was not: this ran in `uis/stock` first and
+ * `noc-console` kept writing the empty string.
+ */
+describe('clearing the label', () => {
+  it('sends null, in both UIs', () => {
+    for (const file of ['../src/views/ServerConfigView.vue', '../../stock/src/components/server/ServerConfigEditor.vue']) {
+      const source = readFileSync(new URL(file, import.meta.url), 'utf8')
+      expect(source, `${file} must send null for an emptied label`).toMatch(/label: .*\? null :/)
+      expect(source, `${file} must not send a bare blank label`).not.toMatch(/label: form\.label\.trim\(\),/)
+    }
   })
 })
