@@ -1,12 +1,15 @@
+import type { ChildProcess } from 'node:child_process'
 import type net from 'node:net'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
+import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { isProcessAlive } from '#src/providers/port'
 
 /**
  * `start`/`stop` against a real listener and a real run.json: the CLI has to read the
@@ -41,12 +44,18 @@ function runCli(args: string[]): Promise<{ status: number | null, stdout: string
 }
 
 const servers: http.Server[] = []
+/** Stranger processes spawned as stand-ins for a recycled pid; killed after each test. */
+const children: ChildProcess[] = []
 
 afterEach(async () => {
   await Promise.all(servers.splice(0).map(server => new Promise<void>((resolve) => {
     server.closeAllConnections()
     server.close(() => resolve())
   })))
+  for (const child of children.splice(0)) {
+    if (child.pid !== undefined && isProcessAlive(child.pid))
+      child.kill('SIGKILL')
+  }
   // Dropped per test, not only at the end: a run.json naming this process is what `down`
   // would signal, and leaving one behind made a later test shoot its own worker.
   await fs.promises.rm(path.join(home, '.hh', 'run.json'), { force: true })
@@ -78,26 +87,65 @@ async function panel(status: number, body: string, contentType = 'application/js
 }
 
 /** A run.json the CLI accepts, pointing at `url` and claiming `version`. */
-function writeRuntime(url: string, version = '0.9.9'): void {
+function writeRuntime(url: string, version = '0.9.9', overrides: { pid?: number, startedAt?: number } = {}): void {
   const address = new URL(url)
   const file = path.join(home, '.hh', 'run.json')
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, `${JSON.stringify({
     version,
     // This process is alive, which is what `isProcessAlive` asks about.
-    pid: process.pid,
+    pid: overrides.pid ?? process.pid,
     url,
     probeUrl: url,
     protocol: 'http',
     port: Number(address.port),
     bindHost: '127.0.0.1',
-    startedAt: Date.now(),
+    startedAt: overrides.startedAt ?? Date.now(),
     projectDir: home,
     dataRoot: home,
     configPath: path.join(home, '.hh', 'default', 'servers.config.json'),
     logFile: path.join(home, '.hh', '.logs', 'home-hosted.log'),
     token: 'local-token',
   }, null, 2)}\n`)
+}
+
+/** A pid that is alive but whose process started long after the record was written. */
+async function recycledPid(): Promise<{ pid: number, startedAt: number }> {
+  const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' })
+  children.push(child)
+  if (child.pid === undefined)
+    throw new Error('could not spawn the stranger')
+  // The record claims to have been written an hour ago, so a pid born just now cannot be it.
+  return { pid: child.pid, startedAt: Date.now() - 3600_000 }
+}
+
+/**
+ * A free port in the dev range (6xxx), never handed out twice to this file.
+ *
+ * The CLI's port preflight runs *before* its config guard, so a busy 3999 turns a real assertion red
+ * for a reason that names nothing. 6xxx is the documented range for dev and test instances.
+ */
+const taken = new Set<number>()
+function freeDevPort(from = 6600, to = 6699): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const attempt = (port: number): void => {
+      if (port > to) {
+        reject(new Error(`no free port in ${from}-${to}`))
+        return
+      }
+      if (taken.has(port)) {
+        attempt(port + 1)
+        return
+      }
+      const probe = createServer()
+      probe.once('error', () => attempt(port + 1))
+      probe.listen(port, '127.0.0.1', () => probe.close(() => {
+        taken.add(port)
+        resolve(port)
+      }))
+    }
+    attempt(from)
+  })
 }
 
 describe('restart, for one server or the panel', () => {
@@ -222,5 +270,131 @@ describe('start/stop against a live panel', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('home-hosted 0.6.4')
     expect(result.stderr).toContain('does not know this command')
+  })
+})
+
+/**
+ * A stale `run.json` whose pid the OS has since handed to an unrelated process.
+ *
+ * The pid is genuinely alive, so `isProcessAlive` alone called it a running panel: `up` refused with
+ * "already running", `status` said "running, but not answering", and — the dangerous one — `down`
+ * SIGTERM'd then SIGKILL'd whatever stranger had inherited the number. The record's own `startedAt`
+ * is what tells the two apart, because the daemon stamps it during its own boot and a recycled pid
+ * is necessarily born after it.
+ */
+describe('a stale run.json naming a live stranger\'s pid', () => {
+  /**
+   * `--print-config` cannot prove this: it returns from `runUp` *before* the live-record guard, so a
+   * mutant that reinstated the bare `isProcessAlive` check passed it. The observable has to be the
+   * detaching path itself — so this runs a real `up`, on a free port, and asserts the panel it
+   * started reports **its own** pid rather than deferring to the stale record.
+   */
+  it('`up` starts the panel instead of reporting "already running"', async () => {
+    const recycled = await recycledPid()
+    const port = await freeDevPort()
+    writeRuntime('http://127.0.0.1:1', '0.7.19', recycled)
+
+    const started = await runCli(['up', '--port', String(port), '--no-autostart'])
+    try {
+      expect(started.stdout, 'the stale record must not block a start').not.toContain('already running')
+      expect(started.status, started.stderr).toBe(0)
+      // Proof the record was replaced by a live one: the panel answers as itself on its own port.
+      const status = await runCli(['status', '--json'])
+      const json = JSON.parse(status.stdout) as { running?: boolean, liveness?: string, pid?: number, port?: number }
+      expect(json.running).toBe(true)
+      expect(json.liveness).toBe('live')
+      expect(json.pid, 'the panel recorded its own pid, not the stranger\'s').not.toBe(recycled.pid)
+      expect(json.port).toBe(port)
+      // And the stranger was never touched.
+      expect(isProcessAlive(recycled.pid), 'the stranger must not be signalled').toBe(true)
+    }
+    finally {
+      await runCli(['down'])
+    }
+  })
+
+  /**
+   * The safety half, and the reason this is one guard and not five: `down` must never signal a pid
+   * that is not this daemon's. Proven by keeping the stranger alive and checking it afterwards.
+   *
+   * The record is deliberately **not** deleted here. A birth time comes from the wall clock on Linux,
+   * so a clock step can make a live panel look recycled; deleting on that verdict would orphan a
+   * running panel — still supervising, no longer stoppable. Only a record with nothing behind its pid
+   * is removed, which is why the message says the pid was left alone rather than calling it stale.
+   */
+  it('`down` does not signal the stranger, and leaves its record alone', async () => {
+    const recycled = await recycledPid()
+    writeRuntime('http://127.0.0.1:1', '0.7.19', recycled)
+
+    const result = await runCli(['down'])
+
+    expect(result.stdout).toContain('not running')
+    expect(result.stdout).toContain('belongs to another process')
+    // Still alive: the guard held, and no SIGTERM/SIGKILL was aimed at it.
+    expect(isProcessAlive(recycled.pid), 'the stranger must not be signalled').toBe(true)
+    // Kept, because the birth-time verdict cannot be trusted to be destructive on its own.
+    expect(fs.existsSync(path.join(home, '.hh', 'run.json')), 'a possibly-live record is not deleted').toBe(true)
+  })
+
+  /**
+   * The subtlest case, and the one a first draft of this guard got wrong: a **recycled** pid whose
+   * port *is* answered by a panel that accepts the shutdown token.
+   *
+   * The graceful stop is still offered there, because answering proves the panel is ours — but its
+   * own pid is not the one in the record, so the escalation that follows a slow exit must not reach
+   * for `runtime.pid`. Without that, an accepted shutdown on a recycled record ended in SIGKILL of
+   * the stranger. So: the panel answers, the stranger lives.
+   */
+  it('`down` never escalates to the recycled pid, even when a panel accepts the stop', async () => {
+    // Accepts the shutdown (200) but never exits, so the escalation path is reached.
+    const created = await panel(200, JSON.stringify({ ok: true }))
+    const recycled = await recycledPid()
+    writeRuntime(created.url, '0.7.19', recycled)
+
+    const result = await runCli(['down'])
+
+    expect(result.stdout).toContain('left alone')
+    expect(isProcessAlive(recycled.pid), 'the stranger must survive the escalation').toBe(true)
+  })
+
+  /** The other half of that rule: a record with *nothing* behind its pid is safely removable. */
+  it('`down` removes a record whose pid is really gone', async () => {
+    // A pid that certainly does not exist: spawn-and-reap, then reuse the number.
+    const dead = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' })
+    await new Promise<void>(resolve => dead.once('exit', () => resolve()))
+    writeRuntime('http://127.0.0.1:1', '0.7.19', { pid: dead.pid!, startedAt: Date.now() })
+    const result = await runCli(['down'])
+
+    expect(result.stdout).toContain('stale run.json')
+    expect(fs.existsSync(path.join(home, '.hh', 'run.json'))).toBe(false)
+  })
+
+  it('`status` reports stale and exits 1, rather than "running, but not answering"', async () => {
+    const recycled = await recycledPid()
+    writeRuntime('http://127.0.0.1:1', '0.7.19', recycled)
+
+    const result = await runCli(['status'])
+
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('stale')
+    expect(result.stdout, 'a recycled pid is not a panel that is merely wedged').not.toContain('running, but not answering')
+    // And the JSON form agrees with the text form, naming the reason.
+    const json = JSON.parse((await runCli(['status', '--json'])).stdout) as { running?: boolean, liveness?: string }
+    expect(json.running).toBe(false)
+    expect(json.liveness).toBe('recycled')
+  })
+
+  /**
+   * The counter-case that keeps the guard honest: a record whose own pid **is** the live process must
+   * still be believed. Without this, a guard that simply called every live pid stale would pass all
+   * of the above while breaking the ordinary `up`/`down`/`status` cycle.
+   */
+  it('believes a record whose pid really is that live process', async () => {
+    // This process is alive and started before `Date.now()`, so it is legitimately the panel.
+    writeRuntime('http://127.0.0.1:1', '0.7.19', { pid: process.pid, startedAt: Date.now() })
+    const result = await runCli(['status', '--json'])
+
+    const json = JSON.parse(result.stdout) as { liveness?: string }
+    expect(json.liveness).toBe('live')
   })
 })

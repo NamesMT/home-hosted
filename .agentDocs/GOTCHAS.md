@@ -11,6 +11,20 @@ line in `AGENTS.md` instead.
 
 - **`run.json` is the daemon's identity and `down`'s credential.** Keep `runtimeSchema` in sync with
   the `Runtime` written in `src/index.ts`. It lives at `.hh/run.json`.
+- **A live pid is not the running panel: pids are recycled, and a zombie answers signal 0.** A stale
+  `run.json` whose pid the OS had since handed to an unrelated process made `up` refuse with "already
+  running", `status` report "running, but not answering", and — worst — `down` SIGTERM then SIGKILL
+  that stranger. `processLiveness(pid, startedAt)` (`providers/port.ts`) is the one guard: the daemon
+  stamps `startedAt` during its own boot, so a pid **born after** that stamp cannot be it. Every caller
+  reads `runtimeIsAlive`/`runtimeLiveness` — a second, slightly different predicate is how a `down`
+  comes to signal somebody's unrelated process.
+  - `'unknown'` (no readable birth time) counts as **alive**, and only `'gone'` — nothing behind the
+    pid at all — permits deleting a record. `'recycled'` blocks a **signal**, but not the graceful
+    `/_hh/shutdown`: that endpoint answers only to the token in the record, so a reply proves the panel
+    is ours. That asymmetry is deliberate — Linux derives a birth epoch from `btime`, which the kernel
+    computes from the wall clock (`getboottime64`: "calls to settimeofday will affect the value
+    returned"), so a forward clock step can make a *live* panel look recycled. A signal must never
+    fire on that verdict; deleting the record or refusing to stop the panel would be the worse error.
 - **A test or script that reads a file as text must not assume the line ending.** A Windows checkout
   has CRLF, so `indexOf('\n}\n')` found nothing, the slice ran past the function it meant to isolate and
   picked up the *next* one's contents — `global group 'defaults'` failing against the global keys list.

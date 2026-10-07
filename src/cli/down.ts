@@ -7,14 +7,18 @@ import { versionMismatchNote } from '#src/helpers/version'
 /** `down` stops the panel and everything it supervises. */
 
 export async function runDown(): Promise<void> {
-  const { clearRuntime, isProcessAlive, readRuntime, requestShutdown } = await import('#src/helpers/daemon')
+  const { clearRuntime, isLiveLiveness, readRuntime, requestShutdown, runtimeLiveness } = await import('#src/helpers/daemon')
 
   const runtime = readRuntime()
   if (runtime === null) {
     process.stdout.write('home-hosted is not running\n')
     return
   }
-  if (!isProcessAlive(runtime.pid)) {
+
+  const liveness = await runtimeLiveness(runtime)
+  // Nothing at all is behind the pid, so the record is simply stale: delete it, and do not touch the
+  // network — a port this record names may now belong to an unrelated service.
+  if (liveness === 'gone') {
     clearRuntime()
     process.stdout.write(`home-hosted is not running (removed a stale run.json from home-hosted ${runtime.version})\n`)
     return
@@ -28,11 +32,38 @@ export async function runDown(): Promise<void> {
       process.stdout.write(`${dim(note)}\n`)
   }
 
-  process.stdout.write(`stopping pid ${runtime.pid}…\n`)
-  // The panel's own endpoint stops supervised servers cleanly on every platform;
-  // a signal is the fallback for a wedged or unreachable process.
-  if (!(await requestShutdown(runtime)))
-    signal(runtime.pid, 'SIGTERM')
+  let answered = false
+  if (isLiveLiveness(liveness)) {
+    process.stdout.write(`stopping pid ${runtime.pid}…\n`)
+    // The panel's own endpoint stops supervised servers cleanly on every platform; a signal is the
+    // fallback for a wedged or unreachable process. Only a pid whose identity is confirmed is ever
+    // signalled, and this branch is the only one that signals at all.
+    answered = await requestShutdown(runtime)
+    if (!answered)
+      signal(runtime.pid, 'SIGTERM')
+  }
+  else {
+    /**
+     * The pid is alive but was born **after** this record was written, so it is some other process
+     * that inherited the number — and it must never be signalled.
+     *
+     * The graceful stop is still offered, because it authenticates itself: `/_hh/shutdown` answers
+     * only to the token in this `run.json`, which only the panel that wrote it knows. A reply is
+     * therefore proof the panel *is* ours, which keeps it stoppable in the one case the birth time
+     * can be wrong about — a forward wall-clock step, where the kernel's `btime` moves and a live
+     * panel looks recycled. Either way this returns: `runtime.pid` is not the answering process, so
+     * it is not signalled and the record is left for that panel to overwrite.
+     */
+    const answeredByPanel = await requestShutdown(runtime)
+    if (!answeredByPanel) {
+      process.stdout.write(`home-hosted is not running (the pid in run.json, ${runtime.pid}, belongs to another process — it was not signalled)\n`)
+      return
+    }
+    process.stdout.write(`stopped the panel on ${runtime.url} (its pid in run.json, ${runtime.pid}, was another process and was left alone)\n`)
+    clearRuntime()
+    await reportPersistent()
+    return
+  }
 
   if (await waitForExit(runtime.pid, 20000)) {
     clearRuntime()

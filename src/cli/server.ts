@@ -23,11 +23,12 @@ interface ActionBody {
 }
 
 export async function runServerAction(action: ServerAction, id: string, workspace?: string): Promise<void> {
-  const { clearRuntime, isProcessAlive, readRuntime, requestControl } = await import('#src/helpers/daemon')
+  const { clearRuntime, readRuntime, requestControl, runtimeIsAlive, runtimeIsGone } = await import('#src/helpers/daemon')
 
   const runtime = readRuntime()
-  if (runtime === null || !isProcessAlive(runtime.pid)) {
-    if (runtime !== null)
+  if (runtime === null || !await runtimeIsAlive(runtime)) {
+    // Only a record with nothing behind the pid is deleted — see `runtimeIsGone`.
+    if (runtime !== null && await runtimeIsGone(runtime))
       clearRuntime()
     fail('home-hosted is not running — start it with `home-hosted up`')
   }

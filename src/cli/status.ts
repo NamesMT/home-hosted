@@ -11,7 +11,7 @@ export const statusArgs = {
 } as const
 
 export async function runStatus(json: boolean): Promise<void> {
-  const { isProcessAlive, probeRuntime, readRuntime } = await import('#src/helpers/daemon')
+  const { isLiveLiveness, probeRuntime, readRuntime, runtimeLiveness } = await import('#src/helpers/daemon')
   const { UiService } = await import('#src/services/ui')
   const { hhDir: dataRoot, workspaceDir, DEFAULT_WORKSPACE_ID, workspacesPath } = await import('#src/helpers/paths')
   const runtime = readRuntime()
@@ -31,7 +31,10 @@ export async function runStatus(json: boolean): Promise<void> {
     return
   }
 
-  const running = isProcessAlive(runtime.pid)
+  // A pid that is merely *alive* is not the panel: the OS recycles pids, so the record's own
+  // `startedAt` decides whether the process behind it is still this daemon.
+  const liveness = await runtimeLiveness(runtime)
+  const running = isLiveLiveness(liveness)
   const probe = running ? await probeRuntime(runtime) : { reachable: false, degraded: false }
 
   // Read once, above both outputs, so they cannot disagree about which UI is installed — the text
@@ -47,6 +50,9 @@ export async function runStatus(json: boolean): Promise<void> {
     // the same paths — the panel console's file is not where a *server's* log lives.
     process.stdout.write(`${JSON.stringify({
       running,
+      // The reason `running` is false: a dead pid (`gone`) and one the OS recycled (`recycled`)
+      // are different problems, and `answering: false` alone reads as a panel that is up but wedged.
+      liveness,
       answering: probe.reachable,
       degraded: probe.degraded,
       ...safe,
@@ -60,7 +66,11 @@ export async function runStatus(json: boolean): Promise<void> {
 
   const uptime = formatDuration(Date.now() - runtime.startedAt)
   const state = !running
-    ? paint('31', 'stale (the process is gone)')
+    ? liveness === 'recycled'
+      // Distinct from a dead pid: the number in this record now belongs to something else, which is
+      // what made `up` refuse with "already running" while nothing was actually serving.
+      ? paint('31', 'stale (the pid belongs to another process now)')
+      : paint('31', 'stale (the process is gone)')
     : probe.degraded
       ? paint('33', 'running — a server needs attention')
       : probe.reachable ? green('running') : paint('33', 'running, but not answering')

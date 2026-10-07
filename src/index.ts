@@ -11,7 +11,7 @@ import { ensureLayout } from '#src/config/layout'
 import { SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceRegistry } from '#src/config/workspaces'
-import { clearRuntime, isProcessAlive, newToken, readRuntime, writeRuntime } from '#src/helpers/daemon'
+import { clearRuntime, newToken, readRuntime, runtimeIsAlive, runtimeIsGone, writeRuntime } from '#src/helpers/daemon'
 import { logger } from '#src/helpers/logger'
 import { openBrowser } from '#src/helpers/open'
 import {
@@ -88,11 +88,15 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   ensureLayout()
 
   const existing = readRuntime()
-  if (existing !== null && existing.pid !== process.pid && isProcessAlive(existing.pid)) {
+  // A live pid is not proof the panel is up: the OS recycles pids, and a stale record's own
+  // `startedAt` is what tells this daemon from whatever inherited the number.
+  if (existing !== null && existing.pid !== process.pid && await runtimeIsAlive(existing)) {
     logger.error(`already running (pid ${existing.pid}) at ${existing.url} — run \`home-hosted down\` first`)
     process.exit(1)
   }
-  if (existing !== null)
+  // Deleted only when nothing is behind the pid; see `runtimeIsGone`. Otherwise the live daemon
+  // overwrites the record when it writes its own below.
+  if (existing !== null && await runtimeIsGone(existing))
     clearRuntime()
 
   const settings = new GlobalSettingsStore()

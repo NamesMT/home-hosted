@@ -77,11 +77,11 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
     return
   }
 
-  const { clearRuntime, isProcessAlive, readRuntime } = await import('#src/helpers/daemon')
+  const { clearRuntime, readRuntime, runtimeIsAlive, runtimeIsGone } = await import('#src/helpers/daemon')
   const { daemonLogPath, dataRoot, projectDir } = await import('#src/helpers/paths')
 
   const existing = readRuntime()
-  if (existing !== null && isProcessAlive(existing.pid)) {
+  if (existing !== null && await runtimeIsAlive(existing)) {
     process.stdout.write(`${green('already running')} home-hosted ${existing.version} (pid ${existing.pid}) at ${existing.url}\n`)
     const note = versionMismatchNote(existing.version)
     if (note !== null)
@@ -89,7 +89,10 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
     process.stdout.write(`${dim('stop it with `home-hosted down`')}\n`)
     return
   }
-  if (existing !== null)
+  // Only a record with *nothing* behind its pid is deleted. A pid that merely looks recycled is left
+  // for the panel this starts to overwrite, because the birth time is wall-clock-derived on Linux and
+  // a clock step can make a live panel look recycled — deleting its record would orphan it.
+  if (existing !== null && await runtimeIsGone(existing))
     clearRuntime()
 
   fs.mkdirSync(path.dirname(daemonLogPath), { recursive: true })

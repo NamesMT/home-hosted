@@ -121,6 +121,12 @@ nobody reads is worse than a long file.
   never recreated.
 - **A port is only ever freed by re-listing its listeners.** `free-port` never trusts a pid quoted in
   a message, and refuses any listener in `supervisedPids()` instead of killing it.
+- **A live pid is not the running panel.** Pids are recycled and a zombie still answers signal 0, so
+  `up`/`status`/`down` decide with `runtimeIsAlive`/`runtimeLiveness` (pid **plus** `run.json`'s own
+  `startedAt`), never `isProcessAlive` alone — otherwise `up` refuses against a dead panel, `status`
+  reports "running, but not answering", and `down` signals an unrelated process. Only `'gone'`
+  (nothing behind the pid) deletes a record; `'recycled'` blocks a **signal** but still allows the
+  token-authenticated `/_hh/shutdown`, because the birth time is wall-clock-derived.
 - **Only `kill` ever touches a process the panel could not identify** — which is why it logs the pids
   it stopped. `follow` adopts this entry's own successor, `reclaim` replaces it. Ownership is the
   entry's whole **tree**, and the panel's own tree is excluded. Full matching rules:

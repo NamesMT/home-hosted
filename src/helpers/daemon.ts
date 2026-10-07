@@ -1,3 +1,4 @@
+import type { ProcessLiveness } from '#src/providers/port'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -5,6 +6,7 @@ import https from 'node:https'
 import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { runtimePath } from '#src/helpers/paths'
+import { processLiveness } from '#src/providers/port'
 
 /**
  * `run.json` is how `status`/`down` find the live control plane and how they are
@@ -59,6 +61,55 @@ export function newToken(): string {
  * port one treated it as gone, which made a live nanny look absent. One definition, one answer.
  */
 export { isProcessAlive } from '#src/providers/port'
+
+/**
+ * What became of the daemon this record describes: the verdict `run.json`'s pid cannot give on
+ * its own. See `processLiveness` in `providers/port.ts` for why the pid is not an identity.
+ */
+export async function runtimeLiveness(runtime: Runtime): Promise<ProcessLiveness> {
+  return await processLiveness(runtime.pid, runtime.startedAt)
+}
+
+/**
+ * Is the daemon this record describes still the one running?
+ *
+ * `readRuntime()` answers "does a record exist", never "is the panel behind it alive" — and a pid
+ * alone cannot answer that either. The OS reuses pids, and a zombie still answers signal 0, so a
+ * bare `isProcessAlive(runtime.pid)` reported a stale `run.json` as a live panel: `up` refused with
+ * "already running", `status` said "running, but not answering", and `down` signalled whatever
+ * unrelated process had since inherited the pid.
+ *
+ * Every caller must read this one predicate, because a caller that re-derives it slightly differently
+ * is how a `down` comes to signal a stranger.
+ */
+export async function runtimeIsAlive(runtime: Runtime): Promise<boolean> {
+  return isLiveLiveness(await runtimeLiveness(runtime))
+}
+
+/**
+ * Only `'live'` and `'unknown'` count as alive. `'unknown'` means the platform could not read a start
+ * time, so the live pid is all there is — dismissing it would clear a record the running panel still
+ * owns. `'recycled'` is emphatically **not** alive: the pid belongs to somebody else now.
+ */
+export function isLiveLiveness(liveness: ProcessLiveness): boolean {
+  return liveness === 'live' || liveness === 'unknown'
+}
+
+/**
+ * Is the record positively pointing at nothing at all — no process behind the pid?
+ *
+ * This is the **only** condition under which deleting `run.json` is safe, so it is deliberately
+ * narrower than `!runtimeIsAlive`. The start-time check can be wrong in one direction: Linux derives
+ * a process's birth epoch from `btime`, which the kernel computes from the wall clock
+ * (`getboottime64`: "calls to settimeofday will affect the value returned"), so a forward clock step
+ * — common when a laptop or a WSL host wakes from sleep — makes a *live* panel look recycled. Deleting
+ * its record over that would orphan a running panel: still supervising servers, no longer stoppable by
+ * `down`. A record that some process may still own is left alone and simply overwritten when a new
+ * panel finishes booting.
+ */
+export async function runtimeIsGone(runtime: Runtime): Promise<boolean> {
+  return await runtimeLiveness(runtime) === 'gone'
+}
 
 export interface RuntimeProbe {
   /** The panel answered on its own port — stronger than "the pid exists". */
