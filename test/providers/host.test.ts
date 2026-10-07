@@ -244,14 +244,20 @@ describe('macAvailableBytes', () => {
     expect(macAvailableBytes(withHugeActive)).toBe(635_000 * 16384)
   })
 
-  it('falls back for a page size when the header is absent', () => {
-    // Older `vm_stat` printed no header, so the size comes from `getpagesize` instead. Asserted
-    // unconditionally: the old `if (parsed !== null)` guard meant an implementation that refused
-    // *every* headerless reading — the failure the test is named for — still passed.
+  /**
+   * Windows is skipped, not silently passed.
+   *
+   * The headerless fallback asks the OS through `getconf`, which Windows does not ship, so
+   * `getPageSize()` answers `NaN` and `macAvailableBytes` returns `null` there — there is no reading
+   * to assert. The old `if (parsed !== null)` wrapper made that a *pass*, which is the shape
+   * `AGENTS.md` warns about: a test that returns early hides the platform that never ran the code.
+   * The condition is computed at module load, so the skip is reported as a skip.
+   */
+  it.skipIf(process.platform === 'win32')('falls back for a page size when the header is absent', () => {
+    // Older `vm_stat` printed no header, so the size comes from `getpagesize` instead.
     const headerless = VM_STAT.split('\n').slice(1).join('\n')
     expect(macAvailableBytes(headerless)).toBe(635_000 * getconfPageSize())
-    // The count is read from the headerless text, so a wrong one shows up as a wrong total: with
-    // the 16384-byte header dropped the free-page figure still has to be the one in the text.
+    // The count is read from the headerless text, so a wrong one shows up as a wrong total.
     expect(macAvailableBytes(headerless)).not.toBe(0)
   })
 
