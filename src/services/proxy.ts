@@ -36,6 +36,7 @@ import { normalizeHost } from '#src/providers/ddns/types'
 import {
   HEARTBEAT_STALE_MS,
   nannyEntryPoint,
+  nannyIsAlive,
   nannySpecPath,
   nannyStatePath,
   readNannyState,
@@ -43,6 +44,7 @@ import {
   writeNannySpec,
 } from '#src/providers/nanny'
 import { isPortFree, isProcessAlive, listPortHolders } from '#src/providers/port'
+import { processCarriesServerId } from '#src/providers/proc'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
 import { FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { TlsStore } from '#src/services/tls'
@@ -1659,7 +1661,22 @@ export class ProxyService {
     const state = readNannyState(statePath)
 
     if (state !== null && state.serverId === PROXY_ID) {
-      const pids = [state.nannyPid, state.childPid].filter((pid): pid is number => pid !== null && pid > 0)
+      // A state file is not proof the engine is running. Pids are recycled, and `PROXY_ID` is a
+      // constant, so an old record can name a stranger that this panel has no handle on —
+      // signalling it would kill an unrelated process. Ask the same identity question the
+      // supervisor, `down` and the install guard ask, and only then treat the pids as ours.
+      //
+      // The nanny's own liveness proves the whole record is live (so its `childPid` is trusted
+      // too, exactly as `resumePersistent` does after adoption); a child that outlived its nanny
+      // is still ours when it carries the marker the nanny gave it.
+      const nanny = await nannyIsAlive(state, PROXY_ID)
+      const child = state.childPid !== null && state.childPid > 0
+        && await processCarriesServerId(state.childPid, PROXY_ID)
+      const pids = [
+        ...(nanny ? [state.nannyPid] : []),
+        ...(nanny || child ? [state.childPid] : []),
+      ].filter((pid): pid is number => pid !== null && pid > 0)
+
       for (const pid of pids) {
         if (!isProcessAlive(pid))
           continue
@@ -1678,7 +1695,8 @@ export class ProxyService {
       // and applied.json were removed right after — a later boot had no record to
       // stop it by, and the port preflight kept refusing on a pid the panel would
       // not touch.
-      for (const pid of pids.filter(isProcessAlive)) {
+      const survivors = pids.filter(isProcessAlive)
+      for (const pid of survivors) {
         try {
           process.kill(pid, 'SIGKILL')
         }
@@ -1686,7 +1704,12 @@ export class ProxyService {
           // Already gone between the check and the signal.
         }
       }
-      fs.rmSync(statePath, { force: true })
+      // The state file is the only record that can find a process which outlived SIGKILL, so it
+      // is kept for one — the same exception `stopEntry` makes — rather than orphaning it.
+      if (survivors.some(isProcessAlive))
+        logger.warn(`proxy:    pid ${survivors.join(', ')} ignored SIGKILL — keeping ${path.basename(statePath)} so a later boot can still stop it`)
+      else
+        fs.rmSync(statePath, { force: true })
     }
 
     this.nanny = null

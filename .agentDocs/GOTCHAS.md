@@ -230,7 +230,16 @@ line in `AGENTS.md` instead.
   `isProcessAlive` disagreed: `helpers/daemon.ts` read `EPERM` correctly, `providers/port.ts` returned
   `false`. That predicate is the first line of `nannyIsAlive`, so a nanny owned by another user read as
   absent — `resumePersistent` then consumed its state file (the only record of the entry) and started a
-  **second** copy while the first kept running untracked. One definition now, re-exported.
+  **second** copy while the first kept running untracked. One definition now, re-exported — and
+  `providers/process.ts` no longer keeps its own third copy, whose `false` on `EPERM` made
+  `terminatePid` answer `'force-killed'` for a process it could not signal and never stopped.
+- **A state file is not proof a process is ours.** `ProxyService.stop()` signalled whatever pid
+  `.proxy/proxy.json` named, escalating to `SIGKILL`: `PROXY_ID` is the constant `proxy`, and pids are
+  recycled, so a leftover record could name an unrelated live process and kill it. It now asks the
+  same question the supervisor, `down` and the install guard ask — `nannyIsAlive` (fresh heartbeat,
+  marker, or nanny argv) — and keeps the record when a pid outlives `SIGKILL`, rather than orphaning
+  it. Any new path that reaches a pid from a file must do the same; a liveness check on its own is not
+  identity.
 - **Removing a workspace must not delete the state file a surviving process is found by.**
   `stopEntry` keeps a persistent entry's nanny state **on purpose** when its pid outlived SIGKILL —
   "its pid is in the state file" is how a later boot reaches a child the stop could not forward. That

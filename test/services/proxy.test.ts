@@ -1126,6 +1126,43 @@ describe('proxyService', () => {
     }
   })
 
+  it('does not signal a pid a stale record names, which is somebody else by now', async () => {
+    // `PROXY_ID` is the constant `proxy`, so any leftover `proxy.json` names pids this panel has
+    // no handle on — and pids are recycled. `stop()` used to signal whatever those pids pointed at,
+    // escalating to SIGKILL, so a stale record could kill an unrelated process. It asks the same
+    // identity question the supervisor and `down` ask instead: a heartbeat newer than
+    // `HEARTBEAT_STALE_MS`, the `HHOSTED_SERVER_ID` marker, or a nanny-shaped argv.
+    const { service, options } = await harness({ stopGraceMs: 100 })
+    const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
+    const strangerPid = stranger.pid!
+    fs.mkdirSync(options.stateDir, { recursive: true })
+    writeNannyState(nannyStatePath(options.stateDir, 'proxy'), {
+      serverId: 'proxy',
+      nannyPid: strangerPid,
+      childPid: strangerPid,
+      startedAt: Date.now() - 3_600_000,
+      logFile: '',
+      // Stale on purpose: the nanny this record describes is long gone.
+      heartbeatAt: Date.now() - 3_600_000,
+    })
+
+    try {
+      await service.stop()
+      expect(isProcessAlive(strangerPid), 'a stale record must not name a process that is not the engine').toBe(true)
+      // Nothing the record named was ours, so it is stale garbage and goes: keeping it would make
+      // `engineRunning()` report the engine busy on a recycled pid, and block the next install.
+      expect(fs.existsSync(nannyStatePath(options.stateDir, 'proxy'))).toBe(false)
+    }
+    finally {
+      try {
+        process.kill(strangerPid, 'SIGKILL')
+      }
+      catch {
+        // Already gone.
+      }
+    }
+  })
+
   it('survives a nanny that cannot be spawned, and reads as a failure', async () => {
     // A spawn that never happens emits 'error' and no 'exit'. Without a handler that
     // event is an uncaught exception, and Node 24 ends the whole panel — which is what
