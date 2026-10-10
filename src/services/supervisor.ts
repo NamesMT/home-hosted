@@ -105,6 +105,11 @@ interface Entry {
   /** A start is in flight (set synchronously, unlike `status`). */
   starting: boolean
   stopping: boolean
+  /**
+   * The config no longer lists this entry, so the stop that follows must not write its
+   * last lines back into a log file or history that were just reclaimed for this id.
+   */
+  removed: boolean
   bootstrapDone: boolean
   logs: LogBuffer
   /**
@@ -664,6 +669,7 @@ export class Supervisor {
       nannyExit: null,
       starting: false,
       stopping: false,
+      removed: false,
       bootstrapDone: !config.bootstrap,
       logs: new LogBuffer(config.logBufferLines),
       echoed: new Set(),
@@ -692,6 +698,11 @@ export class Supervisor {
         // The same reclaim for history: without it a re-added id inherits the old entry's crash time
         // and events, and the card reports "Last crash" for a server that was never started.
         this.options.history.forget(id)
+        // Flagged so the stop below cannot write either back: `stopEntry` logs its own last lines
+        // ("stopped", "force-killed after grace period") through `this.log`, which would recreate
+        // both artifacts for an id that no longer exists. Clearing *after* the stop would race a
+        // re-add of the same id instead, wiping the new entry's log.
+        entry.removed = true
         void this.stopEntry(entry).catch((error: unknown) => {
           logger.error(`could not stop the removed server ${id}`, error)
         })
@@ -930,11 +941,13 @@ export class Supervisor {
     entry.responseMs = null
     entry.exitCode = null
     entry.exitSignal = null
-    this.options.history.record(entry.config.id, {
-      type: 'exit',
-      detail,
-      runtimeMs: ranForMs,
-    })
+    if (!entry.removed) {
+      this.options.history.record(entry.config.id, {
+        type: 'exit',
+        detail,
+        runtimeMs: ranForMs,
+      })
+    }
     this.log(entry, 'system', `the adopted process is gone after ${Math.max(1, Math.round(ranForMs / 1000))}s`)
     this.afterExit(entry, detail, ranForMs, false)
   }
@@ -1411,12 +1424,15 @@ export class Supervisor {
     const ranForMs = nannyExit?.runtimeMs ?? (entry.startedAt === null ? 0 : Date.now() - entry.startedAt)
 
     // Recorded for *every* exit, not only the ones that end in `crashed`: the
-    // rolling window (crashes, uptime, last exit) is built from these events.
-    this.options.history.record(entry.config.id, {
-      type: 'exit',
-      detail,
-      runtimeMs: ranForMs,
-    })
+    // rolling window (crashes, uptime, last exit) is built from these events. A removed
+    // entry is the exception: its history was reclaimed, and this is the stop that follows.
+    if (!entry.removed) {
+      this.options.history.record(entry.config.id, {
+        type: 'exit',
+        detail,
+        runtimeMs: ranForMs,
+      })
+    }
 
     this.afterExit(entry, detail, ranForMs, neverStarted)
   }
@@ -1648,6 +1664,13 @@ export class Supervisor {
   }
 
   private log(entry: Entry, stream: LogStream, text: string): void {
+    // A removed entry's artifacts were reclaimed the moment the config dropped it, so the stop that
+    // follows must not append to them: it would recreate a log file and a history the removal just
+    // deleted. The reason survives on the console instead, where an operator can still read it.
+    if (entry.removed) {
+      logger.debug(`[${entry.config.id}] ${text}`)
+      return
+    }
     const line: LogLine = { ts: Date.now(), stream, text }
     entry.logs.push(line)
     this.options.logFiles.append(entry.config.id, line)
