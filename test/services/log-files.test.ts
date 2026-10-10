@@ -98,6 +98,18 @@ describe('log files', () => {
     expect(files.readTail('web', 5)).toEqual([])
   })
 
+  it('clears lines that are still pending, not only the bytes already on disk', async () => {
+    // `clear` removed the files but left the unflushed batch alone, and `flush()` writes that batch
+    // out — so the lines a delete was meant to remove reappeared a moment later (or on `dispose`,
+    // after the timer was cleared). The test above flushes first, so it cannot see this.
+    const { files } = await makeLogs()
+    files.append('web', line('LINE THE USER ASKED TO DELETE'))
+    files.clear('web')
+    files.flush()
+
+    expect(files.readTail('web', 5), 'a cleared line must not come back on the next flush').toEqual([])
+  })
+
   it('flushes pending lines on dispose', async () => {
     const { files, dir } = await makeLogs()
     files.append('web', line('written on dispose'))

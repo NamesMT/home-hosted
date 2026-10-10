@@ -122,6 +122,9 @@ export class LogFiles {
   }
 
   clear(serverId: string): void {
+    // The batch that has not been flushed yet is still this server's, and `flush()` would write it
+    // straight back — so the lines a delete was meant to remove reappeared a moment later.
+    this.pending.delete(serverId)
     for (const file of this.rotateTargets(serverId)) {
       try {
         fs.rmSync(file, { force: true })
