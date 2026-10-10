@@ -5,6 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { projectDir } from '#src/helpers/paths'
+import { isProcessAlive } from '#src/providers/port'
 
 const execFileAsync = promisify(execFile)
 
@@ -149,36 +150,30 @@ function signalPid(pid: number, signal: NodeJS.Signals, killGroup: boolean): voi
   }
 }
 
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 /**
  * The same shutdown a supervised child gets, for a process we adopted instead of
  * spawned: a detached successor is not our child, so it is signalled by pid (and
  * by process group when asked) and its exit is polled rather than awaited.
+ *
+ * Liveness comes from `isProcessAlive`, never a local signal-0 copy: a second definition returned
+ * `false` for `EPERM`, so a process that was there but not ours to signal read as "exited" and
+ * `'force-killed'` was returned for one still running. One predicate, one answer.
  */
 export async function terminatePid(pid: number, options: TerminateOptions): Promise<'exited' | 'force-killed'> {
-  if (!alive(pid))
+  if (!isProcessAlive(pid))
     return 'exited'
 
   signalPid(pid, options.signal, options.killGroup)
 
   const deadline = Date.now() + Math.max(0, options.graceMs)
-  while (Date.now() < deadline && alive(pid))
+  while (Date.now() < deadline && isProcessAlive(pid))
     await delay(50)
-  if (!alive(pid))
+  if (!isProcessAlive(pid))
     return 'exited'
 
   signalPid(pid, 'SIGKILL', options.killGroup)
   const hardDeadline = Date.now() + 2000
-  while (Date.now() < hardDeadline && alive(pid))
+  while (Date.now() < hardDeadline && isProcessAlive(pid))
     await delay(50)
   return 'force-killed'
 }
