@@ -182,12 +182,12 @@ describe('runLogs', () => {
    * nothing when it may have written plenty. A panel started by systemd (or as root) and then
    * read by an ordinary user is the realistic way to meet this.
    */
-  it('says the log is unreadable rather than claiming the panel wrote nothing', async () => {
+  // `chmod` is not honoured the same way on Windows, and CI runs the suite there. A `skipIf`
+  // computed at module load, not a bare `return`: an early return reports a *pass*, so Windows
+  // would look green for a guard it never ran. The skip count is the only signal that says so.
+  it.skipIf(process.platform === 'win32')('says the log is unreadable rather than claiming the panel wrote nothing', async () => {
     const root = home('written by someone else\n')
     const file = path.join(root, '.hh', '.logs', 'home-hosted.log')
-    // `chmod` is not honoured the same way on Windows, and CI runs the suite there.
-    if (process.platform === 'win32')
-      return
 
     fs.chmodSync(file, 0o000)
     try {
