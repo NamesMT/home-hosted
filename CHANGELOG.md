@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.7.21
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.20...v0.7.21)
+
+### 🩹 Fixes
+
+- **contracts:** Let serverPatchSchema clear a label with null ([1681a62](https://github.com/NamesMT/home-hosted/commit/1681a62))
+- **proxy:** Ask who a pid is before a stop signals it ([907835d](https://github.com/NamesMT/home-hosted/commit/907835d))
+- **process:** One liveness predicate, not a second that reads EPERM as gone ([497302c](https://github.com/NamesMT/home-hosted/commit/497302c))
+- **logs:** A delete must drop the unflushed batch too ([39b89f3](https://github.com/NamesMT/home-hosted/commit/39b89f3))
+- **supervisor:** A removed server's stop must not recreate what removal reclaimed ([7e3d02a](https://github.com/NamesMT/home-hosted/commit/7e3d02a))
+
+### ✅ Tests
+
+- **cli:** Skip the Windows log-permission case instead of returning early ([6a11139](https://github.com/NamesMT/home-hosted/commit/6a11139))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.20
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.19...v0.7.20)
