@@ -175,7 +175,9 @@ nobody reads is worse than a long file.
 
 **Prune verbose; keep correctness.** This covers code, comments, user docs and agent docs alike.
 
-- Code: say it once, name it well; a comment only for non-obvious *intent*, never to restate the line.
+- Code: say it once, name it well; a comment only for non-obvious *intent*, never to restate the line,
+  and never long — a block arguing for its own change is a commit message, and long evidence belongs
+  in `.agentDocs/`.
 - Docs: one idea per sentence, prefer a table or a line to a paragraph. Cut a sentence that would not
   change what a reader does.
 - Delete history that `git log` already holds. Keep the *rule* that came out of it, not the story —
