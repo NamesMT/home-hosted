@@ -84,8 +84,16 @@ function probeHostFor(bindHost: string): string {
  * directly.
  */
 export async function runControlPlane(options: ControlPlaneOptions): Promise<void> {
-  // A pre-workspace `$HHOSTED_HOME` is relocated before anything reads a path.
-  ensureLayout()
+  // A state directory this release cannot use stops the daemon before anything reads
+  // a path into it. Caught rather than thrown: a detached `up` runs this in a child, and
+  // an unhandled rejection there is a stack trace instead of one line naming the fix.
+  try {
+    ensureLayout()
+  }
+  catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
 
   const existing = readRuntime()
   // A live pid is not proof the panel is up: the OS recycles pids, and a stale record's own
@@ -125,6 +133,14 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   }
 
   const secrets = new SecretsStore(globalSecretsPath, undefined, 'global')
+  // A secrets file that cannot be parsed is refused, never read as a first boot: the
+  // default password written below would otherwise replace it, taking the password
+  // hash, the API token and every workspace's Telegram and DDNS credentials with it.
+  if (secrets.configError !== null) {
+    logger.error(`refusing to start: ${secrets.configError}`)
+    logger.info('fix or restore the file, or move it aside to start fresh — starting fresh discards it')
+    process.exit(1)
+  }
   const auth = new AuthService(secrets, () => settings.control.auth)
   const tls = new TlsStore(tlsDir)
   const hub = new EventHub()
@@ -293,6 +309,13 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     if (store.configError !== null) {
       logger.error(`refusing to start: workspace "${workspace.id}": ${store.configError}`)
       logger.info(`fix ${store.path} and ${store.settingsPath}, or install the release that wrote them`)
+      process.exit(1)
+    }
+    // Workspace secrets are configs too: a bad one must not be replaced by a fresh
+    // file, which would drop that workspace's Telegram token and DDNS credentials.
+    if (workspace.secrets.configError !== null) {
+      logger.error(`refusing to start: workspace "${workspace.id}": ${workspace.secrets.configError}`)
+      logger.info('fix or restore the file, or move it aside to start fresh — starting fresh discards it')
       process.exit(1)
     }
     if (store.pendingMigrations.length > 0) {

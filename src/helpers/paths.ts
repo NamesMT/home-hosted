@@ -137,23 +137,20 @@ export function workspaceIdsOnDisk(): string[] {
 // -------------------------------------------------------------------- legacy
 
 /**
- * Where state lived before workspaces: directly under `HHOSTED_HOME`. Kept only
- * so the one-time layout migration can find it; nothing reads these at runtime.
+ * Where a pre-workspace `$HHOSTED_HOME` kept its config and secrets: directly
+ * under `dataRoot`. Nothing reads these; they only identify an instance this
+ * release refuses to start against.
  */
 export const legacy = {
   configPath: path.join(dataRoot, 'servers.config.json'),
-  configSchemaPath: path.join(dataRoot, 'servers.config.schema.json'),
   secretsPath: path.join(dataRoot, '.control-secrets.json'),
-  tlsDir: path.join(dataRoot, '.tls'),
-  logsDir: path.join(dataRoot, '.logs'),
-  historyPath: path.join(dataRoot, '.logs', 'history.json'),
-  stateDir: path.join(dataRoot, '.state'),
-  backupsDir: path.join(dataRoot, '.backups'),
-  uiDir: path.join(dataRoot, '.ui'),
-  runtimePath: path.join(dataRoot, 'run.json'),
 } as const
 
-/** True when a pre-workspace instance left state at the old paths. */
+/**
+ * True when a pre-workspace instance left state at the old paths **and** never
+ * crossed into `.hh`: `workspaces.json` means the layout is current, so a stray
+ * root-level copy beside it is not an old instance.
+ */
 export function hasLegacyLayout(): boolean {
   if (fs.existsSync(workspacesPath))
     return false

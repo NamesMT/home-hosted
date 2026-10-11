@@ -397,9 +397,9 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  // A pre-workspace `$HHOSTED_HOME` is relocated before any command resolves a
-  // state path, so an existing instance keeps working after the upgrade without
-  // anyone having to run `migrate` first. It is a no-op once `workspaces.json` exists.
+  // A state directory this release cannot use is refused before any command
+  // resolves a path into it. It throws one sentence naming the fix, which is the
+  // same shape as every other CLI failure below.
   const { ensureLayout } = await import('#src/config/layout')
   ensureLayout()
 

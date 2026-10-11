@@ -3,7 +3,6 @@ import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { dim, fail, green, prompt } from '#src/cli/io'
-import { migrateLayout } from '#src/config/layout'
 import { applyConfigMigrations, planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { WorkspaceRegistry } from '#src/config/workspaces'
@@ -12,10 +11,9 @@ import { globalSettingsPath, workspaceServersPath, workspaceSettingsPath } from 
 import { appVersion } from '#src/helpers/version'
 
 /**
- * `migrate` brings a state directory up to what this release understands. It runs
- * in two layers: the one-time relocation of a pre-workspace `$HHOSTED_HOME` into
- * `.hh`, and the per-file schema stamp on the global settings, each workspace's
- * settings and each workspace's servers config.
+ * `migrate` lifts a state directory to the config schema this release understands:
+ * it stamps the global settings, each workspace's settings and each workspace's
+ * servers config, and applies any pending schema migration to them.
  *
  * Deliberately loud: it prints every step first, backs a file up before writing
  * it, refuses to write one it cannot read, and never runs on its own — a detached
@@ -76,15 +74,6 @@ function targets(configOverride?: string): Target[] {
 }
 
 export async function runMigrate(config: string | undefined, dryRun: boolean, yes: boolean): Promise<void> {
-  const relocated = migrateLayout()
-  if (relocated.migrated) {
-    process.stdout.write(`${green('state layout migrated')} into the current .hh layout\n`)
-    for (const step of relocated.moved)
-      process.stdout.write(`  ${dim(step)}\n`)
-    for (const warning of relocated.warnings)
-      process.stdout.write(`  ${dim(`warning: ${warning}`)}\n`)
-  }
-
   const files = targets(config)
   const existing = files.filter(target => fs.existsSync(target.file))
   if (existing.length === 0)
