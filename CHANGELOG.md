@@ -5,6 +5,33 @@
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.21...v0.8.0)
 
+### ⚠️ Upgrading to 0.8.0
+
+**Coming from 0.6.x? Install the latest 0.7.x and run it once before installing 0.8.0.** 0.7.0 moved
+all state from `$HHOSTED_HOME` itself into `$HHOSTED_HOME/.hh`, splitting the old all-in-one
+`servers.config.json` into global settings, a `default` workspace, and that workspace's servers — and
+it did the move automatically on its first run. 0.8.0 drops that relocation, so a home still on the
+0.6.x layout is **refused**: `up` stops and names the file it found, rather than starting against an
+empty state directory beside a config it never opened. Nothing is changed or deleted by the refusal,
+so the 0.7.x step can be taken at any time.
+
+Already on 0.7.x? Nothing to do — state is where 0.8.0 looks for it.
+
+The other breaking changes:
+
+- **DDNS credentials** stored by a release that did not record their provider no longer read; that
+  account reports no credentials. Re-enter them in **Workspace Settings → Dynamic DNS**. Sealed
+  entries, and entries written by 0.7.x, are unaffected.
+- **A pre-0.7 URL** (`/servers`, `/logs`, `/settings`, `/global`, `/global-settings`, or noc-console's
+  `/vitals`) now opens the panel-wide overview instead of that workspace's page — re-bookmark the
+  `/w/<workspaceId>/…` URL.
+- **A reverse-proxy engine installed by ≤0.7.x** reports `source: custom` and no version until it is
+  reinstalled, because `engine.json` no longer carries the checksum field that release wrote. The
+  binary still runs; only the reported version is affected.
+- **A corrupt `.control-secrets.json`** now stops the panel instead of being replaced. It was
+  previously read as a first boot, so the default password written on an empty store silently
+  destroyed the password hash, the API token and the Telegram and DDNS credentials.
+
 ### 🚀 Enhancements
 
 - **layout:** ⚠️  Drop the pre-workspace state relocation, and refuse that home ([47d495e](https://github.com/NamesMT/home-hosted/commit/47d495e))
