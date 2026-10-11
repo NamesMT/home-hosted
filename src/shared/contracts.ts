@@ -33,7 +33,6 @@ export type WorkspaceCreate = typeof workspaceCreateSchema.infer
 export const workspaceRenameSchema = type({
   label: '1 <= string <= 60',
 }).onUndeclaredKey('reject')
-export type WorkspaceRename = typeof workspaceRenameSchema.infer
 
 /** Parses a bind value (`local` | `lan` | ipv4); null when it is not one. */
 export function parseBind(value: string): Bind | null {
@@ -85,7 +84,6 @@ export const resourcesSchema = type({
   /** Restart when the tree's RSS exceeds this; 0 disables. */
   maxRssBytes: 'number.integer >= 0 = 0',
 }).onUndeclaredKey('reject')
-export type ResourcesConfig = typeof resourcesSchema.infer
 
 export const healthSchema = type({
   enabled: 'boolean = true',
@@ -122,7 +120,6 @@ export const bootstrapSchema = type({
   /** Run once per `up` session; whatever it installs persists on disk. */
   runOnce: 'boolean = true',
 }).onUndeclaredKey('reject')
-export type BootstrapConfig = typeof bootstrapSchema.infer
 export const bootstrapOrNullSchema = bootstrapSchema.or(type('null'))
 
 /**
@@ -212,7 +209,6 @@ export const telegramSchema = type({
   /** Per server *and* reason, so a flapping server cannot spam the chat. */
   cooldownMs: 'number >= 0 = 120000',
 }).onUndeclaredKey('reject')
-export type TelegramConfig = typeof telegramSchema.infer
 
 export const notificationsSchema = type({
   telegram: telegramSchema.default(() => ({})),
@@ -231,7 +227,6 @@ export type LogsConfig = typeof logsSchema.infer
 export const tlsSchema = type({
   enabled: 'boolean = false',
 }).onUndeclaredKey('reject')
-export type TlsConfig = typeof tlsSchema.infer
 
 /** Host-level vitals and their alert thresholds. */
 export const hostSchema = type({
@@ -387,7 +382,6 @@ export const ddnsCredentialsSchema = type({
   provider: 'string >= 1',
   credentials: type('Record<string, string>'),
 }).onUndeclaredKey('reject')
-export type DdnsCredentials = typeof ddnsCredentialsSchema.infer
 
 /**
  * The DDNS block as a patch: no defaults, and `accounts`/`domains` are lists a
@@ -748,7 +742,6 @@ export const proxyCertificateSchema = type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   label: 'string = ""',
 }).onUndeclaredKey('reject')
-export type ProxyCertificate = typeof proxyCertificateSchema.infer
 
 /**
  * What a route's certificate situation is, for the page to show. `fallback` is a
@@ -771,7 +764,6 @@ export const proxyDns01Schema = type({
   /** Nameservers Caddy checks the TXT record against; empty uses its own defaults. */
   resolvers: type('string[]').default(() => []),
 }).onUndeclaredKey('reject')
-export type ProxyDns01 = typeof proxyDns01Schema.infer
 
 /** Reverse proxy: expose the stack through one engine, with automatic HTTPS. */
 export const proxyConfigSchema = type({
@@ -793,7 +785,6 @@ export type ProxyConfig = typeof proxyConfigSchema.infer
 
 /** Where the binary came from: the release we downloaded, or a path a person set. */
 export const proxyEngineSourceSchema = type.enumerated('downloaded', 'custom')
-export type ProxyEngineSource = typeof proxyEngineSourceSchema.infer
 
 /** What the panel knows about the installed engine. */
 export const proxyEngineStatusSchema = type({
@@ -955,13 +946,11 @@ export const proxyCertificateUploadSchema = type({
   certificate: 'string >= 1',
   privateKey: 'string >= 1',
 }).onUndeclaredKey('reject')
-export type ProxyCertificateUpload = typeof proxyCertificateUploadSchema.infer
 
 /** `POST /api/proxy/engine`: which release to install; empty means the current one. */
 export const proxyEngineInstallSchema = type({
   version: 'string = ""',
 }).onUndeclaredKey('reject')
-export type ProxyEngineInstall = typeof proxyEngineInstallSchema.infer
 
 export const telegramStatusSchema = type({
   enabled: 'boolean',
@@ -992,7 +981,6 @@ export type TelegramStatus = typeof telegramStatusSchema.infer
 export const telegramChatsSchema = type({
   chats: type({ id: 'string | number', title: 'string' }).array(),
 })
-export type TelegramChats = typeof telegramChatsSchema.infer
 
 export const notificationViewSchema = type({
   telegram: telegramStatusSchema,
@@ -1239,7 +1227,6 @@ export const healthResponseSchema = type({
   'servers?': type({ total: 'number', running: 'number', crashed: 'number', unhealthy: 'number' }),
   'hostAlerts?': 'string[]',
 })
-export type HealthResponse = typeof healthResponseSchema.infer
 
 export const controlViewSchema = type({
   /** The configured panel name, for the shell to render. */
@@ -1414,14 +1401,11 @@ export const logHistoryViewSchema = type({
 })
 export type LogHistoryView = typeof logHistoryViewSchema.infer
 
-export type TelegramToken = typeof telegramTokenSchema.infer
-
 export const notificationActionSchema = type({
   /** Optional override, so the token can be tested before it is saved. */
   botToken: 'string?',
   chatId: 'string?',
 }).onUndeclaredKey('reject')
-export type NotificationAction = typeof notificationActionSchema.infer
 
 export const telegramTokenSchema = type({
   botToken: 'string >= 1',
@@ -1443,13 +1427,11 @@ export const apiErrorSchema = type({
   /** Structured context when the failure has any — a field list, the routes holding a certificate. */
   'detail?': 'unknown',
 }).onUndeclaredKey('reject')
-export type ApiError = typeof apiErrorSchema.infer
 
 export const tlsUploadSchema = type({
   certificate: 'string >= 1',
   privateKey: 'string >= 1',
 }).onUndeclaredKey('reject')
-export type TlsUpload = typeof tlsUploadSchema.infer
 
 /** `GET /api/settings`: the panel-wide configuration, as Global Settings reads it. */
 export const settingsViewSchema = type({
@@ -1486,4 +1468,3 @@ export const workspaceSettingsViewSchema = type({
 export type WorkspaceSettingsView = typeof workspaceSettingsViewSchema.infer
 
 export const workspaceSettingsSavedSchema = workspaceSettingsViewSchema
-export type WorkspaceSettingsSaved = WorkspaceSettingsView
