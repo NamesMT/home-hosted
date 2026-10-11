@@ -104,6 +104,37 @@ interface GroupedParse<T> {
   build: (meta: { writtenBy: string, schema: number }, groups: Record<string, unknown>) => T
 }
 
+/** A file's `meta` stamp, and the one gate both readers must answer identically. */
+interface Stamp {
+  schemaVersion: number
+  writtenBy: string | null
+  /** A blocking problem: the file names a shape, or a migration, this release cannot reach. */
+  error: string | null
+}
+
+/**
+ * Reads `meta`, then refuses a file this release cannot use.
+ *
+ * Both readers need this and the two messages have to stay in step: a file written by a
+ * newer release, and one whose migration has not been applied, are different problems with
+ * different fixes (`install that release` vs. `run migrate`). Written once here, so a change
+ * to either wording cannot land on one path only.
+ */
+function readStamp(raw: Record<string, unknown>, options: MigrationOptions): Stamp {
+  const meta = isRecord(raw.meta) ? raw.meta : null
+  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
+  const writtenBy = typeof meta?.writtenBy === 'string' && meta.writtenBy.length > 0 ? meta.writtenBy : null
+
+  if (schemaVersion > CONFIG_SCHEMA)
+    return { schemaVersion, writtenBy, error: `written by home-hosted ${writtenBy ?? 'a newer release'} (config schema ${schemaVersion}); this release understands schema ${CONFIG_SCHEMA}` }
+
+  const { steps } = planConfigMigrations(schemaVersion, options)
+  if (steps.length > 0)
+    return { schemaVersion, writtenBy, error: `config schema ${schemaVersion} needs ${steps.length} migration${steps.length === 1 ? '' : 's'} before this release can use it` }
+
+  return { schemaVersion, writtenBy, error: null }
+}
+
 /**
  * Reads one settings file from any release: schema guard, unrecognized keys
  * reported and left on disk, blocking problems returned for the caller to refuse on.
@@ -119,20 +150,11 @@ function parseGrouped<T>(raw: unknown, label: string, definition: GroupedParse<T
     return result
   }
 
-  const meta = isRecord(raw.meta) ? raw.meta : null
-  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
-  const writtenBy = typeof meta?.writtenBy === 'string' && meta.writtenBy.length > 0 ? meta.writtenBy : null
-  result.schemaVersion = schemaVersion
-  result.writtenBy = writtenBy
-
-  if (schemaVersion > CONFIG_SCHEMA) {
-    errors.push(`written by home-hosted ${writtenBy ?? 'a newer release'} (config schema ${schemaVersion}); this release understands schema ${CONFIG_SCHEMA}`)
-    return result
-  }
-
-  const { steps } = planConfigMigrations(schemaVersion, options)
-  if (steps.length > 0) {
-    errors.push(`config schema ${schemaVersion} needs ${steps.length} migration${steps.length === 1 ? '' : 's'} before this release can use it`)
+  const stamp = readStamp(raw, options)
+  result.schemaVersion = stamp.schemaVersion
+  result.writtenBy = stamp.writtenBy
+  if (stamp.error !== null) {
+    errors.push(stamp.error)
     return result
   }
 
@@ -152,7 +174,7 @@ function parseGrouped<T>(raw: unknown, label: string, definition: GroupedParse<T
   if (errors.length > 0)
     return result
 
-  result.config = definition.build({ writtenBy: writtenBy ?? '', schema: schemaVersion }, groups)
+  result.config = definition.build({ writtenBy: stamp.writtenBy ?? '', schema: stamp.schemaVersion }, groups)
   return result
 }
 
@@ -220,20 +242,11 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
     return result
   }
 
-  const meta = isRecord(raw.meta) ? raw.meta : null
-  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
-  const writtenBy = typeof meta?.writtenBy === 'string' && meta.writtenBy.length > 0 ? meta.writtenBy : null
-  result.schemaVersion = schemaVersion
-  result.writtenBy = writtenBy
-
-  if (schemaVersion > CONFIG_SCHEMA) {
-    errors.push(`written by home-hosted ${writtenBy ?? 'a newer release'} (config schema ${schemaVersion}); this release understands schema ${CONFIG_SCHEMA}`)
-    return result
-  }
-
-  const { steps } = planConfigMigrations(schemaVersion, options)
-  if (steps.length > 0) {
-    errors.push(`config schema ${schemaVersion} needs ${steps.length} migration${steps.length === 1 ? '' : 's'} before this release can use it`)
+  const stamp = readStamp(raw, options)
+  result.schemaVersion = stamp.schemaVersion
+  result.writtenBy = stamp.writtenBy
+  if (stamp.error !== null) {
+    errors.push(stamp.error)
     return result
   }
 

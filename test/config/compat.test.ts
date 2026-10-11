@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
+import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { appVersion } from '#src/helpers/version'
 
@@ -58,12 +58,17 @@ describe('reading configs from other releases', () => {
     expect(servers.servers[1]?.bind).toBe('local')
   })
 
-  it('treats an unstamped file as the current schema', () => {
+  /**
+   * An unstamped file is the **oldest** shape, not the current one — `tests/config/unstamped-schema.test.ts`
+   * owns that property. Today both constants are 1, so asserting `CONFIG_SCHEMA` here would pass either
+   * way and codify the wrong rule; this pins the constant that actually has to be read.
+   */
+  it('treats an unstamped file as the oldest schema, whatever the current one is', () => {
     const parsed = parseGlobalSettings({ control: { port: 3999 } })
 
     expect(parsed.writtenBy).toBeNull()
-    expect(parsed.schemaVersion).toBe(CONFIG_SCHEMA)
-    expect(parsed.config?.meta).toEqual({ writtenBy: '', schema: CONFIG_SCHEMA })
+    expect(parsed.schemaVersion).toBe(UNSTAMPED_SCHEMA)
+    expect(parsed.config?.meta).toEqual({ writtenBy: '', schema: UNSTAMPED_SCHEMA })
     expect(parsed.config?.control.port).toBe(3999)
   })
 
