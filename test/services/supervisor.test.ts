@@ -111,7 +111,7 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
   const tls = new TlsStore(path.join(dir, 'tls'))
   const logFiles = new LogFiles(path.join(dir, 'logs'), () => store.logs)
   const nannyDir = path.join(dir, 'state')
-  const notifications = new NotificationService(secrets, () => store.notifications, () => store.logs)
+  const notifications = new NotificationService(secrets, () => store.notifications)
   const history = new HistoryStore(path.join(dir, 'history.json'))
   const ddns = new DdnsService({
     getConfig: () => store.ddns,

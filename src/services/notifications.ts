@@ -1,5 +1,5 @@
 import type { SecretsStore } from '#src/config/secrets'
-import type { LogsConfig, NotificationsConfig, TelegramStatus } from '#src/shared/contracts'
+import type { NotificationsConfig, TelegramStatus } from '#src/shared/contracts'
 import { logger } from '#src/helpers/logger'
 import { formatTelegramMessage, listTelegramChats, sendTelegramMessage, verifyTelegramToken } from '#src/providers/telegram'
 
@@ -51,7 +51,6 @@ export class NotificationService {
   constructor(
     private readonly secrets: SecretsStore,
     private readonly getConfig: () => NotificationsConfig,
-    private readonly getLogsConfig: () => LogsConfig,
   ) {}
 
   get telegramTokenSet(): boolean {

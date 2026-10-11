@@ -72,7 +72,7 @@ export function planConfigMigrations(from: number, options: MigrationOptions = {
   const steps = migrations
     .filter(migration => migration.to > from && migration.to <= to)
     .sort((a, b) => a.to - b.to)
-  return { from, to, steps, tooNew: from > to, reached: steps.reduce((at, step) => step.to, from) }
+  return { from, to, steps, tooNew: from > to, reached: steps.at(-1)?.to ?? from }
 }
 
 /** Applies the plan in order; the caller owns writing the result. */

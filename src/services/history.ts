@@ -6,8 +6,6 @@ const MAX_EVENTS = 5000
 const SAVE_DEBOUNCE_MS = 2000
 const EVENTS_IN_VIEW = 8
 
-export type HistoryEventType = HistoryEvent['type']
-
 /**
  * Bounded event log per server, persisted as JSON so uptime and crash counts
  * survive a restart of the control plane.

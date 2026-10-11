@@ -343,7 +343,7 @@ export class PanelService {
     const secrets = new SecretsStore(workspaceSecretsPath(id), undefined, 'workspace')
     const logFiles = new LogFiles(workspaceLogsDir(id), () => store.logs)
     const history = new HistoryStore(workspaceHistoryPath(id))
-    const notifications = new NotificationService(secrets, () => store.notifications, () => store.logs)
+    const notifications = new NotificationService(secrets, () => store.notifications)
     const ddns = new DdnsService({
       getConfig: () => store.ddns,
       getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,

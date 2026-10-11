@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { SecretsStore } from '#src/config/secrets'
 import { forgetBots, formatTelegramMessage, getBot } from '#src/providers/telegram'
 import { NotificationService } from '#src/services/notifications'
-import { logsSchema, notificationsSchema } from '#src/shared/contracts'
+import { notificationsSchema } from '#src/shared/contracts'
 
 const dirs: string[] = []
 
@@ -44,15 +44,11 @@ async function makeService(options: {
   const notifications = notificationsSchema({ telegram: options.telegram ?? {} })
   if (notifications instanceof type.errors)
     throw new Error(notifications.summary)
-  const logs = logsSchema({})
-  if (logs instanceof type.errors)
-    throw new Error(logs.summary)
-
   const secrets = new SecretsStore(path.join(dir, 'secrets.json'))
   if (options.token !== undefined)
     secrets.setTelegramToken(options.token)
 
-  return new NotificationService(secrets, () => notifications, () => logs)
+  return new NotificationService(secrets, () => notifications)
 }
 
 const crash: NotificationEvent = { serverId: 'web', label: 'Web', reason: 'crash', detail: 'gave up' }

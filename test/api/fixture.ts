@@ -235,7 +235,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
 
     const secrets = new SecretsStore(workspaceSecretsFile(declaration.id), undefined, 'workspace')
     const logFiles = new LogFiles(path.join(workspaceDir(declaration.id), '.logs'), () => store.logs)
-    const notifications = new Notifications(secrets, () => store.notifications, () => store.logs)
+    const notifications = new Notifications(secrets, () => store.notifications)
     const ddns = new DdnsService({
       getConfig: () => store.ddns,
       getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,

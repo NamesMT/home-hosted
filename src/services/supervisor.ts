@@ -842,20 +842,7 @@ export class Supervisor {
       }
 
       this.log(entry, 'system', `port ${port} is held by pid ${foreign.join(', ')} — onPortConflict: kill, stopping the holder`)
-      const { forced } = await terminatePids(foreign, { graceMs: entry.config.stop.graceMs })
-      if (forced.length > 0)
-        this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
-
-      await delay(PORT_RELEASE_RECHECK_MS)
-      if (await freeOnAll()) {
-        entry.portState = 'free'
-        return { kind: 'free' }
-      }
-      entry.status = 'conflict'
-      entry.lastError = `port ${port} is still in use after killing pid ${foreign.join(', ')}`
-      this.log(entry, 'system', entry.lastError)
-      this.publishServer(entry)
-      return { kind: 'blocked', error: entry.lastError }
+      return await this.stopPortHolders(entry, foreign, port, 'killing', freeOnAll)
     }
 
     // A detached restart of this same server. Following it keeps whatever the program
@@ -866,19 +853,7 @@ export class Supervisor {
 
     if (own !== null && entry.config.onPortConflict === 'reclaim') {
       this.log(entry, 'system', `port ${port} is held by pid ${own}, a detached restart of this entry — replacing it with a supervised process`)
-      const { forced } = await terminatePids([own], { graceMs: entry.config.stop.graceMs })
-      if (forced.length > 0)
-        this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
-      await delay(PORT_RELEASE_RECHECK_MS)
-      if (await freeOnAll()) {
-        entry.portState = 'free'
-        return { kind: 'free' }
-      }
-      entry.status = 'conflict'
-      entry.lastError = `port ${port} is still in use after replacing pid ${own}`
-      this.log(entry, 'system', entry.lastError)
-      this.publishServer(entry)
-      return { kind: 'blocked', error: entry.lastError }
+      return await this.stopPortHolders(entry, [own], port, 'replacing', freeOnAll)
     }
 
     const hint = own !== null
@@ -908,6 +883,31 @@ export class Supervisor {
    * persistent entry whose state file was lost would show its history but never
    * another live line.
    */
+  /**
+   * Stops the listed port holders and reports whether the port came free.
+   *
+   * `kill` and `reclaim` are the same sequence over a different pid list — the foreign
+   * holder versus this entry's own detached successor — and they have to stay the same:
+   * a stop that does not re-probe, or that reports the port free without waiting, spawns
+   * onto a listener that is still there.
+   */
+  private async stopPortHolders(entry: Entry, pids: number[], port: number, word: string, freeOnAll: () => Promise<boolean>): Promise<PreflightConflict> {
+    const { forced } = await terminatePids(pids, { graceMs: entry.config.stop.graceMs })
+    if (forced.length > 0)
+      this.log(entry, 'system', `pid ${forced.join(', ')} ignored SIGTERM and was killed`)
+
+    await delay(PORT_RELEASE_RECHECK_MS)
+    if (await freeOnAll()) {
+      entry.portState = 'free'
+      return { kind: 'free' }
+    }
+    entry.status = 'conflict'
+    entry.lastError = `port ${port} is still in use after ${word} pid ${pids.join(', ')}`
+    this.log(entry, 'system', entry.lastError)
+    this.publishServer(entry)
+    return { kind: 'blocked', error: entry.lastError }
+  }
+
   private adoptEntry(entry: Entry, pid: number): StartResult {
     entry.adopted = true
     entry.pid = pid

@@ -111,15 +111,15 @@ function acmeIssuers(acme: ProxyConfigInput['acme'], challenge: Record<string, u
 }
 
 /**
- * The page a visitor gets when the hostname they reached is not routed at all. It is
- * the answer on both ports, so a request never lands on a redirect into a handshake
- * that cannot finish.
+ * The one page shell both visitor-facing pages use. They are the same document with
+ * different words, and the stylesheet has to stay identical — a page the engine serves
+ * on a port a person reaches by hand is a page that has to look like this panel.
  */
-function notConfiguredPage(): string {
+function htmlPage(title: string, heading: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>No route for this hostname</title>
+<title>${title}</title>
 <style>
   :root { color-scheme: light dark }
   body { margin: 0; min-height: 100dvh; display: grid; place-items: center; font: 15px/1.6 system-ui, sans-serif }
@@ -130,13 +130,26 @@ function notConfiguredPage(): string {
   footer { color: #888; font-size: .85em }
 </style></head>
 <body><main>
-  <h1>This route is not configured for any target yet</h1>
-  <p>No route in <strong>home-hosted</strong>'s reverse proxy claims the hostname
+  <h1>${heading}</h1>
+${body}
+</main></body></html>`
+}
+
+/**
+ * The page a visitor gets when the hostname they reached is not routed at all. It is
+ * the answer on both ports, so a request never lands on a redirect into a handshake
+ * that cannot finish.
+ */
+function notConfiguredPage(): string {
+  return htmlPage(
+    'No route for this hostname',
+    'This route is not configured for any target yet',
+    `  <p>No route in <strong>home-hosted</strong>'s reverse proxy claims the hostname
   <code>{http.request.host}</code>, so there is nothing here to serve.</p>
   <p>Add a route for it under <strong>Others → Reverse Proxy</strong>, or check that you
   reached the hostname you meant to.</p>
-  <footer>home-hosted reverse proxy</footer>
-</main></body></html>`
+  <footer>home-hosted reverse proxy</footer>`,
+  )
 }
 
 /** The catch-all: it answers last, so every configured route wins over it. */
@@ -153,30 +166,18 @@ function notConfiguredRoute(): Record<string, unknown> {
 
 /** The page a visitor gets when a name has no certificate yet and HTTPS cannot work. */
 function noticePage(host: string, httpPort: number, httpsPort: number): string {
-  return `<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Certificate not ready — ${host}</title>
-<style>
-  :root { color-scheme: light dark }
-  body { margin: 0; min-height: 100dvh; display: grid; place-items: center; font: 15px/1.6 system-ui, sans-serif }
-  main { max-width: 34rem; padding: 2rem }
-  h1 { font-size: 1.15rem; margin: 0 0 .75rem }
-  p { margin: 0 0 .75rem }
-  code { font-family: ui-monospace, monospace; font-size: .9em }
-  footer { color: #888; font-size: .85em }
-</style></head>
-<body><main>
-  <h1>No certificate yet for ${host}</h1>
-  <p>This hostname is routed, but the certificate authority has not issued a certificate
+  return htmlPage(
+    `Certificate not ready — ${host}`,
+    `No certificate yet for ${host}`,
+    `  <p>This hostname is routed, but the certificate authority has not issued a certificate
   for it yet, so HTTPS cannot complete a handshake. The engine keeps trying in the
   background and will serve the name as soon as it succeeds.</p>
   <p>The usual cause is that the CA cannot reach this machine: with the proxy on
   <code>${httpPort}</code>/<code>${httpsPort}</code>, forward <code>80 → ${httpPort}</code>
   and <code>443 → ${httpsPort}</code> on your router. Otherwise <code>http://${host}</code>
   will keep landing here.</p>
-  <footer>Details, and the engine's own reason, are in the panel: Others → Reverse Proxy.</footer>
-</main></body></html>`
+  <footer>Details, and the engine's own reason, are in the panel: Others → Reverse Proxy.</footer>`,
+  )
 }
 
 /**

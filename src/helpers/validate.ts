@@ -1,4 +1,3 @@
-import type { StandardSchemaV1 } from '@standard-schema/spec'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 
@@ -19,6 +18,3 @@ export function parseOrThrow<T>(schema: (input: unknown) => unknown, input: unkn
   }
   return result as T
 }
-
-/** ArkType is a Standard Schema, so the middleware accepts it as-is. */
-export type ValidatorSchema = StandardSchemaV1
