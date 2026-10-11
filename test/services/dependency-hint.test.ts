@@ -20,7 +20,10 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
 const HINTS = [
   ['stock editor', 'uis/stock/src/components/server/ServerConfigEditor.vue'],
   ['stock dialog', 'uis/stock/src/components/server/AddServerDialog.vue'],
-  ['noc-console', 'uis/noc-console/src/views/ServerConfigView.vue'],
+  // noc-console renders the server form from one field catalogue, so its hint lives there
+  // rather than in the view that used to spell it out. A hardcoded path is what made this
+  // test read as a lost hint when the only thing that moved was the line.
+  ['noc-console', 'uis/noc-console/src/lib/serverForm.ts'],
 ] as const
 
 describe('the dependsOn hint', () => {
