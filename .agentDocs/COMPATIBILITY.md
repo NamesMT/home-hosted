@@ -44,8 +44,15 @@ either is a last resort, and never an accidental one.
 - `home-hosted migrate` prints the plan, keeps a `.bak` beside each file it rewrites, refuses to
   write a config it cannot read, and needs consent: `--yes`, `HHOSTED_MIGRATE=allow`, or a person at
   a terminal.
-- The layout relocation is **not** a schema change: it runs automatically from the CLI pre-pass
-  (`ensureLayout()`), so an upgrade never starts against a half-moved directory.
+- **The pre-workspace relocation is gone as of 0.8.0.** `ensureLayout()` used to move a 0.6.x
+  `$HHOSTED_HOME` into `.hh` and split the old all-in-one file; it now **refuses** that home, naming
+  the files and pointing at the 0.7 line, which still performs the move on its first run. Read as
+  empty instead, the old `servers.config.json` would sit unread beside a panel supervising nothing.
+  The guard keys on the old files being present **and** no `workspaces.json`, so a stray root-level
+  copy beside a migrated `.hh` is not refused.
+- A secrets file that cannot be parsed is refused too, rather than read as a first boot — otherwise
+  the default password written on an empty store replaces the password hash, the API token and every
+  Telegram and DDNS credential.
 - Fetching migration code from GitHub was considered and rejected: the panel supervises processes, so
   remote code is an RCE surface, and a migration would age against a newer store API anyway.
 

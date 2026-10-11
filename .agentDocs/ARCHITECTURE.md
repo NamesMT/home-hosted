@@ -31,10 +31,10 @@ state layout is there too.
   listener, auth, TLS policy, host vitals, backups) and `store.ts` (`WorkspaceStore`: a workspace's
   `settings.json` + `servers.config.json`, validate/merge/atomic commit, reporting
   `configError`/`configWarnings` instead of throwing). `workspaces.ts` is the registry, `layout.ts`
-  the one-time relocation of a pre-workspace `$HHOSTED_HOME`. `schema.ts` holds the three on-disk
-  shapes plus the `meta` stamp, `parse.ts` the tolerant readers, `patch.ts` the merge helpers,
-  `migrations.ts` the schema constant and ordered step registry, `secrets.ts`/`seed.ts` the secret
-  scopes and seeds.
+  the refusal of a pre-workspace `$HHOSTED_HOME` (0.8.0 dropped the relocation itself). `schema.ts`
+  holds the three on-disk shapes plus the `meta` stamp, `parse.ts` the tolerant readers, `patch.ts`
+  the merge helpers, `migrations.ts` the schema constant and ordered step registry,
+  `secrets.ts`/`seed.ts` the secret scopes and seeds.
 - `src/providers/` — stateless leaves returning plain data: `process` (spawn, `terminate`,
   `terminatePid` for an adopted process), `port` (probe, holder lookup, `terminatePids`), `proc`
   (sampler, `processCarriesServerId`, `processTreePids`), `identity` (which port holder is this

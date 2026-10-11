@@ -30,10 +30,13 @@ line in `AGENTS.md` instead.
   picked up the *next* one's contents — `global group 'defaults'` failing against the global keys list.
   Linux CI passed; only the platform gate caught it. Normalize (`replaceAll('\r\n', '\n')`) **and throw
   when the boundary is missing**, because silent bleed is the failure mode.
-- **`ensureLayout()` runs before any command resolves a state path** (the CLI pre-pass) and is
-  idempotent. It moves rather than copies, never overwrites an existing `.hh` file, and removes a
-  legacy directory only when every entry in it actually moved — a refused move must not become a
-  delete.
+- **`ensureLayout()` runs before any command resolves a state path** (the CLI pre-pass). Through
+  0.7.x it *relocated* a pre-workspace `$HHOSTED_HOME`; 0.8.0 dropped the mover and it now **refuses**
+  that home instead. The refusal is the whole point: read as empty, the old `servers.config.json`
+  would sit unread beside a panel supervising nothing, with no error anywhere — the stores seed their
+  own defaults and nothing looks at the legacy path again. It keys on `hasLegacyLayout()` — the old
+  files present **and** no `workspaces.json` — not on the file alone, because a stray root-level copy
+  beside an already-migrated `.hh` is not an old instance and must not strand a working panel.
 - **A basename is not an identity.** `sameWord` compares two spellings of the same file, and it fell
   back to `path.basename` on **both** sides — so `/tmp/evil/server.js` matched `/srv/web/server.js`,
   the exact guarantee the comment above it claimed to make. A false match here is not cosmetic:

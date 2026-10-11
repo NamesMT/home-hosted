@@ -14,8 +14,9 @@ nanny state), and `run.json` (the live daemon's pid/url/token, 0600). Every work
 `servers.config.json`, `.secrets.json` (0600: Telegram token, plus DDNS credentials sealed with
 AES-256-GCM under `HHOSTED_DDNS_SECRET` — only DDNS is sealed, because it is the one thing replayed
 to a third party), `.logs/` (per server, `<id>.log` plus `<id>.log.1` when it rotates), and
-`.state/` (nanny state, its 0600 spawn spec until read, `ddns.json`). A pre-`.hh` instance is
-relocated automatically by `ensureLayout()`. **The package ships no servers**: never commit a config,
+`.state/` (nanny state, its 0600 spawn spec until read, `ddns.json`). A home still on the 0.6.x layout
+is **refused** by `ensureLayout()`, which names the file and tells the person to install the latest
+0.7.x; 0.8.0 does not relocate it. **The package ships no servers**: never commit a config,
 a seed entry, or a path that names one.
 
 ## Docs

@@ -348,7 +348,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted logs` | read the panel's own console output — the file `up` redirects it into (`--lines`, `--follow`, `--json`) |
 | `home-hosted set-password` | set the panel password without opening a browser |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
-| `home-hosted migrate` | relocate a pre-workspaces state directory and stamp every config for this release (`--dry-run`, `--yes`) |
+| `home-hosted migrate` | bring every config up to the schema this release understands (`--dry-run`, `--yes`) |
 | `home-hosted init` | scaffold a self-contained project, whose scripts keep state in the repo (`--home ./state`) |
 | `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (interactive) |
 | `home-hosted ui-update` | bring an installed UI up to date automatically (official UI) or pick a release (`--old`, `--check`) |
@@ -412,6 +412,17 @@ What it will not do is run a config it cannot read. A wrong value, a duplicate i
 or a config whose schema is newer than the running release stops `up` with the exact problem, rather
 than starting with defaults that quietly differ from your file. Fix the file, or install the release
 that wrote it.
+
+### Coming from 0.6.x
+
+**Install the latest 0.7.x first, and run it once.** 0.7.0 moved all state from `$HHOSTED_HOME` itself
+into `$HHOSTED_HOME/.hh`, splitting the old all-in-one `servers.config.json` into global settings, a
+`default` workspace, and that workspace's servers — and it did the move automatically on its first
+run. 0.8.0 dropped that relocation.
+
+So a home that is still on the 0.6.x layout is not read: `up` stops and names the file it found,
+rather than starting against an empty state directory beside a config it never opened. 0.7.x does
+the move on its first run; 0.8.0 then starts against the result.
 
 </details>
 
