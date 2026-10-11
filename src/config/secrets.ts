@@ -75,7 +75,6 @@ interface DdnsKdfMeta {
 export type SecretsScope = 'all' | 'global' | 'workspace'
 
 interface SecretsFile {
-  version: 3
   password: PasswordRecord | null
   apiToken: ApiTokenRecord | null
   telegram: { botToken: string } | null
@@ -182,7 +181,11 @@ function isPlainDdns(value: StoredDdnsRecord): value is PlainDdnsRecord {
   return 'plain' in value
 }
 
-/** Every shape this file has held: sealed, `{ provider, values }`, or a bare field map. */
+/**
+ * Sealed on disk, or `{ provider, values }` waiting for the sealing write. A bare
+ * field map — written before the provider was recorded — no longer reads, because
+ * there is nothing to say which provider those fields belong to.
+ */
 function readStoredDdns(value: unknown): Record<string, StoredDdnsRecord> {
   if (!isRecord(value))
     return {}
@@ -192,12 +195,12 @@ function readStoredDdns(value: unknown): Record<string, StoredDdnsRecord> {
       out[accountId] = entry
       continue
     }
-    if (!isRecord(entry))
+    if (!isRecord(entry) || typeof entry.provider !== 'string' || entry.provider.length === 0)
       continue
-    const values = readDdnsValues('values' in entry ? entry.values : entry)
+    const values = readDdnsValues(entry.values)
     if (Object.keys(values).length === 0)
       continue
-    out[accountId] = { plain: true, provider: typeof entry.provider === 'string' ? entry.provider : '', values }
+    out[accountId] = { plain: true, provider: entry.provider, values }
   }
   return out
 }
@@ -265,6 +268,7 @@ function openDdns(accountId: string, sealed: SealedDdnsRecord, key: Buffer): Ddn
 export class SecretsStore {
   private cache: SecretsFile | null = null
   private cacheKey = ''
+  private error: string | null = null
   private ddnsKeyCache: { salt: string, key: Buffer } | null = null
   private readonly warnedAccounts = new Set<string>()
   private warnedDefaultSecret = false
@@ -399,8 +403,7 @@ export class SecretsStore {
     const record = this.openStored(accountId, stored)
     if (record === null)
       return null
-    // An entry from before the provider was recorded is accepted for any of them.
-    return record.provider.length > 0 && record.provider !== provider ? null : record
+    return record.provider === provider ? record : null
   }
 
   /** An empty field is dropped, so clearing every field forgets the account. */
@@ -468,15 +471,37 @@ export class SecretsStore {
     logger.warn(`ddns: cannot read the credentials for "${accountId}" — ${reason}`)
   }
 
+  /**
+   * A secrets file that exists but cannot be parsed, or null when it is fine (or absent).
+   *
+   * `read()` still returns the empty shape — a corrupt file must not authenticate anyone — but
+   * "unreadable" and "absent" have to stay distinguishable: treated as absent, a truncated
+   * `.control-secrets.json` reads as a fresh install, and `runControlPlane` then writes a
+   * **default-password** file over it, destroying the password hash, the API token and every
+   * Telegram and DDNS credential. Only the caller can refuse the boot, so this is its surface.
+   */
+  get configError(): string | null {
+    this.load()
+    return this.error
+  }
+
   private read(): SecretsFile {
-    const empty: SecretsFile = { version: 3, password: null, apiToken: null, telegram: null, ddns: {}, ddnsKdf: null }
+    this.error = null
+    const empty: SecretsFile = { password: null, apiToken: null, telegram: null, ddns: {}, ddnsKdf: null }
     if (!fs.existsSync(this.file))
       return this.inScope(empty)
+    let text: string
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<SecretsFile>
+      text = fs.readFileSync(this.file, 'utf8')
+    }
+    catch (error) {
+      // Present but unreadable is not absent: permissions or a directory, say.
+      this.error = `cannot read ${this.file}: ${error instanceof Error ? error.message : String(error)}`
+      return this.inScope(empty)
+    }
+    try {
+      const parsed = JSON.parse(text) as Partial<SecretsFile>
       return this.inScope({
-        version: 3,
-        // A version-2 file simply has no token, so it reads as "none set".
         password: parsed?.password ?? null,
         apiToken: parsed?.apiToken?.hash ? parsed.apiToken : null,
         telegram: parsed?.telegram?.botToken ? { botToken: parsed.telegram.botToken } : null,
@@ -484,8 +509,8 @@ export class SecretsStore {
         ddnsKdf: readDdnsKdf((parsed as { ddnsKdf?: unknown })?.ddnsKdf),
       })
     }
-    catch {
-      // A corrupt secrets file must not silently authenticate anyone.
+    catch (error) {
+      this.error = `${this.file} is not readable JSON (${error instanceof Error ? error.message : String(error)}) — it was left untouched`
       return this.inScope(empty)
     }
   }
@@ -500,6 +525,14 @@ export class SecretsStore {
   }
 
   private save(contents: SecretsFile): void {
+    // Refuse to write over a file this store could not parse. Every writer reaches here
+    // through `load()`, so without this the first `set-password`/`set-token` after a bad
+    // edit replaces the user's password hash, API token and credentials with the one field
+    // being set. `runControlPlane` refuses at boot; this is the same rule for every command
+    // that does not boot one.
+    if (this.configError !== null)
+      throw new Error(`refusing to write ${this.file}: ${this.error}`)
+
     const sealed = this.sealStored(this.inScope(contents))
     writeFileAtomic(this.file, `${JSON.stringify(sealed, null, 2)}\n`, { mode: 0o600 })
     this.cache = sealed

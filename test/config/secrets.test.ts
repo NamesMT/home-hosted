@@ -148,31 +148,46 @@ describe('ddns credentials at rest', () => {
   })
 })
 
-describe('ddns credentials from an older file', () => {
-  it('reads a bare field map, and seals it on the next write', async () => {
+describe('ddns credentials on disk', () => {
+  it('reads the recorded shape, and seals it on the next write', async () => {
     const file = await tempFile()
     fs.writeFileSync(file, JSON.stringify({
+      // A file from an older release still carries `version`; an unknown key is ignored.
       version: 3,
       password: null,
       apiToken: null,
       telegram: null,
+      ddns: { cf: { provider: 'cloudflare', values: { apiToken: 'plain-token' } } },
+    }, null, 2))
+
+    const store = new SecretsStore(file, 's')
+    expect(store.getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'plain-token' })
+
+    store.setPassword('a-password')
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('plain-token')
+    expect(read(file).ddns.cf.algo).toBe('aes-256-gcm')
+    expect(read(file).version).toBeUndefined()
+    expect(new SecretsStore(file, 's').getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'plain-token' })
+  })
+
+  it('does not read a bare field map', async () => {
+    const file = await tempFile()
+    fs.writeFileSync(file, JSON.stringify({
+      password: null,
+      apiToken: null,
+      telegram: null,
+      // No provider recorded: nothing says which provider these fields belong to.
       ddns: { cf: { apiToken: 'legacy-token' } },
     }, null, 2))
 
     const store = new SecretsStore(file, 's')
-    // No provider recorded: accepted for whatever the account declares.
-    expect(store.getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'legacy-token' })
-
-    store.setPassword('a-password')
-    expect(fs.readFileSync(file, 'utf8')).not.toContain('legacy-token')
-    expect(read(file).ddns.cf.algo).toBe('aes-256-gcm')
-    expect(new SecretsStore(file, 's').getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'legacy-token' })
+    expect(store.getDdnsCredentials('cf', 'cloudflare')).toBeNull()
+    expect(store.ddnsAccountIds).toEqual([])
   })
 
   it('reads a plaintext entry that already carries its provider', async () => {
     const file = await tempFile()
     fs.writeFileSync(file, JSON.stringify({
-      version: 3,
       password: null,
       apiToken: null,
       telegram: null,
@@ -285,5 +300,68 @@ describe('secret scopes', () => {
     // The workspace half is not echoed back through a global write.
     expect(read(file).telegram ?? null).toBeNull()
     expect(read(file).ddns ?? {}).toEqual({})
+  })
+})
+
+/**
+ * An unparseable secrets file is not a first boot.
+ *
+ * Reading both as "nothing stored" destroyed the file: `runControlPlane` writes a
+ * **default-password** file whenever no password is set, so a truncated
+ * `.control-secrets.json` lost its password hash, API token, Telegram token and DDNS
+ * credentials — announced only as the ordinary "no password was set" warning. The store
+ * cannot refuse a boot itself, so it records the problem for its caller to act on.
+ */
+describe('an unreadable secrets file', () => {
+  it('reports the problem instead of reading as an empty one', async () => {
+    const file = await tempFile()
+    fs.writeFileSync(file, '{ truncated')
+    const store = new SecretsStore(file, 's', 'global')
+
+    expect(store.configError).toContain('not readable JSON')
+    expect(store.configError).toContain(file)
+    // It still answers, and answers safely: a corrupt file must not authenticate anyone.
+    expect(store.passwordSet).toBe(false)
+    expect(store.apiTokenSet).toBe(false)
+  })
+
+  it('does not report an absent file, which is a real first boot', async () => {
+    const store = new SecretsStore(await tempFile(), 's', 'global')
+
+    expect(store.configError).toBeNull()
+    expect(store.passwordSet).toBe(false)
+  })
+
+  it('never writes back over a file it could not parse', async () => {
+    const file = await tempFile()
+    fs.writeFileSync(file, '{ truncated')
+    const store = new SecretsStore(file, 's', 'global')
+    expect(store.configError).not.toBeNull()
+
+    // No read path may reach disk: the only copy of the secrets is the user's.
+    expect(fs.readFileSync(file, 'utf8')).toBe('{ truncated')
+  })
+
+  it('refuses to write over it, so no command can replace it', async () => {
+    const file = await tempFile()
+    fs.writeFileSync(file, '{ truncated')
+    const store = new SecretsStore(file, 's', 'global')
+
+    // `runControlPlane` refuses at boot; `set-password` and `set-token` never boot one,
+    // so the same rule has to hold on the write path or they would replace the file.
+    expect(() => store.setPassword('a-new-password')).toThrowError(/refusing to write/)
+    expect(fs.readFileSync(file, 'utf8')).toBe('{ truncated')
+  })
+
+  it('clears the report once the file is repaired', async () => {
+    const file = await tempFile()
+    fs.writeFileSync(file, '{ truncated')
+    const store = new SecretsStore(file, 's', 'global')
+    expect(store.configError).not.toBeNull()
+
+    // The store re-reads whenever the file's stat changes, so repairing it must clear a
+    // standing refusal without a restart.
+    fs.writeFileSync(file, JSON.stringify({ password: null, apiToken: null, telegram: null, ddns: {}, ddnsKdf: null }))
+    expect(store.configError).toBeNull()
   })
 })

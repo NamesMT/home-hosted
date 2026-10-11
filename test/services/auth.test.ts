@@ -405,8 +405,9 @@ describe('api tokens', () => {
     if (record)
       expect(verifyApiToken('hh_written-elsewhere', record)).toBe(true)
 
-    // A version-2 file predates tokens entirely, so it must read as "none set".
-    await fs.promises.writeFile(file, JSON.stringify({ version: 2, password: null, telegram: null }))
+    // A secrets file with no token at all — written by a release before tokens existed,
+    // or simply never set — must read as "none set", never as authenticated.
+    await fs.promises.writeFile(file, JSON.stringify({ password: null, telegram: null }))
     const older = new SecretsStore(file)
     expect(older.apiTokenSet).toBe(false)
     expect(older.passwordSet).toBe(false)
