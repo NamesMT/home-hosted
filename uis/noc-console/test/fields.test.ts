@@ -1,5 +1,5 @@
+import { envToText, linesToArray, textToEnv } from '@shared/fields'
 import { describe, expect, it } from 'vitest'
-import { envToText, linesToArray, textToEnv } from '../src/lib/fields'
 
 /**
  * The textarea round-trips, which both entry points used to inline.
