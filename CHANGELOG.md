@@ -1,6 +1,51 @@
 # Changelog
 
 
+## v0.8.0
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.21...v0.8.0)
+
+### 🚀 Enhancements
+
+- **layout:** ⚠️  Drop the pre-workspace state relocation, and refuse that home ([47d495e](https://github.com/NamesMT/home-hosted/commit/47d495e))
+- **ui:** ⚠️  Drop the pre-workspace route shims in both UIs ([066e5c6](https://github.com/NamesMT/home-hosted/commit/066e5c6))
+
+### 🩹 Fixes
+
+- **config:** ⚠️  A secrets file that cannot be read is not an empty one ([9453b9e](https://github.com/NamesMT/home-hosted/commit/9453b9e))
+
+### 💅 Refactors
+
+- **proxy:** ⚠️  Stop migrating the legacy engine.json checksum ([d6d3f79](https://github.com/NamesMT/home-hosted/commit/d6d3f79))
+- **config:** Read a config's schema stamp in one place ([821ccd9](https://github.com/NamesMT/home-hosted/commit/821ccd9))
+- One implementation for the shapes written twice ([41a918e](https://github.com/NamesMT/home-hosted/commit/41a918e))
+- Render a caught error in one place ([c187be6](https://github.com/NamesMT/home-hosted/commit/c187be6))
+- **ddns:** One result for the write six providers end with ([a7bf219](https://github.com/NamesMT/home-hosted/commit/a7bf219))
+- **contracts:** Drop 18 type aliases nothing reads ([24b035c](https://github.com/NamesMT/home-hosted/commit/24b035c))
+- **ui:** One settings shell for the two stock settings pages ([a13901c](https://github.com/NamesMT/home-hosted/commit/a13901c))
+- **noc-console:** One server form for the add dialog and the config page ([3d3c05d](https://github.com/NamesMT/home-hosted/commit/3d3c05d))
+- **ui:** Share the server form's textarea round-trips ([f7166c9](https://github.com/NamesMT/home-hosted/commit/f7166c9))
+
+### 📖 Documentation
+
+- The state layout no longer relocates a 0.6.x home ([65221a5](https://github.com/NamesMT/home-hosted/commit/65221a5))
+- The shared modules this release added, and what they replaced ([e74552d](https://github.com/NamesMT/home-hosted/commit/e74552d))
+
+### ✅ Tests
+
+- **dependency-hint:** Point the noc-console case at the field catalogue ([93de382](https://github.com/NamesMT/home-hosted/commit/93de382))
+
+#### ⚠️ Breaking Changes
+
+- **layout:** ⚠️  Drop the pre-workspace state relocation, and refuse that home ([47d495e](https://github.com/NamesMT/home-hosted/commit/47d495e))
+- **ui:** ⚠️  Drop the pre-workspace route shims in both UIs ([066e5c6](https://github.com/NamesMT/home-hosted/commit/066e5c6))
+- **config:** ⚠️  A secrets file that cannot be read is not an empty one ([9453b9e](https://github.com/NamesMT/home-hosted/commit/9453b9e))
+- **proxy:** ⚠️  Stop migrating the legacy engine.json checksum ([d6d3f79](https://github.com/NamesMT/home-hosted/commit/d6d3f79))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.7.21
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.20...v0.7.21)
