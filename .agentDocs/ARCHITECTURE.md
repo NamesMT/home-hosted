@@ -25,8 +25,9 @@ state layout is there too.
 - `src/api/**` — one file per URL group (`$.routes.ts` = several routes), mirroring the path.
 - `src/shared/` — the only code both `src/` and the UIs read. `contracts.ts` holds every ArkType
   schema (config, API and SSE DTOs); the OpenAPI spec is generated from it. `shape.ts` is the
-  plain-object predicate. `proxy-form.ts` is the reverse-proxy form both UIs edit. `patch-diff.ts`
-  and `generated.ts` are shared helpers. **These must not import Vue or `node:` APIs.**
+  plain-object predicate. `proxy-form.ts` is the reverse-proxy form both UIs edit. `fields.ts` is the
+  server form's textarea round-trips, `error-message.ts` the one rendering of a caught value;
+  `patch-diff.ts` and `generated.ts` are shared helpers. **These must not import Vue or `node:` APIs.**
 - `src/config/` — split by scope. `settings.ts` (`GlobalSettingsStore`: `.hh/settings.json` —
   listener, auth, TLS policy, host vitals, backups) and `store.ts` (`WorkspaceStore`: a workspace's
   `settings.json` + `servers.config.json`, validate/merge/atomic commit, reporting
@@ -86,7 +87,7 @@ name-based search missed the copies called `isPlainObject`, `isBootAttempt` and 
 
 ## What else both UIs share
 
-Five more modules, each created because the same code existed twice — the class above, found again:
+Seven more modules, each created because the same code existed twice — the class above, found again:
 
 | module | what it replaced |
 | --- | --- |
@@ -95,6 +96,8 @@ Five more modules, each created because the same code existed twice — the clas
 | `endpoint.ts` | `waitForEndpoint`, byte-identical and importing nothing. |
 | `api-client.ts` | 25 identical API wrappers plus the `request` helper and `AuthRequiredError`. `request` had **already drifted** — one UI read a bare `error` field, the other did not. |
 | `server-url.ts` | the "open server" link: a `lan` entry is reported at the machine's LAN address, unroutable for a viewer on a public hostname. Only the browser knows its own name, so the swap is client-side — and both UIs render that link, so one rule keeps them from disagreeing. |
+| `fields.ts` | `linesToArray`/`envToText`/`textToEnv`/`commaList`, byte-identical in both UIs — and inlined a second time *inside* noc-console, so one parsing change had four places to land. Each UI keeps a re-export, so its own imports stay local. |
+| `error-message.ts` | `caught instanceof Error ? caught.message : String(caught)`, written out **116 times across 61 files**. Two spellings of one idea, and the UIs are separate bundles, so a fix to one copy missed the others. |
 
 **The rule for what belongs here, and what does not.** A module moves in when its dependencies already
 resolve within `src/shared/`; it stays out when it would import *upward*. `rpc.ts` needs `AppType` from
