@@ -1,8 +1,8 @@
 {
   "name": "stock",
-  "version": "2.9.1",
+  "version": "2.9.2",
   "repo": "NamesMT/home-hosted",
   "tag": "v0.6.0",
   "asset": "home-hosted-ui-stock.zip",
-  "unix": 1791734543
+  "unix": 1791738730
 }

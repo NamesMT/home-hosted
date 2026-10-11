@@ -4,8 +4,7 @@ import type { FormSnapshots, GlobalFormBlock, GlobalSettingsForm } from '@/compo
 import type { SettingsView } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import AuthenticationSection from '@/components/settings/AuthenticationSection.vue'
 import BackupsSection from '@/components/settings/BackupsSection.vue'
 import HostSection from '@/components/settings/HostSection.vue'
@@ -31,14 +30,12 @@ import {
   rememberControlPart,
   tlsChanged,
 } from '@/components/settings/settingsForm'
+import SettingsSection from '@/components/settings/SettingsSection.vue'
+import SettingsShell from '@/components/settings/SettingsShell.vue'
 import TlsSection from '@/components/settings/TlsSection.vue'
-import AppButton from '@/components/ui/AppButton.vue'
-import Modal from '@/components/ui/Modal.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
 import * as api from '@/lib/api'
-import { cn } from '@/lib/cn'
-import { formatChangeValue } from '@/lib/format'
 
 /** Panel-wide settings: they belong to the process, not to any workspace. */
 const SECTIONS = [
@@ -51,16 +48,11 @@ const SECTIONS = [
   { id: 'paths', title: 'Paths' },
 ] as const
 
-type SectionId = typeof SECTIONS[number]['id']
-
-const route = useRoute()
-const router = useRouter()
 const control = useControlPlane()
 const toasts = useToasts()
 
 const form = reactive<GlobalSettingsForm>(createGlobalForm())
 
-const active = ref<SectionId>('listener')
 const saving = ref(false)
 const saveError = ref<string | null>(null)
 const saveMessage = ref<string | null>(null)
@@ -118,7 +110,6 @@ const currentSnapshot = computed<Record<string, unknown>>(() => {
 })
 
 const changes = computed(() => describeChanges(patch.value as Record<string, unknown>, currentSnapshot.value))
-const showChanges = ref(false)
 
 const listenerDirty = computed(() => controlView.value !== null && listenerChanged(controlView.value, form))
 const tlsDirty = computed(() => controlView.value !== null && tlsChanged(controlView.value, form))
@@ -266,53 +257,22 @@ function resetTls(): void {
     form.control.tlsEnabled = controlView.value.tls.enabled
   rememberControlPart(form, snapshots, 'tls')
 }
-
-function scrollToSection(id: string): void {
-  void nextTick(() => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  })
-}
-
-function go(id: SectionId): void {
-  active.value = id
-  if (route.query.section !== id)
-    void router.replace({ query: { ...route.query, section: id } })
-  scrollToSection(id)
-}
-
-watch(() => route.query.section, (value) => {
-  const id = typeof value === 'string' ? value : ''
-  if (!SECTIONS.some(section => section.id === id))
-    return
-  active.value = id as SectionId
-  scrollToSection(id)
-}, { immediate: true })
-
-let observer: IntersectionObserver | null = null
-
-onMounted(() => {
-  observer = new IntersectionObserver((entries) => {
-    const visible = entries
-      .filter(entry => entry.isIntersecting)
-      .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
-    const first = visible[0]
-    if (first !== undefined && first.target.id.length > 0)
-      active.value = first.target.id as SectionId
-  }, { rootMargin: '-72px 0px -62% 0px', threshold: 0 })
-
-  for (const section of SECTIONS) {
-    const element = document.getElementById(section.id)
-    if (element)
-      observer.observe(element)
-  }
-})
-
-onBeforeUnmount(() => observer?.disconnect())
 </script>
 
 <template>
-  <div class="min-h-full">
-    <div class="mx-auto w-full max-w-5xl px-4 pb-6 pt-5 sm:px-6">
+  <SettingsShell
+    :sections="SECTIONS"
+    nav-label="Global settings sections"
+    changes-description="What Save would write to the panel's settings file."
+    :changed-count="changedCount"
+    :changes="changes"
+    :save-error="saveError"
+    :save-message="saveMessage"
+    :saving="saving"
+    @save="save"
+    @discard="discard"
+  >
+    <template #header>
       <header class="mb-5">
         <h1 class="text-xl font-semibold tracking-tight text-ink">
           Global settings
@@ -325,215 +285,75 @@ onBeforeUnmount(() => observer?.disconnect())
       <Notice v-if="configLoadError" tone="warn" title="Some file-only values could not be loaded" class="mb-4">
         {{ configLoadError }}
       </Notice>
+    </template>
 
-      <div class="lg:grid lg:grid-cols-[11rem_minmax(0,1fr)] lg:gap-8">
-        <nav aria-label="Global settings sections" class="hidden lg:block">
-          <ul class="sticky top-6 space-y-0.5 border-l border-line">
-            <li v-for="section in SECTIONS" :key="section.id">
-              <button
-                type="button"
-                :aria-current="active === section.id ? 'true' : undefined"
-                :class="cn(
-                  '-ml-px block w-full border-l-2 py-1.5 pl-3 text-left text-xs transition-colors duration-150',
-                  active === section.id
-                    ? 'border-accent font-medium text-accent'
-                    : 'border-transparent text-muted hover:border-line hover:text-ink',
-                )"
-                @click="go(section.id)"
-              >
-                {{ section.title }}
-              </button>
-            </li>
-          </ul>
-        </nav>
+    <SettingsSection id="listener" title="Listener" description="Where the control panel listens and how it announces itself.">
+      <ListenerSection
+        v-model:control="form.control"
+        :view="controlView"
+        :dirty="listenerDirty"
+        @reset="resetListener"
+      />
+    </SettingsSection>
 
-        <div class="space-y-6">
-          <section id="listener" class="scroll-mt-5">
-            <header class="mb-3">
-              <h2 class="text-lg font-semibold text-ink">
-                Listener
-              </h2>
-              <p class="mt-0.5 text-xs text-muted">
-                Where the control panel listens and how it announces itself.
-              </p>
-            </header>
-            <ListenerSection
-              v-model:control="form.control"
-              :view="controlView"
-              :dirty="listenerDirty"
-              @reset="resetListener"
-            />
-          </section>
+    <SettingsSection id="authentication" title="Authentication" description="Who may sign in to this panel, and how a session is trusted.">
+      <AuthenticationSection
+        v-model:auth="form.auth"
+        :view="controlView"
+        :dirty="authDirty"
+        @reset="resetAuth"
+      />
+    </SettingsSection>
 
-          <section id="authentication" class="scroll-mt-5">
-            <header class="mb-3">
-              <h2 class="text-lg font-semibold text-ink">
-                Authentication
-              </h2>
-              <p class="mt-0.5 text-xs text-muted">
-                Who may sign in to this panel, and how a session is trusted.
-              </p>
-            </header>
-            <AuthenticationSection
-              v-model:auth="form.auth"
-              :view="controlView"
-              :dirty="authDirty"
-              @reset="resetAuth"
-            />
-          </section>
+    <SettingsSection id="host" title="Host vitals" description="Alert thresholds for this machine's own resources.">
+      <HostSection
+        v-model:host="form.host"
+        :config="hostConfig"
+        :alerts="hostAlerts"
+        :dirty="hostDirty"
+        @reset="resetHost"
+      />
+    </SettingsSection>
 
-          <section id="host" class="scroll-mt-5">
-            <header class="mb-3">
-              <h2 class="text-lg font-semibold text-ink">
-                Host vitals
-              </h2>
-              <p class="mt-0.5 text-xs text-muted">
-                Alert thresholds for this machine's own resources.
-              </p>
-            </header>
-            <HostSection
-              v-model:host="form.host"
-              :config="hostConfig"
-              :alerts="hostAlerts"
-              :dirty="hostDirty"
-              @reset="resetHost"
-            />
-          </section>
+    <SettingsSection id="backups" title="Backups" description="One archive per capture, covering the panel and any workspace you pick.">
+      <BackupsSection
+        v-model:form="form.backups"
+        :state="backupsState"
+        :policy="backupsPolicy"
+        :config-path="settingsPath"
+        :workspaces="control.workspaces.value"
+        :dirty="backupsDirty"
+        @reset="resetBackups"
+      />
+    </SettingsSection>
 
-          <section id="backups" class="scroll-mt-5">
-            <header class="mb-3">
-              <h2 class="text-lg font-semibold text-ink">
-                Backups
-              </h2>
-              <p class="mt-0.5 text-xs text-muted">
-                One archive per capture, covering the panel and any workspace you pick.
-              </p>
-            </header>
-            <BackupsSection
-              v-model:form="form.backups"
-              :state="backupsState"
-              :policy="backupsPolicy"
-              :config-path="settingsPath"
-              :workspaces="control.workspaces.value"
-              :dirty="backupsDirty"
-              @reset="resetBackups"
-            />
-          </section>
+    <SettingsSection id="tls" title="TLS" description="Serve the panel over HTTPS with your own certificate.">
+      <TlsSection
+        v-model:tls-enabled="form.control.tlsEnabled"
+        :view="controlView"
+        :dirty="tlsDirty"
+        @reset="resetTls"
+      />
+    </SettingsSection>
 
-          <section id="tls" class="scroll-mt-5">
-            <header class="mb-3">
-              <h2 class="text-lg font-semibold text-ink">
-                TLS
-              </h2>
-              <p class="mt-0.5 text-xs text-muted">
-                Serve the panel over HTTPS with your own certificate.
-              </p>
-            </header>
-            <TlsSection
-              v-model:tls-enabled="form.control.tlsEnabled"
-              :view="controlView"
-              :dirty="tlsDirty"
-              @reset="resetTls"
-            />
-          </section>
+    <SettingsSection id="interface" title="Interface" description="Serve your own panel UI instead of the stock one.">
+      <InterfaceSection
+        v-model:label="form.control.label"
+        :ui="uiStatus"
+        :panel-version="panelVersion"
+        :label-dirty="listenerDirty"
+        @changed="loadConfig"
+        @reset-label="resetListener"
+      />
+    </SettingsSection>
 
-          <section id="interface" class="scroll-mt-5">
-            <header class="mb-3">
-              <h2 class="text-lg font-semibold text-ink">
-                Interface
-              </h2>
-              <p class="mt-0.5 text-xs text-muted">
-                Serve your own panel UI instead of the stock one.
-              </p>
-            </header>
-            <InterfaceSection
-              v-model:label="form.control.label"
-              :ui="uiStatus"
-              :panel-version="panelVersion"
-              :label-dirty="listenerDirty"
-              @changed="loadConfig"
-              @reset-label="resetListener"
-            />
-          </section>
-
-          <section id="paths" class="scroll-mt-5">
-            <header class="mb-3">
-              <h2 class="text-lg font-semibold text-ink">
-                Paths
-              </h2>
-              <p class="mt-0.5 text-xs text-muted">
-                Where home-hosted keeps its files, globally and per workspace.
-              </p>
-            </header>
-            <PathsSection
-              :data-root="dataRoot"
-              :project-dir="projectDir"
-              :panel-url="controlView?.url ?? null"
-              :workspaces="control.workspaces.value"
-            />
-          </section>
-        </div>
-      </div>
-    </div>
-
-    <div class="sticky bottom-0 z-30 border-t border-line bg-panel/95 backdrop-blur">
-      <div class="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 sm:px-6">
-        <div class="min-w-0 flex-1">
-          <p class="text-xs text-muted">
-            <template v-if="changedCount > 0">
-              <button
-                type="button"
-                class="rounded-control px-1 py-0.5 text-xs text-muted underline decoration-line underline-offset-2 hover:text-ink"
-                @click="showChanges = true"
-              >
-                <span class="font-mono tabular-nums text-ink">{{ changedCount }}</span>
-                field{{ changedCount === 1 ? '' : 's' }} changed
-              </button>
-            </template>
-            <template v-else>
-              No unsaved changes
-            </template>
-          </p>
-          <p v-if="saveError" class="mt-0.5 text-xs text-danger">
-            {{ saveError }}
-          </p>
-          <p v-else-if="saveMessage" class="mt-0.5 text-xs text-ok">
-            {{ saveMessage }}
-          </p>
-        </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <AppButton variant="ghost" :disabled="changedCount === 0 || saving" @click="discard">
-            Discard changes
-          </AppButton>
-          <AppButton variant="primary" :disabled="changedCount === 0" :loading="saving" @click="save">
-            Save settings
-          </AppButton>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <Modal v-model:open="showChanges" title="Unsaved changes" description="What Save would write to the panel's settings file." width="w-[min(92vw,42rem)]">
-    <div class="max-h-[60dvh] overflow-auto px-4 py-3">
-      <ul v-if="changes.length > 0" class="divide-y divide-line-soft">
-        <li v-for="change in changes" :key="change.path" class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 first:pt-0">
-          <code class="font-mono text-xs text-ink">{{ change.path }}</code>
-          <span class="ml-auto font-mono text-xs text-muted line-through">{{ formatChangeValue(change.from) }}</span>
-          <span class="text-2xs text-faint">→</span>
-          <span class="font-mono text-xs text-accent">{{ formatChangeValue(change.to) }}</span>
-        </li>
-      </ul>
-      <p v-else class="text-xs text-muted">
-        Nothing to save.
-      </p>
-    </div>
-    <footer class="flex items-center justify-end gap-2 border-t border-line px-4 py-3">
-      <AppButton size="sm" variant="ghost" @click="showChanges = false">
-        Close
-      </AppButton>
-      <AppButton size="sm" variant="primary" :disabled="changes.length === 0 || saving" :loading="saving" @click="save(); showChanges = false">
-        Save {{ changes.length }} change{{ changes.length === 1 ? '' : 's' }}
-      </AppButton>
-    </footer>
-  </Modal>
+    <SettingsSection id="paths" title="Paths" description="Where home-hosted keeps its files, globally and per workspace.">
+      <PathsSection
+        :data-root="dataRoot"
+        :project-dir="projectDir"
+        :panel-url="controlView?.url ?? null"
+        :workspaces="control.workspaces.value"
+      />
+    </SettingsSection>
+  </SettingsShell>
 </template>
