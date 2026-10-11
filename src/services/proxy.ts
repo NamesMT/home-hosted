@@ -65,9 +65,10 @@ const ENGINE_COMMAND_TIMEOUT_MS = 10_000
 const DNS01_MODULE = 'dns.providers.acmeproxy'
 
 /**
- * What the panel recorded when it installed the engine. The binary itself is not
- * the panel's to vouch for: a checksum of what was downloaded is recorded nowhere,
- * because replacing the binary by hand is a supported way to run a custom build.
+ * What the panel recorded when it installed the engine. Nothing here is verified
+ * against the binary: replacing it by hand is a supported way to run a custom build,
+ * so no digest is recorded. A file from an older release, which did record one,
+ * carries an undeclared key and is rejected wholesale — it reads as "not installed".
  */
 export const engineRecordSchema = type({
   engine: 'string',
@@ -220,8 +221,6 @@ export class ProxyService {
   private failureCache: { stamp: string, failures: Map<string, string> } | null = null
   /** The installed binary's modules, read once per process; an install clears it. */
   private moduleCache: Set<string> | null = null
-  /** A legacy `engine.json` is reported once, not on every state frame. */
-  private legacyChecksumWarned = false
   /** Why the engine's nanny could not be spawned, cleared on the next start. */
   private nannyError: string | null = null
   private certCache: { at: number, key: string, days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, local: Map<string, { notAfter: number, lifetimeMs: number }>, views: ProxyCertificateView[] } | null = null
@@ -1322,19 +1321,7 @@ export class ProxyService {
       const parsed: unknown = JSON.parse(fs.readFileSync(path.join(this.options.binDir, 'engine.json'), 'utf8'))
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
         return null
-      const record = parsed as Record<string, unknown>
-      // A release before this one recorded a checksum. Nothing verifies it, and the
-      // file is rewritten without it on the next install, so dropping it is enough.
-      // Said once: this runs on every state read, and a standing warning per frame
-      // buries everything else in the log.
-      if ('sha256' in record) {
-        delete record.sha256
-        if (!this.legacyChecksumWarned) {
-          this.legacyChecksumWarned = true
-          logger.warn('proxy:    dropped the recorded engine checksum; nothing verifies it')
-        }
-      }
-      const parsedRecord = engineRecordSchema(record)
+      const parsedRecord = engineRecordSchema(parsed)
       return parsedRecord instanceof type.errors ? null : parsedRecord
     }
     catch {

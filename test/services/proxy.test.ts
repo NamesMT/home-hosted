@@ -9,7 +9,6 @@ import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GlobalSettingsStore } from '#src/config/settings'
-import { logger } from '#src/helpers/logger'
 import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
 import { groupDns01Policies, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
@@ -594,7 +593,10 @@ describe('proxyService', () => {
     expect(service.engineStatus()).toMatchObject({ installed: true, version: '2.11.4', source: 'downloaded', bytes: 12 })
   })
 
-  it('still reads a record an older release stamped with a checksum', async () => {
+  it('reads a record an older release stamped with a checksum as "not installed"', async () => {
+    // ≤0.7.x wrote a `sha256` alongside the other keys. The schema rejects an
+    // undeclared key, so the record is refused wholesale rather than quietly
+    // stripped: the binary is still on disk, but the panel no longer knows what it is.
     const { service, options } = await harness()
     fs.mkdirSync(options.binDir, { recursive: true })
     fs.writeFileSync(service.enginePath, 'not really a binary')
@@ -608,39 +610,32 @@ describe('proxyService', () => {
       installedAt: 1,
     }))
 
-    // The dropped key must not turn the record into an unreadable one.
-    expect(service.engineStatus()).toMatchObject({ installed: true, version: '2.11.4', source: 'downloaded', bytes: 12 })
+    expect(service.engineStatus()).toMatchObject({ installed: true, source: 'custom', version: null })
+    // The record's own `bytes` is not used either — the stat size is, which is also why
+    // the rejected record cannot be mistaken for a read one.
+    expect(service.engineStatus().bytes).toBe(fs.statSync(service.enginePath).size)
   })
 
-  it('says the checksum was dropped once, not on every state frame', async () => {
+  it('reads a current-shape record as installed', async () => {
+    // The counterpart to the rejection above: what `install()` actually writes still
+    // reads back, so dropping the legacy path did not make every record unreadable.
     const { service, options } = await harness()
     fs.mkdirSync(options.binDir, { recursive: true })
     fs.writeFileSync(service.enginePath, 'not really a binary')
-    fs.writeFileSync(path.join(options.binDir, 'engine.json'), JSON.stringify({
+    fs.writeFileSync(path.join(options.binDir, 'engine.json'), `${JSON.stringify({
       engine: 'caddy',
       version: '2.11.4',
       source: 'downloaded',
       url: 'https://example.test/caddy',
-      sha256: 'abc',
       bytes: 12,
       installedAt: 1,
-    }))
+    }, null, 2)}\n`)
 
-    // `engineStatus()` runs on every state read, so a warning per call would bury
-    // the log the moment an older engine.json is on disk.
-    const warnings: string[] = []
-    const savedWarn = logger.warn
-    logger.warn = ((...args: unknown[]) => { warnings.push(String(args[0])) }) as typeof logger.warn
-    try {
-      service.engineStatus()
-      service.engineStatus()
-      service.view()
-    }
-    finally {
-      logger.warn = savedWarn
-    }
-
-    expect(warnings.filter(line => line.includes('engine checksum'))).toHaveLength(1)
+    const status = service.engineStatus()
+    expect(status).toMatchObject({ installed: true, version: '2.11.4', source: 'downloaded', bytes: 12 })
+    // The record is read, not rewritten: no migration touches the file on a read.
+    const onDisk = JSON.parse(fs.readFileSync(path.join(options.binDir, 'engine.json'), 'utf8')) as Record<string, unknown>
+    expect(Object.keys(onDisk)).toEqual(['engine', 'version', 'source', 'url', 'bytes', 'installedAt'])
   })
 
   it('installs over an engine that is only recorded as failed', async () => {
