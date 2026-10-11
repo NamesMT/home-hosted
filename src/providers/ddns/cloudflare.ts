@@ -1,5 +1,6 @@
 import type { DdnsChallengeResult, DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { failed, missingFields, succeeded } from '#src/providers/ddns/types'
+import { errorMessage } from '#src/shared/error-message'
 
 const API = 'https://api.cloudflare.com/client/v4'
 
@@ -45,7 +46,7 @@ async function call<T>(
     return { data: parsed, status: response.status, error: null }
   }
   catch (error) {
-    return { data: null, status: 0, error: error instanceof Error ? error.message : String(error) }
+    return { data: null, status: 0, error: errorMessage(error) }
   }
 }
 
@@ -173,7 +174,7 @@ export const cloudflareProvider: DdnsProvider = {
       return { ...succeeded(`set ${record.host} ${record.type} to ${record.ip}`, true), cache: { ...cache, recordId: written.data?.result?.id ?? existing?.id } }
     }
     catch (error) {
-      return failed(error instanceof Error ? error.message : String(error))
+      return failed(errorMessage(error))
     }
   },
 
@@ -233,7 +234,7 @@ export const cloudflareProvider: DdnsProvider = {
       return { ok: true, message: `removed the TXT record for ${record.fqdn}` }
     }
     catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      return { ok: false, message: errorMessage(error) }
     }
   },
 }

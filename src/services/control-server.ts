@@ -3,6 +3,7 @@ import type { Bind } from '#src/shared/contracts'
 import { serve } from 'srvx'
 import { bindHost, displayHost } from '#src/helpers/bind'
 import { isPortFree } from '#src/providers/port'
+import { errorMessage } from '#src/shared/error-message'
 
 export interface ControlEndpoint {
   /** Configured bind value: `local` | `lan` | ipv4. */
@@ -71,7 +72,7 @@ export class ControlServer {
       return { ok: true }
     }
     catch (error) {
-      return { ok: false, error: `restart failed: ${error instanceof Error ? error.message : String(error)}` }
+      return { ok: false, error: `restart failed: ${errorMessage(error)}` }
     }
   }
 
@@ -95,7 +96,7 @@ export class ControlServer {
       return { ok: true }
     }
     catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = errorMessage(error)
       try {
         await this.listenWithRetry(previous.host, previous.port)
       }

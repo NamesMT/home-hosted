@@ -1,5 +1,6 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { failed, missingFields, succeeded } from '#src/providers/ddns/types'
+import { errorMessage } from '#src/shared/error-message'
 
 const ENDPOINT = 'https://www.duckdns.org/update'
 
@@ -40,7 +41,7 @@ export const duckdnsProvider: DdnsProvider = {
       return failed(`duckdns answered "${body.slice(0, 120) || `HTTP ${response.status}`}"`)
     }
     catch (error) {
-      return failed(error instanceof Error ? error.message : String(error))
+      return failed(errorMessage(error))
     }
   },
 }

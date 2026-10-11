@@ -2,6 +2,7 @@ import type { SubCommandsDef } from 'citty'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
+import { errorMessage } from '#src/shared/error-message'
 import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
 import { cyan, dim, fail, heading } from './cli/io'
 import { nearestWord } from './cli/nearest'
@@ -373,7 +374,7 @@ async function main(): Promise<void> {
       await runCommand(nannyCommand, { rawArgs: dirFlags.rest })
     }
     catch (error) {
-      fail(error instanceof Error ? error.message : String(error))
+      fail(errorMessage(error))
     }
     return
   }
@@ -420,10 +421,10 @@ async function main(): Promise<void> {
     await runCommand(rootCommand, { rawArgs: invocation.argv })
   }
   catch (error) {
-    fail(error instanceof Error ? error.message : String(error))
+    fail(errorMessage(error))
   }
 }
 
 void main().catch((error: unknown) => {
-  fail(error instanceof Error ? error.message : String(error))
+  fail(errorMessage(error))
 })

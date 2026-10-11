@@ -1,5 +1,6 @@
 import type { HttpCheckConfig } from '#src/shared/contracts'
 import { probePort } from '#src/providers/port'
+import { errorMessage } from '#src/shared/error-message'
 
 export interface HealthProbeResult {
   healthy: boolean
@@ -63,7 +64,7 @@ export async function probeHttp(host: string, port: number, options: HttpProbeOp
   }
   catch (error) {
     const ms = Date.now() - started
-    const reason = error instanceof Error ? error.message : String(error)
+    const reason = errorMessage(error)
     return { healthy: false, ms, detail: `request failed: ${reason}` }
   }
 }

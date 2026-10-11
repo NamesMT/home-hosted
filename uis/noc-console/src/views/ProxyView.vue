@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ProxyCertificateView, ProxyView } from '@shared/contracts'
 import type { ListenerDraft, ProxyAction, ProxyWorkspace, RouteDraft } from '@/lib/proxy'
+import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import ProxyCertificateDialog from '@/components/ProxyCertificateDialog.vue'
@@ -142,7 +143,7 @@ async function load(): Promise<void> {
     fetched.value = await api.fetchProxy()
   }
   catch (caught) {
-    loadError.value = caught instanceof Error ? caught.message : String(caught)
+    loadError.value = errorMessage(caught)
   }
 }
 
@@ -179,7 +180,7 @@ async function act(action: ProxyAction): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    actionError.value = caught instanceof Error ? caught.message : String(caught)
+    actionError.value = errorMessage(caught)
     flash(actionError.value, 'error')
   }
   finally {
@@ -207,7 +208,7 @@ async function save(): Promise<void> {
     syncFromLive()
   }
   catch (caught) {
-    saveError.value = caught instanceof Error ? caught.message : String(caught)
+    saveError.value = errorMessage(caught)
     flash(saveError.value, 'error')
   }
   finally {
@@ -275,7 +276,7 @@ async function runCertificate(action: () => Promise<ProxyView>, done: string): P
     return true
   }
   catch (caught) {
-    certError.value = caught instanceof Error ? caught.message : String(caught)
+    certError.value = errorMessage(caught)
     flash(certError.value, 'error')
     return false
   }

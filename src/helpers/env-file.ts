@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { errorMessage } from '#src/shared/error-message'
 
 /** `KEY=value` files, with optional `export `, `#` comments and quoted values. */
 export function parseEnvFile(text: string): Record<string, string> {
@@ -35,7 +36,7 @@ export function loadEnvFile(file: string): { env: Record<string, string>, path: 
     const code = (error as NodeJS.ErrnoException).code
     if (code === 'ENOENT')
       return { env: {}, path: file, error: null }
-    return { env: {}, path: file, error: error instanceof Error ? error.message : String(error) }
+    return { env: {}, path: file, error: errorMessage(error) }
   }
 }
 

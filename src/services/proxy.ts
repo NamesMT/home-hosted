@@ -48,6 +48,7 @@ import { processCarriesServerId } from '#src/providers/proc'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
 import { FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { TlsStore } from '#src/services/tls'
+import { errorMessage } from '#src/shared/error-message'
 import { isPublicHost } from '#src/shared/proxy-form'
 
 /** The engine is not a server entry, but it borrows the nanny's shape. */
@@ -565,7 +566,7 @@ export class ProxyService {
         }
       }
       catch (error) {
-        return { ...base, error: `unreadable certificate: ${error instanceof Error ? error.message : String(error)}` }
+        return { ...base, error: `unreadable certificate: ${errorMessage(error)}` }
       }
     })
 
@@ -820,7 +821,7 @@ export class ProxyService {
       // started — after an upgrade that is the old shape. Applying is a no-op when
       // nothing changed.
       await this.apply().catch((error: unknown) => {
-        logger.warn(`proxy:    could not apply the current configuration to the reattached engine: ${error instanceof Error ? error.message : String(error)}`)
+        logger.warn(`proxy:    could not apply the current configuration to the reattached engine: ${errorMessage(error)}`)
       })
       return
     }
@@ -828,7 +829,7 @@ export class ProxyService {
       await this.start()
     }
     catch (error) {
-      this.lastError = error instanceof Error ? error.message : String(error)
+      this.lastError = errorMessage(error)
       logger.error(`proxy:    could not start: ${this.lastError}`)
     }
   }
@@ -1066,7 +1067,7 @@ export class ProxyService {
    */
   private async postConfiguration(rendered: unknown): Promise<void> {
     const result = await this.request('POST', '/load', rendered).catch((error: unknown) => {
-      this.lastError = `the engine did not accept the configuration: ${error instanceof Error ? error.message : String(error)}`
+      this.lastError = `the engine did not accept the configuration: ${errorMessage(error)}`
       throw new DetailedError(this.lastError, { statusCode: 502, code: 'ENGINE_UNREACHABLE' })
     })
     if (result.status >= 400) {
@@ -1136,7 +1137,7 @@ export class ProxyService {
     if (first)
       return
     await this.apply().catch((error: unknown) => {
-      logger.warn(`proxy:    could not re-apply after a certificate change: ${error instanceof Error ? error.message : String(error)}`)
+      logger.warn(`proxy:    could not re-apply after a certificate change: ${errorMessage(error)}`)
     })
   }
 

@@ -1,5 +1,6 @@
 import type { LogsConfig, NotificationView, ServerDefaults, ServerView } from '@shared/contracts'
 import type { WorkspaceState } from '@/lib/api'
+import { errorMessage } from '@shared/error-message'
 import { computed, readonly, ref, watch } from 'vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
@@ -99,7 +100,7 @@ export function useWorkspaces() {
       return workspace
     }
     catch (error) {
-      toasts.failure('Could not create the workspace', error instanceof Error ? error.message : String(error))
+      toasts.failure('Could not create the workspace', errorMessage(error))
       return undefined
     }
     finally {
@@ -115,7 +116,7 @@ export function useWorkspaces() {
       return true
     }
     catch (error) {
-      toasts.failure('Could not rename the workspace', error instanceof Error ? error.message : String(error))
+      toasts.failure('Could not rename the workspace', errorMessage(error))
       return false
     }
   }
@@ -128,7 +129,7 @@ export function useWorkspaces() {
       return true
     }
     catch (error) {
-      toasts.failure('Could not delete the workspace', error instanceof Error ? error.message : String(error))
+      toasts.failure('Could not delete the workspace', errorMessage(error))
       return false
     }
   }

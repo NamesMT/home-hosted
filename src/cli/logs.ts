@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, dim, fail, paint } from '#src/cli/io'
+import { errorMessage } from '#src/shared/error-message'
 
 /** `logs` answers "what has the panel been saying" — the file `up` redirects it into. */
 
@@ -134,7 +135,7 @@ export const logsCommand = defineCommand({
       await runLogs({ lines: args.lines, follow: args.follow, json: args.json })
     }
     catch (error) {
-      fail(error instanceof Error ? error.message : String(error))
+      fail(errorMessage(error))
     }
   },
 })

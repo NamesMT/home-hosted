@@ -2,6 +2,7 @@
 import type { DdnsAccount, DdnsConfig, DdnsProviderInfo, DdnsRecordState, DdnsRecordType } from '@shared/contracts'
 import type { DraftAccount, DraftConfig, DraftDomain } from '@/lib/ddns'
 import type { Tone } from '@/lib/status'
+import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -147,7 +148,7 @@ async function load(): Promise<void> {
     newDomain.account = accounts.value[0]?.id ?? ''
   }
   catch (caught) {
-    loadError.value = caught instanceof Error ? caught.message : String(caught)
+    loadError.value = errorMessage(caught)
   }
 }
 
@@ -214,7 +215,7 @@ async function updateNow(): Promise<void> {
     toasts.success(status.value?.lastResult ?? 'Dynamic DNS pass finished')
   }
   catch (caught) {
-    actionError.value = caught instanceof Error ? caught.message : String(caught)
+    actionError.value = errorMessage(caught)
   }
   finally {
     checking.value = false
@@ -239,7 +240,7 @@ async function saveCredentials(): Promise<void> {
     credentialAccount.value = null
   }
   catch (caught) {
-    credentialError.value = caught instanceof Error ? caught.message : String(caught)
+    credentialError.value = errorMessage(caught)
   }
   finally {
     credentialBusy.value = false
@@ -258,7 +259,7 @@ async function clearCredentials(): Promise<void> {
     credentialAccount.value = null
   }
   catch (caught) {
-    credentialError.value = caught instanceof Error ? caught.message : String(caught)
+    credentialError.value = errorMessage(caught)
   }
   finally {
     credentialBusy.value = false

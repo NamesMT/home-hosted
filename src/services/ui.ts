@@ -7,6 +7,7 @@ import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { extractZip, isZipArchive, listZip } from '#src/providers/archive'
 import { uiMetaSchema } from '#src/shared/contracts'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * The panel's UI is replaceable: the stock SPA ships in the package, and a user
@@ -103,7 +104,7 @@ export class UiService {
       return await this.stage(archivePath, staging, fallbackName, installedTag)
     }
     catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      return { ok: false, error: errorMessage(error) }
     }
     finally {
       fs.rmSync(staging, { recursive: true, force: true })
@@ -123,7 +124,7 @@ export class UiService {
       entries = await listZip(archivePath)
     }
     catch (error) {
-      return { ok: false, error: `the archive could not be read: ${error instanceof Error ? error.message : String(error)}` }
+      return { ok: false, error: `the archive could not be read: ${errorMessage(error)}` }
     }
 
     if (entries.length === 0)
@@ -311,7 +312,7 @@ function readDataRoot(dataRoot: string): string[] {
 }
 
 function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return errorMessage(error)
 }
 
 /**

@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { logger } from '#src/helpers/logger'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * Stores an uploaded PEM pair and reports what it contains.
@@ -160,7 +161,7 @@ export class TlsStore {
       }
     }
     catch (error) {
-      return { ...base, error: `invalid certificate: ${error instanceof Error ? error.message : String(error)}` }
+      return { ...base, error: `invalid certificate: ${errorMessage(error)}` }
     }
   }
 }
@@ -188,7 +189,7 @@ export function validatePair(certificate: string, privateKey: string): { ok: boo
     x509 = new X509Certificate(certificate)
   }
   catch (error) {
-    return { ok: false, error: `certificate is not a valid PEM: ${error instanceof Error ? error.message : String(error)}` }
+    return { ok: false, error: `certificate is not a valid PEM: ${errorMessage(error)}` }
   }
 
   try {
@@ -196,7 +197,7 @@ export function validatePair(certificate: string, privateKey: string): { ok: boo
       return { ok: false, error: 'the private key does not match the certificate' }
   }
   catch (error) {
-    return { ok: false, error: `private key is not a valid PEM: ${error instanceof Error ? error.message : String(error)}` }
+    return { ok: false, error: `private key is not a valid PEM: ${errorMessage(error)}` }
   }
 
   // Both ends of the window. Checking only `validTo` accepted a certificate whose `notBefore` is in

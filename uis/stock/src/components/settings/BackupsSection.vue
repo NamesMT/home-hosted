@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BackupsConfig, BackupsView, WorkspaceView } from '@shared/contracts'
 import type { BackupsForm } from '@/components/settings/settingsForm'
+import { errorMessage } from '@shared/error-message'
 import { Archive, Download, RotateCcw } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import BackupDialog from '@/components/settings/BackupDialog.vue'
@@ -93,7 +94,7 @@ async function removeBackup(name: string): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false

@@ -2,6 +2,7 @@ import type { AppState, Bind, LogLine, ServerView, SettingsPatch, WorkspaceSetti
 import type { ActionResult, BackupsView } from '@/lib/api'
 import type { ServerRef } from '@/lib/servers'
 import { sseMessageSchema } from '@shared/contracts'
+import { errorMessage } from '@shared/error-message'
 import { type } from 'arktype'
 import { computed, reactive, readonly, ref } from 'vue'
 import { useSession } from '@/composables/useSession'
@@ -251,7 +252,7 @@ export function useControlPlane() {
         void useSession().refresh()
         return undefined
       }
-      lastError.value = error instanceof Error ? error.message : String(error)
+      lastError.value = errorMessage(error)
       return undefined
     }
   }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { BackupFile, RestorePlan } from '@/lib/api'
+import { errorMessage } from '@shared/error-message'
 import { computed, ref, watch } from 'vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -55,7 +56,7 @@ const fileInput = cn(
 )
 
 function describe(caught: unknown): string {
-  return caught instanceof Error ? caught.message : String(caught)
+  return errorMessage(caught)
 }
 
 function restoreOptions(): api.RestoreOptions {

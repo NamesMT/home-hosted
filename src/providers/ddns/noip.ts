@@ -1,6 +1,7 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { describeDyndnsResponse } from '#src/providers/ddns/dyndns2'
 import { basicAuth, failed, missingFields } from '#src/providers/ddns/types'
+import { errorMessage } from '#src/shared/error-message'
 
 const ENDPOINT = 'https://dynupdate.no-ip.com/nic/update'
 
@@ -49,7 +50,7 @@ export const noipProvider: DdnsProvider = {
       return describeDyndnsResponse(response, await response.text(), 'no-ip')
     }
     catch (error) {
-      return failed(error instanceof Error ? error.message : String(error))
+      return failed(errorMessage(error))
     }
   },
 }

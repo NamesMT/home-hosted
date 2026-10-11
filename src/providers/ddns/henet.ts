@@ -1,6 +1,7 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { describeDyndnsResponse } from '#src/providers/ddns/dyndns2'
 import { failed, missingFields } from '#src/providers/ddns/types'
+import { errorMessage } from '#src/shared/error-message'
 
 const ENDPOINT = 'https://dyn.dns.he.net/nic/update'
 
@@ -32,7 +33,7 @@ export const henetProvider: DdnsProvider = {
       return describeDyndnsResponse(response, await response.text(), 'hurricane electric')
     }
     catch (error) {
-      return failed(error instanceof Error ? error.message : String(error))
+      return failed(errorMessage(error))
     }
   },
 }

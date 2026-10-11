@@ -1,6 +1,7 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { failed, missingFields, succeeded } from '#src/providers/ddns/types'
 import { splitHost } from '#src/providers/ddns/zone'
+import { errorMessage } from '#src/shared/error-message'
 
 const ENDPOINT = 'https://dynamicdns.park-your-domain.com/update'
 
@@ -56,7 +57,7 @@ export const namecheapProvider: DdnsProvider = {
       return succeeded(`${host === '@' ? zone : `${host}.${zone}`} now ${ip}`, ip !== record.ip)
     }
     catch (error) {
-      return failed(error instanceof Error ? error.message : String(error))
+      return failed(errorMessage(error))
     }
   },
 }

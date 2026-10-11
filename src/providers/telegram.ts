@@ -1,6 +1,7 @@
 import type { Bot } from 'grammy'
 import { autoRetry } from '@grammyjs/auto-retry'
 import { Bot as GrammyBot } from 'grammy'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * Telegram Bot API access, built on grammY.
@@ -57,7 +58,7 @@ export function describeTelegramError(error: unknown): string {
       return `${description}${code}${retry}`
     }
   }
-  return error instanceof Error ? error.message : String(error)
+  return errorMessage(error)
 }
 
 export async function sendTelegramMessage(token: string, chatId: string, html: string): Promise<TelegramOutcome> {

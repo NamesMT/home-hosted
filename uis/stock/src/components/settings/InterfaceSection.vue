@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { UiStatus } from '@/lib/api'
+import { errorMessage } from '@shared/error-message'
 import { computed, ref } from 'vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -57,7 +58,7 @@ async function install(): Promise<void> {
     emit('changed')
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false
@@ -81,7 +82,7 @@ async function revert(): Promise<void> {
     emit('changed')
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false

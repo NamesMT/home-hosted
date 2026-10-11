@@ -2,6 +2,7 @@ import type { SecretsStore } from '#src/config/secrets'
 import type { NotificationsConfig, TelegramStatus } from '#src/shared/contracts'
 import { logger } from '#src/helpers/logger'
 import { formatTelegramMessage, listTelegramChats, sendTelegramMessage, verifyTelegramToken } from '#src/providers/telegram'
+import { errorMessage } from '#src/shared/error-message'
 
 export type NotificationReason = 'crash' | 'unhealthy' | 'forced-restart' | 'recovered' | 'rss' | 'host' | 'host-recovered' | 'ddns' | 'ddns-error'
 
@@ -107,7 +108,7 @@ export class NotificationService {
   /** Fire-and-forget by design: supervision must never wait on a chat API. */
   notify(event: NotificationEvent): void {
     void this.dispatch(event).catch((error: unknown) => {
-      logger.warn(`notification failed: ${error instanceof Error ? error.message : String(error)}`)
+      logger.warn(`notification failed: ${errorMessage(error)}`)
     })
   }
 

@@ -7,6 +7,7 @@ import { logger } from '#src/helpers/logger'
 import { ddnsProvider } from '#src/providers/ddns'
 import { detectPublicAddress } from '#src/providers/ddns/ip'
 import { normalizeHost } from '#src/providers/ddns/types'
+import { errorMessage } from '#src/shared/error-message'
 
 /** One network pass, however many hosts it covers. */
 const RUN_TIMEOUT_MS = 60_000
@@ -320,7 +321,7 @@ export class DdnsService {
       writeFileAtomic(this.deps.statePath, `${JSON.stringify(this.persisted, null, 2)}\n`)
     }
     catch (error) {
-      logger.warn(`ddns: could not save its state (${error instanceof Error ? error.message : String(error)})`)
+      logger.warn(`ddns: could not save its state (${errorMessage(error)})`)
     }
   }
 

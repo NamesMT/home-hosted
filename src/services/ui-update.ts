@@ -13,6 +13,7 @@ import {
   matchAsset,
   parseRepoSlug,
 } from '#src/providers/ui-release'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * Keeping an *official* UI paired with the panel that serves it, without a person
@@ -109,7 +110,7 @@ export async function syncOfficialUi(ui: UiService, runningVersion = appVersion(
     return { kind: 'updated', tag: release.tag }
   }
   catch (error) {
-    return { kind: 'failed', error: error instanceof Error ? error.message : String(error) }
+    return { kind: 'failed', error: errorMessage(error) }
   }
 }
 
@@ -135,6 +136,6 @@ export function autoUpdateOfficialUi(ui: UiService, runningVersion = appVersion(
     else if (result.kind === 'failed')
       logger.warn(`ui:      could not update to ${plan.tag}: ${result.error}`)
   }).catch((error: unknown) => {
-    logger.warn(`ui:      could not update: ${error instanceof Error ? error.message : String(error)}`)
+    logger.warn(`ui:      could not update: ${errorMessage(error)}`)
   })
 }

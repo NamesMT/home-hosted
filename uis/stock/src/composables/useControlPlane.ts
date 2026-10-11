@@ -3,6 +3,7 @@ import type { MaybeRefOrGetter, Ref } from 'vue'
 import type { AppStateView } from '@/lib/api'
 import type { ServerSeries } from '@/lib/telemetry'
 import { parseBind, sseMessageSchema } from '@shared/contracts'
+import { errorMessage } from '@shared/error-message'
 /** The composite key every per-server buffer and series is stored under. */
 // Imported as well as re-exported: this module calls `serverKey` itself, and a re-export does not
 // bring the name into scope.
@@ -384,7 +385,7 @@ export function useControlPlane() {
         useSession().requireLogin()
         return undefined
       }
-      const message = error instanceof Error ? error.message : String(error)
+      const message = errorMessage(error)
       lastError.value = message
       notifier.failure(options.title, message)
       return undefined

@@ -2,6 +2,7 @@
 import type { AuthStatus, BackupsView, ControlView, SettingsPatch } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView } from '@/lib/api'
+import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import BackupDialog from '@/components/BackupDialog.vue'
@@ -101,7 +102,7 @@ async function loadSettings(): Promise<void> {
     applySettings()
   }
   catch (caught) {
-    settingsError.value = caught instanceof Error ? caught.message : String(caught)
+    settingsError.value = errorMessage(caught)
   }
 }
 
@@ -512,7 +513,7 @@ async function removeBackup(name: string): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    backupError.value = caught instanceof Error ? caught.message : String(caught)
+    backupError.value = errorMessage(caught)
   }
   finally {
     backupBusy.value = false
@@ -550,7 +551,7 @@ async function uploadCertificate(): Promise<void> {
     }
   }
   catch (caught) {
-    tlsError.value = caught instanceof Error ? caught.message : String(caught)
+    tlsError.value = errorMessage(caught)
   }
 }
 
@@ -563,7 +564,7 @@ async function removeCertificate(): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    tlsError.value = caught instanceof Error ? caught.message : String(caught)
+    tlsError.value = errorMessage(caught)
   }
 }
 
@@ -601,7 +602,7 @@ async function installUi(): Promise<void> {
     uiMessage.value = `installed ${result.meta?.name ?? 'UI'} — refresh to load it`
   }
   catch (caught) {
-    uiError.value = caught instanceof Error ? caught.message : String(caught)
+    uiError.value = errorMessage(caught)
   }
   finally {
     uiBusy.value = false
@@ -618,7 +619,7 @@ async function revertUi(): Promise<void> {
     uiMessage.value = result.removed ? 'stock UI restored — refresh to load it' : 'no custom UI was installed'
   }
   catch (caught) {
-    uiError.value = caught instanceof Error ? caught.message : String(caught)
+    uiError.value = errorMessage(caught)
   }
   finally {
     uiBusy.value = false

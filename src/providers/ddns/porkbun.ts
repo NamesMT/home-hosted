@@ -1,6 +1,7 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { failed, missingFields, succeeded } from '#src/providers/ddns/types'
 import { splitHost } from '#src/providers/ddns/zone'
+import { errorMessage } from '#src/shared/error-message'
 
 const API = 'https://api.porkbun.com/api/json/v3'
 
@@ -34,7 +35,7 @@ async function post(path: string, context: DdnsContext, body: Record<string, unk
     return { data: parsed, error: null }
   }
   catch (error) {
-    return { data: null, error: error instanceof Error ? error.message : String(error) }
+    return { data: null, error: errorMessage(error) }
   }
 }
 

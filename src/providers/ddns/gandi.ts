@@ -1,6 +1,7 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { errorText, failed, missingFields, succeeded } from '#src/providers/ddns/types'
 import { splitHost } from '#src/providers/ddns/zone'
+import { errorMessage } from '#src/shared/error-message'
 
 const API = 'https://api.gandi.net/v5/livedns/domains'
 
@@ -58,7 +59,7 @@ export const gandiProvider: DdnsProvider = {
       return succeeded(`set ${record.host} ${record.type} to ${record.ip}`, true)
     }
     catch (error) {
-      return failed(error instanceof Error ? error.message : String(error))
+      return failed(errorMessage(error))
     }
   },
 }

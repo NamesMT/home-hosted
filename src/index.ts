@@ -47,6 +47,7 @@ import { TlsStore } from '#src/services/tls'
 import { UiService } from '#src/services/ui'
 import { autoUpdateOfficialUi } from '#src/services/ui-update'
 import { parseBind } from '#src/shared/contracts'
+import { errorMessage } from '#src/shared/error-message'
 
 /** The package root: one level above this file, whether it is `src/` or `dist/`. */
 export const packageRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -91,7 +92,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     ensureLayout()
   }
   catch (error) {
-    logger.error(error instanceof Error ? error.message : String(error))
+    logger.error(errorMessage(error))
     process.exit(1)
   }
 

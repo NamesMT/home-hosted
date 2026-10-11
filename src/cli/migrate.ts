@@ -9,6 +9,7 @@ import { WorkspaceRegistry } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { globalSettingsPath, workspaceServersPath, workspaceSettingsPath } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * `migrate` lifts a state directory to the config schema this release understands:
@@ -88,7 +89,7 @@ export async function runMigrate(config: string | undefined, dryRun: boolean, ye
       raw = JSON.parse(fs.readFileSync(target.file, 'utf8')) as Record<string, unknown>
     }
     catch (error) {
-      fail(`cannot read ${target.file}: ${error instanceof Error ? error.message : String(error)}`)
+      fail(`cannot read ${target.file}: ${errorMessage(error)}`)
     }
 
     const meta = typeof raw.meta === 'object' && raw.meta !== null ? raw.meta as { schema?: number, writtenBy?: string } : {}

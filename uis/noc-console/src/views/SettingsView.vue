@@ -2,6 +2,7 @@
 import type { DdnsConfig, LogsConfig, ServerDefaults, TelegramStatus, WorkspaceSettingsPatch } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { DraftConfig } from '@/lib/ddns'
+import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
@@ -321,7 +322,7 @@ async function saveSettings(): Promise<void> {
     settingsMessage.value = 'saved'
   }
   catch (caught) {
-    settingsError.value = caught instanceof Error ? caught.message : String(caught)
+    settingsError.value = errorMessage(caught)
   }
   finally {
     saving.value = false
@@ -344,7 +345,7 @@ async function saveToken(): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    tokenError.value = caught instanceof Error ? caught.message : String(caught)
+    tokenError.value = errorMessage(caught)
   }
 }
 
@@ -357,7 +358,7 @@ async function removeToken(): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    tokenError.value = caught instanceof Error ? caught.message : String(caught)
+    tokenError.value = errorMessage(caught)
   }
 }
 
@@ -372,7 +373,7 @@ async function detectChats(): Promise<void> {
       tokenError.value = 'no chats found — send /start to the bot first, then detect again'
   }
   catch (caught) {
-    tokenError.value = caught instanceof Error ? caught.message : String(caught)
+    tokenError.value = errorMessage(caught)
   }
   finally {
     notifyBusy.value = false
@@ -395,7 +396,7 @@ async function sendTest(): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    tokenError.value = caught instanceof Error ? caught.message : String(caught)
+    tokenError.value = errorMessage(caught)
   }
   finally {
     notifyBusy.value = false

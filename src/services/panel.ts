@@ -36,6 +36,7 @@ import { LogFiles } from '#src/services/log-files'
 import { NotificationService } from '#src/services/notifications'
 import { buildControlView, buildWorkspaceView } from '#src/services/state'
 import { Supervisor } from '#src/services/supervisor'
+import { errorMessage } from '#src/shared/error-message'
 
 /** Everything one workspace owns at runtime, plus the objects that watch it. */
 export interface WorkspaceRuntime {
@@ -387,8 +388,8 @@ export class PanelService {
     }
 
     runtime.watches = [
-      new ConfigWatch({ file: store.path, onChange: () => this.handleConfigChange(id), onError: error => logger.warn(`cannot watch ${path.basename(store.path)}: ${error instanceof Error ? error.message : String(error)}`) }),
-      new ConfigWatch({ file: store.settingsPath, onChange: () => this.handleConfigChange(id), onError: error => logger.warn(`cannot watch ${path.basename(store.settingsPath)}: ${error instanceof Error ? error.message : String(error)}`) }),
+      new ConfigWatch({ file: store.path, onChange: () => this.handleConfigChange(id), onError: error => logger.warn(`cannot watch ${path.basename(store.path)}: ${errorMessage(error)}`) }),
+      new ConfigWatch({ file: store.settingsPath, onChange: () => this.handleConfigChange(id), onError: error => logger.warn(`cannot watch ${path.basename(store.settingsPath)}: ${errorMessage(error)}`) }),
     ]
     for (const watch of runtime.watches) watch.start()
 

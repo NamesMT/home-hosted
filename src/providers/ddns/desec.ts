@@ -1,6 +1,7 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { describeDyndnsResponse } from '#src/providers/ddns/dyndns2'
 import { basicAuth, failed, missingFields } from '#src/providers/ddns/types'
+import { errorMessage } from '#src/shared/error-message'
 
 const ENDPOINT = 'https://update.dedyn.io/'
 
@@ -36,7 +37,7 @@ export const desecProvider: DdnsProvider = {
       return describeDyndnsResponse(response, await response.text(), 'desec')
     }
     catch (error) {
-      return failed(error instanceof Error ? error.message : String(error))
+      return failed(errorMessage(error))
     }
   },
 }

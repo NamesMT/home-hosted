@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BackupsView } from '@shared/contracts'
 import type { EntryChoice } from '@/components/settings/backupSelection'
+import { errorMessage } from '@shared/error-message'
 import { Boxes, Layers } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { allLeavesSelected, captureEntries, includeIds, selectAll, selectionCount } from '@/components/settings/backupSelection'
@@ -87,7 +88,7 @@ async function submit(): Promise<void> {
     emit('created', 'Backup created.')
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false

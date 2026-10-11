@@ -1,6 +1,7 @@
 import type { DdnsChallengeRecord, DdnsChallengeResult, DdnsContext, DdnsProvider } from '#src/providers/ddns/types'
 import { normalizeHost } from '#src/providers/ddns/types'
 import { splitHost } from '#src/providers/ddns/zone'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * Namecheap through its XML API, which is the only way to write a `TXT` record
@@ -132,7 +133,7 @@ async function call(command: string, params: Record<string, string>, context: Dd
     return { status, errors: [], body }
   }
   catch (error) {
-    return error instanceof Error ? error.message : String(error)
+    return errorMessage(error)
   }
 }
 

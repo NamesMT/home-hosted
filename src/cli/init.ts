@@ -4,6 +4,7 @@ import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, confirm, dim, fail, green, paint, prompt } from '#src/cli/io'
 import { detectPackageManager, installArgs, PACKAGE_MANAGERS, runCommand, scaffold } from '#src/services/init'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * `init` scaffolds a project that keeps its whole setup — state, data and the
@@ -54,7 +55,7 @@ export async function runInit(options: { dir?: string, name?: string, pm?: strin
       process.stdout.write(`  ${dim(file)}\n`)
   }
   catch (error) {
-    fail(error instanceof Error ? error.message : String(error))
+    fail(errorMessage(error))
   }
 
   const target = path.resolve(dir)

@@ -2,6 +2,7 @@
 import type { DdnsConfig, WorkspaceSettingsPatch } from '@shared/contracts'
 import type { FormSnapshots, WorkspaceFormBlock, WorkspaceSettingsForm } from '@/components/settings/settingsForm'
 import type { DraftConfig } from '@/lib/ddns'
+import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -190,7 +191,7 @@ async function save(): Promise<void> {
     syncFromLive()
   }
   catch (caught) {
-    saveError.value = caught instanceof Error ? caught.message : String(caught)
+    saveError.value = errorMessage(caught)
   }
   finally {
     saving.value = false

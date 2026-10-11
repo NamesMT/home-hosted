@@ -17,6 +17,7 @@ import {
   proxyPatchSchema,
   proxyViewSchema,
 } from '#src/shared/contracts'
+import { errorMessage } from '#src/shared/error-message'
 
 const certificateParam = type({ id: '/^[a-z0-9][a-z0-9_-]*$/' })
 
@@ -69,7 +70,7 @@ export function createProxyRoute(deps: AppDeps) {
     }
     catch (error) {
       // The client gets the failure; the page gets it too, on the next frame.
-      proxy().recordError(error instanceof Error ? error.message : String(error))
+      proxy().recordError(errorMessage(error))
       throw error
     }
   }

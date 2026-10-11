@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import process from 'node:process'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { logger } from '#src/helpers/logger'
+import { errorMessage } from '#src/shared/error-message'
 import { isRecord } from '#src/shared/shape'
 
 /** Node's scrypt defaults, pinned so a hash stays verifiable across versions. */
@@ -496,7 +497,7 @@ export class SecretsStore {
     }
     catch (error) {
       // Present but unreadable is not absent: permissions or a directory, say.
-      this.error = `cannot read ${this.file}: ${error instanceof Error ? error.message : String(error)}`
+      this.error = `cannot read ${this.file}: ${errorMessage(error)}`
       return this.inScope(empty)
     }
     try {
@@ -510,7 +511,7 @@ export class SecretsStore {
       })
     }
     catch (error) {
-      this.error = `${this.file} is not readable JSON (${error instanceof Error ? error.message : String(error)}) — it was left untouched`
+      this.error = `${this.file} is not readable JSON (${errorMessage(error)}) — it was left untouched`
       return this.inScope(empty)
     }
   }

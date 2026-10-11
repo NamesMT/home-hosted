@@ -11,6 +11,7 @@ import { projectDir, resolveUserPath } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { serverTemplateVars } from '#src/services/supervisor'
+import { errorMessage } from '#src/shared/error-message'
 import { isGeneratedPath } from '#src/shared/generated'
 import { isRecord } from '#src/shared/shape'
 
@@ -423,7 +424,7 @@ export class BackupService {
     catch (error) {
       fs.rmSync(staging, { recursive: true, force: true })
       fs.rmSync(destination, { force: true })
-      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      return { ok: false, error: errorMessage(error) }
     }
   }
 
@@ -468,7 +469,7 @@ export class BackupService {
         entries = await listZip(archivePath)
       }
       catch (error) {
-        return { ...plan, error: `the archive could not be read: ${error instanceof Error ? error.message : String(error)}` }
+        return { ...plan, error: `the archive could not be read: ${errorMessage(error)}` }
       }
 
       plan.encrypted = entries.some(entry => entry.encrypted)
@@ -757,7 +758,7 @@ export class BackupService {
       // A restore is not transactional: say what already landed, so a failure
       // cannot look like nothing happened.
       const done = plan.applied.length > 0 ? ` — already applied: ${plan.applied.join(', ')}` : ''
-      return { ...plan, error: `${error instanceof Error ? error.message : String(error)}${done}` }
+      return { ...plan, error: `${errorMessage(error)}${done}` }
     }
     finally {
       fs.rmSync(staging, { recursive: true, force: true })

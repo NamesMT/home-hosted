@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BackupsView } from '@shared/contracts'
 import type { CaptureChoice } from '@/lib/backupSelection'
+import { errorMessage } from '@shared/error-message'
 import { computed, ref, watch } from 'vue'
 import * as api from '@/lib/api'
 import { captureItems, includeIds } from '@/lib/backupSelection'
@@ -54,7 +55,7 @@ async function submit(): Promise<void> {
     emit('close')
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false

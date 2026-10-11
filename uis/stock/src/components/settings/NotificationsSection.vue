@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { TelegramStatus } from '@shared/contracts'
 import type { TelegramForm } from '@/components/settings/settingsForm'
+import { errorMessage } from '@shared/error-message'
 import { computed, ref } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -52,7 +53,7 @@ async function saveToken(): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    tokenError.value = caught instanceof Error ? caught.message : String(caught)
+    tokenError.value = errorMessage(caught)
   }
   finally {
     busy.value = false
@@ -69,7 +70,7 @@ async function removeToken(): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    tokenError.value = caught instanceof Error ? caught.message : String(caught)
+    tokenError.value = errorMessage(caught)
   }
   finally {
     busy.value = false
@@ -88,7 +89,7 @@ async function detectChats(): Promise<void> {
       tokenError.value = 'No chats found. Send /start to the bot first, then detect again.'
   }
   catch (caught) {
-    tokenError.value = caught instanceof Error ? caught.message : String(caught)
+    tokenError.value = errorMessage(caught)
   }
   finally {
     busy.value = false
@@ -111,7 +112,7 @@ async function sendTest(): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    tokenError.value = caught instanceof Error ? caught.message : String(caught)
+    tokenError.value = errorMessage(caught)
   }
   finally {
     busy.value = false

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { LogLine } from '@shared/contracts'
 import type { LogServerInfo } from '@/lib/api'
+import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import LogPane from '@/components/LogPane.vue'
@@ -35,7 +36,7 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 const current = computed(() => servers.value.find(server => server.serverId === selectedId.value) ?? null)
 
 function message(caught: unknown): string {
-  return caught instanceof Error ? caught.message : String(caught)
+  return errorMessage(caught)
 }
 
 async function loadServers(): Promise<void> {

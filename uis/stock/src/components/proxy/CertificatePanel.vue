@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ProxyCertificateView, ProxyView } from '@shared/contracts'
+import { errorMessage } from '@shared/error-message'
 import { KeyRound, Plus, Trash2 } from 'lucide-vue-next'
 import { PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
@@ -42,7 +43,7 @@ async function run(action: () => Promise<ProxyView>, done: string): Promise<bool
     return true
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
     return false
   }
   finally {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { LogLine } from '@shared/contracts'
+import { errorMessage } from '@shared/error-message'
 import { ArrowDownToLine, CircleAlert, FileText, RefreshCw, ScrollText, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -86,7 +87,7 @@ async function loadServers(): Promise<void> {
     selected.value = candidate
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     listLoading.value = false
@@ -124,7 +125,7 @@ async function loadTail(): Promise<void> {
   catch (caught) {
     if (token !== tailRequest)
       return
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     if (token === tailRequest)
@@ -144,7 +145,7 @@ async function clearFile(): Promise<void> {
     await loadServers()
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
 }
 

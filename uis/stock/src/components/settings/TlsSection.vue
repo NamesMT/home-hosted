@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ControlView } from '@shared/contracts'
+import { errorMessage } from '@shared/error-message'
 import { computed, ref } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -67,7 +68,7 @@ async function uploadCertificate(): Promise<void> {
       error.value = failure
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false
@@ -87,7 +88,7 @@ async function removeCertificate(): Promise<void> {
       error.value = failure
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false

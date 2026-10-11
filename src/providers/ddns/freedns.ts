@@ -1,5 +1,6 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
 import { failed, missingFields, succeeded } from '#src/providers/ddns/types'
+import { errorMessage } from '#src/shared/error-message'
 
 const ENDPOINT = 'https://freedns.afraid.org/dynamic/update.php'
 
@@ -43,7 +44,7 @@ export const freednsProvider: DdnsProvider = {
       return succeeded(`set ${record.host} ${record.type} to ${record.ip}`, true)
     }
     catch (error) {
-      return failed(error instanceof Error ? error.message : String(error))
+      return failed(errorMessage(error))
     }
   },
 }

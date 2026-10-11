@@ -1,4 +1,5 @@
 import type { Bind, LogsConfig, NotificationView, ServerDefaults, ServerView, WorkspaceSettingsPatch, WorkspaceView } from '@shared/contracts'
+import { errorMessage } from '@shared/error-message'
 import { computed, readonly, ref, watch } from 'vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { flash } from '@/composables/useUi'
@@ -77,7 +78,7 @@ export function useWorkspaces() {
       return workspace
     }
     catch (error) {
-      flash(error instanceof Error ? error.message : String(error), 'error')
+      flash(errorMessage(error), 'error')
       return undefined
     }
     finally {
@@ -93,7 +94,7 @@ export function useWorkspaces() {
       return true
     }
     catch (error) {
-      flash(error instanceof Error ? error.message : String(error), 'error')
+      flash(errorMessage(error), 'error')
       return false
     }
   }
@@ -106,7 +107,7 @@ export function useWorkspaces() {
       return true
     }
     catch (error) {
-      flash(error instanceof Error ? error.message : String(error), 'error')
+      flash(errorMessage(error), 'error')
       return false
     }
   }

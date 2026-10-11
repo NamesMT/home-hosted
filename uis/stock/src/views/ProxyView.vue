@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ProxyView } from '@shared/contracts'
 import type { ListenerDraft, ProxyAction, ProxyWorkspace, RouteDraft } from '@/lib/proxy'
+import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, ref, watch } from 'vue'
 import CertificatePanel from '@/components/proxy/CertificatePanel.vue'
 import EnginePanel from '@/components/proxy/EnginePanel.vue'
@@ -105,7 +106,7 @@ async function load(): Promise<void> {
     fetched.value = await api.fetchProxy()
   }
   catch (caught) {
-    loadError.value = caught instanceof Error ? caught.message : String(caught)
+    loadError.value = errorMessage(caught)
   }
 }
 
@@ -142,7 +143,7 @@ async function act(action: ProxyAction): Promise<void> {
     await control.refresh()
   }
   catch (caught) {
-    actionError.value = caught instanceof Error ? caught.message : String(caught)
+    actionError.value = errorMessage(caught)
   }
   finally {
     busy.value = null
@@ -173,7 +174,7 @@ async function save(): Promise<void> {
     syncFromLive()
   }
   catch (caught) {
-    saveError.value = caught instanceof Error ? caught.message : String(caught)
+    saveError.value = errorMessage(caught)
   }
   finally {
     saving.value = false
@@ -222,7 +223,7 @@ async function retryCertificate(route: RouteDraft): Promise<void> {
     toasts.success(`asking the CA again for ${route.host}`)
   }
   catch (caught) {
-    toasts.failure('the retry failed', caught instanceof Error ? caught.message : String(caught))
+    toasts.failure('the retry failed', errorMessage(caught))
   }
   finally {
     busy.value = null

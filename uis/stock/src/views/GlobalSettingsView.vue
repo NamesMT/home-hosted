@@ -2,6 +2,7 @@
 import type { SettingsPatch } from '@shared/contracts'
 import type { FormSnapshots, GlobalFormBlock, GlobalSettingsForm } from '@/components/settings/settingsForm'
 import type { SettingsView } from '@/lib/api'
+import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -181,7 +182,7 @@ async function loadConfig(): Promise<void> {
     settingsConfig.value = await api.fetchSettings()
   }
   catch (caught) {
-    configLoadError.value = caught instanceof Error ? caught.message : String(caught)
+    configLoadError.value = errorMessage(caught)
   }
 }
 

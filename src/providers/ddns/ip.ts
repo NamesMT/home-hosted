@@ -1,5 +1,6 @@
 import type { DdnsFetch } from '#src/providers/ddns/types'
 import { isIP } from 'node:net'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * Keyless public-address services. The family-specific hostnames are the point:
@@ -177,7 +178,7 @@ export async function detectPublicAddress(
       lastError = `${endpoint} did not answer with a public ${family === 'A' ? 'IPv4' : 'IPv6'} address`
     }
     catch (error) {
-      lastError = `${endpoint}: ${error instanceof Error ? error.message : String(error)}`
+      lastError = `${endpoint}: ${errorMessage(error)}`
     }
   }
 

@@ -1,6 +1,7 @@
 import type { LogLine } from '#src/shared/contracts'
 import { logger } from '#src/helpers/logger'
 import { LogTailer } from '#src/providers/log-tail'
+import { errorMessage } from '#src/shared/error-message'
 
 /**
  * Live logs for persistent entries.
@@ -94,7 +95,7 @@ export class LogRelay {
         this.poll()
       }
       catch (error) {
-        logger.warn(`tail failed: ${error instanceof Error ? error.message : String(error)}`)
+        logger.warn(`tail failed: ${errorMessage(error)}`)
       }
     }, this.options.intervalMs ?? TAIL_INTERVAL_MS)
     this.timer.unref()

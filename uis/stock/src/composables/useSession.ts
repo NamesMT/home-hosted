@@ -1,4 +1,5 @@
 import type { SessionView } from '@shared/contracts'
+import { errorMessage } from '@shared/error-message'
 import { readonly, ref } from 'vue'
 import * as api from '@/lib/api'
 
@@ -47,7 +48,7 @@ export function useSession() {
       return true
     }
     catch (caught) {
-      error.value = caught instanceof Error ? caught.message : String(caught)
+      error.value = errorMessage(caught)
       return false
     }
   }
@@ -82,7 +83,7 @@ export function useSession() {
       return null
     }
     catch (caught) {
-      return caught instanceof Error ? caught.message : String(caught)
+      return errorMessage(caught)
     }
   }
 
@@ -94,7 +95,7 @@ export function useSession() {
       return null
     }
     catch (caught) {
-      return caught instanceof Error ? caught.message : String(caught)
+      return errorMessage(caught)
     }
   }
 

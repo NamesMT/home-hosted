@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { errorMessage } from '#src/shared/error-message'
 /**
  * The GitHub-release side of installing a UI: which repo, which tag, which asset, how
  * to read the release metadata and how to download one. `ui-switch` picks a release by
@@ -337,7 +338,7 @@ export function formatBytes(bytes: number): string {
 }
 
 export function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return errorMessage(error)
 }
 
 /**

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { BackupFile, RestorePlan } from '@shared/contracts'
+import { errorMessage } from '@shared/error-message'
 import { computed, ref, watch } from 'vue'
 import * as api from '@/lib/api'
 
@@ -59,7 +60,7 @@ async function planCurrent(): Promise<void> {
       : await api.restoreUploadedBackup(file.value!, false, restoreOptions())
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false
@@ -123,7 +124,7 @@ async function apply(): Promise<void> {
     emit('close')
   }
   catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught)
+    error.value = errorMessage(caught)
   }
   finally {
     busy.value = false
