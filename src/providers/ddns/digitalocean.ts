@@ -1,5 +1,5 @@
 import type { DdnsContext, DdnsProvider, DdnsRecord, DdnsResult } from '#src/providers/ddns/types'
-import { errorText, failed, missingFields, succeeded } from '#src/providers/ddns/types'
+import { errorText, failed, missingFields, succeeded, wrote } from '#src/providers/ddns/types'
 import { splitHost } from '#src/providers/ddns/zone'
 import { errorMessage } from '#src/shared/error-message'
 
@@ -56,9 +56,7 @@ export const digitaloceanProvider: DdnsProvider = {
             signal: context.signal,
           })
 
-      if (!written.ok)
-        return failed(await errorText(written))
-      return succeeded(`set ${record.host} ${record.type} to ${record.ip}`, true)
+      return await wrote(written, record)
     }
     catch (error) {
       return failed(errorMessage(error))

@@ -94,6 +94,20 @@ export function failed(error: string): DdnsResult {
   return { ok: false, changed: false, message: error, error }
 }
 
+/**
+ * The result of the write six providers end their `update()` with.
+ *
+ * They repeated the same two lines after their own write call, and they have to agree: a
+ * non-ok response is a provider error with its body attached, and an ok one is a change.
+ * The message names the record, because a settings page shows it as the account's last
+ * result and "ok" would not say what actually moved.
+ */
+export async function wrote(response: Response, record: DdnsRecord): Promise<DdnsResult> {
+  if (!response.ok)
+    return failed(await errorText(response))
+  return succeeded(`set ${record.host} ${record.type} to ${record.ip}`, true)
+}
+
 /** Missing required credential keys, as a sentence for the settings page. */
 export function missingFields(credentials: Record<string, string> | null, keys: string[]): string | null {
   const missing = keys.filter(key => (credentials?.[key] ?? '').trim().length === 0)
