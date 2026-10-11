@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import type { HealthConfig, RestartConfig, ServerDefaults, StopConfig } from '@shared/contracts'
+import type { ServerDefaults } from '@shared/contracts'
 import { serverCreateSchema } from '@shared/contracts'
 import { diffFields } from '@shared/patch-diff'
 import { type } from 'arktype'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
+import ServerFormFields from '@/components/ServerFormFields.vue'
 import { flash, selectedId } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { linesToArray, textToEnv } from '@/lib/fields'
 import { repairNumbers } from '@/lib/forms'
+import { blankSharedForm, cloneHealth, inheritBaseline, rssBytesFromForm, SCHEMA_HEALTH, SCHEMA_RESTART, SCHEMA_STOP } from '@/lib/serverForm'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -15,78 +18,28 @@ const emit = defineEmits<{ close: [] }>()
 const workspace = useWorkspaces()
 const error = ref<string | null>(null)
 const busy = ref(false)
-const idField = ref<HTMLInputElement | null>(null)
+const fields = ref<InstanceType<typeof ServerFormFields> | null>(null)
 
-/** Schema constants, only until the panel defaults have landed. */
-const SCHEMA_RESTART: RestartConfig = { enabled: true, maxRetries: 3, baseDelayMs: 1000, factor: 2, maxDelayMs: 30000, resetAfterMs: 60000 }
-const SCHEMA_HEALTH: HealthConfig = {
-  enabled: true,
-  mode: 'port',
-  http: { path: '/', method: 'GET', expectStatusBelow: 400, expectBody: '' },
-  intervalMs: 5000,
-  timeoutMs: 1500,
-  unhealthyThreshold: 3,
-  forceRestartAfterMs: 0,
-  startTimeoutMs: 20000,
-}
-const SCHEMA_STOP: StopConfig = { signal: 'SIGTERM', killGroup: true, graceMs: 5000, killPortHolders: false }
-
-function cloneHealth(health: HealthConfig): HealthConfig {
-  return { ...health, http: { ...health.http } }
-}
-
-function blank(defaults: ServerDefaults | null) {
+/**
+ * The dialog's own form: the shared fields plus the three it alone carries. `id` is new
+ * here — the page edits an entry that already has one — and `restart`, `health` and `stop`
+ * are the typed nested groups this form binds to `LifecycleFields`, where the page's
+ * lifecycle boxes are flat strings.
+ */
+function blank(defaults: ServerDefaults | null = workspace.defaults.value) {
   return {
     id: '',
-    label: '',
-    command: '',
-    args: '',
-    cwd: '',
-    port: '',
-    bind: defaults?.bind ?? 'local',
-    autostart: defaults?.autostart ?? false,
-    persistent: false,
-    enabled: defaults?.enabled ?? true,
-    env: '',
-    dataEnvs: '',
-    backupPaths: '',
-    backupIgnoreGenerated: true,
-    dependsOn: '',
-    envFile: '',
-    maxRssMb: '',
-    onPortConflict: defaults?.onPortConflict ?? 'block',
-    logBufferLines: '',
+    ...blankSharedForm('sheet', defaults),
     restart: { ...(defaults?.restart ?? SCHEMA_RESTART) },
     health: cloneHealth(defaults?.health ?? SCHEMA_HEALTH),
     stop: { ...(defaults?.stop ?? SCHEMA_STOP) },
-    bootstrapEnabled: false,
-    bootstrapCommand: '',
-    bootstrapArgs: '',
-    bootstrapEnv: '',
-    bootstrapTimeoutMs: '',
-    bootstrapRunOnce: true,
   }
 }
 
-const form = reactive(blank(workspace.defaults.value))
+const form = reactive(blank())
 
 /** What a blank buffer field inherits, so the hint cannot lie about the number. */
 const inheritedLogLines = computed(() => workspace.defaults.value?.logBufferLines ?? 500)
-
-function linesToArray(value: string): string[] {
-  return value.split('\n').map(entry => entry.trim()).filter(entry => entry.length > 0)
-}
-
-function textToEnv(value: string): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const line of linesToArray(value)) {
-    const separator = line.indexOf('=')
-    if (separator <= 0)
-      continue
-    env[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
-  }
-  return env
-}
 
 function reset(): void {
   Object.assign(form, blank(workspace.defaults.value))
@@ -99,29 +52,8 @@ watch(() => props.open, async (open) => {
   // Every open starts equal to what the entry would inherit.
   reset()
   await nextTick()
-  idField.value?.focus()
+  fields.value?.focusField('id')
 })
-
-/** What the entry would inherit if the body said nothing: schema defaults under the panel's own. */
-function inheritBaseline(defaults: ServerDefaults | null): Record<string, unknown> {
-  return {
-    args: [],
-    cwd: '.',
-    env: {},
-    dataEnvs: {},
-    dependsOn: [],
-    envFile: '',
-    backupPaths: [],
-    backupIgnoreGenerated: true,
-    resources: { maxRssBytes: 0 },
-    bind: defaults?.bind ?? 'local',
-    enabled: defaults?.enabled ?? true,
-    autostart: defaults?.autostart ?? false,
-    persistent: false,
-    onPortConflict: defaults?.onPortConflict ?? 'block',
-    logBufferLines: defaults?.logBufferLines ?? 500,
-  }
-}
 
 /**
  * What the person decided, and nothing else: a value equal to what the entry
@@ -129,7 +61,6 @@ function inheritBaseline(defaults: ServerDefaults | null): Record<string, unknow
  * instead of freezing today's values into `servers.config.json`.
  */
 function buildPayload(): Record<string, unknown> {
-  const rssMb = form.maxRssMb.trim()
   const bufferLines = form.logBufferLines.trim()
   const bootstrapMs = Number(form.bootstrapTimeoutMs)
   const defaults = workspace.defaults.value
@@ -144,7 +75,7 @@ function buildPayload(): Record<string, unknown> {
     envFile: form.envFile.trim(),
     backupPaths: linesToArray(form.backupPaths),
     backupIgnoreGenerated: form.backupIgnoreGenerated,
-    resources: { maxRssBytes: rssMb === '' ? 0 : Math.round(Number(rssMb) * 1024 * 1024) },
+    resources: { maxRssBytes: rssBytesFromForm(form.maxRssMb) },
     onPortConflict: form.onPortConflict,
     bind: form.bind,
     enabled: form.enabled,
@@ -256,148 +187,20 @@ async function submit(): Promise<void> {
 
       <form class="sheet__form" @submit.prevent="submit">
         <div class="overlay__body">
-          <div class="grid">
-            <label class="field">
-              <span class="field__label">id</span>
-              <input ref="idField" v-model="form.id" placeholder="my-server" required>
-            </label>
-            <label class="field">
-              <span class="field__label">label</span>
-              <input v-model="form.label" placeholder="falls back to the id">
-            </label>
-            <label class="field grid__full">
-              <span class="field__label">command</span>
-              <input v-model="form.command" placeholder="node" required>
-            </label>
-            <label class="field grid__full">
-              <span class="field__label">args — space separated</span>
-              <input v-model="form.args" placeholder="-p {port} -H {host}">
-              <span class="field__hint">placeholders: {port} {host} {home} {projectDir} {dataRoot} {id} {label} {cwd} {bind} {lanIp}</span>
-            </label>
-            <label class="field">
-              <span class="field__label">cwd</span>
-              <input v-model="form.cwd" placeholder=".">
-            </label>
-            <label class="field">
-              <span class="field__label">port</span>
-              <input v-model="form.port" inputmode="numeric" placeholder="empty = none">
-            </label>
-            <label class="field">
-              <span class="field__label">bind</span>
-              <select v-model="form.bind">
-                <option value="local">local (127.0.0.1)</option>
-                <option value="lan">lan (0.0.0.0)</option>
-              </select>
-            </label>
-            <label class="field field--check">
-              <input v-model="form.autostart" type="checkbox">
-              <span class="field__label">autostart with up</span>
-            </label>
-            <label class="field field--check">
-              <input v-model="form.persistent" type="checkbox">
-              <span class="field__label">persistent</span>
-              <span class="field__hint">keeps running when the panel stops; <code>down</code> reports it instead of stopping it</span>
-            </label>
-          </div>
-
-          <details class="advanced">
-            <summary class="advanced__summary">
-              advanced
-            </summary>
-            <p class="field__hint advanced__note">
-              restart, health, stop and bootstrapping start equal to the panel defaults —
-              change a group to write it into this entry; leave it alone and it keeps inheriting.
-            </p>
-
-            <div class="grid">
-              <label class="field field--check">
-                <input v-model="form.enabled" type="checkbox">
-                <span class="field__label">enabled</span>
-              </label>
-              <label class="field">
-                <span class="field__label">on port conflict</span>
-                <select v-model="form.onPortConflict">
-                  <option value="block">block</option>
-                  <option value="warn">warn</option>
-                  <option value="follow">follow</option>
-                  <option value="reclaim">reclaim</option>
-                  <option value="kill">kill</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="field__label">log buffer lines</span>
-                <input v-model="form.logBufferLines" inputmode="numeric" :placeholder="`inherited (${inheritedLogLines})`">
-              </label>
-              <label class="field">
-                <span class="field__label">max rss (MiB)</span>
-                <input v-model="form.maxRssMb" inputmode="numeric" placeholder="empty = no guard">
-              </label>
-              <label class="field">
-                <span class="field__label">env file</span>
-                <input v-model="form.envFile" placeholder="empty = none">
-              </label>
-              <label class="field">
-                <span class="field__label">depends on — comma separated ids</span>
-                <input v-model="form.dependsOn" placeholder="db, cache">
-              </label>
-              <label class="field grid__full">
-                <span class="field__label">env — KEY=value per line</span>
-                <textarea v-model="form.env" rows="3" spellcheck="false" />
-              </label>
-              <label class="field grid__full">
-                <span class="field__label">data envs — ENV=path per line</span>
-                <textarea v-model="form.dataEnvs" rows="3" spellcheck="false" placeholder="DATA_DIR={home}/.app" />
-                <span class="field__hint">exported to the process and picked up by backups automatically</span>
-              </label>
-              <label class="field grid__full">
-                <span class="field__label">extra backup paths — one per line</span>
-                <textarea v-model="form.backupPaths" rows="2" spellcheck="false" placeholder="{home}/.app/uploads" />
-              </label>
-              <label class="field field--check grid__full">
-                <input v-model="form.backupIgnoreGenerated" type="checkbox">
-                <span class="field__label">ignore known generated files when backing this up</span>
-                <span class="field__hint">node_modules, dist, .next, caches — nothing restores from them</span>
-              </label>
-            </div>
-
-            <LifecycleFields
-              v-model:restart="form.restart"
-              v-model:health="form.health"
-              v-model:stop="form.stop"
-            />
-
-            <div class="group">
-              <div class="group__head">
-                <span class="group__title">bootstrap</span>
-                <label class="field field--check" style="padding-top: 0">
-                  <input v-model="form.bootstrapEnabled" type="checkbox">
-                  <span class="field__label">run before the first start</span>
-                </label>
-              </div>
-              <div class="grid">
-                <label class="field">
-                  <span class="field__label">command</span>
-                  <input v-model="form.bootstrapCommand" :disabled="!form.bootstrapEnabled" placeholder="./scripts/install.sh">
-                </label>
-                <label class="field">
-                  <span class="field__label">timeout (ms)</span>
-                  <input v-model="form.bootstrapTimeoutMs" inputmode="numeric" :disabled="!form.bootstrapEnabled" placeholder="120000">
-                </label>
-                <label class="field field--check">
-                  <input v-model="form.bootstrapRunOnce" type="checkbox" :disabled="!form.bootstrapEnabled">
-                  <span class="field__label">once per up session</span>
-                </label>
-                <label class="field grid__full">
-                  <span class="field__label">args — one per line</span>
-                  <textarea v-model="form.bootstrapArgs" rows="2" spellcheck="false" :disabled="!form.bootstrapEnabled" />
-                </label>
-                <label class="field grid__full">
-                  <span class="field__label">env — KEY=value per line</span>
-                  <textarea v-model="form.bootstrapEnv" rows="2" spellcheck="false" :disabled="!form.bootstrapEnabled" />
-                </label>
-              </div>
-            </div>
-          </details>
+          <ServerFormFields
+            ref="fields"
+            :form="form"
+            variant="sheet"
+            :inherited-log-lines="inheritedLogLines"
+          >
+            <template #lifecycle>
+              <LifecycleFields
+                v-model:restart="form.restart"
+                v-model:health="form.health"
+                v-model:stop="form.stop"
+              />
+            </template>
+          </ServerFormFields>
 
           <p v-if="error" class="note note--error">
             {{ error }}
