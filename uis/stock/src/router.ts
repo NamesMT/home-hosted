@@ -29,15 +29,9 @@ export const router = createRouter({
     // Panel-wide, under Others: one engine exposes every workspace's servers.
     { path: '/proxy', name: 'proxy', component: ProxyView, meta: { title: 'Reverse Proxy' } },
     { path: '/login', name: 'login', component: LoginView, meta: { title: 'Sign in' } },
-    // The pre-workspace URLs, the bare entries, and anything unknown land on the
-    // canonical URL the guard picks, so an old bookmark keeps working.
+    // The bare root and anything unknown: the guard rewrites both to the panel-wide
+    // overview, and the catch-all is what an unmatched path has to match at all.
     { path: '/', name: 'home', component: OverviewView },
-    { path: '/servers', name: 'legacy-servers', component: ServersView },
-    { path: '/servers/:id', name: 'legacy-server-detail', component: ServerDetailView },
-    { path: '/logs', name: 'legacy-logs', component: LogsView },
-    { path: '/settings', name: 'legacy-settings', component: SettingsView },
-    { path: '/global', name: 'legacy-global', component: GlobalOverviewView },
-    { path: '/global-settings', name: 'legacy-global-settings', component: GlobalSettingsView },
     { path: '/:pathMatch(.*)*', name: 'not-found', component: OverviewView },
   ],
 })
@@ -78,10 +72,6 @@ router.beforeEach(async (to) => {
     return true
   if (to.name === 'global-overview' || to.name === 'global-settings' || to.name === 'proxy')
     return true
-  if (to.name === 'legacy-global')
-    return { name: 'global-overview', query: to.query, replace: true }
-  if (to.name === 'legacy-global-settings')
-    return { name: 'global-settings', query: to.query, replace: true }
   // `/` and anything unrecognized open the panel-wide overview.
   if (to.name === 'home' || to.name === 'not-found')
     return { name: 'global-overview', replace: true }
@@ -102,9 +92,10 @@ router.beforeEach(async (to) => {
   }
 
   const id = workspace.activeId.value || list[0]!.id
-  const base = String(to.name ?? '').replace(/^legacy-/, '')
-  // A legacy `/servers/:id` names a server, not a workspace; keep the server.
-  const name = base === 'server-detail' || (base === 'servers' && 'id' in to.params) ? 'server-detail' : (WORKSPACE_ROUTES.has(base) ? base : 'overview')
+  // Only a canonical `/w/:workspaceId/…` page can reach this point — `home` and `not-found`
+  // returned above — so the name is kept and only the workspace is replaced. Nothing else strips
+  // or matches on a name here any more: the `legacy-` entries are gone from the table.
+  const name = String(to.name ?? '')
   const params: Record<string, string> = { ...(to.params as Record<string, string>), workspaceId: id }
   if (name === 'server-detail' && params.id === undefined)
     return { name: 'servers', params: { workspaceId: id }, query: to.query, replace: true }
