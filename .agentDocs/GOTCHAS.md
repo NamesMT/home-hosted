@@ -11,32 +11,11 @@ line in `AGENTS.md` instead.
 
 - **`run.json` is the daemon's identity and `down`'s credential.** Keep `runtimeSchema` in sync with
   the `Runtime` written in `src/index.ts`. It lives at `.hh/run.json`.
-- **A live pid is not the running panel: pids are recycled, and a zombie answers signal 0.** A stale
-  `run.json` whose pid the OS had since handed to an unrelated process made `up` refuse with "already
-  running", `status` report "running, but not answering", and — worst — `down` SIGTERM then SIGKILL
-  that stranger. `processLiveness(pid, startedAt)` (`providers/port.ts`) is the one guard: the daemon
-  stamps `startedAt` during its own boot, so a pid **born after** that stamp cannot be it. Every caller
-  reads `runtimeIsAlive`/`runtimeLiveness` — a second, slightly different predicate is how a `down`
-  comes to signal somebody's unrelated process.
-  - `'unknown'` (no readable birth time) counts as **alive**, and only `'gone'` — nothing behind the
-    pid at all — permits deleting a record. `'recycled'` blocks a **signal**, but not the graceful
-    `/_hh/shutdown`: that endpoint answers only to the token in the record, so a reply proves the panel
-    is ours. That asymmetry is deliberate — Linux derives a birth epoch from `btime`, which the kernel
-    computes from the wall clock (`getboottime64`: "calls to settimeofday will affect the value
-    returned"), so a forward clock step can make a *live* panel look recycled. A signal must never
-    fire on that verdict; deleting the record or refusing to stop the panel would be the worse error.
 - **A test or script that reads a file as text must not assume the line ending.** A Windows checkout
   has CRLF, so `indexOf('\n}\n')` found nothing, the slice ran past the function it meant to isolate and
   picked up the *next* one's contents — `global group 'defaults'` failing against the global keys list.
   Linux CI passed; only the platform gate caught it. Normalize (`replaceAll('\r\n', '\n')`) **and throw
   when the boundary is missing**, because silent bleed is the failure mode.
-- **`ensureLayout()` runs before any command resolves a state path** (the CLI pre-pass). Through
-  0.7.x it *relocated* a pre-workspace `$HHOSTED_HOME`; 0.8.0 dropped the mover and it now **refuses**
-  that home instead. The refusal is the whole point: read as empty, the old `servers.config.json`
-  would sit unread beside a panel supervising nothing, with no error anywhere — the stores seed their
-  own defaults and nothing looks at the legacy path again. It keys on `hasLegacyLayout()` — the old
-  files present **and** no `workspaces.json` — not on the file alone, because a stray root-level copy
-  beside an already-migrated `.hh` is not an old instance and must not strand a working panel.
 - **A basename is not an identity.** `sameWord` compares two spellings of the same file, and it fell
   back to `path.basename` on **both** sides — so `/tmp/evil/server.js` matched `/srv/web/server.js`,
   the exact guarantee the comment above it claimed to make. A false match here is not cosmetic:
@@ -44,11 +23,10 @@ line in `AGENTS.md` instead.
   `follow`, or remove one on `reclaim`/`kill`. The fallback is needed while one spelling is bare (the
   config says `node`, the process table says `/usr/bin/node`); it must not apply when both name a
   directory.
-- **Port preflight re-probes after 300 ms**: a just-closed listener can still complete a handshake.
-- **The CLI's port preflight runs before its config guard**, so a busy default port turns config
-  tests red for the wrong reason. Dev and test instances stay in the 6xxx range.
 - `vite.server.config.ts` targets `node22` while `engines` requires >= 24 — deliberate margin.
-- `pnpm test` watches; CI runs `vitest run`.
+- **A bounded read must stay bounded.** `readLog` (`providers/log-tail.ts`) answers `logs --lines N`
+  from the tail of the file, so peak allocation does not scale with a 10 MB pair; the test asserts
+  that shape rather than a wall-clock number, which would be flaky on CI.
 - **`pnpm run media` needs fonts *and* the X/NSS/Mesa libraries** for Playwright's Chromium. In a
   bare container point `FONTCONFIG_PATH` at a `fonts.conf` covering any TTF and `LD_LIBRARY_PATH` at
   a directory holding those libraries — without fonts, Skia panics instead of rendering, and the
@@ -90,25 +68,20 @@ line in `AGENTS.md` instead.
 - **`stop.killPortHolders` frees a port only from a *listener* that is not our own process tree.**
   Broad `lsof -ti:<port>` sweeps and pid-as-text parses have killed supervisors in the field; do not
   add one. `free-port` reuses the same lookup and adds the supervisor's own pid set on top.
-- **The per-second tick is not worth optimising — measured.** With 40 servers, `getState()` costs
-  ~0.22 ms and `sampleMany()` over 40 pids ~15 ms; the state is published only when the signature
-  changes and resources are sampled every 5 s. Measure elsewhere first.
-- **Startup is dominated by module load, not by work — measured, so a future round does not
-  re-derive it.** `src/app.ts` costs ~1.1 s to import, and `#src/shared/contracts` ~0.75 s of that,
-  of which **arktype itself is ~0.43 s**. Nothing runs slowly; the graph is simply large.
-  Two consequences worth knowing: `up` used to import the whole daemon before deciding to detach
-  (~1 s wasted, now deferred — `up` 5.3 s → 2.0 s, and the suite 55 s → 31 s); and the daemon child
-  inherits `process.execArgv`, so under tsx it re-compiles the graph while the **built** CLI does not.
-  That last point is why `--version` is ~0.4 s built against ~2.0 s under tsx, yet `up` is ~1.8 s
-  either way — the child dominates, not the parent.
+- **The per-second tick is not worth optimising.** `getState()` and the 40-pid `sampleMany()` are
+  cheap next to anything else in the loop; the state is published only when its signature changes and
+  resources are sampled every 5 s. Measure elsewhere first.
+- **Startup is dominated by module load, not by work.** `src/app.ts` and the schemas it pulls in cost
+  over a second to import, so `up` defers the daemon graph until it has decided to detach, and the
+  daemon child inherits `process.execArgv` — under tsx it re-compiles that graph, under the built CLI
+  it does not. A "slow" startup is the graph, not a loop.
 
 ## Config
 
-- **An upload bound enforced after `parseBody()` is a memory limit, not a guard.** Both upload routes
-  read `Content-Length` first — a header a **chunked** request does not send — and compare `file.size`
-  only after the whole body is already in memory. `bodyLimit` from `hono/body-limit` counts chunks and
-  aborts at the cap, which is the half the header check cannot do. **Check the order, not just the
-  presence, of a size limit.**
+- **Check the order, not just the presence, of a size limit.** `Content-Length` is a header a
+  **chunked** request does not send, so a bound enforced after `parseBody()` is a memory limit, not a
+  guard — both upload routes read the header *and* use `bodyLimit` from `hono/body-limit`, which counts
+  chunks and aborts at the cap.
 - **`cookieSecure: auto` depends on srvx, not on this repo.** `secureCookie` reads
   `new URL(c.req.url).protocol`, and behind a proxy that is `https:` only because srvx rewrites
   `url.protocol` from `x-forwarded-proto` when `trustProxy` is on
@@ -122,26 +95,18 @@ line in `AGENTS.md` instead.
   A revision it cannot read — **unparseable JSON included** — is reported in the state frame while
   the running config is kept; that path once fell back to an *empty* config, which would have
   stopped every server.
-- **`Workspace Settings → Server defaults` merge into the nested groups key by key.** A shallow
-  `{ ...defaults, ...entry }` lets an entry that decides `restart.maxRetries` silently drop the
-  workspace's `restart.baseDelayMs`, and the create/edit diff flow depends on inheriting exactly
-  that.
-- **The curated CLI dispatch reads only the flag forms** (`--help`/`-h`, `--version`/`-v`) after a
-  command name, never a bare `help`/`version` — that is an option's value (`init --name help`).
 
 ## UI
 
-- **The shell must watch the *session*, not only the flags derived from it.** With authentication
-  off, `authRequired` and `authenticated` are both `false` from first paint to last, so a watcher on
-  those two never ran after the session landed: the event stream never opened and the dashboard
-  showed one stale snapshot forever. Both UIs derive one `streamDecision(session)` value
-  (`wait` | `connect` | `login`) and watch that — which is what the test pins.
-- **A form that copies live state must guard per block, never globally.** Host thresholds and the
-  backups policy arrive from `/api/settings` *after* the SSE frame, so one "has anything changed?"
-  gate leaves them showing schema defaults forever — the backups toggle reported itself as changed
-  and flipped back on every reload. Compare each block against the snapshot it was filled from. The
-  copy must be **detached**: a shallow one leaves a nested group (`health.http`) aliased to live
-  state, so an edit mutated the very config the guard compared against.
+- **Watch the *session*, not the flags derived from it.** With authentication off, `authRequired` and
+  `authenticated` are both `false` from first paint to last, so a watcher on those two never fires
+  after the session lands — the stream never opens. Both UIs derive one `streamDecision(session)`
+  value (`wait` | `connect` | `login`) and watch that; the test pins the value, not the flags.
+- **A form that copies live state guards per block, never globally, and copies detached.** Host
+  thresholds and the backups policy arrive from `/api/settings` *after* the SSE frame, so one "has
+  anything changed?" gate leaves them on schema defaults forever; and a shallow copy leaves a nested
+  group (`health.http`) aliased to live state, so an edit mutates the very config the guard compares
+  against. Each block keeps its own baseline.
 - **An absolutely positioned element inside a *static* scroll container resolves against the page,
   not the scroller** — an `sr-only` label in a table row gave the document a second, empty
   scrollbar. The shell's `main` carries `relative`; keep it there.
@@ -163,109 +128,81 @@ line in `AGENTS.md` instead.
 
 ## Data
 
-- **Generated directories are skipped by the `filter` handed to `fs.cpSync`**, matched on an exact
-  path *segment* at any depth: `dist/` and `app/node_modules/` go, `distributed/` and
-  `my_node_modules/` stay. Only the paths an entry declares are filtered — a global
-  `backups.includePaths` entry is captured as it stands. `.git` is deliberately **kept**: a package
-  manager can reinstall `node_modules`, nobody can restore a commit that was never pushed.
-- **Backups are zips.** A password makes them WinZip AES-256/AE-2, and zero-byte entries stay
-  unencrypted on purpose (p7zip 16.02 reports a CRC failure otherwise). `list()` is sync, so
-  encryption flags are cached and refreshed in the background.
-- **`trustProxy: true` makes the login lockout advisory.** It trusts `x-forwarded-*` from *any* peer,
-  and srvx resolves the client address from the **leftmost** `x-forwarded-for` entry — a value the
-  caller writes. Failures are keyed on that address, so a client rotating the header never accumulates
-  them: measured, 30 wrong passwords from 30 forged addresses produced **zero** 429s against 27 from a
-  fixed one. A startup warning fires for the dangerous combination (`trustProxy` on with a non-loopback
-  bind). Not preventable in the app: once the header is trusted, srvx's real peer is `#remoteAddress`,
-  private, so the lockout cannot be re-keyed on it. `trustProxy: "loopback"` is a middle option srvx
-  supports but the schema does not expose yet; a remote proxy genuinely needs `true`.
-- **Compare a secret with `secretEqual`, never `!==`.** `!==` short-circuits at the first differing
-  byte, so a caller who can measure response time recovers the secret one byte at a time. The `/_hh`
-  channel is the case that matters: it sits outside `/api`, so the run.json token is the *only* guard,
-  and the documented threat is another local user — precisely someone who cannot read the 0600 file but
-  can time a request. One helper (`src/helpers/secret-compare.ts`) also carries the length check that
-  keeps a truncated header from making `timingSafeEqual` throw a 500.
-- **Server args are logged *before* `${VAR}` expansion**, so an expanded secret never reaches the
-  log buffer, disk, SSE or Telegram.
-- **A certificate is valid only *inside* its window.** `validatePair` checked `validTo` alone, so a
-  pair whose `notBefore` is in the future was accepted, stored, and made the panel restart onto HTTPS
-  — where every browser refuses it, locking the user out with no way back but the filesystem. Both
-  ends are now checked in one `validityError()`, which `status()` also uses: the UI names the real
-  reason instead of reporting a positive `daysRemaining` and no error. `keyMatches` is a separate
-  field on purpose — a window problem must not read as a key mismatch and send you to the wrong file.
-  `-not_before`/`-not_after` need OpenSSL ≥ 3.2, so the tests probing that window are behind
-  `hasOpensslExplicitDates` (probed, not version-compared: macOS ships LibreSSL).
-- **A removed server must take its log files with it.** `sync()` deleted the entry and unfollowed the
-  relay but left `<id>.log` and its rotations on disk; only the explicit `DELETE /api/logs/:id` route
-  called `logFiles.clear`. The files accumulated for every server a panel had ever run, and — the part
-  that bites — **re-adding an id** served the *previous* server's lines as if they were the new one's,
-  since nothing distinguishes a stale file from a current one. Safe to clear in `sync()` because a
-  config that fails to parse keeps the last trusted server list, so a transient bad edit never reads as
-  "every server was removed". **History is the same reclaim**: an id is only unique while it exists, and
-  nothing pruned it either, so a re-added id showed the old entry's crash time — `HistoryStore.forget()`
-  now runs beside `logFiles.clear()` in the same branch. A per-**id** artifact needs reclaiming on
-  removal; check both stores when adding a third.
+- **Generated directories are skipped by the `filter` handed to `fs.cpSync`**, matched on an exact path
+  *segment* at any depth: `dist/` and `app/node_modules/` go, `distributed/` and `my_node_modules/`
+  stay. Only paths an entry declares are filtered; a global `backups.includePaths` entry is captured as
+  it stands. `.git` is deliberately **kept** — a package manager can reinstall `node_modules`, nobody
+  can restore a commit that was never pushed.
+- **Two guards sit on the backup path and only one of them runs.** `declaredData` marks a path
+  `included: false` when it contains the archive directory, so the copy never starts; the check inside
+  `copyInto` is a second line that route does not reach. Grep the caller before trusting the guard you
+  found.
+- **Compare a secret with `secretEqual`, never `!==`** — `!==` short-circuits at the first differing
+  byte, so a caller who can time a response recovers the secret one byte at a time. The `/_hh` channel
+  is the case that matters: it sits outside `/api`, so the run.json token is the only guard, against a
+  local user who cannot read the 0600 file but can time a request. `src/helpers/secret-compare.ts` also
+  carries the length check that keeps a truncated header from making `timingSafeEqual` throw a 500.
+- **A credential must not follow a redirect off its origin.** `downloadToTemp` sends the GitHub token
+  with `redirect: 'follow'`, and an asset URL can 302 to a CDN; it is safe only because undici drops
+  `authorization` cross-origin — a runtime property, not this code's, so the test drives two real
+  loopback servers (a stubbed `fetch` cannot answer it).
+- **Server args are logged *before* `${VAR}` expansion**, so an expanded secret never reaches the log
+  buffer, disk, SSE or Telegram.
+- **A certificate is valid only *inside* its window.** `validatePair` checked `validTo` alone, so a pair
+  whose `notBefore` was in the future was stored and made the panel restart onto HTTPS, where every
+  browser refuses it. Both ends are checked in one `validityError()` that `status()` uses too;
+  `keyMatches` stays separate, because a window problem must not read as a key mismatch.
+  `-not_before`/`-not_after` need OpenSSL ≥ 3.2, so those tests sit behind `hasOpensslExplicitDates`
+  (probed: macOS ships LibreSSL).
+- **A removed server must take its per-id artifacts with it.** `sync()` left `<id>.log` and its
+  rotations on disk, and re-adding an id served the *previous* server's lines — nothing distinguishes a
+  stale file from a current one. `logFiles.clear()` and `HistoryStore.forget()` now both run in that
+  branch (a config that fails to parse keeps the last trusted list, so a bad edit is not "all servers
+  removed"). Check both stores when adding a third per-id artifact.
 - **A dependency order must be topological, and the doc must not overstate it.** `dependenciesOf`
-  pushed each dependency *before* recursing, so it returned `[db, disk]` for `app -> db -> disk` — `db`
-  before the thing it needs. `startDependencies` walks that list in order and awaits readiness, so a
-  server was started with its dependency down. `orderByDependencies` in the same file pushed *after*
-  recursing and was always right; the two now agree. Separately, "stopped in reverse order" was true of
-  `stopAll` only — stopping one server does not cascade, and `dependentsOf` had never been called by
-  anything. It now names the dependents a stop leaves running, which is the honest version of the promise.
+  pushed each dependency *before* recursing, so `startDependencies` could start a server with its
+  dependency down; `orderByDependencies` was always right and the two now agree. "Stopped in reverse
+  order" was true of `stopAll` only — stopping one does not cascade; `dependentsOf` names the dependents
+  a stop leaves running.
 - **Normalise a route path in one place, not two.** `ProxyService.pathKey` strips trailing slashes and
-  uses that to refuse `/app` + `/app/` as a clash; `matchFor` in `proxy-config.ts` built its matchers
-  from the *raw* value. So the two forms were declared the same route and rendered differently — and
-  worse, `/app/` produced `['/app/', '/app//*']`, with a doubled slash. Caddy matches `path` exactly, so
-  the bare `/app` the panel reported as covered was never matched. Strip before building matchers.
+  refuses `/app` + `/app/` as a clash, while `matchFor` in `proxy-config.ts` built matchers from the raw
+  value — so `/app/` produced `['/app/', '/app//*']` and Caddy, matching `path` exactly, never matched
+  the `/app` the panel reported as covered.
 - **A URL scheme you do not support is a mistake, not a hostname.** `parseUpstream` prefixed a bare
-  string with `http://` for convenience, and did it after testing only `^https?://` — so `ftp://x.com`
-  became `http://ftp://x.com`, which `new URL` happily parses as hostname **`ftp`**. The route reported
-  `status: 'ok'` and the engine was handed `ftp:80`, silently. Reject any explicit scheme that is not
-  http/https before prefixing; the same function is the save-time validator, so the refusal reaches the
-  user with the "needs an upstream like …" message.
-- **Uptime is a windowed figure, so clip each run to the window.** Recorded `runtimeMs` is the whole
-  run, and it ends at its own event's `ts`. `Math.min(runtimeMs, windowMs)` only stopped a run from
-  *exceeding* the window; it never looked at *when* the run happened, so a 24h run that ended 12h before
-  `now` reported **100% up** for a 24h window it half-sat outside. Clip the start against the window's
-  own start (`event.ts - Math.max(event.ts - runtimeMs, since)`). The test that should have caught it
-  asserted `1` for a run that was down for the last hour — a test can codify the bug.
-- **`EPERM` from `process.kill(pid, 0)` means the process is ALIVE, not gone.** Two copies of
-  `isProcessAlive` disagreed: `helpers/daemon.ts` read `EPERM` correctly, `providers/port.ts` returned
-  `false`. That predicate is the first line of `nannyIsAlive`, so a nanny owned by another user read as
-  absent — `resumePersistent` then consumed its state file (the only record of the entry) and started a
-  **second** copy while the first kept running untracked. One definition now, re-exported — and
-  `providers/process.ts` no longer keeps its own third copy, whose `false` on `EPERM` made
-  `terminatePid` answer `'force-killed'` for a process it could not signal and never stopped.
+  string with `http://` after testing only `^https?://`, so `ftp://x.com` became `http://ftp://x.com`,
+  which `new URL` parses as hostname **`ftp`** — reported `status: 'ok'` with the engine handed
+  `ftp:80`. Reject any explicit non-http(s) scheme before prefixing; the same function validates at save
+  time, so the refusal reaches the user.
+- **Uptime is windowed, so clip each run to the window.** `Math.min(runtimeMs, windowMs)` only stopped a
+  run *exceeding* the window, never looked at *when* it happened, so a 24h run that ended 12h before
+  `now` reported **100% up**. Clip the start against the window's own start
+  (`event.ts - Math.max(event.ts - runtimeMs, since)`). The test that should have caught it asserted
+  `1` — a test can codify the bug.
+- **`EPERM` from `process.kill(pid, 0)` means the process is ALIVE, not gone** — a port holder owned by
+  another user is exactly that. One definition (`providers/port.ts`), re-exported by `helpers/daemon.ts`;
+  a second copy that returned `false` is the first line of `nannyIsAlive`, so a live nanny reads as
+  absent and `resumePersistent` starts a **second** copy. New liveness checks go through that one
+  function.
 - **A state file is not proof a process is ours.** `ProxyService.stop()` signalled whatever pid
-  `.proxy/proxy.json` named, escalating to `SIGKILL`: `PROXY_ID` is the constant `proxy`, and pids are
-  recycled, so a leftover record could name an unrelated live process and kill it. It now asks the
-  same question the supervisor, `down` and the install guard ask — `nannyIsAlive` (fresh heartbeat,
-  marker, or nanny argv) — and keeps the record when a pid outlives `SIGKILL`, rather than orphaning
-  it. Any new path that reaches a pid from a file must do the same; a liveness check on its own is not
-  identity.
-- **Removing a workspace must not delete the state file a surviving process is found by.**
-  `stopEntry` keeps a persistent entry's nanny state **on purpose** when its pid outlived SIGKILL —
-  "its pid is in the state file" is how a later boot reaches a child the stop could not forward. That
-  file lives at `workspaceStateDir(id)`, i.e. *inside* `workspaceDir(id)`, which `PanelService.remove()`
-  deletes recursively. The loop caught the failed stop, logged a warning and continued, so the process
-  kept running with nothing left that knew its name. `remove()` now refuses while a stop reports
-  `survived the stop`.
+  `.proxy/proxy.json` named, and `PROXY_ID` is the constant `proxy`, so a leftover record could name an
+  unrelated live process. It now asks what the supervisor, `down` and the install guard ask —
+  `nannyIsAlive` (fresh heartbeat, marker, or nanny argv) — and keeps the record when a pid outlives
+  `SIGKILL`. Any path that reaches a pid from a file does the same; liveness alone is not identity.
+- **Removing a workspace must not delete the state file a surviving process is found by.** `stopEntry`
+  keeps a persistent entry's nanny state **on purpose** when its pid outlived SIGKILL, and that file
+  lives at `workspaceStateDir(id)` — *inside* `workspaceDir(id)`, which `PanelService.remove()` deletes
+  recursively. `remove()` now refuses while a stop reports `survived the stop`.
 - **The nanny's `pending` slot is unreachable, and the ordering is what makes it so.** `runNanny`
-  installs its SIGTERM/SIGINT traps and only then spawns, with the `pending` variable holding a signal
-  that lands "in between". Nothing in that block awaits, and Node runs a signal handler only *between*
-  synchronous runs — measured both ways: a handler raised during a busy-loop did not run until the loop
-  yielded, and an instrumented `onSignal` on the real nanny always saw `spawned=set`. So it is kept as
-  the ordering made visible rather than deleted, and `test/services/nanny.test.ts` pins the ordering
-  (traps before spawn, no `await` in the window) instead of the branch. Insert an `await` there and the
-  test fails — which is the moment `pending` becomes live.
-- **`serve({ tls })` throws synchronously on a pair whose key does not match.** Not a rejected
-  `ready()` — the throw happens while the context is built, before `listen()`'s `ready()`/`error` race
-  exists, so `listenWithRetry` cannot treat it as a bind failure and `start()` has no fallback: the
-  panel simply does not boot, reported as `ERR_OSSL_X509_KEY_VALUES_MISMATCH`. `save()` cannot be atomic
-  across two files, and a pair also reaches disk by hand-copy or a restore, so `TlsStore.servable()`
-  validates before handing anything to the server and falls back to http with a warning. `status()`
-  reports the mismatch as an `error` too — a `keyMatches: false` with a null error read as "enabled and
-  fine" while the panel served http.
+  installs its SIGTERM/SIGINT traps and only then spawns, with nothing awaiting in between, and Node
+  runs a signal handler only *between* synchronous runs. It is kept as the ordering made visible, and
+  `test/services/nanny.test.ts` pins the ordering (traps before spawn, no `await` in the window) rather
+  than the branch — insert an `await` there and `pending` becomes live.
+- **`serve({ tls })` throws synchronously on a pair whose key does not match** — not a rejected
+  `ready()`, so `listenWithRetry` cannot treat it as a bind failure and the panel does not boot
+  (`ERR_OSSL_X509_KEY_VALUES_MISMATCH`). A pair also reaches disk by hand-copy or a restore, and
+  `save()` cannot be atomic across two files, so `TlsStore.servable()` validates before handing anything
+  to the server and falls back to http with a warning. `status()` reports the mismatch as an `error`
+  too, or `keyMatches: false` with a null error reads as "enabled and fine".
 
 ## Schemas and types
 
@@ -284,19 +221,3 @@ line in `AGENTS.md` instead.
   gave 0 typecheck errors and 0 test failures. **Count the errors a removal produces, and note where
   they come from** — a guard made of test literals is not the same as one made of production code.
 
-## How to test
-
-`pnpm exec vitest run`; `pnpm run quickcheck` for lint and types. Two habits this repo has learned:
-
-- **A test input must fail for the reason the test claims.** An input refused by an *earlier* check
-  pins nothing about the rule you meant to test. Verify by weakening that rule and watching the test
-  fail; if it still passes, the input was rejected earlier.
-- **Instrument the branch a test claims to reach.** A temporary `console.error` inside it, then run
-  that one test — if the probe never fires, the test is decoration. A passing test is not evidence
-  it pinned anything.
-- **A heuristic tuned for one input shape does not transfer to another.** `nearestWord`'s "half the
-  shorter word" bound is right for long command names (`stats`→`status`, distance 1) and wrong for
-  short option names, which share prefixes: `--no-open` scored 3 from `--no-yes` and passed a bound of
-  3, so the hint named an unrelated flag. It needs a second, absolute bound. The tell is a threshold
-  written as a *fraction* of the input: ask what happens when the input is short, or when two valid
-  values share a prefix, an extension or a common word.

@@ -32,9 +32,8 @@ either is a last resort, and never an accidental one.
 
 - **Routes, response fields and SSE frames move in minor steps** — additive: keep the old one and add
   the new one.
-- **A new response *field* is optional (`'x?'`) and read defensively.** An upgrade writes a new
-  `uis/stock/dist` while the old panel process keeps serving, so a new UI meets an older payload for
-  a while — a required field there rejects the whole frame and blanks the app. Request bodies and
+- **A new response *field* is optional (`'x?'`) and read defensively** (see `AGENTS.md`): a new UI meets
+  an older payload for a while, and a required field there rejects the whole frame. Request bodies and
   config keep their strict, defaulted shape.
 
 ## Migrations
@@ -44,12 +43,9 @@ either is a last resort, and never an accidental one.
 - `home-hosted migrate` prints the plan, keeps a `.bak` beside each file it rewrites, refuses to
   write a config it cannot read, and needs consent: `--yes`, `HHOSTED_MIGRATE=allow`, or a person at
   a terminal.
-- **The pre-workspace relocation is gone as of 0.8.0.** `ensureLayout()` used to move a 0.6.x
-  `$HHOSTED_HOME` into `.hh` and split the old all-in-one file; it now **refuses** that home, naming
-  the files and pointing at the 0.7 line, which still performs the move on its first run. Read as
-  empty instead, the old `servers.config.json` would sit unread beside a panel supervising nothing.
-  The guard keys on the old files being present **and** no `workspaces.json`, so a stray root-level
-  copy beside a migrated `.hh` is not refused.
+- **The pre-workspace relocation is gone as of 0.8.0.** `ensureLayout()` now **refuses** a 0.6.x
+  `$HHOSTED_HOME` instead of moving it — `AGENTS.md` states the rule, `src/config/layout.ts` the reason
+  it is a refusal rather than a read-as-empty.
 - A secrets file that cannot be parsed is refused too, rather than read as a first boot — otherwise
   the default password written on an empty store replaces the password hash, the API token and every
   Telegram and DDNS credential.
@@ -59,10 +55,9 @@ either is a last resort, and never an accidental one.
 ## Breaking changes
 
 Allowed when nothing compatible can be done, but **never silent**: say so in the final answer *and*
-in the commit message with a `BREAKING CHANGE:` footer naming the exact migration to run. Below 1.0
-the minor is the breaking channel — see `AGENTS.md`.
+in the commit message with a `BREAKING CHANGE:` footer naming the exact migration to run. Which
+version channel that means is in [`.agentDocs/RELEASING.md`](RELEASING.md).
 
 ## How to test
 
-`test/shared/contracts.test.ts` pins every schema boundary and the patch/schema parity — update it
-with any schema change. Migration behaviour is covered by the config tests.
+Migration behaviour is covered by the config tests.
