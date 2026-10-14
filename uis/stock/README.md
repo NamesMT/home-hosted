@@ -35,6 +35,32 @@ from its release bundle:
 - Or `home-hosted ui-switch --asset home-hosted-ui-stock.zip` (a unique substring works: `--asset stock`).
 - `home-hosted ui-revert` removes the custom UI and serves the packaged stock panel again.
 
+## Languages
+
+The panel ships in English, Vietnamese, Chinese (zh-CN), Japanese, Spanish, Korean, Russian,
+French and German. A person picks one on the login page or under **Global settings → Language**;
+the choice is kept per browser (`hh.locale`, beside `hh.theme`) so it applies before sign-in.
+
+Only English is loaded eagerly. Every other catalog is a lazily-imported chunk fetched when it is
+chosen, so a panel serving one language pays for one.
+
+### Adding or editing strings
+
+- `src/i18n/` is the engine: `index.ts` (the singleton and `t`/`tc`), `locales.ts` (the language
+  table), `plural.ts` (CLDR plural selection).
+- Catalogs are `src/i18n/messages/<code>.json`, keyed with **flat** dotted keys (`nav.servers`),
+  one entry per string. English is split per area under `messages/en/` and merged at load; a key
+  must appear in exactly one fragment.
+- In a component: `import { t } from '@/i18n'`, then `t('nav.servers')`. `t` is available to the
+  template from `<script setup>` with no extra wiring. `tc('key', count)` selects a plural form.
+- Interpolate with `{name}` placeholders: `t('theme.label', { theme: 'dark' })`.
+- A plural message is an object — `{ "one": "{count} server", "other": "{count} servers" }`. English
+  needs only `one`/`other`; a language that inflects adds `few`/`many` itself.
+- A sentence containing markup keeps the whole sentence in the catalog with a `{placeholder}` and
+  renders through `src/components/ui/TransText.vue` — never split a sentence into fragments.
+- Add a language by adding it to `LOCALES` in `src/i18n/locales.ts` and dropping in
+  `messages/<code>.json`. `test/i18n-catalog.test.ts` fails if a supported locale has no catalog.
+
 ## Before you edit
 
 - Vue 3 and Tailwind v4, built through `uis/vite.shared.ts`.

@@ -15,6 +15,7 @@ import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
 import { countLeaves, diffFields } from '@shared/patch-diff'
 import { computed } from 'vue'
+import { t } from '@/i18n'
 import { waitForEndpoint } from '@/lib/endpoint'
 
 /**
@@ -444,5 +445,5 @@ export async function followRebinding(result: RebindingOutcome): Promise<string 
     window.location.replace(target)
     return null
   }
-  return `The control panel did not answer on ${target}. Check the console for the new listener.`
+  return t('settings.rebind.failed', { target })
 }

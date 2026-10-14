@@ -2,6 +2,7 @@
 import type { ControlView } from '@shared/contracts'
 import { CircleAlert, TriangleAlert } from 'lucide-vue-next'
 import { computed } from 'vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{
   control: ControlView | null
@@ -24,8 +25,8 @@ const notices = computed<Notice[]>(() => {
     out.push({
       id: 'config',
       tone: 'danger',
-      text: `The config could not be read: ${props.configError}`,
-      hint: `The panel keeps running the config it already had; fix ${props.configPath ?? 'servers.config.json'} and it reloads on its own.`,
+      text: t('notice.configError', { error: props.configError }),
+      hint: t('notice.configErrorHint', { path: props.configPath ?? 'servers.config.json' }),
     })
   }
 
@@ -37,31 +38,31 @@ const notices = computed<Notice[]>(() => {
       out.push({
         id: 'default-password',
         tone: 'warn',
-        text: 'This panel is still on its default password.',
-        hint: 'Change it in Global settings — binding beyond 127.0.0.1 stays refused until you do.',
+        text: t('notice.defaultPassword'),
+        hint: t('notice.defaultPasswordHint'),
       })
     }
     else if (auth.enabled && !auth.passwordSet) {
       out.push({
         id: 'no-password',
         tone: 'warn',
-        text: 'Authentication is on but no password is set, so nothing is being asked for.',
-        hint: 'Set one in Global settings to actually lock the panel.',
+        text: t('notice.noPassword'),
+        hint: t('notice.noPasswordHint'),
       })
     }
     if (auth.exposed) {
       out.push({
         id: 'exposed',
         tone: 'warn',
-        text: 'This panel is reachable beyond 127.0.0.1.',
-        hint: 'Keep the password strong, or put a TLS-terminating proxy in front of it.',
+        text: t('notice.exposed'),
+        hint: t('notice.exposedHint'),
       })
     }
     if (!auth.enabled && !auth.exposed) {
       out.push({
         id: 'auth-off',
         tone: 'info',
-        text: 'Authentication is disabled — the panel is only protected by its loopback bind.',
+        text: t('notice.authOff'),
       })
     }
   }

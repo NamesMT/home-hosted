@@ -7,6 +7,7 @@ import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{ dirty: boolean }>()
 
@@ -19,37 +20,37 @@ const logBufferLines = numberModel(() => defaults.value.logBufferLines, value =>
 
 <template>
   <FieldGroup
-    title="Server defaults"
-    description="Applied to every entry that does not set its own value."
+    :title="t('settings.defaults.title')"
+    :description="t('settings.defaults.description')"
   >
     <template #actions>
       <AppButton size="xs" variant="ghost" :disabled="!props.dirty" @click="emit('reset')">
-        Reset
+        {{ t('common.reset') }}
       </AppButton>
     </template>
 
-    <ToggleSwitch v-model="defaults.enabled" label="Enabled" hint="New entries start enabled." wide />
-    <ToggleSwitch v-model="defaults.autostart" label="Autostart with the panel" />
+    <ToggleSwitch v-model="defaults.enabled" :label="t('common.enabled')" :hint="t('settings.defaults.enabledHint')" wide />
+    <ToggleSwitch v-model="defaults.autostart" :label="t('settings.defaults.autostart')" />
     <SelectField
       v-model="defaults.bind"
-      label="Bind"
+      :label="t('settings.defaults.bind')"
       :options="[
-        { value: 'local', label: 'Local — 127.0.0.1' },
-        { value: 'lan', label: 'LAN — 0.0.0.0' },
+        { value: 'local', label: t('settings.defaults.bindLocal') },
+        { value: 'lan', label: t('settings.defaults.bindLan') },
       ]"
     />
     <SelectField
       v-model="defaults.onPortConflict"
-      label="On port conflict"
+      :label="t('settings.defaults.onPortConflict')"
       :options="[
-        { value: 'block', label: 'Block the start' },
-        { value: 'warn', label: 'Warn and start anyway' },
-        { value: 'follow', label: 'Follow a detached restart of itself' },
-        { value: 'reclaim', label: 'Replace a detached restart with a supervised copy' },
-        { value: 'kill', label: 'Kill whatever holds the port' },
+        { value: 'block', label: t('settings.defaults.conflictBlock') },
+        { value: 'warn', label: t('settings.defaults.conflictWarn') },
+        { value: 'follow', label: t('settings.defaults.conflictFollow') },
+        { value: 'reclaim', label: t('settings.defaults.conflictReclaim') },
+        { value: 'kill', label: t('settings.defaults.conflictKill') },
       ]"
     />
-    <NumberField v-model="logBufferLines" label="Log buffer lines" :min="50" :max="100000" hint="Kept in memory per server." />
+    <NumberField v-model="logBufferLines" :label="t('settings.defaults.logBufferLines')" :min="50" :max="100000" :hint="t('settings.defaults.logBufferLinesHint')" />
   </FieldGroup>
 
   <div class="mt-3 space-y-3">

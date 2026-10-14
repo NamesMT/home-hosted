@@ -3,6 +3,7 @@ import type { WorkspaceView } from '@shared/contracts'
 import { computed } from 'vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{
   dataRoot: string | null
@@ -17,31 +18,33 @@ interface PathRow {
   label: string
   hint: string
   value: string
+  /** The label as it reads in a "Copy …" button, which lowercases it in English. */
+  copyLabel: string
 }
 
 const globalSettings = computed(() => (props.dataRoot === null ? null : `${props.dataRoot}/settings.json`))
 
 const rows = computed<PathRow[]>(() => [
   // The state directory first: everything else on this page lives inside it.
-  { key: 'data', label: 'Data root', hint: 'HHOSTED_HOME — global settings, workspaces, TLS, backups and the UI.', value: props.dataRoot ?? '—' },
-  { key: 'settings', label: 'Global settings', hint: 'settings.json — listener, auth, TLS policy, host vitals, backups.', value: globalSettings.value ?? '—' },
-  { key: 'project', label: 'Project directory', hint: 'Base for relative entry paths.', value: props.projectDir ?? '—' },
-  { key: 'panel', label: 'Panel address', hint: 'Where this control panel is live right now.', value: props.panelUrl ?? '—' },
+  { key: 'data', label: t('settings.paths.dataRoot'), hint: t('settings.paths.dataRootHint'), copyLabel: t('settings.paths.dataRoot'), value: props.dataRoot ?? '—' },
+  { key: 'settings', label: t('settings.paths.globalSettings'), hint: t('settings.paths.globalSettingsHint'), copyLabel: t('settings.paths.globalSettings'), value: globalSettings.value ?? '—' },
+  { key: 'project', label: t('settings.paths.projectDir'), hint: t('settings.paths.projectDirHint'), copyLabel: t('settings.paths.projectDir'), value: props.projectDir ?? '—' },
+  { key: 'panel', label: t('settings.paths.panelAddress'), hint: t('settings.paths.panelAddressHint'), copyLabel: t('settings.paths.panelAddress'), value: props.panelUrl ?? '—' },
 ])
 
 /** One workspace's files, as the server reports them. */
 function workspaceRows(workspace: WorkspaceView): PathRow[] {
   return [
-    { key: `${workspace.id}:config`, label: 'Servers config', hint: `${workspace.label}'s servers.config.json.`, value: workspace.configPath },
-    { key: `${workspace.id}:settings`, label: 'Workspace settings', hint: 'Server defaults, log retention, notifications, DDNS.', value: workspace.settingsPath },
-    { key: `${workspace.id}:logs`, label: 'Logs', hint: 'Persisted output for this workspace.', value: workspace.logsDir },
+    { key: `${workspace.id}:config`, label: t('settings.paths.serversConfig'), hint: t('settings.paths.serversConfigHint', { label: workspace.label }), copyLabel: t('settings.paths.serversConfig'), value: workspace.configPath },
+    { key: `${workspace.id}:settings`, label: t('settings.paths.workspaceSettings'), hint: t('settings.paths.workspaceSettingsHint'), copyLabel: t('settings.paths.workspaceSettings'), value: workspace.settingsPath },
+    { key: `${workspace.id}:logs`, label: t('settings.paths.logs'), hint: t('settings.paths.logsHint'), copyLabel: t('settings.paths.logs'), value: workspace.logsDir },
   ]
 }
 </script>
 
 <template>
   <div class="space-y-3">
-    <FieldGroup title="Where things live" description="Read-only. Copy a path straight into a shell or an editor.">
+    <FieldGroup :title="t('settings.paths.whereThingsLive')" :description="t('settings.paths.whereThingsLiveDescription')">
       <ul class="divide-y divide-line-soft sm:col-span-2">
         <li v-for="row in rows" :key="row.key" class="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0">
           <div class="min-w-0">
@@ -54,15 +57,15 @@ function workspaceRows(workspace: WorkspaceView): PathRow[] {
           </div>
           <div class="flex min-w-0 flex-1 items-center justify-end gap-1.5">
             <span class="min-w-0 truncate font-mono text-xs text-ink">{{ row.value }}</span>
-            <CopyButton :value="row.value" :label="`Copy ${row.label.toLowerCase()}`" />
+            <CopyButton :value="row.value" :label="t('settings.paths.copyPath', { label: row.copyLabel.toLowerCase() })" />
           </div>
         </li>
       </ul>
     </FieldGroup>
 
     <FieldGroup
-      title="Workspace files"
-      description="Each workspace owns its config, settings and log directory; nothing is shared between them."
+      :title="t('settings.paths.workspaceFiles')"
+      :description="t('settings.paths.workspaceFilesDescription')"
     >
       <div v-for="workspace in workspaces" :key="workspace.id" class="space-y-2 sm:col-span-2">
         <p class="flex items-center gap-2 text-xs font-medium text-ink">
@@ -85,7 +88,7 @@ function workspaceRows(workspace: WorkspaceView): PathRow[] {
             </div>
             <div class="flex min-w-0 flex-1 items-center justify-end gap-1.5">
               <span class="min-w-0 truncate font-mono text-2xs text-ink">{{ row.value }}</span>
-              <CopyButton :value="row.value" :label="`Copy ${row.label.toLowerCase()}`" />
+              <CopyButton :value="row.value" :label="t('settings.paths.copyPath', { label: row.copyLabel.toLowerCase() })" />
             </div>
           </li>
         </ul>

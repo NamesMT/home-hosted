@@ -19,8 +19,10 @@ import Panel from '@/components/ui/Panel.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import StatusPill from '@/components/ui/StatusPill.vue'
 import Tip from '@/components/ui/Tip.vue'
+import TransText from '@/components/ui/TransText.vue'
 import { useControlPlane, useServerLogs } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t, tc } from '@/i18n'
 import * as api from '@/lib/api'
 import {
   formatAgo,
@@ -30,6 +32,7 @@ import {
   formatRatio,
   relativeFrom,
 } from '@/lib/format'
+import { HEALTH_META, STATUS_META } from '@/lib/status'
 import { workspacePath } from '@/router'
 
 const route = useRoute()
@@ -93,28 +96,35 @@ const uptime = computed(() => {
 
 const isRunning = computed(() => server.value?.status === 'running')
 
+/** The enum renders as a word; `unknown` is the Lead's shared one, the rest are this view's. */
+const PORT_STATE_LABEL_KEY: Record<string, string> = {
+  'unknown': 'common.unknown',
+  'free': 'views.serverDetail.portFree',
+  'in-use': 'views.serverDetail.portInUse',
+}
+
 const stats = computed(() => {
   const value = server.value
   if (!value)
     return []
   const rows = [
-    { key: 'pid', label: 'PID', value: value.pid === null ? '—' : String(value.pid) },
-    { key: 'uptime', label: 'Uptime', value: uptime.value },
-    { key: 'status', label: 'Status', value: value.status },
-    { key: 'health', label: 'Health', value: value.health },
-    { key: 'port', label: 'Port state', value: value.portState },
-    { key: 'probe', label: 'Last probe', value: value.responseMs === null ? '—' : `${value.responseMs} ms` },
+    { key: 'pid', label: t('views.serverDetail.pid'), value: value.pid === null ? '—' : String(value.pid) },
+    { key: 'uptime', label: t('common.uptime'), value: uptime.value },
+    { key: 'status', label: t('common.status'), value: t(STATUS_META[value.status].labelKey) },
+    { key: 'health', label: t('views.serverDetail.health'), value: t(HEALTH_META[value.health].labelKey) },
+    { key: 'port', label: t('views.serverDetail.portState'), value: t(PORT_STATE_LABEL_KEY[value.portState] ?? 'common.unknown') },
+    { key: 'probe', label: t('views.serverDetail.lastProbe'), value: value.responseMs === null ? '—' : `${value.responseMs} ms` },
     { key: 'rss', label: 'RSS', value: formatBytesShort(value.resources?.rssBytes ?? null) },
-    { key: 'procs', label: 'Processes', value: value.resources ? String(value.resources.processes) : '—' },
-    { key: 'restarts', label: 'Restarts', value: `${value.restarts}/${value.maxRetries}` },
-    { key: 'up24', label: '24h uptime', value: formatRatio(value.history.uptimeRatio) },
-    { key: 'crashes', label: '24h crashes', value: String(value.history.crashes) },
-    { key: 'lastcrash', label: 'Last crash', value: formatAgo(value.history.lastCrashAt, now.value) },
+    { key: 'procs', label: t('views.serverDetail.processes'), value: value.resources ? String(value.resources.processes) : '—' },
+    { key: 'restarts', label: t('views.serverDetail.restarts'), value: `${value.restarts}/${value.maxRetries}` },
+    { key: 'up24', label: t('views.serverDetail.uptime24'), value: formatRatio(value.history.uptimeRatio) },
+    { key: 'crashes', label: t('views.serverDetail.crashes24'), value: String(value.history.crashes) },
+    { key: 'lastcrash', label: t('views.serverDetail.lastCrash'), value: formatAgo(value.history.lastCrashAt, now.value) },
   ]
   if (value.nextRetryAt !== null)
-    rows.push({ key: 'retry', label: 'Next attempt', value: relativeFrom(value.nextRetryAt, now.value) })
+    rows.push({ key: 'retry', label: t('views.serverDetail.nextAttempt'), value: relativeFrom(value.nextRetryAt, now.value) })
   if (value.unhealthySince !== null)
-    rows.push({ key: 'unhealthy', label: 'Unhealthy for', value: formatDuration(now.value - value.unhealthySince) })
+    rows.push({ key: 'unhealthy', label: t('views.serverDetail.unhealthyFor'), value: formatDuration(now.value - value.unhealthySince) })
   return rows
 })
 
@@ -124,11 +134,11 @@ const commandLine = computed(() => (config.value ? `${config.value.command} ${co
 const bindOptions = computed(() => {
   const current = config.value?.bind ?? 'local'
   const options = [
-    { value: 'local', label: '127.0.0.1 — this machine only' },
-    { value: 'lan', label: '0.0.0.0 — every interface' },
+    { value: 'local', label: t('views.serverDetail.bindLocal') },
+    { value: 'lan', label: t('views.serverDetail.bindLan') },
   ]
   if (current !== 'local' && current !== 'lan')
-    options.push({ value: current, label: `${current} — custom` })
+    options.push({ value: current, label: t('views.serverDetail.bindCustom', { bind: current }) })
   return options
 })
 
@@ -167,22 +177,22 @@ async function killPortHolder(): Promise<void> {
 const downloadUrl = computed(() => api.logDownloadUrl(workspace.activeId.value, serverId.value, `${serverId.value}.log`))
 
 const SECTIONS = [
-  { value: 'output', label: 'Live output' },
-  { value: 'config', label: 'Configuration' },
-  { value: 'history', label: 'History' },
-]
+  { value: 'output', labelKey: 'views.serverDetail.sectionOutput' },
+  { value: 'config', labelKey: 'views.serverDetail.sectionConfig' },
+  { value: 'history', labelKey: 'views.serverDetail.sectionHistory' },
+].map(entry => ({ value: entry.value, label: t(entry.labelKey) }))
 </script>
 
 <template>
   <div v-if="!server" class="mx-auto max-w-3xl p-4 sm:p-5">
     <EmptyState
-      title="That server is gone"
-      :description="`${serverId} is not in servers.config.json any more. It may have been removed from another tab.`"
+      :title="t('views.serverDetail.goneTitle')"
+      :description="t('views.serverDetail.goneDescription', { id: serverId })"
     >
       <template #action>
         <RouterLink :to="workspacePath(workspace.activeId.value, 'servers')">
           <AppButton variant="primary">
-            Back to servers
+            {{ t('views.serverDetail.backToServers') }}
           </AppButton>
         </RouterLink>
       </template>
@@ -190,20 +200,20 @@ const SECTIONS = [
   </div>
 
   <div v-else class="mx-auto max-w-7xl space-y-5 p-4 sm:p-5">
-    <PageHeader :title="label" :back-to="workspacePath(workspace.activeId.value, 'servers')" back-label="All servers">
+    <PageHeader :title="label" :back-to="workspacePath(workspace.activeId.value, 'servers')" :back-label="t('views.serverDetail.allServers')">
       <template #badges>
         <StatusPill :status="server.status" :health="server.health" />
         <Tip
           v-if="server.adopted"
-          label="This process replaced itself: the panel adopted the successor instead of starting a second copy. Stop still works, its output stays where the successor sent it."
+          :label="t('views.serverDetail.detachedHint')"
         >
-          <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">detached</span>
+          <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">{{ t('views.serverDetail.detached') }}</span>
         </Tip>
         <Tip
           v-if="server.config.persistent"
-          label="This entry runs under its own nanny, so it keeps running when the panel stops, restarts or is killed. `home-hosted down` reports it instead of stopping it; only Stop does."
+          :label="t('views.serverDetail.persistentHint')"
         >
-          <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">persistent</span>
+          <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">{{ t('views.serverDetail.persistent') }}</span>
         </Tip>
         <span class="font-mono text-xs text-faint">{{ server.id }}</span>
         <a
@@ -223,22 +233,22 @@ const SECTIONS = [
           :disabled="busy || !config?.enabled || ['running', 'starting'].includes(server.status)"
           @click="act('start')"
         >
-          <Play class="size-3.5" />Start
+          <Play class="size-3.5" />{{ t('views.serverDetail.start') }}
         </AppButton>
         <AppButton :disabled="busy || server.status === 'stopped'" @click="act('stop')">
-          <Square class="size-3.5" />Stop
+          <Square class="size-3.5" />{{ t('views.serverDetail.stop') }}
         </AppButton>
         <AppButton :disabled="busy || !config?.enabled" @click="act('restart')">
-          <RotateCw class="size-3.5" />Restart
+          <RotateCw class="size-3.5" />{{ t('views.serverDetail.restart') }}
         </AppButton>
-        <Tip label="Edit every field of this entry">
+        <Tip :label="t('views.serverDetail.editHint')">
           <AppButton :variant="editing ? 'secondary' : 'ghost'" @click="editing = !editing; section = 'config'">
-            <Pencil class="size-3.5" />{{ editing ? 'Close editor' : 'Edit' }}
+            <Pencil class="size-3.5" />{{ editing ? t('views.serverDetail.closeEditor') : t('common.edit') }}
           </AppButton>
         </Tip>
         <DropdownMenuRoot>
           <DropdownMenuTrigger as-child>
-            <AppButton variant="ghost" size="icon-sm" :aria-label="`More actions for ${label}`">
+            <AppButton variant="ghost" size="icon-sm" :aria-label="t('views.serverDetail.moreActions', { label })">
               <MoreHorizontal class="size-4" />
             </AppButton>
           </DropdownMenuTrigger>
@@ -252,18 +262,18 @@ const SECTIONS = [
                 class="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-xs text-muted outline-none data-[highlighted]:bg-hover data-[highlighted]:text-ink"
                 @select="workspace.setEnabled(server.id, !server.config.enabled)"
               >
-                {{ config?.enabled ? 'Disable server' : 'Enable server' }}
+                {{ config?.enabled ? t('views.serverDetail.disableServer') : t('views.serverDetail.enableServer') }}
               </DropdownMenuItem>
               <DropdownMenuItem
                 class="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-xs text-muted outline-none data-[highlighted]:bg-hover data-[highlighted]:text-ink"
                 @select="workspace.setAutostart(server.id, !server.config.autostart)"
               >
-                {{ config?.autostart ? 'Remove from autostart' : 'Autostart with the panel' }}
+                {{ config?.autostart ? t('views.serverDetail.removeAutostart') : t('views.serverDetail.autostart') }}
               </DropdownMenuItem>
               <DropdownMenuSeparator class="my-1 h-px bg-line" />
               <div class="px-2 py-1.5">
                 <p class="mb-1 text-2xs text-faint">
-                  Bind
+                  {{ t('views.serverDetail.bind') }}
                 </p>
                 <div class="flex flex-col gap-0.5">
                   <button
@@ -284,7 +294,7 @@ const SECTIONS = [
                 @select="confirmRemove = true"
               >
                 <Trash2 class="size-3.5" />
-                Remove server
+                {{ t('views.serverDetail.removeServer') }}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuPortal>
@@ -311,10 +321,12 @@ const SECTIONS = [
         v-if="server.health === 'unhealthy'"
         class="rounded-control border border-warn/25 bg-warn-soft px-3 py-2 text-2xs leading-4 text-warn"
       >
-        The health probe has not passed
         <template v-if="server.unhealthySince !== null">
-          for {{ formatDuration(now - server.unhealthySince) }}
-        </template>.
+          {{ t('views.serverDetail.probeFailedFor', { duration: formatDuration(now - server.unhealthySince) }) }}
+        </template>
+        <template v-else>
+          {{ t('views.serverDetail.probeFailed') }}
+        </template>
       </p>
     </div>
 
@@ -334,16 +346,16 @@ const SECTIONS = [
     <Panel>
       <template #header>
         <h2 class="text-sm font-semibold text-ink">
-          Telemetry
+          {{ t('views.serverDetail.telemetry') }}
         </h2>
         <p class="text-2xs text-muted">
-          Sampled every 5 s while this page is open.
+          {{ t('views.serverDetail.telemetryNote') }}
         </p>
       </template>
       <div class="grid gap-4 sm:grid-cols-3">
-        <MetricSpark label="CPU" :values="cpuValues" :format="formatCpuPercent" :max="100" color-class="text-cpu" :height="40" />
-        <MetricSpark label="Memory (RSS)" :values="rssValues" :format="formatBytesShort" color-class="text-mem" :height="40" />
-        <MetricSpark label="Health probe" :values="probeValues" :format="v => (v === null ? '—' : `${v} ms`)" color-class="text-probe" :height="40" />
+        <MetricSpark :label="t('common.cpu')" :values="cpuValues" :format="formatCpuPercent" :max="100" color-class="text-cpu" :height="40" />
+        <MetricSpark :label="t('views.serverDetail.memoryRss')" :values="rssValues" :format="formatBytesShort" color-class="text-mem" :height="40" />
+        <MetricSpark :label="t('views.serverDetail.healthProbe')" :values="probeValues" :format="v => (v === null ? '—' : `${v} ms`)" color-class="text-probe" :height="40" />
       </div>
     </Panel>
 
@@ -362,7 +374,7 @@ const SECTIONS = [
       clearable
       :download-url="server.config.logBufferLines > 0 ? downloadUrl : undefined"
       :download-name="`${server.id}.log`"
-      :empty-hint="isRunning ? 'Waiting for the first line…' : 'This server has not written anything yet.'"
+      :empty-hint="isRunning ? t('views.serverDetail.waitingFirstLine') : t('views.serverDetail.neverWritten')"
       min-height="22rem"
       @clear="workspace.clearLogs(server.id)"
     />
@@ -380,19 +392,19 @@ const SECTIONS = [
       <Panel v-else>
         <template #header>
           <h2 class="text-sm font-semibold text-ink">
-            Effective configuration
+            {{ t('views.serverDetail.effectiveConfig') }}
           </h2>
           <p class="text-2xs text-muted">
-            Defaults from Settings are already merged into these values.
+            {{ t('views.serverDetail.effectiveConfigNote') }}
           </p>
         </template>
         <template #actions>
           <AppButton size="xs" variant="ghost" @click="showRaw = !showRaw">
-            <Code2 class="size-3" />{{ showRaw ? 'Fields' : 'Raw JSON' }}
+            <Code2 class="size-3" />{{ showRaw ? t('views.serverDetail.fields') : t('views.serverDetail.rawJson') }}
           </AppButton>
-          <CopyButton :value="rawConfig" label="Copy the JSON config" />
+          <CopyButton :value="rawConfig" :label="t('views.serverDetail.copyJson')" />
           <AppButton size="xs" variant="primary" @click="editing = true">
-            <Pencil class="size-3" />Edit
+            <Pencil class="size-3" />{{ t('common.edit') }}
           </AppButton>
         </template>
 
@@ -404,22 +416,22 @@ const SECTIONS = [
         <dl v-else class="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
           <div
             v-for="row in [
-              { label: 'command', value: config?.command },
-              { label: 'args', value: config?.args.join(' ') || '—' },
-              { label: 'cwd', value: config?.cwd },
-              { label: 'env', value: Object.keys(config?.env ?? {}).join(', ') || '—' },
-              { label: 'data envs', value: Object.entries(config?.dataEnvs ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') || '—' },
-              { label: 'env file', value: config?.envFile || '—' },
-              { label: 'port · bind', value: `${config?.port ?? 'none'} · ${config?.bind}` },
-              { label: 'on port conflict', value: config?.onPortConflict },
-              { label: 'log buffer', value: `${config?.logBufferLines} lines` },
-              { label: 'rtss limit', value: config?.resources.maxRssBytes ? formatBytesShort(config.resources.maxRssBytes) : 'none' },
-              { label: 'health', value: config?.health.enabled ? `${config.health.mode} every ${config.health.intervalMs} ms` : 'off' },
-              { label: 'restart', value: config?.restart.enabled ? `${config.restart.maxRetries} retries, ×${config.restart.factor}` : 'off' },
-              { label: 'stop', value: config ? `${config.stop.signal} after ${config.stop.graceMs} ms` : '—' },
-              { label: 'bootstrap', value: config?.bootstrap ? `${config.bootstrap.command} ${config.bootstrap.args.join(' ')}` : 'none' },
-              { label: 'backup paths', value: config?.backupPaths.join(', ') || '—' },
-              { label: 'depends on', value: config?.dependsOn.join(', ') || '—' },
+              { label: t('views.serverDetail.fieldCommand'), value: config?.command },
+              { label: t('views.serverDetail.fieldArgs'), value: config?.args.join(' ') || '—' },
+              { label: t('views.serverDetail.fieldCwd'), value: config?.cwd },
+              { label: t('views.serverDetail.fieldEnv'), value: Object.keys(config?.env ?? {}).join(', ') || '—' },
+              { label: t('views.serverDetail.fieldDataEnvs'), value: Object.entries(config?.dataEnvs ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') || '—' },
+              { label: t('views.serverDetail.fieldEnvFile'), value: config?.envFile || '—' },
+              { label: t('views.serverDetail.fieldPortBind'), value: `${config?.port ?? t('common.none')} · ${config?.bind}` },
+              { label: t('views.serverDetail.fieldOnPortConflict'), value: config?.onPortConflict },
+              { label: t('views.serverDetail.fieldLogBuffer'), value: tc('logs.lines', config?.logBufferLines ?? 0) },
+              { label: t('views.serverDetail.fieldRssLimit'), value: config?.resources.maxRssBytes ? formatBytesShort(config.resources.maxRssBytes) : t('common.none') },
+              { label: t('views.serverDetail.fieldHealth'), value: config?.health.enabled ? `${config.health.mode} every ${config.health.intervalMs} ms` : t('common.disabled') },
+              { label: t('views.serverDetail.fieldRestart'), value: config?.restart.enabled ? `${config.restart.maxRetries} retries, ×${config.restart.factor}` : t('common.disabled') },
+              { label: t('views.serverDetail.fieldStop'), value: config ? `${config.stop.signal} after ${config.stop.graceMs} ms` : '—' },
+              { label: t('views.serverDetail.fieldBootstrap'), value: config?.bootstrap ? `${config.bootstrap.command} ${config.bootstrap.args.join(' ')}` : t('common.none') },
+              { label: t('views.serverDetail.fieldBackupPaths'), value: config?.backupPaths.join(', ') || '—' },
+              { label: t('views.serverDetail.fieldDependsOn'), value: config?.dependsOn.join(', ') || '—' },
             ]" :key="row.label" class="min-w-0 border-b border-line-soft pb-1.5 last:border-0"
           >
             <dt class="text-2xs text-faint">
@@ -437,10 +449,10 @@ const SECTIONS = [
       <Panel class="lg:col-span-2">
         <template #header>
           <h2 class="text-sm font-semibold text-ink">
-            Event history
+            {{ t('views.serverDetail.eventHistory') }}
           </h2>
           <p class="text-2xs text-muted">
-            Kept by the panel for 24 hours.
+            {{ t('views.serverDetail.eventHistoryNote') }}
           </p>
         </template>
         <ActivityFeed :servers="[server]" :now="now" :limit="30" />
@@ -449,7 +461,7 @@ const SECTIONS = [
       <Panel>
         <template #header>
           <h2 class="text-sm font-semibold text-ink">
-            Dependencies
+            {{ t('views.serverDetail.dependencies') }}
           </h2>
         </template>
         <div v-if="config && config.dependsOn.length > 0" class="flex flex-wrap gap-1.5">
@@ -463,26 +475,30 @@ const SECTIONS = [
           </RouterLink>
         </div>
         <p v-else class="text-xs text-muted">
-          Starts on its own. Add ids under <code>dependsOn</code> to order it after other servers.
+          <TransText k="views.serverDetail.startsOnItsOwn">
+            <template #code>
+              <code>dependsOn</code>
+            </template>
+          </TransText>
         </p>
       </Panel>
     </div>
 
     <Modal
       v-model:open="confirmRemove"
-      title="Remove this server?"
-      :description="`${label} is removed from servers.config.json: its process is stopped, and its logs and crash history are deleted with it.`"
+      :title="t('views.serverDetail.removeTitle')"
+      :description="t('views.serverDetail.removeDescription', { label })"
       width="w-[min(92vw,26rem)]"
     >
       <p class="text-xs text-muted">
-        This cannot be undone from the panel — the entry has to be added back by hand or from a backup.
+        {{ t('views.serverDetail.removeNote') }}
       </p>
       <template #footer>
         <AppButton variant="ghost" @click="confirmRemove = false">
-          Keep it
+          {{ t('common.keepIt') }}
         </AppButton>
         <AppButton variant="danger" @click="removeServer">
-          <Trash2 class="size-3.5" />Remove
+          <Trash2 class="size-3.5" />{{ t('common.remove') }}
         </AppButton>
       </template>
     </Modal>

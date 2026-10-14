@@ -7,6 +7,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
+import { t } from '@/i18n'
 import { formatBytes, RUN_STATE_META } from '@/lib/proxy'
 
 /**
@@ -30,41 +31,40 @@ const binaryPath = computed(() => engine.value?.path ?? null)
 const setcap = computed(() => (binaryPath.value === null ? null : `sudo setcap 'cap_net_bind_service=+ep' ${binaryPath.value}`))
 
 const CAPABILITIES = [
-  { key: 'acme', label: 'ACME certificates' },
-  { key: 'internalCa', label: 'Local CA' },
-  { key: 'dns01', label: 'DNS-01' },
-  { key: 'tcp', label: 'TCP/UDP' },
+  { key: 'acme', labelKey: 'proxy.engine.acme' },
+  { key: 'internalCa', labelKey: 'proxy.engine.localCa' },
+  { key: 'dns01', labelKey: 'proxy.engine.dns01' },
+  { key: 'tcp', labelKey: 'proxy.engine.tcpUdp' },
 ] as const
 </script>
 
 <template>
   <FieldGroup
-    title="Engine"
-    description="The reverse proxy itself. The panel downloads the current build, supervises it and applies its configuration through the engine's own admin API."
+    :title="t('proxy.engine.title')"
+    :description="t('proxy.engine.description')"
   >
     <template #actions>
       <ToneBadge v-if="meta" :tone="meta.tone" dot>
-        {{ meta.label }}
+        {{ t(meta.labelKey) }}
       </ToneBadge>
     </template>
 
     <div v-if="engine === null" class="sm:col-span-2">
       <Notice tone="info">
-        The proxy state is not in this panel's frame yet.
+        {{ t('proxy.engine.notInFrame') }}
       </Notice>
     </div>
 
     <template v-else>
       <div v-if="engine.error" class="sm:col-span-2">
-        <Notice tone="danger" title="The engine could not be read">
+        <Notice tone="danger" :title="t('proxy.engine.readFailed')">
           {{ engine.error }}
         </Notice>
       </div>
 
       <div v-if="!installed" class="sm:col-span-2">
-        <Notice tone="info" title="No engine installed">
-          Installing downloads the current {{ info?.label ?? engine.id }} release the panel supervises —
-          about 46 MB, once. Nothing is exposed until a route is added and the proxy is switched on.
+        <Notice tone="info" :title="t('proxy.engine.notInstalled')">
+          {{ t('proxy.engine.installNote', { engine: info?.label ?? engine.id }) }}
         </Notice>
       </div>
 
@@ -72,23 +72,23 @@ const CAPABILITIES = [
         <dl class="divide-y divide-line-soft text-xs sm:col-span-2">
           <div class="flex items-start justify-between gap-4 py-1.5">
             <dt class="text-muted">
-              Version
+              {{ t('proxy.engine.version') }}
             </dt>
             <dd class="font-mono text-xs text-ink">
-              {{ engine.version ?? 'not probed yet' }}
+              {{ engine.version ?? t('proxy.engine.notProbed') }}
             </dd>
           </div>
           <div class="flex items-start justify-between gap-4 py-1.5">
             <dt class="text-muted">
-              Source
+              {{ t('proxy.engine.source') }}
             </dt>
             <dd class="text-right text-xs text-ink">
-              {{ engine.source === 'custom' ? 'a path configured by hand' : 'downloaded by the panel' }}
+              {{ engine.source === 'custom' ? t('proxy.engine.sourceCustom') : t('proxy.engine.sourceDownloaded') }}
             </dd>
           </div>
           <div v-if="engine.bytes !== null" class="flex items-start justify-between gap-4 py-1.5">
             <dt class="text-muted">
-              Size
+              {{ t('proxy.engine.size') }}
             </dt>
             <dd class="font-mono text-xs tabular-nums text-ink">
               {{ formatBytes(engine.bytes) }}
@@ -96,16 +96,16 @@ const CAPABILITIES = [
           </div>
           <div v-if="binaryPath" class="flex items-start justify-between gap-4 py-1.5">
             <dt class="text-muted">
-              Binary
+              {{ t('proxy.engine.binary') }}
             </dt>
             <dd class="flex min-w-0 items-center gap-1.5">
               <span class="min-w-0 truncate font-mono text-2xs text-ink">{{ binaryPath }}</span>
-              <CopyButton :value="binaryPath" label="Copy the binary path" />
+              <CopyButton :value="binaryPath" :label="t('proxy.engine.copyPath')" />
             </dd>
           </div>
           <div class="flex items-start justify-between gap-4 py-1.5">
             <dt class="text-muted">
-              Live address
+              {{ t('proxy.engine.address') }}
             </dt>
             <dd class="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-right font-mono text-xs">
               <a
@@ -121,7 +121,7 @@ const CAPABILITIES = [
           </div>
           <div class="flex items-start justify-between gap-4 py-1.5">
             <dt class="text-muted">
-              Process
+              {{ t('proxy.engine.process') }}
             </dt>
             <dd class="font-mono text-xs tabular-nums text-ink">
               {{ status?.pid ?? '—' }}
@@ -129,19 +129,19 @@ const CAPABILITIES = [
           </div>
           <div class="flex items-start justify-between gap-4 py-1.5">
             <dt class="text-muted">
-              Certificates
+              {{ t('proxy.engine.certificates') }}
             </dt>
             <dd class="text-xs text-ink">
               {{ status?.certExpiryDays === null || status?.certExpiryDays === undefined
-                ? 'no public certificate yet'
-                : `soonest expires in ${status.certExpiryDays} days` }}
+                ? t('proxy.engine.noCert')
+                : t('proxy.engine.expiresSoon', { days: status.certExpiryDays }) }}
             </dd>
           </div>
         </dl>
 
         <div class="flex flex-wrap gap-1.5 sm:col-span-2">
           <ToneBadge v-for="capability in CAPABILITIES" :key="capability.key" :tone="info?.[capability.key] ? 'ok' : 'neutral'">
-            {{ info?.[capability.key] ? '✓' : '✗' }} {{ capability.label }}
+            {{ info?.[capability.key] ? '✓' : '✗' }} {{ t(capability.labelKey) }}
           </ToneBadge>
           <a
             v-if="info"
@@ -149,20 +149,20 @@ const CAPABILITIES = [
             :href="info.docsUrl"
             target="_blank"
             rel="noreferrer"
-          >{{ info.label }} documentation</a>
+          >{{ t('proxy.engine.documentation', { engine: info.label }) }}</a>
         </div>
       </template>
 
       <div v-if="status?.lastError" class="sm:col-span-2">
-        <Notice tone="danger" title="The engine reported a failure">
+        <Notice tone="danger" :title="t('proxy.engine.failed')">
           {{ status.lastError }}
         </Notice>
       </div>
 
       <p v-if="installed && setcap" class="text-2xs leading-4 text-faint sm:col-span-2">
-        A privileged port (below 1024) needs this once on Linux:
+        {{ t('proxy.engine.setcapHint') }}
         <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">{{ setcap }}</code>
-        <CopyButton :value="setcap" label="Copy the command" class="ml-1 align-middle" />
+        <CopyButton :value="setcap" :label="t('proxy.engine.copyCommand')" class="ml-1 align-middle" />
       </p>
     </template>
 
@@ -174,7 +174,7 @@ const CAPABILITIES = [
         :disabled="props.busy !== null"
         @click="emit('act', 'install')"
       >
-        Install engine
+        {{ t('proxy.engine.install') }}
       </AppButton>
       <template v-else>
         <AppButton
@@ -183,7 +183,7 @@ const CAPABILITIES = [
           :loading="props.busy === 'start'"
           @click="emit('act', 'start')"
         >
-          Start
+          {{ t('proxy.engine.start') }}
         </AppButton>
         <AppButton
           variant="secondary"
@@ -191,7 +191,7 @@ const CAPABILITIES = [
           :loading="props.busy === 'stop'"
           @click="emit('act', 'stop')"
         >
-          Stop
+          {{ t('proxy.engine.stop') }}
         </AppButton>
         <AppButton
           variant="secondary"
@@ -199,16 +199,16 @@ const CAPABILITIES = [
           :loading="props.busy === 'apply'"
           @click="emit('act', 'apply')"
         >
-          Apply configuration
+          {{ t('proxy.engine.apply') }}
         </AppButton>
         <AppButton
           variant="ghost"
           :disabled="props.busy !== null || status?.state !== 'running'"
           :loading="props.busy === 'revert'"
-          title="Go back to the configuration that applied before the last one"
+          :title="t('proxy.engine.revertHint')"
           @click="emit('act', 'revert')"
         >
-          Revert
+          {{ t('proxy.engine.revert') }}
         </AppButton>
         <AppButton
           variant="ghost"
@@ -216,7 +216,7 @@ const CAPABILITIES = [
           :loading="props.busy === 'install'"
           @click="emit('act', 'install')"
         >
-          Update engine
+          {{ t('proxy.engine.update') }}
         </AppButton>
       </template>
     </div>

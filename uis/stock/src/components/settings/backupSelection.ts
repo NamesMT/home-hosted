@@ -1,4 +1,5 @@
 import type { BackupEntry } from '@shared/contracts'
+import { t } from '@/i18n'
 
 /**
  * The two-level capture model the backup dialog edits.
@@ -32,14 +33,14 @@ export interface EntryChoice {
 /** A readable hint for why a leaf would be captured. */
 function leafHint(item: BackupEntry['items'][number]): string {
   if (item.kind === 'settings')
-    return 'Server defaults, log retention and notifications'
+    return t('settings.backup.leafSettingsHint')
   if (item.kind === 'servers')
-    return 'Every entry in servers.config.json'
+    return t('settings.backup.leafServersHint')
   if (item.kind === 'secrets')
-    return 'Telegram bot token and DDNS credentials'
+    return t('settings.backup.leafSecretsHint')
   if (item.path === undefined)
-    return item.note ?? 'A declared data path'
-  return item.origin === undefined ? item.path : `${item.path} — from ${item.origin}`
+    return item.note ?? t('settings.backup.leafDataHint')
+  return item.origin === undefined ? item.path : t('settings.backup.pathFromOrigin', { path: item.path, origin: item.origin })
 }
 
 /** True when every leaf of a workspace entry is selected. */
@@ -51,12 +52,12 @@ function entryHint(entry: BackupEntry): string {
   if (entry.note !== null && entry.note.length > 0)
     return entry.note
   if (entry.kind === 'settings')
-    return 'Listener, auth, host vitals and the backups policy'
+    return t('settings.backup.entrySettingsHint')
   if (entry.kind === 'secrets')
-    return 'Password hash and API token hash'
+    return t('settings.backup.entrySecretsHint')
   if (entry.kind === 'tls')
-    return 'The panel\'s own certificate pair'
-  return 'Its settings, servers, secrets and declared data paths'
+    return t('settings.backup.entryTlsHint')
+  return t('settings.backup.entryWorkspaceHint')
 }
 
 /**

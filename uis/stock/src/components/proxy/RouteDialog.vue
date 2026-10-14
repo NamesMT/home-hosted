@@ -7,7 +7,8 @@ import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
-import { dnsAccountOptions, isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
+import { t } from '@/i18n'
+import { dnsAccountOptions, isPublicHost, newRouteDraft, ROUTE_ERROR_MESSAGES, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
 
 /** One route, edited in a dialog. Nothing is saved here — the page owns the Save. */
 const props = defineProps<{
@@ -32,16 +33,20 @@ const serverOptions = computed(() => {
   return (workspace?.servers ?? []).map(server => ({ value: server.id, label: server.id }))
 })
 
+/** The options carry a catalog key; the picker renders the words. */
+const targetOptions = computed(() => TARGET_OPTIONS.map(option => ({ value: option.value, label: t(option.labelKey) })))
+const tlsOptions = computed(() => TLS_OPTIONS.map(option => ({ value: option.value, label: t(option.labelKey) })))
+
 const tlsHint = computed(() => {
   if (form.value.tls === 'off')
-    return 'Plain HTTP: no certificate is served for this hostname.'
+    return t('proxy.tls.hintOff')
   if (form.value.tls === 'manual')
-    return 'Serves the certificate pair uploaded below.'
+    return t('proxy.tls.hintManual')
   if (form.value.host.trim().length === 0)
-    return 'A public hostname gets an ACME certificate; a local-only name gets the engine\u2019s own CA.'
+    return t('proxy.tls.hintEmpty')
   return isPublicHost(form.value.host)
-    ? 'A public hostname, so the engine asks a CA for a certificate — an ACME account e-mail is needed.'
-    : 'A local-only name, so the engine signs it with its own locally-trusted CA.'
+    ? t('proxy.tls.hintPublic')
+    : t('proxy.tls.hintLocal')
 })
 
 /** The account picker is only meaningful for a name the engine would get a certificate for. */
@@ -51,14 +56,14 @@ const chosenAccount = computed(() => props.dnsAccounts.find(entry => `${entry.wo
 const accountHint = computed(() => {
   if (chosenAccount.value === undefined) {
     return form.value.dnsAccount.length > 0
-      ? 'That account is no longer configured.'
-      : 'DNS-01 writes the challenge record here. Empty uses the only account that can answer a challenge, when there is one.'
+      ? t('proxy.account.gone')
+      : t('proxy.account.emptyHint')
   }
   if (!chosenAccount.value.writesTxt)
-    return `A ${chosenAccount.value.provider} account cannot write TXT records, so it cannot answer a DNS-01 challenge.`
+    return t('proxy.account.cannotWrite', { provider: chosenAccount.value.provider })
   if (!chosenAccount.value.hasCredentials)
-    return `No credentials are stored for this ${chosenAccount.value.provider} account yet.`
-  return `The challenge is written through this ${chosenAccount.value.provider} account.`
+    return t('proxy.account.noCredentialsYet', { provider: chosenAccount.value.provider })
+  return t('proxy.account.through', { provider: chosenAccount.value.provider })
 })
 
 watch(open, (isOpen) => {
@@ -86,7 +91,7 @@ function submit(): void {
     url: form.value.target === 'external' ? form.value.url.trim() : '',
   }
 
-  const found = validateRouteDraft(candidate, { others: props.others, workspaces: props.workspaces })
+  const found = validateRouteDraft(candidate, { others: props.others, workspaces: props.workspaces, messages: ROUTE_ERROR_MESSAGES })
   errors.value = found
   if (Object.keys(found).length > 0)
     return
@@ -99,15 +104,15 @@ function submit(): void {
 <template>
   <Modal
     v-model:open="open"
-    :title="editing ? 'Edit route' : 'Add route'"
-    description="A hostname, what it forwards to, and how it is served over TLS."
+    :title="editing ? t('proxy.routeDialog.titleEdit') : t('proxy.routeDialog.titleAdd')"
+    :description="t('proxy.routeDialog.description')"
     width="w-[min(92vw,34rem)]"
   >
     <div class="space-y-3">
       <TextField
         v-model="form.host"
-        label="Hostname"
-        placeholder="gitea.example.com"
+        :label="t('proxy.routeDialog.hostname')"
+        :placeholder="t('proxy.routeDialog.hostnamePlaceholder')"
         autocomplete="off"
         spellcheck="false"
         :error="errors.host"
@@ -115,60 +120,59 @@ function submit(): void {
       />
       <TextField
         v-model="form.path"
-        label="Path prefix"
-        placeholder="/optional"
-        hint="Empty serves the whole host."
+        :label="t('proxy.routeDialog.path')"
+        :placeholder="t('proxy.routeDialog.pathPlaceholder')"
+        :hint="t('proxy.routeDialog.pathHint')"
         spellcheck="false"
         :error="errors.path"
         wide
       />
-      <SelectField v-model="form.target" label="Target" :options="TARGET_OPTIONS" />
-      <SelectField v-model="form.tls" label="TLS" :options="TLS_OPTIONS" :hint="tlsHint" />
+      <SelectField v-model="form.target" :label="t('proxy.routeDialog.target')" :options="targetOptions" />
+      <SelectField v-model="form.tls" :label="t('proxy.routeDialog.tls')" :options="tlsOptions" :hint="tlsHint" />
 
       <SelectField
         v-if="wantsDns"
         v-model="form.dnsAccount"
-        label="DNS account"
+        :label="t('proxy.routeDialog.dnsAccount')"
         :options="accountOptions"
         :hint="accountHint"
       />
       <p v-else-if="form.tls === 'auto'" class="text-2xs leading-4 text-faint sm:col-span-2">
-        A local-only name is signed by the engine's own CA, so no DNS account is involved.
+        {{ t('proxy.routeDialog.localNote') }}
       </p>
 
       <template v-if="form.target === 'server'">
         <SelectField
           v-model="form.workspace"
-          label="Workspace"
+          :label="t('proxy.routeDialog.workspace')"
           :options="props.workspaces.map(workspace => ({ value: workspace.id, label: workspace.label }))"
           :error="errors.workspace"
         />
         <SelectField
           v-model="form.server"
-          label="Server"
+          :label="t('proxy.routeDialog.server')"
           :options="serverOptions"
           :disabled="serverOptions.length === 0"
-          :error="errors.server ?? (serverOptions.length === 0 ? 'this workspace has no servers' : null)"
+          :error="errors.server ?? (serverOptions.length === 0 ? t('proxy.routeDialog.noServers') : null)"
         />
         <p class="text-2xs leading-4 text-faint sm:col-span-2">
-          A server that is stopped is not routed: the row shows “No upstream” until it runs again.
+          {{ t('proxy.routeDialog.stoppedNote') }}
         </p>
       </template>
 
       <TextField
         v-if="form.target === 'external'"
         v-model="form.url"
-        label="Upstream"
-        placeholder="http://10.0.0.5:8080"
-        hint="A literal address, including the port. A scheme is optional."
+        :label="t('proxy.routeDialog.upstream')"
+        :placeholder="t('proxy.routeDialog.upstreamPlaceholder')"
+        :hint="t('proxy.routeDialog.upstreamHint')"
         spellcheck="false"
         :error="errors.url"
         wide
       />
 
       <p v-if="form.target === 'panel'" class="text-2xs leading-4 text-warn sm:col-span-2">
-        Serving the control panel needs authentication on and a password that is not the default —
-        the panel refuses the save otherwise.
+        {{ t('proxy.routeDialog.panelNote') }}
       </p>
 
       <Notice v-if="errors.form" tone="danger">
@@ -178,10 +182,10 @@ function submit(): void {
 
     <template #footer>
       <AppButton size="sm" variant="ghost" @click="open = false">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton size="sm" variant="primary" @click="submit">
-        {{ editing ? 'Save route' : 'Add route' }}
+        {{ editing ? t('proxy.routeDialog.save') : t('proxy.routes.add') }}
       </AppButton>
     </template>
   </Modal>

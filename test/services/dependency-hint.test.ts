@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stockCopy } from '../helpers/stock-copy'
 
 /**
  * The `dependsOn` hint must state both facts, in both UIs.
@@ -18,31 +19,30 @@ import { describe, expect, it } from 'vitest'
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
 const HINTS = [
-  ['stock editor', 'uis/stock/src/components/server/ServerConfigEditor.vue'],
-  ['stock dialog', 'uis/stock/src/components/server/AddServerDialog.vue'],
-  // noc-console renders the server form from one field catalogue, so its hint lives there
-  // rather than in the view that used to spell it out. A hardcoded path is what made this
-  // test read as a lost hint when the only thing that moved was the line.
-  ['noc-console', 'uis/noc-console/src/lib/serverForm.ts'],
+  // The stock UI translates its strings, so its hint is asserted from the catalog; `noc-console`
+  // has no i18n and keeps the copy inline in its field catalogue.
+  ['stock editor', null, 'serverForm.dependsOnHint'],
+  ['stock dialog', null, 'serverForm.dependsOnHint'],
+  ['noc-console', 'uis/noc-console/src/lib/serverForm.ts', null],
 ] as const
+
+/** The hint's wording, from whichever place that UI keeps it. */
+function hintText(file: string | null, key: string | null): string {
+  return key === null ? fs.readFileSync(path.join(root, file!), 'utf8') : stockCopy(key)
+}
 
 describe('the dependsOn hint', () => {
   it('states that a dependency is waited for until healthy', () => {
-    for (const [name, file] of HINTS) {
-      const source = fs.readFileSync(path.join(root, file), 'utf8')
-      const lines = source.split('\n')
-      const line = lines.find(text => /depends on/i.test(text) && /hint/.test(text))
-        ?? lines.find(text => text.includes('started first'))
-      expect(line, `${name} must carry a hint for dependsOn`).toBeDefined()
-      expect(line, `${name} must say the wait is for health`).toMatch(/healthy/i)
-      expect(line, `${name} must not use the ambiguous "reverse order"`).not.toMatch(/reverse order/i)
+    for (const [name, file, key] of HINTS) {
+      const text = hintText(file, key)
+      expect(text, `${name} must carry a hint for dependsOn`).toMatch(/started first/i)
+      expect(text, `${name} must say the wait is for health`).toMatch(/healthy/i)
+      expect(text, `${name} must not use the ambiguous "reverse order"`).not.toMatch(/reverse order/i)
     }
   })
 
   it('says the dependency is stopped last, not first', () => {
-    for (const [name, file] of HINTS) {
-      const source = fs.readFileSync(path.join(root, file), 'utf8')
-      expect(source, `${name} must say stopped last`).toMatch(/stopped last/i)
-    }
+    for (const [name, file, key] of HINTS)
+      expect(hintText(file, key), `${name} must say stopped last`).toMatch(/stopped last/i)
   })
 })

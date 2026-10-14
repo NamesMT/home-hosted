@@ -2,6 +2,7 @@
 import type { HostView } from '@shared/contracts'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{ host: HostView | null }>()
 
@@ -40,15 +41,15 @@ const tempDisplay = computed(() => {
 <template>
   <div class="rounded-panel border border-line bg-panel-2/70 p-3">
     <div class="mb-2 flex items-center justify-between">
-      <span class="text-2xs font-medium text-faint">Host vitals</span>
+      <span class="text-2xs font-medium text-faint">{{ t('nav.hostVitals') }}</span>
       <span v-if="props.host?.enabled === false" class="text-2xs text-faint">off</span>
     </div>
 
     <div v-if="props.host?.enabled" class="grid grid-cols-2 gap-x-1 gap-y-2">
-      <Gauge :value="loadDial" label="Load / cpu" :display="loadDisplay" :size="58" :warn-at="70" :danger-at="100" />
-      <Gauge :value="props.host?.memoryUsedPercent ?? null" label="Memory" :size="58" />
-      <Gauge :value="diskUsed" label="Disk" :size="58" />
-      <Gauge :value="tempDial" label="CPU temp" :display="tempDisplay" :size="58" />
+      <Gauge :value="loadDial" :label="t('host.loadPerCpu')" :display="loadDisplay" :size="58" :warn-at="70" :danger-at="100" />
+      <Gauge :value="props.host?.memoryUsedPercent ?? null" :label="t('common.memory')" :size="58" />
+      <Gauge :value="diskUsed" :label="t('common.disk')" :size="58" />
+      <Gauge :value="tempDial" :label="t('host.cpuTemp')" :display="tempDisplay" :size="58" />
     </div>
 
     <p v-else class="py-3 text-center text-2xs text-faint">

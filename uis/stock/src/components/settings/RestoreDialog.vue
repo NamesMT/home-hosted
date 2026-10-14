@@ -9,6 +9,8 @@ import Modal from '@/components/ui/Modal.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import TextField from '@/components/ui/TextField.vue'
+import TransText from '@/components/ui/TransText.vue'
+import { t } from '@/i18n'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { inputClass, labelClass } from '@/lib/ui'
@@ -45,8 +47,8 @@ const restoringGlobal = computed(() => plan.value?.items.some(item => item.id ==
 const needsPassword = computed(() => plan.value?.needsPassword === true)
 const canApply = computed(() => plan.value !== null && !needsPassword.value && selectedCount.value > 0 && !busy.value)
 const sourceOptions = computed(() => [
-  ...props.files.map(entry => ({ value: entry.name, label: entry.encrypted ? `${entry.name} — encrypted` : entry.name })),
-  { value: UPLOAD, label: 'Upload a file…' },
+  ...props.files.map(entry => ({ value: entry.name, label: entry.encrypted ? t('settings.restore.encryptedName', { name: entry.name }) : entry.name })),
+  { value: UPLOAD, label: t('settings.restore.uploadOption') },
 ])
 
 const fileInput = cn(
@@ -130,10 +132,13 @@ async function apply(): Promise<void> {
 
     const notes: string[] = []
     if (result.reloaded)
-      notes.push('the restored servers are live, autostart entries starting')
+      notes.push(t('settings.restore.noteReloaded'))
     if (result.restartRequired)
-      notes.push('restart the panel to apply its own settings')
-    emit('applied', `Restored ${result.applied.length} item(s)${notes.length === 0 ? '' : ` — ${notes.join('; ')}`}.`)
+      notes.push(t('settings.restore.noteRestart'))
+    const count = result.applied.length
+    emit('applied', notes.length === 0
+      ? t('settings.restore.restored', { count })
+      : t('settings.restore.restoredWithNotes', { count, notes: notes.join('; ') }))
   }
   catch (caught) {
     error.value = describe(caught)
@@ -162,15 +167,15 @@ watch(open, (isOpen) => {
 <template>
   <Modal
     v-model:open="open"
-    title="Restore a backup"
-    description="Nothing is written until the plan is applied."
+    :title="t('settings.restore.title')"
+    :description="t('settings.restore.description')"
     width="w-[min(92vw,38rem)]"
   >
     <div class="space-y-3">
       <SelectField
         :model-value="sourceValue"
-        label="Archive"
-        hint="A stored archive, or a .zip from this machine."
+        :label="t('settings.restore.archive')"
+        :hint="t('settings.restore.archiveHint')"
         :options="sourceOptions"
         :disabled="busy"
         wide
@@ -178,7 +183,7 @@ watch(open, (isOpen) => {
       />
 
       <div v-if="target.kind === 'upload'" class="flex min-w-0 flex-col gap-1">
-        <label :class="labelClass" for="restore-upload">Archive file (.zip)</label>
+        <label :class="labelClass" for="restore-upload">{{ t('settings.restore.archiveFile') }}</label>
         <input id="restore-upload" type="file" accept=".zip,application/zip" :class="fileInput" :disabled="busy" @change="pickFile">
         <p v-if="file" class="font-mono text-2xs text-muted">
           {{ file.name }}
@@ -187,33 +192,35 @@ watch(open, (isOpen) => {
 
       <Skeleton v-if="busy" class="h-20 w-full" />
 
-      <Notice v-else-if="plan" tone="warn" title="Nothing has changed yet">
+      <Notice v-else-if="plan" tone="warn" :title="t('settings.restore.unchangedTitle')">
         <p>
-          <template v-if="target.kind === 'stored'">
-            Archive <code>{{ target.name }}</code>.
-          </template>
+          <TransText v-if="target.kind === 'stored'" k="settings.restore.archiveLine">
+            <template #name>
+              <code>{{ target.name }}</code>
+            </template>
+          </TransText>
           <template v-else>
-            The uploaded archive.
+            {{ t('settings.restore.uploadedArchive') }}
           </template>
         </p>
 
         <template v-if="plan.needsPassword">
           <p class="mt-2">
-            {{ plan.error ?? 'This backup is password-protected.' }}
+            {{ plan.error ?? t('settings.restore.passwordProtected') }}
           </p>
           <div class="mt-2 max-w-sm">
-            <TextField v-model="password" type="password" autocomplete="off" label="Password" />
+            <TextField v-model="password" type="password" autocomplete="off" :label="t('settings.restore.password')" />
           </div>
           <div class="mt-2">
             <AppButton size="sm" variant="secondary" :disabled="busy" @click="planCurrent">
-              Check again with the password
+              {{ t('settings.restore.checkAgain') }}
             </AppButton>
           </div>
         </template>
 
         <template v-else>
           <p class="mt-2">
-            Choose what to restore — {{ selectedCount }} of {{ plan.items.length }} selected.
+            {{ t('settings.restore.choosePrompt', { selected: selectedCount, total: plan.items.length }) }}
           </p>
           <ul class="mt-1 max-h-64 space-y-0.5 overflow-auto">
             <li v-for="item in plan.items" :key="item.id">
@@ -227,23 +234,23 @@ watch(open, (isOpen) => {
           </ul>
           <div class="mt-2 flex flex-wrap items-center gap-2">
             <AppButton size="xs" variant="ghost" :disabled="busy" @click="selectAllRestorable(true)">
-              Select all
+              {{ t('common.selectAll') }}
             </AppButton>
             <AppButton size="xs" variant="ghost" :disabled="busy" @click="selectAllRestorable(false)">
-              Select none
+              {{ t('common.selectNone') }}
             </AppButton>
           </div>
 
           <p class="mt-2">
-            Will restore: {{ plan.applied.join(', ') || 'nothing' }}.
+            {{ t('settings.restore.willRestore', { items: plan.applied.join(', ') || t('settings.restore.nothing') }) }}
             <template v-if="plan.skipped.length">
-              Skipped: {{ plan.skipped.join(', ') }}.
+              {{ t('settings.restore.skipped', { items: plan.skipped.join(', ') }) }}
             </template>
             <template v-if="plan.restartRequired">
-              The panel's own settings differ, so restart the panel afterwards.
+              {{ t('settings.restore.restartNote') }}
             </template>
             <template v-else-if="restoringGlobal">
-              Restored workspaces are reloaded immediately; entries marked autostart start on their own.
+              {{ t('settings.restore.reloadedNote') }}
             </template>
           </p>
         </template>
@@ -256,7 +263,7 @@ watch(open, (isOpen) => {
 
     <template #footer>
       <AppButton size="sm" variant="ghost" :disabled="busy" @click="open = false">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton
         v-if="plan && !needsPassword"
@@ -266,7 +273,7 @@ watch(open, (isOpen) => {
         :loading="busy"
         @click="apply"
       >
-        {{ target.kind === 'stored' ? 'Apply this restore' : 'Restore the upload' }}
+        {{ target.kind === 'stored' ? t('settings.restore.applyStored') : t('settings.restore.applyUpload') }}
       </AppButton>
     </template>
   </Modal>

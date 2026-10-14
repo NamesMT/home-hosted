@@ -3,6 +3,7 @@ import type { Tone } from '@/lib/status'
 import { CircleCheck, CircleX, Info, TriangleAlert, X } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useToasts } from '@/composables/useToasts'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 
 const { toasts, dismiss } = useToasts()
@@ -53,7 +54,7 @@ const items = computed(() => toasts.value)
         <button
           type="button"
           class="-mr-1 -mt-0.5 grid size-6 shrink-0 place-items-center rounded-control text-faint transition-colors duration-150 hover:bg-hover hover:text-ink"
-          aria-label="Dismiss"
+          :aria-label="t('common.dismiss')"
           @click="dismiss(toast.id)"
         >
           <X class="size-3.5" />

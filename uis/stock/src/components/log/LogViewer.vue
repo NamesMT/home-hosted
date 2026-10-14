@@ -7,6 +7,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import Tip from '@/components/ui/Tip.vue'
 import { useTheme } from '@/composables/useTheme'
+import { t, tc } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { inputClass } from '@/lib/ui'
 
@@ -23,7 +24,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   version: 0,
   live: false,
-  emptyHint: 'No output yet.',
+  /** Absent falls back to the catalog at render time, never to a module-scope `t()`. */
+  emptyHint: undefined,
   clearable: false,
   downloadUrl: undefined,
   downloadName: undefined,
@@ -166,12 +168,12 @@ onScopeDispose(() => {
   observer = null
 })
 
-const streamOptions = [
-  { value: 'all', label: 'All' },
-  { value: 'stdout', label: 'out' },
-  { value: 'stderr', label: 'err' },
-  { value: 'system', label: 'sys' },
-]
+const streamOptions = computed(() => [
+  { value: 'all', label: t('logs.streamAll') },
+  { value: 'stdout', label: t('logs.streamOut') },
+  { value: 'stderr', label: t('logs.streamErr') },
+  { value: 'system', label: t('logs.streamSys') },
+])
 </script>
 
 <template>
@@ -184,9 +186,9 @@ const streamOptions = [
         <input
           v-model="query"
           type="search"
-          placeholder="Search this output"
+          :placeholder="t('logs.searchPlaceholder')"
           class="h-7 py-0 pl-7 text-xs" :class="[inputClass]"
-          aria-label="Search the log output"
+          :aria-label="t('logs.searchLabel')"
           @keydown.enter.prevent="stepMatch($event.shiftKey ? -1 : 1)"
         >
         <div class="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
@@ -197,7 +199,7 @@ const streamOptions = [
             v-if="query.length > 0"
             type="button"
             class="grid size-5 place-items-center rounded text-faint hover:text-ink"
-            aria-label="Clear the search"
+            :aria-label="t('logs.clearSearch')"
             @click="query = ''"
           >
             <X class="size-3" />
@@ -206,7 +208,7 @@ const streamOptions = [
             v-if="matches.length > 0"
             type="button"
             class="grid size-5 place-items-center rounded text-faint hover:text-ink"
-            aria-label="Previous match"
+            :aria-label="t('logs.prevMatch')"
             @click="stepMatch(-1)"
           >
             <ChevronUp class="size-3" />
@@ -215,7 +217,7 @@ const streamOptions = [
             v-if="matches.length > 0"
             type="button"
             class="grid size-5 place-items-center rounded text-faint hover:text-ink"
-            aria-label="Next match"
+            :aria-label="t('logs.nextMatch')"
             @click="stepMatch(1)"
           >
             <ChevronDown class="size-3" />
@@ -224,10 +226,10 @@ const streamOptions = [
       </div>
 
       <div class="ml-auto flex items-center gap-1.5">
-        <Tip :label="showTime ? 'Hide timestamps' : 'Show timestamps'">
+        <Tip :label="showTime ? t('logs.hideTimestamps') : t('logs.showTimestamps')">
           <AppButton size="xs" variant="ghost" @click="showTime = !showTime">
             <Circle :class="cn('size-3', showTime ? 'fill-accent text-accent' : 'text-faint')" />
-            ts
+            {{ t('logs.timestampsShort') }}
           </AppButton>
         </Tip>
 
@@ -237,18 +239,18 @@ const streamOptions = [
           @click="follow ? (follow = false) : scrollToBottom()"
         >
           <component :is="follow ? Pause : Play" class="size-3" />
-          {{ follow ? 'Pause' : 'Follow' }}
+          {{ follow ? t('logs.pause') : t('logs.follow') }}
         </AppButton>
 
-        <Tip v-if="props.clearable" label="Clear the in-memory buffer">
-          <AppButton size="icon-sm" variant="ghost" aria-label="Clear the log buffer" @click="emit('clear')">
+        <Tip v-if="props.clearable" :label="t('logs.clearHint')">
+          <AppButton size="icon-sm" variant="ghost" :aria-label="t('logs.clearLabel')" @click="emit('clear')">
             <Trash2 class="size-3.5" />
           </AppButton>
         </Tip>
 
-        <Tip v-if="props.downloadUrl" label="Download the persisted file">
+        <Tip v-if="props.downloadUrl" :label="t('logs.downloadHint')">
           <a :href="props.downloadUrl" :download="props.downloadName">
-            <AppButton size="icon-sm" variant="ghost" aria-label="Download the log file">
+            <AppButton size="icon-sm" variant="ghost" :aria-label="t('logs.downloadLabel')">
               <ArrowDownToLine class="size-3.5" />
             </AppButton>
           </a>
@@ -263,11 +265,11 @@ const streamOptions = [
         :style="{ minHeight: props.minHeight }"
         tabindex="0"
         role="log"
-        aria-label="Log output"
+        :aria-label="t('logs.outputLabel')"
         @scroll.passive="onScroll"
       >
         <p v-if="total === 0" class="px-3 py-6 text-center text-xs text-faint">
-          {{ props.lines.length === 0 ? props.emptyHint : 'Nothing matches that search or stream filter.' }}
+          {{ props.lines.length === 0 ? (props.emptyHint ?? t('logs.emptyHint')) : t('logs.noMatches') }}
         </p>
 
         <div v-else class="relative w-full" :style="{ height: `${total * ROW_H}px` }">
@@ -296,7 +298,7 @@ const streamOptions = [
           @click="scrollToBottom"
         >
           <ArrowDownToLine class="size-3" />
-          Jump to latest
+          {{ t('logs.jumpToLatest') }}
         </button>
       </Transition>
     </div>
@@ -304,13 +306,15 @@ const streamOptions = [
     <footer class="flex items-center gap-3 border-t border-line bg-panel-2/60 px-2.5 py-1.5 text-2xs text-faint">
       <span class="flex items-center gap-1.5">
         <span :class="cn('size-1.5 rounded-full', props.live ? (follow ? 'bg-ok' : 'bg-warn') : 'bg-faint')" />
-        {{ props.live ? (follow ? 'streaming' : 'paused') : 'snapshot' }}
+        {{ props.live ? (follow ? t('logs.streaming') : t('logs.paused')) : t('logs.snapshot') }}
       </span>
       <span class="font-mono tabular-nums">
-        {{ total === props.lines.length ? `${total} lines` : `${total} of ${props.lines.length} lines` }}
+        {{ total === props.lines.length
+          ? tc('logs.lines', total)
+          : t('logs.linesOf', { count: total, total: props.lines.length }) }}
       </span>
-      <span v-if="query.trim().length > 0" class="font-mono tabular-nums">{{ matches.length }} matches</span>
-      <span class="ml-auto hidden font-mono tabular-nums sm:inline">row height {{ ROW_H }}px · windowed</span>
+      <span v-if="query.trim().length > 0" class="font-mono tabular-nums">{{ t('logs.matches', { count: matches.length }) }}</span>
+      <span class="ml-auto hidden font-mono tabular-nums sm:inline">{{ t('logs.rowHeight', { height: ROW_H }) }}</span>
     </footer>
   </div>
 </template>

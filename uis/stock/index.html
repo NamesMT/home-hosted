@@ -6,12 +6,16 @@
     <meta name="color-scheme" content="light dark" />
     <title>home-hosted — control panel</title>
     <script>
-      // Applied before the first paint so the shell never flashes the wrong theme.
+      // Applied before the first paint so the shell never flashes the wrong theme, and `lang` is
+      // right for the fonts and the screen reader. The translated text itself lands with
+      // `initLocale()` in main.ts, which resolves before the app mounts.
       ;(function () {
         try {
           var stored = localStorage.getItem('hh.theme')
           var dark = stored === 'dark' || (stored !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
           document.documentElement.classList.toggle('dark', dark)
+          var locale = localStorage.getItem('hh.locale')
+          if (locale) document.documentElement.lang = locale
         }
         catch (error) { /* storage unavailable — fall through to light */ }
       })()

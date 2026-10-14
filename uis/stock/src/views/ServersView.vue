@@ -10,6 +10,7 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t } from '@/i18n'
 import { inputClass } from '@/lib/ui'
 
 const control = useControlPlane()
@@ -20,13 +21,14 @@ const showAdd = ref(false)
 const query = ref('')
 const filter = ref('all')
 
+/** The picker renders the words; the value stays the filter key. */
 const FILTERS = [
-  { value: 'all', label: 'All' },
-  { value: 'running', label: 'Running' },
-  { value: 'stopped', label: 'Stopped' },
-  { value: 'attention', label: 'Attention' },
-  { value: 'disabled', label: 'Disabled' },
-]
+  { value: 'all', labelKey: 'views.servers.filterAll' },
+  { value: 'running', labelKey: 'views.servers.filterRunning' },
+  { value: 'stopped', labelKey: 'views.servers.filterStopped' },
+  { value: 'attention', labelKey: 'views.servers.filterAttention' },
+  { value: 'disabled', labelKey: 'views.servers.filterDisabled' },
+] as const
 
 const loading = computed(() => control.appState.value === null)
 
@@ -56,46 +58,55 @@ const counts = computed(() => ({
   attention: servers.value.filter(server =>
     server.status === 'crashed' || server.status === 'conflict' || server.health === 'unhealthy').length,
 }))
+
+/** The count rides the label, and only where there is one to show. */
+const filterOptions = computed(() => FILTERS.map(option => ({
+  value: option.value,
+  label: `${t(option.labelKey)}${option.value === 'all'
+    ? ` ${counts.value.all}`
+    : option.value === 'running'
+      ? ` ${counts.value.running}`
+      : option.value === 'attention' && counts.value.attention > 0
+        ? ` ${counts.value.attention}`
+        : ''}`,
+})))
 </script>
 
 <template>
   <div class="mx-auto max-w-7xl space-y-5 p-4 sm:p-5">
     <PageHeader
-      title="Servers"
-      :description="`Every entry in ${workspace.selected.value?.label ?? 'this workspace'}'s servers.config.json, with live resources, health and history.`"
+      :title="t('nav.servers')"
+      :description="t('views.servers.description', { workspace: workspace.selected.value?.label ?? t('nav.workspace') })"
     >
       <template #actions>
         <AppButton variant="ghost" @click="workspace.startAll()">
-          <Play class="size-3.5" />Start all
+          <Play class="size-3.5" />{{ t('views.actions.startAll') }}
         </AppButton>
         <AppButton variant="ghost" @click="workspace.stopAll()">
-          <Square class="size-3.5" />Stop all
+          <Square class="size-3.5" />{{ t('views.actions.stopAll') }}
         </AppButton>
         <AppButton variant="primary" @click="showAdd = true">
-          <Plus class="size-3.5" />Add server
+          <Plus class="size-3.5" />{{ t('views.actions.addServer') }}
         </AppButton>
       </template>
     </PageHeader>
 
     <div class="flex flex-wrap items-center gap-2">
-      <SegmentedControl
-        v-model="filter"
-        :options="FILTERS.map(option => ({ ...option, label: `${option.label}${option.value === 'all' ? ` ${counts.all}` : option.value === 'running' ? ` ${counts.running}` : option.value === 'attention' && counts.attention > 0 ? ` ${counts.attention}` : ''}` }))"
-      />
+      <SegmentedControl v-model="filter" :options="filterOptions" />
       <div class="relative ml-auto w-full sm:w-64">
         <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-faint" />
         <input
           v-model="query"
           type="search"
-          placeholder="Filter by id, label, command or port"
+          :placeholder="t('views.servers.filterPlaceholder')"
           class="pl-8" :class="[inputClass]"
-          aria-label="Filter servers"
+          :aria-label="t('views.servers.filterAria')"
         >
         <button
           v-if="query.length > 0"
           type="button"
           class="absolute right-1.5 top-1/2 grid size-6 -translate-y-1/2 place-items-center rounded-control text-faint hover:text-ink"
-          aria-label="Clear the filter"
+          :aria-label="t('views.servers.clearFilter')"
           @click="query = ''"
         >
           <X class="size-3.5" />
@@ -109,15 +120,15 @@ const counts = computed(() => ({
 
     <EmptyState
       v-else-if="servers.length === 0"
-      title="No servers configured"
-      description="Add the first process this panel should supervise. Its command, args, env and working directory all live in the config file."
+      :title="t('views.servers.emptyTitle')"
+      :description="t('views.servers.emptyDescription')"
     >
       <template #icon>
         <ServerIcon class="size-4" />
       </template>
       <template #action>
         <AppButton variant="primary" @click="showAdd = true">
-          <Plus class="size-3.5" />Add a server
+          <Plus class="size-3.5" />{{ t('views.actions.addAServer') }}
         </AppButton>
       </template>
     </EmptyState>
@@ -125,12 +136,12 @@ const counts = computed(() => ({
     <EmptyState
       v-else-if="visible.length === 0"
       compact
-      title="Nothing matches that filter"
-      description="Try a different status or clear the search."
+      :title="t('views.servers.noMatchTitle')"
+      :description="t('views.servers.noMatchDescription')"
     >
       <template #action>
         <AppButton @click="query = ''; filter = 'all'">
-          Clear filters
+          {{ t('views.servers.clearFilters') }}
         </AppButton>
       </template>
     </EmptyState>

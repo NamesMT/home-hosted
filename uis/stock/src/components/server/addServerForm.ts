@@ -81,6 +81,21 @@ export function blankAddServerForm(defaults?: ServerDefaults): AddServerForm {
   }
 }
 
+/**
+ * The catalog keys a validation failure resolves to.
+ *
+ * The checks live here, outside any component, so a module-scope `t()` would freeze
+ * whichever language was active at import. They return a key instead, and the dialog
+ * reads it through `t()` at render time.
+ */
+export const VALIDATION_KEYS = {
+  port: 'validation.port',
+  idRequired: 'validation.idRequired',
+  idPattern: 'validation.idPattern',
+  commandRequired: 'validation.commandRequired',
+  bootstrapCommand: 'validation.bootstrapCommand',
+} as const
+
 /** A blank, non-nullable numeric field is `NaN` while it is being cleared. */
 function finite(value: number | null): number {
   return value !== null && Number.isFinite(value) ? value : 0
@@ -115,7 +130,7 @@ export function addServerPortError(port: number | null): string | null {
     return null
   return Number.isInteger(port) && port >= 1 && port <= 65535
     ? null
-    : 'Port must be a whole number between 1 and 65535.'
+    : VALIDATION_KEYS.port
 }
 
 /**
@@ -183,15 +198,15 @@ export function addServerPayload(form: AddServerForm, defaults?: ServerDefaults)
   }
 }
 
-/** The first thing that stops this form from being created, or null. */
+/** The catalog key of the first thing that stops this form from being created, or null. */
 export function addServerProblem(form: AddServerForm): string | null {
   if (form.id.trim().length === 0)
-    return 'An id is required — it is the key this server lives under.'
+    return VALIDATION_KEYS.idRequired
   if (!ID_PATTERN.test(form.id.trim()))
-    return 'The id must start with a lowercase letter or digit and contain only lowercase letters, digits, dashes and underscores.'
+    return VALIDATION_KEYS.idPattern
   if (form.command.trim().length === 0)
-    return 'A command is required — the executable the supervisor spawns.'
+    return VALIDATION_KEYS.commandRequired
   if (form.bootstrapEnabled && form.bootstrapCommand.trim().length === 0)
-    return 'A bootstrap needs a command to run.'
+    return VALIDATION_KEYS.bootstrapCommand
   return addServerPortError(form.port)
 }

@@ -3,27 +3,28 @@ import type { HealthState, ServerStatus } from '@shared/contracts'
 export type Tone = 'ok' | 'warn' | 'danger' | 'info' | 'neutral' | 'accent'
 
 export interface StatusMeta {
-  label: string
+  /** A catalog key, not the text: the label is read at render time, in the viewer's language. */
+  labelKey: string
   tone: Tone
   /** The process is somewhere between two stable states. */
   transitional: boolean
 }
 
 export const STATUS_META: Record<ServerStatus, StatusMeta> = {
-  stopped: { label: 'Stopped', tone: 'neutral', transitional: false },
-  starting: { label: 'Starting', tone: 'warn', transitional: true },
-  running: { label: 'Running', tone: 'ok', transitional: false },
-  stopping: { label: 'Stopping', tone: 'warn', transitional: true },
-  backoff: { label: 'Restarting', tone: 'warn', transitional: true },
-  crashed: { label: 'Crashed', tone: 'danger', transitional: false },
-  conflict: { label: 'Port conflict', tone: 'danger', transitional: false },
+  stopped: { labelKey: 'status.stopped', tone: 'neutral', transitional: false },
+  starting: { labelKey: 'status.starting', tone: 'warn', transitional: true },
+  running: { labelKey: 'status.running', tone: 'ok', transitional: false },
+  stopping: { labelKey: 'status.stopping', tone: 'warn', transitional: true },
+  backoff: { labelKey: 'status.backoff', tone: 'warn', transitional: true },
+  crashed: { labelKey: 'status.crashed', tone: 'danger', transitional: false },
+  conflict: { labelKey: 'status.conflict', tone: 'danger', transitional: false },
 }
 
-export const HEALTH_META: Record<HealthState, { label: string, tone: Tone }> = {
-  disabled: { label: 'Not checked', tone: 'neutral' },
-  unknown: { label: 'Not probed', tone: 'neutral' },
-  healthy: { label: 'Healthy', tone: 'ok' },
-  unhealthy: { label: 'Unhealthy', tone: 'danger' },
+export const HEALTH_META: Record<HealthState, { labelKey: string, tone: Tone }> = {
+  disabled: { labelKey: 'health.disabled', tone: 'neutral' },
+  unknown: { labelKey: 'health.unknown', tone: 'neutral' },
+  healthy: { labelKey: 'health.healthy', tone: 'ok' },
+  unhealthy: { labelKey: 'health.unhealthy', tone: 'danger' },
 }
 
 export const TONE_TEXT: Record<Tone, string> = {
@@ -66,16 +67,16 @@ export function serverTone(status: ServerStatus, health: HealthState): Tone {
   return 'neutral'
 }
 
-export const HISTORY_TYPE_LABEL = {
-  'start': 'Started',
-  'exit': 'Exited',
-  'crash': 'Crashed',
-  'forced-restart': 'Forced restart',
-  'unhealthy': 'Unhealthy',
-  'recovered': 'Recovered',
+export const HISTORY_TYPE_LABEL_KEY = {
+  'start': 'history.start',
+  'exit': 'history.exit',
+  'crash': 'history.crash',
+  'forced-restart': 'history.forcedRestart',
+  'unhealthy': 'history.unhealthy',
+  'recovered': 'history.recovered',
 } as const
 
-export type HistoryType = keyof typeof HISTORY_TYPE_LABEL
+export type HistoryType = keyof typeof HISTORY_TYPE_LABEL_KEY
 
 export const HISTORY_TYPE_TONE: Record<HistoryType, Tone> = {
   'start': 'ok',

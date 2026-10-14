@@ -1,9 +1,9 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { WorkspaceStore } from '#src/config/store'
+import { stockCopy } from '../helpers/stock-copy'
 
 /**
  * The notice that lists `configWarnings` must not name a narrower cause than the array holds.
@@ -17,8 +17,6 @@ import { WorkspaceStore } from '#src/config/store'
  * Pinned against the array's real contents, so a second kind of warning cannot silently outgrow the
  * copy again.
  */
-const root = fileURLToPath(new URL('../..', import.meta.url))
-
 describe('the config-warning notice', () => {
   it('does not narrow its heading to one kind of warning', () => {
     // Two kinds in one file: an unrecognized key, and a dependency pointing at a missing id.
@@ -37,9 +35,11 @@ describe('the config-warning notice', () => {
       fs.rmSync(dir, { recursive: true, force: true })
     }
 
-    // The heading must not claim the array is only about unrecognized keys.
-    const view = fs.readFileSync(path.join(root, 'uis/stock/src/views/SettingsView.vue'), 'utf8')
-    expect(view, 'the heading describes one kind while the body may hold another').not.toContain('keys in this workspace\'s config are not recognized')
-    expect(view).toContain('config has a warning')
+    // The heading must not claim the array is only about unrecognized keys. It lives in the
+    // catalog rather than the `.vue` source now that the UI is translated — see
+    // `test/helpers/stock-copy.ts` for why the source no longer holds the sentence.
+    const heading = stockCopy('views.settings.configWarningTitle')
+    expect(heading, 'the heading describes one kind while the body may hold another').not.toContain('keys in this workspace\'s config are not recognized')
+    expect(heading).toContain('config has a warning')
   })
 })

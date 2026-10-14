@@ -2,6 +2,7 @@
 import { PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import { t } from '@/i18n'
 
 /**
  * Asks the CA again for one route's certificate, behind an explicit confirmation.
@@ -34,7 +35,7 @@ function confirm(): void {
   <PopoverRoot v-model:open="open">
     <PopoverTrigger as-child>
       <AppButton size="xs" variant="secondary" :loading="props.busy" :disabled="props.busy">
-        Force retry certificate
+        {{ t('proxy.retryButton.force') }}
       </AppButton>
     </PopoverTrigger>
 
@@ -45,24 +46,22 @@ function confirm(): void {
         class="z-50 w-72 rounded-panel border border-line bg-raise p-3 shadow-float focus-visible:outline-none data-[state=open]:animate-[hh-fade-in_120ms_ease-out]"
       >
         <p class="text-xs font-semibold text-ink">
-          Ask the CA again for {{ props.host }}?
+          {{ t('proxy.retryButton.question', { host: props.host }) }}
         </p>
         <p class="mt-1 text-2xs leading-4 text-muted">
-          The engine failed to obtain a CA certificate for this hostname previously and is using
-          its local CA. It retries automatically every {{ props.retryIn }}.
+          {{ t('proxy.retryButton.body', { retryIn: props.retryIn }) }}
         </p>
         <p class="mt-1 text-2xs leading-4 text-warn">
-          Retrying now will kill this route and make it unavailable for a bit, are you sure to
-          continue?
+          {{ t('proxy.retryButton.warning') }}
         </p>
         <div class="mt-2.5 flex justify-end gap-1.5">
           <PopoverClose as-child>
             <AppButton size="xs" variant="ghost">
-              Leave it
+              {{ t('proxy.retryButton.leave') }}
             </AppButton>
           </PopoverClose>
           <AppButton size="xs" variant="primary" :loading="props.busy" @click="confirm">
-            Retry now
+            {{ t('proxy.retryButton.now') }}
           </AppButton>
         </div>
       </PopoverContent>

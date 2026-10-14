@@ -15,7 +15,9 @@ import SelectField from '@/components/ui/SelectField.vue'
 import TextAreaField from '@/components/ui/TextAreaField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
+import TransText from '@/components/ui/TransText.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { t, tc } from '@/i18n'
 import { commaList, envToText, linesToArray, textToEnv } from '@/lib/fields'
 import { formatChangeValue } from '@/lib/format'
 
@@ -108,11 +110,11 @@ const stop = ref<StopConfig>({ ...props.config.stop })
 /** An explicit IPv4 the config already carries is kept selectable rather than dropped. */
 const bindOptions = computed(() => {
   const options = [
-    { value: 'local', label: 'local — 127.0.0.1' },
-    { value: 'lan', label: 'lan — 0.0.0.0' },
+    { value: 'local', label: t('bind.local') },
+    { value: 'lan', label: t('bind.lan') },
   ]
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(props.config.bind))
-    options.push({ value: props.config.bind, label: `${props.config.bind} — explicit` })
+    options.push({ value: props.config.bind, label: t('bind.explicit', { bind: props.config.bind }) })
   return options
 })
 
@@ -257,10 +259,14 @@ async function save(): Promise<void> {
     <header class="mb-4 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
       <div class="min-w-0">
         <h2 class="text-sm font-semibold text-ink">
-          Edit configuration
+          {{ t('editor.title') }}
         </h2>
         <p class="mt-0.5 text-2xs leading-4 text-muted">
-          Writes overrides to <span class="font-mono">servers.config.json</span>; anything left alone keeps inheriting the defaults.
+          <TransText k="editor.description">
+            <template #file>
+              <span class="font-mono">servers.config.json</span>
+            </template>
+          </TransText>
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -271,94 +277,94 @@ async function save(): Promise<void> {
           @click="showChanges = true"
         >
           <span class="font-mono tabular-nums">{{ changed }}</span>
-          unsaved {{ changed === 1 ? 'change' : 'changes' }}
+          {{ tc('editor.unsaved', changed) }}
         </button>
-        <span v-else class="text-2xs text-faint">in sync</span>
+        <span v-else class="text-2xs text-faint">{{ t('editor.inSync') }}</span>
       </div>
     </header>
 
     <div class="flex flex-col gap-3">
       <FieldGroup
-        title="Process"
-        description="What gets spawned, where, and with which environment."
+        :title="t('editor.process')"
+        :description="t('editor.processDescription')"
         :columns="2"
       >
-        <TextField v-model="form.label" label="Label" placeholder="falls back to the id" />
-        <TextField v-model="form.command" label="Command" placeholder="node" required class="font-mono text-xs" />
-        <TextField v-model="form.cwd" label="Working directory" placeholder="." hint="Relative paths resolve under projectDir." class="font-mono text-xs" />
-        <TextField v-model="form.envFile" label="Env file" placeholder="optional KEY=value file" hint="Loaded at spawn; its values override env." class="font-mono text-xs" />
+        <TextField v-model="form.label" :label="t('common.label')" :placeholder="t('editor.labelPlaceholder')" />
+        <TextField v-model="form.command" :label="t('common.command')" placeholder="node" required class="font-mono text-xs" />
+        <TextField v-model="form.cwd" :label="t('serverForm.workingDirectory')" placeholder="." :hint="t('serverForm.cwdHint')" class="font-mono text-xs" />
+        <TextField v-model="form.envFile" :label="t('serverForm.envFile')" :placeholder="t('serverForm.envFilePlaceholder')" :hint="t('serverForm.envFileHint')" class="font-mono text-xs" />
         <TextAreaField
           v-model="form.args"
-          label="Arguments"
+          :label="t('serverForm.arguments')"
           :rows="3"
-          hint="One per line; {port} {host} {home} {projectDir} {dataRoot} {id} {label} {cwd} {bind} {lanIp} are substituted."
+          :hint="t('editor.argumentsHint')"
           placeholder="-p&#10;{port}"
         />
         <TextAreaField
           v-model="form.env"
-          label="Environment"
+          :label="t('common.environment')"
           :rows="3"
-          hint="KEY=value per line, exported to the process."
+          :hint="t('serverForm.envHint')"
           placeholder="NODE_ENV=production"
         />
         <TextAreaField
           v-model="form.dataEnvs"
-          label="Data envs"
+          :label="t('serverForm.dataEnvs')"
           :rows="3"
-          hint="ENV=path per line — exported to the process and backed up automatically."
+          :hint="t('serverForm.dataEnvsHint')"
           placeholder="DATA_DIR={home}/.app"
         />
         <TextAreaField
           v-model="form.backupPaths"
-          label="Extra backup paths"
+          :label="t('serverForm.backupPaths')"
           :rows="2"
-          hint="One per line, placeholders allowed; data envs are captured already."
+          :hint="t('serverForm.backupPathsHint')"
           placeholder="{home}/.app/uploads"
         />
         <ToggleSwitch
           v-model="form.backupIgnoreGenerated"
-          label="Ignore known generated files when backing this up"
-          hint="Skips node_modules, dist, .next and the other caches nothing restores from."
+          :label="t('serverForm.backupIgnore')"
+          :hint="t('serverForm.backupIgnoreHint')"
           wide
         />
-        <TextField v-model="form.dependsOn" label="Depends on" placeholder="postgres, redis" hint="Comma separated; started first and waited for until healthy, stopped last." class="font-mono text-xs" />
-        <NumberField v-model="form.maxRssMb" label="Max RSS (MB)" :min="0" hint="Restart above this; blank or 0 disables it." />
+        <TextField v-model="form.dependsOn" :label="t('serverForm.dependsOn')" placeholder="postgres, redis" :hint="t('serverForm.dependsOnHint')" class="font-mono text-xs" />
+        <NumberField v-model="form.maxRssMb" :label="t('serverForm.maxRssMb')" :min="0" :hint="t('serverForm.maxRssHint')" />
       </FieldGroup>
 
       <FieldGroup
-        title="Port &amp; binding"
-        description="How the port is preflighted and where the process is reachable."
+        :title="t('editor.portTitle')"
+        :description="t('editor.portDescription')"
         :columns="2"
       >
-        <NumberField v-model="form.port" label="Port" nullable :min="1" :max="65535" hint="Blank means the server has no port to probe or preflight." />
+        <NumberField v-model="form.port" :label="t('common.port')" nullable :min="1" :max="65535" :hint="t('serverForm.portHint')" />
         <SelectField
           v-model="form.bind"
-          label="Bind address"
+          :label="t('serverForm.bindAddress')"
           :options="bindOptions"
-          hint="A custom IPv4 the config already sets stays selectable."
+          :hint="t('editor.bindHint')"
         />
         <SelectField
           v-model="form.onPortConflict"
-          label="On port conflict"
+          :label="t('serverForm.onPortConflict')"
           :options="[
-            { value: 'block', label: 'block — refuse to start' },
-            { value: 'warn', label: 'warn — start anyway' },
-            { value: 'follow', label: 'follow — adopt a detached restart of itself' },
-            { value: 'reclaim', label: 'reclaim — replace it with a supervised copy' },
-            { value: 'kill', label: 'kill — stop whatever holds the port' },
+            { value: 'block', label: t('onPortConflict.block') },
+            { value: 'warn', label: t('onPortConflict.warn') },
+            { value: 'follow', label: t('onPortConflict.follow') },
+            { value: 'reclaim', label: t('onPortConflict.reclaim') },
+            { value: 'kill', label: t('onPortConflict.kill') },
           ]"
         />
-        <NumberField v-model="form.logBufferLines" label="Log buffer lines" :min="50" :max="100000" :step="50" />
+        <NumberField v-model="form.logBufferLines" :label="t('serverForm.logBufferLines')" :min="50" :max="100000" :step="50" />
       </FieldGroup>
 
       <FieldGroup
-        title="Lifecycle"
-        description="Whether the supervisor owns this entry at all."
+        :title="t('editor.lifecycle')"
+        :description="t('editor.lifecycleDescription')"
         :columns="3"
       >
-        <ToggleSwitch v-model="form.enabled" label="Enabled" hint="Off keeps the entry in the config but refuses to start it." />
-        <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Start it whenever the control plane comes up." />
-        <ToggleSwitch v-model="form.persistent" label="Persistent" hint="Keeps running when the panel stops; `down` reports it instead of stopping it." />
+        <ToggleSwitch v-model="form.enabled" :label="t('common.enabled')" :hint="t('serverForm.enabledHint')" />
+        <ToggleSwitch v-model="form.autostart" :label="t('serverForm.autostart')" :hint="t('serverForm.autostartHint')" />
+        <ToggleSwitch v-model="form.persistent" :label="t('serverForm.persistent')" :hint="t('serverForm.persistentHint')" />
       </FieldGroup>
 
       <LifecycleFields
@@ -368,39 +374,39 @@ async function save(): Promise<void> {
       />
 
       <FieldGroup
-        title="Bootstrap"
-        description="A one-off command run before the first start — installs, migrations, downloads."
+        :title="t('serverForm.bootstrap')"
+        :description="t('serverForm.bootstrapDescription')"
         :columns="2"
       >
         <ToggleSwitch
           v-model="form.bootstrapEnabled"
-          label="Run a bootstrap"
-          hint="Off means the entry has none and the key is sent as null."
+          :label="t('serverForm.runBootstrap')"
+          :hint="t('serverForm.bootstrapHint')"
           wide
         />
         <template v-if="form.bootstrapEnabled">
           <TextField
             v-model="form.bootstrapCommand"
-            label="Command"
+            :label="t('common.command')"
             placeholder="./scripts/install.sh"
             class="font-mono text-xs"
           />
-          <NumberField v-model="form.bootstrapTimeoutMs" label="Timeout (ms)" :min="1000" :step="1000" />
-          <ToggleSwitch v-model="form.bootstrapRunOnce" label="Only once per session" hint="Off means every start re-runs it." />
+          <NumberField v-model="form.bootstrapTimeoutMs" :label="t('serverForm.timeoutMs')" :min="1000" :step="1000" />
+          <ToggleSwitch v-model="form.bootstrapRunOnce" :label="t('serverForm.runOnce')" :hint="t('serverForm.runOnceHint')" />
         </template>
         <TextAreaField
           v-if="form.bootstrapEnabled"
           v-model="form.bootstrapArgs"
-          label="Bootstrap arguments"
+          :label="t('serverForm.bootstrapArgs')"
           :rows="2"
-          hint="One per line; same placeholders as the main arguments."
+          :hint="t('serverForm.bootstrapArgsHint')"
         />
         <TextAreaField
           v-if="form.bootstrapEnabled"
           v-model="form.bootstrapEnv"
-          label="Bootstrap environment"
+          :label="t('serverForm.bootstrapEnv')"
           :rows="2"
-          hint="KEY=value per line, exported to the bootstrap process only."
+          :hint="t('serverForm.bootstrapEnvHint')"
         />
       </FieldGroup>
     </div>
@@ -411,18 +417,18 @@ async function save(): Promise<void> {
 
     <div class="mt-4 flex items-center justify-end gap-2 border-t border-line pt-3.5">
       <AppButton variant="ghost" @click="emit('cancel')">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton type="submit" variant="primary" :disabled="saving || !canSave" :loading="saving">
-        Save to servers.config.json
+        {{ t('editor.save') }}
       </AppButton>
     </div>
   </form>
 
   <Modal
     v-model:open="showChanges"
-    title="Unsaved changes"
-    description="What Save would write to servers.config.json."
+    :title="t('editor.changesTitle')"
+    :description="t('editor.changesDescription')"
     width="w-[min(92vw,42rem)]"
   >
     <div class="max-h-[60dvh] overflow-auto">
@@ -435,12 +441,12 @@ async function save(): Promise<void> {
         </li>
       </ul>
       <p v-else class="text-xs text-muted">
-        Nothing to save.
+        {{ t('editor.nothingToSave') }}
       </p>
     </div>
     <template #footer>
       <AppButton size="sm" variant="ghost" @click="showChanges = false">
-        Close
+        {{ t('common.close') }}
       </AppButton>
       <AppButton
         size="sm"
@@ -449,7 +455,7 @@ async function save(): Promise<void> {
         :loading="saving"
         @click="save(); showChanges = false"
       >
-        Save {{ changes.length }} change{{ changes.length === 1 ? '' : 's' }}
+        {{ tc('editor.saveChanges', changes.length) }}
       </AppButton>
     </template>
   </Modal>

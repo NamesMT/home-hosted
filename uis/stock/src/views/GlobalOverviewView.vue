@@ -15,6 +15,7 @@ import StatTile from '@/components/ui/StatTile.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { usePanelHealth } from '@/composables/usePanelHealth'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t, tc } from '@/i18n'
 import { formatDuration } from '@/lib/format'
 import { workspacePath } from '@/router'
 
@@ -60,8 +61,8 @@ onMounted(async () => {
 <template>
   <div class="mx-auto max-w-7xl space-y-5 p-4 sm:p-5">
     <PageHeader
-      title="Global Overview"
-      description="Host vitals and every server from every workspace, grouped by where it lives."
+      :title="t('nav.globalOverview')"
+      :description="t('views.globalOverview.description')"
     />
 
     <Panel class="p-0">
@@ -73,24 +74,24 @@ onMounted(async () => {
       </div>
       <div v-else class="grid grid-cols-2 divide-line-soft sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
         <div class="p-4">
-          <StatTile label="Workspaces" :value="String(groups.length)" :hint="`${all.length} servers in total`" />
+          <StatTile :label="t('views.globalOverview.workspaces')" :value="String(groups.length)" :hint="t('views.globalOverview.serversTotal', { count: all.length })" />
         </div>
         <div class="p-4">
-          <StatTile label="Running" :value="`${running.length}/${all.length}`" tone="ok" :hint="`${all.length - running.length} not up`" />
+          <StatTile :label="t('views.overview.running')" :value="`${running.length}/${all.length}`" tone="ok" :hint="t('views.overview.notUp', { count: all.length - running.length })" />
         </div>
         <div class="p-4">
           <StatTile
-            label="Needs attention"
+            :label="t('views.overview.needsAttention')"
             :value="String(attention.length)"
             :tone="attention.length > 0 ? 'danger' : 'ok'"
-            :hint="attention.length === 0 ? 'nothing is broken' : 'crashed or unhealthy'"
+            :hint="attention.length === 0 ? t('views.overview.nothingBroken') : t('views.overview.crashedOrUnhealthy')"
           />
         </div>
         <div class="p-4">
-          <StatTile label="Panel uptime" :value="panelUptime" :hint="panel.status.value === 'degraded' ? 'degraded' : 'serving'" />
+          <StatTile :label="t('views.globalOverview.panelUptime')" :value="panelUptime" :hint="panel.status.value === 'degraded' ? t('views.globalOverview.degraded') : t('views.globalOverview.serving')" />
         </div>
         <div class="p-4">
-          <StatTile label="Host uptime" :value="hostUptime" :hint="host?.enabled ? 'sampling on' : 'sampling off'" />
+          <StatTile :label="t('views.globalOverview.hostUptime')" :value="hostUptime" :hint="host?.enabled ? t('views.globalOverview.samplingOn') : t('views.globalOverview.samplingOff')" />
         </div>
       </div>
     </Panel>
@@ -102,7 +103,7 @@ onMounted(async () => {
       <CircleAlert class="mt-0.5 size-4 shrink-0 text-danger" />
       <div class="min-w-0">
         <p class="text-xs font-medium text-danger">
-          {{ attention.length }} server{{ attention.length === 1 ? '' : 's' }} need a look
+          {{ tc('views.globalOverview.needLook', attention.length) }}
         </p>
         <p class="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-danger">
           <button
@@ -123,10 +124,10 @@ onMounted(async () => {
         <template #header>
           <h2 class="flex items-center gap-1.5 text-sm font-semibold text-ink">
             <Cpu class="size-3.5 text-faint" />
-            Host vitals
+            {{ t('views.globalOverview.hostVitals') }}
           </h2>
           <p class="text-2xs text-muted">
-            This machine, shared by every workspace.
+            {{ t('views.globalOverview.hostVitalsNote') }}
           </p>
         </template>
         <HostVitalsPanel :host="host" :now="control.now.value" />
@@ -136,7 +137,7 @@ onMounted(async () => {
         <template #header>
           <h2 class="flex items-center gap-1.5 text-sm font-semibold text-ink">
             <Activity class="size-3.5 text-faint" />
-            Recent activity
+            {{ t('views.overview.recentActivity') }}
           </h2>
         </template>
         <ActivityFeed :servers="all" :now="control.now.value" :limit="12" />
@@ -145,8 +146,8 @@ onMounted(async () => {
 
     <EmptyState
       v-if="!loading && all.length === 0"
-      title="No servers anywhere yet"
-      description="Pick a workspace in the header and add the first process it should keep alive."
+      :title="t('views.globalOverview.emptyTitle')"
+      :description="t('views.globalOverview.emptyDescription')"
     >
       <template #icon>
         <ServerIcon class="size-4" />
@@ -160,30 +161,30 @@ onMounted(async () => {
           {{ group.label }}
           <span class="font-mono text-2xs font-normal text-faint">{{ group.id }}</span>
         </h2>
-        <span class="text-2xs text-muted">{{ group.runningCount }}/{{ group.serverCount }} running</span>
+        <span class="text-2xs text-muted">{{ t('views.globalOverview.groupRunning', { running: group.runningCount, total: group.serverCount }) }}</span>
         <div class="ml-auto flex items-center gap-1.5">
           <AppButton size="xs" variant="ghost" @click="openAdd(group.id)">
-            <Plus class="size-3" />Add server
+            <Plus class="size-3" />{{ t('views.actions.addServer') }}
           </AppButton>
           <AppButton size="xs" variant="ghost" @click="workspace.select(group.id); router.push(workspacePath(group.id, 'overview'))">
-            Open workspace
+            {{ t('views.globalOverview.openWorkspace') }}
           </AppButton>
         </div>
       </div>
 
       <p v-if="group.configError" class="rounded-control border border-danger/25 bg-danger-soft px-3 py-2 text-2xs leading-4 text-danger">
-        The config could not be read: {{ group.configError }}
+        {{ t('views.globalOverview.configError', { error: group.configError }) }}
       </p>
 
       <EmptyState
         v-if="group.servers.length === 0"
         compact
-        title="No servers in this workspace"
-        description="Add one and it will show up here and on the workspace page."
+        :title="t('views.overview.emptyTitle')"
+        :description="t('views.globalOverview.groupEmptyDescription')"
       >
         <template #action>
           <AppButton size="sm" variant="primary" @click="openAdd(group.id)">
-            <Plus class="size-3.5" />Add a server
+            <Plus class="size-3.5" />{{ t('views.actions.addAServer') }}
           </AppButton>
         </template>
       </EmptyState>
@@ -201,7 +202,7 @@ onMounted(async () => {
     </section>
 
     <p class="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-faint">
-      <span>resource history is sampled every 5 s and kept for this session</span>
+      <span>{{ t('views.overview.sampling') }}</span>
       <span class="font-mono">{{ control.appState.value?.control.url }}</span>
     </p>
 

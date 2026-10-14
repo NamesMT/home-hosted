@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { t } from '../src/i18n'
 
 /**
  * The same field must not be described two ways in one UI.
@@ -11,6 +12,9 @@ import { describe, expect, it } from 'vitest'
  * started at all" in one and "Off keeps the entry in the config but refuses to start it" in the other,
  * `Autostart with up` and `Port` likewise. The vaguer wording won wherever a reader happened to look
  * first, and nothing caught it because both are valid copy.
+ *
+ * Both fields now bind catalog keys, so this reads each attribute through `t()` and compares the two
+ * sentences a person actually sees — not the two key names, which would agree while the copy drifted.
  *
  * Labels whose hints are **deliberately different facts** are listed below rather than forced together:
  * each place tells half the story, and merging them would bloat both.
@@ -26,13 +30,26 @@ const COMPLEMENTARY = new Map([
   ['Run a bootstrap', 'the dialog says what a bootstrap is for; the editor says what `off` writes'],
 ])
 
+/** The text behind an attribute: a catalog key resolves, a literal stays as written. */
+function wording(raw: string): string {
+  const key = /^t\('([^']+)'\)$/.exec(raw.trim())
+  return key === null ? raw : t(key[1]!)
+}
+
 function hintsByLabel(file: string): Map<string, string> {
   const text = fs.readFileSync(file, 'utf8')
   const out = new Map<string, string>()
-  for (const m of text.matchAll(/label="([^"]+)"[^>]*?hint="([^"]+)"/g))
-    out.set(m[1]!, m[2]!)
-  for (const m of text.matchAll(/hint="([^"]+)"[^>]*?label="([^"]+)"/g))
-    out.set(m[2]!, m[1]!)
+  // One element at a time, so a `Disclosure`'s own hint is never read as some field's.
+  for (const tag of text.split('<').slice(1)) {
+    const end = tag.indexOf('>')
+    if (end === -1)
+      continue
+    const element = tag.slice(0, end)
+    const label = /:?label="([^"]*)"/.exec(element)
+    const hint = /:?hint="([^"]*)"/.exec(element)
+    if (label !== null && hint !== null)
+      out.set(wording(label[1]!), wording(hint[1]!))
+  }
   return out
 }
 

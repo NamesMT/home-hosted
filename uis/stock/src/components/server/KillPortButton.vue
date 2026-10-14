@@ -2,6 +2,7 @@
 import { PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import { t } from '@/i18n'
 
 /**
  * Frees the port a blocked entry wants, behind an explicit confirmation.
@@ -32,7 +33,7 @@ function confirm(): void {
   <PopoverRoot v-model:open="open">
     <PopoverTrigger as-child>
       <AppButton variant="danger-ghost" size="xs" :loading="props.busy">
-        Kill what holds port {{ props.port }}
+        {{ t('killPort.trigger', { port: props.port }) }}
       </AppButton>
     </PopoverTrigger>
 
@@ -43,20 +44,19 @@ function confirm(): void {
         class="z-50 w-64 rounded-panel border border-line bg-raise p-3 shadow-float focus-visible:outline-none data-[state=open]:animate-[hh-fade-in_120ms_ease-out]"
       >
         <p class="text-xs font-semibold text-ink">
-          Kill the process on port {{ props.port }}?
+          {{ t('killPort.title', { port: props.port }) }}
         </p>
         <p class="mt-1 text-2xs leading-4 text-muted">
-          It is asked to stop first, and killed only if it ignores that. Anything this panel
-          supervises is refused, so a managed server cannot be lost this way.
+          {{ t('killPort.body') }}
         </p>
         <div class="mt-2.5 flex justify-end gap-1.5">
           <PopoverClose as-child>
             <AppButton size="xs" variant="ghost">
-              Keep it
+              {{ t('common.keepIt') }}
             </AppButton>
           </PopoverClose>
           <AppButton size="xs" variant="danger" :loading="props.busy" @click="confirm">
-            Kill it
+            {{ t('killPort.confirm') }}
           </AppButton>
         </div>
       </PopoverContent>

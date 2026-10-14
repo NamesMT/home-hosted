@@ -27,6 +27,7 @@ import { useRouter } from 'vue-router'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useTheme } from '@/composables/useTheme'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t, tc } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { STATUS_META } from '@/lib/status'
 import { workspacePath } from '@/router'
@@ -90,11 +91,11 @@ const commands = computed<PaletteCommand[]>(() => {
 
   for (const { workspace: owner, server } of entries) {
     const label = server.config.label ?? server.id
-    const status = STATUS_META[server.status].label
+    const status = t(STATUS_META[server.status].labelKey)
     out.push({
       id: `open:${owner.id}:${server.id}`,
-      title: `Open ${label}`,
-      group: 'Servers',
+      title: t('palette.openServer', { label }),
+      group: t('palette.groupServers'),
       icon: Server,
       detail: `${owner.label} · ${server.id} · ${status}`,
       keywords: `server detail ${server.id} ${owner.label} show`,
@@ -102,8 +103,8 @@ const commands = computed<PaletteCommand[]>(() => {
     })
     out.push({
       id: `logs:${owner.id}:${server.id}`,
-      title: `Logs for ${label}`,
-      group: 'Servers',
+      title: t('palette.serverLogs', { label }),
+      group: t('palette.groupServers'),
       icon: Terminal,
       detail: `${owner.label} · ${server.id}`,
       keywords: `log tail output ${server.id} ${owner.label}`,
@@ -112,8 +113,8 @@ const commands = computed<PaletteCommand[]>(() => {
     if (STARTABLE.includes(server.status) && server.config.enabled) {
       out.push({
         id: `start:${owner.id}:${server.id}`,
-        title: `Start ${label}`,
-        group: 'Actions',
+        title: t('palette.startServer', { label }),
+        group: t('palette.groupActions'),
         icon: Play,
         detail: `${owner.label} · ${server.id}`,
         keywords: `run launch ${server.id} ${owner.label}`,
@@ -123,8 +124,8 @@ const commands = computed<PaletteCommand[]>(() => {
     if (STOPPABLE.includes(server.status)) {
       out.push({
         id: `stop:${owner.id}:${server.id}`,
-        title: `Stop ${label}`,
-        group: 'Actions',
+        title: t('palette.stopServer', { label }),
+        group: t('palette.groupActions'),
         icon: Square,
         detail: `${owner.label} · ${server.id}`,
         keywords: `halt kill ${server.id} ${owner.label}`,
@@ -134,8 +135,8 @@ const commands = computed<PaletteCommand[]>(() => {
     if (server.config.enabled) {
       out.push({
         id: `restart:${owner.id}:${server.id}`,
-        title: `Restart ${label}`,
-        group: 'Actions',
+        title: t('palette.restartServer', { label }),
+        group: t('palette.groupActions'),
         icon: RotateCw,
         detail: `${owner.label} · ${server.id}`,
         keywords: `bounce reload ${server.id} ${owner.label}`,
@@ -145,22 +146,22 @@ const commands = computed<PaletteCommand[]>(() => {
   }
 
   out.push(
-    { id: 'nav:overview', title: 'Go to Overview', group: 'Navigate', icon: LayoutDashboard, keywords: 'dashboard home workspace', run: () => go(here('overview')) },
-    { id: 'nav:global', title: 'Go to Global Overview', group: 'Navigate', icon: Globe, keywords: 'dashboard home host vitals every workspace', run: () => go('/global/overview') },
-    { id: 'nav:global-settings', title: 'Go to Global settings', group: 'Navigate', icon: SlidersHorizontal, keywords: 'panel listener auth tls backups host', run: () => go('/global/settings') },
-    { id: 'nav:proxy', title: 'Go to Reverse Proxy', group: 'Navigate', icon: Waypoints, keywords: 'caddy domain route acme certificate https expose', run: () => go('/proxy') },
-    { id: 'nav:servers', title: 'Go to Servers', group: 'Navigate', icon: Server, keywords: 'processes list workspace', run: () => go(here('servers')) },
-    { id: 'nav:logs', title: 'Go to Logs', group: 'Navigate', icon: ScrollText, keywords: 'output files tail workspace', run: () => go(here('logs')) },
-    { id: 'nav:settings', title: 'Go to Workspace settings', group: 'Navigate', icon: Settings2, keywords: 'defaults notifications ddns config workspace', run: () => go(here('settings')) },
-    { id: 'act:start-all', title: 'Start every enabled server here', group: 'Actions', icon: Play, keywords: 'boot all workspace', run: () => act(() => void control.startAll(workspace.activeId.value)) },
-    { id: 'act:stop-all', title: 'Stop every server here', group: 'Actions', icon: Square, keywords: 'halt all workspace', run: () => act(() => void control.stopAll(workspace.activeId.value)) },
+    { id: 'nav:overview', title: t('palette.goOverview'), group: t('palette.groupNavigate'), icon: LayoutDashboard, keywords: 'dashboard home workspace', run: () => go(here('overview')) },
+    { id: 'nav:global', title: t('palette.goGlobalOverview'), group: t('palette.groupNavigate'), icon: Globe, keywords: 'dashboard home host vitals every workspace', run: () => go('/global/overview') },
+    { id: 'nav:global-settings', title: t('palette.goGlobalSettings'), group: t('palette.groupNavigate'), icon: SlidersHorizontal, keywords: 'panel listener auth tls backups host', run: () => go('/global/settings') },
+    { id: 'nav:proxy', title: t('palette.goProxy'), group: t('palette.groupNavigate'), icon: Waypoints, keywords: 'caddy domain route acme certificate https expose', run: () => go('/proxy') },
+    { id: 'nav:servers', title: t('palette.goServers'), group: t('palette.groupNavigate'), icon: Server, keywords: 'processes list workspace', run: () => go(here('servers')) },
+    { id: 'nav:logs', title: t('palette.goLogs'), group: t('palette.groupNavigate'), icon: ScrollText, keywords: 'output files tail workspace', run: () => go(here('logs')) },
+    { id: 'nav:settings', title: t('palette.goWorkspaceSettings'), group: t('palette.groupNavigate'), icon: Settings2, keywords: 'defaults notifications ddns config workspace', run: () => go(here('settings')) },
+    { id: 'act:start-all', title: t('palette.startAll'), group: t('palette.groupActions'), icon: Play, keywords: 'boot all workspace', run: () => act(() => void control.startAll(workspace.activeId.value)) },
+    { id: 'act:stop-all', title: t('palette.stopAll'), group: t('palette.groupActions'), icon: Square, keywords: 'halt all workspace', run: () => act(() => void control.stopAll(workspace.activeId.value)) },
   )
 
   for (const owner of workspace.workspaces.value) {
     out.push({
       id: `ws:${owner.id}`,
-      title: `Switch to ${owner.label}`,
-      group: 'Workspaces',
+      title: t('palette.switchWorkspace', { label: owner.label }),
+      group: t('palette.groupWorkspaces'),
       icon: Layers,
       detail: owner.id,
       keywords: `workspace switch scope ${owner.label}`,
@@ -168,20 +169,22 @@ const commands = computed<PaletteCommand[]>(() => {
     })
   }
 
+  // Section labels are catalog keys: the section list and its sidebar rail share one wording.
   const globalSections = [
-    ['listener', 'Listener'],
-    ['authentication', 'Authentication'],
-    ['host', 'Host vitals'],
-    ['backups', 'Backups'],
-    ['tls', 'TLS'],
-    ['interface', 'Interface'],
-    ['paths', 'Paths'],
+    ['listener', 'settings.listener.title'],
+    ['authentication', 'settings.authentication.title'],
+    ['host', 'settings.host.title'],
+    ['backups', 'settings.backups.title'],
+    ['tls', 'settings.tls.title'],
+    ['language', 'language.label'],
+    ['interface', 'settings.interface.title'],
+    ['paths', 'settings.paths.title'],
   ] as const
   for (const [id, label] of globalSections) {
     out.push({
       id: `gset:${id}`,
-      title: `Global setting: ${label}`,
-      group: 'Global settings',
+      title: t('palette.globalSetting', { label: t(label) }),
+      group: t('nav.globalSettings'),
       icon: Globe,
       keywords: `configure panel ${id}`,
       run: () => go(`/global/settings?section=${id}`),
@@ -189,16 +192,16 @@ const commands = computed<PaletteCommand[]>(() => {
   }
 
   const workspaceSections = [
-    ['defaults', 'Server defaults'],
-    ['logs', 'Log storage'],
-    ['notifications', 'Telegram notifications'],
-    ['ddns', 'Dynamic DNS'],
+    ['defaults', 'settings.defaults.title'],
+    ['logs', 'settings.logs.title'],
+    ['notifications', 'settings.notifications.title'],
+    ['ddns', 'settings.ddns.title'],
   ] as const
   for (const [id, label] of workspaceSections) {
     out.push({
       id: `wset:${id}`,
-      title: `Workspace setting: ${label}`,
-      group: 'Workspace settings',
+      title: t('palette.workspaceSetting', { label: t(label) }),
+      group: t('nav.workspaceSettings'),
       icon: Settings2,
       keywords: `configure workspace ${id}`,
       run: () => go(`${workspacePath(workspace.activeId.value, 'settings')}?section=${id}`),
@@ -206,15 +209,15 @@ const commands = computed<PaletteCommand[]>(() => {
   }
 
   const themes: Array<[ThemePreference, string, Component]> = [
-    ['light', 'Light', Sun],
-    ['dark', 'Dark', Moon],
-    ['system', 'System', Monitor],
+    ['light', 'theme.light', Sun],
+    ['dark', 'theme.dark', Moon],
+    ['system', 'theme.system', Monitor],
   ]
   for (const [value, label, icon] of themes) {
     out.push({
       id: `theme:${value}`,
-      title: `${label} theme`,
-      group: 'Appearance',
+      title: t('palette.theme', { theme: t(label) }),
+      group: t('palette.groupAppearance'),
       icon,
       keywords: 'colour color dark light mode appearance',
       run: () => act(() => theme.setPreference(value)),
@@ -319,7 +322,7 @@ onScopeDispose(() => window.removeEventListener('keydown', onGlobalKey))
         @keydown="onKeydown"
       >
         <DialogTitle class="sr-only">
-          Command palette
+          {{ t('topbar.commandPalette') }}
         </DialogTitle>
 
         <div class="flex items-center gap-2.5 border-b border-line px-3.5">
@@ -328,7 +331,7 @@ onScopeDispose(() => window.removeEventListener('keydown', onGlobalKey))
             ref="input"
             v-model="query"
             type="text"
-            placeholder="Jump to a server, run an action, open a setting…"
+            :placeholder="t('palette.placeholder')"
             class="h-12 w-full bg-transparent text-sm text-ink outline-none placeholder:text-faint"
             autocomplete="off"
             spellcheck="false"
@@ -338,7 +341,7 @@ onScopeDispose(() => window.removeEventListener('keydown', onGlobalKey))
 
         <div ref="list" class="max-h-[min(60vh,26rem)] overflow-y-auto p-1.5">
           <p v-if="flat.length === 0" class="px-3 py-8 text-center text-xs text-muted">
-            Nothing matches “{{ query }}”.
+            {{ t('palette.noMatches', { query }) }}
           </p>
 
           <template v-for="[group, items] in grouped" :key="group">
@@ -366,9 +369,9 @@ onScopeDispose(() => window.removeEventListener('keydown', onGlobalKey))
         </div>
 
         <div class="flex items-center gap-3 border-t border-line bg-panel-2 px-3.5 py-2 text-2xs text-faint">
-          <span><kbd class="font-mono">↑↓</kbd> navigate</span>
-          <span><kbd class="font-mono">↵</kbd> run</span>
-          <span class="ml-auto font-mono">{{ flat.length }} results</span>
+          <span><kbd class="font-mono">↑↓</kbd> {{ t('palette.navigate') }}</span>
+          <span><kbd class="font-mono">↵</kbd> {{ t('palette.run') }}</span>
+          <span class="ml-auto font-mono">{{ tc('palette.results', flat.length) }}</span>
         </div>
       </DialogContent>
     </DialogPortal>

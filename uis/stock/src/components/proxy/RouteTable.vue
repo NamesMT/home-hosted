@@ -10,6 +10,7 @@ import EmptyState from '@/components/ui/EmptyState.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
+import { t } from '@/i18n'
 import { retryInLabel, ROUTE_STATUS_META, routeCertificate, routeUrl, targetSummary, tlsSummary } from '@/lib/proxy'
 
 /**
@@ -62,21 +63,21 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
 
 <template>
   <FieldGroup
-    title="Routes"
-    description="One public hostname per service. A route may point at a supervised server in any workspace, at this panel, or at a literal upstream."
+    :title="t('proxy.routes.title')"
+    :description="t('proxy.routes.description')"
   >
     <template #actions>
       <AppButton size="xs" variant="secondary" :disabled="props.disabled" @click="emit('add')">
         <Plus class="size-3.5" />
-        Add route
+        {{ t('proxy.routes.add') }}
       </AppButton>
     </template>
 
     <div v-if="problems.length > 0" class="sm:col-span-2">
-      <Notice tone="danger" title="These routes cannot be saved as they stand">
+      <Notice tone="danger" :title="t('proxy.routes.cannotSaveTitle')">
         <ul class="list-disc space-y-0.5 pl-4">
           <li v-for="problem in problems" :key="problem.route.id">
-            {{ problem.view?.message ?? `${problem.route.host} cannot be routed` }}
+            {{ problem.view?.message ?? t('proxy.routes.cannotRoute', { host: problem.route.host }) }}
           </li>
         </ul>
       </Notice>
@@ -85,15 +86,15 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
     <div v-if="rows.length === 0" class="sm:col-span-2">
       <EmptyState
         compact
-        title="No routes yet"
-        description="Add one to expose a server through a domain — the engine gets the certificate on its own."
+        :title="t('proxy.routes.emptyTitle')"
+        :description="t('proxy.routes.emptyDescription')"
       >
         <template #icon>
           <Waypoints class="size-5" />
         </template>
         <template #action>
           <AppButton variant="primary" :disabled="props.disabled" @click="emit('add')">
-            Add the first route
+            {{ t('proxy.routes.addFirst') }}
           </AppButton>
         </template>
       </EmptyState>
@@ -104,25 +105,25 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
         <thead>
           <tr class="text-2xs text-faint">
             <th class="py-1 pr-3 font-medium">
-              Hostname
+              {{ t('proxy.routes.columnHostname') }}
             </th>
             <th class="py-1 pr-3 font-medium">
-              Target
+              {{ t('proxy.routes.columnTarget') }}
             </th>
             <th class="py-1 pr-3 font-medium">
-              Upstream
+              {{ t('proxy.routes.columnUpstream') }}
             </th>
             <th class="py-1 pr-3 font-medium">
-              TLS
+              {{ t('proxy.routes.columnTls') }}
             </th>
             <th class="py-1 pr-3 font-medium">
-              State
+              {{ t('proxy.routes.columnState') }}
             </th>
             <th class="py-1 pr-3 font-medium">
-              On
+              {{ t('proxy.routes.columnOn') }}
             </th>
             <th class="py-1 font-medium">
-              <span class="sr-only">Actions</span>
+              <span class="sr-only">{{ t('common.actions') }}</span>
             </th>
           </tr>
         </thead>
@@ -138,10 +139,10 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
                   target="_blank"
                   rel="noopener noreferrer"
                   class="transition-colors duration-150 hover:text-accent hover:underline"
-                  :title="`Open ${row.url} in a new tab`"
+                  :title="t('proxy.routes.openInTab', { url: row.url })"
                 >{{ row.route.host }}</a>
                 <template v-else>
-                  {{ row.route.host.trim().length > 0 ? row.route.host : 'no hostname yet' }}
+                  {{ row.route.host.trim().length > 0 ? row.route.host : t('proxy.routes.noHostname') }}
                 </template>
                 <span v-if="row.route.path.length > 0" class="text-accent">{{ row.route.path }}</span>
               </p>
@@ -159,7 +160,7 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
               {{ row.tls }}
               <div v-if="row.certificate" class="mt-0.5">
                 <ToneBadge :tone="row.certificate.tone" dot>
-                  {{ row.certificate.label }}
+                  {{ t(row.certificate.labelKey) }}
                 </ToneBadge>
                 <p
                   v-if="row.certificate.message"
@@ -180,10 +181,10 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
             </td>
             <td class="py-1.5 pr-3">
               <ToneBadge v-if="row.meta" :tone="row.meta.tone" dot>
-                {{ row.meta.label }}
+                {{ t(row.meta.labelKey) }}
               </ToneBadge>
               <ToneBadge v-else tone="info" dot>
-                Not applied yet
+                {{ t('proxy.status.unapplied') }}
               </ToneBadge>
               <p
                 v-if="row.view?.message"
@@ -196,7 +197,7 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
             <td class="py-1.5 pr-3">
               <ToggleSwitch
                 :model-value="row.route.enabled"
-                :label="`Route ${row.route.host || row.route.id}`"
+                :label="t('proxy.routes.toggle', { name: row.route.host || row.route.id })"
                 sr-only
                 :disabled="props.disabled"
                 @update:model-value="value => emit('toggle', row.route, value)"
@@ -204,10 +205,10 @@ const problems = computed(() => rows.value.filter(row => row.view?.status === 'e
             </td>
             <td class="py-1.5">
               <span class="flex items-center justify-end gap-1">
-                <AppButton size="xs" variant="ghost" :disabled="props.disabled" :aria-label="`Edit ${row.route.host || row.route.id}`" @click="emit('edit', row.route)">
+                <AppButton size="xs" variant="ghost" :disabled="props.disabled" :aria-label="t('proxy.routes.edit', { name: row.route.host || row.route.id })" @click="emit('edit', row.route)">
                   <Pencil class="size-3.5" />
                 </AppButton>
-                <AppButton size="xs" variant="danger-ghost" :disabled="props.disabled" :aria-label="`Remove ${row.route.host || row.route.id}`" @click="emit('remove', row.route)">
+                <AppButton size="xs" variant="danger-ghost" :disabled="props.disabled" :aria-label="t('proxy.routes.remove', { name: row.route.host || row.route.id })" @click="emit('remove', row.route)">
                   <Trash2 class="size-3.5" />
                 </AppButton>
               </span>

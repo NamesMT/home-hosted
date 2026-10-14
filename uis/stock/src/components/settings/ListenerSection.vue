@@ -12,6 +12,7 @@ import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
+import { t } from '@/i18n'
 
 const props = defineProps<{
   view: ControlView | null
@@ -46,59 +47,67 @@ const bindMode = computed<string>({
 const customBindError = computed(() => {
   if (bindMode.value !== 'custom' || parseBind(control.value.host) !== null)
     return undefined
-  return 'Enter an IPv4 address, for example 192.168.1.20.'
+  return t('settings.listener.ipv4Error')
 })
 
 const liveAddress = computed(() => props.view?.url ?? '—')
+
+const bindHint = computed(() => {
+  if (bindMode.value === 'lan')
+    return t('settings.listener.bindLanHint')
+  if (bindMode.value === 'local')
+    return t('settings.listener.bindLocalHint')
+  return t('settings.listener.bindCustomHint')
+})
 </script>
 
 <template>
   <FieldGroup
-    title="Listener"
-    description="Where the panel answers. Moving this restarts the panel and sends this page to the new address."
+    :title="t('settings.listener.title')"
+    :description="t('settings.listener.description')"
   >
     <template #actions>
       <AppButton size="xs" variant="ghost" :disabled="!props.dirty" @click="emit('reset')">
-        Reset
+        {{ t('common.reset') }}
       </AppButton>
     </template>
 
-    <NumberField v-model="port" label="Control port" :min="1" :max="65535" hint="Default 3999." />
+    <NumberField v-model="port" :label="t('settings.listener.port')" :min="1" :max="65535" :hint="t('settings.listener.portHint')" />
     <div class="flex min-w-0 flex-col gap-1">
-      <span class="text-xs font-medium text-muted">Bind</span>
+      <span class="text-xs font-medium text-muted">{{ t('settings.listener.bind') }}</span>
       <SegmentedControl
         v-model="bindMode"
         :options="[
-          { value: 'local', label: 'Local' },
-          { value: 'lan', label: 'LAN' },
-          { value: 'custom', label: 'Custom' },
+          { value: 'local', label: t('settings.listener.bindLocal') },
+          { value: 'lan', label: t('settings.listener.bindLan') },
+          { value: 'custom', label: t('settings.listener.bindCustom') },
         ]"
       />
       <p class="text-2xs leading-4 text-faint">
-        {{ bindMode === 'lan' ? '0.0.0.0 — reachable from the whole network.' : bindMode === 'local' ? '127.0.0.1 — this machine only.' : 'A specific interface address you type in below.' }}
+        {{ bindHint }}
       </p>
     </div>
     <TextField
       v-if="bindMode === 'custom'"
       v-model="control.host"
-      label="IPv4 address"
-      placeholder="192.168.1.20"
+      :label="t('settings.listener.ipv4')"
+      :placeholder="t('settings.listener.ipv4Placeholder')"
       :error="customBindError"
-      hint="Binding beyond 127.0.0.1 needs a real password."
+      :hint="t('settings.listener.ipv4Hint')"
     />
-    <ToggleSwitch v-model="control.openBrowser" label="Open a browser when the panel comes up" wide />
+    <ToggleSwitch v-model="control.openBrowser" :label="t('settings.listener.openBrowser')" wide />
 
     <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
-      <span class="text-xs font-medium text-muted">Live address</span>
+      <span class="text-xs font-medium text-muted">{{ t('settings.listener.liveAddress') }}</span>
       <div class="flex items-center gap-1.5 rounded-control border border-line bg-page/60 px-2.5 py-1.5">
         <span class="min-w-0 flex-1 truncate font-mono text-xs tabular-nums text-ink">{{ liveAddress }}</span>
         <ToneBadge v-if="props.view?.restartRequired" tone="warn" dot>
-          restart required
+          {{ t('settings.listener.restartRequired') }}
         </ToneBadge>
-        <CopyButton :value="liveAddress" label="Copy the live address" />
+        <CopyButton :value="liveAddress" :label="t('settings.listener.copyLiveAddress')" />
       </div>
       <p class="text-2xs leading-4 text-faint">
-        What the listener is bound to right now; saved changes take effect after the panel rebinds.
+        {{ t('settings.listener.liveAddressHint') }}
       </p>
     </div>
   </FieldGroup>

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
 import TextField from '@/components/ui/TextField.vue'
+import { t } from '@/i18n'
 
 const props = withDefaults(defineProps<{
   mode: 'create' | 'rename'
@@ -20,8 +21,8 @@ const label = ref(props.initial)
 const busy = ref(false)
 const error = ref<string | null>(null)
 
-const title = computed(() => (props.mode === 'create' ? 'New workspace' : 'Rename workspace'))
-const action = computed(() => (props.mode === 'create' ? 'Create workspace' : 'Rename'))
+const title = computed(() => (props.mode === 'create' ? t('workspace.new') : t('workspace.rename')))
+const action = computed(() => (props.mode === 'create' ? t('workspace.create') : t('workspace.renameAction')))
 
 /** What the panel would derive the id from, so the URL part is never a surprise. */
 const derivedId = computed(() => label.value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40))
@@ -56,16 +57,16 @@ async function submit(): Promise<void> {
     v-model:open="open"
     :title="title"
     :description="mode === 'create'
-      ? 'Its own settings, servers, logs, secrets and backups entry — served by this same panel.'
-      : 'Only the name changes; the workspace id stays, so URLs and paths keep working.'"
+      ? t('workspace.createHint')
+      : t('workspace.renameHint')"
     width="w-[min(92vw,26rem)]"
   >
     <div class="space-y-3">
       <TextField
         v-model="label"
-        label="Name"
+        :label="t('common.name')"
         placeholder="Home lab"
-        :hint="mode === 'create' && derivedId.length > 0 ? `Shown in the header. Id: ${derivedId}` : 'Shown in the header.'"
+        :hint="mode === 'create' && derivedId.length > 0 ? t('workspace.nameHintId', { id: derivedId }) : t('workspace.nameHint')"
         wide
         @keydown.enter.prevent="submit"
       />

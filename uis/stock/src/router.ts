@@ -19,16 +19,17 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     // The workspace is part of the URL, so any page can be bookmarked or shared.
-    { path: '/w/:workspaceId', name: 'overview', component: OverviewView, meta: { title: 'Overview' } },
-    { path: '/w/:workspaceId/servers', name: 'servers', component: ServersView, meta: { title: 'Servers' } },
-    { path: '/w/:workspaceId/servers/:id', name: 'server-detail', component: ServerDetailView, meta: { title: 'Server' } },
-    { path: '/w/:workspaceId/logs', name: 'logs', component: LogsView, meta: { title: 'Logs' } },
-    { path: '/w/:workspaceId/settings', name: 'settings', component: SettingsView, meta: { title: 'Workspace settings' } },
-    { path: '/global/overview', name: 'global-overview', component: GlobalOverviewView, meta: { title: 'Global Overview' } },
-    { path: '/global/settings', name: 'global-settings', component: GlobalSettingsView, meta: { title: 'Global settings' } },
+    // `titleKey` is a flat catalog key, read through `t()` by whoever renders the page title.
+    { path: '/w/:workspaceId', name: 'overview', component: OverviewView, meta: { titleKey: 'nav.overview' } },
+    { path: '/w/:workspaceId/servers', name: 'servers', component: ServersView, meta: { titleKey: 'nav.servers' } },
+    { path: '/w/:workspaceId/servers/:id', name: 'server-detail', component: ServerDetailView, meta: { titleKey: 'views.route.server' } },
+    { path: '/w/:workspaceId/logs', name: 'logs', component: LogsView, meta: { titleKey: 'nav.logs' } },
+    { path: '/w/:workspaceId/settings', name: 'settings', component: SettingsView, meta: { titleKey: 'nav.workspaceSettings' } },
+    { path: '/global/overview', name: 'global-overview', component: GlobalOverviewView, meta: { titleKey: 'nav.globalOverview' } },
+    { path: '/global/settings', name: 'global-settings', component: GlobalSettingsView, meta: { titleKey: 'nav.globalSettings' } },
     // Panel-wide, under Others: one engine exposes every workspace's servers.
-    { path: '/proxy', name: 'proxy', component: ProxyView, meta: { title: 'Reverse Proxy' } },
-    { path: '/login', name: 'login', component: LoginView, meta: { title: 'Sign in' } },
+    { path: '/proxy', name: 'proxy', component: ProxyView, meta: { titleKey: 'nav.reverseProxy' } },
+    { path: '/login', name: 'login', component: LoginView, meta: { titleKey: 'login.signIn' } },
     // The bare root and anything unknown: the guard rewrites both to the panel-wide
     // overview, and the catch-all is what an unmatched path has to match at all.
     { path: '/', name: 'home', component: OverviewView },

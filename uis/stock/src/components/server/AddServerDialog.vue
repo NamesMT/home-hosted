@@ -14,7 +14,9 @@ import SelectField from '@/components/ui/SelectField.vue'
 import TextAreaField from '@/components/ui/TextAreaField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
+import TransText from '@/components/ui/TransText.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { t } from '@/i18n'
 
 const props = defineProps<{ workspaceId: string }>()
 
@@ -32,10 +34,14 @@ const PLACEHOLDERS = ['{port}', '{host}', '{home}', '{projectDir}', '{dataRoot}'
 
 /** What an entry would inherit from the workspace it is added to. */
 const panelDefaults = computed(() => control.workspaceById(props.workspaceId)?.defaults)
-const workspaceLabel = computed(() => control.workspaceById(props.workspaceId)?.label ?? 'this workspace')
+const workspaceLabel = computed(() => control.workspaceById(props.workspaceId)?.label ?? t('addServer.thisWorkspace'))
 
 const form = reactive<AddServerForm>(blankAddServerForm(panelDefaults.value))
-const portError = computed(() => addServerPortError(form.port))
+/** A catalog key: the check runs outside any component, so it is read through `t()` here. */
+const portError = computed(() => {
+  const key = addServerPortError(form.port)
+  return key === null ? null : t(key)
+})
 
 /** Reset every time the dialog opens, so a cancelled attempt leaves nothing behind. */
 function reset(): void {
@@ -52,7 +58,7 @@ async function submit(): Promise<void> {
   formError.value = null
   const invalid = addServerProblem(form)
   if (invalid !== null) {
-    formError.value = invalid
+    formError.value = t(invalid)
     return
   }
 
@@ -82,177 +88,180 @@ async function submit(): Promise<void> {
 <template>
   <Modal
     v-model:open="open"
-    title="Add a server"
-    :description="`Appends an entry to ${workspaceLabel}'s servers.config.json; every policy you leave out is inherited from its defaults.`"
+    :title="t('addServer.title')"
+    :description="t('addServer.description', { workspace: workspaceLabel })"
     width="w-[min(94vw,40rem)]"
   >
     <form id="add-server-form" class="flex flex-col gap-3" @submit.prevent="submit">
-      <FieldGroup title="Identity" :columns="2" dense>
+      <FieldGroup :title="t('addServer.identity')" :columns="2" dense>
         <TextField
           v-model="form.id"
-          label="Id"
+          :label="t('addServer.id')"
           placeholder="my-server"
-          hint="Lowercase letters, digits, dashes and underscores; used in URLs and logs."
+          :hint="t('addServer.idHint')"
           class="font-mono text-xs"
         />
-        <TextField v-model="form.label" label="Label" placeholder="My server" hint="Shown in the panel; defaults to the id." />
+        <TextField v-model="form.label" :label="t('common.label')" placeholder="My server" :hint="t('addServer.labelHint')" />
       </FieldGroup>
 
-      <FieldGroup title="Process" :columns="2" dense>
+      <FieldGroup :title="t('addServer.process')" :columns="2" dense>
         <TextField
           v-model="form.command"
-          label="Command"
+          :label="t('common.command')"
           placeholder="node"
-          hint="Spawned without a shell."
+          :hint="t('addServer.commandHint')"
           class="font-mono text-xs"
         />
         <TextField
           v-model="form.cwd"
-          label="Working directory"
+          :label="t('serverForm.workingDirectory')"
           placeholder="."
-          hint="Relative paths resolve under projectDir."
+          :hint="t('serverForm.cwdHint')"
           class="font-mono text-xs"
         />
       </FieldGroup>
 
       <TextAreaField
         v-model="form.args"
-        label="Arguments"
+        :label="t('serverForm.arguments')"
         :rows="3"
-        hint="One argument per line; whitespace inside a line is preserved."
+        :hint="t('addServer.argumentsHint')"
         placeholder="-p&#10;{port}"
       />
 
-      <FieldGroup title="Port &amp; lifecycle" :columns="2" dense>
+      <FieldGroup :title="t('addServer.portLifecycle')" :columns="2" dense>
         <NumberField
           v-model="form.port"
-          label="Port"
+          :label="t('common.port')"
           nullable
           :min="1"
           :max="65535"
           :error="portError"
-          hint="Blank means the server has no port to probe or preflight."
+          :hint="t('serverForm.portHint')"
         />
         <SelectField
           v-model="form.bind"
-          label="Bind address"
+          :label="t('serverForm.bindAddress')"
           :options="[
-            { value: 'local', label: 'local — 127.0.0.1' },
-            { value: 'lan', label: 'lan — 0.0.0.0' },
+            { value: 'local', label: t('bind.local') },
+            { value: 'lan', label: t('bind.lan') },
           ]"
-          hint="lan exposes it to the network; only do that behind auth."
+          :hint="t('addServer.bindHint')"
         />
-        <ToggleSwitch v-model="form.autostart" label="Autostart with up" hint="Start it whenever the control plane comes up." wide />
-        <ToggleSwitch v-model="form.persistent" label="Persistent" hint="Keeps running when the panel stops; `down` reports it instead of stopping it." wide />
+        <ToggleSwitch v-model="form.autostart" :label="t('serverForm.autostart')" :hint="t('serverForm.autostartHint')" wide />
+        <ToggleSwitch v-model="form.persistent" :label="t('serverForm.persistent')" :hint="t('serverForm.persistentHint')" wide />
       </FieldGroup>
 
-      <Disclosure title="Advanced settings" hint="environment, backups, policy, lifecycle, bootstrap">
-        <FieldGroup title="Environment" :columns="2" dense>
+      <Disclosure :title="t('addServer.advanced')" :hint="t('addServer.advancedHint')">
+        <FieldGroup :title="t('common.environment')" :columns="2" dense>
           <TextAreaField
             v-model="form.env"
-            label="Environment"
+            :label="t('common.environment')"
             :rows="3"
-            hint="KEY=value per line, exported to the process."
+            :hint="t('serverForm.envHint')"
             placeholder="NODE_ENV=production"
           />
           <TextAreaField
             v-model="form.dataEnvs"
-            label="Data envs"
+            :label="t('serverForm.dataEnvs')"
             :rows="3"
-            hint="ENV=path per line — exported to the process and backed up automatically."
+            :hint="t('serverForm.dataEnvsHint')"
             placeholder="DATA_DIR={home}/.app"
           />
           <TextField
             v-model="form.envFile"
-            label="Env file"
-            placeholder="optional KEY=value file"
-            hint="Loaded at spawn; its values override env."
+            :label="t('serverForm.envFile')"
+            :placeholder="t('serverForm.envFilePlaceholder')"
+            :hint="t('serverForm.envFileHint')"
             class="font-mono text-xs"
           />
           <TextField
             v-model="form.dependsOn"
-            label="Depends on"
+            :label="t('serverForm.dependsOn')"
             placeholder="postgres, redis"
-            hint="Comma separated; started first and waited for until healthy, stopped last."
+            :hint="t('serverForm.dependsOnHint')"
             class="font-mono text-xs"
           />
         </FieldGroup>
 
-        <FieldGroup title="Backups" :columns="2" dense>
+        <FieldGroup :title="t('addServer.backups')" :columns="2" dense>
           <TextAreaField
             v-model="form.backupPaths"
-            label="Extra backup paths"
+            :label="t('serverForm.backupPaths')"
             :rows="2"
-            hint="One per line, placeholders allowed; data envs are captured already."
+            :hint="t('serverForm.backupPathsHint')"
             placeholder="{home}/.app/uploads"
           />
           <ToggleSwitch
             v-model="form.backupIgnoreGenerated"
-            label="Ignore known generated files"
-            hint="Skips node_modules, dist, .next and the other caches nothing restores from."
+            :label="t('addServer.backupIgnore')"
+            :hint="t('serverForm.backupIgnoreHint')"
             wide
           />
         </FieldGroup>
 
         <LifecycleFields v-model:restart="form.restart" v-model:health="form.health" v-model:stop="form.stop" />
 
-        <FieldGroup title="Bootstrap" description="A one-off command run before the first start." :columns="2" dense>
+        <FieldGroup :title="t('serverForm.bootstrap')" :description="t('addServer.bootstrapDescription')" :columns="2" dense>
           <ToggleSwitch
             v-model="form.bootstrapEnabled"
-            label="Run a bootstrap"
-            hint="Installs, migrations, downloads — before the first start, not on every one."
+            :label="t('serverForm.runBootstrap')"
+            :hint="t('addServer.bootstrapHint')"
             wide
           />
           <template v-if="form.bootstrapEnabled">
             <TextField
               v-model="form.bootstrapCommand"
-              label="Command"
+              :label="t('common.command')"
               placeholder="./scripts/install.sh"
               class="font-mono text-xs"
             />
-            <NumberField v-model="form.bootstrapTimeoutMs" label="Timeout (ms)" :min="1000" :step="1000" />
-            <ToggleSwitch v-model="form.bootstrapRunOnce" label="Only once per session" hint="Off means every start re-runs it." />
+            <NumberField v-model="form.bootstrapTimeoutMs" :label="t('serverForm.timeoutMs')" :min="1000" :step="1000" />
+            <ToggleSwitch v-model="form.bootstrapRunOnce" :label="t('serverForm.runOnce')" :hint="t('serverForm.runOnceHint')" />
             <TextAreaField
               v-model="form.bootstrapArgs"
-              label="Bootstrap arguments"
+              :label="t('serverForm.bootstrapArgs')"
               :rows="2"
-              hint="One per line; same placeholders as the main arguments."
+              :hint="t('serverForm.bootstrapArgsHint')"
             />
             <TextAreaField
               v-model="form.bootstrapEnv"
-              label="Bootstrap environment"
+              :label="t('serverForm.bootstrapEnv')"
               :rows="2"
-              hint="KEY=value per line, exported to the bootstrap process only."
+              :hint="t('serverForm.bootstrapEnvHint')"
             />
           </template>
         </FieldGroup>
 
-        <FieldGroup title="Policy &amp; resources" :columns="2" dense>
+        <FieldGroup :title="t('addServer.policyResources')" :columns="2" dense>
           <SelectField
             v-model="form.onPortConflict"
-            label="On port conflict"
+            :label="t('serverForm.onPortConflict')"
             :options="[
-              { value: 'block', label: 'block — refuse to start' },
-              { value: 'warn', label: 'warn — start anyway' },
-              { value: 'follow', label: 'follow — adopt a detached restart of itself' },
-              { value: 'reclaim', label: 'reclaim — replace it with a supervised copy' },
-              { value: 'kill', label: 'kill — stop whatever holds the port' },
+              { value: 'block', label: t('onPortConflict.block') },
+              { value: 'warn', label: t('onPortConflict.warn') },
+              { value: 'follow', label: t('onPortConflict.follow') },
+              { value: 'reclaim', label: t('onPortConflict.reclaim') },
+              { value: 'kill', label: t('onPortConflict.kill') },
             ]"
           />
-          <NumberField v-model="form.logBufferLines" label="Log buffer lines" :min="50" :max="100000" :step="50" hint="Blank keeps the default." />
-          <NumberField v-model="form.maxRssMb" label="Max RSS (MB)" :min="0" hint="Restart above this; blank or 0 disables it." />
-          <ToggleSwitch v-model="form.enabled" label="Enabled" hint="Off keeps the entry in the config but refuses to start it." wide />
+          <NumberField v-model="form.logBufferLines" :label="t('serverForm.logBufferLines')" :min="50" :max="100000" :step="50" :hint="t('addServer.logBufferHint')" />
+          <NumberField v-model="form.maxRssMb" :label="t('serverForm.maxRssMb')" :min="0" :hint="t('serverForm.maxRssHint')" />
+          <ToggleSwitch v-model="form.enabled" :label="t('common.enabled')" :hint="t('serverForm.enabledHint')" wide />
         </FieldGroup>
 
         <p class="text-2xs leading-4 text-faint">
-          Restart, health and stop start out matching <span class="font-mono">Settings → Server defaults</span>;
-          change one here and it is written into this entry instead of staying inherited.
+          <TransText k="addServer.inheritNote">
+            <template #settings>
+              <span class="font-mono">{{ t('addServer.serverDefaults') }}</span>
+            </template>
+          </TransText>
         </p>
       </Disclosure>
 
       <div class="rounded-panel border border-line-soft bg-panel-2/40 p-3">
         <p class="text-2xs font-medium text-muted">
-          Available argument placeholders
+          {{ t('addServer.placeholdersTitle') }}
         </p>
         <div class="mt-1.5 flex flex-wrap gap-1">
           <code
@@ -272,10 +281,10 @@ async function submit(): Promise<void> {
 
     <template #footer>
       <AppButton variant="ghost" @click="open = false">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton type="submit" form="add-server-form" variant="primary" :loading="creating">
-        Add to servers.config.json
+        {{ t('addServer.submit') }}
       </AppButton>
     </template>
   </Modal>

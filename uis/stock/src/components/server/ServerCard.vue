@@ -25,9 +25,10 @@ import StatusPill from '@/components/ui/StatusPill.vue'
 import Tip from '@/components/ui/Tip.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatBytesShort, formatCpuPercent, formatDuration, formatRatio, relativeFrom } from '@/lib/format'
-import { HISTORY_TYPE_LABEL, HISTORY_TYPE_TONE, serverTone, TONE_TEXT } from '@/lib/status'
+import { HISTORY_TYPE_LABEL_KEY, HISTORY_TYPE_TONE, serverTone, TONE_TEXT } from '@/lib/status'
 
 const props = withDefaults(defineProps<{
   server: ServerView
@@ -87,22 +88,29 @@ const probeValues = computed(() => props.series?.probe ?? [])
 /** The three most recent events, newest first. */
 const recentEvents = computed(() => [...props.server.history.events].slice(-3).reverse())
 
+/** The port enum renders as a word; `unknown` is the Lead's shared one, the rest are this card's. */
+const PORT_STATE_LABEL_KEY: Record<string, string> = {
+  'unknown': 'common.unknown',
+  'free': 'serverCard.portFree',
+  'in-use': 'serverCard.portInUse',
+}
+
 const meta = computed(() => {
   const server = props.server
   const rows: Array<{ key: string, label: string, value: string, title?: string }> = [
-    { key: 'pid', label: 'PID', value: server.pid === null ? '—' : String(server.pid) },
-    { key: 'uptime', label: 'Uptime', value: uptime.value },
-    { key: 'restarts', label: 'Restarts', value: `${server.restarts}/${server.maxRetries}` },
-    { key: 'port', label: 'Port', value: server.portState },
-    { key: 'uptime24', label: '24h up', value: formatRatio(server.history.uptimeRatio) },
-    { key: 'probe', label: 'Probe', value: server.responseMs === null ? '—' : `${server.responseMs} ms` },
-    { key: 'rss', label: 'RSS', value: formatBytesShort(server.resources?.rssBytes ?? null) },
-    { key: 'procs', label: 'Procs', value: server.resources ? String(server.resources.processes) : '—' },
+    { key: 'pid', label: t('serverCard.pid'), value: server.pid === null ? '—' : String(server.pid) },
+    { key: 'uptime', label: t('common.uptime'), value: uptime.value },
+    { key: 'restarts', label: t('serverCard.restarts'), value: `${server.restarts}/${server.maxRetries}` },
+    { key: 'port', label: t('common.port'), value: t(PORT_STATE_LABEL_KEY[server.portState] ?? 'common.unknown') },
+    { key: 'uptime24', label: t('serverCard.uptime24h'), value: formatRatio(server.history.uptimeRatio) },
+    { key: 'probe', label: t('serverCard.probe'), value: server.responseMs === null ? '—' : `${server.responseMs} ms` },
+    { key: 'rss', label: t('serverCard.rss'), value: formatBytesShort(server.resources?.rssBytes ?? null) },
+    { key: 'procs', label: t('serverCard.procs'), value: server.resources ? String(server.resources.processes) : '—' },
   ]
   if (server.history.crashes > 0)
-    rows.splice(5, 0, { key: 'crashes', label: '24h crashes', value: String(server.history.crashes) })
+    rows.splice(5, 0, { key: 'crashes', label: t('serverCard.crashes24h'), value: String(server.history.crashes) })
   if (server.history.lastCrashAt !== null)
-    rows.push({ key: 'lastcrash', label: 'Last crash', value: formatAgo(server.history.lastCrashAt, props.now) })
+    rows.push({ key: 'lastcrash', label: t('serverCard.lastCrash'), value: formatAgo(server.history.lastCrashAt, props.now) })
   return rows
 })
 
@@ -182,7 +190,7 @@ function openDetail(): void {
             rel="noreferrer"
             class="shrink-0 text-faint transition-colors duration-150 hover:text-accent"
             :title="serverUrl"
-            :aria-label="`Open ${serverUrl}`"
+            :aria-label="t('serverCard.open', { url: serverUrl })"
           >
             <ExternalLink class="size-3.5" />
           </a>
@@ -195,22 +203,22 @@ function openDetail(): void {
           </template>
           <span aria-hidden="true">·</span>
           <span>{{ server.bindHost }}</span>
-          <span v-if="!config.enabled" class="rounded bg-hover px-1 py-px text-muted">disabled</span>
-          <span v-if="config.autostart" class="rounded bg-accent-soft px-1 py-px text-accent">autostart</span>
+          <span v-if="!config.enabled" class="rounded bg-hover px-1 py-px text-muted">{{ t('serverCard.disabled') }}</span>
+          <span v-if="config.autostart" class="rounded bg-accent-soft px-1 py-px text-accent">{{ t('serverCard.autostart') }}</span>
         </p>
       </div>
       <StatusPill :status="server.status" :health="server.health" />
       <Tip
         v-if="server.adopted"
-        label="This process replaced itself: the panel adopted the successor instead of starting a second copy. Stop still works, its output stays where the successor sent it."
+        :label="t('serverCard.adoptedHint')"
       >
-        <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">detached</span>
+        <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">{{ t('serverCard.detached') }}</span>
       </Tip>
       <Tip
         v-if="config.persistent"
-        label="This entry runs under its own nanny, so it keeps running when the panel stops, restarts or is killed. `home-hosted down` reports it instead of stopping it; only an explicit stop does."
+        :label="t('serverCard.persistentHint')"
       >
-        <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">persistent</span>
+        <span class="rounded-full border border-line px-2 py-0.5 text-2xs text-muted">{{ t('serverCard.persistent') }}</span>
       </Tip>
     </header>
 
@@ -221,26 +229,26 @@ function openDetail(): void {
     <div v-if="props.variant !== 'compact'" class="space-y-2.5 border-y border-line-soft px-4 py-3">
       <div class="grid grid-cols-2 gap-x-4 gap-y-2">
         <MetricSpark
-          label="CPU"
+          :label="t('common.cpu')"
           :values="cpuValues"
           :format="formatCpuPercent"
           :max="100"
           color-class="text-cpu"
         />
         <MetricSpark
-          label="Memory"
+          :label="t('common.memory')"
           :values="rssValues"
           :format="formatBytesShort"
           color-class="text-mem"
         />
       </div>
       <MetricSpark
-        label="Health probe"
+        :label="t('serverCard.healthProbe')"
         :values="probeValues"
         :format="value => (value === null ? '—' : `${value} ms`)"
         :height="22"
         color-class="text-probe"
-        empty-hint="not probed"
+        :empty-hint="t('serverCard.notProbed')"
       />
     </div>
 
@@ -250,7 +258,7 @@ function openDetail(): void {
           :is="EVENT_ICONS[event.type]"
           :class="cn('size-3', TONE_TEXT[HISTORY_TYPE_TONE[event.type]])"
         />
-        <span class="text-muted">{{ HISTORY_TYPE_LABEL[event.type] }}</span>
+        <span class="text-muted">{{ t(HISTORY_TYPE_LABEL_KEY[event.type]) }}</span>
         <span class="text-faint">{{ formatAgo(event.ts, props.now) }}</span>
       </span>
     </div>
@@ -271,10 +279,10 @@ function openDetail(): void {
         @confirm="killPortHolder"
       />
       <p v-if="unhealthyFor" class="text-2xs leading-4 text-warn">
-        Unhealthy for {{ unhealthyFor }}
+        {{ t('serverCard.unhealthyFor', { duration: unhealthyFor }) }}
       </p>
       <p v-if="retryIn" class="text-2xs leading-4 text-warn">
-        Next attempt {{ retryIn }}
+        {{ t('serverCard.nextAttempt', { when: retryIn }) }}
       </p>
     </div>
 
@@ -296,26 +304,26 @@ function openDetail(): void {
         :disabled="busy || !canStart"
         @click="act('start')"
       >
-        <Play class="size-3" />Start
+        <Play class="size-3" />{{ t('serverCard.start') }}
       </AppButton>
       <AppButton size="xs" :disabled="busy || !canStop" @click="act('stop')">
-        <Square class="size-3" />Stop
+        <Square class="size-3" />{{ t('serverCard.stop') }}
       </AppButton>
       <AppButton size="xs" :disabled="busy || !config.enabled" @click="act('restart')">
-        <RotateCw class="size-3" />Restart
+        <RotateCw class="size-3" />{{ t('serverCard.restart') }}
       </AppButton>
 
-      <Tip label="Live logs and full telemetry">
+      <Tip :label="t('serverCard.detailsHint')">
         <RouterLink :to="`/servers/${server.id}`" @click="openDetail">
           <AppButton size="xs" variant="ghost">
-            <ScrollText class="size-3" />Details
+            <ScrollText class="size-3" />{{ t('common.details') }}
           </AppButton>
         </RouterLink>
       </Tip>
 
       <DropdownMenuRoot>
         <DropdownMenuTrigger as-child>
-          <AppButton size="icon-sm" variant="ghost" class="ml-auto" :aria-label="`More actions for ${label}`">
+          <AppButton size="icon-sm" variant="ghost" class="ml-auto" :aria-label="t('serverCard.moreActions', { label })">
             <MoreHorizontal class="size-4" />
           </AppButton>
         </DropdownMenuTrigger>
@@ -330,21 +338,21 @@ function openDetail(): void {
               @select="toggle('enabled')"
             >
               <Power class="size-3.5" />
-              {{ config.enabled ? 'Disable server' : 'Enable server' }}
+              {{ config.enabled ? t('serverCard.disable') : t('serverCard.enable') }}
             </DropdownMenuItem>
             <DropdownMenuItem
               class="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-xs text-muted outline-none data-[highlighted]:bg-hover data-[highlighted]:text-ink"
               @select="toggle('autostart')"
             >
               <Play class="size-3.5" />
-              {{ config.autostart ? 'Remove from autostart' : 'Autostart with the panel' }}
+              {{ config.autostart ? t('serverCard.removeFromAutostart') : t('serverCard.autostartWithPanel') }}
             </DropdownMenuItem>
             <DropdownMenuItem
               class="flex cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-xs text-muted outline-none data-[highlighted]:bg-hover data-[highlighted]:text-ink"
               @select="control.clearLogs(workspaceId, server.id)"
             >
               <ScrollText class="size-3.5" />
-              Clear log buffer
+              {{ t('serverCard.clearLogBuffer') }}
             </DropdownMenuItem>
             <DropdownMenuSeparator class="my-1 h-px bg-line" />
             <DropdownMenuItem
@@ -352,7 +360,7 @@ function openDetail(): void {
               @select="confirmRemove = true"
             >
               <Trash2 class="size-3.5" />
-              Remove server
+              {{ t('serverCard.removeServer') }}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenuPortal>
@@ -361,8 +369,8 @@ function openDetail(): void {
 
     <Modal
       v-model:open="confirmRemove"
-      title="Remove this server?"
-      :description="`${label} is removed from servers.config.json: its process is stopped, and its logs and crash history are deleted with it.`"
+      :title="t('serverCard.removeTitle')"
+      :description="t('serverCard.removeDescription', { label })"
       width="w-[min(92vw,26rem)]"
     >
       <dl class="grid grid-cols-2 gap-2 text-xs">
@@ -376,7 +384,7 @@ function openDetail(): void {
         </div>
         <div>
           <dt class="text-faint">
-            status
+            {{ t('serverCard.statusField') }}
           </dt>
           <dd class="text-ink capitalize">
             {{ server.status }}
@@ -385,10 +393,10 @@ function openDetail(): void {
       </dl>
       <template #footer>
         <AppButton variant="ghost" @click="confirmRemove = false">
-          Keep it
+          {{ t('common.keepIt') }}
         </AppButton>
         <AppButton variant="danger" @click="remove">
-          <Trash2 class="size-3.5" />Remove
+          <Trash2 class="size-3.5" />{{ t('common.remove') }}
         </AppButton>
       </template>
     </Modal>

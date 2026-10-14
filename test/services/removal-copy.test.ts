@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stockCopy } from '../helpers/stock-copy'
 
 /**
  * What the removal confirmation promises must match what removal does.
@@ -33,14 +34,16 @@ describe('the removal confirmation', () => {
     // …and forgets the crash history.
     expect(branch, 'the branch must forget the history').toContain('history.forget(id)')
 
-    // So the UI must not promise the logs survive, and should mention both losses.
-    const copies = [
-      fs.readFileSync(path.join(root, 'uis/stock/src/components/server/ServerCard.vue'), 'utf8'),
-      fs.readFileSync(path.join(root, 'uis/stock/src/views/ServerDetailView.vue'), 'utf8'),
+    // So the UI must not promise the logs survive, and should mention both losses. The copy lives
+    // in the catalog rather than the `.vue` source now that the UI is translated, so it is read
+    // from there — see `test/helpers/stock-copy.ts`.
+    const copies: Array<[string, string]> = [
+      ['ServerCard', stockCopy('serverCard.removeDescription', { label: 'web' })],
+      ['ServerDetailView', stockCopy('views.serverDetail.removeDescription', { label: 'web' })],
     ]
-    for (const copy of copies) {
-      expect(copy, 'the logs do not stay on disk any more').not.toContain('persisted logs stay on disk')
-      expect(copy, 'and the history goes with them').toContain('crash history are deleted')
+    for (const [name, copy] of copies) {
+      expect(copy, `${name}: the logs do not stay on disk any more`).not.toContain('persisted logs stay on disk')
+      expect(copy, `${name}: the history goes with them`).toContain('crash history are deleted')
     }
   })
 })

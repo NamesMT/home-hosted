@@ -14,6 +14,7 @@ import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t } from '@/i18n'
 import * as api from '@/lib/api'
 import { formatAgo } from '@/lib/format'
 
@@ -40,7 +41,7 @@ const busy = ref(false)
 const tokenSet = computed(() => props.status?.tokenSet === true)
 const lastResult = computed(() => props.status?.lastResult ?? null)
 const lastResultAt = computed(() => props.status?.lastResultAt ?? null)
-const tokenPlaceholder = computed(() => (tokenSet.value ? 'Saved — type a new token to replace it' : '123456789:AA…'))
+const tokenPlaceholder = computed(() => (tokenSet.value ? t('settings.telegram.tokenSavedPlaceholder') : t('settings.telegram.tokenPlaceholder')))
 
 async function saveToken(): Promise<void> {
   busy.value = true
@@ -49,7 +50,9 @@ async function saveToken(): Promise<void> {
   try {
     const result = await api.saveTelegramToken(workspace.activeId.value, tokenInput.value.trim())
     tokenInput.value = ''
-    tokenMessage.value = `Token saved${result.username ? ` for @${result.username}` : ''}.`
+    tokenMessage.value = result.username
+      ? t('settings.telegram.tokenSavedFor', { username: result.username })
+      : t('settings.telegram.tokenSaved')
     await control.refresh()
   }
   catch (caught) {
@@ -66,7 +69,7 @@ async function removeToken(): Promise<void> {
   tokenMessage.value = null
   try {
     await api.clearTelegramToken(workspace.activeId.value)
-    tokenMessage.value = 'Token removed.'
+    tokenMessage.value = t('settings.telegram.tokenRemoved')
     await control.refresh()
   }
   catch (caught) {
@@ -86,7 +89,7 @@ async function detectChats(): Promise<void> {
     const result = await api.detectTelegramChats(workspace.activeId.value, override.length > 0 ? { botToken: override } : {})
     detectedChats.value = result.chats
     if (result.chats.length === 0)
-      tokenError.value = 'No chats found. Send /start to the bot first, then detect again.'
+      tokenError.value = t('settings.telegram.noChats')
   }
   catch (caught) {
     tokenError.value = errorMessage(caught)
@@ -107,8 +110,8 @@ async function sendTest(): Promise<void> {
       ...(override.length > 0 ? { botToken: override } : {}),
     })
     if (result.ok)
-      tokenMessage.value = 'Test message sent.'
-    else tokenError.value = result.error ?? 'The test message failed.'
+      tokenMessage.value = t('settings.telegram.testSent')
+    else tokenError.value = result.error ?? t('settings.telegram.testFailed')
     await control.refresh()
   }
   catch (caught) {
@@ -122,80 +125,80 @@ async function sendTest(): Promise<void> {
 
 <template>
   <FieldGroup
-    title="Telegram"
-    description="Policy lives in the config; the bot token is a secret and never comes back from the server."
+    :title="t('settings.telegram.title')"
+    :description="t('settings.telegram.description')"
   >
     <template #actions>
       <AppButton size="xs" variant="ghost" :disabled="!props.dirty" @click="emit('reset')">
-        Reset
+        {{ t('common.reset') }}
       </AppButton>
     </template>
 
     <ToggleSwitch
       v-model="telegram.enabled"
-      label="Send notifications"
-      hint="One message per event, throttled by the cooldown below."
+      :label="t('settings.telegram.enabled')"
+      :hint="t('settings.telegram.enabledHint')"
       wide
     />
     <TextField
       v-model="telegram.chatId"
-      label="Chat id"
-      placeholder="123456789 or @channel"
-      hint="Use Detect chats to fill this from the bot's updates."
+      :label="t('settings.telegram.chatId')"
+      :placeholder="t('settings.telegram.chatIdPlaceholder')"
+      :hint="t('settings.telegram.chatIdHint')"
     />
-    <NumberField v-model="cooldownMs" label="Cooldown per event (ms)" :min="0" hint="Per server and reason, so a flapping server cannot spam." />
+    <NumberField v-model="cooldownMs" :label="t('settings.telegram.cooldown')" :min="0" :hint="t('settings.telegram.cooldownHint')" />
 
-    <ToggleSwitch v-model="telegram.onCrash" label="Retries exhausted" />
-    <ToggleSwitch v-model="telegram.onUnhealthy" label="Port unhealthy" />
-    <ToggleSwitch v-model="telegram.onForcedRestart" label="Forced restart" />
-    <ToggleSwitch v-model="telegram.onRecovered" label="Recovered" />
+    <ToggleSwitch v-model="telegram.onCrash" :label="t('settings.telegram.onCrash')" />
+    <ToggleSwitch v-model="telegram.onUnhealthy" :label="t('settings.telegram.onUnhealthy')" />
+    <ToggleSwitch v-model="telegram.onForcedRestart" :label="t('settings.telegram.onForcedRestart')" />
+    <ToggleSwitch v-model="telegram.onRecovered" :label="t('settings.telegram.onRecovered')" />
     <ToggleSwitch
       v-model="telegram.onHost"
-      label="Host vitals breached"
-      hint="Disk, memory, swap, load and CPU temperature, per the thresholds under Host vitals."
+      :label="t('settings.telegram.onHost')"
+      :hint="t('settings.telegram.onHostHint')"
       wide
     />
     <ToggleSwitch
       v-model="telegram.onDdns"
-      label="Dynamic DNS changed or failed"
-      hint="One message per pass that changed a record, and one for a pass that failed."
+      :label="t('settings.telegram.onDdns')"
+      :hint="t('settings.telegram.onDdnsHint')"
       wide
     />
 
     <div class="flex items-center gap-2 border-t border-line-soft pt-3 sm:col-span-2">
-      <span class="text-xs font-medium text-muted">Bot token</span>
+      <span class="text-xs font-medium text-muted">{{ t('settings.telegram.botToken') }}</span>
       <ToneBadge :tone="tokenSet ? 'ok' : 'warn'" dot>
-        {{ tokenSet ? 'token set' : 'no token' }}
+        {{ tokenSet ? t('settings.telegram.tokenSet') : t('settings.telegram.noToken') }}
       </ToneBadge>
-      <span class="text-2xs text-faint">From @BotFather — a secret, never in servers.config.json.</span>
+      <span class="text-2xs text-faint">{{ t('settings.telegram.tokenNote') }}</span>
     </div>
 
     <TextField
       v-model="tokenInput"
       type="password"
       autocomplete="off"
-      label="Bot token"
+      :label="t('settings.telegram.botToken')"
       :placeholder="tokenPlaceholder"
       wide
     />
 
     <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
       <AppButton variant="primary" :disabled="busy || tokenInput.trim().length === 0" :loading="busy && tokenInput.trim().length > 0" @click="saveToken">
-        Save token
+        {{ t('settings.telegram.saveToken') }}
       </AppButton>
       <AppButton variant="secondary" :disabled="busy" @click="detectChats">
-        Detect chats
+        {{ t('settings.telegram.detectChats') }}
       </AppButton>
       <AppButton variant="secondary" :disabled="busy" @click="sendTest">
-        Send test
+        {{ t('settings.telegram.sendTest') }}
       </AppButton>
       <ConfirmButton
         v-if="tokenSet"
-        label="Remove token"
-        confirm-label="Confirm remove"
+        :label="t('settings.telegram.removeToken')"
+        :confirm-label="t('settings.telegram.removeTokenConfirm')"
         confirm-variant="danger"
-        title="Remove the bot token?"
-        hint="Notifications stop until you paste a token again."
+        :title="t('settings.telegram.removeTokenTitle')"
+        :hint="t('settings.telegram.removeTokenHint')"
         :disabled="busy"
         @confirm="removeToken"
       />
@@ -203,7 +206,7 @@ async function sendTest(): Promise<void> {
 
     <div v-if="detectedChats.length > 0" class="sm:col-span-2">
       <p class="mb-1.5 text-xs text-muted">
-        Chats the bot has seen:
+        {{ t('settings.telegram.chatsSeen') }}
       </p>
       <div class="flex flex-wrap gap-1.5">
         <AppButton
@@ -220,7 +223,7 @@ async function sendTest(): Promise<void> {
 
     <div v-if="lastResult" class="sm:col-span-2">
       <p class="text-2xs leading-4 text-faint">
-        Last send: {{ lastResult }}{{ lastResultAt ? ` · ${formatAgo(lastResultAt, control.now.value)}` : '' }}
+        {{ t('settings.telegram.lastSend', { result: lastResult }) }}{{ lastResultAt ? ` · ${formatAgo(lastResultAt, control.now.value)}` : '' }}
       </p>
     </div>
 

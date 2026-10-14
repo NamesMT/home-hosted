@@ -26,15 +26,16 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t } from '@/i18n'
 import * as api from '@/lib/api'
 
-/** Everything this page owns; the panel-wide settings live on `/global-settings`. */
-const SECTIONS = [
-  { id: 'defaults', title: 'Server defaults' },
-  { id: 'logs', title: 'Logs' },
-  { id: 'notifications', title: 'Notifications' },
-  { id: 'ddns', title: 'Dynamic DNS' },
-] as const
+/** The rail's own wording: the section headings inside each block are the sections' business. */
+const SECTIONS = computed(() => [
+  { id: 'defaults', title: t('views.settings.sectionDefaults') },
+  { id: 'logs', title: t('views.settings.sectionLogs') },
+  { id: 'notifications', title: t('views.settings.sectionNotifications') },
+  { id: 'ddns', title: t('views.settings.sectionDdns') },
+])
 
 const control = useControlPlane()
 const workspace = useWorkspaces()
@@ -164,7 +165,7 @@ async function save(): Promise<void> {
     if (hasWorkspacePatch) {
       const result = await control.saveWorkspaceSettings(workspace.activeId.value, pending)
       if (!result) {
-        saveError.value = control.lastError.value ?? 'The settings could not be saved.'
+        saveError.value = control.lastError.value ?? t('views.settings.saveFailed')
         return
       }
     }
@@ -172,8 +173,8 @@ async function save(): Promise<void> {
       await api.saveDdns(workspace.activeId.value, ddns)
       await ddnsSection.value?.reload()
     }
-    saveMessage.value = 'Workspace settings saved.'
-    toasts.success('Workspace settings saved')
+    saveMessage.value = t('views.settings.saved')
+    toasts.success(t('views.settings.savedToast'))
     forgetSnapshots()
     syncFromLive()
   }
@@ -237,8 +238,8 @@ watch(() => workspace.activeId.value, () => {
 <template>
   <SettingsShell
     :sections="SECTIONS"
-    nav-label="Workspace settings sections"
-    :changes-description="`What Save would write to ${workspace.selected.value?.label ?? 'this workspace'}'s settings.`"
+    :nav-label="t('views.settings.navLabel')"
+    :changes-description="t('views.settings.changesDescription', { workspace: workspace.selected.value?.label ?? t('nav.workspace') })"
     :changed-count="changedCount"
     :changes="changes"
     :save-error="saveError"
@@ -249,24 +250,24 @@ watch(() => workspace.activeId.value, () => {
   >
     <template #header>
       <PageHeader
-        title="Workspace settings"
-        :description="`Server defaults, log retention, notifications and dynamic DNS for ${workspace.selected.value?.label ?? 'this workspace'}.`"
+        :title="t('nav.workspaceSettings')"
+        :description="t('views.settings.description', { workspace: workspace.selected.value?.label ?? t('nav.workspace') })"
       />
 
-      <Notice v-if="workspace.configError.value" tone="danger" title="The workspace config could not be read" class="mb-4">
+      <Notice v-if="workspace.configError.value" tone="danger" :title="t('views.settings.configErrorTitle')" class="mb-4">
         <p>{{ workspace.configError.value }}</p>
         <p class="mt-1">
-          The panel keeps supervising with the config it already had; fixing the file reloads it on its own.
+          {{ t('views.settings.configErrorNote') }}
         </p>
       </Notice>
-      <Notice v-else-if="workspace.configWarnings.value.length > 0" tone="warn" title="This workspace's config has a warning" class="mb-4">
+      <Notice v-else-if="workspace.configWarnings.value.length > 0" tone="warn" :title="t('views.settings.configWarningTitle')" class="mb-4">
         <p v-for="warning in workspace.configWarnings.value" :key="warning" class="font-mono">
           {{ warning }}
         </p>
       </Notice>
     </template>
 
-    <SettingsSection id="defaults" title="Server defaults" description="Applied to every entry in this workspace that does not set its own value.">
+    <SettingsSection id="defaults" :title="t('views.settings.sectionDefaults')" :description="t('views.settings.defaultsDescription')">
       <DefaultsSection
         v-model:defaults="form.defaults"
         :dirty="defaultsDirty"
@@ -274,7 +275,7 @@ watch(() => workspace.activeId.value, () => {
       />
     </SettingsSection>
 
-    <SettingsSection id="logs" title="Logs" description="How much output this workspace keeps on disk and for how long.">
+    <SettingsSection id="logs" :title="t('views.settings.sectionLogs')" :description="t('views.settings.logsDescription')">
       <LogsSection
         v-model:logs="form.logs"
         :logs-dir="logsDir"
@@ -283,7 +284,7 @@ watch(() => workspace.activeId.value, () => {
       />
     </SettingsSection>
 
-    <SettingsSection id="notifications" title="Notifications" description="Crash and health alerts for this workspace, sent to a Telegram chat.">
+    <SettingsSection id="notifications" :title="t('views.settings.sectionNotifications')" :description="t('views.settings.notificationsDescription')">
       <NotificationsSection
         v-model:telegram="form.telegram"
         :status="telegramStatus"
@@ -292,7 +293,7 @@ watch(() => workspace.activeId.value, () => {
       />
     </SettingsSection>
 
-    <SettingsSection id="ddns" title="Dynamic DNS" description="Keep hostnames pointed at this machine's public address, whichever registrar holds them.">
+    <SettingsSection id="ddns" :title="t('views.settings.sectionDdns')" :description="t('views.settings.ddnsDescription')">
       <DdnsSection
         ref="ddnsSection"
         v-model:patch="ddnsPatch"

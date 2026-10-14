@@ -278,6 +278,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
 | 🔀 **Reverse proxy** | One engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `media.example.com` → a service on another box, `panel.example.com` → the panel. Caddy, installed and supervised by the panel. [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
 | 💾 **Backups** | Deep and customizable: pick global settings, global secrets, TLS, Workspaces, then the pieces inside it (workspace settings, servers, secrets, data directories) — plain `.zip`, or AES-256 with a password, customized restore is supported too! |
+| 🌍 **Nine languages** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French, German — picked on the login page or in **Global settings → Language**, kept per browser. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
 | 🧩 **No special treatment** | A server is `command` + `args` + `env` + `cwd`; nothing is built in for any particular app. |

@@ -19,6 +19,7 @@ import ToneBadge from '@/components/ui/ToneBadge.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t, tc } from '@/i18n'
 import * as api from '@/lib/api'
 import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '@/lib/ddns'
 import { formatAgo } from '@/lib/format'
@@ -30,12 +31,13 @@ import { formatAgo } from '@/lib/format'
 const patch = defineModel<DdnsConfig | null>('patch', { default: null })
 const baseline = defineModel<DraftConfig | null>('baseline', { default: null })
 
-const RECORD_STATE: Record<DdnsRecordState, { label: string, tone: Tone }> = {
-  pending: { label: 'Waiting', tone: 'neutral' },
-  ok: { label: 'Updated', tone: 'ok' },
-  unchanged: { label: 'Current', tone: 'neutral' },
-  skipped: { label: 'Skipped', tone: 'warn' },
-  error: { label: 'Failed', tone: 'danger' },
+/** A catalog key, not the text: the label is read at render time, in the viewer's language. */
+const RECORD_STATE: Record<DdnsRecordState, { labelKey: string, tone: Tone }> = {
+  pending: { labelKey: 'settings.ddns.statePending', tone: 'neutral' },
+  ok: { labelKey: 'settings.ddns.stateOk', tone: 'ok' },
+  unchanged: { labelKey: 'settings.ddns.stateUnchanged', tone: 'neutral' },
+  skipped: { labelKey: 'settings.ddns.stateSkipped', tone: 'warn' },
+  error: { labelKey: 'settings.ddns.stateError', tone: 'danger' },
 }
 
 const control = useControlPlane()
@@ -212,7 +214,7 @@ async function updateNow(): Promise<void> {
   try {
     // Keeps an unsaved draft: a pass does not change the policy.
     apply(await api.checkDdns(workspace.activeId.value), true)
-    toasts.success(status.value?.lastResult ?? 'Dynamic DNS pass finished')
+    toasts.success(status.value?.lastResult ?? t('settings.ddns.passFinished'))
   }
   catch (caught) {
     actionError.value = errorMessage(caught)
@@ -236,7 +238,7 @@ async function saveCredentials(): Promise<void> {
   credentialError.value = null
   try {
     apply(await api.saveDdnsCredentials(workspace.activeId.value, account.id, account.provider, credentialDraft.value), true)
-    toasts.success(`Credentials saved for ${account.id}`)
+    toasts.success(t('settings.ddns.credentialsSaved', { account: account.id }))
     credentialAccount.value = null
   }
   catch (caught) {
@@ -255,7 +257,7 @@ async function clearCredentials(): Promise<void> {
   credentialError.value = null
   try {
     apply(await api.clearDdnsCredentials(workspace.activeId.value, account.id), true)
-    toasts.success(`Credentials removed for ${account.id}`)
+    toasts.success(t('settings.ddns.credentialsRemoved', { account: account.id }))
     credentialAccount.value = null
   }
   catch (caught) {
@@ -272,55 +274,55 @@ defineExpose({ reload: load })
 
 <template>
   <div class="space-y-3">
-    <Notice v-if="loadError" tone="danger" title="Dynamic DNS settings could not be loaded">
+    <Notice v-if="loadError" tone="danger" :title="t('settings.ddns.loadErrorTitle')">
       {{ loadError }}
     </Notice>
 
     <template v-if="draft !== null">
       <FieldGroup
-        title="Dynamic DNS"
-        description="Keep these hostnames pointed at this machine's public address. Credentials live in the secrets file, never in servers.config.json."
+        :title="t('settings.ddns.title')"
+        :description="t('settings.ddns.description')"
       >
         <template #actions>
           <AppButton size="xs" variant="ghost" :disabled="!dirty" @click="discard">
-            Reset
+            {{ t('common.reset') }}
           </AppButton>
           <ToneBadge v-if="status?.running" tone="info" dot>
-            checking
+            {{ t('settings.ddns.checking') }}
           </ToneBadge>
           <ToneBadge v-else-if="status?.enabled" :tone="status.records.some(record => record.state === 'error') ? 'danger' : 'ok'" dot>
-            {{ status.records.some(record => record.state === 'error') ? 'needs attention' : 'watching' }}
+            {{ status.records.some(record => record.state === 'error') ? t('settings.ddns.needsAttention') : t('settings.ddns.watching') }}
           </ToneBadge>
           <AppButton size="xs" variant="ghost" :loading="checking" @click="updateNow">
-            Update now
+            {{ t('settings.ddns.updateNow') }}
           </AppButton>
         </template>
 
         <ToggleSwitch
           v-model="draft.enabled"
-          label="Keep dynamic DNS updated"
-          hint="A pass runs on the interval below; a provider is only called when the address actually changed."
+          :label="t('settings.ddns.enabled')"
+          :hint="t('settings.ddns.enabledHint')"
           wide
         />
         <!-- Both keys are required, so a cleared box falls back to the schema's default
              rather than storing null, which the panel rejects for the whole save. -->
         <NumberField
           :model-value="draft.intervalMs"
-          label="Check every (ms)"
+          :label="t('settings.ddns.interval')"
           :min="60000"
           :step="60000"
-          hint="60000 is one minute; the default is five."
+          :hint="t('settings.ddns.intervalHint')"
           @update:model-value="value => setRequired(draft, 'intervalMs', value)"
         />
         <NumberField
           :model-value="draft.ttl"
-          label="TTL (s)"
+          :label="t('settings.ddns.ttl')"
           :min="1"
-          hint="1 means automatic where the provider supports it."
+          :hint="t('settings.ddns.ttlHint')"
           @update:model-value="value => setRequired(draft, 'ttl', value)"
         />
-        <ToggleSwitch v-model="draft.ipv4.enabled" label="Detect IPv4" hint="Needed for A records." />
-        <ToggleSwitch v-model="draft.ipv6.enabled" label="Detect IPv6" hint="Needed for AAAA records." />
+        <ToggleSwitch v-model="draft.ipv4.enabled" :label="t('settings.ddns.detectIpv4')" :hint="t('settings.ddns.detectIpv4Hint')" />
+        <ToggleSwitch v-model="draft.ipv6.enabled" :label="t('settings.ddns.detectIpv6')" :hint="t('settings.ddns.detectIpv6Hint')" />
       </FieldGroup>
 
       <Notice v-if="actionError" tone="danger">
@@ -330,10 +332,10 @@ defineExpose({ reload: load })
       <section class="rounded-panel border border-line bg-panel-2/40 p-3.5">
         <header class="mb-3">
           <h3 class="text-xs font-semibold text-ink">
-            Provider accounts
+            {{ t('settings.ddns.accountsTitle') }}
           </h3>
           <p class="mt-0.5 text-2xs leading-4 text-muted">
-            One entry per API token. Credentials are stored on the server and never come back.
+            {{ t('settings.ddns.accountsDescription') }}
           </p>
         </header>
 
@@ -345,51 +347,51 @@ defineExpose({ reload: load })
               </p>
               <p class="text-2xs text-faint">
                 {{ providerLabel(account) }}
-                <span v-if="domainsUsing(account.id) > 0"> · {{ domainsUsing(account.id) }} hostname{{ domainsUsing(account.id) === 1 ? '' : 's' }}</span>
+                <span v-if="domainsUsing(account.id) > 0"> · {{ tc('settings.ddns.hostnameCount', domainsUsing(account.id)) }}</span>
               </p>
             </div>
             <div class="ml-auto flex items-center gap-2">
               <ToneBadge :tone="credentialsSet(account.id) ? 'ok' : 'warn'" dot>
-                {{ credentialsSet(account.id) ? 'credentials saved' : 'no credentials' }}
+                {{ credentialsSet(account.id) ? t('settings.ddns.credentialsSet') : t('settings.ddns.noCredentials') }}
               </ToneBadge>
               <AppButton size="xs" variant="secondary" @click="openCredentials(account)">
-                Credentials
+                {{ t('settings.ddns.credentials') }}
               </AppButton>
               <AppButton
                 size="xs"
                 variant="danger-ghost"
                 :disabled="domainsUsing(account.id) > 0"
-                :title="domainsUsing(account.id) > 0 ? 'Remove the hostnames using this account first' : undefined"
+                :title="domainsUsing(account.id) > 0 ? t('settings.ddns.removeAccountBlocked') : undefined"
                 @click="removeAccount(account)"
               >
-                Remove
+                {{ t('common.remove') }}
               </AppButton>
             </div>
           </li>
         </ul>
         <p v-else class="text-2xs text-muted">
-          No accounts yet. Pick a provider and add one.
+          {{ t('settings.ddns.noAccounts') }}
         </p>
 
         <div class="mt-3 grid gap-2 border-t border-line-soft pt-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <SelectField v-model="newAccount.provider" label="Provider" :options="providerOptions" />
-          <TextField v-model="newAccount.id" label="Account id" placeholder="cloudflare-home" />
+          <SelectField v-model="newAccount.provider" :label="t('settings.ddns.provider')" :options="providerOptions" />
+          <TextField v-model="newAccount.id" :label="t('settings.ddns.accountId')" :placeholder="t('settings.ddns.accountIdPlaceholder')" />
           <AppButton variant="secondary" :disabled="!canAddAccount" @click="addAccount">
-            Add
+            {{ t('common.add') }}
           </AppButton>
         </div>
         <p class="mt-1.5 text-2xs text-faint">
-          The account id names the account and keys its stored credentials; lowercase letters, digits, `-` and `_`.
+          {{ t('settings.ddns.accountIdHint') }}
         </p>
       </section>
 
       <section class="rounded-panel border border-line bg-panel-2/40 p-3.5">
         <header class="mb-3">
           <h3 class="text-xs font-semibold text-ink">
-            Hostnames
+            {{ t('settings.ddns.hostnamesTitle') }}
           </h3>
           <p class="mt-0.5 text-2xs leading-4 text-muted">
-            The whole list to keep updated — suba.domain.com, domain.xyz and so on.
+            {{ t('settings.ddns.hostnamesDescription') }}
           </p>
         </header>
 
@@ -397,47 +399,47 @@ defineExpose({ reload: load })
           <li v-for="domain in domains" :key="domain.key" class="rounded-control border border-line-soft bg-panel/50 p-2.5">
             <div class="flex flex-wrap items-end gap-2">
               <div class="min-w-40 flex-1">
-                <TextField v-model="domain.host" label="Hostname" />
+                <TextField v-model="domain.host" :label="t('common.hostname')" />
               </div>
               <div class="w-44 shrink-0">
-                <SelectField v-model="domain.account" label="Account" :options="accountOptions" />
+                <SelectField v-model="domain.account" :label="t('settings.ddns.account')" :options="accountOptions" />
               </div>
-              <CheckField v-model="domain.enabled" label="Enabled" />
+              <CheckField v-model="domain.enabled" :label="t('common.enabled')" />
               <AppButton size="xs" variant="danger-ghost" @click="removeDomain(domain)">
-                Remove
+                {{ t('common.remove') }}
               </AppButton>
             </div>
 
             <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
               <CheckField
                 :model-value="domain.types.includes('A')"
-                label="A (IPv4)"
+                :label="t('settings.ddns.recordA')"
                 @update:model-value="value => toggleType(domain, 'A', value === true)"
               />
               <CheckField
                 :model-value="domain.types.includes('AAAA')"
-                label="AAAA (IPv6)"
+                :label="t('settings.ddns.recordAaaa')"
                 :disabled="accountProvider(domain)?.families.includes('AAAA') === false"
-                :hint="accountProvider(domain)?.families.includes('AAAA') === false ? 'This provider cannot manage AAAA records.' : undefined"
+                :hint="accountProvider(domain)?.families.includes('AAAA') === false ? t('settings.ddns.aaaaUnsupported') : undefined"
                 @update:model-value="value => toggleType(domain, 'AAAA', value === true)"
               />
               <CheckField
                 v-if="accountProvider(domain)?.proxied === true"
                 v-model="domain.proxied"
-                label="Proxied"
-                hint="Cloudflare serves this record through its own network."
+                :label="t('settings.ddns.proxied')"
+                :hint="t('settings.ddns.proxiedHint')"
               />
               <ToneBadge v-if="domain.types.includes('AAAA') && !draft.ipv6.enabled" tone="warn">
-                IPv6 detection is off
+                {{ t('settings.ddns.ipv6Off') }}
               </ToneBadge>
             </div>
 
-            <Disclosure title="Advanced" hint="registered domain and TTL override" class="mt-2">
+            <Disclosure :title="t('settings.ddns.advanced')" :hint="t('settings.ddns.advancedHint')" class="mt-2">
               <TextField
                 :model-value="domain.zone ?? ''"
-                label="Registered domain"
-                placeholder="example.co.uk"
-                hint="Only when the provider has to be told the apex, e.g. three-label domains."
+                :label="t('settings.ddns.registeredDomain')"
+                :placeholder="t('settings.ddns.registeredDomainPlaceholder')"
+                :hint="t('settings.ddns.registeredDomainHint')"
                 @update:model-value="value => setOptional(domain, 'zone', value)"
               />
               <NumberField
@@ -445,22 +447,22 @@ defineExpose({ reload: load })
                 :model-value="domain.ttl ?? null"
                 :min="1"
                 nullable
-                label="TTL override (s)"
-                hint="Blank uses the value above."
+                :label="t('settings.ddns.ttlOverride')"
+                :hint="t('settings.ddns.ttlOverrideHint')"
                 @update:model-value="value => setOptional(domain, 'ttl', value)"
               />
             </Disclosure>
           </li>
         </ul>
         <p v-else class="text-2xs text-muted">
-          No hostnames yet.
+          {{ t('settings.ddns.noHostnames') }}
         </p>
 
         <div class="mt-3 grid gap-2 border-t border-line-soft pt-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-          <TextField v-model="newDomain.host" label="Hostname" placeholder="home.example.com" />
-          <SelectField v-model="newDomain.account" label="Account" :options="accountOptions" :disabled="accounts.length === 0" />
+          <TextField v-model="newDomain.host" :label="t('common.hostname')" :placeholder="t('settings.ddns.hostnamePlaceholder')" />
+          <SelectField v-model="newDomain.account" :label="t('settings.ddns.account')" :options="accountOptions" :disabled="accounts.length === 0" />
           <AppButton variant="secondary" :disabled="!canAddDomain" @click="addDomain">
-            Add
+            {{ t('common.add') }}
           </AppButton>
         </div>
       </section>
@@ -468,11 +470,11 @@ defineExpose({ reload: load })
       <section v-if="status !== null && status.records.length > 0" class="rounded-panel border border-line bg-panel-2/40 p-3.5">
         <header class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           <h3 class="text-xs font-semibold text-ink">
-            Last pass
+            {{ t('settings.ddns.lastPass') }}
           </h3>
           <span v-if="status.lastResult" class="text-2xs text-muted">{{ status.lastResult }}</span>
-          <span v-if="status.ipv4" class="font-mono text-2xs text-faint">IPv4 {{ status.ipv4 }}</span>
-          <span v-if="status.ipv6" class="font-mono text-2xs text-faint">IPv6 {{ status.ipv6 }}</span>
+          <span v-if="status.ipv4" class="font-mono text-2xs text-faint">{{ t('settings.ddns.ipv4Value', { address: status.ipv4 }) }}</span>
+          <span v-if="status.ipv6" class="font-mono text-2xs text-faint">{{ t('settings.ddns.ipv6Value', { address: status.ipv6 }) }}</span>
           <span v-if="status.lastRunAt" class="ml-auto text-2xs text-faint">{{ formatAgo(status.lastRunAt, control.now.value) }}</span>
         </header>
         <div class="overflow-x-auto">
@@ -480,19 +482,19 @@ defineExpose({ reload: load })
             <thead>
               <tr class="text-2xs text-faint">
                 <th class="py-1 pr-3 font-medium">
-                  Hostname
+                  {{ t('common.hostname') }}
                 </th>
                 <th class="py-1 pr-3 font-medium">
-                  Type
+                  {{ t('settings.ddns.type') }}
                 </th>
                 <th class="py-1 pr-3 font-medium">
-                  State
+                  {{ t('settings.ddns.state') }}
                 </th>
                 <th class="py-1 pr-3 font-medium">
-                  Address
+                  {{ t('settings.ddns.address') }}
                 </th>
                 <th class="py-1 font-medium">
-                  Detail
+                  {{ t('settings.ddns.detail') }}
                 </th>
               </tr>
             </thead>
@@ -506,7 +508,7 @@ defineExpose({ reload: load })
                 </td>
                 <td class="py-1.5 pr-3">
                   <ToneBadge :tone="RECORD_STATE[record.state].tone" dot>
-                    {{ RECORD_STATE[record.state].label }}
+                    {{ t(RECORD_STATE[record.state].labelKey) }}
                   </ToneBadge>
                 </td>
                 <td class="py-1.5 pr-3 font-mono text-2xs text-muted">
@@ -525,13 +527,13 @@ defineExpose({ reload: load })
 
   <Modal
     v-model:open="credentialsOpen"
-    title="Provider credentials"
+    :title="t('settings.ddns.credentialsTitle')"
     :description="credentialAccount === null ? '' : `${providerLabel(credentialAccount)} — ${credentialAccount.id}`"
     width="w-[min(92vw,32rem)]"
   >
     <div class="space-y-3">
       <p class="text-2xs leading-4 text-muted">
-        Saved fields are never sent back. Saving replaces every field for this account and runs a pass right away.
+        {{ t('settings.ddns.credentialsDescription') }}
       </p>
       <TextField
         v-for="field in credentialFields"
@@ -540,7 +542,7 @@ defineExpose({ reload: load })
         type="password"
         autocomplete="off"
         :label="field.label"
-        :hint="`${field.hint}${field.optional ? ' Optional.' : ''}`"
+        :hint="`${field.hint}${field.optional ? ` ${t('settings.ddns.optional')}` : ''}`"
         wide
       />
       <a
@@ -549,7 +551,7 @@ defineExpose({ reload: load })
         :href="providerOf(credentialAccount.provider)?.docsUrl"
         target="_blank"
         rel="noreferrer"
-      >Where to get these</a>
+      >{{ t('settings.ddns.whereToGet') }}</a>
       <Notice v-if="credentialError" tone="danger">
         {{ credentialError }}
       </Notice>
@@ -560,16 +562,16 @@ defineExpose({ reload: load })
            so one click here is unrecoverable — and it sits beside "Save credentials". -->
       <ConfirmButton
         v-if="credentialAccount !== null && credentialsSet(credentialAccount.id)"
-        label="Forget"
-        confirm-label="Forget them"
-        title="Forget the stored credentials?"
-        hint="They are removed from disk and cannot be read back; you would need to paste them again."
+        :label="t('settings.ddns.forget')"
+        :confirm-label="t('settings.ddns.forgetConfirm')"
+        :title="t('settings.ddns.forgetTitle')"
+        :hint="t('settings.ddns.forgetHint')"
         :loading="credentialBusy"
         :disabled="credentialBusy"
         @confirm="clearCredentials"
       />
       <AppButton size="sm" variant="ghost" :disabled="credentialBusy" @click="credentialsOpen = false">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton
         size="sm"
@@ -578,7 +580,7 @@ defineExpose({ reload: load })
         :disabled="Object.values(credentialDraft).every(value => value.trim().length === 0)"
         @click="saveCredentials"
       >
-        Save credentials
+        {{ t('settings.ddns.saveCredentials') }}
       </AppButton>
     </template>
   </Modal>

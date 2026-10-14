@@ -4,6 +4,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
+import { t, tc } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { formatChangeValue } from '@/lib/format'
 
@@ -136,11 +137,11 @@ function saveFromModal(): void {
                 @click="showChanges = true"
               >
                 <span class="font-mono tabular-nums text-ink">{{ props.changedCount }}</span>
-                field{{ props.changedCount === 1 ? '' : 's' }} changed
+                {{ tc('settings.shell.fieldsChanged', props.changedCount) }}
               </button>
             </template>
             <template v-else>
-              No unsaved changes
+              {{ t('settings.shell.noUnsavedChanges') }}
             </template>
           </p>
           <p v-if="props.saveError" class="mt-0.5 text-xs text-danger">
@@ -152,17 +153,17 @@ function saveFromModal(): void {
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <AppButton variant="ghost" :disabled="props.changedCount === 0 || props.saving" @click="emit('discard')">
-            Discard changes
+            {{ t('settings.shell.discard') }}
           </AppButton>
           <AppButton variant="primary" :disabled="props.changedCount === 0" :loading="props.saving" @click="emit('save')">
-            Save settings
+            {{ t('settings.shell.save') }}
           </AppButton>
         </div>
       </div>
     </div>
   </div>
 
-  <Modal v-model:open="showChanges" title="Unsaved changes" :description="props.changesDescription" width="w-[min(92vw,42rem)]">
+  <Modal v-model:open="showChanges" :title="t('settings.shell.unsavedTitle')" :description="props.changesDescription" width="w-[min(92vw,42rem)]">
     <div class="max-h-[60dvh] overflow-auto px-4 py-3">
       <ul v-if="props.changes.length > 0" class="divide-y divide-line-soft">
         <li v-for="change in props.changes" :key="change.path" class="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 first:pt-0">
@@ -173,15 +174,15 @@ function saveFromModal(): void {
         </li>
       </ul>
       <p v-else class="text-xs text-muted">
-        Nothing to save.
+        {{ t('settings.shell.nothingToSave') }}
       </p>
     </div>
     <footer class="flex items-center justify-end gap-2 border-t border-line px-4 py-3">
       <AppButton size="sm" variant="ghost" @click="showChanges = false">
-        Close
+        {{ t('common.close') }}
       </AppButton>
       <AppButton size="sm" variant="primary" :disabled="props.changes.length === 0 || props.saving" :loading="props.saving" @click="saveFromModal">
-        Save {{ props.changes.length }} change{{ props.changes.length === 1 ? '' : 's' }}
+        {{ tc('settings.shell.saveChanges', props.changes.length) }}
       </AppButton>
     </footer>
   </Modal>

@@ -7,6 +7,7 @@ import WorkspaceSwitcher from '@/components/shell/WorkspaceSwitcher.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Tip from '@/components/ui/Tip.vue'
 import { useTheme } from '@/composables/useTheme'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { focusRing } from '@/lib/ui'
 
@@ -23,12 +24,14 @@ const theme = useTheme()
 
 const title = computed(() => {
   if (route.name === 'server-detail')
-    return `Servers / ${String(route.params.id ?? '')}`
-  return String(route.meta.title ?? 'home-hosted')
+    return `${t('nav.servers')} / ${String(route.params.id ?? '')}`
+  // `meta.titleKey` is a catalog key; an older route table may still carry a literal `title`.
+  const key = route.meta.titleKey
+  return typeof key === 'string' ? t(key) : String(route.meta.title ?? t('app.name'))
 })
 
 const themeIcon = computed(() => (theme.preference.value === 'dark' ? Moon : theme.preference.value === 'light' ? Sun : Monitor))
-const themeLabel = computed(() => `Theme: ${theme.preference.value}`)
+const themeLabel = computed(() => t('theme.label', { theme: t(`theme.${theme.preference.value}`) }))
 
 const dotClass = computed(() => ({
   open: 'bg-ok',
@@ -37,9 +40,9 @@ const dotClass = computed(() => ({
 }[props.connection]))
 
 const connectionLabel = computed(() => ({
-  open: 'Live updates',
-  connecting: 'Connecting',
-  closed: 'Reconnecting',
+  open: 'connection.liveUpdates',
+  connecting: 'connection.connecting',
+  closed: 'connection.reconnecting',
 }[props.connection]))
 </script>
 
@@ -48,7 +51,7 @@ const connectionLabel = computed(() => ({
     <button
       type="button"
       class="grid size-8 shrink-0 place-items-center rounded-control text-muted hover:bg-hover hover:text-ink lg:hidden"
-      aria-label="Open navigation"
+      :aria-label="t('topbar.openNavigation')"
       @click="emit('menu')"
     >
       <Menu class="size-4" />
@@ -68,11 +71,11 @@ const connectionLabel = computed(() => ({
         @click="emit('palette')"
       >
         <Search class="size-3.5" />
-        <span class="pr-6">Search or run a command</span>
+        <span class="pr-6">{{ t('topbar.search') }}</span>
         <kbd class="rounded border border-line bg-page px-1 py-0.5 font-mono text-2xs text-faint">⌘K</kbd>
       </button>
 
-      <Tip :label="connectionLabel">
+      <Tip :label="t(connectionLabel)">
         <span class="hidden items-center gap-1.5 rounded-control border border-line bg-panel-2 px-2 py-1.5 md:flex">
           <span :class="cn('size-1.5 rounded-full', dotClass)" />
           <span class="font-mono text-2xs text-muted">{{ panelUrl }}</span>
@@ -87,7 +90,7 @@ const connectionLabel = computed(() => ({
 
       <DropdownMenuRoot v-if="props.authenticated">
         <DropdownMenuTrigger as-child>
-          <AppButton variant="ghost" size="icon-sm" aria-label="Account">
+          <AppButton variant="ghost" size="icon-sm" :aria-label="t('topbar.account')">
             <span class="grid size-5 place-items-center rounded-full bg-accent-soft font-mono text-2xs font-semibold text-accent">hh</span>
           </AppButton>
         </DropdownMenuTrigger>
@@ -99,7 +102,7 @@ const connectionLabel = computed(() => ({
           >
             <div class="px-2 py-1.5">
               <p class="text-2xs text-faint">
-                Signed in
+                {{ t('topbar.signedIn') }}
               </p>
               <p class="truncate font-mono text-2xs text-muted">
                 {{ props.panelUrl }}
@@ -111,14 +114,14 @@ const connectionLabel = computed(() => ({
               @select="emit('signOut')"
             >
               <LogOut class="size-3.5" />
-              Sign out
+              {{ t('topbar.signOut') }}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenuPortal>
       </DropdownMenuRoot>
 
-      <Tip label="Command palette">
-        <AppButton variant="ghost" size="icon-sm" class="sm:hidden" aria-label="Open the command palette" @click="emit('palette')">
+      <Tip :label="t('topbar.commandPalette')">
+        <AppButton variant="ghost" size="icon-sm" class="sm:hidden" :aria-label="t('topbar.commandPalette')" @click="emit('palette')">
           <Command class="size-4" />
         </AppButton>
       </Tip>

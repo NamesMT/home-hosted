@@ -13,6 +13,7 @@ import SelectField from '@/components/ui/SelectField.vue'
 import Skeleton from '@/components/ui/Skeleton.vue'
 import { useServerLogs } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t, tc } from '@/i18n'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatBytes } from '@/lib/format'
@@ -57,15 +58,11 @@ const liveLines = computed(() => {
 const lines = computed<LogLine[]>(() => (mode.value === 'live' ? liveLines.value : diskLines.value))
 const version = computed(() => (mode.value === 'live' ? liveVersion.value : diskVersion.value))
 
-const tailOptions = [
-  { value: '200', label: '200 lines' },
-  { value: '500', label: '500 lines' },
-  { value: '2000', label: '2000 lines' },
-  { value: '5000', label: '5000 lines' },
-]
+const tailOptions = [200, 500, 2000, 5000].map(value => ({ value: String(value), label: tc('logs.lines', value, { count: value }) }))
 
+/** The stream names are the panel's own identifiers; only "all" is a word. */
 const streamOptions = [
-  { value: '', label: 'All streams' },
+  { value: '', label: t('views.logs.allStreams') },
   { value: 'stdout', label: 'stdout' },
   { value: 'stderr', label: 'stderr' },
   { value: 'system', label: 'system' },
@@ -208,10 +205,10 @@ onMounted(async () => {
     <aside class="hidden w-64 shrink-0 flex-col border-r border-line bg-panel/40 md:flex">
       <div class="border-b border-line px-3 py-2.5">
         <p class="text-xs font-semibold text-ink">
-          Persisted logs
+          {{ t('views.logs.persistedTitle') }}
         </p>
         <p class="mt-0.5 text-2xs text-faint">
-          {{ workspace.selected.value?.label ?? 'Workspace' }} · {{ persistedCount }} of {{ servers.length }} servers on disk · {{ formatBytes(totalPersisted) }}
+          {{ t('views.logs.persistedSummary', { workspace: workspace.selected.value?.label ?? t('nav.workspace'), persisted: persistedCount, total: servers.length, size: formatBytes(totalPersisted) }) }}
         </p>
       </div>
 
@@ -236,8 +233,11 @@ onMounted(async () => {
               <span :class="cn('block truncate text-xs', server.serverId === selected ? 'font-medium text-accent' : 'text-ink')">
                 {{ server.label }}
               </span>
-              <span class="block truncate font-mono text-2xs text-faint">
-                {{ server.files.length > 0 ? `${server.files.length} file${server.files.length === 1 ? '' : 's'} · ${formatBytes(server.sizeBytes)}` : 'nothing persisted' }}
+              <span v-if="server.files.length > 0" class="block truncate font-mono text-2xs text-faint">
+                {{ tc('views.logs.filesOnDisk', server.files.length) }} · {{ formatBytes(server.sizeBytes) }}
+              </span>
+              <span v-else class="block truncate font-mono text-2xs text-faint">
+                {{ t('views.logs.nothingPersisted') }}
               </span>
             </span>
           </button>
@@ -246,14 +246,14 @@ onMounted(async () => {
         <EmptyState
           v-if="!listLoading && servers.length === 0"
           compact
-          title="No servers"
-          description="Add one and its output will be persisted here."
+          :title="t('views.logs.noServersTitle')"
+          :description="t('views.logs.noServersDescription')"
         />
       </div>
 
       <div class="border-t border-line p-2.5">
         <p class="text-2xs leading-4 text-faint">
-          Rotation and retention are set under Workspace settings → Logs.
+          {{ t('views.logs.retentionNote') }}
         </p>
       </div>
     </aside>
@@ -262,7 +262,7 @@ onMounted(async () => {
       <header class="flex flex-wrap items-center gap-2 border-b border-line bg-panel/40 px-3 py-2.5">
         <div class="min-w-0">
           <h1 class="truncate text-sm font-semibold text-ink">
-            {{ current?.label ?? 'Logs' }}
+            {{ current?.label ?? t('nav.logs') }}
             <span v-if="current" class="ml-1.5 font-mono text-2xs font-normal text-faint">{{ current.serverId }}</span>
           </h1>
         </div>
@@ -271,8 +271,8 @@ onMounted(async () => {
           v-model="mode"
           class="ml-auto"
           :options="[
-            { value: 'disk', label: 'Persisted' },
-            { value: 'live', label: 'Live stream' },
+            { value: 'disk', label: t('views.logs.modePersisted') },
+            { value: 'live', label: t('views.logs.modeLive') },
           ]"
         />
 
@@ -281,7 +281,7 @@ onMounted(async () => {
           v-model="tail"
           :options="tailOptions"
           class="w-32"
-          aria-label="Tail size"
+          :aria-label="t('views.logs.tailAria')"
         />
 
         <SelectField
@@ -289,7 +289,7 @@ onMounted(async () => {
           v-model="stream"
           :options="streamOptions"
           class="w-32"
-          aria-label="Stream"
+          :aria-label="t('views.logs.streamAria')"
         />
 
         <input
@@ -297,12 +297,12 @@ onMounted(async () => {
           v-model="search"
           type="search"
           class="w-44 min-w-0 rounded-control border border-line bg-panel px-2.5 py-1.5 text-xs text-ink outline-none transition-colors placeholder:text-faint focus:border-accent/50"
-          aria-label="Search the log"
-          placeholder="search the tail window"
+          :aria-label="t('views.logs.searchAria')"
+          :placeholder="t('views.logs.searchPlaceholder')"
         >
 
         <AppButton v-if="mode === 'disk'" size="sm" :loading="loading" @click="loadTail">
-          <RefreshCw class="size-3.5" />Reload
+          <RefreshCw class="size-3.5" />{{ t('views.logs.reload') }}
         </AppButton>
 
         <AppButton
@@ -312,7 +312,7 @@ onMounted(async () => {
           :disabled="!current || current.files.length === 0"
           @click="confirmClear = true"
         >
-          <Trash2 class="size-3.5" />Clear file
+          <Trash2 class="size-3.5" />{{ t('views.logs.clearFile') }}
         </AppButton>
       </header>
 
@@ -332,16 +332,16 @@ onMounted(async () => {
           </a>
         </template>
         <span v-else class="text-2xs text-faint">
-          Nothing on disk for this server — persistence is off, or it has not written anything yet.
+          {{ t('views.logs.nothingOnDisk') }}
         </span>
         <span v-if="mode === 'disk' && diskLines.length > 0" class="ml-auto font-mono text-2xs text-faint">
-          loaded {{ diskLines.length }} lines
+          {{ t('views.logs.loadedLines', { count: diskLines.length }) }}
         </span>
         <!-- The window the search read, not the one it asked for: on a log shorter than the
              5000-line window the two differ, and this number is read by a person. No mode guard
              needed — leaving disk mode clears the value. -->
         <span v-if="searched !== null" class="font-mono text-2xs text-faint">
-          · searched {{ searched }} lines
+          · {{ t('views.logs.searchedLines', { count: searched }) }}
         </span>
       </div>
 
@@ -353,8 +353,8 @@ onMounted(async () => {
       <div class="min-h-0 flex-1 p-3">
         <EmptyState
           v-if="!current"
-          title="Pick a server"
-          description="Persisted output and live streams are per server. Choose one from the list."
+          :title="t('views.logs.pickServerTitle')"
+          :description="t('views.logs.pickServerDescription')"
         >
           <template #icon>
             <ScrollText class="size-4" />
@@ -369,7 +369,7 @@ onMounted(async () => {
           :version="version"
           :live="mode === 'live'"
           class="h-full"
-          :empty-hint="mode === 'live' ? 'Connected — waiting for output.' : 'The persisted file is empty.'"
+          :empty-hint="mode === 'live' ? t('views.logs.waitingOutput') : t('views.logs.fileEmpty')"
           min-height="100%"
         />
       </div>
@@ -377,19 +377,19 @@ onMounted(async () => {
 
     <Modal
       v-model:open="confirmClear"
-      title="Clear the persisted log file?"
-      :description="`${current?.serverId ?? ''} — the file on disk is truncated. The process keeps running and new lines are written from here on.`"
+      :title="t('views.logs.clearTitle')"
+      :description="t('views.logs.clearDescription', { server: current?.serverId ?? '' })"
       width="w-[min(92vw,26rem)]"
     >
       <p class="text-xs text-muted">
-        Download it first if the output is still needed — this cannot be undone from the panel.
+        {{ t('views.logs.clearNote') }}
       </p>
       <template #footer>
         <AppButton variant="ghost" @click="confirmClear = false">
-          Keep it
+          {{ t('common.keepIt') }}
         </AppButton>
         <AppButton variant="danger" @click="clearFile">
-          <Trash2 class="size-3.5" />Clear
+          <Trash2 class="size-3.5" />{{ t('views.logs.clear') }}
         </AppButton>
       </template>
     </Modal>

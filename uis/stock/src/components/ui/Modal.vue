@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { X } from 'lucide-vue-next'
 import { DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { focusRing } from '@/lib/ui'
 
@@ -40,7 +41,7 @@ const open = defineModel<boolean>('open', { default: false })
           </div>
           <DialogClose
             :class="cn('-mr-1 -mt-0.5 grid size-7 shrink-0 place-items-center rounded-control text-muted transition-colors duration-150 hover:bg-hover hover:text-ink', focusRing)"
-            aria-label="Close"
+            :aria-label="t('common.close')"
           >
             <X class="size-4" />
           </DialogClose>

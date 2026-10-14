@@ -3,9 +3,12 @@ import { Eye, EyeOff, LogIn, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'
+import LanguageSelect from '@/components/ui/LanguageSelect.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
+import TransText from '@/components/ui/TransText.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { inputClass, labelClass } from '@/lib/ui'
 
@@ -26,18 +29,18 @@ const panelUrl = computed(() => control.control.value?.url ?? '—')
 
 const headline = computed(() => {
   if (firstRun.value)
-    return 'This panel has no password yet'
+    return t('login.firstRunTitle')
   if (authOff.value)
-    return 'Authentication is turned off'
-  return 'Sign in to continue'
+    return t('login.authOffTitle')
+  return t('login.title')
 })
 
 const subtitle = computed(() => {
   if (firstRun.value)
-    return 'Anything on this machine can reach it. Set a password right after you are in.'
+    return t('login.firstRunSubtitle')
   if (authOff.value)
-    return 'The panel only listens on loopback, which is the only thing protecting it right now.'
-  return 'The control panel is protected. Enter the password to continue.'
+    return t('login.authOffSubtitle')
+  return t('login.subtitle')
 })
 
 async function submit(): Promise<void> {
@@ -81,10 +84,10 @@ onMounted(async () => {
         </span>
         <div>
           <p class="text-lg font-semibold tracking-tight text-ink">
-            home-hosted
+            {{ t('app.name') }}
           </p>
           <p class="text-xs text-muted">
-            Process supervisor control panel
+            {{ t('app.tagline') }}
           </p>
         </div>
       </div>
@@ -99,14 +102,20 @@ onMounted(async () => {
               {{ subtitle }}
             </p>
           </div>
-          <ToneBadge v-if="exposed" tone="warn" dot>
-            Exposed
-          </ToneBadge>
+          <div class="flex shrink-0 items-center gap-2">
+            <ToneBadge v-if="exposed" tone="warn" dot>
+              {{ t('login.exposed') }}
+            </ToneBadge>
+            <!-- Before sign-in there is no session, so the picker is browser-local by design. -->
+            <div class="w-36">
+              <LanguageSelect :labelled="false" />
+            </div>
+          </div>
         </div>
 
         <form v-if="!authOff" class="mt-5 space-y-3" @submit.prevent="submit">
           <div class="flex flex-col gap-1.5">
-            <label for="hh-password" :class="labelClass">Password</label>
+            <label for="hh-password" :class="labelClass">{{ t('login.password') }}</label>
             <div class="relative">
               <input
                 id="hh-password"
@@ -120,7 +129,7 @@ onMounted(async () => {
               <button
                 type="button"
                 class="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-control text-faint transition-colors duration-150 hover:text-ink"
-                :aria-label="revealed ? 'Hide password' : 'Show password'"
+                :aria-label="revealed ? t('login.hidePassword') : t('login.showPassword')"
                 @click="revealed = !revealed"
               >
                 <EyeOff v-if="revealed" class="size-3.5" />
@@ -135,13 +144,13 @@ onMounted(async () => {
 
           <AppButton type="submit" variant="primary" size="md" block :loading="submitting">
             <LogIn class="size-3.5" />
-            Sign in
+            {{ t('login.signIn') }}
           </AppButton>
         </form>
 
         <div v-else class="mt-5">
           <AppButton variant="primary" size="md" block @click="continueWithoutPassword">
-            Open the dashboard
+            {{ t('login.openDashboard') }}
           </AppButton>
         </div>
 
@@ -149,24 +158,29 @@ onMounted(async () => {
           <div v-if="usingDefault" class="flex items-start gap-2 rounded-control border border-warn/25 bg-warn-soft px-2.5 py-2">
             <ShieldAlert class="mt-0.5 size-3.5 shrink-0 text-warn" />
             <p class="text-2xs leading-4 text-warn">
-              Still on the default password
-              <code class="ml-1 rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">{{ session?.defaultPassword }}</code>.
-              Change it under Settings — binding beyond 127.0.0.1 stays refused until you do.
+              <TransText k="login.defaultPasswordWarning">
+                <template #password>
+                  <code class="mx-1 rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">{{ session?.defaultPassword }}</code>
+                </template>
+              </TransText>
             </p>
           </div>
 
           <div v-else-if="firstRun" class="flex items-start gap-2 rounded-control border border-warn/25 bg-warn-soft px-2.5 py-2">
             <ShieldOff class="mt-0.5 size-3.5 shrink-0 text-warn" />
             <p class="text-2xs leading-4 text-warn">
-              No password is set. Open Settings from this machine to add one, or run
-              <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">pnpm run auth:set-password</code>.
+              <TransText k="login.noPasswordWarning">
+                <template #command>
+                  <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">pnpm run auth:set-password</code>
+                </template>
+              </TransText>
             </p>
           </div>
 
           <div v-else class="flex items-start gap-2 rounded-control border border-line-soft bg-panel-2 px-2.5 py-2">
             <ShieldCheck class="mt-0.5 size-3.5 shrink-0 text-ok" />
             <p class="text-2xs leading-4 text-muted">
-              Sessions stay signed in for {{ Math.round((session?.sessionTtlMs ?? 0) / 86_400_000) }} days after the last visit — each request extends that window. Signing out clears this browser only.
+              {{ t('login.sessionNote', { days: Math.round((session?.sessionTtlMs ?? 0) / 86_400_000) }) }}
             </p>
           </div>
         </div>
@@ -175,7 +189,7 @@ onMounted(async () => {
       <p class="mt-4 flex items-center justify-center gap-2 text-2xs text-faint">
         <span class="font-mono">{{ panelUrl }}</span>
         <span aria-hidden="true">·</span>
-        <span>served from this machine</span>
+        <span>{{ t('login.servedFromThisMachine') }}</span>
       </p>
     </div>
   </div>

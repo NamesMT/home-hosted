@@ -9,6 +9,7 @@ import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
+import { t } from '@/i18n'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { certificateTitle } from '@/lib/proxy'
@@ -54,7 +55,7 @@ async function run(action: () => Promise<ProxyView>, done: string): Promise<bool
 async function add(payload: { id: string, label: string, certificate: string, privateKey: string }): Promise<void> {
   const stored = await run(
     () => api.uploadProxyCertificate(payload.id, payload.label, payload.certificate, payload.privateKey),
-    `“${payload.label}” stored.`,
+    t('proxy.certificate.stored', { label: payload.label }),
   )
   if (stored)
     dialogOpen.value = false
@@ -62,34 +63,34 @@ async function add(payload: { id: string, label: string, certificate: string, pr
 
 function remove(certificate: ProxyCertificateView): void {
   confirming.value = null
-  void run(() => api.clearProxyCertificate(certificate.id), `“${certificateTitle(certificate)}” removed.`)
+  void run(() => api.clearProxyCertificate(certificate.id), t('proxy.certificate.removed', { name: certificateTitle(certificate) }))
 }
 </script>
 
 <template>
   <FieldGroup
-    title="Uploaded certificates"
-    description="Served by routes set to “Uploaded certificate”. Everything else — public or local — is certified by the engine on its own."
+    :title="t('proxy.certificate.title')"
+    :description="t('proxy.certificate.description')"
   >
     <template #actions>
       <AppButton size="xs" variant="secondary" :disabled="props.disabled || busy" @click="dialogOpen = true">
         <Plus class="size-3.5" />
-        Add certificate
+        {{ t('proxy.certificate.add') }}
       </AppButton>
     </template>
 
     <div v-if="props.certificates.length === 0" class="sm:col-span-2">
       <EmptyState
         compact
-        title="No certificate uploaded"
-        description="A route set to “Uploaded certificate” needs a pair covering its hostname, or the engine has nothing to serve for it."
+        :title="t('proxy.certificate.emptyTitle')"
+        :description="t('proxy.certificate.emptyDescription')"
       >
         <template #icon>
           <KeyRound class="size-5" />
         </template>
         <template #action>
           <AppButton variant="primary" :disabled="props.disabled || busy" @click="dialogOpen = true">
-            Add a certificate
+            {{ t('proxy.certificateDialog.title') }}
           </AppButton>
         </template>
       </EmptyState>
@@ -111,7 +112,7 @@ function remove(certificate: ProxyCertificateView): void {
             class="text-2xs tabular-nums"
             :class="certificate.daysRemaining < 14 ? 'text-warn' : 'text-faint'"
           >
-            {{ certificate.daysRemaining }} days left
+            {{ t('proxy.certificate.daysLeft', { days: certificate.daysRemaining }) }}
           </span>
         </div>
 
@@ -124,7 +125,7 @@ function remove(certificate: ProxyCertificateView): void {
         <dl v-else class="mt-2 divide-y divide-line-soft text-2xs">
           <div class="flex items-start justify-between gap-4 py-1">
             <dt class="text-muted">
-              Subject
+              {{ t('proxy.certificate.subject') }}
             </dt>
             <dd class="min-w-0 text-right font-mono text-ink">
               {{ certificate.subject ?? '—' }}
@@ -132,7 +133,7 @@ function remove(certificate: ProxyCertificateView): void {
           </div>
           <div class="flex items-start justify-between gap-4 py-1">
             <dt class="text-muted">
-              Issuer
+              {{ t('proxy.certificate.issuer') }}
             </dt>
             <dd class="min-w-0 text-right font-mono text-ink">
               {{ certificate.issuer ?? '—' }}
@@ -140,7 +141,7 @@ function remove(certificate: ProxyCertificateView): void {
           </div>
           <div class="flex items-start justify-between gap-4 py-1">
             <dt class="text-muted">
-              Valid until
+              {{ t('proxy.certificate.validUntil') }}
             </dt>
             <dd class="font-mono text-ink">
               {{ certificate.validTo ? certificate.validTo.slice(0, 10) : '—' }}
@@ -148,13 +149,13 @@ function remove(certificate: ProxyCertificateView): void {
           </div>
           <div class="flex items-start justify-between gap-4 py-1">
             <dt class="shrink-0 text-muted">
-              Covers
+              {{ t('proxy.certificate.covers') }}
             </dt>
             <dd class="min-w-0 text-right font-mono text-ink">
               <template v-if="certificate.hosts.length > 0">
                 {{ certificate.hosts.join(', ') }}
               </template>
-              <span v-else class="text-faint">no hostnames in its SANs</span>
+              <span v-else class="text-faint">{{ t('proxy.certificate.noSans') }}</span>
             </dd>
           </div>
         </dl>
@@ -162,9 +163,9 @@ function remove(certificate: ProxyCertificateView): void {
         <div class="mt-2 flex justify-end">
           <PopoverRoot :open="confirming === certificate.id" @update:open="value => confirming = value ? certificate.id : null">
             <PopoverTrigger as-child>
-              <AppButton size="xs" variant="danger-ghost" :disabled="busy" :aria-label="`Remove ${certificateTitle(certificate)}`">
+              <AppButton size="xs" variant="danger-ghost" :disabled="busy" :aria-label="t('proxy.certificate.removeAria', { name: certificateTitle(certificate) })">
                 <Trash2 class="size-3.5" />
-                Remove
+                {{ t('common.remove') }}
               </AppButton>
             </PopoverTrigger>
             <PopoverPortal>
@@ -177,21 +178,19 @@ function remove(certificate: ProxyCertificateView): void {
                 )"
               >
                 <p class="text-xs font-semibold text-ink">
-                  Remove “{{ certificateTitle(certificate) }}”?
+                  {{ t('proxy.certificate.removeQuestion', { name: certificateTitle(certificate) }) }}
                 </p>
                 <p class="mt-1 text-2xs leading-4 text-muted">
-                  The pair is deleted from disk. A route still set to “Uploaded certificate” keeps serving the
-                  engine's own certificate until you change it, and the panel refuses this while one still
-                  serves it.
+                  {{ t('proxy.certificate.removeBody') }}
                 </p>
                 <div class="mt-2.5 flex justify-end gap-1.5">
                   <PopoverClose as-child>
                     <AppButton size="xs" variant="ghost">
-                      Keep it
+                      {{ t('common.keepIt') }}
                     </AppButton>
                   </PopoverClose>
                   <AppButton size="xs" variant="danger" :loading="busy" @click="remove(certificate)">
-                    Remove it
+                    {{ t('proxy.certificate.removeIt') }}
                   </AppButton>
                 </div>
               </PopoverContent>

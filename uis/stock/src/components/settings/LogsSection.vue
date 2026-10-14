@@ -7,7 +7,9 @@ import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
+import TransText from '@/components/ui/TransText.vue'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t } from '@/i18n'
 import { workspacePath } from '@/router'
 
 const props = defineProps<{
@@ -29,36 +31,38 @@ const directory = computed(() => props.logsDir ?? '—')
 
 <template>
   <FieldGroup
-    title="Retention"
-    description="The live view always comes from memory; these files survive a restart and feed the Logs page."
+    :title="t('settings.logs.title')"
+    :description="t('settings.logs.description')"
   >
     <template #actions>
       <AppButton size="xs" variant="ghost" :disabled="!props.dirty" @click="emit('reset')">
-        Reset
+        {{ t('common.reset') }}
       </AppButton>
     </template>
 
     <ToggleSwitch
       v-model="logs.persist"
-      label="Keep logs on disk"
-      hint="Turn off to hold everything in memory only."
+      :label="t('settings.logs.persist')"
+      :hint="t('settings.logs.persistHint')"
       class="sm:col-span-2"
     />
-    <NumberField v-model="maxBytes" label="Rotate at (bytes)" :min="10000" :max="100000000" hint="Per server, before rolling to .1, .2, …" />
-    <NumberField v-model="keep" label="Keep rotated files" :min="1" :max="10" />
+    <NumberField v-model="maxBytes" :label="t('settings.logs.maxBytes')" :min="10000" :max="100000000" :hint="t('settings.logs.maxBytesHint')" />
+    <NumberField v-model="keep" :label="t('settings.logs.keep')" :min="1" :max="10" />
 
     <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
-      <span class="text-xs font-medium text-muted">Logs directory</span>
+      <span class="text-xs font-medium text-muted">{{ t('settings.logs.directory') }}</span>
       <div class="flex items-center gap-1.5 rounded-control border border-line bg-page/60 px-2.5 py-1.5">
         <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink">{{ directory }}</span>
-        <CopyButton :value="directory" label="Copy the logs directory" />
+        <CopyButton :value="directory" :label="t('settings.logs.copyDirectory')" />
       </div>
       <p class="text-2xs leading-4 text-faint">
-        Browse and download these files on the
-        <RouterLink :to="workspacePath(workspace.activeId.value, 'logs')" class="text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent">
-          Logs
-        </RouterLink>
-        page.
+        <TransText k="settings.logs.browseHint">
+          <template #logs>
+            <RouterLink :to="workspacePath(workspace.activeId.value, 'logs')" class="text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent">
+              {{ t('nav.logs') }}
+            </RouterLink>
+          </template>
+        </TransText>
       </p>
     </div>
   </FieldGroup>

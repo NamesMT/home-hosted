@@ -10,6 +10,8 @@ import NumberField from '@/components/ui/NumberField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
+import TransText from '@/components/ui/TransText.vue'
+import { t } from '@/i18n'
 import { isPrivilegedPort, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts } from '@/lib/proxy'
 
 /**
@@ -60,127 +62,130 @@ function keepPort(value: number | null, key: 'httpPort' | 'httpsPort'): void {
 
 <template>
   <FieldGroup
-    title="Listener & certificates"
-    description="Where the proxy listens. 80 and 443 are what a router forwards and what an ACME challenge expects; a port below 1024 needs a privileged bind."
+    :title="t('proxy.listener.title')"
+    :description="t('proxy.listener.description')"
   >
     <template #actions>
       <ToneBadge v-if="fallback" tone="info">
-        unprivileged ports
+        {{ t('proxy.listener.unprivilegedPorts') }}
       </ToneBadge>
     </template>
 
     <ToggleSwitch
       v-model="form.enabled"
-      label="Run the reverse proxy"
-      hint="Saved with Save settings; the panel starts or stops the engine to match."
+      :label="t('proxy.listener.run')"
+      :hint="t('proxy.listener.runHint')"
       wide
     />
 
     <NumberField
       :model-value="form.httpPort"
-      label="HTTP port"
+      :label="t('proxy.listener.httpPort')"
       :min="1"
       :max="65535"
-      hint="ACME HTTP-01 challenges and the redirect to HTTPS."
+      :hint="t('proxy.listener.httpPortHint')"
       @update:model-value="value => keepPort(value, 'httpPort')"
     />
     <NumberField
       :model-value="form.httpsPort"
-      label="HTTPS port"
+      :label="t('proxy.listener.httpsPort')"
       :min="1"
       :max="65535"
-      hint="Where certificates are served."
+      :hint="t('proxy.listener.httpsPortHint')"
       @update:model-value="value => keepPort(value, 'httpsPort')"
     />
 
     <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
       <AppButton size="xs" variant="secondary" @click="useFallback">
-        Use {{ UNPRIVILEGED_HTTP_PORT }} / {{ UNPRIVILEGED_HTTPS_PORT }}
+        {{ t('proxy.listener.useFallback', { http: UNPRIVILEGED_HTTP_PORT, https: UNPRIVILEGED_HTTPS_PORT }) }}
       </AppButton>
       <AppButton size="xs" variant="ghost" @click="useStandard">
-        Use 80 / 443
+        {{ t('proxy.listener.useStandard') }}
       </AppButton>
       <span v-if="fallback" class="text-2xs text-faint">
-        Running unprivileged — forward 80 and 443 to these ports on your router.
+        {{ t('proxy.listener.forwardHint') }}
       </span>
     </div>
 
     <div v-if="privileged" class="sm:col-span-2">
-      <Notice tone="warn" title="A port below 1024 needs a privileged bind">
-        Running the panel as your own user cannot bind 80 or 443 without permission. Either grant it
-        once
-        <code v-if="setcap" class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">{{ setcap }}</code>
-        <span v-else>with <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">setcap</code> on the engine binary</span>
-        <CopyButton v-if="setcap" :value="setcap" label="Copy the command" class="ml-1 align-middle" />
-        and restart the engine, or keep {{ UNPRIVILEGED_HTTP_PORT }}/{{ UNPRIVILEGED_HTTPS_PORT }} and forward
-        80/443 from your router. On Windows the port is free to bind, but something else may hold it.
+      <Notice tone="warn" :title="t('proxy.listener.privilegedTitle')">
+        <TransText
+          k="proxy.listener.privilegedBody"
+          :params="{ http: UNPRIVILEGED_HTTP_PORT, https: UNPRIVILEGED_HTTPS_PORT }"
+        >
+          <!-- Both the command and its copy button stay inside the sentence: the button is a
+               control, not a word, and moving it past the full stop changes the line. -->
+          <template #how>
+            <template v-if="setcap">
+              <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">{{ setcap }}</code>
+              <CopyButton :value="setcap" :label="t('proxy.engine.copyCommand')" class="ml-1 align-middle" />
+            </template>
+            <span v-else>
+              <TransText k="proxy.listener.privilegedWithSetcap">
+                <template #command><code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">setcap</code></template>
+              </TransText>
+            </span>
+          </template>
+        </TransText>
       </Notice>
     </div>
 
     <TextField
       v-model="form.email"
-      label="ACME account e-mail"
-      placeholder="you@example.com"
-      hint="Let's Encrypt uses it to warn you about an expiring certificate. A local-only name gets the engine's own CA and needs none."
+      :label="t('proxy.listener.email')"
+      :placeholder="t('proxy.listener.emailPlaceholder')"
+      :hint="t('proxy.listener.emailHint')"
       wide
     />
 
     <div v-if="props.emailHost !== null" class="sm:col-span-2">
-      <Notice tone="warn" title="An e-mail is needed for automatic HTTPS">
-        “{{ props.emailHost }}” is a public hostname, so the engine asks a CA for a certificate and the
-        account address is required. Fill it in, switch the route's TLS off, or turn on the staging
-        endpoint while you try things out.
+      <Notice tone="warn" :title="t('proxy.listener.emailNeededTitle')">
+        {{ t('proxy.listener.emailNeededBody', { host: props.emailHost }) }}
       </Notice>
     </div>
 
     <ToggleSwitch
       v-model="form.staging"
-      label="Use the ACME staging endpoint"
-      hint="Untrusted certificates and no rate-limit burn while you try things out."
+      :label="t('proxy.listener.staging')"
+      :hint="t('proxy.listener.stagingHint')"
       wide
     />
 
     <ToggleSwitch
       v-model="form.dns01"
-      label="Answer challenges with DNS-01"
-      hint="The panel writes the challenge record through a route's DNS account, so no inbound port is needed to get a certificate."
+      :label="t('proxy.listener.dns01')"
+      :hint="t('proxy.listener.dns01Hint')"
       wide
     />
 
     <TextField
       v-if="form.dns01"
       v-model="form.resolvers"
-      label="Check the record against"
-      placeholder="1.1.1.1, 8.8.8.8"
-      hint="Nameservers the engine reads the record from; empty uses its own. Needed where split-horizon DNS shows it a different view."
+      :label="t('proxy.listener.resolvers')"
+      :placeholder="t('proxy.listener.resolversPlaceholder')"
+      :hint="t('proxy.listener.resolversHint')"
       spellcheck="false"
       wide
     />
 
     <div v-if="form.dns01 && usableAccounts.length === 0" class="sm:col-span-2">
-      <Notice tone="warn" title="No DNS account can answer a challenge">
-        DNS-01 is on, but no account has credentials it can use. Add one under
-        Workspace Settings → Dynamic DNS, or public names stay on the port challenges and
-        wait for a CA that cannot reach them.
+      <Notice tone="warn" :title="t('proxy.listener.noAccountTitle')">
+        {{ t('proxy.listener.noAccountBody') }}
       </Notice>
     </div>
 
     <div v-else-if="form.dns01 && usableAccounts.length > 1" class="sm:col-span-2">
-      <Notice tone="info" title="Each public route has to pick an account">
-        More than one account can answer, so “Automatic” cannot choose. Pick one per route,
-        or those names stay on the port challenges.
+      <Notice tone="info" :title="t('proxy.listener.manyAccountsTitle')">
+        {{ t('proxy.listener.manyAccountsBody') }}
       </Notice>
     </div>
 
     <p v-if="form.dns01" class="text-2xs leading-4 text-faint sm:col-span-2">
-      Each route picks its own account, so names in different zones each get the right one. A route
-      left on “Automatic” uses the only account the table names. A name no account answers stays on
-      the port challenges.
+      {{ t('proxy.listener.accountNote') }}
     </p>
 
     <p class="text-2xs leading-4 text-faint sm:col-span-2">
-      A public name whose certificate is still being issued is reachable in the meantime — over HTTPS with a
-      temporary untrusted certificate, or over plain HTTP with a page naming the ports to forward.
+      {{ t('proxy.listener.pendingNote') }}
     </p>
   </FieldGroup>
 </template>

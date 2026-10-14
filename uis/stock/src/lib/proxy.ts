@@ -1,10 +1,11 @@
 import type { ProxyCertificateState, ProxyConfig, ProxyDnsAccountView, ProxyRoute, ProxyRouteStatus, ProxyRouteView, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
-import type { ListenerDraft, RouteDraft } from '@shared/proxy-form'
+import type { ListenerDraft, ProxyWorkspace, RouteDraft, RouteErrorMessages, RouteSummaryLabels } from '@shared/proxy-form'
 import type { Tone } from '@/lib/status'
-import { isPublicHost, newRouteKey } from '@shared/proxy-form'
+import { isPublicHost, newRouteKey, retryInLabel as sharedRetryInLabel, targetSummary as sharedTargetSummary } from '@shared/proxy-form'
 import { toRaw } from 'vue'
+import { t, tc } from '@/i18n'
 
-export { certificateTitle, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, retryInLabel, ROUTE_ID_PATTERN, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, targetSummary, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
+export { certificateTitle, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, ROUTE_ID_PATTERN, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
 export type { CertificateErrors, ListenerDraft, ProxyWorkspace, RouteDraft, RouteErrors } from '@shared/proxy-form'
 
 /**
@@ -15,52 +16,51 @@ export type { CertificateErrors, ListenerDraft, ProxyWorkspace, RouteDraft, Rout
 /** The engine actions the page can run outside the paged Save. */
 export type ProxyAction = 'install' | 'start' | 'stop' | 'apply' | 'revert'
 
-export const TARGET_OPTIONS: Array<{ value: ProxyTarget, label: string }> = [
-  { value: 'server', label: 'A supervised server' },
-  { value: 'panel', label: 'This control panel' },
-  { value: 'external', label: 'A literal upstream' },
+export const TARGET_OPTIONS: Array<{ value: ProxyTarget, labelKey: string }> = [
+  { value: 'server', labelKey: 'proxy.target.server' },
+  { value: 'panel', labelKey: 'proxy.target.panel' },
+  { value: 'external', labelKey: 'proxy.target.external' },
 ]
 
-export const TLS_OPTIONS: Array<{ value: ProxyTlsMode, label: string }> = [
-  { value: 'auto', label: 'Automatic — the engine decides' },
-  { value: 'off', label: 'Off — plain HTTP' },
-  { value: 'manual', label: 'Uploaded certificate' },
+export const TLS_OPTIONS: Array<{ value: ProxyTlsMode, labelKey: string }> = [
+  { value: 'auto', labelKey: 'proxy.tls.auto' },
+  { value: 'off', labelKey: 'proxy.tls.off' },
+  { value: 'manual', labelKey: 'proxy.tls.manual' },
 ]
 
-export const RUN_STATE_META: Record<ProxyRunState, { label: string, tone: Tone, transitional: boolean }> = {
-  off: { label: 'Off', tone: 'neutral', transitional: false },
-  stopped: { label: 'Stopped', tone: 'neutral', transitional: false },
-  starting: { label: 'Starting', tone: 'warn', transitional: true },
-  running: { label: 'Running', tone: 'ok', transitional: false },
-  error: { label: 'Error', tone: 'danger', transitional: false },
-  unsupported: { label: 'Unsupported', tone: 'warn', transitional: false },
+export const RUN_STATE_META: Record<ProxyRunState, { labelKey: string, tone: Tone, transitional: boolean }> = {
+  off: { labelKey: 'proxy.status.off', tone: 'neutral', transitional: false },
+  stopped: { labelKey: 'proxy.status.stopped', tone: 'neutral', transitional: false },
+  starting: { labelKey: 'proxy.status.starting', tone: 'warn', transitional: true },
+  running: { labelKey: 'proxy.status.running', tone: 'ok', transitional: false },
+  error: { labelKey: 'proxy.status.error', tone: 'danger', transitional: false },
+  unsupported: { labelKey: 'proxy.status.unsupported', tone: 'warn', transitional: false },
 }
 
-export const ROUTE_STATUS_META: Record<ProxyRouteStatus, { label: string, tone: Tone }> = {
-  'ok': { label: 'Serving', tone: 'ok' },
-  'disabled': { label: 'Disabled', tone: 'neutral' },
-  'no-upstream': { label: 'No upstream', tone: 'warn' },
-  'error': { label: 'Error', tone: 'danger' },
+export const ROUTE_STATUS_META: Record<ProxyRouteStatus, { labelKey: string, tone: Tone }> = {
+  'ok': { labelKey: 'proxy.status.serving', tone: 'ok' },
+  'disabled': { labelKey: 'proxy.status.disabled', tone: 'neutral' },
+  'no-upstream': { labelKey: 'proxy.status.noUpstream', tone: 'warn' },
+  'error': { labelKey: 'proxy.status.error', tone: 'danger' },
 }
 
 /** Where a hostname's certificate stands. `off` has nothing to say. */
-export const CERTIFICATE_STATE_META: Record<ProxyCertificateState, { label: string, tone: Tone } | null> = {
+export const CERTIFICATE_STATE_META: Record<ProxyCertificateState, { labelKey: string, tone: Tone } | null> = {
   off: null,
-  local: { label: 'engine CA', tone: 'neutral' },
-  uploaded: { label: 'uploaded pair', tone: 'info' },
-  issued: { label: 'certificate ready', tone: 'ok' },
-  pending: { label: 'waiting for the CA', tone: 'warn' },
-  failed: { label: 'certificate failed', tone: 'danger' },
-  fallback: { label: 'Fell back to Local CA', tone: 'warn' },
+  local: { labelKey: 'proxy.status.localCa', tone: 'neutral' },
+  uploaded: { labelKey: 'proxy.status.uploaded', tone: 'info' },
+  issued: { labelKey: 'proxy.status.certified', tone: 'ok' },
+  pending: { labelKey: 'proxy.status.awaitingCa', tone: 'warn' },
+  failed: { labelKey: 'proxy.status.failed', tone: 'danger' },
+  fallback: { labelKey: 'proxy.status.fellBack', tone: 'warn' },
 }
 
-/** How long until the engine tries the CA again, for the retry confirmation. */
 /**
  * The certificate line for one route, or `null` when there is nothing to say —
  * an older panel does not send the field at all, and a route with TLS off has no
  * certificate to report.
  */
-export function routeCertificate(view: ProxyRouteView): { label: string, tone: Tone, message: string | null, retryInMinutes: number | null } | null {
+export function routeCertificate(view: ProxyRouteView): { labelKey: string, tone: Tone, message: string | null, retryInMinutes: number | null } | null {
   const certificate = view.certificate
   if (certificate === undefined)
     return null
@@ -90,12 +90,12 @@ export function listenerDraft(config: ProxyConfig): ListenerDraft {
  * challenge is still listed, marked, so a person sees why it is not a candidate.
  */
 export function dnsAccountOptions(accounts: readonly ProxyDnsAccountView[]): Array<{ value: string, label: string }> {
-  const options = [{ value: '', label: 'Automatic (the only account that can answer)' }]
+  const options = [{ value: '', label: t('proxy.account.automatic') }]
   for (const account of accounts) {
     const name = account.label.length > 0 ? account.label : account.account
     const marks = [
-      !account.writesTxt ? 'no TXT support' : null,
-      account.writesTxt && !account.hasCredentials ? 'no credentials' : null,
+      !account.writesTxt ? t('proxy.account.noTxt') : null,
+      account.writesTxt && !account.hasCredentials ? t('proxy.account.noCredentials') : null,
     ].filter((mark): mark is string => mark !== null)
     options.push({
       value: `${account.workspace}/${account.account}`,
@@ -132,8 +132,47 @@ export function applyRouteDraft(routes: readonly RouteDraft[], edited: RouteDraf
 /** How a route's TLS mode reads once the engine picks the certificate. */
 export function tlsSummary(route: ProxyRoute): string {
   if (route.tls === 'off')
-    return 'plain HTTP'
+    return t('proxy.tls.plain')
   if (route.tls === 'manual')
-    return 'uploaded certificate'
-  return isPublicHost(route.host) ? 'Let\u2019s Encrypt' : 'engine CA (local)'
+    return t('proxy.tls.uploaded')
+  return isPublicHost(route.host) ? t('proxy.tls.letsEncrypt') : t('proxy.tls.engineCa')
+}
+
+/**
+ * The words the shared form returns for a target or a retry delay, in the reader's language.
+ *
+ * The rules stay in `@shared/proxy-form` so both UIs refuse the same input for the same reason;
+ * only the wording is this UI's, which is what the seams exist for.
+ */
+const SUMMARY_LABELS: RouteSummaryLabels = {
+  controlPanel: () => t('proxy.target.controlPanel'),
+  noUpstream: () => t('proxy.target.noUpstream'),
+  noServerPicked: () => t('proxy.target.noServer'),
+  fallbackRetry: () => t('proxy.retry.inFallback'),
+  retryOne: (count, unit) => tc(`proxy.retry.in${unit === 'minute' ? 'Minutes' : 'Hours'}`, count),
+  retryMany: (count, unit) => tc(`proxy.retry.in${unit === 'minute' ? 'Minutes' : 'Hours'}`, count),
+}
+
+/** The field messages the shared validator returns, in the reader's language. */
+export const ROUTE_ERROR_MESSAGES: RouteErrorMessages = {
+  hostRequired: () => t('proxy.validation.hostRequired'),
+  hostInvalid: () => t('proxy.validation.hostPattern'),
+  hostDuplicate: host => t('proxy.validation.hostTaken', { host }),
+  pathNeedsSlash: () => t('proxy.validation.pathSlash'),
+  pathHasSpace: () => t('proxy.validation.pathSpace'),
+  idInvalid: () => t('proxy.validation.idPattern'),
+  idDuplicate: id => t('proxy.validation.idTaken', { id }),
+  workspaceRequired: () => t('proxy.validation.workspaceRequired'),
+  serverRequired: () => t('proxy.validation.serverRequired'),
+  urlInvalid: () => t('proxy.validation.url'),
+}
+
+/** What the target column reads: who a route forwards to. */
+export function targetSummary(route: ProxyRoute, workspaces: readonly ProxyWorkspace[]): string {
+  return sharedTargetSummary(route, workspaces, SUMMARY_LABELS)
+}
+
+/** How long until the engine tries the CA again, for the retry confirmation. */
+export function retryInLabel(minutes: number | null): string {
+  return sharedRetryInLabel(minutes, SUMMARY_LABELS)
 }

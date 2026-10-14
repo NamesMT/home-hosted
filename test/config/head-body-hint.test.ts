@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { parseServersFile } from '#src/config/parse'
+import { stockCopy } from '../helpers/stock-copy'
 
 /**
  * The `HEAD`-cannot-check-a-body rule must be warned about where the field is set.
@@ -41,7 +42,11 @@ describe('the HEAD/body rule', () => {
     for (const [name, source] of [['noc-console', noc], ['stock', stock]] as const) {
       expect(source, `${name} must react to HEAD`).toMatch(/httpMethod === 'HEAD'|http\.method === 'HEAD'/)
       expect(source, `${name} must react to a non-empty body requirement`).toMatch(/[Ee]xpectBody\.length > 0/)
-      expect(source, `${name} must say the check is ignored`).toMatch(/ignored/i)
     }
+
+    // The warning sentence lives in the catalog now that the UI is translated, so it is asserted
+    // where it is stored — see `test/helpers/stock-copy.ts` for why the source no longer holds it.
+    expect(stockCopy('lifecycle.headBodyHint'), 'stock must say the check is ignored').toMatch(/ignored/i)
+    expect(noc, 'noc-console keeps its own copy inline').toMatch(/ignored/i)
   })
 })

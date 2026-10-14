@@ -33,20 +33,23 @@ import {
 import SettingsSection from '@/components/settings/SettingsSection.vue'
 import SettingsShell from '@/components/settings/SettingsShell.vue'
 import TlsSection from '@/components/settings/TlsSection.vue'
+import LanguageSelect from '@/components/ui/LanguageSelect.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
+import { t } from '@/i18n'
 import * as api from '@/lib/api'
 
 /** Panel-wide settings: they belong to the process, not to any workspace. */
-const SECTIONS = [
-  { id: 'listener', title: 'Listener' },
-  { id: 'authentication', title: 'Authentication' },
-  { id: 'host', title: 'Host vitals' },
-  { id: 'backups', title: 'Backups' },
-  { id: 'tls', title: 'TLS' },
-  { id: 'interface', title: 'Interface' },
-  { id: 'paths', title: 'Paths' },
-] as const
+const SECTIONS = computed(() => [
+  { id: 'listener', title: t('views.globalSettings.sectionListener') },
+  { id: 'authentication', title: t('views.globalSettings.sectionAuthentication') },
+  { id: 'host', title: t('views.globalSettings.sectionHost') },
+  { id: 'backups', title: t('views.globalSettings.sectionBackups') },
+  { id: 'tls', title: t('views.globalSettings.sectionTls') },
+  { id: 'language', title: t('language.label') },
+  { id: 'interface', title: t('views.globalSettings.sectionInterface') },
+  { id: 'paths', title: t('views.globalSettings.sectionPaths') },
+])
 
 const control = useControlPlane()
 const toasts = useToasts()
@@ -192,11 +195,11 @@ async function save(): Promise<void> {
   try {
     const result = await control.saveGlobalSettings(pending)
     if (!result) {
-      saveError.value = control.lastError.value ?? 'The settings could not be saved.'
+      saveError.value = control.lastError.value ?? t('views.globalSettings.saveFailed')
       return
     }
-    saveMessage.value = 'Settings saved.'
-    toasts.success('Settings saved')
+    saveMessage.value = t('views.globalSettings.saved')
+    toasts.success(t('views.globalSettings.savedToast'))
     await loadConfig()
     // What was saved is what live state holds now, so every block may follow it again.
     forgetSnapshots()
@@ -208,7 +211,7 @@ async function save(): Promise<void> {
       saveError.value = failure
     }
     else if (result.rebinding) {
-      saveMessage.value = 'Settings saved — the panel is moving to a new address.'
+      saveMessage.value = t('views.globalSettings.savedRebinding')
     }
   }
   finally {
@@ -262,8 +265,8 @@ function resetTls(): void {
 <template>
   <SettingsShell
     :sections="SECTIONS"
-    nav-label="Global settings sections"
-    changes-description="What Save would write to the panel's settings file."
+    :nav-label="t('views.globalSettings.navLabel')"
+    :changes-description="t('views.globalSettings.changesDescription')"
     :changed-count="changedCount"
     :changes="changes"
     :save-error="saveError"
@@ -275,19 +278,19 @@ function resetTls(): void {
     <template #header>
       <header class="mb-5">
         <h1 class="text-xl font-semibold tracking-tight text-ink">
-          Global settings
+          {{ t('views.globalSettings.title') }}
         </h1>
         <p class="mt-1 text-xs text-muted">
-          Listener, access, host vitals, backups, TLS and paths for this panel — shared by every workspace.
+          {{ t('views.globalSettings.description') }}
         </p>
       </header>
 
-      <Notice v-if="configLoadError" tone="warn" title="Some file-only values could not be loaded" class="mb-4">
+      <Notice v-if="configLoadError" tone="warn" :title="t('views.globalSettings.loadErrorTitle')" class="mb-4">
         {{ configLoadError }}
       </Notice>
     </template>
 
-    <SettingsSection id="listener" title="Listener" description="Where the control panel listens and how it announces itself.">
+    <SettingsSection id="listener" :title="t('views.globalSettings.sectionListener')" :description="t('views.globalSettings.listenerDescription')">
       <ListenerSection
         v-model:control="form.control"
         :view="controlView"
@@ -296,7 +299,7 @@ function resetTls(): void {
       />
     </SettingsSection>
 
-    <SettingsSection id="authentication" title="Authentication" description="Who may sign in to this panel, and how a session is trusted.">
+    <SettingsSection id="authentication" :title="t('views.globalSettings.sectionAuthentication')" :description="t('views.globalSettings.authenticationDescription')">
       <AuthenticationSection
         v-model:auth="form.auth"
         :view="controlView"
@@ -305,7 +308,7 @@ function resetTls(): void {
       />
     </SettingsSection>
 
-    <SettingsSection id="host" title="Host vitals" description="Alert thresholds for this machine's own resources.">
+    <SettingsSection id="host" :title="t('views.globalSettings.sectionHost')" :description="t('views.globalSettings.hostDescription')">
       <HostSection
         v-model:host="form.host"
         :config="hostConfig"
@@ -315,7 +318,7 @@ function resetTls(): void {
       />
     </SettingsSection>
 
-    <SettingsSection id="backups" title="Backups" description="One archive per capture, covering the panel and any workspace you pick.">
+    <SettingsSection id="backups" :title="t('views.globalSettings.sectionBackups')" :description="t('views.globalSettings.backupsDescription')">
       <BackupsSection
         v-model:form="form.backups"
         :state="backupsState"
@@ -327,7 +330,7 @@ function resetTls(): void {
       />
     </SettingsSection>
 
-    <SettingsSection id="tls" title="TLS" description="Serve the panel over HTTPS with your own certificate.">
+    <SettingsSection id="tls" :title="t('views.globalSettings.sectionTls')" :description="t('views.globalSettings.tlsDescription')">
       <TlsSection
         v-model:tls-enabled="form.control.tlsEnabled"
         :view="controlView"
@@ -336,7 +339,14 @@ function resetTls(): void {
       />
     </SettingsSection>
 
-    <SettingsSection id="interface" title="Interface" description="Serve your own panel UI instead of the stock one.">
+    <SettingsSection id="language" :title="t('language.label')" :description="t('views.globalSettings.languageDescription')">
+      <LanguageSelect :wide="true" />
+      <p class="text-2xs leading-4 text-faint sm:col-span-2">
+        {{ t('views.globalSettings.languageNote') }}
+      </p>
+    </SettingsSection>
+
+    <SettingsSection id="interface" :title="t('views.globalSettings.sectionInterface')" :description="t('views.globalSettings.interfaceDescription')">
       <InterfaceSection
         v-model:label="form.control.label"
         :ui="uiStatus"
@@ -347,7 +357,7 @@ function resetTls(): void {
       />
     </SettingsSection>
 
-    <SettingsSection id="paths" title="Paths" description="Where home-hosted keeps its files, globally and per workspace.">
+    <SettingsSection id="paths" :title="t('views.globalSettings.sectionPaths')" :description="t('views.globalSettings.pathsDescription')">
       <PathsSection
         :data-root="dataRoot"
         :project-dir="projectDir"

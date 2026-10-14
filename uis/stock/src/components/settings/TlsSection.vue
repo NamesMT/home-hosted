@@ -12,6 +12,7 @@ import TextAreaField from '@/components/ui/TextAreaField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { t } from '@/i18n'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { inputClass, labelClass } from '@/lib/ui'
@@ -61,7 +62,7 @@ async function uploadCertificate(): Promise<void> {
     const result = await api.uploadTls(certInput.value, keyInput.value)
     certInput.value = ''
     keyInput.value = ''
-    message.value = 'Certificate stored.'
+    message.value = t('settings.tls.stored')
     await control.refresh()
     const failure = await followRebinding(result)
     if (failure !== null)
@@ -81,7 +82,7 @@ async function removeCertificate(): Promise<void> {
   message.value = null
   try {
     const result = await api.clearTls()
-    message.value = 'Certificate removed.'
+    message.value = t('settings.tls.removed')
     await control.refresh()
     const failure = await followRebinding(result)
     if (failure !== null)
@@ -98,34 +99,34 @@ async function removeCertificate(): Promise<void> {
 
 <template>
   <FieldGroup
-    title="HTTPS"
-    description="Upload a PEM pair and the panel serves TLS on its own listener. A self-signed certificate is fine on a home network."
+    :title="t('settings.tls.title')"
+    :description="t('settings.tls.description')"
   >
     <template #actions>
       <AppButton size="xs" variant="ghost" :disabled="!props.dirty" @click="emit('reset')">
-        Reset
+        {{ t('common.reset') }}
       </AppButton>
     </template>
 
     <ToggleSwitch
       v-model="enabled"
-      label="Serve the panel over HTTPS"
-      hint="Saved with Save settings; the panel rebinds and this page follows it."
+      :label="t('settings.tls.serve')"
+      :hint="t('settings.tls.serveHint')"
       class="sm:col-span-2"
     />
 
     <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
-      <span class="text-xs font-medium text-muted">Live address</span>
+      <span class="text-xs font-medium text-muted">{{ t('settings.listener.liveAddress') }}</span>
       <div class="flex items-center gap-1.5 rounded-control border border-line bg-page/60 px-2.5 py-1.5">
         <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink">{{ liveAddress }}</span>
-        <CopyButton :value="liveAddress" label="Copy the live address" />
+        <CopyButton :value="liveAddress" :label="t('settings.listener.copyLiveAddress')" />
       </div>
     </div>
   </FieldGroup>
 
-  <FieldGroup class="mt-3" title="Certificate" description="PEM-encoded certificate and its private key. Both stay in the secrets file.">
+  <FieldGroup class="mt-3" :title="t('settings.tls.certificateTitle')" :description="t('settings.tls.certificateDescription')">
     <div v-if="tls?.error" class="sm:col-span-2">
-      <Notice tone="danger" title="The stored certificate cannot be used">
+      <Notice tone="danger" :title="t('settings.tls.unusableTitle')">
         {{ tls.error }}
       </Notice>
     </div>
@@ -133,7 +134,7 @@ async function removeCertificate(): Promise<void> {
       <dl class="divide-y divide-line-soft text-xs">
         <div class="flex items-start justify-between gap-4 py-1.5">
           <dt class="text-muted">
-            Subject
+            {{ t('settings.tls.subject') }}
           </dt>
           <dd class="min-w-0 text-right font-mono text-xs text-ink">
             {{ tls.subject ?? '—' }}
@@ -141,7 +142,7 @@ async function removeCertificate(): Promise<void> {
         </div>
         <div class="flex items-start justify-between gap-4 py-1.5">
           <dt class="text-muted">
-            Issuer
+            {{ t('settings.tls.issuer') }}
           </dt>
           <dd class="min-w-0 text-right font-mono text-xs text-ink">
             {{ tls.issuer ?? '—' }}
@@ -149,64 +150,64 @@ async function removeCertificate(): Promise<void> {
         </div>
         <div class="flex items-start justify-between gap-4 py-1.5">
           <dt class="text-muted">
-            Valid until
+            {{ t('settings.tls.validUntil') }}
           </dt>
           <dd class="font-mono text-xs tabular-nums text-ink">
             {{ tls.validTo ? tls.validTo.slice(0, 10) : '—' }}
             <span v-if="tls.daysRemaining !== null" :class="cn('ml-1.5', tls.daysRemaining < 14 ? 'text-warn' : 'text-faint')">
-              ({{ tls.daysRemaining }} days)
+              ({{ t('settings.tls.days', { count: tls.daysRemaining }) }})
             </span>
           </dd>
         </div>
         <div class="flex items-center justify-between gap-4 py-1.5">
           <dt class="text-muted">
-            Private key
+            {{ t('settings.tls.privateKey') }}
           </dt>
           <dd>
             <ToneBadge :tone="tls.keyMatches ? 'ok' : 'danger'" dot>
-              {{ tls.keyMatches ? 'matches the certificate' : 'does not match' }}
+              {{ tls.keyMatches ? t('settings.tls.keyMatches') : t('settings.tls.keyMismatch') }}
             </ToneBadge>
           </dd>
         </div>
         <div class="flex items-start justify-between gap-4 py-1.5">
           <dt class="text-muted">
-            Fingerprint
+            {{ t('settings.tls.fingerprint') }}
           </dt>
           <dd class="flex min-w-0 items-center gap-1.5">
             <span class="min-w-0 truncate font-mono text-2xs text-ink">{{ tls.fingerprint ?? '—' }}</span>
-            <CopyButton v-if="tls.fingerprint" :value="tls.fingerprint" label="Copy the fingerprint" />
+            <CopyButton v-if="tls.fingerprint" :value="tls.fingerprint" :label="t('settings.tls.copyFingerprint')" />
           </dd>
         </div>
       </dl>
     </div>
     <div v-else class="sm:col-span-2">
-      <Notice tone="info" title="No certificate uploaded">
-        Upload a PEM certificate and key below, then save. HTTPS is not served until a certificate is present.
+      <Notice tone="info" :title="t('settings.tls.noCertificateTitle')">
+        {{ t('settings.tls.noCertificateText') }}
       </Notice>
     </div>
 
     <div class="flex min-w-0 flex-col gap-1">
-      <label :class="labelClass" for="tls-cert-file">Certificate file (.pem, .crt)</label>
+      <label :class="labelClass" for="tls-cert-file">{{ t('settings.tls.certFile') }}</label>
       <input id="tls-cert-file" type="file" accept=".pem,.crt,.cer,text/plain" :class="fileInput" @change="readFileInto($event, 'cert')">
     </div>
     <div class="flex min-w-0 flex-col gap-1">
-      <label :class="labelClass" for="tls-key-file">Private key file (.pem, .key)</label>
+      <label :class="labelClass" for="tls-key-file">{{ t('settings.tls.keyFile') }}</label>
       <input id="tls-key-file" type="file" accept=".pem,.key,text/plain" :class="fileInput" @change="readFileInto($event, 'key')">
     </div>
-    <TextAreaField v-model="certInput" label="Or paste the certificate" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" />
-    <TextAreaField v-model="keyInput" label="Or paste the private key" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" />
+    <TextAreaField v-model="certInput" :label="t('settings.tls.pasteCertificate')" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" />
+    <TextAreaField v-model="keyInput" :label="t('settings.tls.pasteKey')" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" />
 
     <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
       <AppButton variant="primary" :disabled="!canSave" :loading="busy" @click="uploadCertificate">
-        Save certificate
+        {{ t('settings.tls.saveCertificate') }}
       </AppButton>
       <ConfirmButton
         v-if="tls?.certPresent"
-        label="Remove certificate"
-        confirm-label="Confirm remove"
+        :label="t('settings.tls.removeCertificate')"
+        :confirm-label="t('settings.tls.confirmRemove')"
         confirm-variant="danger"
-        title="Remove the certificate?"
-        hint="TLS stays on but has nothing to serve, so the panel falls back to http once the listener rebinds."
+        :title="t('settings.tls.removeTitle')"
+        :hint="t('settings.tls.removeHint')"
         :disabled="busy"
         @confirm="removeCertificate"
       />

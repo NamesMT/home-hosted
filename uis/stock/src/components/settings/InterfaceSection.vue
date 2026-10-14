@@ -7,6 +7,8 @@ import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import TextField from '@/components/ui/TextField.vue'
+import TransText from '@/components/ui/TransText.vue'
+import { t } from '@/i18n'
 import * as api from '@/lib/api'
 
 const props = defineProps<{ ui: UiStatus | null, panelVersion: string | null, labelDirty: boolean }>()
@@ -24,11 +26,13 @@ const confirmingRevert = ref(false)
 const source = computed(() => {
   const ui = props.ui
   if (ui === null)
-    return 'unknown'
+    return t('common.unknown')
   if (!ui.custom)
-    return 'stock'
+    return t('settings.interface.sourceStock')
   const meta = ui.meta
-  return meta === null ? 'custom' : `custom · ${meta.name ?? 'unnamed'}${meta.version == null ? '' : ` ${meta.version}`}`
+  return meta === null
+    ? t('settings.interface.sourceCustom')
+    : `${t('settings.interface.sourceCustom')} · ${meta.name ?? t('settings.interface.unnamed')}${meta.version == null ? '' : ` ${meta.version}`}`
 })
 
 const uploaded = computed(() => {
@@ -36,7 +40,8 @@ const uploaded = computed(() => {
   if (meta == null)
     return null
   const when = meta.uploadedAt === undefined ? null : new Date(meta.uploadedAt).toLocaleString()
-  return `${meta.files ?? 0} files${when === null ? '' : ` · ${when}`}`
+  const count = t('settings.interface.fileCount', { count: meta.files ?? 0 })
+  return `${count}${when === null ? '' : ` · ${when}`}`
 })
 
 function pick(event: Event): void {
@@ -53,7 +58,7 @@ async function install(): Promise<void> {
   message.value = null
   try {
     const result = await api.uploadUi(file.value)
-    message.value = `UI replaced with ${result.meta?.name ?? 'your build'} — refresh the page`
+    message.value = t('settings.interface.installed', { name: result.meta?.name ?? t('settings.interface.yourBuild') })
     file.value = null
     emit('changed')
   }
@@ -78,7 +83,7 @@ async function revert(): Promise<void> {
   error.value = null
   try {
     const result = await api.revertUi()
-    message.value = result.removed ? 'stock UI restored — refresh the page' : 'no custom UI was installed'
+    message.value = result.removed ? t('settings.interface.restored') : t('settings.interface.nothingInstalled')
     emit('changed')
   }
   catch (caught) {
@@ -92,14 +97,14 @@ async function revert(): Promise<void> {
 
 <template>
   <FieldGroup
-    title="Interface"
-    description="The panel is a static site: keep the stock one, or serve your own build from the state directory."
+    :title="t('settings.interface.title')"
+    :description="t('settings.interface.description')"
   >
     <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
-      <span class="text-xs font-medium text-muted">Currently serving</span>
+      <span class="text-xs font-medium text-muted">{{ t('settings.interface.currentlyServing') }}</span>
       <div class="flex items-center gap-1.5 rounded-control border border-line bg-page/60 px-2.5 py-1.5">
         <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink">{{ source }}</span>
-        <CopyButton :value="ui?.dir ?? ''" label="Copy the UI directory" />
+        <CopyButton :value="ui?.dir ?? ''" :label="t('settings.interface.copyDirectory')" />
       </div>
       <p class="text-2xs leading-4 text-faint">
         <span v-if="uploaded">{{ uploaded }} · </span>
@@ -108,25 +113,29 @@ async function revert(): Promise<void> {
     </div>
 
     <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
-      <span class="text-xs font-medium text-muted">Panel version</span>
+      <span class="text-xs font-medium text-muted">{{ t('settings.interface.panelVersion') }}</span>
       <div class="flex items-center gap-1.5 rounded-control border border-line bg-page/60 px-2.5 py-1.5">
-        <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink">home-hosted {{ props.panelVersion ?? 'unknown' }}</span>
-        <CopyButton v-if="props.panelVersion" :value="props.panelVersion" label="Copy the panel version" />
+        <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink">{{ t('app.name') }} {{ props.panelVersion ?? t('common.unknown') }}</span>
+        <CopyButton v-if="props.panelVersion" :value="props.panelVersion" :label="t('settings.interface.copyPanelVersion')" />
       </div>
       <p class="text-2xs leading-4 text-faint">
-        The release this panel process is running — <code>home-hosted status</code> prints the same number.
+        <TransText k="settings.interface.panelVersionHint">
+          <template #command>
+            <code>home-hosted status</code>
+          </template>
+        </TransText>
       </p>
     </div>
 
     <TextField
       v-model="label"
-      label="Panel name"
-      hint="Shown in the sidebar by the stock UI. A custom UI may show its own name instead."
+      :label="t('settings.interface.panelName')"
+      :hint="t('settings.interface.panelNameHint')"
       wide
     />
 
     <label class="flex min-w-0 flex-col gap-1 sm:col-span-2">
-      <span class="text-xs font-medium text-muted">Upload a UI build (.zip with an index.html)</span>
+      <span class="text-xs font-medium text-muted">{{ t('settings.interface.uploadLabel') }}</span>
       <input
         type="file"
         accept=".zip,application/zip"
@@ -140,19 +149,25 @@ async function revert(): Promise<void> {
     <Notice v-else-if="message" tone="ok" :title="message" />
 
     <p class="text-2xs leading-4 text-faint sm:col-span-2">
-      See <code>docs/UI_CREATION.md</code> for the API contract. If a custom UI breaks the panel,
-      <code>home-hosted ui-revert</code> puts the stock one back from the terminal.
+      <TransText k="settings.interface.docsHint">
+        <template #docs>
+          <code>docs/UI_CREATION.md</code>
+        </template>
+        <template #command>
+          <code>home-hosted ui-revert</code>
+        </template>
+      </TransText>
     </p>
 
     <template #actions>
       <AppButton size="xs" variant="ghost" :disabled="!props.labelDirty" @click="emit('resetLabel')">
-        Reset name
+        {{ t('settings.interface.resetName') }}
       </AppButton>
       <AppButton v-if="ui?.custom" size="xs" variant="ghost" :disabled="busy" @click="revert">
-        {{ confirmingRevert ? 'Confirm revert' : 'Revert to stock' }}
+        {{ confirmingRevert ? t('settings.interface.confirmRevert') : t('settings.interface.revertToStock') }}
       </AppButton>
       <AppButton size="xs" variant="primary" :disabled="busy || file === null" @click="install">
-        Install UI
+        {{ t('settings.interface.install') }}
       </AppButton>
     </template>
   </FieldGroup>

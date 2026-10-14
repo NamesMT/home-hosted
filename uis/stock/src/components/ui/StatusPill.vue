@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { HealthState, ServerStatus } from '@shared/contracts'
 import { computed } from 'vue'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { HEALTH_META, STATUS_META, TONE_DOT, TONE_SURFACE } from '@/lib/status'
 
@@ -34,13 +35,13 @@ const pulse = computed(() => meta.value.transitional)
         <span v-if="pulse" class="absolute inset-0 rounded-full bg-current opacity-60" style="animation: hh-pulse-ring 1.6s ease-out infinite" />
         <span :class="cn('relative size-1.5 rounded-full', TONE_DOT[meta.tone])" />
       </span>
-      {{ meta.label }}
+      {{ t(meta.labelKey) }}
     </span>
     <span
       v-if="showHealthChip && healthMeta"
       :class="cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium', TONE_SURFACE[healthMeta.tone])"
     >
-      {{ healthMeta.label }}
+      {{ t(healthMeta.labelKey) }}
     </span>
   </span>
 </template>

@@ -6,6 +6,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
 import TextAreaField from '@/components/ui/TextAreaField.vue'
 import TextField from '@/components/ui/TextField.vue'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { ROUTE_ID_PATTERN, slugifyCertificateId, uniqueCertificateId } from '@/lib/proxy'
 import { inputClass, labelClass } from '@/lib/ui'
@@ -78,15 +79,15 @@ function submit(): void {
   const chosen = id.value.trim()
   const problems: CertificateErrors = {}
   if (name.length === 0)
-    problems.label = 'a label is required'
+    problems.label = t('proxy.certificateDialog.errorLabel')
   if (!ROUTE_ID_PATTERN.test(chosen))
-    problems.id = 'the id must start with a letter or digit, then letters, digits, dash or underscore'
+    problems.id = t('proxy.certificateDialog.errorId')
   else if (props.taken.includes(chosen))
-    problems.id = `"${chosen}" is already used by another certificate`
+    problems.id = t('proxy.certificateDialog.errorTaken', { id: chosen })
   if (certificate.value.trim().length === 0)
-    problems.certificate = 'paste or choose the certificate'
+    problems.certificate = t('proxy.certificateDialog.errorCertificate')
   if (privateKey.value.trim().length === 0)
-    problems.privateKey = 'paste or choose the private key'
+    problems.privateKey = t('proxy.certificateDialog.errorPrivateKey')
 
   errors.value = problems
   if (Object.keys(problems).length > 0)
@@ -99,28 +100,28 @@ function submit(): void {
 <template>
   <Modal
     v-model:open="open"
-    title="Add a certificate"
-    description="The pair is stored on disk under its id, and a route set to “Uploaded certificate” can serve it."
+    :title="t('proxy.certificateDialog.title')"
+    :description="t('proxy.certificateDialog.description')"
   >
     <form class="space-y-3" @submit.prevent="submit">
       <div class="grid gap-3 sm:grid-cols-2">
-        <TextField v-model="label" label="Label" placeholder="Home wildcard" :error="errors.label" />
-        <TextField :model-value="id" label="Id" hint="names the files on disk" :error="errors.id" @update:model-value="typedId" />
+        <TextField v-model="label" :label="t('proxy.certificateDialog.label')" :placeholder="t('proxy.certificateDialog.labelPlaceholder')" :error="errors.label" />
+        <TextField :model-value="id" :label="t('proxy.certificateDialog.id')" :hint="t('proxy.certificateDialog.idHint')" :error="errors.id" @update:model-value="typedId" />
       </div>
 
       <div class="grid gap-3 sm:grid-cols-2">
         <div class="flex min-w-0 flex-col gap-1">
-          <label :class="labelClass" for="proxy-cert-file">Certificate file (.pem, .crt)</label>
+          <label :class="labelClass" for="proxy-cert-file">{{ t('proxy.certificateDialog.certFile') }}</label>
           <input id="proxy-cert-file" type="file" accept=".pem,.crt,.cer,text/plain" :class="fileInput" @change="readFileInto($event, 'cert')">
         </div>
         <div class="flex min-w-0 flex-col gap-1">
-          <label :class="labelClass" for="proxy-cert-key">Private key file (.pem, .key)</label>
+          <label :class="labelClass" for="proxy-cert-key">{{ t('proxy.certificateDialog.keyFile') }}</label>
           <input id="proxy-cert-key" type="file" accept=".pem,.key,text/plain" :class="fileInput" @change="readFileInto($event, 'key')">
         </div>
       </div>
 
-      <TextAreaField v-model="certificate" label="Or paste the certificate" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" :error="errors.certificate" />
-      <TextAreaField v-model="privateKey" label="Or paste the private key" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" :error="errors.privateKey" />
+      <TextAreaField v-model="certificate" :label="t('proxy.certificateDialog.pasteCert')" :rows="4" :placeholder="t('proxy.certificateDialog.certPlaceholder')" :error="errors.certificate" />
+      <TextAreaField v-model="privateKey" :label="t('proxy.certificateDialog.pasteKey')" :rows="4" :placeholder="t('proxy.certificateDialog.keyPlaceholder')" :error="errors.privateKey" />
 
       <Notice v-if="props.error" tone="danger">
         {{ props.error }}
@@ -129,10 +130,10 @@ function submit(): void {
 
     <template #footer>
       <AppButton variant="ghost" :disabled="props.busy" @click="open = false">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton variant="primary" :disabled="!canSubmit" :loading="props.busy" @click="submit">
-        Store the certificate
+        {{ t('proxy.certificateDialog.store') }}
       </AppButton>
     </template>
   </Modal>

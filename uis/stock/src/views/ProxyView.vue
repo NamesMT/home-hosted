@@ -13,6 +13,7 @@ import { isBlockEdited } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
+import { t, tc } from '@/i18n'
 import * as api from '@/lib/api'
 import {
   applyRouteDraft,
@@ -77,7 +78,7 @@ const changedCount = computed(() => {
  * lock the page out of its own fix.
  */
 const liveProblems = computed(() => (view.value?.routes ?? []).filter(entry => entry.status === 'error'))
-const blockedReasons = computed(() => (routesChanged.value ? [] : liveProblems.value.map(entry => entry.message ?? `${entry.route.host} cannot be routed`)))
+const blockedReasons = computed(() => (routesChanged.value ? [] : liveProblems.value.map(entry => entry.message ?? t('proxy.routes.cannotRoute', { host: entry.route.host }))))
 
 const snapshots: { listener?: unknown, routes?: unknown } = {}
 
@@ -125,11 +126,11 @@ const CALLS: Record<ProxyAction, () => Promise<ProxyView>> = {
 }
 
 const ACTION_LABELS: Record<ProxyAction, string> = {
-  install: 'Engine installed',
-  start: 'Engine starting',
-  stop: 'Engine stopping',
-  apply: 'Configuration applied',
-  revert: 'Configuration reverted',
+  install: 'proxy.view.engineInstalled',
+  start: 'proxy.view.engineStarting',
+  stop: 'proxy.view.engineStopping',
+  apply: 'proxy.view.configApplied',
+  revert: 'proxy.view.configReverted',
 }
 
 async function act(action: ProxyAction): Promise<void> {
@@ -139,7 +140,7 @@ async function act(action: ProxyAction): Promise<void> {
   actionError.value = null
   try {
     fetched.value = await CALLS[action]()
-    toasts.success(ACTION_LABELS[action])
+    toasts.success(t(ACTION_LABELS[action]))
     await control.refresh()
   }
   catch (caught) {
@@ -167,8 +168,8 @@ async function save(): Promise<void> {
     // Re-read the frame before re-filling the form, so the copy comes from what
     // was saved rather than from the frame that was still in flight.
     await control.refresh()
-    saveMessage.value = 'Settings saved.'
-    toasts.success('Settings saved')
+    saveMessage.value = t('proxy.view.settingsSaved')
+    toasts.success(t('proxy.view.settingsSavedToast'))
     delete snapshots.listener
     delete snapshots.routes
     syncFromLive()
@@ -220,10 +221,10 @@ async function retryCertificate(route: RouteDraft): Promise<void> {
   try {
     fetched.value = await api.retryProxyCertificate(route.id)
     await control.refresh()
-    toasts.success(`asking the CA again for ${route.host}`)
+    toasts.success(t('proxy.view.retryAsked', { host: route.host }))
   }
   catch (caught) {
-    toasts.failure('the retry failed', errorMessage(caught))
+    toasts.failure(t('proxy.view.retryFailed'), errorMessage(caught))
   }
   finally {
     busy.value = null
@@ -247,23 +248,22 @@ async function applyCertificateView(next: ProxyView): Promise<void> {
     <div class="mx-auto w-full max-w-5xl px-4 pb-6 pt-5 sm:px-6">
       <header class="mb-5">
         <h1 class="text-xl font-semibold tracking-tight text-ink">
-          Reverse Proxy
+          {{ t('proxy.view.title') }}
         </h1>
         <p class="mt-1 text-xs text-muted">
-          Expose your servers through domains, with automatic HTTPS via 80/443 or a DNS challenge.
+          {{ t('proxy.view.description') }}
         </p>
         <p class="mt-1 text-2xs leading-4 text-faint">
-          For DNS-01, add the domain's DNS provider to any workspace under
-          Workspace Settings → Dynamic DNS; a route can then pick that account, from any workspace.
+          {{ t('proxy.view.dnsNote') }}
         </p>
       </header>
 
-      <Notice v-if="loadError" tone="danger" title="The reverse proxy could not be read" class="mb-4">
+      <Notice v-if="loadError" tone="danger" :title="t('proxy.view.readFailed')" class="mb-4">
         {{ loadError }}
       </Notice>
 
       <Notice v-if="view === null && loadError === null" tone="info" class="mb-4">
-        Reading the reverse proxy…
+        {{ t('proxy.view.reading') }}
       </Notice>
 
       <div v-if="view !== null" class="space-y-6">
@@ -308,10 +308,10 @@ async function applyCertificateView(next: ProxyView): Promise<void> {
           <p class="text-xs text-muted">
             <template v-if="changedCount > 0">
               <span class="font-mono tabular-nums text-ink">{{ changedCount }}</span>
-              field{{ changedCount === 1 ? '' : 's' }} changed
+              {{ tc('proxy.view.fieldChanged', changedCount) }}
             </template>
             <template v-else>
-              No unsaved changes
+              {{ t('proxy.view.noChanges') }}
             </template>
           </p>
           <p v-if="blockedReasons.length > 0" class="mt-0.5 text-xs text-danger">
@@ -326,7 +326,7 @@ async function applyCertificateView(next: ProxyView): Promise<void> {
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <AppButton variant="ghost" :disabled="changedCount === 0 || saving" @click="discard">
-            Discard changes
+            {{ t('proxy.view.discard') }}
           </AppButton>
           <AppButton
             variant="primary"
@@ -334,7 +334,7 @@ async function applyCertificateView(next: ProxyView): Promise<void> {
             :loading="saving"
             @click="save"
           >
-            Save settings
+            {{ t('proxy.view.save') }}
           </AppButton>
         </div>
       </div>

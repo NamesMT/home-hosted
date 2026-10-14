@@ -10,6 +10,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import CheckField from '@/components/ui/CheckField.vue'
 import Modal from '@/components/ui/Modal.vue'
 import TextField from '@/components/ui/TextField.vue'
+import { t, tc } from '@/i18n'
 import * as api from '@/lib/api'
 
 const props = defineProps<{ state: BackupsView | null }>()
@@ -85,7 +86,7 @@ async function submit(): Promise<void> {
   try {
     await api.createBackup(password.value, includeIds(choices.value))
     open.value = false
-    emit('created', 'Backup created.')
+    emit('created', t('settings.backup.created'))
   }
   catch (caught) {
     error.value = errorMessage(caught)
@@ -99,21 +100,21 @@ async function submit(): Promise<void> {
 <template>
   <Modal
     v-model:open="open"
-    title="Create a backup"
-    description="Pick what this archive captures. Nothing is written until you create it."
+    :title="t('settings.backup.createTitle')"
+    :description="t('settings.backup.createDescription')"
     width="w-[min(92vw,40rem)]"
   >
     <div class="space-y-3">
       <div class="flex items-center justify-between gap-2">
         <span class="text-xs font-medium text-muted">
-          {{ counts.entries }} entr{{ counts.entries === 1 ? 'y' : 'ies' }} · {{ counts.leaves }} item{{ counts.leaves === 1 ? '' : 's' }} selected
+          {{ tc('settings.backup.entriesCount', counts.entries) }} · {{ tc('settings.backup.itemsSelected', counts.leaves) }}
         </span>
         <div class="flex items-center gap-1.5">
           <AppButton size="xs" variant="ghost" :disabled="busy" @click="selectAll(choices, true)">
-            Select all
+            {{ t('common.selectAll') }}
           </AppButton>
           <AppButton size="xs" variant="ghost" :disabled="busy" @click="selectAll(choices, false)">
-            Select none
+            {{ t('common.selectNone') }}
           </AppButton>
         </div>
       </div>
@@ -136,7 +137,7 @@ async function submit(): Promise<void> {
             <div v-if="entry.kind === 'workspace'" class="flex shrink-0 items-center gap-1.5 pt-0.5">
               <span class="font-mono text-2xs text-faint">{{ entry.leaves.filter(l => l.selected).length }}/{{ entry.leaves.length }}</span>
               <AppButton size="xs" variant="secondary" :disabled="busy" @click="openSub(entry)">
-                <Boxes class="size-3" />Choose items
+                <Boxes class="size-3" />{{ t('settings.backup.chooseItems') }}
               </AppButton>
             </div>
             <span
@@ -150,21 +151,21 @@ async function submit(): Promise<void> {
             class="mt-1 flex items-center gap-1 pl-6 text-2xs text-warn"
           >
             <Layers class="size-3" />
-            Only the chosen items are captured.
+            {{ t('settings.backup.partialCapture') }}
           </p>
         </li>
       </ul>
 
       <Notice v-if="!configSelected" tone="warn">
-        Without the global settings, a restore can only place a workspace where the target panel already declares it.
+        {{ t('settings.backup.withoutGlobalSettings') }}
       </Notice>
 
       <TextField
         v-model="password"
         type="password"
         autocomplete="new-password"
-        label="Password (optional)"
-        hint="Encrypts the archive; restoring it asks for the same password."
+        :label="t('settings.backup.password')"
+        :hint="t('settings.backup.passwordHint')"
         wide
       />
 
@@ -175,29 +176,29 @@ async function submit(): Promise<void> {
 
     <template #footer>
       <AppButton size="sm" variant="ghost" :disabled="busy" @click="open = false">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton size="sm" variant="primary" :disabled="!canCreate" :loading="busy" @click="submit">
-        Create backup
+        {{ t('settings.backup.create') }}
       </AppButton>
     </template>
   </Modal>
 
   <Modal
     v-model:open="subOpen"
-    :title="subTarget === null ? 'Choose items' : `${subTarget.label} — choose items`"
-    description="A workspace can be captured whole or only its settings, servers, secrets and declared data paths."
+    :title="subTarget === null ? t('settings.backup.chooseItems') : t('settings.backup.chooseItemsFor', { label: subTarget.label })"
+    :description="t('settings.backup.subDescription')"
     width="w-[min(92vw,34rem)]"
   >
     <div class="space-y-3">
       <div class="flex items-center justify-between gap-2">
-        <span class="text-xs font-medium text-muted">{{ subSelected }} of {{ subTarget?.leaves.length ?? 0 }} selected</span>
+        <span class="text-xs font-medium text-muted">{{ t('settings.backup.selectedOf', { selected: subSelected, total: subTarget?.leaves.length ?? 0 }) }}</span>
         <div class="flex items-center gap-1.5">
           <AppButton size="xs" variant="ghost" @click="toggleAllSub(true)">
-            Select all
+            {{ t('common.selectAll') }}
           </AppButton>
           <AppButton size="xs" variant="ghost" @click="toggleAllSub(false)">
-            Select none
+            {{ t('common.selectNone') }}
           </AppButton>
         </div>
       </div>
@@ -214,16 +215,16 @@ async function submit(): Promise<void> {
       </ul>
 
       <p v-if="subTarget?.leaves.length === 0" class="text-xs text-muted">
-        This workspace declares nothing selectable yet.
+        {{ t('settings.backup.nothingSelectable') }}
       </p>
     </div>
 
     <template #footer>
       <AppButton size="sm" variant="ghost" @click="subOpen = false">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton size="sm" variant="primary" @click="applySub">
-        Apply
+        {{ t('settings.backup.apply') }}
       </AppButton>
     </template>
   </Modal>

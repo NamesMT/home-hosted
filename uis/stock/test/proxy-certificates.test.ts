@@ -1,5 +1,6 @@
 import type { ProxyRouteView } from '@shared/contracts'
 import { describe, expect, it } from 'vitest'
+import { t } from '../src/i18n'
 import {
   CERTIFICATE_STATE_META,
   certificateTitle,
@@ -43,10 +44,15 @@ describe('the certificate line', () => {
   })
 
   it('reads every state the panel can report', () => {
-    expect(routeCertificate(view({ state: 'issued', message: null }))).toMatchObject({ label: 'certificate ready', tone: 'ok' })
-    expect(routeCertificate(view({ state: 'pending', message: null }))).toMatchObject({ label: 'waiting for the CA', tone: 'warn' })
-    expect(routeCertificate(view({ state: 'local', message: null }))).toMatchObject({ label: 'engine CA', tone: 'neutral' })
-    expect(routeCertificate(view({ state: 'uploaded', message: null }))).toMatchObject({ label: 'uploaded pair', tone: 'info' })
+    // The meta carries a catalog key, so the badge reads in the viewer's language; the wording
+    // itself is pinned through `t(key)` rather than by a literal the module no longer holds.
+    const issued = routeCertificate(view({ state: 'issued', message: null }))
+    expect(issued).toMatchObject({ labelKey: 'proxy.status.certified', tone: 'ok' })
+    expect(t(issued!.labelKey)).toBe('certificate ready')
+
+    expect(routeCertificate(view({ state: 'pending', message: null }))).toMatchObject({ labelKey: 'proxy.status.awaitingCa', tone: 'warn' })
+    expect(routeCertificate(view({ state: 'local', message: null }))).toMatchObject({ labelKey: 'proxy.status.localCa', tone: 'neutral' })
+    expect(routeCertificate(view({ state: 'uploaded', message: null }))).toMatchObject({ labelKey: 'proxy.status.uploaded', tone: 'info' })
     expect(CERTIFICATE_STATE_META.off).toBeNull()
   })
 

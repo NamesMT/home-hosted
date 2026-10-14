@@ -4,6 +4,7 @@ import { Check, ChevronsUpDown, Layers, Pencil, Plus, Trash2 } from 'lucide-vue-
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed, nextTick, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { focusRing } from '@/lib/ui'
 
@@ -76,10 +77,10 @@ async function onOpenChange(value: boolean): Promise<void> {
           'flex h-8 max-w-36 items-center gap-1.5 rounded-control border border-line bg-panel-2 px-2 text-xs transition-colors duration-150 hover:border-line hover:text-ink sm:max-w-52',
           focusRing,
         )"
-        :aria-label="`Workspace: ${selected?.label ?? 'none'}`"
+        :aria-label="t('topbar.workspaceLabel', { name: selected?.label ?? t('common.none') })"
       >
         <Layers class="size-3.5 shrink-0 text-faint" />
-        <span class="min-w-0 truncate font-medium text-ink">{{ selected?.label ?? 'No workspace' }}</span>
+        <span class="min-w-0 truncate font-medium text-ink">{{ selected?.label ?? t('workspace.none') }}</span>
         <span class="hidden shrink-0 font-mono text-2xs text-faint sm:inline">{{ selected?.runningCount ?? 0 }}/{{ selected?.serverCount ?? 0 }}</span>
         <ChevronsUpDown class="size-3 shrink-0 text-faint" />
       </button>
@@ -163,7 +164,7 @@ async function onOpenChange(value: boolean): Promise<void> {
               Keep it
             </AppButton>
             <AppButton size="xs" variant="danger" @click="confirmRemove">
-              <Trash2 class="size-3" />Delete workspace
+              <Trash2 class="size-3" />{{ t('workspace.delete') }}
             </AppButton>
           </div>
         </template>

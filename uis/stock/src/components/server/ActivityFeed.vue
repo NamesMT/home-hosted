@@ -4,9 +4,10 @@ import type { HistoryType } from '@/lib/status'
 import { CircleAlert, CircleCheck, Play, RotateCw, Square, TriangleAlert } from 'lucide-vue-next'
 import { computed } from 'vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatDuration } from '@/lib/format'
-import { HISTORY_TYPE_LABEL, HISTORY_TYPE_TONE, TONE_TEXT } from '@/lib/status'
+import { HISTORY_TYPE_LABEL_KEY, HISTORY_TYPE_TONE, TONE_TEXT } from '@/lib/status'
 
 const props = withDefaults(defineProps<{
   servers: ServerView[]
@@ -47,8 +48,8 @@ const rows = computed<Row[]>(() => {
   <EmptyState
     v-if="rows.length === 0"
     compact
-    title="No events in the last 24 hours"
-    description="Starts, exits, crashes and recoveries show up here as they happen."
+    :title="t('activity.emptyTitle')"
+    :description="t('activity.emptyDescription')"
   />
 
   <ol v-else class="flex flex-col">
@@ -64,14 +65,14 @@ const rows = computed<Row[]>(() => {
       />
       <div class="min-w-0 flex-1">
         <p class="flex items-baseline gap-1.5">
-          <span class="truncate text-xs font-medium text-ink">{{ HISTORY_TYPE_LABEL[row.type as HistoryType] }}</span>
+          <span class="truncate text-xs font-medium text-ink">{{ t(HISTORY_TYPE_LABEL_KEY[row.type as HistoryType]) }}</span>
           <RouterLink :to="`/servers/${row.serverId}`" class="truncate text-2xs text-muted hover:text-accent">
             {{ row.label }}
           </RouterLink>
         </p>
         <p class="mt-0.5 truncate font-mono text-2xs text-faint" :title="row.detail">
           {{ row.detail }}
-          <span v-if="row.runtimeMs !== undefined" class="text-muted"> · ran {{ formatDuration(row.runtimeMs) }}</span>
+          <span v-if="row.runtimeMs !== undefined" class="text-muted"> · {{ t('activity.ran', { duration: formatDuration(row.runtimeMs) }) }}</span>
         </p>
       </div>
       <span class="shrink-0 pt-0.5 text-2xs text-faint">{{ formatAgo(row.ts, props.now) }}</span>

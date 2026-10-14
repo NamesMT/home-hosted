@@ -6,6 +6,7 @@ import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
+import { t } from '@/i18n'
 
 /**
  * The three nested policy groups shared by the global defaults and every
@@ -55,79 +56,79 @@ const expectStatusBelow = required(() => health.value.http.expectStatusBelow, va
 
 const graceMs = required(() => stop.value.graceMs, value => (stop.value.graceMs = value))
 
-const signalOptions = [
-  { value: 'SIGTERM', label: 'SIGTERM — ask it to stop' },
-  { value: 'SIGINT', label: 'SIGINT — interrupt (Ctrl-C)' },
-  { value: 'SIGKILL', label: 'SIGKILL — kill immediately' },
-]
+const signalOptions = computed(() => [
+  { value: 'SIGTERM', label: t('lifecycle.signalTerm') },
+  { value: 'SIGINT', label: t('lifecycle.signalInt') },
+  { value: 'SIGKILL', label: t('lifecycle.signalKill') },
+])
 </script>
 
 <template>
   <FieldGroup
-    title="Restart policy"
-    description="Backoff between attempts after a crash."
+    :title="t('lifecycle.restartTitle')"
+    :description="t('lifecycle.restartDescription')"
     :columns="3"
   >
-    <ToggleSwitch v-model="restart.enabled" label="Restart on crash" wide />
-    <NumberField v-model="maxRetries" label="Max retries" :min="0" hint="Attempts before the server is left crashed." />
-    <NumberField v-model="baseDelayMs" label="Base delay (ms)" :min="0" />
-    <NumberField v-model="factor" label="Backoff factor" :min="1" :step="0.1" />
-    <NumberField v-model="maxDelayMs" label="Max delay (ms)" :min="0" />
-    <NumberField v-model="resetAfterMs" label="Reset after (ms)" :min="0" hint="A run this long clears the retry counter." />
+    <ToggleSwitch v-model="restart.enabled" :label="t('lifecycle.restartOnCrash')" wide />
+    <NumberField v-model="maxRetries" :label="t('lifecycle.maxRetries')" :min="0" :hint="t('lifecycle.maxRetriesHint')" />
+    <NumberField v-model="baseDelayMs" :label="t('lifecycle.baseDelay')" :min="0" />
+    <NumberField v-model="factor" :label="t('lifecycle.factor')" :min="1" :step="0.1" />
+    <NumberField v-model="maxDelayMs" :label="t('lifecycle.maxDelay')" :min="0" />
+    <NumberField v-model="resetAfterMs" :label="t('lifecycle.resetAfter')" :min="0" :hint="t('lifecycle.resetAfterHint')" />
   </FieldGroup>
 
   <FieldGroup
-    title="Health check"
-    description="How readiness is probed once the process is up."
+    :title="t('lifecycle.healthTitle')"
+    :description="t('lifecycle.healthDescription')"
     :columns="3"
   >
-    <ToggleSwitch v-model="health.enabled" label="Probe this server" wide />
+    <ToggleSwitch v-model="health.enabled" :label="t('lifecycle.probe')" wide />
     <SelectField
       v-model="health.mode"
-      label="Probe type"
+      :label="t('lifecycle.probeType')"
       :options="[
-        { value: 'port', label: 'TCP port — connection only' },
-        { value: 'http', label: 'HTTP request — assert a response' },
+        { value: 'port', label: t('lifecycle.probePort') },
+        { value: 'http', label: t('lifecycle.probeHttp') },
       ]"
     />
-    <NumberField v-model="intervalMs" label="Interval (ms)" :min="500" :step="100" />
-    <NumberField v-model="timeoutMs" label="Timeout (ms)" :min="100" :step="100" />
-    <NumberField v-model="unhealthyThreshold" label="Unhealthy after" :min="1" hint="Consecutive failed probes." />
-    <NumberField v-model="forceRestartAfterMs" label="Force restart after (ms)" :min="0" hint="0 disables it." />
-    <NumberField v-model="startTimeoutMs" label="Start timeout (ms)" :min="0" />
+    <NumberField v-model="intervalMs" :label="t('lifecycle.interval')" :min="500" :step="100" />
+    <NumberField v-model="timeoutMs" :label="t('lifecycle.timeout')" :min="100" :step="100" />
+    <NumberField v-model="unhealthyThreshold" :label="t('lifecycle.unhealthyAfter')" :min="1" :hint="t('lifecycle.unhealthyAfterHint')" />
+    <NumberField v-model="forceRestartAfterMs" :label="t('lifecycle.forceRestartAfter')" :min="0" :hint="t('lifecycle.forceRestartAfterHint')" />
+    <NumberField v-model="startTimeoutMs" :label="t('lifecycle.startTimeout')" :min="0" />
 
     <template v-if="showHttp && health.mode === 'http'">
-      <TextField v-model="health.http.path" label="HTTP path" placeholder="/healthz" />
+      <TextField v-model="health.http.path" :label="t('lifecycle.httpPath')" placeholder="/healthz" />
       <SelectField
         v-model="health.http.method"
-        label="HTTP method"
+        :label="t('lifecycle.httpMethod')"
         :options="[
           { value: 'GET', label: 'GET' },
           { value: 'HEAD', label: 'HEAD' },
         ]"
       />
-      <NumberField v-model="expectStatus" label="Expect status" nullable hint="Blank accepts anything below." />
-      <NumberField v-model="expectStatusBelow" label="Healthy below status" :min="100" />
+      <NumberField v-model="expectStatus" :label="t('lifecycle.expectStatus')" nullable :hint="t('lifecycle.expectStatusHint')" />
+      <NumberField v-model="expectStatusBelow" :label="t('lifecycle.expectStatusBelow')" :min="100" />
       <TextField
         v-model="health.http.expectBody"
-        label="Body must contain"
-        placeholder="optional substring"
+        :label="t('lifecycle.expectBody')"
+        :placeholder="t('lifecycle.expectBodyPlaceholder')"
         wide
         :hint="health.http.method === 'HEAD' && health.http.expectBody.length > 0
-          ? 'HEAD has no response body, so this check is ignored — use GET, or clear it.'
+          ? t('lifecycle.headBodyHint')
           : undefined"
       />
     </template>
   </FieldGroup>
 
   <FieldGroup
-    title="Stop behaviour"
-    description="How the process tree is asked to go away."
+    :title="t('lifecycle.stopTitle')"
+    :description="t('lifecycle.stopDescription')"
     :columns="3"
   >
-    <SelectField v-model="stop.signal" label="Signal" :options="signalOptions" />
-    <NumberField v-model="graceMs" label="Grace period (ms)" :min="0" />
-    <ToggleSwitch v-model="stop.killGroup" label="Kill the whole process group" />
-    <ToggleSwitch v-model="stop.killPortHolders" label="Also kill whatever holds the port" wide />
+    <SelectField v-model="stop.signal" :label="t('lifecycle.signal')" :options="signalOptions" />
+    <NumberField v-model="graceMs" :label="t('lifecycle.grace')" :min="0" />
+    <ToggleSwitch v-model="stop.killGroup" :label="t('lifecycle.killGroup')" />
+    <ToggleSwitch v-model="stop.killPortHolders" :label="t('lifecycle.killPortHolders')" wide />
   </FieldGroup>
 </template>

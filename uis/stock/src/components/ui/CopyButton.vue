@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, Copy } from 'lucide-vue-next'
 import { onScopeDispose, ref } from 'vue'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { focusRing } from '@/lib/ui'
 
@@ -9,7 +10,8 @@ const props = withDefaults(defineProps<{
   label?: string
   class?: string
 }>(), {
-  label: 'Copy',
+  // Left undefined so the default follows the active language; `t()` cannot run in a prop default.
+  label: undefined,
   class: undefined,
 })
 
@@ -41,7 +43,7 @@ onScopeDispose(() => {
   <button
     type="button"
     :class="cn('inline-grid size-6 shrink-0 place-items-center rounded-control text-faint transition-colors duration-150 hover:bg-hover hover:text-ink', focusRing, props.class)"
-    :aria-label="copied ? 'Copied' : props.label"
+    :aria-label="copied ? t('common.copied') : (props.label ?? t('common.copy'))"
     @click="copy"
   >
     <Check v-if="copied" class="size-3.5 text-ok" />

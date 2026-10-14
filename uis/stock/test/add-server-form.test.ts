@@ -7,6 +7,7 @@ import {
   addServerProblem,
   blankAddServerForm,
 } from '../src/components/server/addServerForm'
+import { t } from '../src/i18n'
 
 /**
  * Everything the add dialog offers has to reach `servers.config.json`. The
@@ -125,21 +126,24 @@ describe('add-server payload', () => {
 })
 
 describe('add-server validation', () => {
+  // A validation failure carries a catalog key, not the sentence: the checks run outside any
+  // component, so the dialog reads the key through `t()` at render time. These assert the key
+  // resolves to the wording a person reads, which is what the dialog shows.
   it('requires an id the supervisor can key an entry by', () => {
-    expect(addServerProblem(blankAddServerForm())).toContain('id is required')
-    expect(addServerProblem({ ...blankAddServerForm(), id: 'Bad Id', command: 'node' })).toContain('lowercase')
+    expect(t(addServerProblem(blankAddServerForm())!)).toContain('id is required')
+    expect(t(addServerProblem({ ...blankAddServerForm(), id: 'Bad Id', command: 'node' })!)).toContain('lowercase')
   })
 
   it('requires a command', () => {
-    expect(addServerProblem({ ...blankAddServerForm(), id: 'web' })).toContain('command is required')
+    expect(t(addServerProblem({ ...blankAddServerForm(), id: 'web' })!)).toContain('command is required')
   })
 
   it('bounds the port, but allows none at all', () => {
     const base = { ...blankAddServerForm(), id: 'web', command: 'node' }
     expect(addServerProblem(base)).toBeNull()
     expect(addServerProblem({ ...base, port: 4100 })).toBeNull()
-    expect(addServerProblem({ ...base, port: 0 })).toContain('between 1 and 65535')
-    expect(addServerProblem({ ...base, port: 70000 })).toContain('between 1 and 65535')
+    expect(t(addServerProblem({ ...base, port: 0 })!)).toContain('between 1 and 65535')
+    expect(t(addServerProblem({ ...base, port: 70000 })!)).toContain('between 1 and 65535')
     expect(addServerPortError(4100)).toBeNull()
   })
 })
@@ -216,6 +220,6 @@ describe('add-server policy groups', () => {
       timeoutMs: 120000,
       runOnce: true,
     })
-    expect(addServerProblem({ ...base, bootstrapEnabled: true })).toContain('bootstrap needs a command')
+    expect(t(addServerProblem({ ...base, bootstrapEnabled: true })!)).toContain('bootstrap needs a command')
   })
 })

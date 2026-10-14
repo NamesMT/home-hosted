@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Sparkline from '@/components/telemetry/Sparkline.vue'
+import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { seriesLast } from '@/lib/telemetry'
 
@@ -20,7 +21,8 @@ const props = withDefaults(defineProps<{
   colorClass: 'text-accent',
   height: 30,
   sampleMs: 5000,
-  emptyHint: 'collecting…',
+  /** Absent falls back to the catalog at render time, never to a module-scope `t()`. */
+  emptyHint: undefined,
 })
 
 const hoverIndex = ref<number | null>(null)
@@ -54,7 +56,7 @@ const offset = computed(() => {
       <span class="flex shrink-0 items-baseline gap-1.5">
         <span v-if="offset" class="font-mono text-2xs text-faint">{{ offset }}</span>
         <span :class="cn('font-mono text-xs font-medium tabular-nums', hasData ? 'text-ink' : 'text-faint')">
-          {{ hasData ? props.format(shown) : props.emptyHint }}
+          {{ hasData ? props.format(shown) : (props.emptyHint ?? t('metric.emptyHint')) }}
         </span>
       </span>
     </div>

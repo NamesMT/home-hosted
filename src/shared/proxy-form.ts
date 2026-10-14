@@ -63,6 +63,61 @@ export interface RouteErrors {
   form?: string
 }
 
+/**
+ * The sentences `validateRouteDraft` puts in {@link RouteErrors}, as a seam for translation.
+ *
+ * The rules belong here — both UIs must refuse the same input for the same reason — but the
+ * wording does not: a UI shipping more than one language has to render these in the reader's
+ * language, and `src/shared/` may not import Vue or the UI's i18n. So the caller passes messages
+ * and the defaults keep every existing caller's output byte-identical.
+ */
+export interface RouteErrorMessages {
+  hostRequired: () => string
+  hostInvalid: () => string
+  hostDuplicate: (host: string) => string
+  pathNeedsSlash: () => string
+  pathHasSpace: () => string
+  idInvalid: () => string
+  idDuplicate: (id: string) => string
+  workspaceRequired: () => string
+  serverRequired: () => string
+  urlInvalid: () => string
+}
+
+/** The default wording, unchanged from when it was inlined in `validateRouteDraft`. */
+export const ENGLISH_ROUTE_ERROR_MESSAGES: RouteErrorMessages = {
+  hostRequired: () => 'a hostname is required',
+  hostInvalid: () => 'a hostname of letters, digits, dots and dashes, e.g. home.example.com',
+  hostDuplicate: host => `"${host}" is already routed for this path`,
+  pathNeedsSlash: () => 'a path prefix starts with /',
+  pathHasSpace: () => 'a path prefix cannot contain a space',
+  idInvalid: () => 'the id must start with a letter or digit, then letters, digits, dash or underscore',
+  idDuplicate: id => `route id "${id}" is used twice`,
+  workspaceRequired: () => 'pick the workspace that owns the server',
+  serverRequired: () => 'pick a server in that workspace',
+  urlInvalid: () => 'an upstream like http://10.0.0.5:8080',
+}
+
+/** The words the route list shows for a target or a retry delay, as a translation seam. */
+export interface RouteSummaryLabels {
+  controlPanel: () => string
+  noUpstream: () => string
+  noServerPicked: () => string
+  fallbackRetry: () => string
+  retryOne: (count: number, unit: 'minute' | 'hour') => string
+  retryMany: (count: number, unit: 'minute' | 'hour') => string
+}
+
+export const ENGLISH_ROUTE_SUMMARY_LABELS: RouteSummaryLabels = {
+  controlPanel: () => 'control panel',
+  noUpstream: () => 'no upstream',
+  noServerPicked: () => 'no server picked',
+  fallbackRetry: () => '~8 hours',
+  // `minute`/`hour` carry their own plural: English needs `s`, Russian needs three forms.
+  retryOne: (count, unit) => `~${count} ${unit}`,
+  retryMany: (count, unit) => `~${count} ${unit}s`,
+}
+
 export const UNPRIVILEGED_HTTPS_PORT = 4443
 
 export const UNPRIVILEGED_HTTP_PORT = 4480
@@ -176,15 +231,15 @@ export function requiresEmail(listener: Pick<ListenerDraft, 'email' | 'staging'>
   return routes.some(route => route.tls !== 'off' && isPublicHost(route.host))
 }
 
-export function retryInLabel(minutes: number | null): string {
+export function retryInLabel(minutes: number | null, labels: RouteSummaryLabels = ENGLISH_ROUTE_SUMMARY_LABELS): string {
   // An older panel sends no interval; the engine's own CA issues 12 hours by default,
   // which certmagic's one-third renewal window turns into eight.
   if (minutes === null)
-    return '~8 hours'
+    return labels.fallbackRetry()
   if (minutes < 60)
-    return `~${minutes} minute${minutes === 1 ? '' : 's'}`
+    return minutes === 1 ? labels.retryOne(minutes, 'minute') : labels.retryMany(minutes, 'minute')
   const hours = Math.max(1, Math.round(minutes / 60))
-  return `~${hours} hour${hours === 1 ? '' : 's'}`
+  return hours === 1 ? labels.retryOne(hours, 'hour') : labels.retryMany(hours, 'hour')
 }
 
 /**
@@ -234,13 +289,13 @@ export function slugifyRouteId(host: string): string {
 }
 
 /** What the target column reads: who a route forwards to. */
-export function targetSummary(route: ProxyRoute, workspaces: readonly ProxyWorkspace[]): string {
+export function targetSummary(route: ProxyRoute, workspaces: readonly ProxyWorkspace[], labels: RouteSummaryLabels = ENGLISH_ROUTE_SUMMARY_LABELS): string {
   if (route.target === 'panel')
-    return 'control panel'
+    return labels.controlPanel()
   if (route.target === 'external')
-    return route.url.trim().length > 0 ? route.url.trim() : 'no upstream'
+    return route.url.trim().length > 0 ? route.url.trim() : labels.noUpstream()
   if (route.workspace.length === 0 || route.server.length === 0)
-    return 'no server picked'
+    return labels.noServerPicked()
   const workspace = workspaces.find(entry => entry.id === route.workspace)
   return `${workspace?.label ?? route.workspace} / ${route.server}`
 }
@@ -292,38 +347,39 @@ export function usesFallbackPorts(config: Pick<ProxyConfig, 'httpPort' | 'httpsP
   return config.httpPort === UNPRIVILEGED_HTTP_PORT && config.httpsPort === UNPRIVILEGED_HTTPS_PORT
 }
 
-export function validateRouteDraft(draft: RouteDraft, options: { others: readonly RouteDraft[], workspaces: readonly ProxyWorkspace[] }): RouteErrors {
+export function validateRouteDraft(draft: RouteDraft, options: { others: readonly RouteDraft[], workspaces: readonly ProxyWorkspace[], messages?: Partial<RouteErrorMessages> }): RouteErrors {
+  const messages = { ...ENGLISH_ROUTE_ERROR_MESSAGES, ...options.messages }
   const errors: RouteErrors = {}
   const host = draft.host.trim()
 
   if (host.length === 0)
-    errors.host = 'a hostname is required'
+    errors.host = messages.hostRequired()
   else if (!HOST_PATTERN.test(host))
-    errors.host = 'a hostname of letters, digits, dots and dashes, e.g. home.example.com'
+    errors.host = messages.hostInvalid()
   // `/app` and `/app/` render overlapping matchers, so one would shadow the other.
   else if (options.others.some(other => other.host.trim().toLowerCase() === host.toLowerCase() && other.path.replace(/\/+$/, '') === draft.path.replace(/\/+$/, '')))
-    errors.host = `"${host}" is already routed for this path`
+    errors.host = messages.hostDuplicate(host)
 
   if (draft.path.length > 0 && !draft.path.startsWith('/'))
-    errors.path = 'a path prefix starts with /'
+    errors.path = messages.pathNeedsSlash()
   else if (/\s/.test(draft.path))
-    errors.path = 'a path prefix cannot contain a space'
+    errors.path = messages.pathHasSpace()
 
   if (!ROUTE_ID_PATTERN.test(draft.id))
-    errors.id = 'the id must start with a letter or digit, then letters, digits, dash or underscore'
+    errors.id = messages.idInvalid()
   else if (options.others.some(other => other.id === draft.id))
-    errors.id = `route id "${draft.id}" is used twice`
+    errors.id = messages.idDuplicate(draft.id)
 
   if (draft.target === 'server') {
     const workspace = options.workspaces.find(entry => entry.id === draft.workspace)
     if (draft.workspace.length === 0 || workspace === undefined)
-      errors.workspace = 'pick the workspace that owns the server'
+      errors.workspace = messages.workspaceRequired()
     else if (draft.server.length === 0 || !workspace.servers.some(entry => entry.id === draft.server))
-      errors.server = 'pick a server in that workspace'
+      errors.server = messages.serverRequired()
   }
 
   if (draft.target === 'external' && parseUpstream(draft.url) === null)
-    errors.url = 'an upstream like http://10.0.0.5:8080'
+    errors.url = messages.urlInvalid()
 
   // The schema is the last word on anything the field checks cannot see.
   const parsed = proxyRouteSchema({ ...toRouteWire(draft), host })

@@ -37,7 +37,7 @@ describe('the chrome has one definition', () => {
     expect(shell, 'the shell renders the rail').toContain('SettingsSection')
 
     for (const [name, ids] of [
-      ['GlobalSettingsView.vue', ['listener', 'authentication', 'host', 'backups', 'tls', 'interface', 'paths']],
+      ['GlobalSettingsView.vue', ['listener', 'authentication', 'host', 'backups', 'tls', 'language', 'interface', 'paths']],
       ['SettingsView.vue', ['defaults', 'logs', 'notifications', 'ddns']],
     ] as const) {
       // One `SettingsSection` per rail entry: a missing anchor leaves that entry dead.

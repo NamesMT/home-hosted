@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import { t } from '@/i18n'
 
 /**
  * A destructive action behind an explicit confirmation popover.
@@ -25,7 +26,7 @@ const props = withDefaults(defineProps<{
   /** One line saying what the action does, for an irreversible one. */
   hint?: string
 }>(), {
-  confirmLabel: 'Confirm',
+  confirmLabel: undefined,
   variant: 'danger-ghost',
   confirmVariant: 'danger',
   size: 'sm',
@@ -38,6 +39,11 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ confirm: [] }>()
 
 const open = ref(false)
+
+/** The prop wins; the translated word is the default, so a bare `ConfirmButton` still reads English. */
+const confirmLabel = computed(() => props.confirmLabel ?? t('common.confirm'))
+/** What the popover asks; falls back to the confirm label. */
+const confirmTitle = computed(() => props.title ?? t('common.confirmQuestion', { label: confirmLabel.value }))
 
 function confirm(): void {
   open.value = false
@@ -60,7 +66,7 @@ function confirm(): void {
         class="z-50 w-64 rounded-panel border border-line bg-raise p-3 shadow-float focus-visible:outline-none data-[state=open]:animate-[hh-fade-in_120ms_ease-out]"
       >
         <p class="text-xs font-semibold text-ink">
-          {{ props.title ?? `${props.confirmLabel}?` }}
+          {{ confirmTitle }}
         </p>
         <p v-if="props.hint" class="mt-1 text-2xs leading-4 text-muted">
           {{ props.hint }}
@@ -68,11 +74,11 @@ function confirm(): void {
         <div class="mt-2.5 flex justify-end gap-1.5">
           <PopoverClose as-child>
             <AppButton size="xs" variant="ghost">
-              Cancel
+              {{ t('common.cancel') }}
             </AppButton>
           </PopoverClose>
           <AppButton size="xs" :variant="props.confirmVariant" :loading="props.loading" @click="confirm">
-            {{ props.confirmLabel }}
+            {{ confirmLabel }}
           </AppButton>
         </div>
       </PopoverContent>

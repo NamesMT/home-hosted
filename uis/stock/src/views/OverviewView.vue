@@ -12,6 +12,7 @@ import Skeleton from '@/components/ui/Skeleton.vue'
 import StatTile from '@/components/ui/StatTile.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { t, tc } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { formatBytesShort, formatDuration } from '@/lib/format'
 import { seriesMax } from '@/lib/telemetry'
@@ -29,7 +30,7 @@ const showAdd = ref(false)
 
 const loading = computed(() => control.appState.value === null)
 const servers = workspace.servers
-const label = computed(() => workspace.selected.value?.label ?? 'Workspace')
+const label = computed(() => workspace.selected.value?.label ?? t('nav.workspace'))
 
 const running = computed(() => servers.value.filter(server => server.status === 'running'))
 const stopped = computed(() => servers.value.filter(server => ['stopped', 'stopping'].includes(server.status)))
@@ -78,17 +79,17 @@ const uptime = computed(() => {
   <div class="mx-auto max-w-7xl space-y-5 p-4 sm:p-5">
     <PageHeader
       :title="label"
-      description="Live state of every server in this workspace, refreshed over a single event stream."
+      :description="t('views.overview.description')"
     >
       <template #actions>
         <AppButton variant="ghost" @click="workspace.startAll()">
-          <Play class="size-3.5" />Start all
+          <Play class="size-3.5" />{{ t('views.actions.startAll') }}
         </AppButton>
         <AppButton variant="ghost" @click="workspace.stopAll()">
-          <Square class="size-3.5" />Stop all
+          <Square class="size-3.5" />{{ t('views.actions.stopAll') }}
         </AppButton>
         <AppButton variant="primary" @click="showAdd = true">
-          <Plus class="size-3.5" />Add server
+          <Plus class="size-3.5" />{{ t('views.actions.addServer') }}
         </AppButton>
       </template>
     </PageHeader>
@@ -102,24 +103,24 @@ const uptime = computed(() => {
       </div>
       <div v-else class="grid grid-cols-2 divide-line-soft sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
         <div class="p-4">
-          <StatTile label="Running" :value="`${running.length}/${servers.length}`" tone="ok" :hint="`${servers.length - running.length} not up`" />
+          <StatTile :label="t('views.overview.running')" :value="`${running.length}/${servers.length}`" tone="ok" :hint="t('views.overview.notUp', { count: servers.length - running.length })" />
         </div>
         <div class="p-4">
-          <StatTile label="Stopped" :value="String(stopped.length)" :hint="`${servers.filter(s => s.config.enabled).length} enabled`" />
+          <StatTile :label="t('views.overview.stopped')" :value="String(stopped.length)" :hint="t('views.overview.enabled', { count: servers.filter(s => s.config.enabled).length })" />
         </div>
         <div class="p-4">
           <StatTile
-            label="Needs attention"
+            :label="t('views.overview.needsAttention')"
             :value="String(attention.length)"
             :tone="attention.length > 0 ? 'danger' : 'ok'"
-            :hint="attention.length === 0 ? 'nothing is broken' : 'crashed or unhealthy'"
+            :hint="attention.length === 0 ? t('views.overview.nothingBroken') : t('views.overview.crashedOrUnhealthy')"
           />
         </div>
         <div class="p-4">
-          <StatTile label="Process memory" :value="formatBytesShort(totalRss)" :hint="peakRss > 0 ? `peak ${formatBytesShort(peakRss)}` : 'across the tree'" />
+          <StatTile :label="t('views.overview.processMemory')" :value="formatBytesShort(totalRss)" :hint="peakRss > 0 ? t('views.overview.peak', { value: formatBytesShort(peakRss) }) : t('views.overview.acrossTree')" />
         </div>
         <div class="p-4">
-          <StatTile label="Longest uptime" :value="uptime" :hint="running.length > 0 ? `${liveCpu.toFixed(1)}% cpu now` : 'nothing running'" />
+          <StatTile :label="t('views.overview.longestUptime')" :value="uptime" :hint="running.length > 0 ? t('views.overview.cpuNow', { value: liveCpu.toFixed(1) }) : t('views.overview.nothingRunning')" />
         </div>
       </div>
     </Panel>
@@ -131,7 +132,7 @@ const uptime = computed(() => {
       <CircleAlert class="mt-0.5 size-4 shrink-0 text-danger" />
       <div class="min-w-0">
         <p class="text-xs font-medium text-danger">
-          {{ attention.length }} server{{ attention.length === 1 ? '' : 's' }} need a look
+          {{ tc('views.overview.needLook', attention.length) }}
         </p>
         <p class="mt-0.5 flex flex-wrap gap-x-2 text-2xs text-danger">
           <RouterLink
@@ -150,10 +151,10 @@ const uptime = computed(() => {
       <div class="flex items-center justify-between">
         <h2 class="flex items-center gap-1.5 text-sm font-semibold text-ink">
           <ServerIcon class="size-3.5 text-faint" />
-          Servers
+          {{ t('nav.servers') }}
         </h2>
         <RouterLink :to="workspacePath(workspace.activeId.value, 'servers')" class="text-2xs text-muted transition-colors duration-150 hover:text-accent">
-          Open the full list
+          {{ t('views.overview.openFullList') }}
         </RouterLink>
       </div>
 
@@ -163,15 +164,15 @@ const uptime = computed(() => {
 
       <EmptyState
         v-else-if="servers.length === 0"
-        title="No servers in this workspace"
-        description="Add the first process this workspace should keep alive."
+        :title="t('views.overview.emptyTitle')"
+        :description="t('views.overview.emptyDescription')"
       >
         <template #icon>
           <ServerIcon class="size-4" />
         </template>
         <template #action>
           <AppButton variant="primary" @click="showAdd = true">
-            <Plus class="size-3.5" />Add a server
+            <Plus class="size-3.5" />{{ t('views.actions.addAServer') }}
           </AppButton>
         </template>
       </EmptyState>
@@ -192,23 +193,23 @@ const uptime = computed(() => {
       <template #header>
         <h2 class="flex items-center gap-1.5 text-sm font-semibold text-ink">
           <Activity class="size-3.5 text-faint" />
-          Recent activity
+          {{ t('views.overview.recentActivity') }}
         </h2>
       </template>
       <template #actions>
         <RouterLink :to="workspacePath(workspace.activeId.value, 'logs')" class="text-2xs text-muted transition-colors duration-150 hover:text-accent">
-          Logs
+          {{ t('nav.logs') }}
         </RouterLink>
       </template>
       <ActivityFeed :servers="servers" :now="control.now.value" :limit="10" />
     </Panel>
 
     <p class="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-faint">
-      <span class="flex items-center gap-1"><Timer class="size-3" />resource history is sampled every 5 s and kept for this session</span>
+      <span class="flex items-center gap-1"><Timer class="size-3" />{{ t('views.overview.sampling') }}</span>
       <span class="font-mono">{{ workspace.selected.value?.configPath }}</span>
       <span :class="cn('flex items-center gap-1')">
         <span class="size-1.5 rounded-full bg-ok" />
-        workspace {{ workspace.activeId.value }}
+        {{ t('views.overview.workspaceLabel', { id: workspace.activeId.value }) }}
       </span>
     </p>
 

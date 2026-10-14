@@ -11,7 +11,9 @@ import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
+import TransText from '@/components/ui/TransText.vue'
 import { useSession } from '@/composables/useSession'
+import { t } from '@/i18n'
 
 const props = defineProps<{
   view: ControlView | null
@@ -63,7 +65,7 @@ async function submitPassword(): Promise<void> {
     currentPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
-    passwordMessage.value = 'Password updated. Other sessions were signed out.'
+    passwordMessage.value = t('settings.auth.passwordUpdated')
   }
   finally {
     passwordSaving.value = false
@@ -76,118 +78,130 @@ async function clearPasswordValue(): Promise<void> {
   const failure = await clearPassword()
   if (failure !== null)
     passwordError.value = failure
-  else passwordMessage.value = 'Password cleared and authentication disabled.'
+  else passwordMessage.value = t('settings.auth.passwordCleared')
 }
 </script>
 
 <template>
   <FieldGroup
-    title="Access policy"
-    description="Authentication applies whether the panel is on loopback or exposed to the network."
+    :title="t('settings.auth.policyTitle')"
+    :description="t('settings.auth.policyDescription')"
   >
     <template #actions>
       <AppButton size="xs" variant="ghost" :disabled="!props.dirty" @click="emit('reset')">
-        Reset
+        {{ t('common.reset') }}
       </AppButton>
     </template>
 
     <ToggleSwitch
       v-model="auth.enabled"
-      label="Require a password"
-      hint="Every request needs a signed-in session."
+      :label="t('settings.auth.requirePassword')"
+      :hint="t('settings.auth.requirePasswordHint')"
       class="sm:col-span-2"
     />
-    <NumberField v-model="sessionTtlMs" label="Session lifetime (ms)" :min="60000" hint="Idle timeout: 604800000 is one week of no activity. Each request restarts it." />
+    <NumberField v-model="sessionTtlMs" :label="t('settings.auth.sessionLifetime')" :min="60000" :hint="t('settings.auth.sessionLifetimeHint')" />
     <SelectField
       v-model="auth.cookieSecure"
-      label="Cookie Secure"
+      :label="t('settings.auth.cookieSecure')"
       :options="[
-        { value: 'auto', label: 'Auto — only over HTTPS' },
-        { value: 'always', label: 'Always' },
-        { value: 'never', label: 'Never — plain HTTP' },
+        { value: 'auto', label: t('settings.auth.cookieSecureAuto') },
+        { value: 'always', label: t('settings.auth.cookieSecureAlways') },
+        { value: 'never', label: t('settings.auth.cookieSecureNever') },
       ]"
     />
     <SelectField
       v-model="auth.trustProxy"
-      label="Behind a reverse proxy"
+      :label="t('settings.auth.trustProxy')"
       :options="[
-        { value: 'off', label: 'No — ignore x-forwarded-*' },
-        { value: 'loopback', label: 'Yes, from this machine only' },
-        { value: 'any', label: 'Yes, from any caller' },
+        { value: 'off', label: t('settings.auth.trustProxyOff') },
+        { value: 'loopback', label: t('settings.auth.trustProxyLoopback') },
+        { value: 'any', label: t('settings.auth.trustProxyAny') },
       ]"
-      hint="Trust x-forwarded-* for the client address and protocol. 'From this machine only' is the safe choice for a proxy on the same host. 'From any caller' believes the caller's own header, so login lockout counts per forged address and can be bypassed."
+      :hint="t('settings.auth.trustProxyHint')"
       class="sm:col-span-2"
     />
-    <NumberField v-model="maxLoginAttempts" label="Max login attempts" :min="1" hint="Failures before a temporary lockout." />
-    <NumberField v-model="lockoutMs" label="Lockout (ms)" :min="1000" />
+    <NumberField v-model="maxLoginAttempts" :label="t('settings.auth.maxLoginAttempts')" :min="1" :hint="t('settings.auth.maxLoginAttemptsHint')" />
+    <NumberField v-model="lockoutMs" :label="t('settings.auth.lockout')" :min="1000" />
   </FieldGroup>
 
   <div class="space-y-2">
     <Notice
       :tone="apiTokenSet ? 'info' : 'neutral'"
-      :title="apiTokenSet ? 'An API token is set' : 'No API token'"
+      :title="apiTokenSet ? t('settings.auth.apiTokenSet') : t('settings.auth.apiTokenMissing')"
     >
-      <template v-if="apiTokenSet">
-        Scripts can call the API with <code>Authorization: Bearer …</code> instead of signing in.
-      </template>
-      <template v-else>
-        For shell scripts and agents, generate one with <code>home-hosted set-token --generate</code>.
-      </template>
+      <TransText v-if="apiTokenSet" k="settings.auth.apiTokenNote">
+        <template #code>
+          <code>Authorization: Bearer …</code>
+        </template>
+      </TransText>
+      <TransText v-else k="settings.auth.noTokenNote">
+        <template #command>
+          <code>home-hosted set-token --generate</code>
+        </template>
+      </TransText>
     </Notice>
-    <Notice v-if="usingDefault" tone="warn" title="The default password is still in use">
-      Set your own password below. Binding beyond <code>127.0.0.1</code> stays refused until you do.
+    <Notice v-if="usingDefault" tone="warn" :title="t('settings.auth.defaultPasswordTitle')">
+      <TransText k="settings.auth.defaultPasswordText">
+        <template #address>
+          <code>127.0.0.1</code>
+        </template>
+      </TransText>
     </Notice>
-    <Notice v-if="blockedReason" tone="danger" title="This listener is being refused">
+    <Notice v-if="blockedReason" tone="danger" :title="t('settings.auth.blockedTitle')">
       {{ blockedReason }}
     </Notice>
-    <Notice v-else-if="enabledWithoutPassword" tone="warn" title="Authentication is on but no password is set">
-      Nothing is actually required yet, and binding beyond <code>127.0.0.1</code> stays refused until a password exists.
+    <Notice v-else-if="enabledWithoutPassword" tone="warn" :title="t('settings.auth.noPasswordTitle')">
+      <TransText k="settings.auth.noPasswordText">
+        <template #address>
+          <code>127.0.0.1</code>
+        </template>
+      </TransText>
     </Notice>
-    <Notice v-else-if="exposed" tone="warn" title="Reachable beyond 127.0.0.1">
-      Keep the password strong, or put a TLS-terminating proxy in front of the panel.
+    <Notice v-else-if="exposed" tone="warn" :title="t('settings.auth.exposedTitle')">
+      {{ t('settings.auth.exposedText') }}
     </Notice>
   </div>
 
   <form class="mt-3" @submit.prevent="submitPassword">
     <FieldGroup
-      :title="passwordSet ? 'Change password' : 'Set a password'"
-      description="Stored as a scrypt hash in the secrets file, never in the config."
+      :title="passwordSet ? t('settings.auth.changePassword') : t('settings.auth.setPassword')"
+      :description="t('settings.auth.passwordDescription')"
     >
       <TextField
         v-if="passwordSet"
         v-model="currentPassword"
         type="password"
         autocomplete="current-password"
-        label="Current password"
+        :label="t('settings.auth.currentPassword')"
       />
-      <TextField v-model="newPassword" type="password" autocomplete="new-password" label="New password" />
+      <TextField v-model="newPassword" type="password" autocomplete="new-password" :label="t('settings.auth.newPassword')" />
       <TextField
         v-model="confirmPassword"
         type="password"
         autocomplete="new-password"
-        label="Repeat new password"
-        :error="mismatch ? 'The two passwords do not match.' : null"
+        :label="t('settings.auth.repeatPassword')"
+        :error="mismatch ? t('settings.auth.passwordMismatch') : null"
       />
 
       <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
         <AppButton type="submit" variant="primary" :disabled="!canSubmit" :loading="passwordSaving">
-          {{ passwordSet ? 'Update password' : 'Set password and enable auth' }}
+          {{ passwordSet ? t('settings.auth.updatePassword') : t('settings.auth.setPasswordAndEnable') }}
         </AppButton>
         <ConfirmButton
           v-if="passwordSet"
-          label="Clear password"
-          confirm-label="Confirm clear"
+          :label="t('settings.auth.clearPassword')"
+          :confirm-label="t('settings.auth.clearPasswordConfirm')"
           confirm-variant="danger"
-          title="Clear the password?"
-          hint="Authentication is switched off with it, and anyone reaching the panel is let straight in."
+          :title="t('settings.auth.clearPasswordTitle')"
+          :hint="t('settings.auth.clearPasswordHint')"
           :disabled="passwordSaving"
           @confirm="clearPasswordValue"
         />
       </div>
 
       <template v-if="short || passwordError || passwordMessage">
-        <Notice v-if="short" tone="warn" title="That is a short password" class="sm:col-span-2">
-          It is allowed, but longer is the only thing standing between the network and this panel.
+        <Notice v-if="short" tone="warn" :title="t('settings.auth.shortPasswordTitle')" class="sm:col-span-2">
+          {{ t('settings.auth.shortPasswordText') }}
         </Notice>
         <Notice v-if="passwordError" tone="danger" class="sm:col-span-2">
           {{ passwordError }}
