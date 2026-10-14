@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.8.1
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.8.0...v0.8.1)
+
+### 🚀 Enhancements
+
+- **stock:** Nine languages, with a picker on login and in settings ([0bbfa57](https://github.com/NamesMT/home-hosted/commit/0bbfa57))
+
+### 📖 Documentation
+
+- **changelog:** The 0.8.0 upgrade instructions, which the changelog cannot derive ([cc51f60](https://github.com/NamesMT/home-hosted/commit/cc51f60))
+- **agents:** Bound code-comment length, not just its topic ([a407f10](https://github.com/NamesMT/home-hosted/commit/a407f10))
+- Re-baseline agent docs; move Releasing to .agentDocs; drop skeleton ([8d5d4e7](https://github.com/NamesMT/home-hosted/commit/8d5d4e7))
+- **README:** Expand interesting resources by default ([28f5ad8](https://github.com/NamesMT/home-hosted/commit/28f5ad8))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+- Trung Dang ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.8.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.7.21...v0.8.0)
