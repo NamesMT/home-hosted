@@ -674,14 +674,11 @@ plus types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 
 ---
 
-<details>
-<summary><b>🔗 Interesting resources</b></summary>
+><b>🔗 Interesting resources</b>
 
 - [dsh-home-hosted](https://github.com/NamesMT/dsh-home-hosted) — home-hosted servers management with boot autostart from inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 <sub><i>+ PR to add yours</i></sub>
-
-</details>
 
 ---
 
