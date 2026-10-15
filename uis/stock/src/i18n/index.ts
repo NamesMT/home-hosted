@@ -12,14 +12,17 @@ import { pluralRules } from './plural'
 
 type Catalog = Record<string, unknown>
 
-/** The English fragments, eager: the fallback language must exist before the first render. */
-const englishFragments = import.meta.glob<{ default: Catalog }>('./messages/en/*.json', { eager: true })
-/** Every other catalog, lazy — this is what code-splits them. */
-const catalogLoaders = import.meta.glob<{ default: Catalog }>('./messages/*.json')
+/**
+ * The catalogs, generated from `i18n/i18n.csv` by `scripts/build-locales.mjs`.
+ *
+ * English is eager because it is the fallback; the rest are lazy, which is what code-splits them.
+ * The directory is git-ignored, so it may be absent on a fresh clone — `pnpm install` builds it,
+ * and `initLocale` mounts on English if it is still missing.
+ */
+const englishCatalog = import.meta.glob<{ default: Catalog }>('../../i18n/generated/en.json', { eager: true })
+const catalogLoaders = import.meta.glob<{ default: Catalog }>(['../../i18n/generated/*.json', '!../../i18n/generated/en.json'])
 
-const english: Catalog = {}
-for (const fragment of Object.values(englishFragments))
-  Object.assign(english, fragment.default)
+const english: Catalog = Object.values(englishCatalog)[0]?.default ?? {}
 
 const i18n = createI18n({
   locale: DEFAULT_LOCALE,
@@ -66,7 +69,7 @@ async function loadCatalog(code: string): Promise<void> {
   const running = inFlight.get(code)
   if (running !== undefined)
     return running
-  const importer = catalogLoaders[`./messages/${code}.json`]
+  const importer = catalogLoaders[`../../i18n/generated/${code}.json`]
   if (importer === undefined)
     return
   const task = importer()

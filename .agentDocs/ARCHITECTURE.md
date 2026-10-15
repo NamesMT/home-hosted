@@ -143,6 +143,16 @@ by hand: does a UI *call* the changed export at runtime (`serverPatchSchema` is 
 by both UIs before they send), or does it read it as a *type* only (`serverSchema` is)? Only the
 former changes the asset, and it bumps every UI that calls it.
 
+**A UI's strings live in one CSV, and its catalogs are generated.** `uis/<name>/i18n/i18n.csv` is the
+source of truth — one row per string, one column per language — and `scripts/build-locales.mjs`
+turns it into the `i18n/generated/*.json` the app imports. That directory is git-ignored and rebuilt
+by `pnpm install` and by every UI build, so a stale catalog cannot be committed; the sheet is what a
+reviewer reads, and an untranslated string is a visibly empty cell rather than an absent file. A
+plural is one row per CLDR category (`key[one]`, `key[few]`, …), which `spreadsheet-i18n` cannot fold
+back itself — it writes flat strings — so `build-locales.mjs` does. The generated JSON is therefore
+*generated*, and neither the sheet nor the JSON is a build input a `ui.json` bump should chase: a
+wording change ships a different UI, so it bumps like any other source edit.
+
 ## How to test
 
 A component worth guarding mounts under `// @vitest-environment happy-dom`; the suite resolves `@/…`

@@ -46,20 +46,24 @@ chosen, so a panel serving one language pays for one.
 
 ### Adding or editing strings
 
+- **`i18n/i18n.csv` is the source of truth** — one row per string, one column per language. Edit it
+  there; `pnpm run build:locales` turns it into the `i18n/generated/*.json` the app imports (also
+  run by `pnpm install` and by every UI build). The generated directory is git-ignored.
+- A row is `KEY` plus one column per locale. Keys are **flat** dotted paths (`nav.servers`).
+  Add a language by adding its column to the sheet *and* its entry to `LOCALES` in
+  `src/i18n/locales.ts`.
+- A plural entry is one row per CLDR category, keyed `key[one]`, `key[few]`, `key[many]`,
+  `key[other]`, and is folded back into a message object. Leave a category blank when the language
+  has no such form — Spanish `many` only occurs at a million and reads from `other`. A blank
+  non-plural cell is a bug: `test/i18n-catalog.test.ts` fails on it, and on a translation whose
+  placeholders differ from the English, and on generated JSON that is stale.
 - `src/i18n/` is the engine: `index.ts` (the singleton and `t`/`tc`), `locales.ts` (the language
   table), `plural.ts` (CLDR plural selection).
-- Catalogs are `src/i18n/messages/<code>.json`, keyed with **flat** dotted keys (`nav.servers`),
-  one entry per string. English is split per area under `messages/en/` and merged at load; a key
-  must appear in exactly one fragment.
 - In a component: `import { t } from '@/i18n'`, then `t('nav.servers')`. `t` is available to the
   template from `<script setup>` with no extra wiring. `tc('key', count)` selects a plural form.
 - Interpolate with `{name}` placeholders: `t('theme.label', { theme: 'dark' })`.
-- A plural message is an object — `{ "one": "{count} server", "other": "{count} servers" }`. English
-  needs only `one`/`other`; a language that inflects adds `few`/`many` itself.
-- A sentence containing markup keeps the whole sentence in the catalog with a `{placeholder}` and
+- A sentence containing markup keeps the whole sentence in the sheet with a `{placeholder}` and
   renders through `src/components/ui/TransText.vue` — never split a sentence into fragments.
-- Add a language by adding it to `LOCALES` in `src/i18n/locales.ts` and dropping in
-  `messages/<code>.json`. `test/i18n-catalog.test.ts` fails if a supported locale has no catalog.
 
 ## Before you edit
 

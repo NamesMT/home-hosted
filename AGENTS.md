@@ -58,6 +58,8 @@ pnpm dev                           # tsx-watch panel :6000 + the stock UI's Vite
 pnpm dev --ui noc-console          # the same, for another UI; --port/--ui-port override
 pnpm run build                     # dist/cli.js + the stock UI (uis/stock/dist)
 pnpm run build:uis                 # every UI under uis/, zipped into uis/dist/ (release assets)
+pnpm run build:locales             # i18n/i18n.csv -> the git-ignored i18n/generated/*.json (also
+                                   #   runs on install and before every UI build)
 pnpm run quickcheck                # eslint + tsc + vue-tsc + the doc links — NOT the tests
 pnpm exec vitest run               # `pnpm test` is vitest in watch mode
 pnpm run check                     # ← THE GATE: quickcheck + vitest run --coverage. Run before every

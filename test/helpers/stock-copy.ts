@@ -3,32 +3,35 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
- * Reading the stock UI's English catalogs from a panel-side test.
+ * Reading the stock UI's English catalog from a panel-side test.
  *
  * Three panel tests used to assert a piece of UI copy by grepping the `.vue` source for its English
  * text (`test/services/removal-copy.test.ts`, `test/services/dependency-hint.test.ts`,
  * `test/config/head-body-hint.test.ts`). Once the UI translates its strings the literal is gone
- * from the source — it lives in `uis/stock/src/i18n/messages/en/` — and the assertion fails for a
- * reason that has nothing to do with the rule it exists to protect.
+ * from the source, and the assertion fails for a reason that has nothing to do with the rule it
+ * exists to protect.
  *
- * The durable form is to assert on the *copy itself*, wherever it is stored: the sentence a person
- * reads is what these tests are about. So this resolves a catalog key to its English message, the
- * same value the UI renders, and the tests keep pinning the wording rather than its location.
+ * The durable form is to assert on the *copy itself*: the sentence a person reads is what these
+ * tests are about. So this resolves a catalog key to its English message, the same value the UI
+ * renders, and the tests keep pinning the wording rather than its location.
+ *
+ * The catalog is generated from `uis/stock/i18n/i18n.csv` (see `scripts/build-locales.mjs`) and
+ * git-ignored, so a missing file means `pnpm install` has not run — say that, rather than letting
+ * the test fail on an unrelated assertion.
  *
  * English only, on purpose: the panel ships no other language, and these assertions are about what
  * the shipped stock UI says in its default language.
  */
 const root = fileURLToPath(new URL('../..', import.meta.url))
-const englishDir = path.join(root, 'uis', 'stock', 'src', 'i18n', 'messages', 'en')
+const englishFile = path.join(root, 'uis', 'stock', 'i18n', 'generated', 'en.json')
 
 type Message = string | Record<string, string>
 
 function loadEnglish(): Record<string, Message> {
-  const catalog: Record<string, Message> = {}
-  for (const file of fs.readdirSync(englishDir).filter(name => name.endsWith('.json'))) {
-    Object.assign(catalog, JSON.parse(fs.readFileSync(path.join(englishDir, file), 'utf8')))
+  if (!fs.existsSync(englishFile)) {
+    throw new Error(`${path.relative(root, englishFile)} is missing — run \`pnpm run build:locales\``)
   }
-  return catalog
+  return JSON.parse(fs.readFileSync(englishFile, 'utf8')) as Record<string, Message>
 }
 
 const english = loadEnglish()
@@ -42,7 +45,7 @@ const english = loadEnglish()
 export function stockCopy(key: string, params: Record<string, string> = {}): string {
   const message = english[key]
   if (message === undefined)
-    throw new Error(`no English catalog entry for "${key}" — uis/stock/src/i18n/messages/en/`)
+    throw new Error(`no English catalog entry for "${key}" — uis/stock/i18n/i18n.csv`)
   if (typeof message !== 'string') {
     // A plural entry: the caller is asserting on wording, so the `other` form is the one to read.
     const other = message.other

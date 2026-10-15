@@ -70,3 +70,6 @@ state/
 # be committed are ignored wherever they land. `servers.config.json` stays
 # trackable on purpose: versioning your server definitions is a real workflow.
 .control-secrets.json
+
+# generated i18n catalogs (built from `uis/*/i18n/i18n.csv` by scripts/build-locales.mjs)
+uis/*/i18n/generated/

@@ -263,6 +263,9 @@ importers:
       splitpanes:
         specifier: ^4.1.2
         version: 4.1.2(vue@3.5.43(typescript@6.0.3))
+      spreadsheet-i18n:
+        specifier: ^0.3.12
+        version: 0.3.12
       tailwind-merge:
         specifier: ^3.7.0
         version: 3.7.0
@@ -546,6 +549,11 @@ packages:
         optional: true
       oxlint:
         optional: true
+
+  '@e965/xlsx@0.20.3':
+    resolution: {integrity: sha512-703RN/3OdsRD5mtse2HBX7Um7xwaP9tlswEG6svOtjqokXoX7rJdQj7DyabD2I+xk22RgaIIU+R6BHgkpZGB/w==}
+    engines: {node: '>=0.8'}
+    hasBin: true
 
   '@es-joy/jsdoccomment@0.92.0':
     resolution: {integrity: sha512-WivZqV5jPTYDQJgIMp0hTsyQESKYNY6yCJr4b0l84tYtQntkAMkc6zARh2vlRQyeg4aYHPUkCUDpvr2IWAiGpQ==}
@@ -2712,6 +2720,9 @@ packages:
   package-manager-detector@1.8.0:
     resolution: {integrity: sha512-yQA4H19AmPEoMUeavPMDIe1higySl/gH/yaQrkT/s07Qp+7pp2hYz30N3z2l5BkjVkF9Ow6o0wjJamm2y7Sn0A==}
 
+  papaparse@5.7.0:
+    resolution: {integrity: sha512-qBGxg/7Q3Kl9Wfhrz2Z74UnvnHTXLNG6jmKJFeBvP2+y4lV7So+7SR62+Zd47JvdrCkX+nDcnr0ObPzek/+6RA==}
+
   parse-gitignore@2.0.0:
     resolution: {integrity: sha512-RmVuCHWsfu0QPNW+mraxh/xjQVw/lhUCUru8Zni3Ctq3AoMhpDTq0OVdKS6iesd6Kqb7viCV3isAL43dciOSog==}
     engines: {node: '>=14'}
@@ -2926,6 +2937,10 @@ packages:
     peerDependencies:
       vue: ^3.2.0
 
+  spreadsheet-i18n@0.3.12:
+    resolution: {integrity: sha512-3oD+d1Qjc2y6XBrZ3PZh64cUNb1mTHa4AXTYaZne+whyFBeO5wvi1bW69Tv//ZV/Tiku1gkMjze4b24TyZKpng==}
+    engines: {node: '>=20'}
+
   srvx@1.0.5:
     resolution: {integrity: sha512-KvSKRpgPG/oaq3cyT614OQ2bAa7DynuGamivCZeoZzIUULOdbQz6wUtnnVuC4+DCx2Zglzo8v5gBYmWIWYhDxA==}
     engines: {node: '>=20.16.0'}
@@ -2933,6 +2948,9 @@ packages:
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
+
+  std-env@3.10.0:
+    resolution: {integrity: sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg==}
 
   std-env@4.2.0:
     resolution: {integrity: sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw==}
@@ -3665,6 +3683,8 @@ snapshots:
       verkit: 0.4.1
     optionalDependencies:
       eslint: 10.11.0(jiti@2.7.0)(supports-color@7.2.0)
+
+  '@e965/xlsx@0.20.3': {}
 
   '@es-joy/jsdoccomment@0.92.0':
     dependencies:
@@ -5894,6 +5914,8 @@ snapshots:
 
   package-manager-detector@1.8.0: {}
 
+  papaparse@5.7.0: {}
+
   parse-gitignore@2.0.0: {}
 
   parse-imports-exports@0.2.4:
@@ -6091,9 +6113,20 @@ snapshots:
     dependencies:
       vue: 3.5.43(typescript@6.0.3)
 
+  spreadsheet-i18n@0.3.12:
+    dependencies:
+      '@e965/xlsx': 0.20.3
+      consola: 3.4.2
+      defu: 6.1.7
+      papaparse: 5.7.0
+      std-env: 3.10.0
+      tinyglobby: 0.2.17
+
   srvx@1.0.5: {}
 
   stackback@0.0.2: {}
+
+  std-env@3.10.0: {}
 
   std-env@4.2.0: {}
 

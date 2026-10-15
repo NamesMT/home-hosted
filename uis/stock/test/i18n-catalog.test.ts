@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseCsvData } from 'spreadsheet-i18n'
 import { describe, expect, it } from 'vitest'
 import { LOCALES } from '../src/i18n/locales'
 
@@ -9,83 +10,165 @@ import { LOCALES } from '../src/i18n/locales'
  *
  * A missing key does not throw — `t()` renders the key name back, which looks like a typo in the
  * UI rather than a bug, and `t()` in a *template* of a component nobody tests is not exercised by
- * the suite at all. These are shape checks over the JSON, deliberately without a renderer.
+ * the suite at all. These are shape checks, deliberately without a renderer.
+ *
+ * They read the **CSV**, the source of truth, not the generated JSON. A generated file cannot drift
+ * from the sheet it came from; the sheet is where a translator's mistake lives, and one missing cell
+ * there is what silently falls back to English.
  */
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
-const messagesDir = path.join(root, 'src', 'i18n', 'messages')
-const englishDir = path.join(messagesDir, 'en')
+const sheetPath = path.join(root, 'i18n', 'i18n.csv')
+const generatedDir = path.join(root, 'i18n', 'generated')
 
 type Catalog = Record<string, unknown>
 
-/** The plural categories a message object may use, in CLDR order. */
-const PLURAL_CATEGORIES = new Set(['zero', 'one', 'two', 'few', 'many', 'other'])
+/** One sheet row: the key column, then one column per locale. */
+type SheetRow = Record<string, string>
 
-function readEnglish(): Record<string, Catalog> {
-  const out: Record<string, Catalog> = {}
-  for (const file of fs.readdirSync(englishDir).filter(name => name.endsWith('.json')))
-    out[file] = JSON.parse(fs.readFileSync(path.join(englishDir, file), 'utf8')) as Catalog
-  return out
+function readSheet(): SheetRow[] {
+  // `parseCsvData` is the library's own reader; `delimiter: undefined` asks it to auto-detect.
+  const { data } = parseCsvData({ csvString: fs.readFileSync(sheetPath, 'utf8'), delimiter: undefined, logName: 'i18n.csv' })
+  return data as SheetRow[]
 }
 
-/** Every key any catalog defines, and which files define it. */
-function keyOwners(): Map<string, string[]> {
-  const owners = new Map<string, string[]>()
-  for (const [file, catalog] of Object.entries(readEnglish())) {
-    for (const key of Object.keys(catalog)) {
-      const list = owners.get(key) ?? []
-      list.push(file)
-      owners.set(key, list)
+/** The sheet's `KEY` column, split into the key itself and its plural category when it has one. */
+function splitKey(raw: string): { key: string, category: string | null } {
+  const match = /^(.*)\[(\w+)\]$/.exec(raw)
+  return match === null ? { key: raw, category: null } : { key: match[1]!, category: match[2]! }
+}
+
+/** The English message for a key, folding plural rows back into the object the catalog holds. */
+function readEnglish(): Catalog {
+  const catalog: Catalog = {}
+  const plurals = new Map<string, Record<string, string>>()
+  for (const row of readSheet()) {
+    const raw = String(row.KEY ?? '')
+    if (raw.length === 0)
+      continue
+    const { key, category } = splitKey(raw)
+    const value = String(row.en ?? '')
+    if (category === null) {
+      catalog[key] = value
+      continue
     }
+    const forms = plurals.get(key) ?? {}
+    forms[category] = value
+    plurals.set(key, forms)
   }
-  return owners
+  for (const [key, forms] of plurals)
+    catalog[key] = forms
+  return catalog
 }
 
-describe('english catalog shape', () => {
-  it('defines every key exactly once across the fragments', () => {
-    // Two fragments defining one key is silent: the merge order decides the winner, so the
-    // wording of a screen would depend on `readdir` order.
-    const duplicates = [...keyOwners()].filter(([, files]) => files.length > 1)
-    expect(duplicates.map(([key, files]) => `${key} in ${files.join(', ')}`)).toEqual([])
+describe('the sheet', () => {
+  it('defines every key exactly once', () => {
+    // A repeated key is silent: the later row wins in the generated JSON, so the wording of a
+    // screen depends on row order.
+    const seen = new Map<string, number>()
+    for (const row of readSheet()) {
+      const raw = String(row.KEY ?? '')
+      if (raw.length === 0)
+        continue
+      seen.set(raw, (seen.get(raw) ?? 0) + 1)
+    }
+    const duplicates = [...seen].filter(([, count]) => count > 1).map(([key]) => key)
+    expect(duplicates).toEqual([])
   })
 
-  it('uses flat dotted keys, never a nested object', () => {
-    // A nested entry cannot be reached by a flat lookup, and it would silently shadow the
-    // literal key beside it. Plural values are the one object allowed, and only with plural
-    // category members.
+  it('carries a column for every supported locale', () => {
+    // A locale with no column generates no catalog, and the picker then shows a language that
+    // never loads.
+    const header = Object.keys(readSheet()[0] ?? {})
+    expect(LOCALES.filter(locale => !header.includes(locale.code)).map(locale => locale.code)).toEqual([])
+  })
+
+  it('never puts a comma-separated list in the KEY column', () => {
+    // `parseCsvData` treats extra columns as fields, so a stray comma in a key silently becomes
+    // an unnamed column rather than an error.
+    const offenders = readSheet()
+      .map(row => String(row.KEY ?? ''))
+      .filter(key => key.includes(','))
+    expect(offenders).toEqual([])
+  })
+
+  it('balances the placeholders in every cell', () => {
+    // A translator dropping a brace renders a sentence with the value missing, and no type can
+    // see it. Checked per cell rather than per key, so the locale that broke it is named.
     const offenders: string[] = []
-    for (const [file, catalog] of Object.entries(readEnglish())) {
-      for (const [key, value] of Object.entries(catalog)) {
-        if (value === null || typeof value !== 'object')
+    for (const row of readSheet()) {
+      for (const locale of LOCALES) {
+        const value = String(row[locale.code] ?? '')
+        // An absent category has no message to balance.
+        if (value.length === 0)
           continue
-        const members = Object.keys(value as Catalog)
-        const pluralOnly = members.length > 0 && members.every(member => PLURAL_CATEGORIES.has(member))
-        if (!pluralOnly)
-          offenders.push(`${file}: ${key} -> ${members.join('|')}`)
+        const opens = (value.match(/\{/g) ?? []).length
+        const closes = (value.match(/\}/g) ?? []).length
+        if (opens !== closes)
+          offenders.push(`${row.KEY} [${locale.code}]: ${value}`)
       }
     }
     expect(offenders).toEqual([])
   })
 
-  it('writes every placeable holder as a real placeholder', () => {
-    // `t()` interpolates `{name}`. A message that names a value but never holds a placeholder
-    // renders a sentence with the value missing, which no type can catch.
+  it('keeps each translation’s placeholders the same as the English', () => {
+    // The drift this sheet exists to make visible: a translation that renames a placeholder
+    // renders the raw `{name}` at runtime, because `t()` only substitutes what it is given.
+    const rows = readSheet()
+    const englishOf = new Map<string, string>()
+    for (const row of rows)
+      englishOf.set(String(row.KEY ?? ''), String(row.en ?? ''))
+
     const offenders: string[] = []
-    for (const [key, value] of Object.entries(flatten(readEnglish()))) {
-      if (typeof value !== 'string')
-        continue
-      const opens = (value.match(/\{/g) ?? []).length
-      const closes = (value.match(/\}/g) ?? []).length
-      if (opens !== closes)
-        offenders.push(`${key}: ${value}`)
+    for (const row of rows) {
+      const raw = String(row.KEY ?? '')
+      const { key, category } = splitKey(raw)
+      // A category English does not fill is compared against `other`, which is the form its
+      // readers and ours both fall back to for that category.
+      const english = englishOf.get(raw) || (category === null ? '' : englishOf.get(`${key}[other]`) ?? '')
+      const en = new Set(english.match(/\{(\w+)\}/g) ?? [])
+      for (const locale of LOCALES) {
+        if (locale.code === 'en')
+          continue
+        // An empty cell is a category this language does not have, not a translation that
+        // dropped a placeholder — the emptiness check owns that case.
+        if (String(row[locale.code] ?? '').length === 0)
+          continue
+        const found = new Set(String(row[locale.code] ?? '').match(/\{(\w+)\}/g) ?? [])
+        const missing = [...en].filter(name => !found.has(name))
+        const extra = [...found].filter(name => !en.has(name))
+        if (missing.length > 0 || extra.length > 0)
+          offenders.push(`${raw} [${locale.code}]: missing ${missing.join(',') || '—'} / extra ${extra.join(',') || '—'}`)
+      }
     }
     expect(offenders).toEqual([])
   })
 
-  it('has no empty message', () => {
-    const empties = Object.entries(flatten(readEnglish()))
-      .filter(([, value]) => typeof value === 'string' && value.trim().length === 0)
-      .map(([key]) => key)
-    expect(empties).toEqual([])
+  it('fills every message, or provides the `other` its runtime falls back to', () => {
+    // A blank plural cell means "this language has no such category" — Spanish `many` is only
+    // reachable at a million, and reads fine from `other`. Blank is therefore only safe when
+    // `other` is filled, because `pluralRules` resolves a missing category as `raw.other`.
+    // A blank *non-plural* cell renders nothing at all.
+    const rows = readSheet()
+    const others = new Set<string>()
+    for (const row of rows) {
+      const { key, category } = splitKey(String(row.KEY ?? ''))
+      if (category === 'other' && String(row.en ?? '').trim().length > 0)
+        others.add(key)
+    }
+
+    const offenders: string[] = []
+    for (const row of rows) {
+      const { key, category } = splitKey(String(row.KEY ?? ''))
+      for (const locale of LOCALES) {
+        if (String(row[locale.code] ?? '').trim().length > 0)
+          continue
+        if (category === null)
+          offenders.push(`${row.KEY} [${locale.code}] renders nothing`)
+        else if (!String(row[`${key}[other]` as never] ?? '').length && !others.has(key))
+          offenders.push(`${row.KEY} [${locale.code}] and no \`other\` to fall back to`)
+      }
+    }
+    expect(offenders).toEqual([])
   })
 })
 
@@ -128,52 +211,53 @@ describe('locale coverage', () => {
     expect(new Set(codes).size).toBe(codes.length)
   })
 
-  it('ships a catalog for every locale that is not the default', () => {
-    // A locale with no catalog file would load nothing and render English forever, which looks
-    // like a broken picker rather than a missing file.
+  it('generated a catalog for every locale that is not the default', () => {
+    // The generated directory is git-ignored, so it is built by `pnpm install`. A locale missing
+    // here would load nothing and render English forever, which looks like a broken picker.
     const missing = LOCALES
       .filter(locale => locale.code !== 'en')
-      .filter(locale => !fs.existsSync(path.join(messagesDir, `${locale.code}.json`)))
+      .filter(locale => !fs.existsSync(path.join(generatedDir, `${locale.code}.json`)))
       .map(locale => locale.code)
     expect(missing).toEqual([])
   })
 
-  it('translates every key into every locale', () => {
-    // A partial catalog does not fail loudly — the English fallback fills each gap, so a language
-    // that is 90% translated looks fine until someone opens the one screen nobody checked. The
-    // count is the only signal, so it is asserted rather than eyeballed.
-    const english = [...englishKeys().keys()]
-    const report: string[] = []
+  it('matches the sheet it was generated from', () => {
+    // The JSON is generated, so it cannot drift on its own — but a stale directory can survive an
+    // edit to the sheet, and the app renders the JSON. This is what makes that impossible.
     for (const locale of LOCALES) {
-      if (locale.code === 'en')
-        continue
-      const catalog = JSON.parse(fs.readFileSync(path.join(messagesDir, `${locale.code}.json`), 'utf8')) as Catalog
-      const absent = english.filter(key => !(key in catalog))
-      if (absent.length > 0)
-        report.push(`${locale.code}: ${absent.length} untranslated (e.g. ${absent.slice(0, 3).join(', ')})`)
+      const file = path.join(generatedDir, `${locale.code}.json`)
+      const generated = JSON.parse(fs.readFileSync(file, 'utf8')) as Catalog
+      const expected: Catalog = {}
+      const plurals = new Map<string, Record<string, string>>()
+      for (const row of readSheet()) {
+        const raw = String(row.KEY ?? '')
+        if (raw.length === 0)
+          continue
+        const { key, category } = splitKey(raw)
+        const value = String(row[locale.code] ?? '')
+        if (category === null) {
+          expected[key] = value
+          continue
+        }
+        // An empty cell is "this language has no such category" — Russian has `few`/`many`,
+        // English does not, and the generated object holds only the forms that are filled.
+        if (value.length === 0)
+          continue
+        const forms = plurals.get(key) ?? {}
+        forms[category] = value
+        plurals.set(key, forms)
+      }
+      for (const [key, forms] of plurals)
+        expected[key] = forms
+      expect(generated, `${locale.code} is stale — run \`pnpm run build:locales\``).toEqual(expected)
     }
-    expect(report).toEqual([])
   })
 })
 
-/**
- * Every key the English catalogs define, as a flat map.
- *
- * Exported for the completeness test below and for the translation pass, so a translator works
- * from the same list the guard checks.
- */
+/** Every key the sheet defines, as a flat map. */
 function englishKeys(catalogs = readEnglish()): Map<string, unknown> {
   const out = new Map<string, unknown>()
-  for (const catalog of Object.values(catalogs)) {
-    for (const [key, value] of Object.entries(catalog))
-      out.set(key, value)
-  }
-  return out
-}
-
-function flatten(catalogs: Record<string, Catalog>): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const catalog of Object.values(catalogs))
-    Object.assign(out, catalog)
+  for (const [key, value] of Object.entries(catalogs))
+    out.set(key, value)
   return out
 }
