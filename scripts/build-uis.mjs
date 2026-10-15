@@ -55,7 +55,7 @@ async function zipDirectory(sourceDir, target) {
   await writer.close()
 }
 
-// The catalogs are generated from each UI's `i18n/i18n.csv` and git-ignored, so build them before
+// The catalogs are generated from each UI's `i18n/sheets/` and git-ignored, so build them before
 // Vite resolves the globs — a build from a stale sheet would ship the wrong strings.
 execFileSync(pnpm, ['run', 'build:locales'], { cwd: root, stdio: 'inherit' })
 

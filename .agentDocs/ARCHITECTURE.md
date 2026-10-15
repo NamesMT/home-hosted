@@ -144,15 +144,26 @@ by hand: does a UI *call* the changed export at runtime (`serverPatchSchema` is 
 by both UIs before they send), or does it read it as a *type* only (`serverSchema` is)? Only the
 former changes the asset, and it bumps every UI that calls it.
 
-**A UI's strings live in one CSV, and its catalogs are generated.** `uis/<name>/i18n/i18n.csv` is the
-source of truth — one row per string, one column per language — and `scripts/build-locales.mjs`
-turns it into the `i18n/generated/*.json` the app imports. That directory is git-ignored and rebuilt
-by `pnpm install` and by every UI build, so a stale catalog cannot be committed; the sheet is what a
-reviewer reads, and an untranslated string is a visibly empty cell rather than an absent file. A
-plural is one row per CLDR category (`key[one]`, `key[few]`, …), which `spreadsheet-i18n` cannot fold
-back itself — it writes flat strings — so `build-locales.mjs` does. The generated JSON is therefore
-*generated*, and neither the sheet nor the JSON is a build input a `ui.json` bump should chase: a
-wording change ships a different UI, so it bumps like any other source edit.
+**A UI's strings live in CSV sheets, and its catalogs are generated.** `uis/<name>/i18n/sheets/` is
+the source of truth — one row per string, one column per language — and `scripts/build-locales.mjs`
+merges every sheet into the `i18n/generated/*.json` the app imports. That directory is git-ignored and
+rebuilt by `pnpm install` and by every UI build, so a stale catalog cannot be committed; the sheets
+are what a reviewer reads, and an untranslated string is a visibly empty cell rather than an absent
+file.
+
+**The sheets are sharded by key prefix, and that is about how they are read.** One 462 KB file was
+returned whole by a single read — 1264 lines is under a reader's page limit — costing ~118K tokens
+for one wording fix, and its three largest areas alone were 20–42K each. A sheet is named after the
+key's own prefix (`settings.ddns.csv`), which makes "where does this string live" a property of the
+key rather than a choice; `settings`/`proxy`/`views` shard one level deeper because they are large.
+`test/i18n-catalog.test.ts` enforces the home, a per-file size budget, and — because multiple sheets
+now merge, and the library's merge keeps the *last* definition silently — that no key is defined
+twice.
+
+A plural is one row per CLDR category (`key[one]`, `key[few]`, …), which `spreadsheet-i18n` cannot
+fold back itself — it writes flat strings — so `build-locales.mjs` does. The generated JSON is
+therefore *generated*, and neither the sheets nor the JSON is a build input a `ui.json` bump should
+chase: a wording change ships a different UI, so it bumps like any other source edit.
 
 ## How to test
 

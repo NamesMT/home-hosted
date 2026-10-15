@@ -1,0 +1,14 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+nav.global,Global,Toàn cục,全局,全体,Global,전역,Общее,Global,Global
+nav.workspace,Workspace,Không gian làm việc,工作区,ワークスペース,Espacio de trabajo,워크스페이스,Рабочее пространство,Espace de travail,Arbeitsbereich
+nav.others,Others,Khác,其他,その他,Otros,기타,Прочее,Autres,Sonstiges
+nav.overview,Overview,Tổng quan,概览,概要,Resumen,개요,Обзор,Vue d'ensemble,Übersicht
+nav.servers,Servers,Máy chủ,服务器,サーバー,Servidores,서버,Серверы,Serveurs,Server
+nav.logs,Logs,Nhật ký,日志,ログ,Registros,로그,Журналы,Journaux,Protokolle
+nav.workspaceSettings,Workspace settings,Cài đặt không gian làm việc,工作区设置,ワークスペース設定,Ajustes del espacio de trabajo,워크스페이스 설정,Настройки рабочего пространства,Paramètres de l'espace de travail,Arbeitsbereich-Einstellungen
+nav.globalOverview,Global Overview,Tổng quan toàn cục,全局概览,全体概要,Resumen global,전역 개요,Общий обзор,Vue d'ensemble globale,Globale Übersicht
+nav.globalSettings,Global settings,Cài đặt toàn cục,全局设置,全体設定,Ajustes globales,전역 설정,Общие настройки,Paramètres globaux,Globale Einstellungen
+nav.reverseProxy,Reverse Proxy,Reverse Proxy,反向代理,リバースプロキシ,Proxy inverso,리버스 프록시,Обратный прокси,Proxy inverse,Reverse-Proxy
+nav.navigation,Navigation,Điều hướng,导航,ナビゲーション,Navegación,탐색,Навигация,Navigation,Navigation
+nav.closeNavigation,Close navigation,Đóng điều hướng,关闭导航,ナビゲーションを閉じる,Cerrar la navegación,탐색 닫기,Закрыть навигацию,Fermer la navigation,Navigation schließen
+nav.hostVitals,Host vitals,Chỉ số máy chủ,主机指标,ホストの状態,Estado del host,호스트 상태,Показатели хоста,Santé de l'hôte,Host-Werte

@@ -1,0 +1,4 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+bind.local,local — 127.0.0.1,local — 127.0.0.1,local — 127.0.0.1,local — 127.0.0.1,local — 127.0.0.1,local — 127.0.0.1,local — 127.0.0.1,local — 127.0.0.1,local — 127.0.0.1
+bind.lan,lan — 0.0.0.0,lan — 0.0.0.0,lan — 0.0.0.0,lan — 0.0.0.0,lan — 0.0.0.0,lan — 0.0.0.0,lan — 0.0.0.0,lan — 0.0.0.0,lan — 0.0.0.0
+bind.explicit,{bind} — explicit,{bind} — chỉ định rõ,{bind} — 显式指定,{bind} — 明示,{bind} — explícito,{bind} — 명시적,{bind} — явно,{bind} — explicite,{bind} — explizit

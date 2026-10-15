@@ -1,0 +1,9 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+servers.total[one],{count} server,,,,{count} servidor,,{count} сервер,{count} serveur,{count} Server
+servers.total[few],,,,,,,{count} сервера,,
+servers.total[many],,,,,,,{count} серверов,,
+servers.total[other],{count} servers,{count} máy chủ,{count} 台服务器,{count} 台のサーバー,{count} servidores,서버 {count}개,{count} сервера,{count} serveurs,{count} Server
+servers.running[one],{count} running,,,,{count} en ejecución,,{count} работает,{count} en cours,{count} läuft
+servers.running[few],,,,,,,{count} работают,,
+servers.running[many],,,,,,,{count} работают,,
+servers.running[other],{count} running,{count} đang chạy,{count} 台运行中,{count} 台実行中,{count} en ejecución,{count}개 실행 중,{count} работают,{count} en cours,{count} laufen

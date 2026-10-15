@@ -1,0 +1,7 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+history.start,Started,Đã khởi động,已启动,起動しました,Iniciado,시작됨,Запущен,Démarré,Gestartet
+history.exit,Exited,Đã thoát,已退出,終了しました,Salido,종료됨,Завершён,Arrêté,Beendet
+history.crash,Crashed,Gặp sự cố,已崩溃,クラッシュしました,Bloqueado,충돌함,Аварийно завершился,Planté,Abgestürzt
+history.forcedRestart,Forced restart,Buộc khởi động lại,强制重启,強制再起動,Reinicio forzado,강제 재시작,Принудительный перезапуск,Redémarrage forcé,Erzwungener Neustart
+history.unhealthy,Unhealthy,Bất thường,异常,異常,Con fallos,비정상,Неисправен,En panne,Ungesund
+history.recovered,Recovered,Đã phục hồi,已恢复,復旧しました,Recuperado,복구됨,Восстановлен,Rétabli,Wiederhergestellt

@@ -17,18 +17,42 @@ import { LOCALES } from '../src/i18n/locales'
  * there is what silently falls back to English.
  */
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
-const sheetPath = path.join(root, 'i18n', 'i18n.csv')
+const sheetsDir = path.join(root, 'i18n', 'sheets')
 const generatedDir = path.join(root, 'i18n', 'generated')
 
 type Catalog = Record<string, unknown>
 
-/** One sheet row: the key column, then one column per locale. */
-type SheetRow = Record<string, string>
+/** One sheet row, with the file it came from: the key column, then one column per locale. */
+type SheetRow = Record<string, string> & { __sheet: string }
 
+/** The sheet filenames, without their extension. */
+function sheetNames(): string[] {
+  return fs.readdirSync(sheetsDir).filter(name => name.endsWith('.csv')).map(name => name.slice(0, -4)).sort()
+}
+
+/** Every row of every sheet, tagged with its sheet so a guard can name where a key lives. */
 function readSheet(): SheetRow[] {
-  // `parseCsvData` is the library's own reader; `delimiter: undefined` asks it to auto-detect.
-  const { data } = parseCsvData({ csvString: fs.readFileSync(sheetPath, 'utf8'), delimiter: undefined, logName: 'i18n.csv' })
-  return data as SheetRow[]
+  const rows: SheetRow[] = []
+  for (const name of sheetNames()) {
+    const file = path.join(sheetsDir, `${name}.csv`)
+    // `parseCsvData` is the library's own reader; `delimiter: undefined` asks it to auto-detect.
+    const { data } = parseCsvData({ csvString: fs.readFileSync(file, 'utf8'), delimiter: undefined, logName: `${name}.csv` })
+    for (const row of data as Record<string, string>[])
+      rows.push({ ...row, __sheet: name })
+  }
+  return rows
+}
+
+/**
+ * The sheet a key belongs in, per the rule `i18n/sheets/README.md` states: the key's own prefix,
+ * one level deeper for the three prefixes large enough to shard.
+ */
+const DEEP_PREFIXES = new Set(['settings', 'proxy', 'views'])
+function homeSheet(key: string): string {
+  const segments = key.split('.')
+  return segments[0] !== undefined && DEEP_PREFIXES.has(segments[0]) && segments.length > 1
+    ? `${segments[0]}.${segments[1]}`
+    : segments[0]!
 }
 
 /** The generated catalog for `code`, with the fix named when a clone has none yet. */
@@ -68,26 +92,64 @@ function readEnglish(): Catalog {
   return catalog
 }
 
-describe('the sheet', () => {
-  it('defines every key exactly once', () => {
-    // A repeated key is silent: the later row wins in the generated JSON, so the wording of a
-    // screen depends on row order.
-    const seen = new Map<string, number>()
+describe('the sheets', () => {
+  it('defines every key exactly once across all sheets', () => {
+    // A repeated key is silent and *worse* than in one file: the library merges sheets in glob
+    // order, so the last one wins and the wording depends on filenames rather than on anything
+    // anyone decided. Verified against the library, not assumed.
+    const seen = new Map<string, string[]>()
     for (const row of readSheet()) {
       const raw = String(row.KEY ?? '')
       if (raw.length === 0)
         continue
-      seen.set(raw, (seen.get(raw) ?? 0) + 1)
+      seen.set(raw, [...(seen.get(raw) ?? []), row.__sheet])
     }
-    const duplicates = [...seen].filter(([, count]) => count > 1).map(([key]) => key)
+    const duplicates = [...seen]
+      .filter(([, sheets]) => sheets.length > 1)
+      .map(([key, sheets]) => `${key} in ${sheets.join(', ')}`)
     expect(duplicates).toEqual([])
   })
 
-  it('carries a column for every supported locale', () => {
-    // A locale with no column generates no catalog, and the picker then shows a language that
-    // never loads.
-    const header = Object.keys(readSheet()[0] ?? {})
-    expect(LOCALES.filter(locale => !header.includes(locale.code)).map(locale => locale.code)).toEqual([])
+  it('keeps every key in the sheet its own prefix names', () => {
+    // The rule from `i18n/sheets/README.md`. Without this a key lands wherever it was typed, and
+    // "which file is this string in" stops having an answer.
+    const offenders: string[] = []
+    for (const row of readSheet()) {
+      const key = String(row.KEY ?? '').split('[')[0]!
+      if (key.length === 0)
+        continue
+      const home = homeSheet(key)
+      if (row.__sheet !== home)
+        offenders.push(`${key} is in ${row.__sheet}.csv, belongs in ${home}.csv`)
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('keeps every sheet small enough to read whole', () => {
+    // Why the sheets exist: one 462 KB file was returned in full by a single read (~118K tokens).
+    // A budget here stops that creeping back once a sheet grows past the point of being usable.
+    const BUDGET_KB = 32
+    const offenders: string[] = []
+    for (const name of sheetNames()) {
+      const kb = fs.statSync(path.join(sheetsDir, `${name}.csv`)).size / 1024
+      if (kb > BUDGET_KB)
+        offenders.push(`${name}.csv is ${kb.toFixed(0)} KB (budget ${BUDGET_KB} KB) — shard it further`)
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('gives every sheet a column for every supported locale', () => {
+    // A sheet missing a locale's column drops those strings from that catalog, and the picker then
+    // shows a language with English showing through.
+    const offenders: string[] = []
+    for (const name of sheetNames()) {
+      const rows = readSheet().filter(row => row.__sheet === name)
+      const header = Object.keys(rows[0] ?? {})
+      const absent = LOCALES.filter(locale => !header.includes(locale.code)).map(locale => locale.code)
+      if (absent.length > 0)
+        offenders.push(`${name}.csv: ${absent.join(', ')}`)
+    }
+    expect(offenders).toEqual([])
   })
 
   it('never puts a comma-separated list in the KEY column', () => {

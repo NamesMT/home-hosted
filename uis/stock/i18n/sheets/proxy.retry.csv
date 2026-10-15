@@ -1,0 +1,10 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+proxy.retry.inFallback,~8 hours,~8 giờ,约 8 小时,約 8 時間,~8 horas,약 8시간,~8 часов,~8 heures,~8 Stunden
+proxy.retry.inMinutes[one],~{count} minute,~{count} phút,约 {count} 分钟,約 {count} 分,~{count} minuto,약 {count}분,~{count} минуту,~{count} minute,~{count} Minute
+proxy.retry.inMinutes[few],,,,,,,~{count} минуты,,
+proxy.retry.inMinutes[many],,,,,,,~{count} минут,,
+proxy.retry.inMinutes[other],~{count} minutes,~{count} phút,约 {count} 分钟,約 {count} 分,~{count} minutos,약 {count}분,~{count} минуты,~{count} minutes,~{count} Minuten
+proxy.retry.inHours[one],~{count} hour,~{count} giờ,约 {count} 小时,約 {count} 時間,~{count} hora,약 {count}시간,~{count} час,~{count} heure,~{count} Stunde
+proxy.retry.inHours[few],,,,,,,~{count} часа,,
+proxy.retry.inHours[many],,,,,,,~{count} часов,,
+proxy.retry.inHours[other],~{count} hours,~{count} giờ,约 {count} 小时,約 {count} 時間,~{count} horas,약 {count}시간,~{count} часа,~{count} heures,~{count} Stunden

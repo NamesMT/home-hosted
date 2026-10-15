@@ -1,0 +1,5 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+theme.label,Theme: {theme},Giao diện: {theme},主题：{theme},テーマ: {theme},Tema: {theme},테마: {theme},Тема: {theme},Thème : {theme},Design: {theme}
+theme.light,light,sáng,浅色,ライト,claro,라이트,светлая,clair,hell
+theme.dark,dark,tối,深色,ダーク,oscuro,다크,тёмная,sombre,dunkel
+theme.system,system,theo hệ thống,跟随系统,システム,sistema,시스템,системная,système,System

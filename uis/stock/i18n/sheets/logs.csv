@@ -1,0 +1,33 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+logs.lines[one],{count} line,,,,{count} línea,,{count} строка,{count} ligne,{count} Zeile
+logs.lines[few],,,,,,,{count} строки,,
+logs.lines[many],,,,,,,{count} строк,,
+logs.lines[other],{count} lines,{count} dòng,{count} 行,{count} 行,{count} líneas,{count}줄,{count} строки,{count} lignes,{count} Zeilen
+logs.emptyHint,No output yet.,Chưa có đầu ra.,暂无输出。,まだ出力はありません。,Aún no hay salida.,아직 출력이 없습니다.,Вывода пока нет.,Aucune sortie pour l'instant.,Noch keine Ausgabe.
+logs.noMatches,Nothing matches that search or stream filter.,Không có gì khớp với tìm kiếm hoặc bộ lọc luồng đó.,没有匹配该搜索或流筛选条件的内容。,この検索やストリームフィルターに一致するものはありません。,Nada coincide con esa búsqueda ni con ese filtro de flujo.,이 검색이나 스트림 필터와 일치하는 항목이 없습니다.,Ничего не соответствует этому поиску или фильтру потоков.,Rien ne correspond à cette recherche ni à ce filtre de flux.,Nichts passt zu dieser Suche oder diesem Stream-Filter.
+logs.searchPlaceholder,Search this output,Tìm trong đầu ra này,在此输出中搜索,この出力を検索,Buscar en esta salida,이 출력 검색,Искать в этом выводе,Rechercher dans cette sortie,Diese Ausgabe durchsuchen
+logs.searchLabel,Search the log output,Tìm trong đầu ra nhật ký,搜索日志输出,ログ出力を検索,Buscar en la salida del registro,로그 출력 검색,Искать в выводе журнала,Rechercher dans la sortie du journal,Die Protokollausgabe durchsuchen
+logs.clearSearch,Clear the search,Xoá tìm kiếm,清除搜索,検索を消去,Borrar la búsqueda,검색 지우기,Очистить поиск,Effacer la recherche,Die Suche leeren
+logs.prevMatch,Previous match,Kết quả trước,上一个匹配,前の一致,Coincidencia anterior,이전 일치,Предыдущее совпадение,Correspondance précédente,Vorheriger Treffer
+logs.nextMatch,Next match,Kết quả tiếp theo,下一个匹配,次の一致,Coincidencia siguiente,다음 일치,Следующее совпадение,Correspondance suivante,Nächster Treffer
+logs.showTimestamps,Show timestamps,Hiện dấu thời gian,显示时间戳,タイムスタンプを表示,Mostrar las marcas de tiempo,타임스탬프 표시,Показать отметки времени,Afficher les horodatages,Zeitstempel anzeigen
+logs.hideTimestamps,Hide timestamps,Ẩn dấu thời gian,隐藏时间戳,タイムスタンプを非表示,Ocultar las marcas de tiempo,타임스탬프 숨기기,Скрыть отметки времени,Masquer les horodatages,Zeitstempel ausblenden
+logs.timestampsShort,ts,ts,ts,ts,marca,ts,ts,horod.,ts
+logs.pause,Pause,Tạm dừng,暂停,一時停止,Pausar,일시 정지,Пауза,Pause,Pause
+logs.follow,Follow,Bám theo,跟随,追従,Seguir,따라가기,Следить,Suivre,Folgen
+logs.clearHint,Clear the in-memory buffer,Xoá bộ đệm trong bộ nhớ,清空内存中的缓冲,メモリ上のバッファーを消去,Vaciar el búfer en memoria,메모리 버퍼 비우기,Очистить буфер в памяти,Vider le tampon en mémoire,Den Puffer im Speicher leeren
+logs.clearLabel,Clear the log buffer,Xoá bộ đệm nhật ký,清空日志缓冲,ログバッファーを消去,Vaciar el búfer de registro,로그 버퍼 비우기,Очистить буфер журнала,Vider le tampon de journal,Den Protokollpuffer leeren
+logs.downloadHint,Download the persisted file,Tải tệp đã lưu,下载已持久化的文件,保存されたファイルをダウンロード,Descargar el archivo persistido,저장된 파일 다운로드,Скачать сохранённый файл,Télécharger le fichier conservé,Die gespeicherte Datei herunterladen
+logs.downloadLabel,Download the log file,Tải tệp nhật ký,下载日志文件,ログファイルをダウンロード,Descargar el archivo de registro,로그 파일 다운로드,Скачать файл журнала,Télécharger le fichier de journal,Die Protokolldatei herunterladen
+logs.outputLabel,Log output,Đầu ra nhật ký,日志输出,ログ出力,Salida del registro,로그 출력,Вывод журнала,Sortie du journal,Protokollausgabe
+logs.jumpToLatest,Jump to latest,Nhảy tới mới nhất,跳到最新,最新へ移動,Ir a lo más reciente,최신으로 이동,Перейти к последнему,Aller au plus récent,Zum Neuesten springen
+logs.streaming,streaming,đang truyền,流式传输中,ストリーミング中,en directo,스트리밍 중,поток,en direct,Streaming
+logs.paused,paused,đã tạm dừng,已暂停,一時停止中,en pausa,일시 정지됨,пауза,en pause,pausiert
+logs.snapshot,snapshot,ảnh chụp,快照,スナップショット,instantánea,스냅숏,снимок,instantané,Momentaufnahme
+logs.linesOf,{count} of {total} lines,{count} trong {total} dòng,{total} 行中的 {count} 行,{total} 行中 {count} 行,{count} de {total} líneas,{total}줄 중 {count}줄,{count} из {total} строк,{count} lignes sur {total},{count} von {total} Zeilen
+logs.matches,{count} matches,{count} kết quả,{count} 个匹配,{count} 件の一致,{count} coincidencias,{count}건 일치,{count} совпадений,{count} correspondances,{count} Treffer
+logs.rowHeight,row height {height}px · windowed,chiều cao dòng {height}px · dạng cửa sổ,行高 {height}px · 窗口化,行の高さ {height}px · ウィンドウ表示,altura de fila {height}px · virtualizada,행 높이 {height}px · 윈도 처리,высота строки {height}px · окно,hauteur de ligne {height}px · virtualisée,Zeilenhöhe {height}px · gefenstert
+logs.streamAll,All,Tất cả,全部,すべて,Todo,전체,Все,Tout,Alle
+logs.streamOut,out,out,out,out,sal,out,out,sortie,out
+logs.streamErr,err,err,err,err,err,err,err,err,err
+logs.streamSys,sys,sys,sys,sys,sis,sys,sys,sys,sys

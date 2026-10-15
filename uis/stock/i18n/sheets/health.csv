@@ -1,0 +1,5 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+health.disabled,Not checked,Không kiểm tra,未检查,未確認,Sin comprobar,확인 안 함,Не проверяется,Non vérifié,Nicht geprüft
+health.unknown,Not probed,Chưa dò,未探测,未プローブ,Sin sondear,검사 안 됨,Не проверен,Non sondé,Nicht getestet
+health.healthy,Healthy,Bình thường,正常,正常,Correcto,정상,Исправен,Sain,Gesund
+health.unhealthy,Unhealthy,Bất thường,异常,異常,Con fallos,비정상,Неисправен,En panne,Ungesund

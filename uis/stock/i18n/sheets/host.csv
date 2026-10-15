@@ -1,0 +1,12 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+host.loadPerCpu,Load / cpu,Tải / cpu,负载 / cpu,負荷 / cpu,Carga / cpu,부하 / cpu,Нагрузка / цп,Charge / cpu,Last / cpu
+host.cpuTemp,CPU temp,Nhiệt độ CPU,CPU 温度,CPU 温度,Temp. de la CPU,CPU 온도,Темп. ЦП,Temp. CPU,CPU-Temp.
+host.samplingOff,Host sampling is off,Lấy mẫu máy chủ đang tắt,主机采样已关闭,ホストのサンプリングはオフです,El muestreo del host está desactivado,호스트 샘플링이 꺼져 있습니다,Опрос хоста выключен,L'échantillonnage de l'hôte est désactivé,Host-Sampling ist aus
+host.samplingOffDescription,"Turn it on in Settings to collect load, memory, disk and temperature.","Bật trong Cài đặt để thu thập tải, bộ nhớ, đĩa và nhiệt độ.",在设置中开启以采集负载、内存、磁盘和温度。,負荷、メモリ、ディスク、温度を収集するには設定でオンにしてください。,"Actívalo en Ajustes para recopilar carga, memoria, disco y temperatura.","부하, 메모리, 디스크, 온도를 수집하려면 설정에서 켜세요.","Включите его в настройках, чтобы собирать нагрузку, память, диск и температуру.","Activez-le dans les paramètres pour collecter charge, mémoire, disque et température.","Aktivieren Sie es in den Einstellungen, um Last, Speicher, Speicherplatz und Temperatur zu erfassen."
+host.swap,Swap,Swap,交换分区,スワップ,Swap,스왑,Подкачка,Swap,Swap
+host.cpus,CPUs,CPU,CPU,CPU,CPU,CPU,ЦП,CPU,CPUs
+host.loadAverage,Load 1 / 5 / 15,Tải 1 / 5 / 15,负载 1 / 5 / 15,負荷 1 / 5 / 15,Carga 1 / 5 / 15,부하 1 / 5 / 15,Нагрузка 1 / 5 / 15,Charge 1 / 5 / 15,Last 1 / 5 / 15
+host.memoryUsed,Memory used,Bộ nhớ đã dùng,已用内存,メモリ使用量,Memoria usada,메모리 사용량,Память занята,Mémoire utilisée,Speicher belegt
+host.sampled,Sampled,Đã lấy mẫu,采样时间,サンプリング時刻,Muestreado,샘플링 시각,Собрано,Échantillonné,Erfasst
+host.filesystems,Filesystems,Hệ thống tệp,文件系统,ファイルシステム,Sistemas de archivos,파일 시스템,Файловые системы,Systèmes de fichiers,Dateisysteme
+host.thresholdsBreached,Thresholds breached,Ngưỡng bị vượt,超出的阈值,しきい値超過,Umbrales superados,임계값 초과,Пороги превышены,Seuils dépassés,Schwellenwerte überschritten

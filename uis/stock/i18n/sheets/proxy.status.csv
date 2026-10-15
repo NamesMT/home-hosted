@@ -1,0 +1,17 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+proxy.status.certified,certificate ready,chứng chỉ đã sẵn sàng,证书已就绪,証明書準備完了,certificado listo,인증서 준비됨,сертификат готов,certificat prêt,Zertifikat bereit
+proxy.status.localCa,engine CA,CA của engine,引擎 CA,エンジン CA,CA del motor,엔진 CA,CA движка,CA du moteur,Engine-CA
+proxy.status.uploaded,uploaded pair,cặp đã tải lên,已上传的证书对,アップロードされたペア,par subido,업로드된 쌍,загруженная пара,paire téléversée,hochgeladenes Paar
+proxy.status.awaitingCa,waiting for the CA,đang chờ CA,等待 CA,CA を待機中,esperando la CA,CA 대기 중,ожидание CA,en attente de la CA,wartet auf die CA
+proxy.status.failed,certificate failed,chứng chỉ thất bại,证书失败,証明書の取得に失敗,el certificado falló,인증서 실패,сертификат не получен,échec du certificat,Zertifikat fehlgeschlagen
+proxy.status.fellBack,Fell back to Local CA,Đã quay về Local CA,已回退到本地 CA,ローカル CA にフォールバック,Se volvió a la CA local,로컬 CA로 폴백,Возврат к локальной CA,Retour à la CA locale,Auf lokale CA zurückgefallen
+proxy.status.serving,Serving,Đang phục vụ,正在服务,提供中,Sirviendo,제공 중,Обслуживает,En service,Wird ausgeliefert
+proxy.status.disabled,Disabled,Đã tắt,已禁用,無効,Desactivado,사용 안 함,Отключено,Désactivé,Deaktiviert
+proxy.status.noUpstream,No upstream,Không có upstream,无上游,アップストリームなし,Sin destino,업스트림 없음,Нет восходящего узла,Aucun amont,Kein Upstream
+proxy.status.error,Error,Lỗi,错误,エラー,Error,오류,Ошибка,Erreur,Fehler
+proxy.status.unapplied,Not applied yet,Chưa được áp dụng,尚未应用,未適用,Aún sin aplicar,아직 적용 안 됨,Ещё не применено,Pas encore appliqué,Noch nicht angewendet
+proxy.status.off,Off,Tắt,关闭,オフ,Apagado,꺼짐,Выкл.,Inactif,Aus
+proxy.status.stopped,Stopped,Đã dừng,已停止,停止,Detenido,중지됨,Остановлен,Arrêté,Gestoppt
+proxy.status.starting,Starting,Đang khởi động,正在启动,起動中,Iniciando,시작 중,Запускается,Démarrage,Startet
+proxy.status.running,Running,Đang chạy,运行中,実行中,En ejecución,실행 중,Работает,En cours,Läuft
+proxy.status.unsupported,Unsupported,Không được hỗ trợ,不支持,未対応,No compatible,지원 안 됨,Не поддерживается,Non pris en charge,Nicht unterstützt

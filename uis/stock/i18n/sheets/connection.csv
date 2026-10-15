@@ -1,0 +1,5 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+connection.live,Live,Trực tiếp,实时,ライブ,En vivo,실시간,В реальном времени,En direct,Live
+connection.connecting,Connecting,Đang kết nối,正在连接,接続中,Conectando,연결 중,Подключение,Connexion,Verbinden
+connection.reconnecting,Reconnecting,Đang kết nối lại,正在重新连接,再接続中,Reconectando,다시 연결 중,Переподключение,Reconnexion,Neu verbinden
+connection.liveUpdates,Live updates,Cập nhật trực tiếp,实时更新,ライブ更新,Actualizaciones en vivo,실시간 업데이트,Обновления в реальном времени,Mises à jour en direct,Live-Aktualisierungen

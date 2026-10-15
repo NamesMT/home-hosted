@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
  * tests are about. So this resolves a catalog key to its English message, the same value the UI
  * renders, and the tests keep pinning the wording rather than its location.
  *
- * The catalog is generated from `uis/stock/i18n/i18n.csv` (see `scripts/build-locales.mjs`) and
+ * The catalog is generated from `uis/stock/i18n/sheets/` (see `scripts/build-locales.mjs`) and
  * git-ignored, so a missing file means `pnpm install` has not run — say that, rather than letting
  * the test fail on an unrelated assertion.
  *
@@ -45,7 +45,7 @@ const english = loadEnglish()
 export function stockCopy(key: string, params: Record<string, string> = {}): string {
   const message = english[key]
   if (message === undefined)
-    throw new Error(`no English catalog entry for "${key}" — uis/stock/i18n/i18n.csv`)
+    throw new Error(`no English catalog entry for "${key}" — uis/stock/i18n/sheets/`)
   if (typeof message !== 'string') {
     // A plural entry: the caller is asserting on wording, so the `other` form is the one to read.
     const other = message.other

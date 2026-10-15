@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Builds each UI's catalog JSON from its one `i18n.csv`.
+ * Builds each UI's catalog JSON from the sheets under its `i18n/sheets/`.
  *
- * The CSV is the source of truth — one row per string, one column per language, so a translation
- * gap is a visibly empty cell rather than a missing file. The JSON it produces is generated and
- * git-ignored; run this after editing the sheet.
+ * The sheets are the source of truth — one row per string, one column per language — sharded by key
+ * prefix so each file stays small enough to read whole. The rule is in each UI's `i18n/sheets/README.md`.
+ * The JSON is generated and git-ignored; run this after editing a sheet.
  *
  * A plural entry is one row per CLDR category, keyed `<key>[one]`, `<key>[few]`, … and folded back
  * into the message object `@i18n-micro` expects. `spreadsheet-i18n` writes flat strings only, so the
@@ -53,27 +53,30 @@ function foldPlurals(catalog) {
   return folded
 }
 
-/** Every UI that keeps an `i18n/i18n.csv`, in a stable order. */
+/** Every UI that keeps an `i18n/sheets/` directory, in a stable order. */
 function uiNames() {
   const uisDir = path.join(root, 'uis')
   return fs.readdirSync(uisDir)
-    .filter(name => fs.existsSync(path.join(uisDir, name, 'i18n', 'i18n.csv')))
+    .filter(name => fs.existsSync(path.join(uisDir, name, 'i18n', 'sheets')))
     .sort()
 }
 
 async function build(ui) {
-  const sheets = path.join(root, 'uis', ui, 'i18n')
-  const outDir = path.join(sheets, 'generated')
+  const i18nDir = path.join(root, 'uis', ui, 'i18n')
+  const sheetsDir = path.join(i18nDir, 'sheets')
+  const outDir = path.join(i18nDir, 'generated')
 
   fs.rmSync(outDir, { recursive: true, force: true })
   await scanConvert({
     outDir,
+    // Every shard is a CSV, at any depth, and they merge into one file per locale.
+    include: /\.csv$/,
     // Flat keys are the catalog's convention, and the plural rows have to keep their exact names.
     keyStyle: 'flat',
     // The default rewrites a space before `!?:;` into a U+00A0. French wants that space, but it is
-    // a typographic choice for the sheet to make, not something to inject into the committed CSV.
+    // a typographic choice for the sheets to make, not something to inject into what is committed.
     replacePunctuationSpace: false,
-  }, sheets)
+  }, sheetsDir)
 
   let keys = 0
   const files = fs.readdirSync(outDir).filter(name => name.endsWith('.json')).sort()
@@ -91,7 +94,7 @@ async function build(ui) {
 const requested = process.argv.slice(2)
 const targets = requested.length > 0 ? requested : uiNames()
 if (targets.length === 0) {
-  console.error('[locales] no UI with an i18n/i18n.csv was found')
+  console.error('[locales] no UI with an i18n/sheets/ directory was found')
   process.exit(1)
 }
 for (const ui of targets)

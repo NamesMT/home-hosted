@@ -1,0 +1,14 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+settings.shell.fieldsChanged[one],field changed,trường đã thay đổi,个字段已更改,フィールドを変更,campo modificado,필드 변경됨,поле изменено,champ modifié,Feld geändert
+settings.shell.fieldsChanged[few],,,,,,,поля изменены,,
+settings.shell.fieldsChanged[many],,,,,,,полей изменено,,
+settings.shell.fieldsChanged[other],fields changed,trường đã thay đổi,个字段已更改,フィールドを変更,campos modificados,필드 변경됨,поля изменены,champs modifiés,Felder geändert
+settings.shell.noUnsavedChanges,No unsaved changes,Không có thay đổi chưa lưu,没有未保存的更改,未保存の変更はありません,No hay cambios sin guardar,저장하지 않은 변경 없음,Нет несохранённых изменений,Aucune modification non enregistrée,Keine ungespeicherten Änderungen
+settings.shell.discard,Discard changes,Bỏ thay đổi,放弃更改,変更を破棄,Descartar los cambios,변경 사항 버리기,Отменить изменения,Abandonner les modifications,Änderungen verwerfen
+settings.shell.save,Save settings,Lưu cài đặt,保存设置,設定を保存,Guardar los ajustes,설정 저장,Сохранить настройки,Enregistrer les paramètres,Einstellungen speichern
+settings.shell.unsavedTitle,Unsaved changes,Thay đổi chưa lưu,未保存的更改,未保存の変更,Cambios sin guardar,저장하지 않은 변경,Несохранённые изменения,Modifications non enregistrées,Ungespeicherte Änderungen
+settings.shell.nothingToSave,Nothing to save.,Không có gì để lưu.,没有可保存的内容。,保存するものはありません。,No hay nada que guardar.,저장할 항목이 없습니다.,Нечего сохранять.,Rien à enregistrer.,Nichts zu speichern.
+settings.shell.saveChanges[one],Save {count} change,Lưu {count} thay đổi,保存 {count} 项更改,{count} 件の変更を保存,Guardar {count} cambio,변경 {count}건 저장,Сохранить {count} изменение,Enregistrer {count} modification,{count} Änderung speichern
+settings.shell.saveChanges[few],,,,,,,Сохранить {count} изменения,,
+settings.shell.saveChanges[many],,,,,,,Сохранить {count} изменений,,
+settings.shell.saveChanges[other],Save {count} changes,Lưu {count} thay đổi,保存 {count} 项更改,{count} 件の変更を保存,Guardar {count} cambios,변경 {count}건 저장,Сохранить {count} изменения,Enregistrer {count} modifications,{count} Änderungen speichern

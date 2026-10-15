@@ -1,0 +1,32 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+palette.placeholder,"Jump to a server, run an action, open a setting…","Chuyển tới máy chủ, chạy thao tác, mở cài đặt…",跳转到服务器、运行操作、打开设置…,サーバーへ移動、操作を実行、設定を開く…,"Ir a un servidor, ejecutar una acción, abrir un ajuste…","서버로 이동, 작업 실행, 설정 열기…","Перейти к серверу, выполнить действие, открыть настройку…","Aller à un serveur, lancer une action, ouvrir un paramètre…","Zu einem Server springen, Aktion ausführen, Einstellung öffnen…"
+palette.openServer,Open {label},Mở {label},打开 {label},{label} を開く,Abrir {label},{label} 열기,Открыть {label},Ouvrir {label},{label} öffnen
+palette.serverLogs,Logs for {label},Nhật ký của {label},{label} 的日志,{label} のログ,Registros de {label},{label}의 로그,Журналы {label},Journaux de {label},Protokolle von {label}
+palette.startServer,Start {label},Khởi động {label},启动 {label},{label} を起動,Iniciar {label},{label} 시작,Запустить {label},Démarrer {label},{label} starten
+palette.stopServer,Stop {label},Dừng {label},停止 {label},{label} を停止,Detener {label},{label} 중지,Остановить {label},Arrêter {label},{label} stoppen
+palette.restartServer,Restart {label},Khởi động lại {label},重启 {label},{label} を再起動,Reiniciar {label},{label} 다시 시작,Перезапустить {label},Redémarrer {label},{label} neu starten
+palette.goOverview,Go to Overview,Tới Tổng quan,前往概览,概要へ移動,Ir al resumen,개요로 이동,Перейти к обзору,Aller à la vue d'ensemble,Zur Übersicht
+palette.goGlobalOverview,Go to Global Overview,Tới Tổng quan toàn cục,前往全局概览,全体概要へ移動,Ir al resumen global,전역 개요로 이동,Перейти к общему обзору,Aller à la vue d'ensemble globale,Zur globalen Übersicht
+palette.goGlobalSettings,Go to Global settings,Tới Cài đặt toàn cục,前往全局设置,全体設定へ移動,Ir a los ajustes globales,전역 설정으로 이동,Перейти к общим настройкам,Aller aux paramètres globaux,Zu den globalen Einstellungen
+palette.goProxy,Go to Reverse Proxy,Tới Reverse Proxy,前往反向代理,リバースプロキシへ移動,Ir al proxy inverso,리버스 프록시로 이동,Перейти к обратному прокси,Aller au proxy inverse,Zum Reverse-Proxy
+palette.goServers,Go to Servers,Tới Máy chủ,前往服务器,サーバーへ移動,Ir a los servidores,서버로 이동,Перейти к серверам,Aller aux serveurs,Zu den Servern
+palette.goLogs,Go to Logs,Tới Nhật ký,前往日志,ログへ移動,Ir a los registros,로그로 이동,Перейти к журналам,Aller aux journaux,Zu den Protokollen
+palette.goWorkspaceSettings,Go to Workspace settings,Tới Cài đặt không gian làm việc,前往工作区设置,ワークスペース設定へ移動,Ir a los ajustes del espacio de trabajo,워크스페이스 설정으로 이동,Перейти к настройкам рабочего пространства,Aller aux paramètres de l'espace de travail,Zu den Arbeitsbereich-Einstellungen
+palette.startAll,Start every enabled server here,Khởi động mọi máy chủ đang bật ở đây,启动此处所有已启用的服务器,ここで有効なサーバーをすべて起動,Iniciar todos los servidores habilitados aquí,여기에서 사용 설정된 모든 서버 시작,Запустить все включённые серверы здесь,Démarrer tous les serveurs activés ici,Alle aktivierten Server hier starten
+palette.stopAll,Stop every server here,Dừng mọi máy chủ ở đây,停止此处所有服务器,ここですべてのサーバーを停止,Detener todos los servidores aquí,여기에서 모든 서버 중지,Остановить все серверы здесь,Arrêter tous les serveurs ici,Alle Server hier stoppen
+palette.switchWorkspace,Switch to {label},Chuyển sang {label},切换到 {label},{label} に切り替え,Cambiar a {label},{label}(으)로 전환,Переключиться на {label},Basculer vers {label},Zu {label} wechseln
+palette.globalSetting,Global setting: {label},Cài đặt toàn cục: {label},全局设置：{label},全体設定: {label},Ajuste global: {label},전역 설정: {label},Общая настройка: {label},Paramètre global : {label},Globale Einstellung: {label}
+palette.workspaceSetting,Workspace setting: {label},Cài đặt không gian làm việc: {label},工作区设置：{label},ワークスペース設定: {label},Ajuste del espacio de trabajo: {label},워크스페이스 설정: {label},Настройка рабочего пространства: {label},Paramètre de l'espace de travail : {label},Arbeitsbereich-Einstellung: {label}
+palette.theme,{theme} theme,Giao diện {theme},{theme}主题,{theme}テーマ,Tema {theme},{theme} 테마,Тема: {theme},Thème {theme},Design {theme}
+palette.groupServers,Servers,Máy chủ,服务器,サーバー,Servidores,서버,Серверы,Serveurs,Server
+palette.groupActions,Actions,Thao tác,操作,操作,Acciones,작업,Действия,Actions,Aktionen
+palette.groupNavigate,Navigate,Điều hướng,导航,移動,Navegar,이동,Навигация,Navigation,Navigation
+palette.groupWorkspaces,Workspaces,Không gian làm việc,工作区,ワークスペース,Espacios de trabajo,워크스페이스,Рабочие пространства,Espaces de travail,Arbeitsbereiche
+palette.groupAppearance,Appearance,Giao diện,外观,外観,Apariencia,모양,Внешний вид,Apparence,Erscheinungsbild
+palette.navigate,navigate,di chuyển,移动,移動,navegar,이동,перемещение,naviguer,navigieren
+palette.run,run,chạy,运行,実行,ejecutar,실행,запуск,exécuter,ausführen
+palette.noMatches,Nothing matches “{query}”.,Không có kết quả cho “{query}”.,没有匹配“{query}”的结果。,「{query}」に一致するものはありません。,Nada coincide con «{query}».,“{query}”와 일치하는 항목이 없습니다.,Ничего не найдено по «{query}».,Rien ne correspond à « {query} ».,Nichts passt zu „{query}“.
+palette.results[one],{count} result,,,,{count} resultado,,{count} результат,{count} résultat,{count} Ergebnis
+palette.results[few],,,,,,,{count} результата,,
+palette.results[many],,,,,,,{count} результатов,,
+palette.results[other],{count} results,{count} kết quả,{count} 个结果,{count} 件の結果,{count} resultados,결과 {count}개,{count} результата,{count} résultats,{count} Ergebnisse

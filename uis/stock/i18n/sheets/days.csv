@@ -1,0 +1,5 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+days.remaining[one],{count} day,,,,{count} día,,{count} день,{count} jour,{count} Tag
+days.remaining[few],,,,,,,{count} дня,,
+days.remaining[many],,,,,,,{count} дней,,
+days.remaining[other],{count} days,{count} ngày,{count} 天,{count} 日,{count} días,{count}일,{count} дня,{count} jours,{count} Tage

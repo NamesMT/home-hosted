@@ -1,0 +1,5 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+views.actions.addAServer,Add a server,Thêm một máy chủ,添加服务器,サーバーを追加,Añadir un servidor,서버 추가,Добавить сервер,Ajouter un serveur,Einen Server hinzufügen
+views.actions.addServer,Add server,Thêm máy chủ,添加服务器,サーバーを追加,Añadir servidor,서버 추가,Добавить сервер,Ajouter un serveur,Server hinzufügen
+views.actions.startAll,Start all,Khởi động tất cả,全部启动,すべて起動,Iniciar todos,모두 시작,Запустить все,Tout démarrer,Alle starten
+views.actions.stopAll,Stop all,Dừng tất cả,全部停止,すべて停止,Detener todos,모두 중지,Остановить все,Tout arrêter,Alle stoppen

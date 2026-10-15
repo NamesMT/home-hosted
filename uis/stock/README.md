@@ -46,12 +46,14 @@ chosen, so a panel serving one language pays for one.
 
 ### Adding or editing strings
 
-- **`i18n/i18n.csv` is the source of truth** — one row per string, one column per language. Edit it
-  there; `pnpm run build:locales` turns it into the `i18n/generated/*.json` the app imports (also
-  run on install and before every UI build). That directory is git-ignored, so the sheet is what a
+- **`i18n/sheets/*.csv` are the source of truth** — one row per string, one column per language,
+  one file per key prefix (`settings.ddns.csv` holds `settings.ddns.*`). They are sharded because a
+  single 462 KB file was returned whole by one read; the rule is in `i18n/sheets/README.md` and
+  `test/i18n-catalog.test.ts` enforces the home, the size and the duplicates.
+- `pnpm run build:locales` merges every sheet into the `i18n/generated/*.json` the app imports (also
+  run on install and before every UI build). That directory is git-ignored, so the sheets are what a
   reviewer reads.
-- A row is `KEY` plus one column per locale. Keys are **flat** dotted paths (`nav.servers`).
-  Add a language by adding its column to the sheet *and* its entry to `LOCALES` in
+- Add a language by adding its column to every sheet *and* its entry to `LOCALES` in
   `src/i18n/locales.ts`.
 - A plural entry is one row per CLDR category, keyed `key[one]`, `key[few]`, `key[many]`,
   `key[other]`, and is folded back into a message object. Leave a category blank when the language

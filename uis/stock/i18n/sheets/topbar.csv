@@ -1,0 +1,8 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+topbar.search,Search or run a command,Tìm kiếm hoặc chạy lệnh,搜索或运行命令,検索またはコマンドを実行,Buscar o ejecutar un comando,검색하거나 명령 실행,Поиск или выполнение команды,Rechercher ou exécuter une commande,Suchen oder Befehl ausführen
+topbar.openNavigation,Open navigation,Mở điều hướng,打开导航,ナビゲーションを開く,Abrir la navegación,탐색 열기,Открыть навигацию,Ouvrir la navigation,Navigation öffnen
+topbar.commandPalette,Command palette,Bảng lệnh,命令面板,コマンドパレット,Paleta de comandos,명령 팔레트,Палитра команд,Palette de commandes,Befehlspalette
+topbar.account,Account,Tài khoản,账户,アカウント,Cuenta,계정,Учётная запись,Compte,Konto
+topbar.signedIn,Signed in,Đã đăng nhập,已登录,サインイン済み,Sesión iniciada,로그인됨,Выполнен вход,Connecté,Angemeldet
+topbar.signOut,Sign out,Đăng xuất,退出登录,サインアウト,Cerrar sesión,로그아웃,Выйти,Se déconnecter,Abmelden
+topbar.workspaceLabel,Workspace: {name},Không gian làm việc: {name},工作区：{name},ワークスペース: {name},Espacio de trabajo: {name},워크스페이스: {name},Рабочее пространство: {name},Espace de travail : {name},Arbeitsbereich: {name}

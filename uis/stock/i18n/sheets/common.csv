@@ -1,0 +1,44 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+common.cancel,Cancel,Huỷ,取消,キャンセル,Cancelar,취소,Отмена,Annuler,Abbrechen
+common.confirm,Confirm,Xác nhận,确认,確認,Confirmar,확인,Подтвердить,Confirmer,Bestätigen
+common.reset,Reset,Đặt lại,重置,リセット,Restablecer,초기화,Сбросить,Réinitialiser,Zurücksetzen
+common.keepIt,Keep it,Giữ nguyên,保持不变,このままにする,Mantenerlo,그대로 두기,Оставить,Conserver,Beibehalten
+common.remove,Remove,Gỡ bỏ,移除,削除,Quitar,제거,Убрать,Retirer,Entfernen
+common.close,Close,Đóng,关闭,閉じる,Cerrar,닫기,Закрыть,Fermer,Schließen
+common.save,Save,Lưu,保存,保存,Guardar,저장,Сохранить,Enregistrer,Speichern
+common.saving,Saving…,Đang lưu…,正在保存…,保存中…,Guardando…,저장 중…,Сохранение…,Enregistrement…,Wird gespeichert…
+common.discard,Discard,Bỏ thay đổi,放弃更改,変更を破棄,Descartar,변경 사항 버리기,Отменить изменения,Abandonner,Verwerfen
+common.delete,Delete,Xoá,删除,削除,Eliminar,삭제,Удалить,Supprimer,Löschen
+common.edit,Edit,Sửa,编辑,編集,Editar,편집,Изменить,Modifier,Bearbeiten
+common.add,Add,Thêm,添加,追加,Añadir,추가,Добавить,Ajouter,Hinzufügen
+common.retry,Retry,Thử lại,重试,再試行,Reintentar,다시 시도,Повторить,Réessayer,Wiederholen
+common.copy,Copy,Sao chép,复制,コピー,Copiar,복사,Копировать,Copier,Kopieren
+common.copied,Copied,Đã sao chép,已复制,コピーしました,Copiado,복사됨,Скопировано,Copié,Kopiert
+common.enabled,Enabled,Đang bật,已启用,有効,Activado,사용,Включено,Activé,Aktiviert
+common.disabled,Disabled,Đang tắt,已停用,無効,Desactivado,사용 안 함,Отключено,Désactivé,Deaktiviert
+common.none,None,Không có,无,なし,Ninguno,없음,Нет,Aucun,Keine
+common.unknown,unknown,không rõ,未知,不明,desconocido,알 수 없음,неизвестно,inconnu,unbekannt
+common.loading,Loading…,Đang tải…,正在加载…,読み込み中…,Cargando…,불러오는 중…,Загрузка…,Chargement…,Wird geladen…
+common.selectAll,Select all,Chọn tất cả,全选,すべて選択,Seleccionar todo,모두 선택,Выбрать все,Tout sélectionner,Alle auswählen
+common.selectNone,Select none,Bỏ chọn tất cả,全不选,選択を解除,No seleccionar nada,선택 해제,Снять выделение,Ne rien sélectionner,Nichts auswählen
+common.name,Name,Tên,名称,名前,Nombre,이름,Название,Nom,Name
+common.label,Label,Nhãn,标签,ラベル,Etiqueta,레이블,Метка,Libellé,Bezeichnung
+common.hostname,Hostname,Tên máy chủ,主机名,ホスト名,Nombre de host,호스트 이름,Имя хоста,Nom d'hôte,Hostname
+common.port,Port,Cổng,端口,ポート,Puerto,포트,Порт,Port,Port
+common.command,Command,Lệnh,命令,コマンド,Comando,명령,Команда,Commande,Befehl
+common.environment,Environment,Biến môi trường,环境变量,環境変数,Entorno,환경 변수,Окружение,Environnement,Umgebung
+common.memory,Memory,Bộ nhớ,内存,メモリ,Memoria,메모리,Память,Mémoire,Speicher
+common.cpu,CPU,CPU,CPU,CPU,CPU,CPU,ЦП,CPU,CPU
+common.disk,Disk,Đĩa,磁盘,ディスク,Disco,디스크,Диск,Disque,Speicherplatz
+common.uptime,Uptime,Thời gian hoạt động,运行时长,稼働時間,Tiempo activo,가동 시간,Время работы,Durée de fonctionnement,Laufzeit
+common.status,Status,Trạng thái,状态,状態,Estado,상태,Состояние,État,Status
+common.actions,Actions,Thao tác,操作,操作,Acciones,작업,Действия,Actions,Aktionen
+common.details,Details,Chi tiết,详情,詳細,Detalles,세부 정보,Подробности,Détails,Details
+common.overview,Overview,Tổng quan,概览,概要,Resumen,개요,Обзор,Vue d'ensemble,Übersicht
+common.warning,Warning,Cảnh báo,警告,警告,Advertencia,경고,Предупреждение,Avertissement,Warnung
+common.error,Error,Lỗi,错误,エラー,Error,오류,Ошибка,Erreur,Fehler
+common.confirmQuestion,{label}?,{label}?,{label}？,{label}？,¿{label}?,{label}?,{label}?,{label} ?,{label}?
+common.unset,unset,chưa đặt,未设置,未設定,sin definir,설정 안 됨,не задано,non défini,nicht gesetzt
+common.never,never,chưa bao giờ,从未,なし,nunca,없음,никогда,jamais,nie
+common.now,now,vừa xong,刚刚,たった今,ahora,방금,только что,à l'instant,gerade eben
+common.dismiss,Dismiss,Bỏ qua,忽略,閉じる,Descartar,닫기,Скрыть,Ignorer,Ausblenden

@@ -1,0 +1,8 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+status.stopped,Stopped,Đã dừng,已停止,停止,Detenido,중지됨,Остановлен,Arrêté,Gestoppt
+status.starting,Starting,Đang khởi động,正在启动,起動中,Iniciando,시작 중,Запускается,Démarrage,Startet
+status.running,Running,Đang chạy,运行中,実行中,En ejecución,실행 중,Работает,En cours,Läuft
+status.stopping,Stopping,Đang dừng,正在停止,停止中,Deteniendo,중지 중,Останавливается,Arrêt,Stoppt
+status.backoff,Restarting,Đang khởi động lại,正在重启,再起動中,Reiniciando,다시 시작 중,Перезапускается,Redémarrage,Neustart
+status.crashed,Crashed,Đã gặp sự cố,已崩溃,クラッシュ,Bloqueado,충돌함,Аварийно завершился,Planté,Abgestürzt
+status.conflict,Port conflict,Xung đột cổng,端口冲突,ポート競合,Conflicto de puerto,포트 충돌,Конфликт портов,Conflit de port,Portkonflikt

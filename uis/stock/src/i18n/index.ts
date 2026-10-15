@@ -13,7 +13,7 @@ import { pluralRules } from './plural'
 type Catalog = Record<string, unknown>
 
 /**
- * The catalogs, generated from `i18n/i18n.csv` by `scripts/build-locales.mjs`.
+ * The catalogs, generated from the sheets in `i18n/sheets/` by `scripts/build-locales.mjs`.
  *
  * English is eager because it is the fallback; the rest are lazy, which is what code-splits them.
  * The directory is git-ignored, so it may be absent on a fresh clone — `pnpm install` builds it,

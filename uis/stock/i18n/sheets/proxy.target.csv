@@ -1,0 +1,7 @@
+KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
+proxy.target.server,A supervised server,Một máy chủ được giám sát,受监管的服务器,監視下のサーバー,Un servidor supervisado,감독되는 서버,Управляемый сервер,Un serveur supervisé,Ein überwachter Server
+proxy.target.panel,This control panel,Bảng điều khiển này,此控制面板,このコントロールパネル,Este panel de control,이 제어판,Эта панель управления,Ce panneau de contrôle,Dieses Kontrollpanel
+proxy.target.external,A literal upstream,Một upstream cụ thể,字面量上游,リテラルのアップストリーム,Un destino literal,리터럴 업스트림,Буквальный восходящий узел,Un amont littéral,Ein wörtlicher Upstream
+proxy.target.controlPanel,control panel,bảng điều khiển,控制面板,コントロールパネル,panel de control,제어판,панель управления,panneau de contrôle,Kontrollpanel
+proxy.target.noServer,no server picked,chưa chọn máy chủ,未选择服务器,サーバーが選択されていません,ningún servidor elegido,선택한 서버 없음,сервер не выбран,aucun serveur choisi,kein Server gewählt
+proxy.target.noUpstream,no upstream,không có upstream,无上游,アップストリームなし,sin destino,업스트림 없음,нет восходящего узла,aucun amont,kein Upstream
