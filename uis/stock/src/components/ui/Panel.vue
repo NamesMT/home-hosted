@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { twMerge } from 'tailwind-merge'
+import { cn } from '@/lib/cn'
 
 /** A surface with a hairline border — the one container used across the app. */
 withDefaults(defineProps<{
@@ -11,7 +11,7 @@ withDefaults(defineProps<{
 </script>
 
 <template>
-  <section :class="twMerge('rounded-panel border border-line bg-panel shadow-card', $props.padded && 'p-4', $props.class)">
+  <section :class="cn('rounded-panel border border-line bg-panel shadow-card', $props.padded && 'p-4', $props.class)">
     <header v-if="$slots.header || $slots.actions" class="mb-3 flex items-start justify-between gap-3">
       <div class="min-w-0">
         <slot name="header" />
