@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.8.2
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.8.1...v0.8.2)
+
+### 🩹 Fixes
+
+- **stock:** Translate the panel's own backup labels and notes ([04f2ea5](https://github.com/NamesMT/home-hosted/commit/04f2ea5))
+- **pkg:** Never generate locales from a hook the tarball cannot satisfy ([0b0589d](https://github.com/NamesMT/home-hosted/commit/0b0589d))
+- **hooks:** A UI's README is not part of the asset it ships ([59a9ab2](https://github.com/NamesMT/home-hosted/commit/59a9ab2))
+
+### 💅 Refactors
+
+- **stock:** One CSV per UI as the source of truth for its strings ([d041af3](https://github.com/NamesMT/home-hosted/commit/d041af3))
+- **stock:** Shard the string sheets by key prefix ([24f8a74](https://github.com/NamesMT/home-hosted/commit/24f8a74))
+- **stock:** Panel merges classes through the shared cn helper ([b247ddc](https://github.com/NamesMT/home-hosted/commit/b247ddc))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.8.1
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.8.0...v0.8.1)
