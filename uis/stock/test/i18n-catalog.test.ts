@@ -31,6 +31,14 @@ function readSheet(): SheetRow[] {
   return data as SheetRow[]
 }
 
+/** The generated catalog for `code`, with the fix named when a clone has none yet. */
+function readGenerated(code: string): Catalog {
+  const file = path.join(generatedDir, `${code}.json`)
+  if (!fs.existsSync(file))
+    throw new Error(`missing ${path.relative(root, file)} — run \`pnpm run build:locales\``)
+  return JSON.parse(fs.readFileSync(file, 'utf8')) as Catalog
+}
+
 /** The sheet's `KEY` column, split into the key itself and its plural category when it has one. */
 function splitKey(raw: string): { key: string, category: string | null } {
   const match = /^(.*)\[(\w+)\]$/.exec(raw)
@@ -218,15 +226,14 @@ describe('locale coverage', () => {
       .filter(locale => locale.code !== 'en')
       .filter(locale => !fs.existsSync(path.join(generatedDir, `${locale.code}.json`)))
       .map(locale => locale.code)
-    expect(missing).toEqual([])
+    expect(missing, 'run `pnpm run build:locales` to generate these').toEqual([])
   })
 
   it('matches the sheet it was generated from', () => {
     // The JSON is generated, so it cannot drift on its own — but a stale directory can survive an
     // edit to the sheet, and the app renders the JSON. This is what makes that impossible.
     for (const locale of LOCALES) {
-      const file = path.join(generatedDir, `${locale.code}.json`)
-      const generated = JSON.parse(fs.readFileSync(file, 'utf8')) as Catalog
+      const generated = readGenerated(locale.code)
       const expected: Catalog = {}
       const plurals = new Map<string, Record<string, string>>()
       for (const row of readSheet()) {
