@@ -182,6 +182,29 @@ Every failing request answers with one envelope:
 validation issues when there are any. Status codes are the usual ones: 400 bad input, 401 no
 session, 403 bad token or origin, 404 unknown id, 409 conflict, 413 too large.
 
+### Text the panel formats itself
+
+Most of the interface is your own strings, but a few labels describe something only the panel knows —
+a backup entry (`Global settings`), why a data path is not captured (`covered by /srv/data`), why a
+restore skipped a row (`not selected`). Those arrive as the panel's English, with a **catalog key
+beside it** when the panel can name the string:
+
+```json
+{
+  "id": "global:settings",
+  "label": "Global settings",
+  "labelKey": "settings.backup.entryGlobalSettings",
+  "note": "does not exist yet",
+  "noteKey": "settings.backup.noteMissing"
+}
+```
+
+The key and the English are both optional on the reader's side in the sense that matters: the English
+is always present, so render it if you have no catalog — and if you do have one, resolve `labelKey` /
+`noteKey` and fall back to the text. The key set is the stock UI's, so a UI with its own wording maps
+the keys it knows and ignores the rest. Placeholders live in a `labelParams` / `noteParams` object
+beside the key.
+
 ### SSE frames
 
 | `event:` | `data:` |

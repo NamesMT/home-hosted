@@ -126,6 +126,24 @@ line in `AGENTS.md` instead.
   `@/…` from the UI that asks, so each UI's tests import its own components; a single pinned target
   once resolved a `noc-console` test's `@/lib/proxy` to *stock's* differing copy without a murmur.
 
+- **A UI cannot translate a string the panel already formatted.** The panel composes some display
+  text itself — a backup entry ("Global settings"), why a restore skipped a row ("not selected").
+  Sending only that English leaves it English in every language, which is how it was reported. The
+  fix is the `STATUS_META` pattern one level down: the panel sends a catalog key beside the text,
+  and the UI resolves the key and falls back to the text. The key is optional, because a new UI
+  meets an older panel; the text is required, because the reverse happens too.
+- **`Intl` beats a catalog for numbers, dates and durations.** Word order, abbreviations and plurals
+  come free and need no translator. Two traps: `numeric: 'auto'` turns an age into `yesterday`, which
+  is not an age, so `always`; and `narrow` unit style falls back to Latin in Japanese (`1h 30m`
+  rather than `1 時間 30 分`), so non-English uses `short`. English keeps `narrow` because `short`
+  would change text that shipped as `12s ago`.
+- **A plural rule is per language, not per message.** The i18n library's built-in rule indexes forms
+  by count, which is an English shape: Russian's `21` and `5` then read the same form. `plural.ts`
+  resolves the CLDR category through `Intl.PluralRules` instead.
+- **A lazily-loaded catalog must never block the mount.** It is a network fetch, and a rejection that
+  skipped the mount is a blank page with no way back. English is bundled, so `main.ts` mounts in
+  `finally` and the worst case is an English panel.
+
 ## Data
 
 - **Generated directories are skipped by the `filter` handed to `fs.cpSync`**, matched on an exact path

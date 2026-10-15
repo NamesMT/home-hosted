@@ -24,6 +24,7 @@ import { t } from '@/i18n'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatDateTime } from '@/lib/format'
+import { kindLabel, panelNote, panelText } from '@/lib/panel-text'
 import { focusRing } from '@/lib/ui'
 
 const props = defineProps<{
@@ -54,20 +55,6 @@ const restoreSource = ref<{ kind: 'stored', name: string } | null>(null)
 
 const files = computed(() => props.state?.files ?? [])
 const entries = computed(() => props.state?.entries ?? [])
-
-/** The badge for an archive root's kind; an unknown kind reads as its own name. */
-const KIND_LABEL: Record<string, string> = {
-  settings: 'settings.backups.kindSettings',
-  servers: 'settings.backups.kindServers',
-  secrets: 'settings.backups.kindSecrets',
-  tls: 'settings.backups.kindTls',
-  data: 'settings.backups.kindData',
-}
-
-function kindLabel(kind: string): string {
-  const key = KIND_LABEL[kind]
-  return key === undefined ? kind : t(key)
-}
 
 const downloadClass = cn(
   'inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-line bg-raise px-2 text-2xs font-medium text-ink',
@@ -168,15 +155,15 @@ async function removeBackup(name: string): Promise<void> {
         <li v-for="entry in entries" :key="entry.id" class="py-2 first:pt-0">
           <div class="flex items-center gap-2">
             <p class="min-w-0 flex-1 truncate text-xs font-medium text-ink">
-              {{ entry.label }}
+              {{ panelText(entry) }}
             </p>
             <ToneBadge tone="neutral" plain>
               {{ kindLabel(entry.kind) }}
             </ToneBadge>
             <span v-if="entry.workspaceId" class="font-mono text-2xs text-faint">{{ entry.workspaceId }}</span>
           </div>
-          <p v-if="entry.note" class="mt-0.5 text-2xs leading-4 text-muted">
-            {{ entry.note }}
+          <p v-if="panelNote(entry)" class="mt-0.5 text-2xs leading-4 text-muted">
+            {{ panelNote(entry) }}
           </p>
           <ul v-if="entry.items.length > 0" class="mt-1 space-y-1">
             <li
@@ -186,10 +173,10 @@ async function removeBackup(name: string): Promise<void> {
             >
               <div class="min-w-0">
                 <p class="truncate font-mono text-2xs text-ink">
-                  {{ item.path ?? item.label }}
+                  {{ item.path ?? panelText(item) }}
                 </p>
                 <p class="mt-0.5 text-2xs leading-4 text-faint">
-                  {{ item.included ? (item.origin ? t('settings.backups.fromOrigin', { origin: item.origin }) : item.note ?? t('settings.backups.included')) : item.note ?? t('settings.backups.notCaptured') }}
+                  {{ item.included ? (item.origin ? t('settings.backups.fromOrigin', { origin: item.origin }) : panelNote(item) ?? t('settings.backups.included')) : panelNote(item) ?? t('settings.backups.notCaptured') }}
                   <template v-if="item.included && item.ignoreGenerated">
                     · {{ t('settings.backups.generatedSkipped') }}
                   </template>

@@ -7,6 +7,7 @@ import {
   appStateSchema,
   authSchema,
   backupCreateSchema,
+  backupEntrySchema,
   bootstrapOrNullSchema,
   ddnsConfigSchema,
   ddnsDomainSchema,
@@ -29,6 +30,9 @@ import {
   proxyStatusSchema,
   proxyViewSchema,
   restartSchema,
+  restoreItemSchema,
+  restorePlanSchema,
+  restoreSkipSchema,
   serverCreateSchema,
   serverPatchSchema,
   serverSchema,
@@ -560,5 +564,62 @@ describe('schemas moved out of their routes', () => {
     expect(telegramChatsSchema({}) instanceof type.errors).toBe(true)
     // A response schema tolerates an extra key; see the note above.
     expect(telegramChatsSchema({ chats: [], note: 'newer panel' }) instanceof type.errors).toBe(false)
+  })
+})
+
+/**
+ * The panel formats some display text itself — a backup entry's name, why a restore skipped a row.
+ *
+ * A UI cannot translate a string the panel already built, so the panel sends its English *and* a
+ * catalog key beside it. This pins the shape that makes that safe: the English is required (an older
+ * UI reads only that) and the keys are optional (a UI newer than its panel reads none of them).
+ */
+describe('panel-supplied display text', () => {
+  const entry = {
+    id: 'global:settings',
+    label: 'Global settings',
+    kind: 'settings' as const,
+    note: null,
+    items: [],
+  }
+
+  it('accepts a backup entry that carries no key, which is the older panel', () => {
+    expect(backupEntrySchema(entry) instanceof type.errors).toBe(false)
+  })
+
+  it('carries a label key and its values when the panel knows them', () => {
+    const withKeys = { ...entry, labelKey: 'settings.backup.entryGlobalSettings', labelParams: { workspace: 'Default' } }
+    expect(backupEntrySchema(withKeys) instanceof type.errors).toBe(false)
+  })
+
+  it('keeps the keys optional on a restore item and a skip row', () => {
+    const item = {
+      id: 'global:settings',
+      label: 'Global settings',
+      kind: 'settings' as const,
+      restorable: true,
+      selected: false,
+      note: null,
+    }
+    expect(restoreItemSchema(item) instanceof type.errors).toBe(false)
+    expect(restoreItemSchema({ ...item, labelKey: 'settings.backup.entryGlobalSettings', note: 'x', noteKey: 'k' }) instanceof type.errors).toBe(false)
+    // A skip row is label + optional reason; a row with neither key is still valid.
+    expect(restoreSkipSchema({ label: 'Global settings' }) instanceof type.errors).toBe(false)
+    expect(restoreSkipSchema({ label: 'Global settings', labelKey: 'k', reasonKey: 'r', reasonParams: { a: 'b' } }) instanceof type.errors).toBe(false)
+  })
+
+  it('keeps the structured plan lists optional, so an older panel is still readable', () => {
+    const old = {
+      dryRun: true,
+      encrypted: false,
+      needsPassword: false,
+      applied: ['Global settings'],
+      skipped: [],
+      items: [],
+      restartRequired: false,
+      reloaded: false,
+    }
+    expect(restorePlanSchema(old) instanceof type.errors).toBe(false)
+    expect(restorePlanSchema({ ...old, appliedIds: ['global:settings'], skippedItems: [{ label: 'x', reasonKey: 'r' }] }) instanceof type.errors).toBe(false)
   })
 })

@@ -12,6 +12,7 @@ import Modal from '@/components/ui/Modal.vue'
 import TextField from '@/components/ui/TextField.vue'
 import { t, tc } from '@/i18n'
 import * as api from '@/lib/api'
+import { kindLabel } from '@/lib/panel-text'
 
 const props = defineProps<{ state: BackupsView | null }>()
 const emit = defineEmits<{ created: [message: string] }>()
@@ -143,7 +144,7 @@ async function submit(): Promise<void> {
             <span
               v-else
               class="shrink-0 rounded-control border border-line px-1.5 py-0.5 text-2xs text-faint"
-            >{{ entry.kind }}</span>
+            >{{ kindLabel(entry.kind) }}</span>
           </div>
 
           <p

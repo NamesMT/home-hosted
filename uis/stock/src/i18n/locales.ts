@@ -1,9 +1,8 @@
 /**
  * The languages this UI ships, and the one place their display names live.
  *
- * `code` is the app's own key (also the catalog filename); `iso` is what `Intl` wants, so a
- * region decides date and number shapes. `name` is the endonym — a language picker a reader
- * cannot read is not a picker, so Spanish reads "Español", never "Spanish".
+ * `code` is the app's key and the catalog filename; `iso` is what `Intl` wants. `name` is the
+ * endonym — a picker a reader cannot read is not a picker.
  */
 export interface LocaleMeta {
   code: string
@@ -41,9 +40,8 @@ export function isSupportedLocale(code: string): boolean {
 /**
  * The closest supported language for a tag, or `null`.
  *
- * `navigator.language` is `vi`, `zh-Hans-CN`, `pt-BR`; the catalogs are keyed more coarsely.
- * A region-specific request falls back to its base language (`zh-Hans-CN` → `zh-CN`), which is
- * why `zh` is matched by prefix rather than by equality.
+ * `navigator.language` is coarser than the catalogs (`zh-Hans-CN`), so a region-specific tag falls
+ * back to its base language.
  */
 export function matchLocale(tag: string): string | null {
   if (tag.length === 0)

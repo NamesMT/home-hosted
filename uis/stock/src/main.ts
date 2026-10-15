@@ -5,13 +5,11 @@ import { router } from './router'
 import './styles.css'
 
 /**
- * The catalog for the chosen language is a lazily-imported chunk, so it lands before mount: that is
- * what keeps a reload from flashing English at someone who reads Japanese.
+ * The chosen language's catalog is a lazy chunk, so it lands before mount — that is what keeps a
+ * reload from flashing English at someone who reads Japanese.
  *
- * The mount is in `finally` on purpose. English is bundled, so every failure here is survivable,
- * while a rejection that skipped the mount would leave a blank page and no way back — the one
- * outcome worth more than a translated first frame. (`.then` rather than a top-level `await`
- * because the repo forbids one at module scope.)
+ * The mount sits in `finally` because English is bundled: every failure here is survivable, while a
+ * rejection that skipped the mount would leave a blank page and no way back.
  */
 void initLocale()
   .catch(() => {

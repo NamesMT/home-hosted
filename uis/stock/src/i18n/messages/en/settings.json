@@ -12,7 +12,6 @@
     "one": "Save {count} change",
     "other": "Save {count} changes"
   },
-
   "settings.auth.policyTitle": "Access policy",
   "settings.auth.policyDescription": "Authentication applies whether the panel is on loopback or exposed to the network.",
   "settings.auth.requirePassword": "Require a password",
@@ -59,7 +58,6 @@
   "settings.auth.shortPasswordText": "It is allowed, but longer is the only thing standing between the network and this panel.",
   "settings.auth.passwordUpdated": "Password updated. Other sessions were signed out.",
   "settings.auth.passwordCleared": "Password cleared and authentication disabled.",
-
   "settings.backup.createTitle": "Create a backup",
   "settings.backup.createDescription": "Pick what this archive captures. Nothing is written until you create it.",
   "settings.backup.entriesCount": {
@@ -91,7 +89,6 @@
   "settings.backup.entrySecretsHint": "Password hash and API token hash",
   "settings.backup.entryTlsHint": "The panel's own certificate pair",
   "settings.backup.entryWorkspaceHint": "Its settings, servers, secrets and declared data paths",
-
   "settings.backups.policyTitle": "Policy",
   "settings.backups.policyDescription": "How many archives the panel keeps, and the extra paths every one of them captures.",
   "settings.backups.allow": "Allow backups",
@@ -133,7 +130,6 @@
   "settings.backups.kindSecrets": "secrets",
   "settings.backups.kindTls": "tls",
   "settings.backups.kindData": "data",
-
   "settings.ddns.statePending": "Waiting",
   "settings.ddns.stateOk": "Updated",
   "settings.ddns.stateUnchanged": "Current",
@@ -208,7 +204,6 @@
   "settings.ddns.forgetTitle": "Forget the stored credentials?",
   "settings.ddns.forgetHint": "They are removed from disk and cannot be read back; you would need to paste them again.",
   "settings.ddns.saveCredentials": "Save credentials",
-
   "settings.defaults.title": "Server defaults",
   "settings.defaults.description": "Applied to every entry that does not set its own value.",
   "settings.defaults.enabledHint": "New entries start enabled.",
@@ -224,7 +219,6 @@
   "settings.defaults.conflictKill": "Kill whatever holds the port",
   "settings.defaults.logBufferLines": "Log buffer lines",
   "settings.defaults.logBufferLinesHint": "Kept in memory per server.",
-
   "settings.host.title": "Thresholds",
   "settings.host.description": "A threshold of 0 disables that alert. Breaches notify once, and once more on recovery.",
   "settings.host.enabled": "Sample this machine",
@@ -243,7 +237,6 @@
   "settings.host.tempCelsiusHint": "Linux only; ignored where the OS does not expose it.",
   "settings.host.breachingNow": "Breaching now:",
   "settings.host.nothingBreaching": "Nothing is breaching right now.",
-
   "settings.interface.title": "Interface",
   "settings.interface.description": "The panel is a static site: keep the stock one, or serve your own build from the state directory.",
   "settings.interface.currentlyServing": "Currently serving",
@@ -267,7 +260,6 @@
   "settings.interface.yourBuild": "your build",
   "settings.interface.restored": "stock UI restored — refresh the page",
   "settings.interface.nothingInstalled": "no custom UI was installed",
-
   "settings.listener.title": "Listener",
   "settings.listener.description": "Where the panel answers. Moving this restarts the panel and sends this page to the new address.",
   "settings.listener.port": "Control port",
@@ -288,7 +280,6 @@
   "settings.listener.restartRequired": "restart required",
   "settings.listener.copyLiveAddress": "Copy the live address",
   "settings.listener.liveAddressHint": "What the listener is bound to right now; saved changes take effect after the panel rebinds.",
-
   "settings.logs.title": "Retention",
   "settings.logs.description": "The live view always comes from memory; these files survive a restart and feed the Logs page.",
   "settings.logs.persist": "Keep logs on disk",
@@ -299,7 +290,6 @@
   "settings.logs.directory": "Logs directory",
   "settings.logs.copyDirectory": "Copy the logs directory",
   "settings.logs.browseHint": "Browse and download these files on the {logs} page.",
-
   "settings.telegram.title": "Telegram",
   "settings.telegram.description": "Policy lives in the config; the bot token is a secret and never comes back from the server.",
   "settings.telegram.enabled": "Send notifications",
@@ -338,7 +328,6 @@
   "settings.telegram.testFailed": "The test message failed.",
   "settings.telegram.chatsSeen": "Chats the bot has seen:",
   "settings.telegram.lastSend": "Last send: {result}",
-
   "settings.tls.title": "HTTPS",
   "settings.tls.description": "Upload a PEM pair and the panel serves TLS on its own listener. A self-signed certificate is fine on a home network.",
   "settings.tls.serve": "Serve the panel over HTTPS",
@@ -368,7 +357,6 @@
   "settings.tls.removeHint": "TLS stays on but has nothing to serve, so the panel falls back to http once the listener rebinds.",
   "settings.tls.stored": "Certificate stored.",
   "settings.tls.removed": "Certificate removed.",
-
   "settings.paths.dataRoot": "Data root",
   "settings.paths.dataRootHint": "HHOSTED_HOME — global settings, workspaces, TLS, backups and the UI.",
   "settings.paths.globalSettings": "Global settings",
@@ -388,7 +376,6 @@
   "settings.paths.whereThingsLiveDescription": "Read-only. Copy a path straight into a shell or an editor.",
   "settings.paths.workspaceFiles": "Workspace files",
   "settings.paths.workspaceFilesDescription": "Each workspace owns its config, settings and log directory; nothing is shared between them.",
-
   "settings.restore.title": "Restore a backup",
   "settings.restore.description": "Nothing is written until the plan is applied.",
   "settings.restore.archive": "Archive",
@@ -414,6 +401,27 @@
   "settings.restore.restoredWithNotes": "Restored {count} item(s) — {notes}.",
   "settings.restore.noteReloaded": "the restored servers are live, autostart entries starting",
   "settings.restore.noteRestart": "restart the panel to apply its own settings",
-
-  "settings.rebind.failed": "The control panel did not answer on {target}. Check the console for the new listener."
+  "settings.rebind.failed": "The control panel did not answer on {target}. Check the console for the new listener.",
+  "settings.backup.entryGlobalSettings": "Global settings",
+  "settings.backup.entryGlobalSecrets": "Global secrets (password, API token)",
+  "settings.backup.entryTlsCertificate": "TLS certificate",
+  "settings.backup.leafSettings": "Settings",
+  "settings.backup.leafServers": "Servers",
+  "settings.backup.leafSecrets": "Secrets",
+  "settings.backups.kindWorkspace": "workspace",
+  "settings.backup.restoreItemLabel": "{workspace}: {item}",
+  "settings.backup.noteMissing": "does not exist yet",
+  "settings.backup.noteCovered": "covered by {path}",
+  "settings.backup.noteAlreadyDeclared": "already declared by {origin}",
+  "settings.backup.noteContainsBackupDir": "contains the backup directory",
+  "settings.backup.noteUnknownWorkspace": "unknown workspace",
+  "settings.backup.noteMissingFromArchive": "missing from the archive",
+  "settings.backup.noteDeclaredByBackup": "declared by the backup's config, which is not being restored",
+  "settings.backup.noteNotDeclared": "not declared by this config, nor by the backup",
+  "settings.backup.noteRestoredFrom": "restored from {path}",
+  "settings.restore.reasonSymbolicLink": "symbolic link, skipped",
+  "settings.restore.reasonNotSelected": "not selected",
+  "settings.restore.reasonUnrestorable": "cannot be restored here",
+  "settings.restore.reasonInvalidSettings": "the archive's settings are not valid",
+  "settings.restore.reasonInvalidServers": "the archive's servers are not valid"
 }

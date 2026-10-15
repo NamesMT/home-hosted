@@ -1,21 +1,9 @@
 /**
- * The UI's one i18n instance, and the only place a component should read translations from.
+ * The UI's one i18n instance, and the only place a component reads translations from.
  *
- * Four deliberate choices, each of which the stock UI depends on:
- *
- * 1. **A module singleton, not `app.use()`.** Components call `useI18n()` from here, which reads
- *    the instance directly. The library's composable needs `app.provide`, and this repo's
- *    component tests mount a single SFC with no plugins — they would all break. A module-level
- *    instance needs no provide/inject, and `t()` stays reactive inside a render function because
- *    the library tracks its own revision ref.
- * 2. **English is eager, every other catalog is a lazy chunk.** Nine catalogs is real weight for a
- *    panel that usually serves one language; `import.meta.glob` code-splits the rest, and
- *    `setLocale` awaits the chunk before switching so no half-translated frame is painted.
- * 3. **Keys are flat** (`nav.settings`): one catalog entry per string, resolved by exact match, so
- *    a literal key can never be shadowed by a nested tree.
- * 5. **The choice is browser-local** (`hh.locale`, beside `hh.theme`). The login page has no
- *    session, so a panel-side setting could not be read there; a per-browser choice is also what
- *    a shared panel wants.
+ * A module singleton, never `app.use()`: the component tests mount one SFC with no plugins, so
+ * there is no `app.provide` to inject from. English is eager because it is the fallback; the other
+ * eight catalogs are lazy chunks. Keys are flat — exact match, so no key is shadowed by a tree.
  */
 import type { Translations } from '@i18n-micro/vue'
 import { createI18n } from '@i18n-micro/vue'
@@ -99,12 +87,7 @@ function applyDocumentLanguage(code: string): void {
   document.documentElement.lang = localeMeta(code)?.iso ?? code
 }
 
-/**
- * Switches the UI's language, loading its catalog first.
- *
- * Resolves once the catalog is in place, so a caller can await it and never paint a frame of the
- * previous language's strings under the new choice.
- */
+/** Switches the language, loading its catalog first so no half-translated frame is painted. */
 export async function setLocale(code: string): Promise<void> {
   if (!isSupportedLocale(code) || code === i18n.global.locale.value)
     return
@@ -127,13 +110,8 @@ export async function setLocale(code: string): Promise<void> {
 }
 
 /**
- * The locale to start in, and the work to get there. Called once from `main.ts` before mount, so
- * the first paint is already in the right language.
- *
- * Never rejects. A catalog is a network fetch — a stale `index.html` after a redeploy, an offline
- * home server, a proxy that drops the chunk — and a rejection here would mean the app never
- * mounts, which is a blank page with no way back. English is already in the bundle, so the worst
- * case is an English panel.
+ * The locale to start in. Never rejects: the catalog is a network fetch, and a rejection here
+ * would skip the mount and leave a blank page. English is bundled, so the worst case is English.
  */
 export async function initLocale(): Promise<void> {
   const code = readStored() ?? detected()
@@ -150,27 +128,17 @@ export async function initLocale(): Promise<void> {
   applyDocumentLanguage(code)
 }
 
-/**
- * A string for `key`, in the active language.
- *
- * `params` interpolate `{name}` placeholders; `fallback` is used for a key no catalog has, which
- * keeps a half-translated build readable instead of showing the raw key.
- */
+/** A string for `key`. `params` fill `{name}`; `fallback` covers a key no catalog has. */
 export function t(key: string, params?: Record<string, unknown>, fallback?: string): string {
   const value = i18n.global.t(key, params as never, fallback ?? null)
   return typeof value === 'string' ? value : String(value ?? '')
 }
 
 /**
- * A plural-aware string: the form comes from the language's own plural categories (see `plural.ts`).
+ * A plural-aware string; the form comes from the language's plural categories (see `plural.ts`).
  *
- * A language that inflects writes a message object (`{ one, few, many, other }`); one that does not
- * writes a plain string with `{count}`.
- *
- * The message is resolved here rather than through the library's `tc()`, because that call forwards
- * only `{count}` to the plural rule — a message with a second placeholder (`{count} of {total}`)
- * would render `{total}` literally. `resolveTranslations()` is the library's own dump of what `t()`
- * can see, already layering the fallback language, so this reads the same string `t()` would.
+ * Resolved through `resolveTranslations()` rather than the library's `tc()`, which forwards only
+ * `{count}` to the plural rule and would render a second placeholder literally.
  */
 export function tc(key: string, count: number, params?: Record<string, unknown>): string {
   const values = { ...params, count }

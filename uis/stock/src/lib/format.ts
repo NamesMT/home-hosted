@@ -3,15 +3,14 @@ import { formatAgo as sharedFormatAgo, formatDuration as sharedFormatDuration, r
 import { currentLocale, t } from '@/i18n'
 import { localeMeta } from '@/i18n/locales'
 
-// `formatRatio` and `formatClock` carry no words, so they are the two the UIs can share outright.
-export { formatClock, formatRatio } from '@shared/ui-format'
+// `formatRatio` carries no words, so it is the one the UIs can share outright.
+export { formatRatio } from '@shared/ui-format'
 
 /**
- * The ISO tag for the language the UI is showing.
+ * The ISO tag for the language the UI shows.
  *
- * `toLocaleString(undefined, …)` follows the *browser's* locale, which is not the language the
- * panel is in — picking Japanese would leave every timestamp in English month names. Falls back
- * to the browser when the active code somehow has no mapping.
+ * `toLocaleString(undefined, …)` would follow the *browser*, which is not the panel's language —
+ * picking Japanese would leave every timestamp in English month names.
  */
 export function activeLocaleTag(): string | undefined {
   return localeMeta(currentLocale())?.iso
@@ -21,17 +20,7 @@ export function activeLocaleTag(): string | undefined {
 const relativeCache = new Map<string, Intl.RelativeTimeFormat>()
 const unitCache = new Map<string, Intl.NumberFormat>()
 
-/**
- * The stock UI's duration words, in the reader's language.
- *
- * `Intl` does the work rather than a catalog: it already knows each language's word order
- * (`vor 12 Sek.` / `12 秒前` / `через 2 ч`), abbreviations and plurals, so there is nothing to
- * translate by hand and nothing to keep in step as languages are added.
- *
- * English is the one exception, deliberately: `narrow` gives it the original `12s ago` while every
- * other language reads better at `short` (`short` would make English `12 sec. ago`, changing text
- * nobody asked to change; `narrow` gives Russian and French a bare `-12 с` with no direction word).
- */
+/** English's own suffixes, so `unitText` needs no `Intl` call for the common language. */
 const UNIT_STYLE: Record<DurationUnit, string> = { s: 's', m: 'm', h: 'h', d: 'd' }
 
 function isEnglish(): boolean {
@@ -44,7 +33,7 @@ function relativeFormatter(): Intl.RelativeTimeFormat {
   const key = `${locale ?? ''}:${style}`
   let formatter = relativeCache.get(key)
   if (formatter === undefined) {
-    // `always` keeps a span a span, so `1m ago` never becomes `yesterday` (which is not an age).
+    // `always` keeps a span a span, so `1m ago` never becomes `yesterday`.
     formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'always', style })
     relativeCache.set(key, formatter)
   }
@@ -52,10 +41,8 @@ function relativeFormatter(): Intl.RelativeTimeFormat {
 }
 
 /**
- * A bare amount and unit, e.g. `1h` / `1時間` / `1 ч`.
- *
- * `Intl.NumberFormat`'s unit style is the right tool for the two-unit span: `RelativeTimeFormat`
- * always states a direction, which reads wrong twice in `1h ago 30m ago`.
+ * A bare amount and unit, e.g. `1h` / `1時間` / `1 ч`. `RelativeTimeFormat` is wrong here: it always
+ * states a direction, which reads twice in `1h ago 30m ago`.
  */
 function unitText(value: number, name: DurationUnit): string {
   // English keeps the `1h 30m` the formatters produced before this was localizable.
@@ -66,8 +53,7 @@ function unitText(value: number, name: DurationUnit): string {
   const key = `${locale ?? ''}:${name}`
   let formatter = unitCache.get(key)
   if (formatter === undefined) {
-    // `short`, not `narrow`: narrow falls back to Latin (`1h 30m`) in Japanese, where the panel reads
-    // `1 時間 30 分`. English is handled above and never reaches this.
+    // `short`, not `narrow`: narrow falls back to Latin in Japanese (`1h 30m`, not `1 時間 30 分`).
     formatter = new Intl.NumberFormat(locale, { style: 'unit', unit: map[name], unitDisplay: 'short' })
     unitCache.set(key, formatter)
   }
@@ -75,16 +61,23 @@ function unitText(value: number, name: DurationUnit): string {
 }
 
 /**
- * `Intl`'s phrasal form for a moment, in the direction `sign` says.
- *
- * The sign is the direction and the magnitude the amount, which is what keeps "in 4s" and "12s ago"
- * from being the same call — passing a negative count for both rendered a countdown as `4s ago`.
+ * `Intl`'s phrasal form for a moment. The sign is the direction, the magnitude the amount — passing a
+ * negative count for both would render a countdown as `4s ago`.
  */
 function momentText(value: number, name: DurationUnit, sign: 1 | -1): string {
   const map: Record<DurationUnit, Intl.RelativeTimeFormatUnit> = { s: 'second', m: 'minute', h: 'hour', d: 'day' }
   return relativeFormatter().format(sign * value, map[name])
 }
 
+/**
+ * The stock UI's duration words, in the reader's language.
+ *
+ * `Intl` does the work rather than a catalog: it knows each language's word order, abbreviations and
+ * plurals, so nothing needs translating by hand as languages are added.
+ *
+ * English is the deliberate exception — `narrow` keeps its original `12s ago`, where `short` reads
+ * `12 sec. ago`; `narrow` is wrong for the others, where Russian and French lose the direction word.
+ */
 const words: DurationWords = {
   span: (value, name, tail) => (tail === null ? unitText(value, name) : `${unitText(value, name)} ${unitText(tail.value, tail.unit)}`),
   now: () => t('common.now'),

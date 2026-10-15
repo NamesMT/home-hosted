@@ -1,5 +1,5 @@
 import type { TemplateVars } from '#src/helpers/template'
-import type { BackupEntry, BackupFile, BackupsConfig, BackupsView, RestoreItem, RestorePlan, ServerConfig } from '#src/shared/contracts'
+import type { BackupEntry, BackupFile, BackupsConfig, BackupsView, RestoreItem, RestorePlan, RestoreSkip, ServerConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -93,6 +93,14 @@ export interface BackupPath {
   origin: string
   included: boolean
   note: string | null
+  /**
+   * The verdict as a catalog key, so a translated UI words it itself.
+   *
+   * The panel is the only side that knows *why* a path is excluded; the UI is the only side that
+   * knows what language to say it in. `note` stays for an older UI and for `noc-console`.
+   */
+  noteKey?: string
+  noteParams?: Record<string, string>
   ignoreGenerated: boolean
 }
 
@@ -166,7 +174,13 @@ export function resolveBackupPaths(servers: ServerConfig[], includePaths: string
     const note = parent.path === entry.path
       ? `already declared by ${parent.origin}`
       : `covered by ${parent.path}`
-    return { path: entry.path, origin: entry.origin, included: false, note, ignoreGenerated: entry.ignoreGenerated }
+    const noteKey = parent.path === entry.path
+      ? 'settings.backup.noteAlreadyDeclared'
+      : 'settings.backup.noteCovered'
+    const noteParams: Record<string, string> = parent.path === entry.path
+      ? { origin: parent.origin }
+      : { path: parent.path }
+    return { path: entry.path, origin: entry.origin, included: false, note, noteKey, noteParams, ignoreGenerated: entry.ignoreGenerated }
   })
 }
 
@@ -445,13 +459,17 @@ export class BackupService {
    */
   async restore(archivePath: string, options: RestoreOptions): Promise<RestorePlan> {
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
-    const plan: RestorePlan = {
+    // The two structured lists are optional on the wire (a new UI reads an older panel), but this
+    // side always fills them, so it builds them as required.
+    const plan: RestorePlan & { appliedIds: string[], skippedItems: RestoreSkip[] } = {
       dryRun: !options.confirm,
       encrypted: false,
       needsPassword: false,
       items: [],
       applied: [],
+      appliedIds: [],
       skipped: [],
+      skippedItems: [],
       restartRequired: false,
       reloaded: false,
     }
@@ -491,8 +509,10 @@ export class BackupService {
         names: entries.map(entry => entry.name),
         ...(password === null ? {} : { password }),
       })
-      for (const name of extracted.skipped)
+      for (const name of extracted.skipped) {
         plan.skipped.push(`${name} (symbolic link, skipped)`)
+        plan.skippedItems.push({ label: name, reasonKey: 'settings.restore.reasonSymbolicLink' })
+      }
 
       const manifestPath = path.join(staging, MANIFEST)
       if (!fs.existsSync(manifestPath))
@@ -507,32 +527,51 @@ export class BackupService {
         if (apply === null) {
           plan.items.push({ ...item, selected: false })
           plan.skipped.push(`${item.label}${item.note === null ? '' : ` (${item.note})`}`)
+          plan.skippedItems.push({
+            label: item.label,
+            ...(item.labelKey === undefined ? {} : { labelKey: item.labelKey }),
+            ...(item.labelParams === undefined ? {} : { labelParams: item.labelParams }),
+            // The note is already the reason when there is one; otherwise the row is simply not
+            // something this instance can write back.
+            reasonKey: item.noteKey ?? 'settings.restore.reasonUnrestorable',
+            ...(item.noteParams === undefined ? {} : { reasonParams: item.noteParams }),
+          })
           return
         }
         const selected = selectedIds === null
           || selectedIds.has(item.id)
           || aliases.some(alias => selectedIds.has(alias))
         plan.items.push({ ...item, selected })
-        if (selected)
+        if (selected) {
           actions.set(item.id, apply)
-        else
+        }
+        else {
           plan.skipped.push(`${item.label} (not selected)`)
+          plan.skippedItems.push({
+            label: item.label,
+            ...(item.labelKey === undefined ? {} : { labelKey: item.labelKey }),
+            ...(item.labelParams === undefined ? {} : { labelParams: item.labelParams }),
+            reasonKey: 'settings.restore.reasonNotSelected',
+          })
+        }
       }
 
       // ---------------------------------------------------------------- global
       const settingsText = readText(path.join(staging, 'global', 'settings.json'))
       const parsedGlobal = readableGlobalSettings(settingsText) ? parseGlobalSettings(JSON.parse(settingsText!)).config : null
-      if (settingsText !== null && parsedGlobal === null)
+      if (settingsText !== null && parsedGlobal === null) {
         plan.skipped.push('Global settings (the archive\'s settings are not valid)')
+        plan.skippedItems.push({ label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', reasonKey: 'settings.restore.reasonInvalidSettings' })
+      }
       if (parsedGlobal !== null && settingsText !== null) {
-        addItem({ id: 'global:settings', label: 'Global settings', kind: 'settings', restorable: true, note: null }, () => {
+        addItem({ id: 'global:settings', label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', kind: 'settings', restorable: true, note: null }, () => {
           writeFileAtomic(sources.globalSettingsPath, settingsText)
         }, ['config'])
       }
 
       const globalSecrets = readText(path.join(staging, 'global', 'secrets.json'))
       if (globalSecrets !== null) {
-        addItem({ id: 'global:secrets', label: 'Global secrets (password, API token)', kind: 'secrets', restorable: true, note: null }, () => {
+        addItem({ id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null }, () => {
           writeFileAtomic(sources.globalSecretsPath, globalSecrets, { mode: 0o600 })
         }, ['secrets'])
       }
@@ -540,7 +579,7 @@ export class BackupService {
       const tlsInArchive = path.join(staging, 'global', 'tls')
       if (fs.existsSync(tlsInArchive)) {
         const files = fs.readdirSync(tlsInArchive).filter(file => fs.statSync(path.join(tlsInArchive, file)).isFile())
-        addItem({ id: 'global:tls', label: 'TLS certificate', kind: 'tls', restorable: true, note: null }, () => {
+        addItem({ id: 'global:tls', label: 'TLS certificate', labelKey: 'settings.backup.entryTlsCertificate', kind: 'tls', restorable: true, note: null }, () => {
           fs.mkdirSync(sources.tlsDir, { recursive: true })
           for (const file of files) {
             const mode = file.endsWith('.key.pem') ? { mode: 0o600 } : {}
@@ -573,10 +612,13 @@ export class BackupService {
               addItem({
                 id: `workspace:${id}:${suffix}`,
                 label: `${id}: ${label}`,
+                labelKey: 'settings.backup.restoreItemLabel',
+                labelParams: { workspace: id, item: suffix },
                 kind: suffix,
                 workspaceId: id,
                 restorable: false,
                 note: 'unknown workspace',
+                noteKey: 'settings.backup.noteUnknownWorkspace',
               }, null)
             }
             continue
@@ -584,12 +626,13 @@ export class BackupService {
 
           if (settings !== null) {
             if (readableWorkspaceSettings(settings)) {
-              addItem({ id: `workspace:${id}:settings`, label: `${workspace.label}: Settings`, kind: 'settings', workspaceId: id, restorable: true, note: null }, () => {
+              addItem({ id: `workspace:${id}:settings`, label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, kind: 'settings', workspaceId: id, restorable: true, note: null }, () => {
                 writeFileAtomic(workspace.settingsPath, settings)
               })
             }
             else {
               plan.skipped.push(`${workspace.label}: Settings (the archive's settings are not valid)`)
+              plan.skippedItems.push({ label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, reasonKey: 'settings.restore.reasonInvalidSettings' })
             }
           }
 
@@ -597,17 +640,18 @@ export class BackupService {
             const parsed = readableServersFile(servers)
             if (parsed !== null) {
               archivedServers.set(id, parsed)
-              addItem({ id: `workspace:${id}:servers`, label: `${workspace.label}: Servers`, kind: 'servers', workspaceId: id, restorable: true, note: null }, () => {
+              addItem({ id: `workspace:${id}:servers`, label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, kind: 'servers', workspaceId: id, restorable: true, note: null }, () => {
                 writeFileAtomic(workspace.serversPath, servers)
               })
             }
             else {
               plan.skipped.push(`${workspace.label}: Servers (the archive's servers are not valid)`)
+              plan.skippedItems.push({ label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, reasonKey: 'settings.restore.reasonInvalidServers' })
             }
           }
 
           if (secrets !== null) {
-            addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, kind: 'secrets', workspaceId: id, restorable: true, note: null }, () => {
+            addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'secrets' }, kind: 'secrets', workspaceId: id, restorable: true, note: null }, () => {
               writeFileAtomic(workspace.secretsPath, secrets, { mode: 0o600 })
             })
           }
@@ -697,16 +741,19 @@ export class BackupService {
             note: declaredByBackup
               ? 'declared by the backup\'s config, which is not being restored'
               : 'not declared by this config, nor by the backup',
+            noteKey: declaredByBackup
+              ? 'settings.backup.noteDeclaredByBackup'
+              : 'settings.backup.noteNotDeclared',
           }, null, aliases)
           continue
         }
         if (!fs.existsSync(from)) {
-          addItem({ ...base, note: 'missing from the archive' }, null, aliases)
+          addItem({ ...base, note: 'missing from the archive', noteKey: 'settings.backup.noteMissingFromArchive' }, null, aliases)
           continue
         }
 
         addItem(
-          { ...base, restorable: true, note: target.path === archivedPath ? null : `restored from ${archivedPath}` },
+          { ...base, restorable: true, ...(target.path === archivedPath ? { note: null } : { note: `restored from ${archivedPath}`, noteKey: 'settings.backup.noteRestoredFrom', noteParams: { path: archivedPath } }) },
           // `cpSync` follows symlinks already in the destination tree, so a link
           // standing inside the declared path would carry the archive's files out of
           // it. The destination of each entry is what is checked, because that is
@@ -733,6 +780,7 @@ export class BackupService {
         // A dry run reports what *would* happen, so the UI can show the plan
         // and the selection before anything is written.
         plan.applied = [...actions.keys()].map(id => labelOf(plan, id))
+        plan.appliedIds = [...actions.keys()]
         return plan
       }
 
@@ -740,6 +788,7 @@ export class BackupService {
         apply()
         plan.applied.push(labelOf(plan, id))
       }
+      plan.appliedIds = [...actions.keys()]
 
       if (this.options.onRestored !== undefined && [...actions.keys()].some(id => RELOADABLE.test(id))) {
         plan.reloaded = true
@@ -767,10 +816,14 @@ export class BackupService {
 
   /** Selectable entries: the three global slices, then one per workspace. */
   private entries(sources: BackupSources): BackupEntry[] {
+    const missing = (path: string, key: string): Pick<BackupEntry, 'note' | 'noteKey'> => {
+      const absent = this.missingNote(path)
+      return absent === null ? { note: null } : { note: absent, noteKey: key }
+    }
     const entries: BackupEntry[] = [
-      { id: 'global:settings', label: 'Global settings', kind: 'settings', note: this.missingNote(sources.globalSettingsPath), items: [] },
-      { id: 'global:secrets', label: 'Global secrets (password, API token)', kind: 'secrets', note: this.missingNote(sources.globalSecretsPath), items: [] },
-      { id: 'global:tls', label: 'TLS certificate', kind: 'tls', note: this.missingNote(sources.tlsDir), items: [] },
+      { id: 'global:settings', label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', kind: 'settings', ...missing(sources.globalSettingsPath, 'settings.backup.noteMissing'), items: [] },
+      { id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', ...missing(sources.globalSecretsPath, 'settings.backup.noteMissing'), items: [] },
+      { id: 'global:tls', label: 'TLS certificate', labelKey: 'settings.backup.entryTlsCertificate', kind: 'tls', ...missing(sources.tlsDir, 'settings.backup.noteMissing'), items: [] },
     ]
 
     for (const workspace of sources.workspaces) {
@@ -789,10 +842,14 @@ export class BackupService {
 
   private workspaceItems(workspace: BackupWorkspaceSource, includePaths: string[]): BackupEntry['items'] {
     const id = workspace.id
+    const note = (path: string): Pick<BackupEntry['items'][number], 'note' | 'noteKey'> => {
+      const absent = this.missingNote(path)
+      return absent === null ? { note: null } : { note: absent, noteKey: 'settings.backup.noteMissing' }
+    }
     const items: BackupEntry['items'] = [
-      { id: `workspace:${id}:settings`, label: 'Settings', kind: 'settings', included: true, note: this.missingNote(workspace.settingsPath) },
-      { id: `workspace:${id}:servers`, label: 'Servers', kind: 'servers', included: true, note: this.missingNote(workspace.serversPath) },
-      { id: `workspace:${id}:secrets`, label: 'Secrets', kind: 'secrets', included: true, note: this.missingNote(workspace.secretsPath) },
+      { id: `workspace:${id}:settings`, label: 'Settings', labelKey: 'settings.backup.leafSettings', kind: 'settings', included: true, ...note(workspace.settingsPath) },
+      { id: `workspace:${id}:servers`, label: 'Servers', labelKey: 'settings.backup.leafServers', kind: 'servers', included: true, ...note(workspace.serversPath) },
+      { id: `workspace:${id}:secrets`, label: 'Secrets', labelKey: 'settings.backup.leafSecrets', kind: 'secrets', included: true, ...note(workspace.secretsPath) },
     ]
 
     for (const declared of this.declaredData(workspace.servers, includePaths)) {
@@ -804,6 +861,8 @@ export class BackupService {
         origin: declared.origin,
         included: declared.included,
         note: declared.note,
+        ...(declared.noteKey === undefined ? {} : { noteKey: declared.noteKey }),
+        ...(declared.noteParams === undefined ? {} : { noteParams: declared.noteParams }),
         ignoreGenerated: declared.ignoreGenerated,
       })
     }
@@ -820,7 +879,7 @@ export class BackupService {
     const archiveDir = path.resolve(this.resolveDir())
     return resolveBackupPaths(servers, includePaths, this.backupVars(servers)).map((entry) => {
       if (entry.included && isInside(entry.path, archiveDir))
-        return { ...entry, included: false, note: 'contains the backup directory' }
+        return { ...entry, included: false, note: 'contains the backup directory', noteKey: 'settings.backup.noteContainsBackupDir' }
       return entry
     })
   }

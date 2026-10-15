@@ -1,15 +1,9 @@
 /**
- * Plural selection for `tc()`, correct per language rather than per message index.
+ * Plural selection for `tc()`, by CLDR category rather than by message index.
  *
- * `@i18n-micro/vue`'s built-in rule is "form N is `parts[count]`, else the last" — an English
- * shape. Russian needs `one`/`few`/`many`, so `21` must read "21 яблоко" (CLDR `one`) while
- * `5` reads "5 яблок" (`many`); index-by-count gives both the same form. `Intl.PluralRules`
- * already knows every language's categories, so this resolves the category and reads it off
- * the message object.
- *
- * A plain-string message is a language with one form (Chinese, Japanese, Korean, Vietnamese) or a
- * message that never inflects. It still gets interpolated: returning it raw left a literal
- * `{count}` on screen, which is how this was caught.
+ * The library's built-in rule is "form N is `parts[count]`, else the last" — an English shape, so
+ * Russian's `21` and `5` would read the same form. A plain-string message is a language with one
+ * form; it is still interpolated, or `{count}` shows literally.
  */
 import type { Getter, Params, PluralFunc, Translations } from '@i18n-micro/vue'
 

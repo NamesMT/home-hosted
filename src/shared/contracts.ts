@@ -1105,14 +1105,26 @@ export type BackupFile = typeof backupFileSchema.infer
 export const backupEntrySchema = type({
   /** `global:settings` | `global:secrets` | `global:tls` | `workspace:<id>`. */
   'id': 'string',
+  /**
+   * The panel's own English wording. Kept because it is what an older UI reads, and what a
+   * single-language UI wants; a translated UI prefers the `*Key` beside it.
+   */
   'label': 'string',
+  /** A catalog key for `label`, with its placeholder values, so a UI can render its own language. */
+  'labelKey?': 'string',
+  'labelParams?': 'Record<string, string>',
   'kind': '"settings" | "secrets" | "tls" | "workspace"',
   'workspaceId?': 'string',
   'note': 'string | null',
+  /** The same pair for `note`: the panel knows which reason it is, the UI knows the wording. */
+  'noteKey?': 'string',
+  'noteParams?': 'Record<string, string>',
   /** What this entry would capture; a workspace carries several leaves. */
   'items': type({
     'id': 'string',
     'label': 'string',
+    'labelKey?': 'string',
+    'labelParams?': 'Record<string, string>',
     /** `settings`/`servers`/`secrets` for a workspace, `data` for a declared path. */
     'kind': '"settings" | "servers" | "secrets" | "data"',
     'path?': 'string',
@@ -1120,6 +1132,8 @@ export const backupEntrySchema = type({
     'origin?': 'string',
     'included': 'boolean',
     'note': 'string | null',
+    'noteKey?': 'string',
+    'noteParams?': 'Record<string, string>',
     'ignoreGenerated?': 'boolean',
   }).array(),
 })
@@ -1142,6 +1156,8 @@ export const restoreItemSchema = type({
   /** A backup entry or leaf id (`workspace:<id>:servers`, `data:<path>`, ...). */
   'id': 'string',
   'label': 'string',
+  'labelKey?': 'string',
+  'labelParams?': 'Record<string, string>',
   'kind': '"settings" | "secrets" | "servers" | "tls" | "data"',
   'workspaceId?': 'string',
   /** false when the current instance does not declare it, or it is not in the archive. */
@@ -1149,22 +1165,47 @@ export const restoreItemSchema = type({
   /** Echo of the request's selection, so the checkboxes round-trip. */
   'selected': 'boolean',
   'note': 'string | null',
+  'noteKey?': 'string',
+  'noteParams?': 'Record<string, string>',
 })
 export type RestoreItem = typeof restoreItemSchema.infer
 
+/**
+ * Why one thing was skipped, as a reason the UI can word itself.
+ *
+ * `skipped` stays a list of ready-made English sentences for an older UI and for
+ * `noc-console`; this is the same list in parts, so a translated UI says it in the
+ * reader's language instead of showing the panel's English inside its own sentence.
+ */
+export const restoreSkipSchema = type({
+  'label': 'string',
+  'labelKey?': 'string',
+  'labelParams?': 'Record<string, string>',
+  /** A catalog key for the parenthesis, e.g. `not selected`; absent when there is none. */
+  'reasonKey?': 'string',
+  'reasonParams?': 'Record<string, string>',
+})
+export type RestoreSkip = typeof restoreSkipSchema.infer
+
 export const restorePlanSchema = type({
-  dryRun: 'boolean',
-  encrypted: 'boolean',
+  'dryRun': 'boolean',
+  'encrypted': 'boolean',
   /** The archive needs a password (none or a wrong one was supplied). */
-  needsPassword: 'boolean',
-  items: restoreItemSchema.array(),
-  applied: type('string[]'),
-  skipped: type('string[]'),
+  'needsPassword': 'boolean',
+  'items': restoreItemSchema.array(),
+  'applied': type('string[]'),
+  /**
+   * The ids `applied` names, so a UI resolves each through `items` and renders its own label.
+   * `applied` itself stays: it is what a UI with one language reads.
+   */
+  'appliedIds?': type('string[]'),
+  'skipped': type('string[]'),
+  'skippedItems?': restoreSkipSchema.array(),
   /** Only the panel's own listener needs a restart; its servers are re-read live. */
-  restartRequired: 'boolean',
+  'restartRequired': 'boolean',
   /** The panel re-read the restored config within this same restore. */
-  reloaded: 'boolean',
-  error: 'string?',
+  'reloaded': 'boolean',
+  'error': 'string?',
 })
 export type RestorePlan = typeof restorePlanSchema.infer
 

@@ -13,6 +13,7 @@ import TransText from '@/components/ui/TransText.vue'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
+import { kindLabel, panelNote, panelText } from '@/lib/panel-text'
 import { inputClass, labelClass } from '@/lib/ui'
 
 interface RestoreSource {
@@ -43,6 +44,36 @@ const target = ref<RestoreTarget>({ kind: 'upload' })
 const sourceValue = ref<string>(UPLOAD)
 
 const selectedCount = computed(() => plan.value?.items.filter(item => item.selected).length ?? 0)
+
+/**
+ * What the plan will write, and what it will skip, in the reader's language.
+ *
+ * Both lists are the panel's own English sentences. `appliedIds`/`skippedItems` are the same facts
+ * in parts, so each is resolved through `items` (which carries the label keys) and rendered here —
+ * while a panel that predates those fields still reads correctly from `applied`/`skipped`.
+ */
+const appliedLabels = computed(() => {
+  const view = plan.value
+  if (view === null)
+    return []
+  if (view.appliedIds === undefined)
+    return view.applied
+  return view.appliedIds.map(id => panelText(view.items.find(item => item.id === id) ?? { label: id }))
+})
+
+const skippedLabels = computed(() => {
+  const view = plan.value
+  if (view === null)
+    return []
+  if (view.skippedItems === undefined)
+    return view.skipped
+  return view.skippedItems.map((skip) => {
+    const label = panelText(skip)
+    if (skip.reasonKey === undefined)
+      return label
+    return `${label} (${t(skip.reasonKey, skip.reasonParams)})`
+  })
+})
 const restoringGlobal = computed(() => plan.value?.items.some(item => item.id === 'global:settings' && item.selected) ?? false)
 const needsPassword = computed(() => plan.value?.needsPassword === true)
 const canApply = computed(() => plan.value !== null && !needsPassword.value && selectedCount.value > 0 && !busy.value)
@@ -226,8 +257,8 @@ watch(open, (isOpen) => {
             <li v-for="item in plan.items" :key="item.id">
               <CheckField
                 v-model="item.selected"
-                :label="item.label"
-                :hint="[item.kind, item.workspaceId, item.note].filter(Boolean).join(' · ')"
+                :label="panelText(item)"
+                :hint="[kindLabel(item.kind), item.workspaceId, panelNote(item)].filter(Boolean).join(' · ')"
                 :disabled="!item.restorable || busy"
               />
             </li>
@@ -242,9 +273,9 @@ watch(open, (isOpen) => {
           </div>
 
           <p class="mt-2">
-            {{ t('settings.restore.willRestore', { items: plan.applied.join(', ') || t('settings.restore.nothing') }) }}
-            <template v-if="plan.skipped.length">
-              {{ t('settings.restore.skipped', { items: plan.skipped.join(', ') }) }}
+            {{ t('settings.restore.willRestore', { items: appliedLabels.join(', ') || t('settings.restore.nothing') }) }}
+            <template v-if="skippedLabels.length > 0">
+              {{ t('settings.restore.skipped', { items: skippedLabels.join(', ') }) }}
             </template>
             <template v-if="plan.restartRequired">
               {{ t('settings.restore.restartNote') }}

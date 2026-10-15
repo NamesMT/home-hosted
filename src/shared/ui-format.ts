@@ -1,22 +1,13 @@
 /**
- * Formatting both UIs share.
+ * Formatting both UIs share, so a fix lands once instead of in two copies.
  *
- * These were byte-identical copies in `uis/stock/src/lib/format.ts` and
- * `uis/noc-console/src/lib/format.ts` — 911 duplicated characters across four functions. The cost is
- * not the bytes: fixing `formatRatio`'s missing guard in one UI left the other still rendering `NaN%`,
- * which is exactly the "carry the fix into the other UI" commit that `proxy-form.ts` was created to
- * stop. `formatRatio` then became identical again once both had the guard, so it moved here too — the
- * guard was fixed twice before the copy was removed, which is the duplication arguing for itself.
+ * Only the genuinely identical functions live here: `formatBytes`, `formatBytesShort` and
+ * `formatDateTime` differ between the products on purpose (signatures, thresholds, locale options)
+ * and stay where they are.
  *
- * Only the functions that are genuinely the same live here. `formatBytes`, `formatBytesShort` and
- * `formatDateTime` differ between the two products on purpose (signatures, unit thresholds, locale
- * options) and stay where they are.
- *
- * **The relative-time functions take words.** They used to build English inline ("12s ago"), which a
- * translated UI then showed verbatim — the Japanese panel read 「起動しました 12s ago」. The *rule* (which
- * unit, which threshold, the backwards-clock clamp) is what belongs here; the *words* do not, because
- * `src/shared/` may not import a UI's i18n. A caller that ships one language passes nothing and gets
- * exactly the English it got before.
+ * The relative-time functions take **words**. The rule (which unit, which threshold, the
+ * backwards-clock clamp) belongs here; the words do not, because `src/shared/` may not import a
+ * UI's i18n. A caller that ships one language passes nothing and gets the English it always got.
  */
 
 /** A 0–1 ratio as a percentage. Unknown reads as an em-dash, never the literal `NaN%`. */
@@ -26,9 +17,9 @@ export function formatRatio(value: number | null): string {
   return `${(value * 100).toFixed(value >= 0.999 ? 0 : 1)}%`
 }
 
-/** Wall-clock time, 24-hour, in `locale` (the host locale when omitted). */
-export function formatClock(ts: number, locale?: string): string {
-  return new Date(ts).toLocaleTimeString(locale, { hour12: false })
+/** Wall-clock time, 24-hour, in the host locale. */
+export function formatClock(ts: number): string {
+  return new Date(ts).toLocaleTimeString(undefined, { hour12: false })
 }
 
 /** The unit a span counts in. `s`/`m`/`h`/`d` keep the call sites free of a translated word. */
@@ -54,7 +45,7 @@ export interface DurationWords {
   never: () => string
 }
 
-export const ENGLISH_DURATION_WORDS: DurationWords = {
+const ENGLISH_DURATION_WORDS: DurationWords = {
   span: (value, unit, tail) => (tail === null ? `${value}${unit}` : `${value}${unit} ${tail.value}${tail.unit}`),
   now: () => 'now',
   ahead: (value, unit) => `in ${value}${unit}`,

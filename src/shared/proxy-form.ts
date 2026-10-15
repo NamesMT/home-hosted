@@ -85,7 +85,7 @@ export interface RouteErrorMessages {
 }
 
 /** The default wording, unchanged from when it was inlined in `validateRouteDraft`. */
-export const ENGLISH_ROUTE_ERROR_MESSAGES: RouteErrorMessages = {
+const ENGLISH_ROUTE_ERROR_MESSAGES: RouteErrorMessages = {
   hostRequired: () => 'a hostname is required',
   hostInvalid: () => 'a hostname of letters, digits, dots and dashes, e.g. home.example.com',
   hostDuplicate: host => `"${host}" is already routed for this path`,
@@ -108,7 +108,7 @@ export interface RouteSummaryLabels {
   retryMany: (count: number, unit: 'minute' | 'hour') => string
 }
 
-export const ENGLISH_ROUTE_SUMMARY_LABELS: RouteSummaryLabels = {
+const ENGLISH_ROUTE_SUMMARY_LABELS: RouteSummaryLabels = {
   controlPanel: () => 'control panel',
   noUpstream: () => 'no upstream',
   noServerPicked: () => 'no server picked',

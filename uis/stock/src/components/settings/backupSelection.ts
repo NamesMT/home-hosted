@@ -1,5 +1,6 @@
 import type { BackupEntry } from '@shared/contracts'
 import { t } from '@/i18n'
+import { panelNote, panelText } from '@/lib/panel-text'
 
 /**
  * The two-level capture model the backup dialog edits.
@@ -32,6 +33,10 @@ export interface EntryChoice {
 
 /** A readable hint for why a leaf would be captured. */
 function leafHint(item: BackupEntry['items'][number]): string {
+  // A note from the panel explains why this leaf is excluded, so it outranks the kind's hint.
+  const note = panelNote(item)
+  if (note !== null && note.length > 0)
+    return note
   if (item.kind === 'settings')
     return t('settings.backup.leafSettingsHint')
   if (item.kind === 'servers')
@@ -39,7 +44,7 @@ function leafHint(item: BackupEntry['items'][number]): string {
   if (item.kind === 'secrets')
     return t('settings.backup.leafSecretsHint')
   if (item.path === undefined)
-    return item.note ?? t('settings.backup.leafDataHint')
+    return t('settings.backup.leafDataHint')
   return item.origin === undefined ? item.path : t('settings.backup.pathFromOrigin', { path: item.path, origin: item.origin })
 }
 
@@ -49,8 +54,9 @@ export function allLeavesSelected(entry: EntryChoice): boolean {
 }
 
 function entryHint(entry: BackupEntry): string {
-  if (entry.note !== null && entry.note.length > 0)
-    return entry.note
+  const note = panelNote(entry)
+  if (note !== null && note.length > 0)
+    return note
   if (entry.kind === 'settings')
     return t('settings.backup.entrySettingsHint')
   if (entry.kind === 'secrets')
@@ -71,14 +77,14 @@ export function captureEntries(entries: BackupEntry[], previous: EntryChoice[] =
     const old = before.get(entry.id)
     return {
       id: entry.id,
-      label: entry.label,
+      label: panelText(entry),
       hint: entryHint(entry),
       kind: entry.kind,
       ...(entry.workspaceId === undefined ? {} : { workspaceId: entry.workspaceId }),
       selected: old?.selected ?? true,
       leaves: entry.items.map(item => ({
         id: item.id,
-        label: item.label,
+        label: panelText(item),
         hint: leafHint(item),
         kind: item.kind,
         selected: old?.leaves.find(leaf => leaf.id === item.id)?.selected ?? true,

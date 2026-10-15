@@ -8,12 +8,11 @@ import { LOCALES } from '@/i18n/locales'
 /**
  * The language picker, shared by the login page and Global settings.
  *
- * A `<select>` rather than a custom listbox: it is one control in two places, it works with the
- * keyboard and screen readers for free, and a native menu renders the endonyms in the platform's
- * own font — which matters when the label is `日本語` and the page font has no CJK coverage.
+ * A `<select>`, not a listbox: it works with the keyboard and screen readers for free, and a native
+ * menu renders an endonym in a font that has the coverage — which matters for `日本語`.
  *
- * Switching is async (a catalog is a chunk), so the control shows the pending choice immediately
- * and only clears it once the catalog is in place — never snapping back to the old language.
+ * Switching loads a chunk, so the control shows the pending choice at once and clears it when the
+ * catalog lands, never snapping back.
  */
 const props = withDefaults(defineProps<{
   /** Stacked label for the settings form; a bare control for the login corner. */

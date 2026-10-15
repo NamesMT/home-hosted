@@ -5,11 +5,9 @@ import { t } from '@/i18n'
 /**
  * A translated sentence with slots where its markup goes.
  *
- * A sentence carrying a `<code>` value ("still on the default password `abc`") cannot be split into
- * `t('…')` fragments without handing translators two half-sentences whose grammar only works in
- * English. So the catalog keeps the whole sentence with a `{password}` placeholder, and this splits
- * it on the placeholders, rendering a slot where one is provided and the plain parameter value
- * otherwise. No `v-html`: every piece stays a text node or a component.
+ * A sentence carrying inline markup cannot be split into `t()` fragments without handing translators
+ * half-sentences whose grammar only works in English, so the catalog keeps it whole with `{name}`
+ * placeholders and this splits on them. No `v-html`: every piece is a text node or a component.
  */
 const props = defineProps<{
   /** The catalog key holding the sentence, with `{name}` placeholders. */
@@ -26,10 +24,8 @@ const slotNames = computed(() => Object.keys(slots))
 interface Piece { text?: string, slot?: string }
 
 const pieces = computed<Piece[]>(() => {
-  // Slotted names are withheld from `t()`, which leaves an unmatched placeholder as literal text
-  // (`interpolate` only replaces a name it was given). That is the whole trick: passing the same
-  // name as both a slot and a param used to let `t()` substitute it first, silently dropping the
-  // markup and rendering the plain value instead.
+  // A slotted name is withheld from `t()`, so its placeholder survives for the split below —
+  // otherwise `t()` substitutes it first and the markup is silently dropped.
   const kept: Record<string, unknown> = { ...props.params }
   for (const name of slotNames.value)
     delete kept[name]
