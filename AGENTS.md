@@ -125,7 +125,8 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   an old panel keeps serving, so a required field blanks the app.
 - **UIs move together.** A change to `uis/stock` — or to a shared contract it reads — lands in every
   other UI under `uis/`, and each altered UI raises its `ui.json` version; `scripts/stamp-uis.mjs`
-  **refuses** a commit that changed a shipped UI without raising it (`uis/<name>/test/**` is exempt).
+  **refuses** a commit that changed a shipped UI without raising it (a UI's `test/` and its own
+  `README.md` are exempt — neither is in the built asset).
   `src/shared/**` is a UI build input, so a runtime contract needs the bump too — the hook does not
   inspect that commit.
 - **Paths.** `dataRoot` is state, under `dataRoot/.hh`; `projectDir` is the base for relative entry

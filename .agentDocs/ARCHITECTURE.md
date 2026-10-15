@@ -126,9 +126,10 @@ moving its tests.**
 ## UI versioning
 
 **`ui.json` is bumped once, when the commit is made** — not on every edit. A commit altering what a
-UI *ships* (`uis/<name>/src`, `public`, build inputs — not `test/`) raises that `version`: patch for
-a fix, minor for a feature, **major only for a rewrite or a restyle**. The number tells a person how
-big the change is; `ui-update` prints it and holds it against the release it offers.
+UI *ships* (`uis/<name>/src`, `public`, build inputs — not `test/` or the UI's own `README.md`)
+raises that `version`: patch for a fix, minor for a feature, **major only for a rewrite or a
+restyle**. The number tells a person how big the change is; `ui-update` prints it and holds it against
+the release it offers.
 `scripts/stamp-uis.mjs` enforces the rule from the pre-commit hook (see `AGENTS.md`).
 
 `unix` is that commit's epoch. `tag` is **stamped by `build-uis.mjs`**, never trusted from the source

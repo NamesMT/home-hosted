@@ -48,7 +48,8 @@ chosen, so a panel serving one language pays for one.
 
 - **`i18n/i18n.csv` is the source of truth** — one row per string, one column per language. Edit it
   there; `pnpm run build:locales` turns it into the `i18n/generated/*.json` the app imports (also
-  run by `pnpm install` and by every UI build). The generated directory is git-ignored.
+  run on install and before every UI build). That directory is git-ignored, so the sheet is what a
+  reviewer reads.
 - A row is `KEY` plus one column per locale. Keys are **flat** dotted paths (`nav.servers`).
   Add a language by adding its column to the sheet *and* its entry to `LOCALES` in
   `src/i18n/locales.ts`.

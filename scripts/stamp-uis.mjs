@@ -8,8 +8,9 @@
  * epoch. Doing that here rather than at each edit is what keeps the number meaningful:
  * `unix` is when the asset was committed, not when somebody happened to open the file.
  *
- * Runs from the pre-commit hook, after `lint-staged`. `uis/<name>/test/**` is not part of the
- * built asset, so a test-only change needs no bump; the built `dist/` is not committed at all.
+ * Runs from the pre-commit hook, after `lint-staged`. A UI's `test/` and its own `README.md` are not
+ * part of the built asset, so changing only those needs no bump; the built `dist/` is not committed
+ * at all.
  */
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -27,12 +28,22 @@ const staged = git('diff', '--cached', '--name-only', '--diff-filter=ACMR')
   .split('\n')
   .filter(line => line.trim().length > 0)
 
-/** The UIs this commit changes something shipped by. */
+/**
+ * The UIs this commit changes something shipped by.
+ *
+ * Two paths under a UI are not in the built asset, so editing one ships nothing and needs no bump:
+ * `test/`, and the UI's own `README.md` — a person's notes about the UI, not a file it serves.
+ * Everything else is a build input: `src/`, `public/`, `index.html`, `vite.config.ts`, and the
+ * `i18n/` sheet the catalogs are generated from.
+ */
+const NOT_SHIPPED = [/^test\//, /^README\.md$/]
 const touched = new Set()
 for (const file of staged) {
-  const name = /^uis\/([^/]+)\//.exec(file)?.[1]
-  // Tests are not in the asset, so changing one does not ship a new UI.
-  if (name !== undefined && !file.startsWith(`uis/${name}/test/`))
+  const match = /^uis\/([^/]+)\/(.+)$/.exec(file)
+  if (match === null)
+    continue
+  const [, name, relative] = match
+  if (!NOT_SHIPPED.some(pattern => pattern.test(relative)))
     touched.add(name)
 }
 
