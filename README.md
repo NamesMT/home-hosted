@@ -676,6 +676,7 @@ src/cli.ts      the command line; one file per command under src/cli/
 src/index.ts    the control plane itself, used by `up --foreground`
 uis/            UIs: `stock` (shipped in the package) and alternatives — any framework, static output
 bin/            the published entry point
+brand/          logo, icons and the social preview; the SVGs are the source, `pnpm run brand` renders them
 docs/           topic docs, UI examples and the README's media
 scripts/        builds, typechecks, media capture, release helpers
 test/           the vitest suite

@@ -37,7 +37,7 @@ servers and its state together.
 | `persistent` | run it under its own nanny so it survives the panel — see below |
 | `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body — a `HEAD` carries no body, so it is warned about and the body check is skipped) |
 | `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway |
-| `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` |
+| `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` — the spent budget is remembered on disk, so a crash loop cannot outlast `maxRetries` by outliving the panel |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
 | `dependsOn` | ids that must be healthy first. `stop-all`/`down` stop dependents before their dependencies; stopping **one** server does not cascade — the log names any dependent it left running |
 | `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from |
@@ -135,6 +135,27 @@ port 4374 is already in use (pid 912) — pid 912 is a detached restart of this 
 set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a supervised process,
 or "kill" to stop whatever holds the port
 ```
+
+### An entry with no port that outlived the panel
+
+A port is what makes the checks above possible, so an entry that declares **no port** has none of them.
+That mattered for one case: a non-persistent child is spawned detached (its own process group), so it
+survives a panel that is killed hard — a crash, a power cut — while nothing recorded that it existed. On
+the next boot the panel found no port to check and started a **second copy** of a server that was already
+running. A duplicated worker (a bot, a queue consumer) is the dangerous kind of duplicate.
+
+Every spawn now also records the child's pid and start time, and a start consults it before spawning:
+
+- the pid is **alive**, was **born when the record says** (a recycled pid is refused), and carries
+  `HHOSTED_SERVER_ID` for this entry → it is adopted, exactly like a successor above;
+- the pid is gone → the record is dropped and the start proceeds normally;
+- the pid is alive but this platform **cannot confirm whose it is** (Windows exposes no per-process
+  environment) → the entry is refused, with the pid named, rather than duplicated. Stop that pid, or
+  give the entry a `persistent: true` nanny, which records its own state and is the supported way to
+  own a portless process across a panel restart.
+
+This never affects an entry that has a `port`: the conflict policy above stays the only witness, and
+`kill` still means "stop whoever holds the port", never "stop an unverified pid".
 
 ### The `kill` policy
 
