@@ -31,6 +31,9 @@ function run(command, args) {
 for (const size of iconSizes)
   run('rsvg-convert', ['-w', String(size), '-h', String(size), path.join(brand, 'logo-mark.svg'), '-o', path.join(brand, `icon-${size}.png`)])
 
+// The banner's SVG is generated from measured text, so its copy can never outgrow a pill.
+run(process.execPath, [path.join(root, 'scripts', 'build-social-preview.mjs')])
+
 run('rsvg-convert', ['-w', '512', '-h', '512', path.join(brand, 'logo.svg'), '-o', path.join(brand, 'logo-512.png')])
 run('rsvg-convert', ['-w', '1280', '-h', '640', path.join(brand, 'social-preview.svg'), '-o', path.join(brand, 'social-preview.png')])
 

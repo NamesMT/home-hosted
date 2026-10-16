@@ -1,20 +1,31 @@
 # Brand
 
-The mark, the icons and the social preview. **The SVG files are hand-authored geometry and
-are the source of truth** — every PNG and the `.ico` are rendered from them by
-`pnpm run brand`, so nobody edits a raster by hand.
+The mark, the icons and the social preview. **The SVG files are the source of truth** — every PNG
+and the `.ico` are rendered from them by `pnpm run brand`, so nobody edits a raster by hand.
 
 | file | what it is |
 | --- | --- |
 | `logo.svg` | the full mark (512 grid): a house whose interior is a three-unit rack |
 | `logo-mark.svg` | the same idea redrawn for 16px: two units, no vents, thicker strokes |
-| `social-preview.svg` | the 2:1 GitHub social preview banner, 1280×640 |
+| `social-preview.svg` | **generated** — the 2:1 GitHub social preview banner, 1280×640 |
 | `logo-512.png`, `social-preview.png` | rendered deliverables |
 | `icon-16…512.png` | favicon and app-icon sizes, from `logo-mark.svg` |
 | `favicon.ico` | 16/32/48 in one file, for browsers that still ask for it |
 
 `pnpm run brand` also copies `favicon.ico` and `favicon.svg` into each UI's `public/`, because
 a UI serves its own copy and the build would not follow a symlink.
+
+## The banner is generated, not drawn
+
+`social-preview.svg` is written by `scripts/build-social-preview.mjs`, which holds the copy at the
+top of that file. **Edit the script, never the SVG.** Every text run is measured with the same
+renderer that draws it, so a pill is always its label plus padding, and the build **fails** rather
+than writing a banner whose tag row overflows the text column. The first version of this banner
+hand-placed a pixel width per chip, so any wording change ran past the pill it sat in.
+
+The tags are generic capability words on purpose (`Supervision`, `Health checks`, `Live logs`,
+`Backups`): they are read at a glance in a timeline and indexed by search, so a slogan belongs in
+the tagline above them, not in a chip.
 
 ## Why two marks
 
