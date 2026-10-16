@@ -1,14 +1,18 @@
+import type { SecretScope } from '#src/config/secret-parts'
 import type { TemplateVars } from '#src/helpers/template'
 import type { BackupEntry, BackupFile, BackupsConfig, BackupsView, RestoreItem, RestorePlan, RestoreSkip, ServerConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings } from '#src/config/parse'
+import { mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts } from '#src/config/secret-parts'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
 import { projectDir, resolveUserPath } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
+import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { serverTemplateVars } from '#src/services/supervisor'
 import { errorMessage } from '#src/shared/error-message'
@@ -21,6 +25,18 @@ const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data'])
 const SUFFIX = '.zip'
 /** A workspace leaf that carries state the panel re-reads after a restore. */
 const RELOADABLE = /^global:settings$|^workspace:[^:]+:(?:settings|servers)$/
+
+/**
+ * The English wording and catalog key of each known secret. A key missing here is still
+ * selectable and restorable — it just reads as its own name, which is what keeps a
+ * secret added by a later release from being silently uncapturable.
+ */
+const SECRET_LABELS: Record<string, { en: string, key: string }> = {
+  password: { en: 'Password', key: 'settings.backup.secretPassword' },
+  apiToken: { en: 'API token', key: 'settings.backup.secretApiToken' },
+  telegram: { en: 'Telegram bot token', key: 'settings.backup.secretTelegram' },
+  ddns: { en: 'DDNS credentials', key: 'settings.backup.secretDdns' },
+}
 
 /**
  * Structural allowlist for archive entries. A regex alone is not enough: `..`
@@ -207,6 +223,15 @@ export interface BackupManifest {
   version: 1
   createdAt: number
   hostname: string
+  /**
+   * The release that wrote the archive, and the config schema it understood.
+   *
+   * Both are optional so an archive written before this field existed still reads.
+   * They are what lets a restore say which panel an archive came from instead of
+   * inferring it from the `meta` stamp inside the configs it happens to carry.
+   */
+  writtenBy?: string
+  schema?: number
   /** `origin` and `workspace` are what let a restore land under *this* machine's paths. */
   data: Array<{ slug: string, path: string, origin?: string, workspace?: string }>
 }
@@ -366,6 +391,21 @@ export class BackupService {
     // A workspace id alone means every leaf of that workspace.
     const capturesWorkspace = (id: string, suffix: string): boolean =>
       wanted === null || wanted.has(`workspace:${id}`) || wanted.has(`workspace:${id}:${suffix}`)
+    /**
+     * The secrets of one scope the request asked for; `null` means "every one of them".
+     * `workspaceId` is how a bare `workspace:<id>` selection covers all of its leaves.
+     */
+    const selectedSecretFields = (entryId: string, path: string, scope: SecretScope, workspaceId?: string): string[] | null => {
+      const present = presentSecretKeys(parseSecrets(readText(path) ?? ''))
+      const parts = secretParts(scope, present)
+      const coversEntry = wanted === null
+        || wanted.has(entryId)
+        || (workspaceId !== undefined && wanted.has(`workspace:${workspaceId}`))
+      const picked = parts.filter(part => coversEntry
+        || wanted.has(`${entryId}:${part.key}`)
+        || part.fields.some(field => wanted.has(`${entryId}:${field}`)))
+      return picked.length === parts.length ? null : picked.flatMap(part => part.fields)
+    }
 
     const dir = this.resolveDir()
     const sources = this.options.getSources()
@@ -382,11 +422,44 @@ export class BackupService {
         if (this.copyInto(staging, relative, source, ignoreGenerated))
           captured++
       }
+      /**
+       * Captures one secrets file, narrowed to the picked secrets. Copying the whole file
+       * would capture the ones that were *not* picked, so a per-secret selection writes a
+       * staged document holding only those — and the restore side merges by field, which
+       * is what keeps a restore from wiping a secret the archive never carried.
+       */
+      const copySecrets = (relative: string, source: string, entryId: string, scope: SecretScope, workspaceId?: string): void => {
+        const text = readText(source)
+        if (text === null)
+          return
+        const fields = selectedSecretFields(entryId, source, scope, workspaceId)
+        if (fields === null) {
+          copy(relative, source)
+          return
+        }
+        const chosen = pickSecrets(parseSecrets(text), fields)
+        if (chosen === null)
+          return
+        const target = path.join(staging, relative)
+        fs.mkdirSync(path.dirname(target), { recursive: true })
+        fs.writeFileSync(target, `${chosen}\n`)
+        captured++
+      }
+
+      /**
+       * True when the request touches a secrets entry at all: the entry itself, one of its
+       * leaves, or — for a workspace — the workspace id, which names every leaf it has.
+       */
+      const capturesSecrets = (entryId: string, workspaceId?: string): boolean =>
+        wanted === null
+        || wanted.has(entryId)
+        || (workspaceId !== undefined && wanted.has(`workspace:${workspaceId}`))
+        || [...wanted].some(id => id.startsWith(`${entryId}:`))
 
       if (capturesGlobal('global:settings'))
         copy('global/settings.json', sources.globalSettingsPath)
-      if (capturesGlobal('global:secrets'))
-        copy('global/secrets.json', sources.globalSecretsPath)
+      if (capturesSecrets('global:secrets'))
+        copySecrets('global/secrets.json', sources.globalSecretsPath, 'global:secrets', 'global')
       if (capturesGlobal('global:tls'))
         copy('global/tls', sources.tlsDir)
 
@@ -397,8 +470,8 @@ export class BackupService {
           copy(`${root}/settings.json`, workspace.settingsPath)
         if (capturesWorkspace(workspace.id, 'servers'))
           copy(`${root}/servers.config.json`, workspace.serversPath)
-        if (capturesWorkspace(workspace.id, 'secrets'))
-          copy(`${root}/secrets.json`, workspace.secretsPath)
+        if (capturesSecrets(`workspace:${workspace.id}:secrets`, workspace.id))
+          copySecrets(`${root}/secrets.json`, workspace.secretsPath, `workspace:${workspace.id}:secrets`, 'workspace', workspace.id)
 
         for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
           if (!declared.included)
@@ -423,7 +496,7 @@ export class BackupService {
         return { ok: false, error: 'nothing was selected to back up' }
       }
 
-      const manifest: BackupManifest = { version: 1, createdAt, hostname: os.hostname(), data }
+      const manifest: BackupManifest = { version: 1, createdAt, hostname: os.hostname(), writtenBy: appVersion(), schema: CONFIG_SCHEMA, data }
       fs.writeFileSync(path.join(staging, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`)
 
       await createZip(staging, destination, password === null ? {} : { password })
@@ -519,6 +592,18 @@ export class BackupService {
         return { ...plan, error: 'the archive has no manifest' }
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as BackupManifest
 
+      // An archive naming a schema this release cannot read is refused outright: the
+      // per-file readability gates below would each skip their own piece and report a
+      // half-restored setup, which reads as a partial success rather than the refusal
+      // it is. Optional, so an archive written before this stamp still restores.
+      plan.archive = manifestInfo(manifest)
+      if (manifest.schema !== undefined && manifest.schema > CONFIG_SCHEMA) {
+        return {
+          ...plan,
+          error: `written by home-hosted ${manifest.writtenBy ?? 'a newer release'} (config schema ${manifest.schema}); this release understands schema ${CONFIG_SCHEMA}`,
+        }
+      }
+
       const sources = this.options.getSources()
       const selectedIds = options.include === undefined ? null : new Set(options.include)
       const actions = new Map<string, () => void>()
@@ -574,6 +659,22 @@ export class BackupService {
         addItem({ id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null }, () => {
           writeFileAtomic(sources.globalSecretsPath, globalSecrets, { mode: 0o600 })
         }, ['secrets'])
+        // One item per secret the archive carries, so the password can come back without
+        // the API token. Applying one merges by field: writing the whole archived file
+        // would reinstate every secret in it, which is exactly what the person unpicked.
+        for (const part of secretParts('global', presentSecretKeys(parseSecrets(globalSecrets)))) {
+          addItem({
+            id: `global:secrets:${part.key}`,
+            label: `Global secrets: ${SECRET_LABELS[part.key]?.en ?? part.key}`,
+            labelKey: 'settings.backup.restoreItemLabel',
+            labelParams: { workspace: 'global', item: part.key },
+            kind: 'secrets',
+            restorable: true,
+            note: null,
+          }, () => {
+            mergeIntoFile(sources.globalSecretsPath, globalSecrets, part.fields)
+          })
+        }
       }
 
       const tlsInArchive = path.join(staging, 'global', 'tls')
@@ -654,6 +755,20 @@ export class BackupService {
             addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'secrets' }, kind: 'secrets', workspaceId: id, restorable: true, note: null }, () => {
               writeFileAtomic(workspace.secretsPath, secrets, { mode: 0o600 })
             })
+            for (const part of secretParts('workspace', presentSecretKeys(parseSecrets(secrets)))) {
+              addItem({
+                id: `workspace:${id}:secrets:${part.key}`,
+                label: `${workspace.label}: ${SECRET_LABELS[part.key]?.en ?? part.key}`,
+                labelKey: 'settings.backup.restoreItemLabel',
+                labelParams: { workspace: workspace.label, item: part.key },
+                kind: 'secrets',
+                workspaceId: id,
+                restorable: true,
+                note: null,
+              }, () => {
+                mergeIntoFile(workspace.secretsPath, secrets, part.fields)
+              })
+            }
           }
         }
       }
@@ -822,7 +937,7 @@ export class BackupService {
     }
     const entries: BackupEntry[] = [
       { id: 'global:settings', label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', kind: 'settings', ...missing(sources.globalSettingsPath, 'settings.backup.noteMissing'), items: [] },
-      { id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', ...missing(sources.globalSecretsPath, 'settings.backup.noteMissing'), items: [] },
+      { id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', ...missing(sources.globalSecretsPath, 'settings.backup.noteMissing'), items: this.secretItems('global', 'global:secrets', sources.globalSecretsPath) },
       { id: 'global:tls', label: 'TLS certificate', labelKey: 'settings.backup.entryTlsCertificate', kind: 'tls', ...missing(sources.tlsDir, 'settings.backup.noteMissing'), items: [] },
     ]
 
@@ -840,6 +955,31 @@ export class BackupService {
     return entries
   }
 
+  /**
+   * One leaf per secret the file actually holds, so a restore can bring back the
+   * password without the API token, or the Telegram token without the DDNS credentials.
+   *
+   * The set comes from the file's own top-level keys rather than a list here, so a
+   * secret added later appears on its own — the failure mode of a second list is a
+   * secret that can be captured but never restored individually.
+   */
+  private secretItems(scope: SecretScope, entryId: string, path: string): BackupEntry['items'] {
+    const present = presentSecretKeys(parseSecrets(readText(path) ?? ''))
+    if (present.length === 0)
+      return []
+    return secretParts(scope, present).map(part => ({
+      id: `${entryId}:${part.key}`,
+      label: SECRET_LABELS[part.key]?.en ?? part.key,
+      // A known secret gets a translated label and a hint saying what restoring it does;
+      // an unknown one reads as its own key, which is still better than hiding it.
+      ...(SECRET_LABELS[part.key] === undefined ? {} : { labelKey: SECRET_LABELS[part.key]!.key }),
+      kind: 'secrets' as const,
+      secret: part.key,
+      included: true,
+      note: null,
+    }))
+  }
+
   private workspaceItems(workspace: BackupWorkspaceSource, includePaths: string[]): BackupEntry['items'] {
     const id = workspace.id
     const note = (path: string): Pick<BackupEntry['items'][number], 'note' | 'noteKey'> => {
@@ -849,7 +989,12 @@ export class BackupService {
     const items: BackupEntry['items'] = [
       { id: `workspace:${id}:settings`, label: 'Settings', labelKey: 'settings.backup.leafSettings', kind: 'settings', included: true, ...note(workspace.settingsPath) },
       { id: `workspace:${id}:servers`, label: 'Servers', labelKey: 'settings.backup.leafServers', kind: 'servers', included: true, ...note(workspace.serversPath) },
+      // The whole file keeps its own leaf — that id is what older clients send — and the
+      // per-secret leaves beside it are what let one secret come back on its own.
       { id: `workspace:${id}:secrets`, label: 'Secrets', labelKey: 'settings.backup.leafSecrets', kind: 'secrets', included: true, ...note(workspace.secretsPath) },
+      // One leaf per secret rather than one for the whole file, so restoring the Telegram
+      // token cannot silently reinstate the DDNS credentials alongside it.
+      ...this.secretItems('workspace', `workspace:${id}:secrets`, workspace.secretsPath),
     ]
 
     for (const declared of this.declaredData(workspace.servers, includePaths)) {
@@ -999,6 +1144,31 @@ export class BackupService {
 /** The label of one item, for `applied`; items are built before actions run. */
 function labelOf(plan: RestorePlan, id: string): string {
   return plan.items.find(item => item.id === id)?.label ?? id
+}
+
+/**
+ * Restores only `fields` from an archived secrets document into a live one.
+ *
+ * The archive may predate a secret the live file holds, and the live file may hold one
+ * the archive never carried: merging by field is what makes restoring the Telegram token
+ * leave the DDNS credentials alone, and what clears a secret the archive does not carry
+ * rather than leaving the newer value behind as if it had been restored.
+ */
+function mergeIntoFile(target: string, archived: string, fields: string[]): void {
+  const current = parseSecrets(readText(target) ?? '')
+  const merged = mergeSecrets(current, parseSecrets(archived), fields)
+  writeFileAtomic(target, `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 })
+}
+
+/**
+ * What an archive says about where it came from. Both fields are absent on an archive
+ * written before they existed, so a UI shows the row only when there is something to show.
+ */
+function manifestInfo(manifest: BackupManifest): NonNullable<RestorePlan['archive']> {
+  return {
+    ...(manifest.writtenBy === undefined ? {} : { writtenBy: manifest.writtenBy }),
+    ...(manifest.schema === undefined ? {} : { schema: manifest.schema }),
+  }
 }
 
 /**

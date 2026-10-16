@@ -7,9 +7,11 @@ import path from 'node:path'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { projectDir } from '#src/helpers/paths'
+import { appVersion } from '#src/helpers/version'
 import * as archive from '#src/providers/archive'
-import { isZipArchive, listZip } from '#src/providers/archive'
+import { createZip as createZipFile, extractZip, isZipArchive, listZip } from '#src/providers/archive'
 import { BackupService, isInside, isSafeArchiveEntry, resolveBackupPaths, slugifyPath } from '#src/services/backups'
 import { backupsSchema, serverSchema } from '#src/shared/contracts'
 
@@ -71,6 +73,9 @@ async function makeFixture(
     /** Declare the fixture's own state root, which contains the archive directory. */
     coverStateRoot?: boolean
     ignoreGenerated?: boolean
+    /** Raw contents of the two secrets files, when a test needs real secrets in them. */
+    globalSecrets?: string
+    workspaceSecrets?: string
     onRestored?: () => void
   } = {},
 ): Promise<Fixture> {
@@ -94,8 +99,8 @@ async function makeFixture(
   fs.mkdirSync(dataDir, { recursive: true })
   fs.writeFileSync(path.join(dataDir, 'db.sqlite'), 'ORIGINAL\n')
   fs.writeFileSync(path.join(dataDir, 'empty.txt'), '')
-  fs.writeFileSync(globalSecretsPath, '{ "password": null }\n', { mode: 0o600 })
-  fs.writeFileSync(workspaceSecretsPath, '{ "telegram": null }\n', { mode: 0o600 })
+  fs.writeFileSync(globalSecretsPath, options.globalSecrets ?? '{ "password": null }\n', { mode: 0o600 })
+  fs.writeFileSync(workspaceSecretsPath, options.workspaceSecrets ?? '{ "telegram": null }\n', { mode: 0o600 })
   fs.writeFileSync(workspaceSettingsPath, '{ "logs": {} }\n')
 
   const parsed = backupsSchema({ dir: '.backups', keep: options.keep ?? 5, enabled: options.enabled ?? true, includePaths: options.includePaths ?? (options.coverStateRoot === true ? [dataRoot] : []) })
@@ -975,5 +980,159 @@ describe('archive entry allowlist', () => {
     expect(isInside('/a/b', '/a/bc')).toBe(false)
     expect(isInside('/a/b', '/a/b/../c')).toBe(false)
     expect(isInside('/a/b', '/a')).toBe(false)
+  })
+})
+
+/**
+ * The secrets split: each secret is its own selectable slice, and restoring one must
+ * leave the secrets beside it untouched. The aggregate ids stay for older clients.
+ */
+describe('secrets as separate slices', () => {
+  const globalSecrets = JSON.stringify({ password: { algo: 'scrypt', hash: 'PW' }, apiToken: { algo: 'sha256', hash: 'TOK' } })
+  const workspaceSecrets = JSON.stringify({
+    telegram: { botToken: 'TELEGRAM' },
+    ddns: { home: { algo: 'aes-256-gcm', iv: 'a', tag: 'b', data: 'c' } },
+    ddnsKdf: { algo: 'scrypt', cost: { N: 2, r: 1, p: 1 }, salt: 'c2FsdA==' },
+  })
+
+  async function withSecrets() {
+    return await makeFixture({ globalSecrets: `${globalSecrets}\n`, workspaceSecrets: `${workspaceSecrets}\n` })
+  }
+
+  it('offers one leaf per secret, beside the whole-file leaf', async () => {
+    const fixture = await withSecrets()
+    const view = fixture.service.view()
+
+    const global = view.entries.find(entry => entry.id === 'global:secrets')!
+    expect(global.items.map(item => item.id)).toEqual(['global:secrets:password', 'global:secrets:apiToken'])
+    expect(global.items.every(item => item.kind === 'secrets')).toBe(true)
+    expect(global.items.map(item => item.secret)).toEqual(['password', 'apiToken'])
+
+    const workspace = view.entries.find(entry => entry.id === 'workspace:default')!
+    const ids = workspace.items.map(item => item.id)
+    expect(ids).toContain('workspace:default:secrets')
+    expect(ids).toContain('workspace:default:secrets:telegram')
+    expect(ids).toContain('workspace:default:secrets:ddns')
+  })
+
+  it('gives a secret it does not know its own leaf instead of hiding it', async () => {
+    const fixture = await withSecrets()
+    fs.writeFileSync(fixture.globalSecretsPath, `${JSON.stringify({ password: { hash: 'P' }, webhookSecret: 'FUTURE' })}\n`, { mode: 0o600 })
+
+    const global = fixture.service.view().entries.find(entry => entry.id === 'global:secrets')!
+    const unknown = global.items.find(item => item.secret === 'webhookSecret')
+    expect(unknown?.id).toBe('global:secrets:webhookSecret')
+    // No catalog key exists for it, so it reads as its own name rather than as a raw key.
+    expect(unknown?.label).toBe('webhookSecret')
+    expect(unknown?.labelKey).toBeUndefined()
+  })
+
+  it('captures only the picked secret, and leaves the others out of the archive', async () => {
+    const fixture = await withSecrets()
+    const result = await fixture.service.create({ include: ['global:secrets:password'] })
+
+    expect(result.ok).toBe(true)
+    const archivePath = path.join(fixture.service.directory, result.file!.name)
+    const staging = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-unzip-'))
+    dirs.push(staging)
+    await extractZip(archivePath, staging, { names: ['global/secrets.json'] })
+
+    const archived = JSON.parse(fs.readFileSync(path.join(staging, 'global', 'secrets.json'), 'utf8')) as Record<string, unknown>
+    expect(archived.password).toEqual({ algo: 'scrypt', hash: 'PW' })
+    // The API token was not picked, so it is not in the archive at all.
+    expect(archived).not.toHaveProperty('apiToken')
+  })
+
+  it('keeps the DDNS key metadata with the credentials it opens', async () => {
+    const fixture = await withSecrets()
+    const result = await fixture.service.create({ include: ['workspace:default:secrets:ddns'] })
+
+    const archivePath = path.join(fixture.service.directory, result.file!.name)
+    const staging = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-unzip-'))
+    dirs.push(staging)
+    await extractZip(archivePath, staging, { names: ['workspaces/default/secrets.json'] })
+
+    const archived = JSON.parse(fs.readFileSync(path.join(staging, 'workspaces', 'default', 'secrets.json'), 'utf8')) as Record<string, unknown>
+    expect(archived.ddns).toBeDefined()
+    // Without the KDF parameters the sealed entries cannot be opened, so they travel together.
+    expect(archived.ddnsKdf).toBeDefined()
+    expect(archived).not.toHaveProperty('telegram')
+  })
+
+  it('restores one secret without disturbing the one beside it', async () => {
+    const fixture = await withSecrets()
+    const created = await fixture.service.create({ include: ['global:secrets:password'] })
+    const archivePath = path.join(fixture.service.directory, created.file!.name)
+
+    // The live file moved on: a token exists that the archive never carried.
+    fs.writeFileSync(fixture.globalSecretsPath, `${JSON.stringify({ apiToken: { algo: 'sha256', hash: 'LIVE' } })}\n`, { mode: 0o600 })
+
+    const applied = await fixture.service.restore(archivePath, { confirm: true, include: ['global:secrets:password'] })
+    expect(applied.dryRun).toBe(false)
+    const after = JSON.parse(fs.readFileSync(fixture.globalSecretsPath, 'utf8')) as Record<string, unknown>
+    expect(after.password).toEqual({ algo: 'scrypt', hash: 'PW' })
+    // Restoring the password must not have wiped the token the panel is still using.
+    expect(after.apiToken).toEqual({ algo: 'sha256', hash: 'LIVE' })
+    if (process.platform !== 'win32')
+      expect(fs.statSync(fixture.globalSecretsPath).mode & 0o777).toBe(0o600)
+  })
+
+  it('restores the Telegram token without touching the DDNS credentials', async () => {
+    const fixture = await withSecrets()
+    const created = await fixture.service.create({ include: ['workspace:default:secrets:telegram'] })
+    const archivePath = path.join(fixture.service.directory, created.file!.name)
+
+    const plan = await fixture.service.restore(archivePath, { confirm: false })
+    expect(plan.items.map(item => item.id)).toContain('workspace:default:secrets:telegram')
+
+    const applied = await fixture.service.restore(archivePath, { confirm: true, include: ['workspace:default:secrets:telegram'] })
+    expect(applied.appliedIds).toContain('workspace:default:secrets:telegram')
+    const after = JSON.parse(fs.readFileSync(fixture.workspaceSecretsPath, 'utf8')) as Record<string, unknown>
+    expect(after.telegram).toEqual({ botToken: 'TELEGRAM' })
+    // The credentials the archive did not carry are still there, sealed and openable.
+    expect(after.ddns).toBeDefined()
+    expect(after.ddnsKdf).toBeDefined()
+  })
+
+  it('still captures and restores the whole file when the aggregate id is named', async () => {
+    const fixture = await withSecrets()
+    const created = await fixture.service.create({ include: ['global:secrets'] })
+    const archivePath = path.join(fixture.service.directory, created.file!.name)
+
+    fs.writeFileSync(fixture.globalSecretsPath, '{}\n', { mode: 0o600 })
+    await fixture.service.restore(archivePath, { confirm: true, include: ['global:secrets'] })
+
+    const after = JSON.parse(fs.readFileSync(fixture.globalSecretsPath, 'utf8')) as Record<string, unknown>
+    expect(after.password).toBeDefined()
+    expect(after.apiToken).toBeDefined()
+  })
+
+  it('reports where the archive came from, and refuses a newer schema', async () => {
+    const fixture = await withSecrets()
+    const created = await fixture.service.create()
+    const archivePath = path.join(fixture.service.directory, created.file!.name)
+
+    const plan = await fixture.service.restore(archivePath, { confirm: false })
+    expect(plan.archive?.writtenBy).toBe(appVersion())
+    expect(plan.archive?.schema).toBe(CONFIG_SCHEMA)
+
+    // An archive from a release this one cannot read is refused outright, rather than
+    // restoring the parts it happens to understand and reporting a partial success.
+    const future = path.join(fixture.service.directory, 'future.zip')
+    const staging = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-up-'))
+    dirs.push(staging)
+    fs.writeFileSync(path.join(staging, 'manifest.json'), `${JSON.stringify({
+      version: 1,
+      createdAt: Date.now(),
+      hostname: 'elsewhere',
+      writtenBy: '99.0.0',
+      schema: CONFIG_SCHEMA + 1,
+      data: [],
+    })}\n`)
+    await createZipFile(staging, future)
+
+    const refused = await fixture.service.restore(future, { confirm: false })
+    expect(refused.error).toContain('config schema')
+    expect(refused.applied).toHaveLength(0)
   })
 })
