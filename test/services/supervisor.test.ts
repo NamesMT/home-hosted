@@ -1043,27 +1043,46 @@ describe('a non-persistent child that outlived the panel', () => {
     const second = await makeSupervisor(servers, undefined, harness.dir)
     await second.supervisor.startAll({ autostartOnly: true })
 
-    // Settle on the outcome before asserting: an adopted survivor writes nothing new, so
-    // a panel that spawned its own child is given the moment that child needs to announce
-    // itself. Without this the duplicate is simply not in the file yet.
+    // Settle on whichever outcome this platform reaches: on Linux and macOS the survivor is
+    // verified by its `HHOSTED_SERVER_ID` marker and adopted; on Windows that marker is
+    // unreadable, so the entry is refused rather than duplicated. Both are the same promise —
+    // one process, never a second copy — reached two ways.
     const after = await waitFor(() => {
       const current = view(second.supervisor, 'worker')
-      if (current.status !== 'running')
+      // Only a settled outcome counts. A refusal is settled immediately (`conflict`, no pid);
+      // an adoption is settled once it is running. Anything else — still starting — is not.
+      if (current.status !== 'running' && current.status !== 'conflict')
         return undefined
-      if (current.pid !== firstPid && recordedPids(pidFile).length < 2)
+      // An adopted survivor writes nothing new, so a panel that spawned its own child is given
+      // the moment that child needs to announce itself; until then the duplicate is simply not
+      // in the file yet. A refusal spawns nothing, so there is no pid to wait for.
+      if (current.status === 'running' && current.pid !== firstPid && recordedPids(pidFile).length < 2)
         return undefined
       return current
     }, 5000)
 
     // The whole point, asserted on the pids themselves so a regression here names both:
-    // exactly one process for this entry, never a second copy beside the survivor.
+    // exactly one process for this entry, never a second copy beside the survivor. This part
+    // is platform-independent — a refusal satisfies it exactly as an adoption does.
     const pids = recordedPids(pidFile)
     expect(pids, `a duplicate was spawned: ${JSON.stringify(pids)}`).toEqual([firstPid])
     expect(pids.filter(isAlive), `expected only ${firstPid} alive, got ${JSON.stringify(pids)}`).toEqual([firstPid])
+    expect(after.pid === null || after.pid === firstPid, 'never a pid beside the survivor').toBe(true)
 
-    expect(after.pid, 'the second panel must adopt the survivor, not spawn beside it').toBe(firstPid)
-    expect(after.adopted).toBe(true)
-    expect(second.supervisor.logLines('worker').some(line => line.text.includes(`adopted pid ${firstPid}`) && line.text.includes('before it died'))).toBe(true)
+    if (process.platform === 'linux' || process.platform === 'darwin') {
+      expect(after.pid, 'the second panel must adopt the survivor, not spawn beside it').toBe(firstPid)
+      expect(after.adopted).toBe(true)
+      expect(second.supervisor.logLines('worker').some(line => line.text.includes(`adopted pid ${firstPid}`) && line.text.includes('before it died'))).toBe(true)
+    }
+    else {
+      // Where the marker cannot be read, refusing is the safe half of the same guarantee: it
+      // names the pid instead of starting a twin, and keeps the record so a retry cannot
+      // silently turn into a duplicate.
+      expect(after.status).toBe('conflict')
+      expect(after.adopted, '`adopted` is only present when true').toBeUndefined()
+      expect(after.lastError).toContain(`pid ${firstPid}`)
+      expect(second.supervisor.logLines('worker').some(line => line.text.includes('not starting a second copy'))).toBe(true)
+    }
   })
 
   it('starts normally when the recorded pid is stale', async () => {
