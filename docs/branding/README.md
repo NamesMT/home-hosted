@@ -12,8 +12,10 @@ and the `.ico` are rendered from them by `pnpm run brand`, so nobody edits a ras
 | `icon-16…512.png` | favicon and app-icon sizes, from `logo-mark.svg` |
 | `favicon.ico` | 16/32/48 in one file, for browsers that still ask for it |
 
-`pnpm run brand` also copies `favicon.ico` and `favicon.svg` into each UI's `public/`, because
-a UI serves its own copy and the build would not follow a symlink.
+Each UI gets its favicon from here through `uis/vite.shared.ts`, which serves `favicon.svg`
+(=`logo-mark.svg`) and `favicon.ico` in dev and emits them into the build. Nothing is copied into a
+UI, so there is one file to change. A symlink is not the alternative: npm drops symlinks from the
+tarball, and a Windows checkout with `core.symlinks=false` writes the link target as text.
 
 ## The banner is generated, not drawn
 

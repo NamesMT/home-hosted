@@ -9,7 +9,6 @@
  * dependency — this is a maintainer script, not something `pnpm install` has to satisfy.
  */
 import { execFileSync } from 'node:child_process'
-import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -47,12 +46,6 @@ run('magick', [
   path.join(brand, 'favicon.ico'),
 ])
 
-// The UIs serve their own copy; a symlink would not survive the build's copy step.
-for (const ui of ['stock', 'noc-console']) {
-  const publicDir = path.join(root, 'uis', ui, 'public')
-  fs.mkdirSync(publicDir, { recursive: true })
-  fs.copyFileSync(path.join(brand, 'favicon.ico'), path.join(publicDir, 'favicon.ico'))
-  fs.copyFileSync(path.join(brand, 'logo-mark.svg'), path.join(publicDir, 'favicon.svg'))
-}
-
-process.stdout.write(`[brand] rendered ${iconSizes.length} icons, the logo, the social preview and both favicons\n`)
+// The UIs do not carry a copy: `uis/vite.shared.ts` serves these two files out of this
+// directory in dev and emits them into each UI's build, so the brand stays the one source.
+process.stdout.write(`[brand] rendered ${iconSizes.length} icons, the logo and the social preview\n`)

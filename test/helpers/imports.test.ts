@@ -65,3 +65,40 @@ describe('#src import mappings', () => {
     }
   })
 })
+
+/**
+ * The brand's favicon reaches each UI through `uis/vite.shared.ts`, which serves and emits the
+ * files from `docs/branding/` — so there is exactly one copy of each.
+ *
+ * A committed copy per UI is what this replaces: it was two files to keep in step with the brand
+ * by hand, and nothing failed when they drifted. A symlink is not the alternative either — npm
+ * drops symlinks from the tarball, and a Windows checkout with `core.symlinks=false` writes the
+ * link target as text, so the UI would ship a file containing `../docs/branding/logo-mark.svg`.
+ */
+describe('the brand favicon has one source', () => {
+  it('keeps no committed copy under a UI', () => {
+    const uisDir = path.join(root, 'uis')
+    const copies = fs.readdirSync(uisDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .flatMap((entry) => {
+        const publicDir = path.join(uisDir, entry.name, 'public')
+        if (!fs.existsSync(publicDir))
+          return []
+        return fs.readdirSync(publicDir, { withFileTypes: true })
+          .filter(file => /^favicon\.(?:ico|svg)$/.test(file.name))
+          .map(file => `uis/${entry.name}/public/${file.name}`)
+      })
+
+    expect(copies, 'the favicon is emitted from docs/branding/, not committed per UI').toEqual([])
+  })
+
+  it('emits exactly the files the brand directory holds', () => {
+    const shared = fs.readFileSync(path.join(root, 'uis', 'vite.shared.ts'), 'utf8')
+    for (const name of ['favicon.ico', 'favicon.svg'])
+      expect(shared, `${name} must be served/emitted by the shared config`).toContain(name)
+
+    // Each emitted name must map to a source that is really there, or the build fails late.
+    for (const source of ['favicon.ico', 'logo-mark.svg'])
+      expect(fs.existsSync(path.join(root, 'docs', 'branding', source)), `docs/branding/${source}`).toBe(true)
+  })
+})

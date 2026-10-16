@@ -1,3 +1,6 @@
+import type { Plugin } from 'vite'
+import fs from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
@@ -6,6 +9,38 @@ import { defineConfig } from 'vite'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
+
+/**
+ * Serves the brand's favicon from the one place it lives — `docs/branding/` — in dev and
+ * in the build, instead of each UI carrying its own copy of the files.
+ *
+ * A copy was committed into every UI's `public/` before, which is two files to keep in
+ * step with the brand by hand. A symlink is not the alternative: npm drops symlinks from
+ * the tarball entirely, and a Windows checkout with `core.symlinks=false` writes a text
+ * file holding the link target instead of the image.
+ */
+function brandFavicons(): Plugin {
+  const brand = path.join(repoRoot, 'docs', 'branding')
+  const files = { 'favicon.ico': 'favicon.ico', 'favicon.svg': 'logo-mark.svg' }
+
+  return {
+    name: 'hh:brand-favicons',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const name = req.url?.split('?')[0]?.slice(1) ?? ''
+        const source = files[name as keyof typeof files]
+        if (source === undefined)
+          return next()
+        res.setHeader('Content-Type', name.endsWith('.svg') ? 'image/svg+xml' : 'image/x-icon')
+        res.end(fs.readFileSync(path.join(brand, source)))
+      })
+    },
+    generateBundle() {
+      for (const [name, source] of Object.entries(files))
+        this.emitFile({ type: 'asset', fileName: name, source: fs.readFileSync(path.join(brand, source)) })
+    },
+  }
+}
 
 /**
  * A dev UI proxies `/api` to the panel `pnpm dev` started. Both sit in the 6xxx
@@ -26,6 +61,7 @@ export function createUiConfig(uiDir: string) {
     plugins: [
       vue(),
       tailwindcss(),
+      brandFavicons(),
       ...(command === 'serve' ? [vueDevTools()] : []),
     ],
     resolve: {
