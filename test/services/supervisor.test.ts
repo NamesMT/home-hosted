@@ -1483,6 +1483,29 @@ describe('a removed server', () => {
     // never started. Asserted here too, because `forget` in the removal branch is its own wiring.
     expect(history.summarize('web', 86_400_000).lastCrashAt, 'nor its crash history').toBeNull()
   })
+
+  /**
+   * The removal reclaims the entry's state file, and the stop that follows is asynchronous: the
+   * child's `exit` lands afterwards and reaches `forgetRecordedChild`. Writing there put the file
+   * back — stale state for a re-added id, and a file appearing while a caller walks the directory
+   * to delete it, which is what surfaced as a flaky `ENOTEMPTY` in the harness teardown.
+   */
+  it('does not let the exit that follows put its state file back', async () => {
+    const harness = await makeSupervisor([{ id: 'web', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] }])
+    const { supervisor, store, nannyDir } = harness
+    const statePath = entryStatePath(nannyDir, 'web')
+
+    await supervisor.start('web')
+    await waitFor(() => view(supervisor, 'web').status === 'running')
+    await waitFor(() => fs.existsSync(statePath) ? true : undefined)
+
+    store.removeServer('web')
+    await waitFor(() => supervisor.views().length === 0)
+    // Past the child's exit, which is the window the late write landed in.
+    await new Promise(resolve => setTimeout(resolve, 1500))
+
+    expect(fs.existsSync(statePath), 'a removed entry must not have its state file resurrected').toBe(false)
+  })
 })
 
 /**

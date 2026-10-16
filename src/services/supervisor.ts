@@ -1772,6 +1772,12 @@ export class Supervisor {
 
   /** The decisions that have to survive this panel, and nothing else. */
   private persistEntryState(entry: Entry): void {
+    // A removed entry's state file was reclaimed with its logs and history, and the stop that
+    // follows runs asynchronously — the child's `exit` lands after the removal, reaching
+    // `forgetRecordedChild`. Writing there recreated the file, which is both stale state for a
+    // re-added id and a file appearing while a caller walks the directory to delete it.
+    if (entry.removed)
+      return
     writeEntryState(entryStatePath(this.options.nannyDir, entry.config.id), {
       restarts: entry.restarts,
       bootstrapDone: entry.bootstrapDone,
