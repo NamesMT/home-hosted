@@ -23,7 +23,7 @@
   <rect width="1280" height="640" fill="url(#bg)"/>
   <ellipse cx="150" cy="110" rx="460" ry="320" fill="url(#glow)"/>
 
-  <!-- The mark, from brand/logo.svg's 512 grid. The vent slots are punched in the page colour. -->
+  <!-- The mark, from docs/branding/logo.svg's 512 grid. The vent slots are punched in the page colour. -->
   <g transform="translate(88 208) scale(0.4375)">
     <path d="M84 188 L256 64 L428 188 L428 460 L84 460 Z"
           fill="none" stroke="#6d8dff" stroke-width="30" stroke-linejoin="miter" stroke-linecap="round"/>

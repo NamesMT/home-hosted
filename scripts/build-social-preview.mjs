@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Builds `brand/social-preview.svg` from the copy in this file.
+ * Builds `docs/branding/social-preview.svg` from the copy in this file.
  *
  * The banner's text used to be laid out by hand, with a pixel width guessed for every chip. Any
  * wording change then overflowed the pill it sat in, because nothing connected the two. Every run
@@ -18,7 +18,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const brand = path.join(root, 'brand')
+const brand = path.join(root, 'docs', 'branding')
 
 /** The 2:1 canvas GitHub asks for, and its margins. */
 const WIDTH = 1280
@@ -134,7 +134,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${WIDTH} ${HEI
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#bg)"/>
   <ellipse cx="150" cy="110" rx="460" ry="320" fill="url(#glow)"/>
 
-  <!-- The mark, from brand/logo.svg's 512 grid. The vent slots are punched in the page colour. -->
+  <!-- The mark, from docs/branding/logo.svg's 512 grid. The vent slots are punched in the page colour. -->
   <g transform="translate(${MARGIN} 208) scale(${(MARK_SIZE / 512).toFixed(4)})">
     <path d="M84 188 L256 64 L428 188 L428 460 L84 460 Z"
           fill="none" stroke="${COLOR.accent}" stroke-width="30" stroke-linejoin="miter" stroke-linecap="round"/>

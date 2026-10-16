@@ -62,6 +62,8 @@
     "docs/REVERSE_PROXY.md",
     "docs/SERVERS.md",
     "docs/UI_CREATION.md",
+    "docs/branding/logo.svg",
+    "docs/branding/social-preview.png",
     "uis/stock/dist"
   ],
   "engines": {

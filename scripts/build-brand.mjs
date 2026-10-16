@@ -15,7 +15,7 @@ import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const brand = path.join(root, 'brand')
+const brand = path.join(root, 'docs', 'branding')
 const iconSizes = [16, 32, 48, 64, 128, 180, 192, 256, 512]
 
 function run(command, args) {
