@@ -138,24 +138,21 @@ or "kill" to stop whatever holds the port
 
 ### An entry with no port that outlived the panel
 
-A port is what makes the checks above possible, so an entry that declares **no port** has none of them.
-That mattered for one case: a non-persistent child is spawned detached (its own process group), so it
-survives a panel that is killed hard — a crash, a power cut — while nothing recorded that it existed. On
-the next boot the panel found no port to check and started a **second copy** of a server that was already
-running. A duplicated worker (a bot, a queue consumer) is the dangerous kind of duplicate.
+A port is what makes the checks above possible, so an entry with **no port** has none of them. A
+non-persistent child is spawned detached, so it survives a panel killed hard — while nothing recorded
+that it existed. With no port to check, the next boot started a **second copy** of a server already
+running: the dangerous kind of duplicate for a worker.
 
-Every spawn now also records the child's pid and start time, and a start consults it before spawning:
+Every spawn now also records the child's pid and start time, consulted before spawning:
 
-- the pid is **alive**, was **born when the record says** (a recycled pid is refused), and carries
-  `HHOSTED_SERVER_ID` for this entry → it is adopted, exactly like a successor above;
-- the pid is gone → the record is dropped and the start proceeds normally;
-- the pid is alive but this platform **cannot confirm whose it is** (Windows exposes no per-process
-  environment) → the entry is refused, with the pid named, rather than duplicated. Stop that pid, or
-  give the entry a `persistent: true` nanny, which records its own state and is the supported way to
-  own a portless process across a panel restart.
+- alive, **born when the record says** (a recycled pid is refused), and carrying `HHOSTED_SERVER_ID`
+  → adopted, exactly like a successor above;
+- gone → the record is dropped and the start proceeds;
+- alive but the platform **cannot confirm whose it is** → refused with the pid named, rather than
+  duplicated. Stop that pid, or use `persistent: true`, which is the supported way to own a portless
+  process across a panel restart.
 
-This never affects an entry that has a `port`: the conflict policy above stays the only witness, and
-`kill` still means "stop whoever holds the port", never "stop an unverified pid".
+An entry with a `port` is unaffected: its conflict policy stays the only witness.
 
 ### The `kill` policy
 

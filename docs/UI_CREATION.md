@@ -170,11 +170,10 @@ person never chose freezes it against those defaults, so build the body as a dif
 from `src/shared/patch-diff.ts`, while comparing against the defaults (`inheritBaseline`) is each
 UI's own job — see `uis/stock/src/components/server/addServerForm.ts`.
 
-Each server view carries a `history` with a rolling window of events. A `start` event may carry an
-optional **`actor`** — `policy`, `user`, `agent` or `boot` — saying what asked for that start: the panel
-itself (a health-forced restart or a backoff retry), a signed-in browser, a request with an API token, or
-the autostart pass. It is optional and absent on events written before it existed, so read it
-defensively; it is what lets a UI show "restarted by policy" rather than a bare restart.
+Each server view carries a `history` window. A `start` event may carry an optional **`actor`** —
+`policy`, `user`, `agent` or `boot` — naming what asked for that start: the panel itself (a
+health-forced restart or a backoff retry), a browser, a token request, or the autostart pass. Absent
+on events written before it existed, so read it defensively.
 
 ### Failures
 

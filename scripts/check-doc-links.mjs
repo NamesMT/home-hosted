@@ -65,6 +65,16 @@ for (const file of SHIPPED) {
     if (anchor !== undefined && !headingsIn(fs.readFileSync(resolved, 'utf8')).includes(anchor))
       problems.push(`${file} -> ${relative}#${anchor}`)
   }
+
+  // Raw `<img src>` too: the README's own logo is one, and a markdown-only scan read it as fine
+  // while the file it pointed at did not have to exist.
+  for (const match of text.matchAll(/<img\s[^>]*src="([^"]+)"/g)) {
+    const target = match[1]
+    if (/^(?:https?:|data:)/.test(target))
+      continue
+    if (!fs.existsSync(path.join(dir, target)))
+      problems.push(`${file} -> ${target} (img)`)
+  }
 }
 
 if (problems.length > 0) {

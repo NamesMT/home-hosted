@@ -1,6 +1,8 @@
 <div align="center">
 
-# 🏠 home-hosted
+<img src="docs/branding/logo.svg" alt="home-hosted" width="128" height="128">
+
+# home-hosted
 
 **The control panel for everything you self-host at home.**
 
@@ -268,7 +270,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🗂 **Workspaces** | One panel, many scopes: pick a workspace in the header and it owns its servers, secrets, logs and settings. Create, rename and delete them there. Panel-wide things — listener, auth, host vitals, backups, TLS, UI — stay in **Global settings**. |
 | 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. |
 | 📝 **Hand edits welcome** | Change a workspace's `servers.config.json` in an editor, a `git checkout` or a config tool: the panel notices within seconds, no restart. A file it cannot read is reported in the panel, and the running servers are left alone. |
-| ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up — and the budget survives a restart of the panel itself, so a crash loop cannot outlast `maxRetries` by outliving `up`. |
+| ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. The budget is remembered across a restart of the panel. |
 | 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, check ports before starting — and [follow or replace](./docs/SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned. `stop-all`/`down` stop dependents before their dependencies; stopping one server names the dependents it leaves running. [SERVERS.md](./docs/SERVERS.md#field-reference) |
 | 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, filter to one stream, download, one click to clear. |
@@ -278,7 +280,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🔔 **Notifications** | Telegram on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes — [setup here](./docs/NOTIFICATIONS.md). |
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
 | 🔀 **Reverse proxy** | One engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `media.example.com` → a service on another box, `panel.example.com` → the panel. Caddy, installed and supervised by the panel. [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
-| 💾 **Backups** | Deep and customizable: pick global settings, each global secret, TLS, Workspaces, then the pieces inside it (workspace settings, servers, each secret, data directories) — plain `.zip`, or AES-256 with a password, customized restore is supported too! Restoring one secret merges by field, so it never reinstates another. |
+| 💾 **Backups** | Global settings, TLS, workspaces, and inside each one its settings, servers, secrets and declared data — plain `.zip`, or AES-256 with a password. Each secret is picked separately, and a restore can be customized. |
 | 🌍 **Nine languages** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French, German — picked on the login page or in **Global settings → Language**, kept per browser. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
@@ -487,34 +489,29 @@ Provider tokens stay in the workspace's secrets file. **Providers and the config
 **Global settings → Backups** archives the panel's own settings, its secrets and the TLS pair — plus
 every workspace you pick. It is two-level: the top of *Create backup…* lists the global items and
 each workspace; opening one lists its **settings**, **servers**, its **secrets** and every data
-directory its entries declare, and you can drop any single piece. **Each secret is its own
-checkbox** — the password, the API token, the Telegram bot token and the DDNS credentials are
-picked separately, so restoring one never reinstates another. *Restore…* shows the same list from
-an archive before anything is written. Either way it is an ordinary `.zip`, or WinZip AES-256 with a
-password, restored per path. Known build output and dependency directories (`node_modules`, `dist`,
-`.next`, framework caches) are skipped per entry; `backupIgnoreGenerated: false` captures them anyway.
+directory its entries declare, and you can drop any single piece. Each secret has its own checkbox.
+*Restore…* shows the same list from an archive before anything is written. Either way it is an
+ordinary `.zip`, or WinZip AES-256 with a password, restored per path. Known build output and
+dependency directories (`node_modules`, `dist`, `.next`, framework caches) are skipped per entry;
+`backupIgnoreGenerated: false` captures them anyway.
 
 <details>
-<summary><b>🔑 What restoring a secret actually does</b></summary>
+<summary><b>🔑 Restoring a secret</b></summary>
 
-An archive records **which release wrote it and the config schema it understood**, and a restore
-refuses an archive from a newer schema outright rather than restoring the parts it happens to
-recognize. *Restore…* names the source release when the archive carries it.
+An archive records **which release wrote it and the config schema it understood**; a restore refuses
+a newer schema outright rather than restoring the parts it recognizes.
 
-Restoring a secret **merges by field**: the picked secret lands and every other secret in that file
-is left exactly as it is. So bringing back a Telegram token does not clear the DDNS credentials, and
-restoring a password does not clear the API token. A secret the archive predates is cleared, rather
-than left behind as if it had been restored.
+Ticking a **single secret** merges by field: it lands and the others in that file are left alone. So
+restoring the Telegram token does not clear the DDNS credentials. Ticking the whole **Secrets** entry
+replaces the file with the archive's copy instead, which is what makes the two worth telling apart.
 
-Two things worth knowing before you restore onto a machine that is already set up:
+Two things to know before restoring onto a machine already in use:
 
-- **The password hash and the API token hash are secrets like any other.** Restoring the global
-  secrets reinstates the *old* machine's password and its long-lived API token, so anyone holding
-  that token keeps access. Untick them, or rotate the token afterwards with
-  `pnpm run set-token --generate`.
-- **`HHOSTED_DDNS_SECRET` is not in the archive.** DDNS credentials travel sealed under it, so a
-  host with a different (or unset) value cannot open them; the panel warns when it reads one it
-  cannot unseal. Supply the same secret, or re-enter the credentials.
+- **The password hash and API token hash are secrets like any other.** Restoring them reinstates the
+  old machine's password and long-lived token, so anyone holding that token keeps access. Leave them
+  unticked, or rotate afterwards with `pnpm run set-token --generate`.
+- **`HHOSTED_DDNS_SECRET` is not in the archive.** DDNS credentials travel sealed under it, so a host
+  with a different value cannot open them. Supply the same secret, or re-enter the credentials.
 
 </details>
 
@@ -676,7 +673,7 @@ src/cli.ts      the command line; one file per command under src/cli/
 src/index.ts    the control plane itself, used by `up --foreground`
 uis/            UIs: `stock` (shipped in the package) and alternatives — any framework, static output
 bin/            the published entry point
-brand/          logo, icons and the social preview; the SVGs are the source, `pnpm run brand` renders them
+docs/branding/  logo, icons and the social preview; the SVGs are the source, `pnpm run brand` renders them
 docs/           topic docs, UI examples and the README's media
 scripts/        builds, typechecks, media capture, release helpers
 test/           the vitest suite
