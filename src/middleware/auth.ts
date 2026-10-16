@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono'
 import type { AuthIdentity, AuthService } from '#src/services/auth'
+import type { HistoryActor } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 import { bearerToken, SESSION_COOKIE } from '#src/services/auth'
@@ -92,5 +93,14 @@ export function createAuthGuard(deps: AuthGuardDeps): MiddlewareHandler {
 }
 
 export { SESSION_COOKIE }
+
+/**
+ * Who is behind a request, as a history event names them: a cookie is a person at
+ * the panel, a bearer token is a script or an agent. Anonymous callers can only be
+ * loopback requests while auth is unarmed, which is the browser's own origin.
+ */
+export function requestActor(c: Context, auth: AuthService): HistoryActor {
+  return requestIdentity(c, auth).method === 'token' ? 'agent' : 'user'
+}
 
 export { isLoopbackRequest, requestIp } from '#src/middleware/loopback'

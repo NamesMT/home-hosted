@@ -9,8 +9,8 @@ import { healthResponseSchema } from '#src/shared/contracts'
 /**
  * Liveness for external monitors. Mounted outside `/api`, so it answers without a
  * session: it reports whether the panel itself is serving, and 503 when an
- * autostart server has crashed. Server details are only included for an
- * authenticated caller.
+ * autostart server has crashed, or a running one is failing its own health check.
+ * Server details are only included for an authenticated caller.
  */
 export function createHealthRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -24,14 +24,21 @@ export function createHealthRoute(deps: AppDeps) {
             description: 'Serving',
             content: jsonBody(healthResponseSchema),
           },
-          503: { description: 'An autostart server has crashed' },
+          503: { description: 'An autostart server has crashed, or a running one is unhealthy' },
         },
       }),
       (c) => {
         const state = deps.panel.getState()
         // Every workspace's servers, so a crash anywhere degrades the panel.
         const servers = state.workspaces.flatMap(workspace => workspace.servers)
-        const broken = servers.filter(server => server.config.autostart && server.status === 'crashed')
+        // An unhealthy *running* server is a problem an external monitor has to be able
+        // to see: it is up, so nothing else here would report it. `status` is part of
+        // that test on purpose — `health` keeps its last value through a stop, and a
+        // server someone deliberately stopped must not degrade the panel forever.
+        const broken = servers.filter(server =>
+          (server.config.autostart && server.status === 'crashed')
+          || (server.status === 'running' && server.health === 'unhealthy'),
+        )
         // Detail is for a signed-in browser or an API token; the status line itself
         // stays public, which is the whole point of a monitor endpoint.
         const authenticated = requestIdentity(c, deps.auth).authenticated

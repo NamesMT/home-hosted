@@ -9,6 +9,7 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
+import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
 import { freePortResultSchema, logQuerySchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
 
@@ -190,7 +191,7 @@ export function createServersRoute(deps: AppDeps) {
       validate('param', idParam),
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.supervisor.start(c.req.valid('param').id)
+        const result = await runtime.supervisor.start(c.req.valid('param').id, { actor: requestActor(c, deps.auth) })
         return c.json(result, statusForAction(result))
       },
     )
@@ -214,7 +215,7 @@ export function createServersRoute(deps: AppDeps) {
       validate('param', idParam),
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.supervisor.restart(c.req.valid('param').id)
+        const result = await runtime.supervisor.restart(c.req.valid('param').id, { actor: requestActor(c, deps.auth) })
         return c.json(result, statusForAction(result))
       },
     )

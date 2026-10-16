@@ -209,6 +209,33 @@ describe('healthz', () => {
   })
 
   /**
+   * A server that is up but failing its own health check is exactly what an external
+   * monitor cannot otherwise see: nothing crashed, so a crash-only rule answered `ok`
+   * while the service was refusing requests.
+   */
+  it('reports degraded when a running server is unhealthy', async () => {
+    const created = await fixture({
+      views: [makeView('web', { status: 'running', health: 'unhealthy', config: { id: 'web', command: 'node', autostart: true } as never })],
+    })
+
+    const response = await created.app.request('/healthz')
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({ status: 'degraded' })
+  })
+
+  it('stays ok for an unhealthy server that is not running', async () => {
+    // `health` keeps its last value through a stop, so a deliberately stopped server must
+    // not hold the panel degraded forever.
+    const created = await fixture({
+      views: [makeView('web', { status: 'stopped', health: 'unhealthy', config: { id: 'web', command: 'node', autostart: true } as never })],
+    })
+
+    const response = await created.app.request('/healthz')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ status: 'ok' })
+  })
+
+  /**
    * The declared schema must describe **both** answers, not just the 200.
    *
    * `healthz` builds its 200 schema inline in the route, and `/openapi/spec.json` publishes it — but

@@ -59,7 +59,7 @@ export function createControlRoute(deps: AppDeps) {
       async (c) => {
         assertLocalCall(c, 'start or stop a server')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.supervisor.start(c.req.param('id'))
+        const result = await runtime.supervisor.start(c.req.param('id'), { actor: 'user' })
         return c.json(result, statusForAction(result))
       },
     )
@@ -94,7 +94,7 @@ export function createControlRoute(deps: AppDeps) {
       async (c) => {
         assertLocalCall(c, 'restart a server')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.supervisor.restart(c.req.param('id'))
+        const result = await runtime.supervisor.restart(c.req.param('id'), { actor: 'user' })
         return c.json(result, statusForAction(result))
       },
     )
