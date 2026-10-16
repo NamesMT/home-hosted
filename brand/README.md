@@ -23,9 +23,9 @@ renderer that draws it, so a pill is always its label plus padding, and the buil
 than writing a banner whose tag row overflows the text column. The first version of this banner
 hand-placed a pixel width per chip, so any wording change ran past the pill it sat in.
 
-The tags are generic capability words on purpose (`Supervision`, `Health checks`, `Live logs`,
-`Backups`): they are read at a glance in a timeline and indexed by search, so a slogan belongs in
-the tagline above them, not in a chip.
+The tags are capability words (`Supervision`, `Backups`, `DDNS`, `Reverse Proxy`): they are read
+at a glance in a timeline and indexed by search, so positioning belongs in the tagline above them,
+not in a chip.
 
 ## Why two marks
 

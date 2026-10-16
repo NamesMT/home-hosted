@@ -52,12 +52,12 @@
 
     <rect x="368" y="392" width="203" height="54" rx="27" fill="#1a2432"/>
     <text x="398" y="427.75" font-size="25" fill="#c3cfe2">Supervision</text>
-    <rect x="587" y="392" width="234" height="54" rx="27" fill="#1a2432"/>
-    <text x="617" y="427.75" font-size="25" fill="#c3cfe2">Health checks</text>
-    <rect x="837" y="392" width="167" height="54" rx="27" fill="#1a2432"/>
-    <text x="867" y="427.75" font-size="25" fill="#c3cfe2">Live logs</text>
-    <rect x="1020" y="392" width="162" height="54" rx="27" fill="#1a2432"/>
-    <text x="1050" y="427.75" font-size="25" fill="#c3cfe2">Backups</text>
+    <rect x="587" y="392" width="162" height="54" rx="27" fill="#1a2432"/>
+    <text x="617" y="427.75" font-size="25" fill="#c3cfe2">Backups</text>
+    <rect x="765" y="392" width="130" height="54" rx="27" fill="#1a2432"/>
+    <text x="795" y="427.75" font-size="25" fill="#c3cfe2">DDNS</text>
+    <rect x="911" y="392" width="235" height="54" rx="27" fill="#1a2432"/>
+    <text x="941" y="427.75" font-size="25" fill="#c3cfe2">Reverse Proxy</text>
 
     <text x="88" y="562" font-size="26" fill="#64748b">github.com/NamesMT/home-hosted</text>
     <text x="1192" y="562" font-size="26" fill="#64748b" text-anchor="end">Linux · macOS · Windows</text>

@@ -46,8 +46,8 @@ const FONT = 'DejaVu Sans, Inter, Segoe UI, system-ui, sans-serif'
 
 const TITLE = 'home-hosted'
 const TAGLINE = 'Self-hosted control panel for your home server.'
-/** Generic capability words, not slogans: these are read at a glance and indexed. */
-const TAGS = ['Supervision', 'Health checks', 'Live logs', 'Backups']
+/** Capability words, not slogans: read at a glance in a timeline and indexed by search. */
+const TAGS = ['Supervision', 'Backups', 'DDNS', 'Reverse Proxy']
 const FOOTER_LEFT = 'github.com/NamesMT/home-hosted'
 const FOOTER_RIGHT = 'Linux · macOS · Windows'
 
