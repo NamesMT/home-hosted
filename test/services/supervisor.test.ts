@@ -12,6 +12,7 @@ import { SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceStore } from '#src/config/store'
 import { projectDir } from '#src/helpers/paths'
+import { entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { nannySpecPath, nannyStatePath, readNannyState, writeNannySpec, writeNannyState } from '#src/providers/nanny'
 import { isPortFree } from '#src/providers/port'
 import { AuthService } from '#src/services/auth'
@@ -77,6 +78,8 @@ interface SupervisorHarness {
   tls: TlsStore
   notifications: NotificationService
   ddns: DdnsService
+  /** The workspace's own state directory, so a second panel can boot over the same one. */
+  dir: string
   nannyDir: string
   logDir: string
   logFiles: LogFiles
@@ -90,9 +93,16 @@ interface SupervisorHarness {
  * its servers plus workspace settings, and a `GlobalSettingsStore` for the
  * panel-wide listener/auth policy. The supervisor itself only takes the pieces
  * it owns — it no longer builds the state frame (the panel does).
+ *
+ * `dir` reuses an existing state directory instead of a fresh one, which is how a second
+ * panel is booted over the first one's state — the shape of a hard restart.
  */
-async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir: string) => void | Promise<void>): Promise<SupervisorHarness> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-sup-'))
+async function makeSupervisor(
+  servers: Record<string, unknown>[],
+  prepare?: (dir: string) => void | Promise<void>,
+  existingDir?: string,
+): Promise<SupervisorHarness> {
+  const dir = existingDir ?? await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-sup-'))
   // State that must exist *before* the supervisor is constructed (a boot sweep, say).
   if (prepare !== undefined)
     await prepare(dir)
@@ -152,6 +162,7 @@ async function makeSupervisor(servers: Record<string, unknown>[], prepare?: (dir
     tls,
     notifications,
     ddns,
+    dir,
     nannyDir,
     logDir: logFiles.directory,
     logFiles,
@@ -952,6 +963,197 @@ describe('supervisor', () => {
 
     await supervisor.dispose()
     expect(store.listenerCount).toBe(attached - 1)
+  })
+})
+
+/**
+ * A non-persistent child is spawned detached, so it survives the panel being killed hard
+ * while nothing but its own state file remembers it. `preflight` cannot cover a portless
+ * entry — it returns `free` immediately — so a second panel booted over the same state
+ * spawned a **second copy** of a bot or queue consumer that was still running. These pin
+ * the record that closes that hole, and the refusal that replaces guessing.
+ */
+describe('a non-persistent child that outlived the panel', () => {
+  const code = 'require("node:fs").appendFileSync(process.env.PID_FILE, process.pid + "\\n"); setInterval(() => {}, 1000)'
+
+  function portlessConfig(pidFile: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: 'worker',
+      command: process.execPath,
+      args: ['-e', code],
+      env: { PID_FILE: pidFile },
+      port: null,
+      autostart: true,
+      restart: { enabled: false },
+      health: { enabled: false },
+      ...overrides,
+    }
+  }
+
+  /** Every pid the entry itself recorded in its file, in order. */
+  function recordedPids(pidFile: string): number[] {
+    if (!fs.existsSync(pidFile))
+      return []
+    return fs.readFileSync(pidFile, 'utf8').split('\n').filter(Boolean).map(Number)
+  }
+
+  /**
+   * Kills the named pids when the test ends.
+   *
+   * Pushed *after* the harness's own cleanup, so reverse-order unwinding runs it first —
+   * while the shared state directory still exists. Reading the pid file in the cleanup
+   * itself would be too late for a test with a second harness, and a detached child that
+   * is never killed outlives the whole run.
+   */
+  function cleanupPids(pids: number[]): void {
+    cleanups.push(() => {
+      for (const pid of pids) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        }
+        catch {
+          // Already gone.
+        }
+      }
+    })
+  }
+
+  it('adopts the child recorded in its state file instead of spawning a duplicate', async () => {
+    const harness = await makeSupervisor([])
+    const pidFile = path.join(harness.dir, 'pids.txt')
+    const servers = [portlessConfig(pidFile)]
+    // The entry arrives after the first panel is up, the way a config edit adds one.
+    harness.store.addServer(servers[0] as never)
+
+    await harness.supervisor.startAll({ autostartOnly: true })
+    // Readiness for a portless entry is assumed on spawn, so the child's own first write
+    // is what proves it is really up.
+    await waitFor(() => recordedPids(pidFile).length === 1 ? true : undefined)
+    const firstPid = view(harness.supervisor, 'worker').pid!
+    cleanupPids([firstPid])
+    expect(recordedPids(pidFile)).toEqual([firstPid])
+
+    // The panel dies hard: no `dispose()`, no stop, so the detached child keeps running
+    // and the only trace is the state file written when it was spawned.
+    const state = readEntryState(entryStatePath(harness.nannyDir, 'worker'))
+    expect(state?.lastPid, 'the spawned child must be recorded for a later boot to find').toBe(firstPid)
+    expect(isAlive(firstPid)).toBe(true)
+
+    // A second panel boots over the same state directory.
+    const second = await makeSupervisor(servers, undefined, harness.dir)
+    await second.supervisor.startAll({ autostartOnly: true })
+
+    // Settle on the outcome before asserting: an adopted survivor writes nothing new, so
+    // a panel that spawned its own child is given the moment that child needs to announce
+    // itself. Without this the duplicate is simply not in the file yet.
+    const after = await waitFor(() => {
+      const current = view(second.supervisor, 'worker')
+      if (current.status !== 'running')
+        return undefined
+      if (current.pid !== firstPid && recordedPids(pidFile).length < 2)
+        return undefined
+      return current
+    }, 5000)
+
+    // The whole point, asserted on the pids themselves so a regression here names both:
+    // exactly one process for this entry, never a second copy beside the survivor.
+    const pids = recordedPids(pidFile)
+    expect(pids, `a duplicate was spawned: ${JSON.stringify(pids)}`).toEqual([firstPid])
+    expect(pids.filter(isAlive), `expected only ${firstPid} alive, got ${JSON.stringify(pids)}`).toEqual([firstPid])
+
+    expect(after.pid, 'the second panel must adopt the survivor, not spawn beside it').toBe(firstPid)
+    expect(after.adopted).toBe(true)
+    expect(second.supervisor.logLines('worker').some(line => line.text.includes(`adopted pid ${firstPid}`) && line.text.includes('before it died'))).toBe(true)
+  })
+
+  it('starts normally when the recorded pid is stale', async () => {
+    const harness = await makeSupervisor([])
+    const pidFile = path.join(harness.dir, 'pids.txt')
+    // The record is written before the entry exists, which is how a boot reads one.
+    writeEntryState(entryStatePath(harness.nannyDir, 'worker'), {
+      restarts: 0,
+      bootstrapDone: true,
+      lastPid: 999_999,
+      lastStartedAt: Date.now(),
+    })
+    harness.store.addServer(portlessConfig(pidFile) as never)
+
+    await harness.supervisor.startAll({ autostartOnly: true })
+    await waitForStatus(harness.supervisor, 'worker', 'running')
+
+    const current = view(harness.supervisor, 'worker')
+    expect(current.adopted).toBeUndefined()
+    expect(current.pid).not.toBe(999_999)
+    await waitFor(() => recordedPids(pidFile).length === 1 ? true : undefined)
+    cleanupPids([current.pid!])
+    expect(recordedPids(pidFile)).toEqual([current.pid])
+  })
+
+  /**
+   * The safety case: a recorded pid that is alive but is *not* this entry. Adopting it
+   * would hand the entry somebody else's process — and stopping the entry would then kill
+   * it — so a pid the marker rejects is never adopted. With no port there is no second
+   * witness, so the start is refused rather than turned into a duplicate.
+   */
+  it('does not adopt a live pid that is not this entry', async () => {
+    // A live process that is not this entry: a sibling server the panel started.
+    const sibling = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      env: { ...process.env, HHOSTED_SERVER_ID: 'someone-else' },
+      stdio: 'ignore',
+    })
+    const siblingPid = sibling.pid!
+    cleanups.push(() => {
+      try {
+        process.kill(siblingPid, 'SIGKILL')
+      }
+      catch {
+        // Already gone.
+      }
+    })
+
+    const harness = await makeSupervisor([])
+    const pidFile = path.join(harness.dir, 'pids.txt')
+    writeEntryState(entryStatePath(harness.nannyDir, 'worker'), {
+      restarts: 0,
+      bootstrapDone: true,
+      lastPid: siblingPid,
+      lastStartedAt: Date.now(),
+    })
+    harness.store.addServer(portlessConfig(pidFile) as never)
+
+    await harness.supervisor.startAll({ autostartOnly: true })
+    const result = view(harness.supervisor, 'worker')
+
+    expect(result.adopted, 'a stranger must never be adopted as this entry').toBeUndefined()
+    expect(result.pid, 'and no child of our own may be started beside it').toBeNull()
+    if (process.platform === 'linux' || process.platform === 'darwin') {
+      // Where the marker is readable this is a verified "not ours": refuse, and say so.
+      expect(result.status).toBe('conflict')
+      expect(result.lastError).toContain(`pid ${siblingPid}`)
+      expect(harness.supervisor.logLines('worker').some(line => line.text.includes('not starting a second copy'))).toBe(true)
+    }
+    // The stranger is untouched, whatever the entry then did.
+    expect(isAlive(siblingPid)).toBe(true)
+    // Nothing was spawned for the entry, so its file never gains a pid.
+    expect(recordedPids(pidFile)).toEqual([])
+  })
+
+  it('clears the recorded child once it has exited, so a later boot does not chase it', async () => {
+    const harness = await makeSupervisor([])
+    const pidFile = path.join(harness.dir, 'pids.txt')
+    harness.store.addServer(portlessConfig(pidFile) as never)
+
+    await harness.supervisor.startAll({ autostartOnly: true })
+    await waitFor(() => recordedPids(pidFile).length === 1 ? true : undefined)
+    const pid = view(harness.supervisor, 'worker').pid!
+    expect(readEntryState(entryStatePath(harness.nannyDir, 'worker'))?.lastPid).toBe(pid)
+
+    // A graceful stop ends the child, so the record must go with it: pids are recycled,
+    // and a pid left behind is a later boot adopting a stranger.
+    await harness.supervisor.stop('worker')
+    await waitFor(() => !isAlive(pid))
+    await waitFor(() => readEntryState(entryStatePath(harness.nannyDir, 'worker'))?.lastPid === null ? true : undefined)
+    expect(readEntryState(entryStatePath(harness.nannyDir, 'worker'))?.lastPid).toBeNull()
   })
 })
 

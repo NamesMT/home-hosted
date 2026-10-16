@@ -7,7 +7,7 @@ import type { EventHub } from '#src/services/events'
 import type { HistoryStore } from '#src/services/history'
 import type { LogFiles } from '#src/services/log-files'
 import type { NotificationReason, NotificationService } from '#src/services/notifications'
-import type { FreePortResult, HealthState, LogLine, LogStream, NannyExit, NannySpec, PortState, ProcessResources, ServerConfig, ServerStatus, ServerView } from '#src/shared/contracts'
+import type { FreePortResult, HealthState, HistoryActor, LogLine, LogStream, NannyExit, NannySpec, PortState, ProcessResources, ServerConfig, ServerStatus, ServerView } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
@@ -20,6 +20,7 @@ import { logger } from '#src/helpers/logger'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { nannyArgv } from '#src/helpers/runtime'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
+import { clearEntryState, entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { probeHealth } from '#src/providers/health-check'
 import { identifyHolders } from '#src/providers/identity'
 import {
@@ -35,8 +36,8 @@ import {
   sweepNannySpecs,
   writeNannySpec,
 } from '#src/providers/nanny'
-import { isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, terminatePids } from '#src/providers/port'
-import { ProcessSampler, processTreePids } from '#src/providers/proc'
+import { isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, processLiveness, terminatePids } from '#src/providers/port'
+import { processCarriesServerId, ProcessSampler, processTreePids } from '#src/providers/proc'
 import { resolveCommand, resolveCwd, spawnManaged, terminate, terminatePid } from '#src/providers/process'
 import { dependenciesOf, dependentsOf, orderByDependencies } from '#src/services/dependencies'
 import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
@@ -76,6 +77,12 @@ type PreflightConflict
     | { kind: 'adopt', pid: number }
     | { kind: 'blocked', error: string }
 
+/** What this entry's own state file says about the child the last panel spawned. */
+type RecordedChild
+  = | { kind: 'none' }
+    | { kind: 'adopt', pid: number }
+    | { kind: 'blocked', error: string }
+
 interface Entry {
   config: ServerConfig
   status: ServerStatus
@@ -84,6 +91,12 @@ interface Entry {
   child: ChildProcess | null
   pid: number | null
   startedAt: number | null
+  /**
+   * The last non-persistent child this panel spawned: a detached child outlives a panel
+   * killed hard, and this is the only trace of it. Always null for a persistent entry —
+   * its nanny's state file is that record, and two records would disagree.
+   */
+  lastChild: { pid: number, startedAt: number } | null
   exitCode: number | null
   exitSignal: string | null
   restarts: number
@@ -105,6 +118,8 @@ interface Entry {
   /** A start is in flight (set synchronously, unlike `status`). */
   starting: boolean
   stopping: boolean
+  /** Who asked for the start in flight, recorded on its history event. */
+  actor: HistoryActor
   /**
    * The config no longer lists this entry, so the stop that follows must not write its
    * last lines back into a log file or history that were just reclaimed for this id.
@@ -247,9 +262,10 @@ export class Supervisor {
     const targets = [...this.entries.values()]
       .filter(entry => !options.autostartOnly || entry.config.autostart)
       .map(entry => entry.config)
-    // Dependencies first; levels are still started concurrently.
+    // Dependencies first; levels are still started concurrently. The boot pass is the
+    // only caller that starts things nobody asked for at that moment.
     for (const config of orderByDependencies(targets)) {
-      await this.start(config.id)
+      await this.start(config.id, { actor: 'boot' })
     }
   }
 
@@ -271,7 +287,7 @@ export class Supervisor {
     }
   }
 
-  async start(id: string, options: { retry?: boolean } = {}): Promise<StartResult> {
+  async start(id: string, options: { retry?: boolean, actor?: HistoryActor } = {}): Promise<StartResult> {
     const entry = this.entries.get(id)
     if (!entry)
       return missingServer(id)
@@ -285,11 +301,17 @@ export class Supervisor {
     // Set before the first await: two overlapping `start()` calls (a click and a
     // retry timer, say) would otherwise both reach `spawnEntry` and orphan one.
     entry.starting = true
+    // Carried on the entry so every path that reaches `attachChild` records the same
+    // actor; a retry is always the panel's own doing, whatever asked for the start.
+    entry.actor = options.retry ? 'policy' : (options.actor ?? 'policy')
     this.clearRetry(entry)
     if (!options.retry) {
       entry.restarts = 0
       entry.healthFailures = 0
       entry.unhealthySince = null
+      // A start someone asked for ends the previous crash sequence, so the reset has
+      // to reach disk too — otherwise the next panel boot resurrects the old budget.
+      this.persistEntryState(entry)
     }
 
     try {
@@ -311,6 +333,18 @@ export class Supervisor {
       if (entry.config.persistent && await this.resumePersistent(entry))
         return { ok: true }
 
+      // The same reattach for a non-persistent entry, whose only trace of a child that
+      // outlived the panel is the pid in its own state file. It is checked before the
+      // bootstrap: a duplicate worker is the failure being prevented, and a bootstrap is
+      // work done on the way to spawning one.
+      if (!entry.config.persistent) {
+        const recorded = await this.resolveRecordedChild(entry)
+        if (recorded.kind === 'blocked')
+          return { ok: false, error: recorded.error }
+        if (recorded.kind === 'adopt')
+          return this.adoptEntry(entry, recorded.pid, 'the child this panel started before it died is still running')
+      }
+
       await this.runBootstrap(entry)
       if (entry.stopping)
         return { ok: false, error: `server "${id}" is stopping` }
@@ -321,7 +355,7 @@ export class Supervisor {
       if (conflict.kind === 'blocked')
         return { ok: false, error: conflict.error }
       if (conflict.kind === 'adopt')
-        return this.adoptEntry(entry, conflict.pid)
+        return this.adoptEntry(entry, conflict.pid, `a detached restart of this entry is already serving port ${entry.config.port}`)
 
       return this.spawnEntry(entry)
     }
@@ -337,9 +371,9 @@ export class Supervisor {
     return this.stopEntry(entry)
   }
 
-  async restart(id: string): Promise<StartResult> {
+  async restart(id: string, options: { actor?: HistoryActor } = {}): Promise<StartResult> {
     await this.stop(id)
-    return this.start(id)
+    return this.start(id, options)
   }
 
   /**
@@ -635,6 +669,12 @@ export class Supervisor {
     entry.pid = null
     entry.adopted = false
     entry.nannyExit = null
+    // A recorded child that is gone must not be chased by a later boot; one that outlived
+    // the stop is kept, so the next start still refuses to duplicate it.
+    if (entry.lastChild !== null && !isProcessAlive(entry.lastChild.pid)) {
+      entry.lastChild = null
+      this.persistEntryState(entry)
+    }
     entry.status = survivor === null ? 'stopped' : 'conflict'
     if (survivor !== null)
       entry.lastError = `pid ${survivor} survived the stop`
@@ -646,6 +686,12 @@ export class Supervisor {
   }
 
   private createEntry(config: ServerConfig): Entry {
+    // The retry budget, the bootstrap flag and the last child are read back from disk:
+    // all three are decisions that have to outlive this panel, and in memory alone a
+    // crash loop got a fresh `maxRetries` from every panel start and a detached child
+    // that outlived a hard kill became invisible — so the next boot spawned a twin.
+    const persisted = readEntryState(entryStatePath(this.options.nannyDir, config.id))
+    const lastPid = persisted?.lastPid ?? null
     return {
       config,
       status: 'stopped',
@@ -654,9 +700,10 @@ export class Supervisor {
       child: null,
       pid: null,
       startedAt: null,
+      lastChild: !config.persistent && lastPid !== null ? { pid: lastPid, startedAt: persisted?.lastStartedAt ?? 0 } : null,
       exitCode: null,
       exitSignal: null,
-      restarts: 0,
+      restarts: persisted?.restarts ?? 0,
       lastError: null,
       nextRetryAt: null,
       retryTimer: null,
@@ -669,8 +716,9 @@ export class Supervisor {
       nannyExit: null,
       starting: false,
       stopping: false,
+      actor: 'policy',
       removed: false,
-      bootstrapDone: !config.bootstrap,
+      bootstrapDone: persisted?.bootstrapDone ?? !config.bootstrap,
       logs: new LogBuffer(config.logBufferLines),
       echoed: new Set(),
       responseMs: null,
@@ -698,6 +746,9 @@ export class Supervisor {
         // The same reclaim for history: without it a re-added id inherits the old entry's crash time
         // and events, and the card reports "Last crash" for a server that was never started.
         this.options.history.forget(id)
+        // And for the persisted budget: a re-added id would otherwise inherit a spent
+        // retry count and give up on its very first crash.
+        clearEntryState(entryStatePath(this.options.nannyDir, id))
         // Flagged so the stop below cannot write either back: `stopEntry` logs its own last lines
         // ("stopped", "force-killed after grace period") through `this.log`, which would recreate
         // both artifacts for an id that no longer exists. Clearing *after* the stop would race a
@@ -874,16 +925,6 @@ export class Supervisor {
   }
 
   /**
-   * Takes over a detached successor: no spawn, no duplicate. The pid is supervised
-   * from here on (liveness, health probe, resources, stop), while its output stays
-   * wherever it was redirected.
-   *
-   * For a persistent entry that output is not a mystery: its nanny is still writing
-   * the entry's log file, so the relay is started here too. Without this, adopting a
-   * persistent entry whose state file was lost would show its history but never
-   * another live line.
-   */
-  /**
    * Stops the listed port holders and reports whether the port came free.
    *
    * `kill` and `reclaim` are the same sequence over a different pid list — the foreign
@@ -908,7 +949,21 @@ export class Supervisor {
     return { kind: 'blocked', error: entry.lastError }
   }
 
-  private adoptEntry(entry: Entry, pid: number): StartResult {
+  /**
+   * Takes over a detached successor: no spawn, no duplicate. The pid is supervised
+   * from here on (liveness, health probe, resources, stop), while its output stays
+   * wherever it was redirected.
+   *
+   * For a persistent entry that output is not a mystery: its nanny is still writing
+   * the entry's log file, so the relay is started here too. Without this, adopting a
+   * persistent entry whose state file was lost would show its history but never
+   * another live line.
+   *
+   * `reason` is the caller's sentence for *why* this pid is ours: a port holder and a
+   * recorded child that survived a hard panel death are the same adoption, said
+   * differently, and the log line is the only place a person sees which happened.
+   */
+  private adoptEntry(entry: Entry, pid: number, reason: string): StartResult {
     entry.adopted = true
     entry.pid = pid
     entry.child = null
@@ -920,13 +975,78 @@ export class Supervisor {
     // attach fills an empty buffer, so its own line has to be written after it.
     if (entry.config.persistent)
       this.followPersistent(entry, true)
-    this.log(entry, 'system', `adopted pid ${pid}: a detached restart of this entry is already serving port ${entry.config.port}`)
+    this.log(entry, 'system', `adopted pid ${pid}: ${reason}`)
     this.publishServer(entry)
     return { ok: true }
   }
 
+  /**
+   * The child this entry's state file recorded, when it is still that same process.
+   *
+   * A non-persistent child is spawned detached, so it survives a panel killed hard while
+   * nothing else remembers it — `preflight` cannot help a portless entry, which is how a
+   * portless worker got a second copy beside the running one. A pid is recycled, so
+   * liveness alone proves nothing: the birth time and the marker decide, and a pid this
+   * platform cannot place is never adopted on a guess.
+   *
+   * The record is cleared only once its process is known to be gone or to be somebody
+   * else, so a stale pid is never chased and a live one is never forgotten into a twin.
+   */
+  private async resolveRecordedChild(entry: Entry): Promise<RecordedChild> {
+    const recorded = entry.lastChild
+    if (recorded === null)
+      return { kind: 'none' }
+
+    // Our own pid is nonsense the file could carry: never adopt the panel itself.
+    if (recorded.pid === process.pid) {
+      entry.lastChild = null
+      this.persistEntryState(entry)
+      return { kind: 'none' }
+    }
+
+    // `recycled` is the same witness `up`/`down` use: the pid is live but was born *after*
+    // this panel recorded it, so it is not the child we spawned whoever else it now is.
+    // An older file carries a pid with no stamp, and a stamp of 0 would read as recycled
+    // for a live process, so liveness alone is all that record can be judged by.
+    const liveness = recorded.startedAt > 0
+      ? await processLiveness(recorded.pid, recorded.startedAt)
+      : (isProcessAlive(recorded.pid) ? 'unknown' : 'gone')
+    if (liveness === 'gone' || liveness === 'recycled') {
+      entry.lastChild = null
+      this.persistEntryState(entry)
+      return { kind: 'none' }
+    }
+
+    if (await processCarriesServerId(recorded.pid, entry.config.id))
+      return { kind: 'adopt', pid: recorded.pid }
+
+    // Alive and this platform cannot say whose it is — Windows exposes no per-process
+    // environment at all. With a port, the listener and the entry's own `onPortConflict`
+    // stay the witnesses, so the ordinary preflight runs; without one there is nothing
+    // else to ask, and refusing beats duplicating: a second portless worker (a bot, a
+    // queue consumer) is the dangerous kind of duplicate.
+    if (entry.config.port !== null)
+      return { kind: 'none' }
+
+    const error = `pid ${recorded.pid} may be a child this panel started for "${entry.config.id}" before it died, and this platform cannot confirm whose it is — not starting a second copy, stop pid ${recorded.pid} to clear it`
+    entry.status = 'conflict'
+    entry.lastError = error
+    this.log(entry, 'system', error)
+    this.publishServer(entry)
+    return { kind: 'blocked', error }
+  }
+
+  /** Clears the durable record of the last child, once that pid is known to be gone. */
+  private forgetRecordedChild(entry: Entry, pid: number | null): void {
+    if (pid === null || entry.lastChild === null || entry.lastChild.pid !== pid)
+      return
+    entry.lastChild = null
+    this.persistEntryState(entry)
+  }
+
   /** An adopted successor disappeared: fall back to the normal lifecycle. */
   private handleAdoptedExit(entry: Entry): void {
+    const adoptedPid = entry.pid
     if (entry.pid !== null)
       this.sampler.forget(entry.pid)
     // A nanny that vanished while we watched still leaves the real exit behind.
@@ -937,6 +1057,9 @@ export class Supervisor {
     entry.nannyExit = null
     entry.adopted = false
     entry.pid = null
+    // Known gone, so the durable record goes with it: a pid kept past its process is a
+    // later boot adopting whatever unrelated process inherited the number.
+    this.forgetRecordedChild(entry, adoptedPid)
     entry.resources = null
     entry.responseMs = null
     entry.exitCode = null
@@ -984,6 +1107,7 @@ export class Supervisor {
     catch (error) {
       this.log(entry, 'system', `bootstrap could not start: ${(error as Error).message} — continuing anyway`)
       entry.bootstrapDone = true
+      this.persistEntryState(entry)
       return
     }
     child.stdout?.on('data', chunk => splitter.push('stdout', chunk))
@@ -1011,6 +1135,7 @@ export class Supervisor {
     })
 
     entry.bootstrapDone = true
+    this.persistEntryState(entry)
     if (code === 0)
       this.log(entry, 'system', 'bootstrap finished')
     else if (code !== null)
@@ -1186,7 +1311,15 @@ export class Supervisor {
     entry.child = child
     entry.pid = child.pid ?? null
     entry.startedAt = Date.now()
-    this.options.history.record(entry.config.id, { type: 'start', detail })
+    // The durable record of a child that can outlive this panel. A persistent entry's
+    // child here is its *nanny*, which already writes its own state file with the pid a
+    // later boot reattaches through — a second record could only be a second truth, so
+    // it is deliberately not written for one.
+    if (!entry.config.persistent && child.pid !== undefined) {
+      entry.lastChild = { pid: child.pid, startedAt: entry.startedAt }
+      this.persistEntryState(entry)
+    }
+    this.options.history.record(entry.config.id, { type: 'start', detail, actor: entry.actor })
     entry.exitCode = null
     entry.exitSignal = null
     entry.nannyExit = null
@@ -1408,6 +1541,10 @@ export class Supervisor {
     entry.exitCode = code
     entry.exitSignal = signal
 
+    // The child is known to have exited, so a later boot must not chase this pid: pids are
+    // recycled, and a record kept past the process it names is a false adoption waiting.
+    this.forgetRecordedChild(entry, child.pid ?? null)
+
     // Both null means the process never got off the ground — a missing command,
     // for instance — so its error is more useful than "code null".
     const neverStarted = nannyExit !== null
@@ -1453,12 +1590,16 @@ export class Supervisor {
     const restart = entry.config.restart
     if (ranForMs >= restart.resetAfterMs)
       entry.restarts = 0
+    // Written before the retry decision below: whether the entry retries or gives up,
+    // the attempt that just failed must be on disk before the panel could die again.
+    this.persistEntryState(entry)
 
     this.log(entry, 'system', neverStarted ? `did not start: ${detail}` : `exited with ${detail} after ${ranFor}`)
     entry.lastError = neverStarted ? detail : `exited with ${detail}`
 
     if (restart.enabled && entry.restarts < restart.maxRetries) {
       entry.restarts += 1
+      this.persistEntryState(entry)
       const backoffMs = computeBackoff(entry.restarts, restart)
       entry.status = 'backoff'
       entry.nextRetryAt = Date.now() + backoffMs
@@ -1627,6 +1768,18 @@ export class Supervisor {
       clearTimeout(entry.retryTimer)
       entry.retryTimer = null
     }
+  }
+
+  /** The decisions that have to survive this panel, and nothing else. */
+  private persistEntryState(entry: Entry): void {
+    writeEntryState(entryStatePath(this.options.nannyDir, entry.config.id), {
+      restarts: entry.restarts,
+      bootstrapDone: entry.bootstrapDone,
+      // A persistent entry's nanny state is already its record; a second one could only
+      // disagree with it, and `resumePersistent` reads the nanny's.
+      lastPid: entry.config.persistent ? null : entry.lastChild?.pid ?? null,
+      lastStartedAt: entry.config.persistent ? null : entry.lastChild?.startedAt ?? null,
+    })
   }
 
   private buildVars(entry: Entry): TemplateVars {

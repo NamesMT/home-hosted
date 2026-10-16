@@ -635,6 +635,29 @@ export const nannyStateSchema = type({
 }).onUndeclaredKey('reject')
 export type NannyState = typeof nannyStateSchema.infer
 
+/**
+ * The part of an entry's supervision the panel must remember across its own restarts.
+ *
+ * In memory alone, a crash loop was handed a fresh `maxRetries` by every panel start
+ * (`restarts` counted "since the control plane started"), and a `runOnce` bootstrap
+ * re-ran for the same reason. Both are decisions whose whole point is to outlast the
+ * process that made them.
+ */
+export const entryStateSchema = type({
+  /** Attempts spent on the current crash sequence; reset once the process stays up. */
+  'restarts': 'number.integer >= 0',
+  /** The `runOnce` bootstrap already ran for this entry. */
+  'bootstrapDone': 'boolean',
+  /**
+   * The last child this panel spawned for a non-persistent entry. A detached child
+   * outlives the panel, so this is the only way a later boot recognizes its own
+   * survivor instead of spawning a second copy beside it.
+   */
+  'lastPid?': 'number | null',
+  'lastStartedAt?': 'number | null',
+})
+export type EntryState = typeof entryStateSchema.infer
+
 /** Edits to the panel-wide settings: listener, auth, TLS policy, host vitals, backups. */
 export const settingsPatchSchema = type({
   control: controlPatchSchema.optional(),
@@ -1031,13 +1054,25 @@ export const logLineSchema = type({
 })
 export type LogLine = typeof logLineSchema.infer
 
+/**
+ * Who asked for something, so a restart can be attributed.
+ *
+ * `policy` is the panel acting on its own (a health-forced restart, a memory ceiling);
+ * `user` is a signed-in browser; `agent` is a request carrying an API token; `boot` is
+ * the autostart pass. Optional: events written before this field existed carry none.
+ */
+export const historyActorSchema = type.enumerated('policy', 'user', 'agent', 'boot')
+export type HistoryActor = typeof historyActorSchema.infer
+
 export const historyEventSchema = type({
-  serverId: 'string',
-  ts: 'number',
-  type: '"start" | "exit" | "crash" | "forced-restart" | "unhealthy" | "recovered"',
-  detail: 'string',
+  'serverId': 'string',
+  'ts': 'number',
+  'type': '"start" | "exit" | "crash" | "forced-restart" | "unhealthy" | "recovered"',
+  'detail': 'string',
   /** How long the process had been up, recorded on exit and crash. */
-  runtimeMs: 'number?',
+  'runtimeMs': 'number?',
+  /** Who caused it; absent on events from before this field existed. */
+  'actor?': historyActorSchema,
 })
 export type HistoryEvent = typeof historyEventSchema.infer
 
@@ -1127,6 +1162,8 @@ export const backupEntrySchema = type({
     'labelParams?': 'Record<string, string>',
     /** `settings`/`servers`/`secrets` for a workspace, `data` for a declared path. */
     'kind': '"settings" | "servers" | "secrets" | "data"',
+    /** Which secret a `secrets` leaf carries (`password`, `apiToken`, `telegram`, `ddns`, …). */
+    'secret?': 'string',
     'path?': 'string',
     /** Who declared a data path: `global`, `<serverId>:backupPaths` or `<serverId>:<ENV>`. */
     'origin?': 'string',
@@ -1192,6 +1229,14 @@ export const restorePlanSchema = type({
   'encrypted': 'boolean',
   /** The archive needs a password (none or a wrong one was supplied). */
   'needsPassword': 'boolean',
+  /**
+   * Where the archive says it came from. Optional: an archive written before this
+   * stamp existed carries neither field, and an older panel never sends the row.
+   */
+  'archive?': type({
+    'writtenBy?': 'string',
+    'schema?': 'number',
+  }),
   'items': restoreItemSchema.array(),
   'applied': type('string[]'),
   /**
