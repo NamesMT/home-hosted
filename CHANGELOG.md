@@ -1,6 +1,39 @@
 # Changelog
 
 
+## v0.8.3
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.8.2...v0.8.3)
+
+### 🚀 Enhancements
+
+- **config:** Describe the parts of a secrets file ([b0cd0a9](https://github.com/NamesMT/home-hosted/commit/b0cd0a9))
+- **backups:** Select each secret, and stamp the archive ([5b8b7ad](https://github.com/NamesMT/home-hosted/commit/5b8b7ad))
+- **api:** Attribute a start, and see an unhealthy server in /healthz ([8ca46cb](https://github.com/NamesMT/home-hosted/commit/8ca46cb))
+- **uis:** Pick a secret in the backup dialog, and ship a favicon ([457f84e](https://github.com/NamesMT/home-hosted/commit/457f84e))
+- **brand:** Add the mark, the icons and the social preview ([8617f8f](https://github.com/NamesMT/home-hosted/commit/8617f8f))
+
+### 🩹 Fixes
+
+- **supervisor:** Adopt a surviving child instead of duplicating it ([e2d3f5d](https://github.com/NamesMT/home-hosted/commit/e2d3f5d))
+- **brand:** Generate the social banner from measured text ([58e7d02](https://github.com/NamesMT/home-hosted/commit/58e7d02))
+- **brand:** Retag the banner as Supervision, Backups, DDNS, Reverse Proxy ([65ffee0](https://github.com/NamesMT/home-hosted/commit/65ffee0))
+- **test:** The portless regression test only knew the adopting platform ([cb84a21](https://github.com/NamesMT/home-hosted/commit/cb84a21))
+
+### 💅 Refactors
+
+- **brand:** Move the assets under docs/branding ([7ffa5dd](https://github.com/NamesMT/home-hosted/commit/7ffa5dd))
+- **uis:** One source for the favicon, not a copy per UI ([94e39ca](https://github.com/NamesMT/home-hosted/commit/94e39ca))
+
+### 📖 Documentation
+
+- The portless adoption rule, the persisted budget and the start actor ([def0003](https://github.com/NamesMT/home-hosted/commit/def0003))
+- Show the brand in the README, and cut the restatement ([d1b4bb9](https://github.com/NamesMT/home-hosted/commit/d1b4bb9))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.8.2
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.8.1...v0.8.2)
