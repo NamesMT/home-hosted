@@ -90,6 +90,7 @@
     "prepack": "pnpm run build",
     "build:ui": "node scripts/build-uis.mjs stock",
     "build:uis": "node scripts/build-uis.mjs --zip",
+    "brand": "node scripts/build-brand.mjs",
     "media": "node scripts/capture-media.mjs"
   },
   "dependencies": {

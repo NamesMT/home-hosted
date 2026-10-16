@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="GitHub social preview banner for home-hosted">
+  <title>home-hosted — GitHub social preview</title>
+  <!--
+    2:1, the size GitHub asks for (1280x640). Left-weighted lockup: the mark, the name, one
+    line of positioning, then the three claims a homelab reader checks first. The right
+    side is left quiet because the card is usually shown ~500px wide in a timeline, so
+    anything there would be illegible anyway.
+
+    Colours are the stock UI's own tokens — page #0a0e14, panel #111722, raise #1a2432,
+    accent #6d8dff, ok #34d399 — the dark theme, because a dark card stands out against
+    GitHub's light feed and matches how the panel looks at night, which is when a home
+    server actually matters.
+
+    Every text run is laid out with a generous right margin and verified at 500px wide.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0e14"/>
+      <stop offset="1" stop-color="#111722"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6d8dff" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#6d8dff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <ellipse cx="150" cy="110" rx="460" ry="320" fill="url(#glow)"/>
+
+  <!-- The mark, from brand/logo.svg's 512 grid, scaled to 224px. The vent slots are punched
+       in the background colour so they read as slots rather than as separate dark bars. -->
+  <g transform="translate(88 208) scale(0.4375)">
+    <path d="M84 188 L256 64 L428 188 L428 460 L84 460 Z"
+          fill="none" stroke="#6d8dff" stroke-width="30" stroke-linejoin="miter" stroke-linecap="round"/>
+    <g fill="#6d8dff">
+      <rect x="152" y="216" width="208" height="52" rx="13"/>
+      <rect x="152" y="290" width="208" height="52" rx="13"/>
+      <rect x="152" y="364" width="208" height="52" rx="13"/>
+    </g>
+    <g fill="#0d1420">
+      <rect x="178" y="236" width="20" height="12" rx="4"/>
+      <rect x="208" y="236" width="20" height="12" rx="4"/>
+      <rect x="238" y="236" width="20" height="12" rx="4"/>
+      <rect x="178" y="310" width="20" height="12" rx="4"/>
+      <rect x="208" y="310" width="20" height="12" rx="4"/>
+      <rect x="238" y="310" width="20" height="12" rx="4"/>
+      <rect x="178" y="384" width="20" height="12" rx="4"/>
+      <rect x="208" y="384" width="20" height="12" rx="4"/>
+      <rect x="238" y="384" width="20" height="12" rx="4"/>
+    </g>
+    <circle cx="324" cy="242" r="12" fill="#34d399"/>
+  </g>
+
+  <g font-family="DejaVu Sans, Inter, Segoe UI, system-ui, sans-serif">
+    <text x="368" y="292" font-size="86" font-weight="bold" fill="#e8eef8" letter-spacing="-2">home-hosted</text>
+    <text x="372" y="344" font-size="31" fill="#93a2b8">Self-hosted control panel for your home server.</text>
+
+    <g font-size="24" fill="#c3cfe2">
+      <rect x="372" y="392" width="246" height="50" rx="25" fill="#1a2432"/>
+      <text x="402" y="425">restarts what dies</text>
+      <rect x="638" y="392" width="150" height="50" rx="25" fill="#1a2432"/>
+      <text x="668" y="425">live logs</text>
+      <rect x="808" y="392" width="176" height="50" rx="25" fill="#1a2432"/>
+      <text x="838" y="425">MIT · Node 24</text>
+    </g>
+
+    <text x="88" y="562" font-size="26" fill="#64748b">github.com/NamesMT/home-hosted</text>
+    <text x="1192" y="562" font-size="26" fill="#64748b" text-anchor="end">Linux · macOS · Windows</text>
+  </g>
+</svg>

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="home-hosted">
+  <title>home-hosted</title>
+  <!--
+    The mark: a house whose interior is a rack. Authored as geometry rather than traced from
+    a bitmap, so it stays crisp at 16px (favicon) and sharp at any size.
+
+    Grid: 512 square. Walls centred at x=84 and x=428 with a 28 stroke, so the interior runs
+    98-414. The roof is one stroke whose mitre closes the apex. The roof sits high and the
+    floor low so the three rack units have even gaps instead of crowding either end; the top
+    unit carries the lit slot, which is what the product is actually about.
+  -->
+  <path d="M84 188 L256 64 L428 188 L428 460 L84 460 Z"
+        fill="none" stroke="#2f5fe0" stroke-width="28" stroke-linejoin="miter" stroke-linecap="round"/>
+  <g fill="#2f5fe0">
+    <rect x="152" y="216" width="208" height="52" rx="13"/>
+    <rect x="152" y="290" width="208" height="52" rx="13"/>
+    <rect x="152" y="364" width="208" height="52" rx="13"/>
+  </g>
+  <g fill="#ffffff">
+    <!-- Slot vents: three per unit on one rhythm, and the top unit's run stops short of the dot. -->
+    <rect x="178" y="236" width="18" height="12" rx="4"/>
+    <rect x="206" y="236" width="18" height="12" rx="4"/>
+    <rect x="234" y="236" width="18" height="12" rx="4"/>
+    <rect x="178" y="310" width="18" height="12" rx="4"/>
+    <rect x="206" y="310" width="18" height="12" rx="4"/>
+    <rect x="234" y="310" width="18" height="12" rx="4"/>
+    <rect x="178" y="384" width="18" height="12" rx="4"/>
+    <rect x="206" y="384" width="18" height="12" rx="4"/>
+    <rect x="234" y="384" width="18" height="12" rx="4"/>
+  </g>
+  <!-- The lit slot: up and serving. -->
+  <circle cx="322" cy="242" r="11" fill="#3ddc97"/>
+</svg>
