@@ -33,6 +33,19 @@ function dataLeaf(overrides: Partial<BackupEntryItem> = {}): BackupEntryItem {
   }
 }
 
+/** One secret leaf of a global or workspace secrets entry. */
+function secretLeaf(secret: string, overrides: Partial<BackupEntryItem> = {}): BackupEntryItem {
+  return {
+    id: `global:secrets:${secret}`,
+    label: secret,
+    kind: 'secrets',
+    secret,
+    included: true,
+    note: null,
+    ...overrides,
+  }
+}
+
 function globalEntry(kind: BackupEntry['kind'], overrides: Partial<BackupEntry> = {}): BackupEntry {
   return { id: `global:${kind}`, label: kind, kind, note: null, items: [], ...overrides }
 }
@@ -104,6 +117,68 @@ describe('backup selection', () => {
     expect(effectiveSelected(entries[0]!)).toBe(false)
     expect(includeIds(entries)).toEqual([])
     expect(selectionCount(entries)).toEqual({ entries: 0, leaves: 0 })
+  })
+
+  it('sends a non-workspace entry whole when every one of its leaves is picked', () => {
+    const secrets = [secretLeaf('password'), secretLeaf('apiToken')]
+    const entries = captureEntries([globalEntry('settings'), globalEntry('secrets', { items: secrets })])
+
+    // Everything is picked, so the request stays unqualified even though `global:secrets` now has leaves.
+    expect(allLeavesSelected(entries[1]!)).toBe(true)
+    expect(includeIds(entries)).toBeUndefined()
+    expect(capturesEverything(entries)).toBe(true)
+
+    // With a sibling unticked, the fully picked secrets entry travels as its aggregate id.
+    entries[0]!.selected = false
+    expect(includeIds(entries)).toEqual(['global:secrets'])
+  })
+
+  it('sends only the picked secret leaves of a non-workspace entry', () => {
+    const items = [secretLeaf('password'), secretLeaf('apiToken'), secretLeaf('futureKey')]
+    const entries = captureEntries([globalEntry('settings'), globalEntry('secrets', { items })])
+
+    entries[1]!.leaves.find(choice => choice.id === 'global:secrets:apiToken')!.selected = false
+    expect(allLeavesSelected(entries[1]!)).toBe(false)
+    expect(includeIds(entries)).toEqual(['global:settings', 'global:secrets:password', 'global:secrets:futureKey'])
+    expect(selectionCount(entries)).toEqual({ entries: 2, leaves: 3 })
+  })
+
+  it('does not capture a non-workspace entry whose every secret leaf was unticked', () => {
+    const entries = captureEntries([globalEntry('secrets', { items: [secretLeaf('password'), secretLeaf('apiToken')] })])
+    entries[0]!.leaves.forEach((choice) => { choice.selected = false })
+
+    expect(effectiveSelected(entries[0]!)).toBe(false)
+    expect(includeIds(entries)).toEqual([])
+    expect(selectionCount(entries)).toEqual({ entries: 0, leaves: 0 })
+  })
+
+  it('leaves an entry with no leaves untouched by the leaf logic', () => {
+    const entries = captureEntries([globalEntry('settings'), globalEntry('tls')])
+
+    // No leaves to consult: the entry's own tick still decides, and a count of one leaf each.
+    expect(allLeavesSelected(entries[0]!)).toBe(false)
+    expect(effectiveSelected(entries[0]!)).toBe(true)
+    expect(includeIds(entries)).toBeUndefined()
+
+    entries[1]!.selected = false
+    expect(includeIds(entries)).toEqual(['global:settings'])
+    expect(selectionCount(entries)).toEqual({ entries: 1, leaves: 1 })
+
+    entries[0]!.selected = false
+    expect(includeIds(entries)).toEqual([])
+  })
+
+  it('sends only the picked leaves of a workspace whose secrets leaves are partly picked', () => {
+    const secrets = [
+      secretLeaf('telegram', { id: 'workspace:default:secrets:telegram' }),
+      secretLeaf('ddns', { id: 'workspace:default:secrets:ddns' }),
+    ]
+    const entries = captureEntries([workspaceEntry([leaf(), ...secrets])])
+
+    entries[0]!.leaves.find(choice => choice.id === 'workspace:default:secrets:ddns')!.selected = false
+    expect(allLeavesSelected(entries[0]!)).toBe(false)
+    expect(includeIds(entries)).toEqual(['workspace:default:settings', 'workspace:default:secrets:telegram'])
+    expect(selectionCount(entries)).toEqual({ entries: 1, leaves: 2 })
   })
 
   it('sends an empty list only when nothing at all is checked', () => {

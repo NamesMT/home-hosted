@@ -65,7 +65,7 @@ function applySub(): void {
     return
   for (const leaf of entry.leaves)
     leaf.selected = subDraft.value[leaf.id] === true
-  // A workspace whose items were all unticked is not captured, even if it was listed.
+  // An entry whose items were all unticked is not captured, even if it was listed.
   if (entry.leaves.some(leaf => leaf.selected))
     entry.selected = true
   subOpen.value = false
@@ -135,7 +135,7 @@ async function submit(): Promise<void> {
                 :disabled="busy"
               />
             </div>
-            <div v-if="entry.kind === 'workspace'" class="flex shrink-0 items-center gap-1.5 pt-0.5">
+            <div v-if="entry.leaves.length > 0" class="flex shrink-0 items-center gap-1.5 pt-0.5">
               <span class="font-mono text-2xs text-faint">{{ entry.leaves.filter(l => l.selected).length }}/{{ entry.leaves.length }}</span>
               <AppButton size="xs" variant="secondary" :disabled="busy" @click="openSub(entry)">
                 <Boxes class="size-3" />{{ t('settings.backup.chooseItems') }}
@@ -148,7 +148,7 @@ async function submit(): Promise<void> {
           </div>
 
           <p
-            v-if="entry.kind === 'workspace' && entry.selected && !allLeavesSelected(entry) && entry.leaves.some(l => l.selected)"
+            v-if="entry.selected && !allLeavesSelected(entry) && entry.leaves.some(l => l.selected)"
             class="mt-1 flex items-center gap-1 pl-6 text-2xs text-warn"
           >
             <Layers class="size-3" />

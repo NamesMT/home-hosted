@@ -53,8 +53,8 @@ const stubs = {
 describe('backupDialog', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  async function open() {
-    const wrapper = mount(BackupDialog, { props: { open: true, state }, global: { stubs } })
+  async function open(view: BackupsView = state) {
+    const wrapper = mount(BackupDialog, { props: { open: true, state: view }, global: { stubs } })
     await nextTick()
     return wrapper
   }
@@ -118,5 +118,45 @@ describe('backupDialog', () => {
 
     // The workspace is captured in part, so its picked leaves travel by id.
     expect(spy).toHaveBeenCalledWith('', ['global:settings', 'global:secrets', 'global:tls', 'workspace:default:settings', 'data:/srv/app/data'])
+  })
+
+  it('offers a sub-dialog for the global secrets entry, not only for a workspace', async () => {
+    const spy = vi.spyOn(api, 'createBackup').mockResolvedValue({})
+    const wrapper = await open({
+      ...state,
+      entries: [
+        { id: 'global:settings', label: 'Panel settings', kind: 'settings', note: null, items: [] },
+        {
+          id: 'global:secrets',
+          label: 'Secrets',
+          kind: 'secrets',
+          note: null,
+          items: [
+            { id: 'global:secrets:password', label: 'Password', kind: 'secrets', secret: 'password', included: true, note: null },
+            { id: 'global:secrets:apiToken', label: 'API token', kind: 'secrets', secret: 'apiToken', included: true, note: null },
+          ],
+        },
+      ],
+    })
+
+    // Two leaves belong to the non-workspace entry, so it carries a Choose items button too.
+    const choose = wrapper.findAll('button').filter(node => node.text().includes('Choose items'))
+    expect(choose).toHaveLength(1)
+    await choose[0]!.trigger('click')
+    await nextTick()
+
+    // Entry checkboxes first, then the two secret leaves: untick the API token.
+    expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(4)
+    await checkbox(wrapper, 3).setValue(false)
+
+    const apply = wrapper.findAll('button').find(node => node.text().trim() === 'Apply')
+    if (!apply)
+      throw new Error('no Apply button')
+    await apply.trigger('click')
+    await nextTick()
+    await create(wrapper)
+
+    // Only the secret that stayed ticked travels by id.
+    expect(spy).toHaveBeenCalledWith('', ['global:settings', 'global:secrets:password'])
   })
 })

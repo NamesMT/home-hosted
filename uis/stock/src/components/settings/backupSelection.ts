@@ -9,7 +9,7 @@ import { panelNote, panelText } from '@/lib/panel-text'
  * secrets and TLS pair, plus one entry per workspace. A workspace's own entry
  * carries several leaves (its settings, servers, secrets and each declared data
  * path), which a nested dialog picks from — a workspace can be captured whole or
- * only in part.
+ * only in part. The global secrets entry carries one leaf per secret the same way.
  */
 
 export interface LeafChoice {
@@ -27,8 +27,16 @@ export interface EntryChoice {
   kind: BackupEntry['kind']
   workspaceId?: string
   selected: boolean
-  /** Empty for a global entry; the sub-choices for a workspace. */
+  /** Empty for an entry that has no sub-choices; the leaves otherwise. */
   leaves: LeafChoice[]
+}
+
+/** Per-secret hints, keyed by the leaf's `secret`; the aggregate hint covers a key with none. */
+const SECRET_HINTS: Record<string, string> = {
+  password: 'settings.backup.secretPasswordHint',
+  apiToken: 'settings.backup.secretApiTokenHint',
+  telegram: 'settings.backup.secretTelegramHint',
+  ddns: 'settings.backup.secretDdnsHint',
 }
 
 /** A readable hint for why a leaf would be captured. */
@@ -41,14 +49,16 @@ function leafHint(item: BackupEntry['items'][number]): string {
     return t('settings.backup.leafSettingsHint')
   if (item.kind === 'servers')
     return t('settings.backup.leafServersHint')
-  if (item.kind === 'secrets')
-    return t('settings.backup.leafSecretsHint')
+  if (item.kind === 'secrets') {
+    const key = item.secret === undefined ? undefined : SECRET_HINTS[item.secret]
+    return key === undefined ? t('settings.backup.leafSecretsHint') : t(key)
+  }
   if (item.path === undefined)
     return t('settings.backup.leafDataHint')
   return item.origin === undefined ? item.path : t('settings.backup.pathFromOrigin', { path: item.path, origin: item.origin })
 }
 
-/** True when every leaf of a workspace entry is selected. */
+/** True when every leaf of an entry is selected; an entry with no leaves has none to select. */
 export function allLeavesSelected(entry: EntryChoice): boolean {
   return entry.leaves.length > 0 && entry.leaves.every(leaf => leaf.selected)
 }
@@ -93,9 +103,9 @@ export function captureEntries(entries: BackupEntry[], previous: EntryChoice[] =
   })
 }
 
-/** A workspace with no selectable leaf left is not captured at all. */
+/** An entry with no leaf left selected is not captured at all, whoever it belongs to. */
 export function effectiveSelected(entry: EntryChoice): boolean {
-  if (entry.kind !== 'workspace')
+  if (entry.leaves.length === 0)
     return entry.selected
   return entry.selected && entry.leaves.some(leaf => leaf.selected)
 }
@@ -114,22 +124,18 @@ export function selectAll(entries: EntryChoice[], selected: boolean): void {
  * and it is only ever returned for a non-empty tree, because an empty list must
  * never be read as "capture the whole panel". `[]` therefore means the caller
  * picked nothing, which is a state the dialog disables Create for; the API
- * client rejects it rather than silently widening the request. A fully selected
- * workspace is sent as one `workspace:<id>` id; a partly selected one sends only
- * its picked leaves.
+ * client rejects it rather than silently widening the request. An entry whose
+ * leaves are all picked is sent as its own id; a partly picked one sends only its
+ * picked leaf ids.
  */
 export function includeIds(entries: EntryChoice[]): string[] | undefined {
   const included = entries.filter(entry => effectiveSelected(entry))
-  if (entries.length > 0 && included.length === entries.length && included.every(entry => entry.kind !== 'workspace' || allLeavesSelected(entry)))
+  if (entries.length > 0 && included.length === entries.length && included.every(entry => entry.leaves.length === 0 || allLeavesSelected(entry)))
     return undefined
 
   const ids: string[] = []
   for (const entry of included) {
-    if (entry.kind !== 'workspace') {
-      ids.push(entry.id)
-      continue
-    }
-    if (allLeavesSelected(entry))
+    if (entry.leaves.length === 0 || allLeavesSelected(entry))
       ids.push(entry.id)
     else
       ids.push(...entry.leaves.filter(leaf => leaf.selected).map(leaf => leaf.id))
@@ -142,7 +148,7 @@ export function capturesEverything(entries: EntryChoice[]): boolean {
   return includeIds(entries) === undefined
 }
 
-/** How many top-level entries and workspace leaves the request would capture. */
+/** How many top-level entries and leaves the request would capture; an entry with no leaves counts as one. */
 export function selectionCount(entries: EntryChoice[]): { entries: number, leaves: number } {
   let leaves = 0
   let count = 0
@@ -150,7 +156,7 @@ export function selectionCount(entries: EntryChoice[]): { entries: number, leave
     if (!effectiveSelected(entry))
       continue
     count += 1
-    leaves += entry.kind === 'workspace' ? entry.leaves.filter(leaf => leaf.selected).length : 1
+    leaves += entry.leaves.length === 0 ? 1 : entry.leaves.filter(leaf => leaf.selected).length
   }
   return { entries: count, leaves }
 }

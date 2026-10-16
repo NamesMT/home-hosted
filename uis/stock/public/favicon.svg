@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="home-hosted">
+  <title>home-hosted</title>
+  <!--
+    The small mark. Same house-and-rack idea as `logo.svg`, redrawn for 16px: two units instead
+    of three, no vent slots, thicker strokes. The full mark turns to mush at favicon size —
+    anything below ~2px of the 16px grid smears into a blur, so those details are dropped
+    rather than shrunk. The units are lifted off the floor so the frame still closes at 16px.
+  -->
+  <path d="M6 24 L32 5 L58 24 L58 58 L6 58 Z"
+        fill="none" stroke="#2f5fe0" stroke-width="7" stroke-linejoin="miter" stroke-linecap="round"/>
+  <rect x="17" y="27" width="30" height="10" rx="3" fill="#2f5fe0"/>
+  <rect x="17" y="42" width="30" height="10" rx="3" fill="#2f5fe0"/>
+  <circle cx="42" cy="32" r="3.2" fill="#3ddc97"/>
+</svg>
