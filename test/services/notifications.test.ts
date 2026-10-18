@@ -332,6 +332,53 @@ describe('the webhook transport', () => {
     expect(parseHeaders('not a header').errors).toHaveLength(1)
   })
 
+  /**
+   * A credential must not have to be written into the config file.
+   *
+   * `headers` is a workspace setting, so a literal `Authorization: Bearer …` would sit in
+   * `settings.json` — the one thing AGENTS.md rules out ("secrets never enter the config").
+   * `${ENV}` expands in the URL and the values, the same rule the rest of the config follows.
+   */
+  it('expands an env placeholder in the URL and the header values', async () => {
+    const { calls, impl } = recordingFetch()
+    process.env.HH_TEST_WEBHOOK_TOKEN = 'secret-from-env'
+    const open = '$'
+    const tokenRef = `Bearer ${open}{HH_TEST_WEBHOOK_TOKEN}`
+    try {
+      await sendWebhook({
+        url: 'https://hooks.example.com/hook',
+        method: 'POST',
+        format: 'json',
+        headers: `Authorization: ${tokenRef}`,
+      }, event, impl)
+    }
+    finally {
+      delete process.env.HH_TEST_WEBHOOK_TOKEN
+    }
+
+    expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe('Bearer secret-from-env')
+  })
+
+  /**
+   * An unset placeholder must say so.
+   *
+   * `expandEnv` leaves an unknown `${NAME}` as written, which at the request becomes a generic
+   * "fetch failed" — the one message that does not tell a person their environment variable is
+   * missing.
+   */
+  it('names an unexpanded URL placeholder instead of "fetch failed"', async () => {
+    const open = '$'
+    const { calls, impl } = recordingFetch()
+    const result = await sendWebhook(
+      { url: `https://${open}{HH_NOT_SET_ANYWHERE}/x`, method: 'POST', format: 'json', headers: '' },
+      event,
+      impl,
+    )
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('unexpanded placeholder')
+    expect(calls, 'nothing was attempted').toHaveLength(0)
+  })
+
   it('refuses a URL that is not http(s), and an unusable header line', async () => {
     const { calls, impl } = recordingFetch()
     for (const url of ['file:///tmp/x', 'javascript:alert(1)', 'not a url']) {

@@ -1,6 +1,7 @@
 import type {
   AuthStatus,
-  BackupsConfig,
+  BackupScheduleConfig,
+  BackupsView,
   ControlView,
   HealthConfig,
   HostConfig,
@@ -295,16 +296,22 @@ export function hostBaseline(config: HostConfig): HostForm {
   }
 }
 
-export function backupsBaseline(policy: Pick<BackupsConfig, 'enabled' | 'keep' | 'includePaths' | 'schedule'>): BackupsForm {
+/** The schema's own defaults, for a panel that predates the schedule and sends none. */
+const SCHEMA_SCHEDULE: BackupScheduleConfig = { intervalMs: 0, keep: 7 }
+
+export function backupsBaseline(policy: Pick<BackupsView, 'enabled' | 'keep' | 'includePaths'> & { schedule?: BackupScheduleConfig }): BackupsForm {
+  // Absent means an older panel: it is "off", which is what the schema default says, and the
+  // form must not invent a schedule the panel cannot honour.
+  const schedule = policy.schedule ?? SCHEMA_SCHEDULE
   return {
     enabled: policy.enabled,
     keep: policy.keep,
     includePaths: policy.includePaths.join(', '),
-    scheduleEnabled: policy.schedule.intervalMs > 0,
-    // Rounded: a value set through the API in ms does not have to land on a whole hour, and the
-    // field is an hour count — it must not silently rewrite a value to something it cannot show.
-    scheduleHours: Math.max(1, Math.round(policy.schedule.intervalMs / HOUR_MS) || 1),
-    scheduleKeep: policy.schedule.keep,
+    scheduleEnabled: schedule.intervalMs > 0,
+    // Rounded for display only: the patch leaves `intervalMs` out unless the field was edited,
+    // so a 90-minute interval set through the API is not rewritten to 2 hours by an unrelated save.
+    scheduleHours: Math.max(1, Math.round(schedule.intervalMs / HOUR_MS) || 1),
+    scheduleKeep: schedule.keep,
   }
 }
 
@@ -315,13 +322,27 @@ export function hostPatch(current: HostConfig, form: HostForm): Patch {
   } as unknown as Patch)
 }
 
-export function backupsPatch(current: Pick<BackupsConfig, 'enabled' | 'keep' | 'includePaths' | 'schedule'>, form: BackupsForm): Patch {
-  return diffFields(current as unknown as Patch, {
+export function backupsPatch(
+  current: Pick<BackupsView, 'enabled' | 'keep' | 'includePaths'> & { schedule?: BackupScheduleConfig },
+  form: BackupsForm,
+): Patch {
+  const baseline = backupsBaseline(current)
+  const schedule: Record<string, number> = {}
+  if (form.scheduleEnabled !== baseline.scheduleEnabled || form.scheduleHours !== baseline.scheduleHours)
+    schedule.intervalMs = form.scheduleEnabled ? form.scheduleHours * HOUR_MS : 0
+  if (form.scheduleKeep !== baseline.scheduleKeep)
+    schedule.keep = form.scheduleKeep
+
+  return diffFields({
+    enabled: current.enabled,
+    keep: current.keep,
+    includePaths: current.includePaths,
+    schedule: current.schedule ?? SCHEMA_SCHEDULE,
+  } as unknown as Patch, {
     enabled: form.enabled,
     keep: form.keep,
     includePaths: splitList(form.includePaths),
-    // `intervalMs: 0` is how the file spells "off"; the switch and the hour count are one field.
-    schedule: { intervalMs: form.scheduleEnabled ? form.scheduleHours * HOUR_MS : 0, keep: form.scheduleKeep },
+    schedule,
   } as unknown as Patch, ['schedule'])
 }
 

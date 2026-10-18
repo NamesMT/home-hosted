@@ -2,6 +2,7 @@ KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
 common.cancel,Cancel,Huỷ,取消,キャンセル,Cancelar,취소,Отмена,Annuler,Abbrechen
 common.confirm,Confirm,Xác nhận,确认,確認,Confirmar,확인,Подтвердить,Confirmer,Bestätigen
 common.reset,Reset,Đặt lại,重置,リセット,Restablecer,초기화,Сбросить,Réinitialiser,Zurücksetzen
+common.sending,Sending…,Đang gửi…,正在发送…,送信中…,Enviando…,전송 중…,Отправка…,Envoi…,Senden…
 common.keepIt,Keep it,Giữ nguyên,保持不变,このままにする,Mantenerlo,그대로 두기,Оставить,Conserver,Beibehalten
 common.remove,Remove,Gỡ bỏ,移除,削除,Quitar,제거,Убрать,Retirer,Entfernen
 common.close,Close,Đóng,关闭,閉じる,Cerrar,닫기,Закрыть,Fermer,Schließen

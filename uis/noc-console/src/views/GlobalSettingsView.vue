@@ -150,11 +150,12 @@ function fillBackups(): boolean {
     enabled: configured.backups.enabled,
     keep: configured.backups.keep,
     includePaths: joinList(configured.backups.includePaths),
-    scheduleEnabled: configured.backups.schedule.intervalMs > 0,
-    // The field is an hour count and the file stores milliseconds; rounded so a value set
-    // through the API cannot be rewritten to something the field cannot display.
-    scheduleHours: Math.max(1, Math.round(configured.backups.schedule.intervalMs / 3_600_000) || 1),
-    scheduleKeep: configured.backups.schedule.keep,
+    // Absent means an older panel: read as "off", which is what the schema default says, rather
+    // than inventing a schedule the panel cannot honour.
+    scheduleEnabled: (configured.backups.schedule?.intervalMs ?? 0) > 0,
+    // Rounded for display only; the patch leaves `intervalMs` out unless the field was edited.
+    scheduleHours: Math.max(1, Math.round((configured.backups.schedule?.intervalMs ?? 0) / 3_600_000) || 1),
+    scheduleKeep: configured.backups.schedule?.keep ?? 7,
   })
   return true
 }
@@ -309,17 +310,31 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
     if (Object.keys(hostPatch).length > 0)
       patch.host = hostPatch as SettingsPatch['host']
 
+    /**
+     * Only the members that actually changed.
+     *
+     * The hours field is a rounded view of `intervalMs`, so sending it unconditionally would
+     * rewrite a 90-minute interval to 2 hours on an unrelated save. `0` is how the file spells
+     * "off", and the switch and the hour count are one field.
+     */
+    const scheduleBaseline = {
+      intervalMs: configured.backups.schedule?.intervalMs ?? 0,
+      keep: configured.backups.schedule?.keep ?? 7,
+    }
+    const nextSchedule: Record<string, number> = {}
+    const nextInterval = form.backups.scheduleEnabled ? form.backups.scheduleHours * 3_600_000 : 0
+    if (nextInterval !== scheduleBaseline.intervalMs || form.backups.scheduleEnabled !== (scheduleBaseline.intervalMs > 0))
+      nextSchedule.intervalMs = nextInterval
+    if (form.backups.scheduleKeep !== scheduleBaseline.keep)
+      nextSchedule.keep = form.backups.scheduleKeep
+
     const backupsPatch = diffFields(
       configured.backups as unknown as Patch,
       {
         enabled: form.backups.enabled,
         keep: form.backups.keep,
         includePaths: splitList(form.backups.includePaths),
-        // `intervalMs: 0` is how the file spells "off"; the switch and the hour count are one field.
-        schedule: {
-          intervalMs: form.backups.scheduleEnabled ? form.backups.scheduleHours * 3_600_000 : 0,
-          keep: form.backups.scheduleKeep,
-        },
+        schedule: nextSchedule,
       } as unknown as Patch,
       ['schedule'],
     )

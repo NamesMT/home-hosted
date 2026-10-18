@@ -1205,6 +1205,49 @@ describe('the backup schedule', () => {
     expect(remaining, 'the two budgets are counted apart').toHaveLength(3)
   })
 
+  /**
+   * A pass that writes nothing must still start the clock.
+   *
+   * The newest archive is the durable record across a restart, but a *failed* pass leaves no
+   * archive — so without an attempt timestamp every panel tick (once a second) would retry the
+   * same failing archive for as long as the failure lasts.
+   */
+  it('does not retry a failed pass on every tick', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7 } })
+    const now = Date.now()
+
+    // Make the pass fail by pointing the archive directory at a path a file already occupies.
+    const blocker = path.join(fixture.root, 'not-a-dir')
+    fs.writeFileSync(blocker, 'x')
+    const failing = new BackupService({
+      dataRoot: fixture.dataRoot,
+      getConfig: () => ({ ...fixture.config, dir: blocker }),
+      getSources: () => fixture.sources,
+    })
+    const attempts: string[] = []
+    const original = failing.create.bind(failing)
+    // Count the attempts rather than the archives: a failed pass writes none.
+    failing.create = async (options = {}) => {
+      attempts.push(options.automatic === true ? 'auto' : 'manual')
+      return original(options)
+    }
+
+    failing.tick(now)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(attempts, 'the first tick tries').toHaveLength(1)
+
+    // Many ticks inside the interval: no further attempt.
+    for (let step = 1; step <= 5; step += 1)
+      failing.tick(now + step * 1000)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(attempts, 'a failed pass is not retried every second').toHaveLength(1)
+
+    // Past the interval, it tries again — the schedule is not disabled by one failure.
+    failing.tick(now + 61_000)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(attempts).toHaveLength(2)
+  })
+
   it('exposes the schedule and the last automatic time to the page', async () => {
     const fixture = await makeFixture({ schedule: { intervalMs: 3_600_000, keep: 3 } })
     expect(fixture.service.view().schedule).toEqual({ intervalMs: 3_600_000, keep: 3 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BackupsConfig, BackupsView, WorkspaceView } from '@shared/contracts'
+import type { BackupsView, WorkspaceView } from '@shared/contracts'
 import type { BackupsForm } from '@/components/settings/settingsForm'
 import { Archive, Download, RotateCcw } from '@lucide/vue'
 import { errorMessage } from '@shared/error-message'
@@ -29,7 +29,7 @@ import { focusRing } from '@/lib/ui'
 
 const props = defineProps<{
   state: BackupsView | null
-  policy: BackupsConfig | null
+  policy: BackupsView | null
   /** The panel's global settings file; the archive directory is a file-level decision. */
   configPath: string | null
   workspaces: WorkspaceView[]

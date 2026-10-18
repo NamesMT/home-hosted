@@ -253,11 +253,38 @@ export const webhookTargetSchema = type({
 }).onUndeclaredKey('reject')
 export type WebhookTarget = typeof webhookTargetSchema.infer
 
+/**
+ * The target list.
+ *
+ * `id` is the list key — the per-target cooldown and last-result record are keyed by it — so a
+ * duplicate would make two targets throttle and report as one. Uniqueness is checked by
+ * `duplicateWebhookIds` rather than a schema `narrow`: a predicate cannot be rendered to JSON
+ * Schema, and every route's `toJsonSchema()` (the OpenAPI document) would throw.
+ */
+const webhookListSchema = webhookTargetSchema.array()
+
 export const notificationsSchema = type({
   telegram: telegramSchema.default(() => ({})),
   /** The list is replaced by a patch, the same way `ddns.accounts` is. */
-  webhooks: webhookTargetSchema.array().default(() => []),
+  webhooks: webhookListSchema.default(() => []),
 }).onUndeclaredKey('reject')
+
+/**
+ * The ids that appear more than once, so a write can refuse them.
+ *
+ * A schema-level check is not available here (see above), and this is the one shape that has to
+ * be told apart from a plain validation error: the list is valid, but its identity is not.
+ */
+export function duplicateWebhookIds(targets: ReadonlyArray<{ id: string }>): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  for (const target of targets) {
+    if (seen.has(target.id))
+      duplicates.add(target.id)
+    seen.add(target.id)
+  }
+  return [...duplicates]
+}
 export type NotificationsConfig = typeof notificationsSchema.infer
 
 /** On-disk log retention for the Logs page. */
@@ -1283,18 +1310,24 @@ export const backupEntrySchema = type({
 export type BackupEntry = typeof backupEntrySchema.infer
 
 export const backupsViewSchema = type({
-  enabled: 'boolean',
-  dir: 'string',
-  keep: 'number',
-  /** The scheduled half, so the page can show and edit it. */
-  schedule: backupScheduleSchema,
-  /** When the last automatic archive was written; null until one has run. */
-  lastAutomaticAt: 'number | null',
+  'enabled': 'boolean',
+  'dir': 'string',
+  'keep': 'number',
+  /**
+   * The scheduled half, so the page can show and edit it.
+   *
+   * Optional because the panel and the UI upgrade separately: an older panel does not send it,
+   * and a required field would blank the settings page for that panel. The page reads it as
+   * "off, keep 7" when absent — the schema defaults — so nothing changes for it.
+   */
+  'schedule?': backupScheduleSchema,
+  /** When the last automatic archive was written; null until one has run. Optional for the same reason. */
+  'lastAutomaticAt?': 'number | null',
   /** Extra paths from the global config, in addition to each server's own. */
-  includePaths: type('string[]'),
+  'includePaths': type('string[]'),
   /** Every selectable entry, global first, then each workspace. */
-  entries: backupEntrySchema.array(),
-  files: backupFileSchema.array(),
+  'entries': backupEntrySchema.array(),
+  'files': backupFileSchema.array(),
 })
 export type BackupsView = typeof backupsViewSchema.infer
 
@@ -1598,15 +1631,9 @@ export const logHistoryViewSchema = type({
 export type LogHistoryView = typeof logHistoryViewSchema.infer
 
 export const notificationActionSchema = type({
-  /** Optional override, so the token can be tested before it is saved. */
+  /** Optional override, so the token can be tried before it is saved. */
   botToken: 'string?',
   chatId: 'string?',
-  /** ntfy overrides, so a topic or token can be tried before it is saved. */
-  server: 'string?',
-  topic: 'string?',
-  accessToken: 'string?',
-  /** Webhook override, for the same reason. */
-  url: 'string?',
 }).onUndeclaredKey('reject')
 
 export const telegramTokenSchema = type({

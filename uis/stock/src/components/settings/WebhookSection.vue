@@ -41,7 +41,8 @@ const busy = ref<string | null>(null)
 const message = ref<string | null>(null)
 const error = ref<string | null>(null)
 
-const rows = computed(() => props.statuses)
+/** Results by id: a draft has no row, and adding one must not shift every later row's line. */
+const rowById = computed(() => new Map(props.statuses.map(status => [status.id, status])))
 
 /** A stable id from a label, so a person never has to invent one. */
 function idFrom(label: string): string {
@@ -188,7 +189,7 @@ async function sendTest(form: WebhookForm): Promise<void> {
         {{ t('settings.webhook.empty') }}
       </p>
 
-      <div v-for="(hook, index) in webhooks" :key="hook.id" class="flex min-w-0 flex-col gap-2 rounded-control border border-line bg-page/60 p-2.5 sm:col-span-2">
+      <div v-for="hook in webhooks" :key="hook.id" class="flex min-w-0 flex-col gap-2 rounded-control border border-line bg-page/60 p-2.5 sm:col-span-2">
         <div class="flex items-center gap-2">
           <ToggleSwitch v-model="hook.enabled" :label="hook.id" />
           <span class="flex-1" />
@@ -247,8 +248,8 @@ async function sendTest(form: WebhookForm): Promise<void> {
           </AppButton>
         </div>
 
-        <p v-if="rows[index]?.lastResult !== null && rows[index]?.lastResult !== undefined" class="text-2xs text-muted">
-          {{ lastSend(rows[index]) }}
+        <p v-if="rowById.get(hook.id)?.lastResult != null" class="text-2xs text-muted">
+          {{ lastSend(rowById.get(hook.id)) }}
         </p>
       </div>
 

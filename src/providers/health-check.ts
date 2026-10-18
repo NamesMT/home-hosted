@@ -1,4 +1,5 @@
 import type { HttpCheckConfig } from '#src/shared/contracts'
+import { Buffer } from 'node:buffer'
 import http from 'node:http'
 import https from 'node:https'
 import { probePort } from '#src/providers/port'
@@ -25,7 +26,19 @@ export interface HttpProbeOptions extends Pick<HttpCheckConfig, 'scheme' | 'allo
 }
 
 /**
- * One request/response, capped at `timeoutMs`.
+ * How much of a response body a probe will read.
+ *
+ * A probe asserts `expectStatus` and a substring; neither needs the whole document. The cap is
+ * also a safety property, not just an allocation one: `http.request`'s `timeout` is an **idle**
+ * timeout, so an endpoint that keeps streaming never trips it, and an unbounded `+=` on the
+ * chunks grew until V8 threw `RangeError: Invalid string length` **inside the data handler** —
+ * which kills the panel rather than failing one probe. Measured against a stream that writes
+ * 64 KB every millisecond.
+ */
+const MAX_BODY_BYTES = 1_000_000
+
+/**
+ * One request/response, capped at `timeoutMs` and `MAX_BODY_BYTES`.
  *
  * Node's `fetch` cannot be told to accept a certificate it does not trust, which is the normal
  * case for a backend on a home network: its own self-signed pair, or one from the engine's local
@@ -37,35 +50,92 @@ function request(
   method: 'GET' | 'HEAD',
   allowInvalidCert: boolean,
   timeoutMs: number,
-): Promise<{ status: number, body: string }> {
+): Promise<{ status: number, body: string, truncated: boolean }> {
   return new Promise((resolve, reject) => {
     const secure = url.protocol === 'https:'
-    const req = (secure ? https : http).request({
+    // `req` is assigned below; the deadline and the settle wrappers close over it, which is why
+    // the request is created before any of them can run.
+    let req: http.ClientRequest
+    // Every path settles through these, so the deadline is always cleared and a second
+    // settlement — a `timeout` after the deadline fired, a `destroy()` error after the cap —
+    // is dropped instead of escaping as an unhandled rejection.
+    let settled = false
+    let deadline: NodeJS.Timeout
+    const finish = (value: { status: number, body: string, truncated: boolean }): void => {
+      if (settled)
+        return
+      settled = true
+      clearTimeout(deadline)
+      resolve(value)
+    }
+    const fail = (error: unknown): void => {
+      if (settled)
+        return
+      settled = true
+      clearTimeout(deadline)
+      reject(error instanceof Error ? error : new Error(String(error)))
+    }
+
+    /**
+     * The whole exchange, not just the socket.
+     *
+     * `timeout` on the request is an **idle** timeout, so a server dripping one byte every half
+     * second keeps resetting it and the probe never returns — which hangs the supervisor's tick,
+     * since the probe is awaited. The old `fetch` path had `AbortSignal.timeout`, an absolute
+     * cap; this restores that guarantee.
+     */
+    deadline = setTimeout(() => {
+      fail(new Error(`no complete response within ${timeoutMs}ms`))
+      req.destroy()
+    }, timeoutMs)
+    deadline.unref()
+
+    req = (secure ? https : http).request({
       hostname: url.hostname,
       port: url.port,
       path: `${url.pathname}${url.search}`,
       method,
       // Local and explicit: the operator asked the panel to trust this backend.
       ...(secure && allowInvalidCert ? { rejectUnauthorized: false } : {}),
-      // A redirect is answered, not followed: the status itself is what the check asserts.
       timeout: timeoutMs,
     }, (response) => {
       let body = ''
+      let bytes = 0
+      let truncated = false
       response.setEncoding('utf8')
       response.on('data', (chunk: string) => {
+        if (truncated)
+          return
+        bytes += Buffer.byteLength(chunk)
+        if (bytes > MAX_BODY_BYTES) {
+          // Stop reading rather than accumulate: the assertion runs against this prefix, and
+          // the detail says so instead of reporting a silent pass.
+          truncated = true
+          body += chunk.slice(0, Math.max(0, MAX_BODY_BYTES - (bytes - Buffer.byteLength(chunk))))
+          response.destroy()
+          finish({ status: response.statusCode ?? 0, body, truncated })
+          return
+        }
         body += chunk
       })
-      response.once('end', () => resolve({ status: response.statusCode ?? 0, body }))
-      response.once('error', reject)
+      response.once('end', () => {
+        if (!truncated)
+          finish({ status: response.statusCode ?? 0, body, truncated })
+      })
+      response.once('error', (error) => {
+        // A `destroy()` after the cap surfaces here; the resolution above already happened.
+        if (!truncated)
+          fail(error)
+      })
     })
 
-    req.once('error', reject)
-    // `timeout` only covers the socket until the response headers arrive, so a server that
-    // accepts and then stalls would leave this promise unsettled forever and the probe would
-    // hang the supervisor's tick.
+    // The deadline above outlives these handlers, so a late error after it fired is ignored by
+    // the already-settled promise rather than escaping as an unhandled rejection.
+    req.once('error', error => fail(error))
+    // Catches a socket that goes idle before the headers arrive, sooner than the deadline.
     req.once('timeout', () => {
+      fail(new Error(`no response within ${timeoutMs}ms`))
       req.destroy()
-      reject(new Error(`no response within ${timeoutMs}ms`))
     })
     req.end()
   })
@@ -76,10 +146,12 @@ function request(
  * mistaken for "working".
  */
 export async function probeHttp(host: string, port: number, options: HttpProbeOptions): Promise<HealthProbeResult> {
-  const url = new URL(`${options.scheme}://${host}:${port}${options.path.startsWith('/') ? options.path : `/${options.path}`}`)
   const started = Date.now()
 
   try {
+    // Inside the `try`: a host the URL parser refuses must be a failed probe, not a throw out
+    // of the probe and into the supervisor's tick.
+    const url = new URL(`${options.scheme}://${host}:${port}${options.path.startsWith('/') ? options.path : `/${options.path}`}`)
     const response = await request(url, options.method, options.allowInvalidCert, options.timeoutMs)
     const ms = Date.now() - started
 
@@ -97,7 +169,8 @@ export async function probeHttp(host: string, port: number, options: HttpProbeOp
     const bodySkipped = options.expectBody.length > 0 && options.method === 'HEAD'
     if (options.expectBody.length > 0 && !bodySkipped) {
       if (!response.body.includes(options.expectBody)) {
-        return { healthy: false, ms, detail: `body does not contain ${JSON.stringify(options.expectBody)}` }
+        const scope = response.truncated ? ` (only the first ${MAX_BODY_BYTES} bytes were read)` : ''
+        return { healthy: false, ms, detail: `body does not contain ${JSON.stringify(options.expectBody)}${scope}` }
       }
     }
 

@@ -607,6 +607,52 @@ describe('logs, notifications and dependencies', () => {
     expect(store.notifications.telegram.onCrash).toBe(true)
   })
 
+  /**
+   * A webhook list is written whole, so its ids are the write's responsibility.
+   *
+   * `id` keys the per-target cooldown and last-result record; two targets sharing one would
+   * behave as a single target. Refused at the store, because the schema cannot express it
+   * without breaking `toJsonSchema()` for every route.
+   */
+  it('refuses a webhook list with a duplicate id, and keeps the previous one', async () => {
+    const { store, settingsFile } = await storeWith({ id: 'a', command: 'node' })
+
+    store.updateNotifications({ webhooks: [{ id: 'phone', url: 'https://ntfy.sh/a' }] })
+    const before = read(settingsFile)
+
+    expect(() => store.updateNotifications({
+      webhooks: [
+        { id: 'phone', url: 'https://ntfy.sh/a' },
+        { id: 'phone', url: 'https://ntfy.sh/b' },
+      ],
+    })).toThrow(/duplicate webhook id "phone"/)
+
+    // The refused write changed nothing: the file still holds the one good target.
+    expect(read(settingsFile)).toEqual(before)
+    expect(store.notifications.webhooks).toHaveLength(1)
+  })
+
+  /**
+   * An enabled target that can never send is refused at the write.
+   *
+   * The page already will not save one, but `PATCH /api/settings/workspace` is a second door to
+   * the same list — and a target with no URL fails every event silently, for ever.
+   */
+  it('refuses a webhook target with no usable URL', async () => {
+    const { store } = await storeWith({ id: 'a', command: 'node' })
+
+    expect(() => store.updateNotifications({ webhooks: [{ id: 'empty', url: '' }] }))
+      .toThrow(/webhook "empty" no URL configured/)
+    expect(() => store.updateNotifications({ webhooks: [{ id: 'bad', url: 'file:///etc/passwd' }] }))
+      .toThrow(/webhook "bad" the URL must be http or https/)
+    expect(() => store.updateNotifications({ webhooks: [{ id: 'ok', url: 'https://ntfy.sh/t', headers: 'nope' }] }))
+      .toThrow(/Name: value/)
+
+    // A usable one lands.
+    store.updateNotifications({ webhooks: [{ id: 'ok', url: 'https://ntfy.sh/t' }] })
+    expect(store.notifications.webhooks.map(target => target.id)).toEqual(['ok'])
+  })
+
   it('rejects an out-of-range retention value', async () => {
     const { store } = await storeWith({ id: 'a', command: 'node' })
     expect(() => store.updateLogs({ keep: 99 as never })).toThrow(ConfigError)

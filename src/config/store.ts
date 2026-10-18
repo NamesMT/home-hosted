@@ -30,6 +30,8 @@ import { SEED_SERVERS_FILE, SEED_WORKSPACE_SETTINGS } from '#src/config/seed'
 import { ConfigError } from '#src/config/settings'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { validateDdnsConfig } from '#src/providers/ddns'
+import { targetProblem } from '#src/providers/webhook'
+import { duplicateWebhookIds } from '#src/shared/contracts'
 
 export { ConfigError }
 export type { ResolvedServersFile, ResolvedWorkspaceSettings }
@@ -319,6 +321,21 @@ export class WorkspaceStore {
     applyPatch(draft.notifications as Record<string, unknown>, patch as Record<string, unknown>, NOTIFICATION_MERGE_KEYS)
 
     const notifications = this.parseGroup<NotificationsConfig>(notificationsSchema as unknown as (input: unknown) => unknown, draft.notifications as Record<string, unknown>, 'notifications')
+
+    // The list's ids are its identity: the cooldown and the last-result record are keyed by
+    // one, so two targets sharing it would behave as a single target. Refused here, where the
+    // write lands, because the schema cannot express it (a predicate breaks `toJsonSchema`).
+    const duplicates = duplicateWebhookIds(notifications.webhooks)
+    if (duplicates.length > 0)
+      throw new ConfigError(`notifications: duplicate webhook id ${duplicates.map(id => `"${id}"`).join(', ')}`)
+
+    // An enabled target with no usable URL fails every event it is asked to send, silently and
+    // for ever — the page refuses to save one, but the API is a second door to the same list.
+    for (const target of notifications.webhooks) {
+      const problem = targetProblem(target, { requireUrl: true })
+      if (problem !== null)
+        throw new ConfigError(`notifications: webhook "${target.id}" ${problem}`)
+    }
 
     this.commitSettings(draft)
     return notifications

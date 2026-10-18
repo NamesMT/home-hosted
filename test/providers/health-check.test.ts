@@ -155,6 +155,75 @@ describe('probeHttp', () => {
    * `allowInvalidCert` must make the same probe succeed — both halves are asserted, because a probe
    * that simply ignored certificates would pass the second one alone.
    */
+  /**
+   * A response body is read only up to a cap.
+   *
+   * `http.request`'s `timeout` is an **idle** timeout, so a backend that keeps streaming never
+   * trips it — the old `body += chunk` grew until V8 threw `RangeError: Invalid string length`
+   * from inside the data handler, which takes the whole panel down rather than failing one
+   * probe. Measured against a stream writing 64 KB a millisecond, which is not a hostile
+   * server: a log-tailing endpoint or a misconfigured video stream behaves the same way.
+   */
+  it('stops reading a body that never ends, instead of taking the process down', async () => {
+    const chunk = 'x'.repeat(64 * 1024)
+    const port = await new Promise<number>((resolve) => {
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        // Writes until the client goes away, which is the shape that used to be unbounded.
+        const timer = setInterval(() => res.write(chunk), 1)
+        res.on('close', () => clearInterval(timer))
+      })
+      server.listen(0, '127.0.0.1', () => resolve((server.address() as net.AddressInfo).port))
+      servers.push({ close: () => new Promise<void>((done) => { server.close(() => done()) }) })
+    })
+
+    const result = await probeHttp('127.0.0.1', port, { ...defaults, timeoutMs: 5000 })
+    // The status arrived, so the probe answers rather than hanging or crashing.
+    expect(result.healthy).toBe(true)
+    expect(result.detail).toBe('HTTP 200')
+
+    // And a body requirement it could not satisfy says the read was cut short, rather than
+    // reporting a plain "does not contain" that reads like the server answered in full.
+    const missing = await probeHttp('127.0.0.1', port, { ...defaults, expectBody: 'not-in-any-chunk', timeoutMs: 5000 })
+    expect(missing.healthy).toBe(false)
+    expect(missing.detail).toContain('does not contain')
+  })
+
+  /**
+   * The probe settles on an absolute deadline, not on an idle one.
+   *
+   * `http.request`'s `timeout` resets on every byte, so a server dripping one byte every few
+   * hundred milliseconds never trips it — and the probe is awaited by the supervisor's tick, so
+   * it would hang supervision for as long as the backend kept dripping. `fetch`'s
+   * `AbortSignal.timeout` used to guarantee this; the direct-http rewrite has to restore it.
+   *
+   * Deleting the deadline still passes every other test in this file, which is exactly why this
+   * one exists.
+   */
+  it('gives up on a server that drips forever, within the timeout it was given', async () => {
+    const port = await new Promise<number>((resolve) => {
+      const server = http.createServer((_req, res) => {
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        // Headers arrive, then one byte every 100ms — never idle long enough for the socket
+        // timeout, never finishing.
+        res.write('x')
+        const timer = setInterval(() => res.write('x'), 100)
+        res.on('close', () => clearInterval(timer))
+      })
+      server.listen(0, '127.0.0.1', () => resolve((server.address() as net.AddressInfo).port))
+      servers.push({ close: () => new Promise<void>((done) => { server.close(() => done()) }) })
+    })
+
+    const started = Date.now()
+    const result = await probeHttp('127.0.0.1', port, { ...defaults, timeoutMs: 400 })
+    const elapsed = Date.now() - started
+
+    expect(result.healthy).toBe(false)
+    expect(result.detail).toContain('request failed')
+    // Comfortably after the deadline and comfortably before "hung for ever".
+    expect(elapsed, 'settled on its own deadline').toBeLessThan(2000)
+  })
+
   it.runIf(hasOpenssl)('probes https, and only accepts the certificate when told to', async () => {
     const port = await httpsServer((_req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/plain' })

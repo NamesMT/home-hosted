@@ -13,10 +13,12 @@ import {
   ddnsDomainSchema,
   ddnsStatusSchema,
   defaultsSchema,
+  duplicateWebhookIds,
   healthResponseSchema,
   healthSchema,
   logBufferLinesSchema,
   logsSchema,
+  notificationsSchema,
   onPortConflictSchema,
   passwordSchema,
   passwordValueSchema,
@@ -281,7 +283,13 @@ describe('view contracts', () => {
         alerts: [],
         sampledAt: null,
       },
-      backups: { enabled: true, dir: '/repo/.backups', keep: 5, schedule: { intervalMs: 86400000, keep: 7 }, lastAutomaticAt: null, includePaths: [], entries: [], files: [] },
+      /**
+       * No `schedule`, no `lastAutomaticAt`: this is the frame a panel from before the
+       * scheduled backup sends. Both fields are optional for exactly that reason — a required
+       * one rejects the whole frame and blanks the UI that an older panel is serving. Do not
+       * add them here to make a newer assertion pass; assert the newer shape separately.
+       */
+      backups: { enabled: true, dir: '/repo/.backups', keep: 5, includePaths: [], entries: [], files: [] },
       ui: { custom: false, dir: '/repo/.home-hosted/.hh/.ui', meta: null },
       workspaces: [workspace],
       projectDir: '/repo',
@@ -290,6 +298,13 @@ describe('view contracts', () => {
     // No `version`: a panel from before the field still frames a state the UI accepts.
     expect(state instanceof type.errors).toBe(false)
     expect(appStateSchema({ ...(state as Record<string, unknown>), version: '0.7.0' }) instanceof type.errors).toBe(false)
+
+    // And the backups block may carry the schedule a newer panel sends, or omit it (above).
+    const frame = state as Record<string, unknown>
+    expect(appStateSchema({
+      ...frame,
+      backups: { ...(frame.backups as Record<string, unknown>), schedule: { intervalMs: 86_400_000, keep: 7 }, lastAutomaticAt: null },
+    }) instanceof type.errors, 'a newer frame is still accepted').toBe(false)
   })
 })
 
@@ -401,6 +416,26 @@ describe('numeric bounds', () => {
     // Only the two protocols the probe can actually speak.
     expect(ok(healthSchema, { http: { scheme: 'ftp' } })).toBe(false)
     expect(ok(healthSchema, { http: { scheme: 'https', bogus: 1 } })).toBe(false)
+  })
+
+  /**
+   * Two webhook targets cannot share an id.
+   *
+   * `id` is the list key: the per-target cooldown and the last-result record are keyed by it, so
+   * a duplicate would make two targets throttle and report as one. The schema checks the shape
+   * and the id pattern; uniqueness is a separate predicate because a schema `narrow` cannot be
+   * rendered to JSON Schema, and every route's OpenAPI document calls `toJsonSchema()`.
+   */
+  it('checks the webhook list shape, and reports duplicate ids separately', () => {
+    const parses = (webhooks: unknown): boolean => !(notificationsSchema({ webhooks } as unknown) instanceof type.errors)
+    expect(parses([])).toBe(true)
+    expect(parses([{ id: 'phone', url: 'https://ntfy.sh/a' }, { id: 'chat', url: 'https://x/b' }])).toBe(true)
+    // The id pattern is the shared one.
+    expect(parses([{ id: 'Bad Id', url: 'https://a/' }]), 'the id pattern still rejects').toBe(false)
+
+    // Uniqueness: the schema cannot say it, so the helper does, and the store refuses the write.
+    expect(duplicateWebhookIds([{ id: 'a' }, { id: 'b' }]), 'a unique list reports nothing').toEqual([])
+    expect(duplicateWebhookIds([{ id: 'a' }, { id: 'a' }, { id: 'b' }, { id: 'b' }])).toEqual(['a', 'b'])
   })
 
   it('holds the auth and log bounds', () => {

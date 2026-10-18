@@ -1,4 +1,6 @@
 import type { WebhookTarget } from '#src/shared/contracts'
+import process from 'node:process'
+import { expandEnv } from '#src/helpers/env-file'
 import { errorMessage } from '#src/shared/error-message'
 
 export interface WebhookOutcome {
@@ -20,6 +22,9 @@ export interface WebhookOutcome {
  *   `headers: Title: …`, which is a configuration rather than a branch here.
  *
  * Headers are per target, so a bearer token or an API key lives in the config, not in code.
+ * `${ENV}` expands in the URL and the header values, the way it does everywhere else in the
+ * config — which is how a token stays **out** of `settings.json`: write `Authorization:
+ * Bearer ${HH_WEBHOOK_TOKEN}` and the value comes from the panel's environment.
  */
 
 export interface NotificationEventBody {
@@ -63,8 +68,15 @@ export function webhookPayload(event: NotificationEventBody, now = Date.now()): 
  * The format is line-based rather than a JSON object because it is edited in a textarea, and
  * a value with a colon in it (`Authorization: Bearer a:b`) must survive: only the **first**
  * colon separates the two.
+ *
+ * `vars` expands `${ENV}` in the values, so a credential does not have to be written into the
+ * config file. A name the panel's environment does not define is left as written, the same rule
+ * `expandEnv` follows everywhere else.
  */
-export function parseHeaders(text: string): { headers: Record<string, string>, errors: string[] } {
+export function parseHeaders(
+  text: string,
+  vars: Record<string, string | undefined> = process.env,
+): { headers: Record<string, string>, errors: string[] } {
   const headers: Record<string, string> = {}
   const errors: string[] = []
   for (const line of text.split('\n')) {
@@ -76,7 +88,7 @@ export function parseHeaders(text: string): { headers: Record<string, string>, e
       errors.push(`"${trimmed}" is not a "Name: value" header`)
       continue
     }
-    headers[trimmed.slice(0, at).trim()] = trimmed.slice(at + 1).trim()
+    headers[trimmed.slice(0, at).trim()] = expandEnv(trimmed.slice(at + 1).trim(), vars)
   }
   return { headers, errors }
 }
@@ -120,8 +132,14 @@ export async function sendWebhook(
   const asText = target.format === 'text'
   const body = asText ? payload.message : JSON.stringify(payload)
 
+  // Expanded here and validated above, so an unset `${ENV}` in the URL is reported as such
+  // rather than surfacing as a generic "fetch failed".
+  const url = expandEnv(target.url.trim(), process.env)
+  if (url.includes('${'))
+    return { ok: false, error: `the URL still holds an unexpanded placeholder: ${url}` }
+
   try {
-    const response = await (fetchImpl ?? fetch)(target.url.trim(), {
+    const response = await (fetchImpl ?? fetch)(url, {
       method: target.method,
       headers: {
         // A receiver that cares about the type must not be sent `text/plain` for JSON, and a

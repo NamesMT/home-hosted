@@ -1,7 +1,8 @@
 # Notifications
 
-home-hosted pushes supervision events to a Telegram chat and to any number of **webhooks**. Both are
-opt-in, and every credential stays in the secrets file.
+home-hosted pushes supervision events to a Telegram chat and to any number of **webhooks**. The bot
+token stays in the secrets file; a webhook carries its credential in a header, so `${ENV}` expansion
+is the way to keep that one out of the config file too (see [Webhooks](#webhooks)).
 
 Each transport keeps its own event toggles and its own throttle, so crashes can go to one chat while
 only host warnings go to a phone. A send never blocks supervision: a failure is logged and recorded
@@ -78,8 +79,19 @@ message alone, which is what ntfy's publish API expects — pointed at ntfy with
 would show the JSON itself as the notification.
 
 Headers are `Name: value` per line, with the split on the **first** colon so a token containing one
-survives. A `Authorization:` header here is the webhook's own credential: it is part of the workspace
-settings, which is a config file, so treat the whole config as sensitive if you put a token in it.
+survives. `${ENV}` expands in the URL and in the values, the same rule the rest of the config follows
+— so a token stays out of `settings.json` entirely:
+
+```json
+{ "headers": "Authorization: Bearer ${HH_WEBHOOK_TOKEN}" }
+```
+
+A literal token in a header works too, but it then lives in the workspace's `settings.json` — a plain
+config file. Prefer the placeholder above, and treat that file as sensitive if you do use one.
+
+Two targets cannot share an `id`: it keys that target's own throttle and last-result record, so a
+duplicate would make two targets behave as one. The save is refused and names the id, and so is a
+target whose URL is missing or not http(s) — an enabled target that can never send.
 
 **Send a test** on a target tries the values *in the form*, so an unsaved URL and header block are
 what gets exercised.

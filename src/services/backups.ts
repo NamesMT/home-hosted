@@ -327,6 +327,14 @@ export class BackupService {
   /** One scheduled pass at a time: a slow archive must not stack up behind itself. */
   private running = false
   private disposed = false
+  /**
+   * When this instance last attempted an automatic pass, whatever it wrote.
+   *
+   * The archive's own mtime is the durable record across a restart, but it cannot bound a
+   * failed pass: nothing is written, so every panel tick would retry — once a second, for as
+   * long as the failure lasts. This is the in-memory backstop for that case.
+   */
+  private lastAttemptAt: number | null = null
 
   constructor(
     private readonly options: {
@@ -1186,11 +1194,14 @@ export class BackupService {
     if (!config.enabled || config.schedule.intervalMs <= 0)
       return
 
+    // The newest archive is the durable clock; the last attempt bounds a pass that wrote none.
     const last = this.lastAutomatic()
-    if (last !== null && now - last < config.schedule.intervalMs)
+    const latest = last === null ? this.lastAttemptAt : Math.max(last, this.lastAttemptAt ?? 0)
+    if (latest !== null && now - latest < config.schedule.intervalMs)
       return
 
     this.running = true
+    this.lastAttemptAt = now
     void this.create({ automatic: true })
       .then((result) => {
         if (!result.ok)

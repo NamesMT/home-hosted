@@ -367,7 +367,7 @@ const currentSnapshot = computed<Patch>(() => {
     logs: configured?.logs ?? {},
     notifications: configured === null
       ? {}
-      : { telegram: configured.notifications.telegram, webhooks: configured.notifications.webhooks ?? [] },
+      : { telegram: configured.notifications.telegram, webhooks: (configured.notifications.webhooks ?? []).map(webhookConfig) },
     ddns: ddnsBaseline.value ?? {},
   }
 })
