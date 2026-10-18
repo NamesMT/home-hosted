@@ -39,7 +39,7 @@ Where knowledge lives, and when to reach for each:
 | [`.agentDocs/COMPATIBILITY.md`](.agentDocs/COMPATIBILITY.md) | config and UI compatibility, migrations |
 | [`.agentDocs/RELEASING.md`](.agentDocs/RELEASING.md) | how a release is cut, and which version to dispatch |
 | [`docs/SERVERS.md`](docs/SERVERS.md) | entries, port conflicts, persistent entries |
-| [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | Telegram events |
+| [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | notification transports: Telegram, webhooks |
 | [`docs/DDNS.md`](docs/DDNS.md) | dynamic-DNS providers and hostnames |
 | [`docs/REVERSE_PROXY.md`](docs/REVERSE_PROXY.md) | the Caddy engine, routes, certificates |
 | [`docs/UI_CREATION.md`](docs/UI_CREATION.md) | the contract for a new UI |

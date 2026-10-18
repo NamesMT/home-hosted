@@ -6,6 +6,7 @@ import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SecretsStore } from '#src/config/secrets'
 import { forgetBots, formatTelegramMessage, getBot } from '#src/providers/telegram'
+import { parseHeaders, sendWebhook, targetProblem } from '#src/providers/webhook'
 import { NotificationService } from '#src/services/notifications'
 import { notificationsSchema } from '#src/shared/contracts'
 
@@ -254,5 +255,162 @@ describe('telegram delivery', () => {
     stubApi(BOT_TOKEN, 'getMe', () => Promise.resolve({ id: 1, is_bot: true, first_name: 'HH', username: 'hh_bot' }))
 
     expect(await service.verifyToken(BOT_TOKEN)).toEqual({ ok: true, username: 'hh_bot' })
+  })
+})
+
+/**
+ * The webhook transport, and why it is a list rather than one fixed shape.
+ *
+ * A webhook target carries its own URL, method, body format and headers, which is what lets it
+ * talk to ntfy (plain body, `Title`/`Priority` headers) and to a JSON receiver (Discord, Slack,
+ * a bespoke endpoint) without a per-service adapter. These pin both halves: the request each
+ * shape produces, and that a list of targets is honoured target by target.
+ */
+describe('the webhook transport', () => {
+  /** A fetch stub that records what it was called with and answers like the real thing. */
+  function recordingFetch(status = 200, body = '') {
+    const calls: Array<{ url: URL, init: RequestInit }> = []
+    const impl = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: new URL(String(input)), init: init ?? {} })
+      return new Response(body, { status })
+    }) as unknown as typeof fetch
+    return { calls, impl }
+  }
+
+  const event = { title: '🔴 server down', message: 'Web (web) gave up restarting\ngave up', reason: 'crash', serverId: 'web', label: 'Web' }
+
+  it('posts JSON that Slack and Discord can both read', async () => {
+    const { calls, impl } = recordingFetch()
+    const result = await sendWebhook(
+      { url: 'https://hooks.example.com/x', method: 'POST', format: 'json', headers: '' },
+      event,
+      impl,
+    )
+
+    expect(result.ok).toBe(true)
+    expect(calls[0]!.url.href).toBe('https://hooks.example.com/x')
+    expect((calls[0]!.init.headers as Record<string, string>)['content-type']).toBe('application/json')
+
+    const sent = JSON.parse(String(calls[0]!.init.body)) as Record<string, unknown>
+    expect(sent.text, 'Slack reads text').toBe('🔴 server down\nWeb (web) gave up restarting\ngave up')
+    expect(sent.content, 'Discord reads content').toBe(sent.text)
+    expect(sent.reason).toBe('crash')
+    expect(sent.server).toBe('web')
+  })
+
+  /**
+   * ntfy is the reason `format: text` and arbitrary headers exist. Its publish API takes the
+   * message as the plain body and the notification's title from a header, so a JSON target
+   * pointed at ntfy would show the JSON itself as the notification.
+   */
+  it('publishes to ntfy from configuration alone: a plain body and header-carried fields', async () => {
+    const { calls, impl } = recordingFetch()
+    const result = await sendWebhook({
+      url: 'https://ntfy.sh/hh-alerts',
+      method: 'POST',
+      format: 'text',
+      headers: 'Title: 🔴 server down\nPriority: high\nAuthorization: Bearer tk_123',
+    }, event, impl)
+
+    expect(result.ok).toBe(true)
+    expect(calls[0]!.url.href).toBe('https://ntfy.sh/hh-alerts')
+    const headers = calls[0]!.init.headers as Record<string, string>
+    expect(headers.Title, 'ntfy reads the title from a header').toBe('🔴 server down')
+    expect(headers.Priority).toBe('high')
+    expect(headers.Authorization).toBe('Bearer tk_123')
+    expect(headers['content-type']).toBe('text/plain; charset=utf-8')
+    // The message, not a JSON envelope: this is the whole difference from a JSON target.
+    expect(calls[0]!.init.body).toBe('Web (web) gave up restarting\ngave up')
+  })
+
+  it('parses headers on the first colon only, so a token containing one survives', () => {
+    const { headers, errors } = parseHeaders('Authorization: Bearer a:b:c\n# a comment\n\nTitle: hi')
+    expect(errors).toEqual([])
+    expect(headers.Authorization).toBe('Bearer a:b:c')
+    expect(headers.Title).toBe('hi')
+
+    expect(parseHeaders('not a header').errors).toHaveLength(1)
+  })
+
+  it('refuses a URL that is not http(s), and an unusable header line', async () => {
+    const { calls, impl } = recordingFetch()
+    for (const url of ['file:///tmp/x', 'javascript:alert(1)', 'not a url']) {
+      expect(targetProblem({ url, headers: '' }), url).toMatch(/http or https|not valid/)
+    }
+    const bad = await sendWebhook({ url: 'https://x.example/y', method: 'POST', format: 'json', headers: 'oops' }, event, impl)
+    expect(bad.ok).toBe(false)
+    expect(bad.error).toContain('Name: value')
+    expect(calls, 'nothing was attempted').toHaveLength(0)
+  })
+
+  it('reports the status and body a receiver answered with', async () => {
+    const failing = recordingFetch(500, 'boom')
+    const result = await sendWebhook(
+      { url: 'https://x.example/y', method: 'POST', format: 'json', headers: '' },
+      event,
+      failing.impl,
+    )
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('answered 500')
+    expect(result.error).toContain('boom')
+  })
+
+  it('honours PUT, for a receiver that only accepts it', async () => {
+    const { calls, impl } = recordingFetch()
+    await sendWebhook({ url: 'https://x.example/y', method: 'PUT', format: 'json', headers: '' }, event, impl)
+    expect(calls[0]!.init.method).toBe('PUT')
+  })
+})
+
+/**
+ * Fan-out across the list: a target's own toggles decide what it receives, and one target
+ * being throttled or switched off must not affect another.
+ */
+describe('a list of webhook targets', () => {
+  async function makeService(webhooks: Array<Record<string, unknown>>) {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-notify-hooks-'))
+    dirs.push(dir)
+    const config = notificationsSchema({ webhooks })
+    if (config instanceof type.errors)
+      throw new Error(config.summary)
+    const secrets = new SecretsStore(path.join(dir, 'secrets.json'))
+    return new NotificationService(secrets, () => config)
+  }
+
+  const phone = { id: 'phone', url: 'https://ntfy.sh/a', format: 'text', headers: 'Title: x' }
+  const chat = { id: 'chat', url: 'https://hooks.example.com/b' }
+
+  it('treats every configured webhook as its own target', async () => {
+    const service = await makeService([phone, chat])
+    const ids = service.targetsFor(crash).map(delivery => delivery.kind === 'webhook' ? delivery.target.id : delivery.kind)
+    expect(ids).toEqual(['phone', 'chat'])
+    expect(service.webhookStatuses().map(status => status.id)).toEqual(['phone', 'chat'])
+  })
+
+  it('lets one target be switched off for a reason without silencing the others', async () => {
+    const service = await makeService([{ ...phone, onCrash: false }, chat])
+    const ids = service.targetsFor(crash).map(delivery => delivery.kind === 'webhook' ? delivery.target.id : delivery.kind)
+    expect(ids, 'the phone wants no crash alerts').toEqual(['chat'])
+  })
+
+  it('throttles per target, so one going quiet does not silence another', async () => {
+    // The phone has a long cooldown, the chat none at all.
+    const service = await makeService([{ ...phone, cooldownMs: 60_000 }, { ...chat, cooldownMs: 0 }])
+    const now = 1_000_000
+    expect(service.targetsFor(crash, now)).toHaveLength(2)
+
+    service.markSent(crash, now)
+    expect(
+      service.targetsFor(crash, now + 1).map(delivery => delivery.kind === 'webhook' ? delivery.target.id : delivery.kind),
+      'the phone is inside its window, the chat is not',
+    ).toEqual(['chat'])
+    expect(service.targetsFor(crash, now + 120_000), 'both are past it').toHaveLength(2)
+  })
+
+  it('skips a target that is disabled, without touching the others', async () => {
+    const service = await makeService([{ ...phone, enabled: false }, chat])
+    const ids = service.targetsFor(crash).map(delivery => delivery.kind === 'webhook' ? delivery.target.id : delivery.kind)
+    expect(ids).toEqual(['chat'])
+    expect(service.shouldNotify(crash)).toBe(true)
   })
 })

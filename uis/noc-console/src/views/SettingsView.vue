@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { DdnsConfig, LogsConfig, ServerDefaults, TelegramStatus, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { DdnsConfig, LogsConfig, ServerDefaults, TelegramStatus, WebhookStatus, WorkspaceSettingsPatch } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { DraftConfig } from '@/lib/ddns'
 import { errorMessage } from '@shared/error-message'
@@ -24,6 +24,8 @@ const workspace = useWorkspaces()
 
 /** The config schema carries `onHost`; the derived SSE view type has not caught up. */
 type TelegramPolicy = TelegramStatus & { onHost?: boolean }
+/** One webhook target as the config carries it: the status row minus its derived pair. */
+type WebhookPolicy = Omit<WebhookStatus, 'lastResult' | 'lastResultAt'>
 
 const activeId = computed(() => workspace.activeId.value)
 const selected = computed(() => workspace.selected.value)
@@ -56,6 +58,8 @@ const form = reactive({
       onDdns: true,
       cooldownMs: 120000,
     },
+    /** The general transport: a list, because a panel alerts more than one place. */
+    webhooks: [] as WebhookPolicy[],
   },
   defaults: {
     enabled: true,
@@ -91,6 +95,101 @@ function telegramConfig(status: TelegramPolicy): Record<string, unknown> {
     // A panel from before DDNS sends no flag; absent means "on".
     onDdns: status.onDdns !== false,
     cooldownMs: status.cooldownMs,
+  }
+}
+
+/**
+ * Only the config-facing fields of a webhook target; `id` is the list key and the last-result
+ * pair is derived, so neither belongs in a patch.
+ */
+function webhookConfig(target: WebhookPolicy): WebhookPolicy {
+  return {
+    id: target.id,
+    url: target.url,
+    enabled: target.enabled,
+    method: target.method,
+    format: target.format,
+    headers: target.headers,
+    onCrash: target.onCrash,
+    onUnhealthy: target.onUnhealthy,
+    onForcedRestart: target.onForcedRestart,
+    onRecovered: target.onRecovered,
+    onHost: target.onHost,
+    onDdns: target.onDdns !== false,
+    cooldownMs: target.cooldownMs,
+  }
+}
+
+/** The per-event toggles, as one list the template renders for every target. */
+const POLICY_TOGGLES = [
+  { key: 'onCrash', label: 'crashed' },
+  { key: 'onUnhealthy', label: 'unhealthy' },
+  { key: 'onForcedRestart', label: 'force restarted' },
+  { key: 'onRecovered', label: 'recovered' },
+  { key: 'onHost', label: 'host vitals' },
+  { key: 'onDdns', label: 'dynamic DNS' },
+] as const
+
+/** One row's last test/send outcome, by position; a draft has no stored result. */
+const hookResults = ref<string[]>([])
+const hookError = ref<string | null>(null)
+
+function addHook(): void {
+  const existing = new Set(form.notifications.webhooks.map(hook => hook.id))
+  const base = 'hook'
+  let id = base
+  let suffix = 2
+  while (existing.has(id))
+    id = `${base}-${suffix++}`
+
+  form.notifications.webhooks = [...form.notifications.webhooks, {
+    id,
+    url: '',
+    enabled: true,
+    method: 'POST',
+    format: 'json',
+    headers: '',
+    onCrash: true,
+    onUnhealthy: true,
+    onForcedRestart: true,
+    onRecovered: false,
+    onHost: true,
+    onDdns: true,
+    cooldownMs: 120000,
+  }]
+}
+
+function removeHook(id: string): void {
+  form.notifications.webhooks = form.notifications.webhooks.filter(hook => hook.id !== id)
+}
+
+/** Tests the target as the form holds it, so an unsaved URL and header block are what is tried. */
+async function testHook(hook: WebhookPolicy): Promise<void> {
+  hookError.value = null
+  const index = form.notifications.webhooks.indexOf(hook)
+  try {
+    await api.testWebhook(activeId.value, {
+      target: {
+        url: hook.url,
+        method: hook.method,
+        format: hook.format,
+        headers: hook.headers,
+        enabled: hook.enabled,
+        cooldownMs: hook.cooldownMs,
+        onCrash: hook.onCrash,
+        onUnhealthy: hook.onUnhealthy,
+        onForcedRestart: hook.onForcedRestart,
+        onRecovered: hook.onRecovered,
+        onHost: hook.onHost,
+        onDdns: hook.onDdns,
+      },
+      id: hook.id,
+    })
+    hookResults.value[index] = 'test sent'
+  }
+  catch (caught) {
+    hookResults.value[index] = ''
+    hookError.value = errorMessage(caught)
   }
 }
 
@@ -131,6 +230,7 @@ function fillTelegram(): boolean {
   if (!status)
     return false
   Object.assign(form.notifications.telegram, telegramConfig(status))
+  form.notifications.webhooks = (selected.value?.notifications.webhooks ?? []).map(webhookConfig)
   return true
 }
 
@@ -236,7 +336,11 @@ function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
 
     const notificationsPatch = diffFields(
       configured.notifications as unknown as Patch,
-      { telegram: { ...form.notifications.telegram } } as unknown as Patch,
+      {
+        telegram: { ...form.notifications.telegram },
+        // Replaced, not merged: a merge cannot express removing a target.
+        webhooks: form.notifications.webhooks,
+      } as unknown as Patch,
       ['telegram'],
     )
     if (Object.keys(notificationsPatch).length > 0)
@@ -261,7 +365,9 @@ const currentSnapshot = computed<Patch>(() => {
   return {
     defaults: defaultsView.value ?? {},
     logs: configured?.logs ?? {},
-    notifications: configured === null ? {} : { telegram: configured.notifications.telegram },
+    notifications: configured === null
+      ? {}
+      : { telegram: configured.notifications.telegram, webhooks: configured.notifications.webhooks ?? [] },
     ddns: ddnsBaseline.value ?? {},
   }
 })
@@ -626,6 +732,79 @@ async function sendTest(): Promise<void> {
             </p>
             <p v-if="tokenMessage" class="note note--ok">
               {{ tokenMessage }}
+            </p>
+          </div>
+
+          <!--
+            The general transport: a list, because a panel alerts more than one place. Each
+            target carries its own URL, body format and headers, so the same form configures
+            ntfy (plain text plus Title/Priority headers), Discord or Slack (JSON) and a
+            bearer-token endpoint (an Authorization header).
+          -->
+          <div class="group">
+            <div class="group__title">
+              webhooks
+            </div>
+            <p class="note">
+              Any HTTP endpoint. <code>JSON</code> suits Discord, Slack or your own service;
+              <code>plain text</code> suits ntfy, whose title and priority are headers — put
+              <code>Title: …</code> in the header box.
+            </p>
+
+            <div v-for="(hook, index) in form.notifications.webhooks" :key="hook.id" class="hook">
+              <div class="grid">
+                <label class="field field--check">
+                  <input v-model="hook.enabled" type="checkbox">
+                  <span class="field__label">{{ hook.id }}</span>
+                </label>
+                <label class="field grid__full">
+                  <span class="field__label">url</span>
+                  <input v-model="hook.url" placeholder="https://ntfy.sh/my-topic">
+                </label>
+                <label class="field">
+                  <span class="field__label">method</span>
+                  <select v-model="hook.method">
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field__label">body</span>
+                  <select v-model="hook.format">
+                    <option value="json">JSON</option>
+                    <option value="text">plain text</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field__label">cooldown (ms)</span>
+                  <input v-model.number="hook.cooldownMs" inputmode="numeric">
+                </label>
+                <label class="field grid__full">
+                  <span class="field__label">headers (Name: value per line)</span>
+                  <textarea v-model="hook.headers" rows="2" placeholder="Authorization: Bearer …" />
+                </label>
+                <label v-for="toggle in POLICY_TOGGLES" :key="toggle.key" class="field field--check">
+                  <input v-model="hook[toggle.key]" type="checkbox">
+                  <span class="field__label">{{ toggle.label }}</span>
+                </label>
+              </div>
+              <div class="hook__actions">
+                <button class="btn btn--ghost" type="button" @click="testHook(hook)">
+                  send a test
+                </button>
+                <span v-if="hookResults[index]" class="faint">{{ hookResults[index] }}</span>
+                <span class="view__spacer" />
+                <button class="btn btn--ghost" type="button" @click="removeHook(hook.id)">
+                  remove
+                </button>
+              </div>
+            </div>
+
+            <button class="btn btn--ghost" type="button" @click="addHook">
+              add a webhook
+            </button>
+            <p v-if="hookError" class="note note--error">
+              {{ hookError }}
             </p>
           </div>
         </div>

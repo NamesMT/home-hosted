@@ -10,6 +10,7 @@ import type {
   ServerDefaults,
   StopConfig,
   TelegramStatus,
+  WebhookStatus,
 } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
@@ -111,10 +112,34 @@ export interface TelegramForm {
   onDdns: boolean
 }
 
+/**
+ * One webhook target as the form edits it.
+ *
+ * `headers` stays a textarea (`Name: value` per line) rather than a key/value widget: the
+ * values are opaque (`Bearer …`), and a line of text is what a person pastes from a service's
+ * docs. `providers/webhook.ts` owns the parsing, so the page and the sender agree.
+ */
+export interface WebhookForm {
+  id: string
+  url: string
+  enabled: boolean
+  method: 'POST' | 'PUT'
+  format: 'json' | 'text'
+  headers: string
+  cooldownMs: number
+  onCrash: boolean
+  onUnhealthy: boolean
+  onForcedRestart: boolean
+  onRecovered: boolean
+  onHost: boolean
+  onDdns: boolean
+}
+
 export interface WorkspaceSettingsForm {
   defaults: DefaultsForm
   logs: LogsForm
   telegram: TelegramForm
+  webhooks: WebhookForm[]
 }
 
 /** The schema's own defaults, for a form that has not been filled yet. */
@@ -194,6 +219,8 @@ export function createWorkspaceForm(): WorkspaceSettingsForm {
       onHost: true,
       onDdns: true,
     },
+    // Filled from the live status on load; empty until then.
+    webhooks: [],
   }
 }
 
@@ -330,6 +357,40 @@ export function defaultsPatch(current: ServerDefaults, form: DefaultsForm): Patc
 
 export function logsPatch(current: LogsConfig, form: LogsForm): Patch {
   return diffFields(current as unknown as Patch, form as unknown as Patch)
+}
+
+/** One target as the form holds it, from its status row. */
+export function webhookBaseline(status: WebhookStatus): WebhookForm {
+  return {
+    id: status.id,
+    url: status.url,
+    enabled: status.enabled,
+    method: status.method,
+    format: status.format,
+    headers: status.headers,
+    cooldownMs: status.cooldownMs,
+    onCrash: status.onCrash,
+    onUnhealthy: status.onUnhealthy,
+    onForcedRestart: status.onForcedRestart,
+    onRecovered: status.onRecovered,
+    onHost: status.onHost,
+    onDdns: status.onDdns ?? true,
+  }
+}
+
+/**
+ * The whole list, because the API **replaces** it — a merge cannot express removing a target.
+ * Only changed targets are sent, but the array itself is the request's unit.
+ */
+export function webhooksPatch(current: WebhookStatus[], forms: WebhookForm[]): Patch | null {
+  const before = new Map(current.map(status => [status.id, webhookBaseline(status)]))
+  const changed = forms.filter((form) => {
+    const original = before.get(form.id)
+    return original === undefined || JSON.stringify(original) !== JSON.stringify(form)
+  })
+  if (changed.length === 0 && forms.length === current.length)
+    return null
+  return { webhooks: forms }
 }
 
 /** Telegram policy only — the bot token is a secret with its own endpoint. */

@@ -298,6 +298,14 @@ export async function restoreUploadedBackup(file: File, confirm: boolean, option
   return payload as RestorePlan
 }
 
+/**
+ * Tests one webhook target. The whole target travels, so an unsaved URL and header block are
+ * what gets tried — `id` is echoed so the result lands against the right row.
+ */
+export function testWebhook(workspace: string, payload: { target: Record<string, unknown>, id?: string }): Promise<{ ok: boolean, error?: string }> {
+  return request(scoped('/api/notifications/test-webhook', workspace), { method: 'POST', body: JSON.stringify(payload) })
+}
+
 export function saveTelegramToken(botToken: string, workspace?: string | null): Promise<{ ok: boolean, username: string | null }> {
   return request(scoped('/api/notifications/token', workspace), { method: 'PUT', body: JSON.stringify({ botToken }) })
 }

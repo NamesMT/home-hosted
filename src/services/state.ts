@@ -3,7 +3,7 @@ import type { AuthService } from '#src/services/auth'
 import type { BackupService } from '#src/services/backups'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { TlsStore } from '#src/services/tls'
-import type { ControlConfig, ControlView, DdnsStatus, LogsConfig, ServerDefaults, ServerView, TelegramStatus, WorkspaceView } from '#src/shared/contracts'
+import type { ControlConfig, ControlView, DdnsStatus, LogsConfig, ServerDefaults, ServerView, TelegramStatus, WebhookStatus, WorkspaceView } from '#src/shared/contracts'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { checkExposure } from '#src/services/exposure'
@@ -20,7 +20,7 @@ export interface WorkspaceViewSource {
     logs: LogsConfig
   }
   logsDir: string
-  notifications: { status: () => TelegramStatus }
+  notifications: { status: () => TelegramStatus, webhookStatuses: () => WebhookStatus[] }
   ddns: { view: DdnsStatus }
   supervisor: { views: () => ServerView[] }
 }
@@ -84,7 +84,10 @@ export function buildWorkspaceView(source: WorkspaceViewSource): WorkspaceView {
     logsDir: source.logsDir,
     defaults: source.store.defaults,
     logs: source.store.logs,
-    notifications: { telegram: source.notifications.status() },
+    notifications: {
+      telegram: source.notifications.status(),
+      webhooks: source.notifications.webhookStatuses(),
+    },
     ddns: source.ddns.view,
     serverCount: servers.length,
     runningCount: servers.filter(server => server.status === 'running').length,

@@ -1,7 +1,11 @@
 # Notifications
 
-home-hosted can push supervision events to a Telegram chat. It is the only transport today, it is
-opt-in, and the bot token never leaves the secrets file.
+home-hosted pushes supervision events to a Telegram chat and to any number of **webhooks**. Both are
+opt-in, and every credential stays in the secrets file.
+
+Each transport keeps its own event toggles and its own throttle, so crashes can go to one chat while
+only host warnings go to a phone. A send never blocks supervision: a failure is logged and recorded
+against that transport alone, and the others still go out.
 
 ## Setup
 
@@ -55,11 +59,30 @@ Host thresholds themselves — disk, memory, swap, load, temperature — are **G
 vitals**. Dynamic DNS carries one message per pass that changed a record, and one per failed pass —
 see [DDNS.md](./DDNS.md).
 
-## Quiet periods
+## Webhooks
 
-`cooldownMs` (default two minutes) is per **server and reason**, so a flapping process cannot flood
-the chat: it says "down", stays quiet while it flaps, and speaks again once the window passes. `0`
-disables the throttle.
+A webhook is a URL, a method, a body format and a set of headers — a **list**, so one panel can alert
+several places. It is what covers everything other than Telegram, because those services differ only
+in the shape of the request:
+
+| | URL | Body | Headers |
+| --- | --- | --- | --- |
+| **ntfy** | `https://ntfy.sh/<topic>` | `plain text` | `Title: home-hosted` (ntfy reads the title here), `Priority: default`, and `Authorization: Bearer <token>` when the topic needs one |
+| **Discord** | your webhook URL | `JSON` | none — the payload fills `content` |
+| **Slack** | your webhook URL | `JSON` | none — the payload fills `text` |
+| **anything else** | your URL | either | whatever it needs |
+
+The JSON body carries the same event under several names (`text`, `content`, `title`, `message`,
+`reason`, `server`, `label`, `at`), so a receiver reads whichever it knows. `format: text` sends the
+message alone, which is what ntfy's publish API expects — pointed at ntfy with `format: json` it
+would show the JSON itself as the notification.
+
+Headers are `Name: value` per line, with the split on the **first** colon so a token containing one
+survives. A `Authorization:` header here is the webhook's own credential: it is part of the workspace
+settings, which is a config file, so treat the whole config as sensitive if you put a token in it.
+
+**Send a test** on a target tries the values *in the form*, so an unsaved URL and header block are
+what gets exercised.
 
 ## Where the token lives
 
@@ -71,6 +94,11 @@ never the token itself.
 
 ## Delivery failures
 
-Sends are fire-and-forget: supervision never waits on a chat API. A failure is logged and the last
-result is shown in **Workspace Settings → Notifications** (`lastResult`, `lastResultAt`), so a wrong
-chat id is visible there instead of silently swallowing alerts.
+Sends are fire-and-forget: supervision never waits on a chat or webhook API. A failure is logged, and
+the last outcome is recorded per transport and shown in **Workspace Settings → Notifications**, so a
+wrong chat id or an unreachable URL is visible there instead of silently swallowing alerts.
+
+## Throttling
+
+`cooldownMs` (default two minutes) is per **transport, server and reason**, so a flapping process
+cannot flood any one destination — and one destination inside its window never silences another.

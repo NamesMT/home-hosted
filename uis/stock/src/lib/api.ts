@@ -289,6 +289,30 @@ export function detectTelegramChats(workspace: string, payload: { botToken?: str
   return request(scoped('/api/notifications/detect-chats', workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
+/** One webhook target, as the settings form holds it. */
+export interface WebhookTestTarget {
+  url: string
+  method: 'POST' | 'PUT'
+  format: 'json' | 'text'
+  headers: string
+  enabled: boolean
+  cooldownMs: number
+  onCrash: boolean
+  onUnhealthy: boolean
+  onForcedRestart: boolean
+  onRecovered: boolean
+  onHost: boolean
+  onDdns: boolean
+}
+
+/**
+ * Tests one webhook target. The whole target travels, so an unsaved URL and header block are
+ * what gets tried — `id` is echoed so the result can be recorded against the right row.
+ */
+export function testWebhook(workspace: string, payload: { target: WebhookTestTarget, id?: string }): Promise<{ ok: boolean, error?: string }> {
+  return request(scoped('/api/notifications/test-webhook', workspace), { method: 'POST', body: JSON.stringify(payload) })
+}
+
 export async function fetchDdns(workspace: string): Promise<DdnsView> {
   return ddnsView(await request<unknown>(scoped('/api/ddns', workspace)))
 }

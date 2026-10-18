@@ -6,7 +6,7 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { forgetBots } from '#src/providers/telegram'
-import { notificationActionSchema, telegramChatsSchema, telegramTokenSchema } from '#src/shared/contracts'
+import { notificationActionSchema, telegramChatsSchema, telegramTokenSchema, webhookTestSchema } from '#src/shared/contracts'
 
 /**
  * The bot token is written straight to a workspace's secrets file and never into a
@@ -90,6 +90,31 @@ export function createNotificationsRoute(deps: AppDeps) {
         if (!result.ok)
           throw new DetailedError(result.error ?? 'could not list chats', { statusCode: 400, code: 'TELEGRAM_LIST_FAILED' })
         return c.json({ chats: result.chats })
+      },
+    )
+
+    /**
+     * Tests one webhook target, or a draft the page has not saved.
+     *
+     * The whole target travels in the body, so a URL and its headers can be tried before they
+     * are stored — and a target's own button tests that target rather than the first in the
+     * list.
+     */
+    .post(
+      '/notifications/test-webhook',
+      describeRoute({
+        tags: ['notifications'],
+        summary: 'Send a test to one webhook target',
+        responses: { 200: { description: 'Sent or refused' }, 400: ERROR_RESPONSES[400] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('json', webhookTestSchema),
+      async (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.notifications.sendWebhookTest(c.req.valid('json').target, c.req.valid('json').id)
+        if (!result.ok)
+          throw new DetailedError(result.error ?? 'the test message failed', { statusCode: 400, code: 'WEBHOOK_SEND_FAILED' })
+        return c.json(result)
       },
     )
 }

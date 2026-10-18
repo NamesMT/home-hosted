@@ -198,10 +198,15 @@ export const authSchema = type({
 }).onUndeclaredKey('reject')
 export type AuthConfig = typeof authSchema.infer
 
-/** Outbound crash/health notifications. The bot token lives in the secrets file. */
-export const telegramSchema = type({
-  enabled: 'boolean = false',
-  chatId: 'string = ""',
+/**
+ * The event toggles and the throttle, shared by every transport.
+ *
+ * One definition rather than three: they answer the same questions, and a fourth transport
+ * that quietly spelled `onRecovered` differently would be a defect nobody sees until it is
+ * the one they are relying on.
+ */
+const notificationPolicyShape = {
+  enabled: 'boolean = true',
   onCrash: 'boolean = true',
   onUnhealthy: 'boolean = true',
   onForcedRestart: 'boolean = true',
@@ -212,10 +217,46 @@ export const telegramSchema = type({
   onDdns: 'boolean = true',
   /** Per server *and* reason, so a flapping server cannot spam the chat. */
   cooldownMs: 'number >= 0 = 120000',
+} as const
+
+/** Outbound crash/health notifications. The bot token lives in the secrets file. */
+export const telegramSchema = type({
+  chatId: 'string = ""',
+  ...notificationPolicyShape,
+  /** Telegram is opt-in; a webhook target is on once it exists. */
+  enabled: 'boolean = false',
 }).onUndeclaredKey('reject')
+
+/**
+ * One webhook target: a URL, a method, and the headers to send with it.
+ *
+ * This is the general transport, and it is a *list* because a home panel alerts more than one
+ * place — a phone, a chat channel, a dashboard. The headers are what make it general rather
+ * than JSON-only: ntfy wants `Title`/`Priority` headers with a plain-text body, a bearer-token
+ * receiver wants `Authorization`, and a JSON receiver wants `content-type`. One shape covers
+ * all three; a per-service adapter would be a code change per service.
+ */
+export const webhookTargetSchema = type({
+  id: '/^[a-z0-9][a-z0-9_-]*$/',
+  /** Empty only while the target is a draft; the page will not save one without it. */
+  url: 'string = ""',
+  method: '"POST" | "PUT" = "POST"',
+  /** Payload format: `json` sends the event as JSON, `text` sends the plain message. */
+  format: '"json" | "text" = "json"',
+  /**
+   * Extra headers, `Name: value` per line. The one field that lets this transport talk to
+   * ntfy (`Title`, `Priority`), a bearer-token endpoint (`Authorization`) or anything else
+   * with a header-shaped contract.
+   */
+  headers: 'string = ""',
+  ...notificationPolicyShape,
+}).onUndeclaredKey('reject')
+export type WebhookTarget = typeof webhookTargetSchema.infer
 
 export const notificationsSchema = type({
   telegram: telegramSchema.default(() => ({})),
+  /** The list is replaced by a patch, the same way `ddns.accounts` is. */
+  webhooks: webhookTargetSchema.array().default(() => []),
 }).onUndeclaredKey('reject')
 export type NotificationsConfig = typeof notificationsSchema.infer
 
@@ -501,9 +542,7 @@ const authPatchSchema = type({
   lockoutMs: 'number >= 1000?',
 }).onUndeclaredKey('reject')
 
-const telegramPatchSchema = type({
-  enabled: 'boolean?',
-  chatId: 'string?',
+const notificationPolicyPatchShape = {
   onCrash: 'boolean?',
   onUnhealthy: 'boolean?',
   onForcedRestart: 'boolean?',
@@ -511,10 +550,32 @@ const telegramPatchSchema = type({
   onHost: 'boolean?',
   onDdns: 'boolean?',
   cooldownMs: 'number >= 0?',
+} as const
+
+const telegramPatchSchema = type({
+  enabled: 'boolean?',
+  chatId: 'string?',
+  ...notificationPolicyPatchShape,
+}).onUndeclaredKey('reject')
+
+/** A target's editable fields; `id` is the list key, so a patch replaces the whole list. */
+const webhookTargetPatchSchema = type({
+  id: '/^[a-z0-9][a-z0-9_-]*$/',
+  url: 'string?',
+  enabled: 'boolean?',
+  method: '"POST" | "PUT"?',
+  format: '"json" | "text"?',
+  headers: 'string?',
+  ...notificationPolicyPatchShape,
 }).onUndeclaredKey('reject')
 
 const notificationsPatchSchema = type({
   telegram: telegramPatchSchema.optional(),
+  /**
+   * Replaced, not merged: a merge cannot express removing a target, the same reason
+   * `ddns.accounts` and `ddns.domains` are lists a patch replaces.
+   */
+  webhooks: webhookTargetPatchSchema.array().optional(),
 }).onUndeclaredKey('reject')
 
 const hostPatchSchema = type({
@@ -998,10 +1059,9 @@ export const proxyEngineInstallSchema = type({
   version: 'string = ""',
 }).onUndeclaredKey('reject')
 
-export const telegramStatusSchema = type({
+/** The policy columns every transport's status row carries. */
+const notificationStatusShape = {
   enabled: 'boolean',
-  tokenSet: 'boolean',
-  chatId: 'string',
   onCrash: 'boolean',
   onUnhealthy: 'boolean',
   onForcedRestart: 'boolean',
@@ -1014,8 +1074,26 @@ export const telegramStatusSchema = type({
   /** Last delivery outcome, for the settings page. */
   lastResult: 'string | null',
   lastResultAt: 'number | null',
+} as const
+
+export const telegramStatusSchema = type({
+  ...notificationStatusShape,
+  /** Whether a bot token is stored. The token itself never leaves the server. */
+  tokenSet: 'boolean',
+  chatId: 'string',
 })
 export type TelegramStatus = typeof telegramStatusSchema.infer
+
+/** One target as the page reads it: its config plus its own last delivery outcome. */
+export const webhookStatusSchema = type({
+  id: 'string',
+  url: 'string',
+  method: '"POST" | "PUT"',
+  format: '"json" | "text"',
+  headers: 'string',
+  ...notificationStatusShape,
+})
+export type WebhookStatus = typeof webhookStatusSchema.infer
 
 /**
  * The chats a bot can see, as `POST /notifications/detect-chats` answers them.
@@ -1028,8 +1106,13 @@ export const telegramChatsSchema = type({
   chats: type({ id: 'string | number', title: 'string' }).array(),
 })
 
+/**
+ * `webhooks` is optional on the view: a panel from before it sends none, and a required field
+ * there would blank the settings page for that older panel.
+ */
 export const notificationViewSchema = type({
-  telegram: telegramStatusSchema,
+  'telegram': telegramStatusSchema,
+  'webhooks?': webhookStatusSchema.array(),
 })
 export type NotificationView = typeof notificationViewSchema.infer
 
@@ -1518,10 +1601,29 @@ export const notificationActionSchema = type({
   /** Optional override, so the token can be tested before it is saved. */
   botToken: 'string?',
   chatId: 'string?',
+  /** ntfy overrides, so a topic or token can be tried before it is saved. */
+  server: 'string?',
+  topic: 'string?',
+  accessToken: 'string?',
+  /** Webhook override, for the same reason. */
+  url: 'string?',
 }).onUndeclaredKey('reject')
 
 export const telegramTokenSchema = type({
   botToken: 'string >= 1',
+}).onUndeclaredKey('reject')
+
+/**
+ * `POST /api/notifications/test-webhook`: the target to try, as a draft or by id.
+ *
+ * The target travels whole rather than by reference because the page tests what is in its
+ * form, which may not be saved yet — and the request schema rejects undeclared keys, so the
+ * exact webhook shape is reused instead of a second DTO that could drift from it.
+ */
+export const webhookTestSchema = type({
+  target: webhookTargetSchema.omit('id').and(type({ id: 'string?' })),
+  /** Echoed so the result is recorded against the right row; absent for a draft. */
+  id: 'string?',
 }).onUndeclaredKey('reject')
 
 /**

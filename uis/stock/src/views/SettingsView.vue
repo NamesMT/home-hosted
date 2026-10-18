@@ -18,10 +18,13 @@ import {
   logsPatch,
   telegramBaseline,
   telegramPatch,
+  webhookBaseline,
+  webhooksPatch,
   workspaceBlockSnapshot,
 } from '@/components/settings/settingsForm'
 import SettingsSection from '@/components/settings/SettingsSection.vue'
 import SettingsShell from '@/components/settings/SettingsShell.vue'
+import WebhookSection from '@/components/settings/WebhookSection.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
@@ -58,6 +61,7 @@ const ddnsSection = ref<{ reload: () => Promise<void> } | null>(null)
 const defaultsView = computed(() => workspace.defaults.value)
 const logsConfig = computed(() => workspace.logsConfig.value)
 const telegramStatus = computed(() => workspace.notifications.value?.telegram ?? null)
+const webhookStatuses = computed(() => workspace.notifications.value?.webhooks ?? [])
 const logsDir = computed(() => workspace.logsDir.value)
 
 /** Only fields that differ from what the workspace currently holds. */
@@ -82,6 +86,14 @@ const patch = computed<WorkspaceSettingsPatch>(() => {
     if (Object.keys(diff).length > 0)
       out.notifications = diff as WorkspaceSettingsPatch['notifications']
   }
+  // The list is replaced when it changed at all: a merge cannot express removing a target.
+  const hooks = webhooksPatch(webhookStatuses.value, form.webhooks)
+  if (hooks !== null) {
+    out.notifications = {
+      ...(out.notifications ?? {}),
+      webhooks: hooks.webhooks,
+    } as WorkspaceSettingsPatch['notifications']
+  }
   return out
 })
 
@@ -102,7 +114,9 @@ const changes = computed(() => describeChanges({ ...(patch.value as Record<strin
 
 const defaultsDirty = computed(() => defaultsView.value !== null && Object.keys(defaultsPatch(defaultsView.value, form.defaults)).length > 0)
 const logsDirty = computed(() => logsConfig.value !== null && Object.keys(logsPatch(logsConfig.value, form.logs)).length > 0)
-const telegramDirty = computed(() => telegramStatus.value !== null && Object.keys(telegramPatch(telegramStatus.value, form.telegram)).length > 0)
+const telegramDirty = computed(() => telegramStatus.value !== null
+  && (Object.keys(telegramPatch(telegramStatus.value, form.telegram)).length > 0
+    || webhooksPatch(webhookStatuses.value, form.webhooks) !== null))
 
 /** What each block held when it was last filled, so an edit is not overwritten. */
 const snapshots: FormSnapshots = {}
@@ -138,8 +152,14 @@ function syncFromLive(): void {
     fill('logs', () => Object.assign(form.logs, logs))
 
   const telegram = telegramStatus.value
-  if (telegram !== null)
-    fill('telegram', () => Object.assign(form.telegram, telegramBaseline(telegram)))
+  if (telegram !== null) {
+    fill('telegram', () => {
+      Object.assign(form.telegram, telegramBaseline(telegram))
+      // The webhook list belongs to the same notifications block, so it fills and resets with
+      // it — a second guard would make one half save while the other stayed stale.
+      form.webhooks = webhookStatuses.value.map(webhookBaseline)
+    })
+  }
 }
 
 function forgetSnapshots(): void {
@@ -216,8 +236,10 @@ function resetLogs(): void {
 }
 
 function resetTelegram(): void {
-  if (telegramStatus.value !== null)
+  if (telegramStatus.value !== null) {
     Object.assign(form.telegram, telegramBaseline(telegramStatus.value))
+    form.webhooks = webhookStatuses.value.map(webhookBaseline)
+  }
   remember('telegram')
 }
 
@@ -290,6 +312,11 @@ watch(() => workspace.activeId.value, () => {
         :status="telegramStatus"
         :dirty="telegramDirty"
         @reset="resetTelegram"
+      />
+      <WebhookSection
+        v-model:webhooks="form.webhooks"
+        :statuses="webhookStatuses"
+        :dirty="telegramDirty"
       />
     </SettingsSection>
 
