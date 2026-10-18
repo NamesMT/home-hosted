@@ -1357,11 +1357,11 @@ export const uiMetaSchema = type({
   'files?': 'number.integer >= 1',
   /** `owner/name` of the UI's own repository, for `ui-update`. */
   'repo?': 'string',
-  /** The release tag this build came from, e.g. `v0.6.0`. */
+  /** The release tag this build came from, e.g. `v0.6.0`. Stamped by the build, never committed. */
   'tag?': 'string',
   /** The release asset name, e.g. `home-hosted-ui-noc-console`. */
   'asset?': 'string',
-  /** When the UI was built, in unix epoch seconds. */
+  /** When the UI was built, in unix epoch seconds. Stamped by the build, never committed. */
   'unix?': 'number.integer >= 0',
 })
 export type UiMeta = typeof uiMetaSchema.infer

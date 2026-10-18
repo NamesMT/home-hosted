@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 /**
- * Stamps each UI's `ui.json` when the commit that changes it is made.
+ * Checks that each UI whose *shipped* files this commit changes had its `ui.json` version raised.
  *
  * The version is a deliberate choice — patch for a fix, minor for a feature, major only for
- * a rewrite or a restyle — so this never guesses one. It checks that a UI whose *shipped*
- * files this commit touches had its version raised, and stamps `unix` with the commit's own
- * epoch. Doing that here rather than at each edit is what keeps the number meaningful:
- * `unix` is when the asset was committed, not when somebody happened to open the file.
+ * a rewrite or a restyle — so this never guesses one. Nothing here writes: `tag` and `unix`
+ * describe the *build*, and `build-uis.mjs` stamps them into `dist/`, never into the source.
  *
  * Runs from the pre-commit hook, after `lint-staged`. A UI's `test/` and its own `README.md` are not
  * part of the built asset, so changing only those needs no bump; the built `dist/` is not committed
@@ -70,10 +68,7 @@ for (const name of [...touched].sort()) {
     continue
   }
 
-  meta.unix = Math.floor(Date.now() / 1000)
-  fs.writeFileSync(metaPath, `${JSON.stringify(meta, null, 2)}\n`)
-  git('add', path.relative(root, metaPath))
-  process.stdout.write(`[uis] ${name}: ${committed ?? '(new)'} -> ${meta.version}, unix stamped\n`)
+  process.stdout.write(`[uis] ${name}: ${committed ?? '(new)'} -> ${meta.version}\n`)
 }
 
 if (problems.length > 0) {

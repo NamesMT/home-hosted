@@ -11,13 +11,12 @@ pre-workspace paths (`/servers`, `/logs`, `/settings`, `/vitals`) redirect to th
 the selected workspace.
 
 It ships as a release asset, not inside the npm package. `public/ui.json` names it `noc-console`
-with the version Settings shows once installed, and declares `repo`/`tag`/`asset` so the panel
-can re-install the matching build on an upgrade. `../../docs/media/tour.gif` shows both UIs.
+with the version Settings shows once installed, and declares `repo`/`asset` so the panel can
+re-install the matching build on an upgrade. `../../docs/media/tour.gif` shows both UIs.
 
 **Editing this UI means bumping that file**: raise `version` (patch for a fix, minor for a feature,
-major only for a rewrite or restyle) and set `unix` to the commit's epoch seconds. `tag` names the
-release that carries the build, and `build-uis.mjs` stamps it into the built copy — never chase a
-release by hand-editing it, because a stale one makes `ui-update` re-install the same UI every boot.
+major only for a rewrite or restyle). `tag` and `unix` are not in it on purpose — `build-uis.mjs`
+stamps both into the built copy, and a hand-maintained one is stale the moment the zip is cut.
 
 ## Run it in development
 

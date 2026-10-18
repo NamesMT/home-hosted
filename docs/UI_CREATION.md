@@ -45,9 +45,7 @@ installed, and what lets it offer you the next version:
   "name": "my-panel",
   "version": "2.1.0",
   "repo": "you/my-panel",
-  "tag": "v2.1.0",
-  "asset": "my-panel.zip",
-  "unix": 1790366625
+  "asset": "my-panel.zip"
 }
 ```
 
@@ -55,9 +53,12 @@ installed, and what lets it offer you the next version:
 | --- | --- |
 | `name`, `version` | what Global settings → Interface shows as installed |
 | `repo` | `owner/name` the releases come from — the one field `ui-update` needs |
-| `tag` | the release this build came from, so an update can tell newer from older |
 | `asset` | the release asset name, when a release carries more than one UI |
-| `unix` | when the build was made, in epoch seconds |
+
+**`tag` and `unix` are not yours to write.** They describe the *build*, and the panel's own
+`build-uis.mjs` stamps them into `dist/ui.json` — a committed value would be a release behind by the
+time the zip is cut, which is what made `ui-update` reinstall the same UI on every boot. A UI built
+outside this repo sets neither and loses nothing: `ui-update` then compares against your release list.
 
 With those set, `home-hosted ui-update` lists the releases carrying your `asset` and installs the one
 you pick; `--old` lists older ones. A version bump in your own repo is enough — nothing about the
@@ -303,4 +304,4 @@ with an installed panel on the default 3999; override with `--port`/`--ui-port` 
 - [ ] deep links render (the server falls back to `index.html`) and each page has its own path
 - [ ] assets self-hosted, no CDN
 - [ ] works over plain http on a LAN
-- [ ] `ui.json` with a name and version, so Global settings can tell you what is installed — plus `repo`/`tag`/`asset` if you want `ui-update` to follow your releases
+- [ ] `ui.json` with a name and version, so Global settings can tell you what is installed — plus `repo`/`asset` if you want `ui-update` to follow your releases

@@ -66,7 +66,7 @@ for (const name of (wanted.length > 0 ? wanted : available)) {
     cwd: root,
     stdio: 'inherit',
   })
-  await stampUiTag(path.join(uiDir, 'dist'))
+  await stampUiBuild(path.join(uiDir, 'dist'))
   if (!withZip)
     continue
   const target = path.join(artifactsDir, `home-hosted-ui-${name}.zip`)
@@ -76,15 +76,15 @@ for (const name of (wanted.length > 0 ? wanted : available)) {
 }
 
 /**
- * Records the release this build belongs to inside the built `ui.json`.
+ * Records the release and the build time inside the built `ui.json`.
  *
- * The tag cannot be trusted from the source file: a UI zip is built *before* the release
- * is cut, so the committed `tag` is always a release behind the asset it sits in. Leaving
- * it stale is what made `ui-update` re-install the same UI on every boot, since the
- * recorded tag could never reach the panel's own version. `HHOSTED_UI_TAG` wins when set,
- * because the release workflow knows the version before `package.json` is bumped.
+ * Both describe *this build*, so neither can live in the source file: a UI zip is built
+ * before the release is cut, so a committed `tag` is always a release behind the asset it
+ * sits in — and a stale one made `ui-update` re-install the same UI on every boot, since
+ * the recorded tag could never reach the panel's own version. `HHOSTED_UI_TAG` wins when
+ * set, because the release workflow knows the version before `package.json` is bumped.
  */
-async function stampUiTag(distDir) {
+async function stampUiBuild(distDir) {
   const metaPath = path.join(distDir, 'ui.json')
   if (!fs.existsSync(metaPath))
     return
@@ -100,6 +100,7 @@ async function stampUiTag(distDir) {
 
   const version = process.env.HHOSTED_UI_TAG ?? `v${JSON.parse(await fs.promises.readFile(path.join(root, 'package.json'), 'utf8')).version}`
   meta.tag = version
+  meta.unix = Math.floor(Date.now() / 1000)
   await fs.promises.writeFile(metaPath, `${JSON.stringify(meta, null, 2)}\n`)
-  process.stdout.write(`[uis] ui.json tag -> ${version}\n`)
+  process.stdout.write(`[uis] ui.json tag -> ${version}, unix stamped\n`)
 }

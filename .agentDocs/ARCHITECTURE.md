@@ -133,10 +133,11 @@ restyle**. The number tells a person how big the change is; `ui-update` prints i
 the release it offers.
 `scripts/stamp-uis.mjs` enforces the rule from the pre-commit hook (see `AGENTS.md`).
 
-`unix` is that commit's epoch. `tag` is **stamped by `build-uis.mjs`**, never trusted from the source
-file — a zip is built before its release is cut. The release workflow passes `HHOSTED_UI_TAG`; anywhere
-else the build stamps `v<package.json version>`. Do not hand-edit `tag` to chase a release; a stale one
-makes `ui-update` reinstall the same UI on every boot.
+**`tag` and `unix` are build provenance, and no source file carries them.** `build-uis.mjs` stamps both
+into `dist/ui.json` after Vite runs; the release workflow passes `HHOSTED_UI_TAG`, anywhere else the
+build stamps `v<package.json version>`. Committing either was the defect — a zip is built before its
+release is cut, so the recorded tag could never reach the panel's own version and `ui-update`
+reinstalled the same UI on every boot. `stamp-uis.mjs` only *checks* the version; it writes nothing.
 
 **A shared contract is a build input, and the hook cannot see it.** `@shared` is aliased into every UI
 bundle, so a change to `src/shared/contracts.ts` alters what each UI ships — but `stamp-uis.mjs` only
