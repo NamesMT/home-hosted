@@ -65,6 +65,8 @@ interface Fixture {
 async function makeFixture(
   options: {
     keep?: number
+    /** The scheduled half; `intervalMs: 0` (the schema default) keeps it off. */
+    schedule?: { intervalMs: number, keep: number }
     enabled?: boolean
     /** Paths the workspace's server declares as `dataEnvs`; defaults to the data directory. */
     dataPaths?: string[]
@@ -103,13 +105,11 @@ async function makeFixture(
   fs.writeFileSync(workspaceSecretsPath, options.workspaceSecrets ?? '{ "telegram": null }\n', { mode: 0o600 })
   fs.writeFileSync(workspaceSettingsPath, '{ "logs": {} }\n')
 
-  const parsed = backupsSchema({ dir: '.backups', keep: options.keep ?? 5, enabled: options.enabled ?? true, includePaths: options.includePaths ?? (options.coverStateRoot === true ? [dataRoot] : []) })
+  const parsed = backupsSchema({ dir: '.backups', keep: options.keep ?? 5, enabled: options.enabled ?? true, includePaths: options.includePaths ?? (options.coverStateRoot === true ? [dataRoot] : []), ...(options.schedule === undefined ? {} : { schedule: options.schedule }) })
   if (parsed instanceof type.errors)
     throw new Error(parsed.summary)
 
-  fs.writeFileSync(globalSettingsPath, `${JSON.stringify({
-    backups: { dir: parsed.dir, keep: parsed.keep, enabled: parsed.enabled, includePaths: parsed.includePaths },
-  }, null, 2)}\n`)
+  fs.writeFileSync(globalSettingsPath, `${JSON.stringify({ backups: parsed }, null, 2)}\n`)
 
   const dataEnvs: Record<string, string> = {}
   ;(options.dataPaths ?? [dataDir]).forEach((target, index) => {
@@ -1134,5 +1134,87 @@ describe('secrets as separate slices', () => {
     const refused = await fixture.service.restore(future, { confirm: false })
     expect(refused.error).toContain('config schema')
     expect(refused.applied).toHaveLength(0)
+  })
+})
+
+/**
+ * The schedule, and the two retention budgets it must not confuse.
+ *
+ * `keep` is what a person agreed to store by hand; `schedule.keep` is what the panel keeps on
+ * its own. Pruning them against one number would lose a hand-taken archive to make room for a
+ * scheduled one — the copy someone deliberately made is the one that matters least to replace.
+ */
+describe('the backup schedule', () => {
+  it('writes nothing until it is due, and one archive when it is', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7 } })
+    const now = Date.now()
+
+    fixture.service.tick(now)
+    // The pass runs in the background; give it a turn to finish before asserting.
+    await vi.waitFor(() => expect(fixture.service.list()).toHaveLength(1), { timeout: 15_000 })
+    expect(fixture.service.list()[0]!.name.startsWith('auto-'), 'a scheduled archive is marked as one').toBe(true)
+
+    // Not due: the newest automatic archive is younger than the interval.
+    fixture.service.tick(now + 30_000)
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(fixture.service.list()).toHaveLength(1)
+
+    // Due: past the interval, so a second pass runs.
+    fixture.service.tick(now + 61_000)
+    await vi.waitFor(() => expect(fixture.service.list()).toHaveLength(2), { timeout: 15_000 })
+  })
+
+  it('stays off at intervalMs 0, and while backups are disabled', async () => {
+    const off = await makeFixture({ schedule: { intervalMs: 0, keep: 7 } })
+    off.service.tick(Date.now())
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(off.service.list(), 'the schema default is off').toHaveLength(0)
+
+    const disabled = await makeFixture({ enabled: false, schedule: { intervalMs: 60_000, keep: 7 } })
+    disabled.service.tick(Date.now())
+    await new Promise(resolve => setTimeout(resolve, 300))
+    expect(disabled.service.list(), 'a disabled service archives nothing').toHaveLength(0)
+  })
+
+  it('prunes automatic archives by schedule.keep, and leaves the manual ones alone', async () => {
+    const fixture = await makeFixture({ keep: 1, schedule: { intervalMs: 60_000, keep: 2 } })
+    const dir = fixture.service.directory
+    fs.mkdirSync(dir, { recursive: true })
+
+    // Four automatic and two manual archives, oldest first by name, written directly so the
+    // test does not depend on how long a real archive takes.
+    const stamp = (index: number): string => `2026-01-0${index + 1}T00-00-00-000`
+    for (let index = 0; index < 4; index += 1)
+      fs.writeFileSync(path.join(dir, `auto-${stamp(index)}.zip`), 'auto')
+    for (let index = 0; index < 2; index += 1)
+      fs.writeFileSync(path.join(dir, `backup-${stamp(index)}.zip`), 'manual')
+
+    // A real pass runs the prune; `create` is what calls it.
+    const created = await fixture.service.create({ automatic: true })
+    expect(created.ok).toBe(true)
+
+    const remaining = fixture.service.list().map(file => file.name)
+    const automatic = remaining.filter(name => name.startsWith('auto-'))
+    const manual = remaining.filter(name => name.startsWith('backup-'))
+
+    // 5 automatic were written (4 fixtures + the pass), so `schedule.keep: 2` leaves 2 — and
+    // `keep: 1` independently leaves 1 manual. The point is that each budget bounds only its own
+    // kind: a single shared `keep` would have left 1 archive in total.
+    expect(automatic, 'schedule.keep bounds the scheduled archives').toHaveLength(2)
+    expect(manual, 'keep bounds the manual archives').toHaveLength(1)
+    expect(remaining, 'the two budgets are counted apart').toHaveLength(3)
+  })
+
+  it('exposes the schedule and the last automatic time to the page', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 3_600_000, keep: 3 } })
+    expect(fixture.service.view().schedule).toEqual({ intervalMs: 3_600_000, keep: 3 })
+    expect(fixture.service.view().lastAutomaticAt, 'nothing has run yet').toBeNull()
+
+    await fixture.service.create({ automatic: true })
+    const after = fixture.service.view()
+    expect(after.lastAutomaticAt).not.toBeNull()
+    // The manual one that a person takes is not what "last automatic" reports.
+    await fixture.service.create()
+    expect(fixture.service.view().lastAutomaticAt).toBe(after.lastAutomaticAt)
   })
 })

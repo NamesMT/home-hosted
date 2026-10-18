@@ -56,6 +56,9 @@ const form = reactive({
     enabled: true,
     keep: 5,
     includePaths: '',
+    scheduleEnabled: false,
+    scheduleHours: 24,
+    scheduleKeep: 7,
   },
   auth: {
     enabled: false,
@@ -147,6 +150,11 @@ function fillBackups(): boolean {
     enabled: configured.backups.enabled,
     keep: configured.backups.keep,
     includePaths: joinList(configured.backups.includePaths),
+    scheduleEnabled: configured.backups.schedule.intervalMs > 0,
+    // The field is an hour count and the file stores milliseconds; rounded so a value set
+    // through the API cannot be rewritten to something the field cannot display.
+    scheduleHours: Math.max(1, Math.round(configured.backups.schedule.intervalMs / 3_600_000) || 1),
+    scheduleKeep: configured.backups.schedule.keep,
   })
   return true
 }
@@ -303,7 +311,17 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
 
     const backupsPatch = diffFields(
       configured.backups as unknown as Patch,
-      { enabled: form.backups.enabled, keep: form.backups.keep, includePaths: splitList(form.backups.includePaths) } as unknown as Patch,
+      {
+        enabled: form.backups.enabled,
+        keep: form.backups.keep,
+        includePaths: splitList(form.backups.includePaths),
+        // `intervalMs: 0` is how the file spells "off"; the switch and the hour count are one field.
+        schedule: {
+          intervalMs: form.backups.scheduleEnabled ? form.backups.scheduleHours * 3_600_000 : 0,
+          keep: form.backups.scheduleKeep,
+        },
+      } as unknown as Patch,
+      ['schedule'],
     )
     if (Object.keys(backupsPatch).length > 0)
       patch.backups = backupsPatch as SettingsPatch['backups']
@@ -935,6 +953,20 @@ async function revertUi(): Promise<void> {
                 <span class="field__label">keep</span>
                 <input v-model.number="form.backups.keep" inputmode="numeric">
               </label>
+              <label class="field field--check">
+                <input v-model="form.backups.scheduleEnabled" type="checkbox">
+                <span class="field__label">automatic backups</span>
+              </label>
+              <template v-if="form.backups.scheduleEnabled">
+                <label class="field">
+                  <span class="field__label">every (hours)</span>
+                  <input v-model.number="form.backups.scheduleHours" inputmode="numeric">
+                </label>
+                <label class="field">
+                  <span class="field__label">keep automatic</span>
+                  <input v-model.number="form.backups.scheduleKeep" inputmode="numeric">
+                </label>
+              </template>
               <label class="field grid__full">
                 <span class="field__label">extra paths (comma separated)</span>
                 <input v-model="form.backups.includePaths" placeholder="{home}/myapp-data">

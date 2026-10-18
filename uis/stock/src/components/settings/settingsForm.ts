@@ -62,10 +62,17 @@ export interface HostForm {
 }
 
 /** The panel-wide backups policy; `dir` stays a file-level decision. */
+/** The page asks for a schedule in hours; the config stores milliseconds. */
+const HOUR_MS = 3_600_000
+
 export interface BackupsForm {
   enabled: boolean
   keep: number
   includePaths: string
+  scheduleEnabled: boolean
+  /** The gap between automatic archives, in hours — the page asks in hours, the file stores ms. */
+  scheduleHours: number
+  scheduleKeep: number
 }
 
 export interface GlobalSettingsForm {
@@ -158,7 +165,7 @@ export function createGlobalForm(): GlobalSettingsForm {
       loadPerCpu: 2,
       tempCelsius: 85,
     },
-    backups: { enabled: true, keep: 5, includePaths: '' },
+    backups: { enabled: true, keep: 5, includePaths: '', scheduleEnabled: false, scheduleHours: 24, scheduleKeep: 7 },
   }
 }
 
@@ -261,8 +268,17 @@ export function hostBaseline(config: HostConfig): HostForm {
   }
 }
 
-export function backupsBaseline(policy: Pick<BackupsConfig, 'enabled' | 'keep' | 'includePaths'>): BackupsForm {
-  return { enabled: policy.enabled, keep: policy.keep, includePaths: policy.includePaths.join(', ') }
+export function backupsBaseline(policy: Pick<BackupsConfig, 'enabled' | 'keep' | 'includePaths' | 'schedule'>): BackupsForm {
+  return {
+    enabled: policy.enabled,
+    keep: policy.keep,
+    includePaths: policy.includePaths.join(', '),
+    scheduleEnabled: policy.schedule.intervalMs > 0,
+    // Rounded: a value set through the API in ms does not have to land on a whole hour, and the
+    // field is an hour count — it must not silently rewrite a value to something it cannot show.
+    scheduleHours: Math.max(1, Math.round(policy.schedule.intervalMs / HOUR_MS) || 1),
+    scheduleKeep: policy.schedule.keep,
+  }
 }
 
 export function hostPatch(current: HostConfig, form: HostForm): Patch {
@@ -272,11 +288,14 @@ export function hostPatch(current: HostConfig, form: HostForm): Patch {
   } as unknown as Patch)
 }
 
-export function backupsPatch(current: Pick<BackupsConfig, 'enabled' | 'keep' | 'includePaths'>, form: BackupsForm): Patch {
+export function backupsPatch(current: Pick<BackupsConfig, 'enabled' | 'keep' | 'includePaths' | 'schedule'>, form: BackupsForm): Patch {
   return diffFields(current as unknown as Patch, {
-    ...form,
+    enabled: form.enabled,
+    keep: form.keep,
     includePaths: splitList(form.includePaths),
-  } as unknown as Patch)
+    // `intervalMs: 0` is how the file spells "off"; the switch and the hour count are one field.
+    schedule: { intervalMs: form.scheduleEnabled ? form.scheduleHours * HOUR_MS : 0, keep: form.scheduleKeep },
+  } as unknown as Patch, ['schedule'])
 }
 
 /** Listener, auth and TLS in one `control` block; only changed keys survive. */

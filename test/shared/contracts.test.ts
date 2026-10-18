@@ -281,7 +281,7 @@ describe('view contracts', () => {
         alerts: [],
         sampledAt: null,
       },
-      backups: { enabled: true, dir: '/repo/.backups', keep: 5, includePaths: [], entries: [], files: [] },
+      backups: { enabled: true, dir: '/repo/.backups', keep: 5, schedule: { intervalMs: 86400000, keep: 7 }, lastAutomaticAt: null, includePaths: [], entries: [], files: [] },
       ui: { custom: false, dir: '/repo/.home-hosted/.hh/.ui', meta: null },
       workspaces: [workspace],
       projectDir: '/repo',

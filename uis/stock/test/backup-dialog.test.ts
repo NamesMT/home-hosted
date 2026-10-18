@@ -10,6 +10,8 @@ const state: BackupsView = {
   enabled: true,
   dir: '/tmp/.backups',
   keep: 5,
+  schedule: { intervalMs: 0, keep: 7 },
+  lastAutomaticAt: null,
   includePaths: [],
   entries: [
     { id: 'global:settings', label: 'Panel settings', kind: 'settings', note: null, items: [] },

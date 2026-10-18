@@ -44,6 +44,14 @@ const form = defineModel<BackupsForm>('form', { required: true })
 const control = useControlPlane()
 
 const keep = numberModel(() => form.value.keep, value => (form.value.keep = value), 5)
+const scheduleHours = numberModel(() => form.value.scheduleHours, value => (form.value.scheduleHours = value), 24)
+const scheduleKeep = numberModel(() => form.value.scheduleKeep, value => (form.value.scheduleKeep = value), 7)
+
+/** When the last automatic archive ran, for the hint under the switch. */
+const lastAutomatic = computed(() => {
+  const at = props.state?.lastAutomaticAt ?? null
+  return at === null ? null : formatDateTime(at)
+})
 
 const busy = ref(false)
 const message = ref<string | null>(null)
@@ -118,6 +126,19 @@ async function removeBackup(name: string): Promise<void> {
         </Notice>
       </div>
       <NumberField v-model="keep" :label="t('settings.backups.keep')" :min="1" :hint="t('settings.backups.keepHint')" />
+      <ToggleSwitch
+        v-model="form.scheduleEnabled"
+        :label="t('settings.backups.schedule')"
+        :hint="t('settings.backups.scheduleHint')"
+        wide
+      />
+      <template v-if="form.scheduleEnabled">
+        <NumberField v-model="scheduleHours" :label="t('settings.backups.scheduleHours')" :min="1" :hint="t('settings.backups.scheduleHoursHint')" />
+        <NumberField v-model="scheduleKeep" :label="t('settings.backups.scheduleKeep')" :min="1" :hint="t('settings.backups.scheduleKeepHint')" />
+        <p v-if="lastAutomatic !== null" class="text-2xs text-muted sm:col-span-2">
+          {{ t('settings.backups.scheduleLast', { when: lastAutomatic }) }}
+        </p>
+      </template>
       <TextField
         v-model="form.includePaths"
         :label="t('settings.backups.extraPaths')"

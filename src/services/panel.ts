@@ -321,6 +321,7 @@ export class PanelService {
   async dispose(): Promise<void> {
     this.disposed = true
     clearInterval(this.timer)
+    this.options.backups.dispose()
     await Promise.all(this.workspaces().map(runtime => runtime.supervisor.dispose()))
     for (const runtime of this.workspaces()) this.disposeRuntime(runtime)
   }
@@ -464,6 +465,9 @@ export class PanelService {
       return
     const now = Date.now()
     await this.options.hostMonitor.tick(now)
+    // Deliberately not awaited, like DDNS below: archiving a large data path must not hold up
+    // health probes or the state frame.
+    this.options.backups.tick(now)
     for (const runtime of this.workspaces()) {
       // Deliberately not awaited: a provider that is slow to answer must not hold
       // up anything else.

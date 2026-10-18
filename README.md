@@ -495,6 +495,11 @@ ordinary `.zip`, or WinZip AES-256 with a password, restored per path. Known bui
 dependency directories (`node_modules`, `dist`, `.next`, framework caches) are skipped per entry;
 `backupIgnoreGenerated: false` captures them anyway.
 
+**Automatic backups** write one archive on a schedule you set, in hours, with a retention of its
+own (`Keep automatic`). The two counts are independent: `Keep` bounds the archives you take by hand,
+and a scheduled pass never prunes one of yours to make room for its own. Both live in the same
+directory, and an automatic archive is named `auto-…` so you can tell them apart.
+
 <details>
 <summary><b>🔑 Restoring a secret</b></summary>
 

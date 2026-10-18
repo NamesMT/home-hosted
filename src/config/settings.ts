@@ -5,7 +5,7 @@ import path from 'node:path'
 import { type } from 'arktype'
 import { planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseTolerant, stampConfig } from '#src/config/parse'
-import { applyPatch, CONTROL_MERGE_KEYS, EMPTY_MERGE_KEYS, PROXY_MERGE_KEYS } from '#src/config/patch'
+import { applyPatch, BACKUP_MERGE_KEYS, CONTROL_MERGE_KEYS, EMPTY_MERGE_KEYS, PROXY_MERGE_KEYS } from '#src/config/patch'
 import { backupsSchema, controlSchema, globalSettingsSchema, hostSchema, proxyConfigSchema } from '#src/config/schema'
 import { SEED_GLOBAL_SETTINGS } from '#src/config/seed'
 import { writeFileAtomic } from '#src/helpers/atomic'
@@ -181,7 +181,7 @@ export class GlobalSettingsStore {
   updateBackups(patch: NonNullable<SettingsPatch['backups']>): BackupsConfig {
     const draft = structuredClone(this.raw)
     draft.backups = { ...(draft.backups as Record<string, unknown> ?? {}) }
-    applyPatch(draft.backups as Record<string, unknown>, patch as Record<string, unknown>, EMPTY_MERGE_KEYS)
+    applyPatch(draft.backups as Record<string, unknown>, patch as Record<string, unknown>, BACKUP_MERGE_KEYS)
 
     const backups = this.parseGroup<BackupsConfig>(backupsSchema as unknown as (input: unknown) => unknown, draft.backups as Record<string, unknown>, 'backups')
 

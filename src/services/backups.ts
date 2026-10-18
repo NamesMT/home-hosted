@@ -10,6 +10,7 @@ import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings } from '#
 import { mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts } from '#src/config/secret-parts'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
+import { logger } from '#src/helpers/logger'
 import { projectDir, resolveUserPath } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
@@ -23,6 +24,11 @@ const MANIFEST = 'manifest.json'
 const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data'])
 /** Every archive this service writes is a zip, encrypted or not. */
 const SUFFIX = '.zip'
+/**
+ * An archive the schedule wrote. The prefix is the only durable marker: a filename is the one
+ * thing that survives a restart, and it is what lets the two retention counts stay independent.
+ */
+const AUTO_PREFIX = 'auto'
 /** A workspace leaf that carries state the panel re-reads after a restore. */
 const RELOADABLE = /^global:settings$|^workspace:[^:]+:(?:settings|servers)$/
 
@@ -318,6 +324,9 @@ export class BackupService {
    */
   private readonly flags = new Map<string, { key: string, encrypted: boolean }>()
   private refreshing: Promise<void> | null = null
+  /** One scheduled pass at a time: a slow archive must not stack up behind itself. */
+  private running = false
+  private disposed = false
 
   constructor(
     private readonly options: {
@@ -335,6 +344,10 @@ export class BackupService {
     await this.refresh()
   }
 
+  dispose(): void {
+    this.disposed = true
+  }
+
   get directory(): string {
     return this.resolveDir()
   }
@@ -347,6 +360,8 @@ export class BackupService {
       enabled: config.enabled,
       dir: this.directory,
       keep: config.keep,
+      schedule: { ...config.schedule },
+      lastAutomaticAt: this.lastAutomatic(),
       includePaths: [...sources.includePaths],
       entries: this.entries(sources),
       files: this.list(),
@@ -378,8 +393,14 @@ export class BackupService {
     return fs.existsSync(file) ? file : null
   }
 
-  /** `password` encrypts the archive; it is never stored anywhere. */
-  async create(options: { password?: string, include?: string[] } = {}): Promise<{ ok: boolean, file?: BackupFile, error?: string }> {
+  /**
+   * `password` encrypts the archive; it is never stored anywhere.
+   *
+   * `automatic` marks an archive the schedule wrote, which is what keeps the two retention
+   * counts apart: an automatic pass must never prune the backup a person took by hand, and a
+   * manual one must not silently eat the history the schedule is keeping.
+   */
+  async create(options: { password?: string, include?: string[], automatic?: boolean } = {}): Promise<{ ok: boolean, file?: BackupFile, error?: string }> {
     const config = this.options.getConfig()
     if (!config.enabled)
       return { ok: false, error: 'backups are disabled' }
@@ -412,7 +433,8 @@ export class BackupService {
     const staging = path.join(dir, `.staging-${Date.now()}`)
     const createdAt = Date.now()
     // Milliseconds matter: two backups in the same second must not collide.
-    const name = `backup-${new Date(createdAt).toISOString().replace(/[:T]/g, '-').replace(/\.\d+Z$/, '')}-${createdAt % 1000}${SUFFIX}`
+    const prefix = options.automatic === true ? AUTO_PREFIX : 'backup'
+    const name = `${prefix}-${new Date(createdAt).toISOString().replace(/[:T]/g, '-').replace(/\.\d+Z$/, '')}-${createdAt % 1000}${SUFFIX}`
     const destination = path.join(dir, name)
 
     try {
@@ -1130,15 +1152,67 @@ export class BackupService {
     return true
   }
 
+  /**
+   * Drops the oldest archives past their own limit.
+   *
+   * Two budgets, because the two sources are not the same thing: `keep` is what a person
+   * agreed to store, and pruning a hand-taken archive to make room for a scheduled one would
+   * lose the copy they deliberately made. The scheduled pair keeps `schedule.keep` automatic
+   * archives; the rest keeps `keep`.
+   */
   private prune(): void {
-    const { keep } = this.options.getConfig()
-    for (const file of this.list().slice(keep)) this.remove(file.name)
+    const config = this.options.getConfig()
+    const files = this.list()
+    const automatic = files.filter(isAutomatic)
+    const manual = files.filter(file => !isAutomatic(file))
+
+    for (const file of automatic.slice(config.schedule.keep)) this.remove(file.name)
+    for (const file of manual.slice(config.keep)) this.remove(file.name)
+  }
+
+  /** When the newest automatic archive was written, or null when there is none. */
+  private lastAutomatic(): number | null {
+    return this.list().find(isAutomatic)?.createdAt ?? null
+  }
+
+  /**
+   * Runs one scheduled pass when it is due. Modelled on the DDNS pass: cheap to call on every
+   * panel tick, never blocking, and never two at once.
+   */
+  tick(now = Date.now()): void {
+    if (this.disposed || this.running)
+      return
+    const config = this.options.getConfig()
+    if (!config.enabled || config.schedule.intervalMs <= 0)
+      return
+
+    const last = this.lastAutomatic()
+    if (last !== null && now - last < config.schedule.intervalMs)
+      return
+
+    this.running = true
+    void this.create({ automatic: true })
+      .then((result) => {
+        if (!result.ok)
+          logger.warn('the scheduled backup failed', result.error)
+      })
+      .catch((error: unknown) => {
+        logger.error('the scheduled backup failed', error)
+      })
+      .finally(() => {
+        this.running = false
+      })
   }
 
   private resolveDir(): string {
     const configured = this.options.getConfig().dir
     return path.isAbsolute(configured) ? configured : path.resolve(this.options.dataRoot, configured)
   }
+}
+
+/** Whether an archive came from the schedule rather than from a person. */
+function isAutomatic(file: { name: string }): boolean {
+  return file.name.startsWith(`${AUTO_PREFIX}-`)
 }
 
 /** The label of one item, for `applied`; items are built before actions run. */

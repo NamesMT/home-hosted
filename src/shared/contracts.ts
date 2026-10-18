@@ -404,12 +404,23 @@ export const ddnsPatchSchema = type({
 export type DdnsPatch = typeof ddnsPatchSchema.infer
 
 /** Tar archives of config, secrets, TLS and declared data paths. */
+/** The scheduled half: an interval and a retention of its own. */
+export const backupScheduleSchema = type({
+  /** 0 turns the schedule off; otherwise the gap between automatic archives. */
+  intervalMs: 'number.integer >= 0 = 0',
+  /** How many automatic archives to keep. Manual ones are never pruned by it. */
+  keep: 'number.integer >= 1 = 7',
+}).onUndeclaredKey('reject')
+export type BackupScheduleConfig = typeof backupScheduleSchema.infer
+
 export const backupsSchema = type({
   enabled: 'boolean = true',
   dir: 'string = ".backups"',
+  /** How many archives to keep in total, newest first. */
   keep: 'number.integer >= 1 = 5',
   /** Extra paths in every backup, in addition to each server's `backupPaths`. */
   includePaths: type('string[]').default(() => []),
+  schedule: backupScheduleSchema.default(() => ({})),
 }).onUndeclaredKey('reject')
 export type BackupsConfig = typeof backupsSchema.infer
 
@@ -517,11 +528,17 @@ const hostPatchSchema = type({
   tempCelsius: 'number >= 0?',
 }).onUndeclaredKey('reject')
 
+const backupSchedulePatchSchema = type({
+  intervalMs: 'number.integer >= 0?',
+  keep: 'number.integer >= 1?',
+}).onUndeclaredKey('reject')
+
 const backupsPatchSchema = type({
   enabled: 'boolean?',
   dir: 'string?',
   keep: 'number.integer >= 1?',
   includePaths: type('string[]').optional(),
+  schedule: backupSchedulePatchSchema.optional(),
 }).onUndeclaredKey('reject')
 
 const logsPatchSchema = type({
@@ -1186,6 +1203,10 @@ export const backupsViewSchema = type({
   enabled: 'boolean',
   dir: 'string',
   keep: 'number',
+  /** The scheduled half, so the page can show and edit it. */
+  schedule: backupScheduleSchema,
+  /** When the last automatic archive was written; null until one has run. */
+  lastAutomaticAt: 'number | null',
   /** Extra paths from the global config, in addition to each server's own. */
   includePaths: type('string[]'),
   /** Every selectable entry, global first, then each workspace. */

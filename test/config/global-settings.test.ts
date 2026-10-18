@@ -83,6 +83,29 @@ describe('globalSettingsStore', () => {
     expect(written.backups.keep).toBe(9)
   })
 
+  /**
+   * A nested group a patch touches merges, so sending one member does not reset the other.
+   * `backups` was patched with `EMPTY_MERGE_KEYS`, which *replaces* a nested object: a page
+   * sending only `schedule.intervalMs` would have silently restored `schedule.keep` to its
+   * default and dropped the retention the person chose.
+   */
+  it('merges the backups schedule instead of replacing it', async () => {
+    const { store, file } = await makeStore({})
+
+    store.updateBackups({ schedule: { intervalMs: 3_600_000, keep: 12 } })
+    expect(store.backups.schedule).toEqual({ intervalMs: 3_600_000, keep: 12 })
+
+    store.updateBackups({ schedule: { intervalMs: 0 } })
+    expect(store.backups.schedule.intervalMs, 'the sent member changed').toBe(0)
+    expect(store.backups.schedule.keep, 'the unsent member survived the patch').toBe(12)
+    expect(read(file).backups.schedule.keep).toBe(12)
+  })
+
+  it('defaults the schedule off, so an existing config archives nothing', async () => {
+    const { store } = await makeStore({})
+    expect(store.backups.schedule).toEqual({ intervalMs: 0, keep: 7 })
+  })
+
   it('tolerates a key a newer release wrote instead of resetting the group', async () => {
     const { store, file } = await makeStore({
       control: { port: 4123, host: 'local', futurePanelFlag: true },

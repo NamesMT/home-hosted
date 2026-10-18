@@ -81,7 +81,7 @@ const CONTROL: ControlView = {
   },
 }
 
-const BACKUPS: BackupsView = { enabled: true, dir: '/tmp/.backups', keep: 5, includePaths: [], entries: [], files: [] }
+const BACKUPS: BackupsView = { enabled: true, dir: '/tmp/.backups', keep: 5, schedule: { intervalMs: 0, keep: 7 }, lastAutomaticAt: null, includePaths: [], entries: [], files: [] }
 
 const UI_STATUS: UiStatus = { custom: false, dir: '/tmp/.ui', meta: null }
 
