@@ -71,5 +71,5 @@ state/
 # trackable on purpose: versioning your server definitions is a real workflow.
 .control-secrets.json
 
-# generated i18n catalogs (built from `uis/*/i18n/i18n.csv` by scripts/build-locales.mjs)
+# generated i18n catalogs (built from `uis/*/i18n/sheets/*.csv` by scripts/build-locales.mjs)
 uis/*/i18n/generated/
