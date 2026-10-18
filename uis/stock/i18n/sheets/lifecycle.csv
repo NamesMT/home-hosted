@@ -22,6 +22,9 @@ lifecycle.unhealthyAfterHint,Consecutive failed probes.,Số lần dò thất b�
 lifecycle.forceRestartAfter,Force restart after (ms),Buộc khởi động lại sau (ms),强制重启时间（ms）,強制再起動まで (ms),Reinicio forzado tras (ms),강제 재시작까지 (ms),Принудительный перезапуск через (мс),Redémarrage forcé après (ms),Erzwungener Neustart nach (ms)
 lifecycle.forceRestartAfterHint,0 disables it.,0 là tắt.,0 表示禁用。,0 で無効になります。,0 lo desactiva.,0이면 사용하지 않습니다.,0 отключает его.,0 le désactive.,0 deaktiviert es.
 lifecycle.startTimeout,Start timeout (ms),Thời gian chờ khởi động (ms),启动超时（ms）,起動タイムアウト (ms),Tiempo de espera de inicio (ms),시작 시간 제한 (ms),Тайм-аут запуска (мс),Délai de démarrage (ms),Start-Timeout (ms)
+lifecycle.httpScheme,Scheme,Sơ đồ,协议,スキーム,Esquema,스킴,Схема,Schéma,Schema
+lifecycle.allowInvalidCert,Accept any certificate,Chấp nhận mọi chứng chỉ,接受任意证书,任意の証明書を受け入れる,Aceptar cualquier certificado,모든 인증서 허용,Принимать любой сертификат,Accepter tout certificat,Beliebiges Zertifikat akzeptieren
+lifecycle.allowInvalidCertHint,For a self-signed backend. Only meaningful over https.,Dành cho backend tự ký. Chỉ có ý nghĩa với https.,用于自签名后端，仅在 https 下有效。,自己署名のバックエンド向け。https のときだけ意味があります。,Para un backend autofirmado. Solo tiene sentido con https.,자체 서명 백엔드용이며 https에서만 의미가 있습니다.,Для самоподписанного бэкенда. Имеет смысл только по https.,Pour un backend auto-signé. N'a de sens qu'en https.,Für ein selbstsigniertes Backend. Nur bei https sinnvoll.
 lifecycle.httpPath,HTTP path,Đường dẫn HTTP,HTTP 路径,HTTP パス,Ruta HTTP,HTTP 경로,HTTP-путь,Chemin HTTP,HTTP-Pfad
 lifecycle.httpMethod,HTTP method,Phương thức HTTP,HTTP 方法,HTTP メソッド,Método HTTP,HTTP 메서드,HTTP-метод,Méthode HTTP,HTTP-Methode
 lifecycle.expectStatus,Expect status,Mong đợi mã trạng thái,期望状态码,期待するステータス,Estado esperado,기대 상태,Ожидать статус,Statut attendu,Status erwarten

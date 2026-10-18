@@ -68,6 +68,10 @@ export const restartSchema = type({
 export type RestartConfig = typeof restartSchema.infer
 
 export const httpCheckSchema = type({
+  /** `https` is for a backend that serves TLS itself; pair it with `allowInvalidCert` when it is self-signed. */
+  scheme: '"http" | "https" = "http"',
+  /** Accept any certificate. A self-signed pair is the normal case here, and the probe is local. */
+  allowInvalidCert: 'boolean = false',
   /** Path on the server's own port, e.g. `/healthz`. */
   path: 'string = "/"',
   method: '"GET" | "HEAD" = "GET"',
@@ -446,6 +450,8 @@ const restartPatchSchema = type({
 }).onUndeclaredKey('reject')
 
 const httpCheckPatchSchema = type({
+  scheme: '"http" | "https"?',
+  allowInvalidCert: 'boolean?',
   path: 'string?',
   method: '"GET" | "HEAD"?',
   expectStatus: 'number.integer | null?',

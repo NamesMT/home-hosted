@@ -34,6 +34,22 @@ describe('the HEAD/body rule', () => {
     expect(serverWarns('HEAD', ''), 'no requirement, nothing to skip').toBe(false)
   })
 
+  /**
+   * `allowInvalidCert` on a plain-http probe reads as a setting that is in force, and is not: there
+   * is no certificate in that request. Warned where it is set, like the HEAD rule above.
+   */
+  it('warns when a certificate setting cannot apply', () => {
+    const parse = (health: Record<string, unknown>): string[] =>
+      parseServersFile({ servers: [{ id: 'app', command: 'node', health }] }, {}).warnings
+
+    expect(parse({ mode: 'http', http: { scheme: 'http', allowInvalidCert: true } })
+      .some(warning => warning.includes('no certificate to check'))).toBe(true)
+    expect(parse({ mode: 'http', http: { scheme: 'https', allowInvalidCert: true } })
+      .some(warning => warning.includes('no certificate to check')), 'over https it does apply').toBe(false)
+    expect(parse({ mode: 'http', http: { scheme: 'http', allowInvalidCert: false } })
+      .some(warning => warning.includes('no certificate to check')), 'nothing was asked for').toBe(false)
+  })
+
   it('is mirrored by both UIs on the field where it is set', () => {
     const noc = fs.readFileSync(path.join(root, 'uis/noc-console/src/views/ServerConfigView.vue'), 'utf8')
     const stock = fs.readFileSync(path.join(root, 'uis/stock/src/components/server/LifecycleFields.vue'), 'utf8')

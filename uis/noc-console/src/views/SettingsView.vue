@@ -67,7 +67,7 @@ const form = reactive({
     health: {
       enabled: true,
       mode: 'port' as 'port' | 'http',
-      http: { path: '/', method: 'GET' as 'GET' | 'HEAD', expectStatus: undefined as number | null | undefined, expectStatusBelow: 400, expectBody: '' },
+      http: { scheme: 'http' as 'http' | 'https', allowInvalidCert: false, path: '/', method: 'GET' as 'GET' | 'HEAD', expectStatus: undefined as number | null | undefined, expectStatusBelow: 400, expectBody: '' },
       intervalMs: 5000,
       timeoutMs: 1500,
       unhealthyThreshold: 3,

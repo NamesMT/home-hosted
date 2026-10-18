@@ -98,6 +98,14 @@ const signalOptions = computed(() => [
     <NumberField v-model="startTimeoutMs" :label="t('lifecycle.startTimeout')" :min="0" />
 
     <template v-if="showHttp && health.mode === 'http'">
+      <SelectField
+        v-model="health.http.scheme"
+        :label="t('lifecycle.httpScheme')"
+        :options="[
+          { value: 'http', label: 'http' },
+          { value: 'https', label: 'https' },
+        ]"
+      />
       <TextField v-model="health.http.path" :label="t('lifecycle.httpPath')" placeholder="/healthz" />
       <SelectField
         v-model="health.http.method"
@@ -109,6 +117,13 @@ const signalOptions = computed(() => [
       />
       <NumberField v-model="expectStatus" :label="t('lifecycle.expectStatus')" nullable :hint="t('lifecycle.expectStatusHint')" />
       <NumberField v-model="expectStatusBelow" :label="t('lifecycle.expectStatusBelow')" :min="100" />
+      <ToggleSwitch
+        v-if="health.http.scheme === 'https'"
+        v-model="health.http.allowInvalidCert"
+        :label="t('lifecycle.allowInvalidCert')"
+        :hint="t('lifecycle.allowInvalidCertHint')"
+        wide
+      />
       <TextField
         v-model="health.http.expectBody"
         :label="t('lifecycle.expectBody')"

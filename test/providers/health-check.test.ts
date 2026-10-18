@@ -1,7 +1,13 @@
+import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
 import http from 'node:http'
+import https from 'node:https'
 import net from 'node:net'
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { probeHealth, probeHttp, probeTcp } from '#src/providers/health-check'
+import { hasOpenssl } from '../support/capabilities'
 
 const servers: Array<{ close: () => Promise<void> }> = []
 
@@ -17,6 +23,35 @@ async function httpServer(handler: (req: http.IncomingMessage, res: http.ServerR
   return port
 }
 
+/**
+ * A real TLS server, so the https path is exercised against a real handshake rather than a stub.
+ * The certificate is self-signed, which is the case that matters here: `fetch` cannot be told to
+ * accept one, which is why the probe speaks https directly.
+ */
+let tlsPair: { cert: string, key: string } | null = null
+function selfSigned(): { cert: string, key: string } {
+  if (tlsPair !== null)
+    return tlsPair
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-probe-'))
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(dir, 'k.pem'), '-out', path.join(dir, 'c.pem'), '-days', '3', '-subj', '/CN=localhost'], { stdio: 'ignore' })
+    tlsPair = { cert: fs.readFileSync(path.join(dir, 'c.pem'), 'utf8'), key: fs.readFileSync(path.join(dir, 'k.pem'), 'utf8') }
+  }
+  finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+  return tlsPair
+}
+
+async function httpsServer(handler: (req: http.IncomingMessage, res: http.ServerResponse) => void): Promise<number> {
+  const { cert, key } = selfSigned()
+  const server = https.createServer({ cert, key }, handler)
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = (server.address() as net.AddressInfo).port
+  servers.push({ close: () => new Promise<void>(resolve => server.close(() => resolve())) })
+  return port
+}
+
 async function tcpServer(): Promise<number> {
   const server = net.createServer(socket => socket.end())
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -25,7 +60,8 @@ async function tcpServer(): Promise<number> {
   return port
 }
 
-const defaults = { path: '/', method: 'GET' as const, expectStatusBelow: 400, expectBody: '' }
+const defaults = { scheme: 'http' as const, allowInvalidCert: false, path: '/', method: 'GET' as const, expectStatusBelow: 400, expectBody: '' }
+const secureDefaults = { ...defaults, scheme: 'https' as const }
 
 describe('probeHttp', () => {
   it('passes on a 2xx and reports timing', async () => {
@@ -112,6 +148,31 @@ describe('probeHttp', () => {
     expect(get.detail).toContain('does not contain')
   })
 
+  /**
+   * A TLS-only backend is the case this probe could not answer at all, and the failure was not
+   * benign: the check reported unhealthy for a server that was serving fine, so `forceRestartAfterMs`
+   * restarted it in a loop. The certificate is self-signed, so the default (`verify`) must fail and
+   * `allowInvalidCert` must make the same probe succeed — both halves are asserted, because a probe
+   * that simply ignored certificates would pass the second one alone.
+   */
+  it.runIf(hasOpenssl)('probes https, and only accepts the certificate when told to', async () => {
+    const port = await httpsServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' })
+      res.end('secure')
+    })
+
+    const verified = await probeHttp('127.0.0.1', port, { ...secureDefaults, timeoutMs: 2000 })
+    expect(verified.healthy, 'a self-signed certificate is not trusted by default').toBe(false)
+
+    const accepted = await probeHttp('127.0.0.1', port, { ...secureDefaults, allowInvalidCert: true, expectBody: 'secure', timeoutMs: 2000 })
+    expect(accepted.healthy).toBe(true)
+    expect(accepted.detail).toBe('HTTP 200')
+
+    // The scheme is what decides, not the port: the same server over `http` fails the handshake.
+    const wrongScheme = await probeHttp('127.0.0.1', port, { ...defaults, timeoutMs: 2000 })
+    expect(wrongScheme.healthy).toBe(false)
+  })
+
   it('reports a refused connection', async () => {
     const result = await probeHttp('127.0.0.1', 9, { ...defaults, timeoutMs: 500 })
     expect(result.healthy).toBe(false)
@@ -162,7 +223,7 @@ describe('probeHealth', () => {
 
   it('reports unhealthy once every host has been tried', async () => {
     const port = await tcpServer()
-    const defaults = { path: '/', method: 'GET' as const, expectBody: '', expectStatusBelow: 400, expectStatus: null }
+    const defaults = { scheme: 'http' as const, allowInvalidCert: false, path: '/', method: 'GET' as const, expectBody: '', expectStatusBelow: 400, expectStatus: null }
 
     // The loop has to keep walking: the first host is unroutable and times out, the second refuses
     // immediately. Reporting the first result would be the bug.

@@ -18,7 +18,7 @@ const LITERAL_RESTART: RestartConfig = { enabled: true, maxRetries: 3, baseDelay
 const LITERAL_HEALTH: HealthConfig = {
   enabled: true,
   mode: 'port',
-  http: { path: '/', method: 'GET', expectStatusBelow: 400, expectBody: '' },
+  http: { scheme: 'http', allowInvalidCert: false, path: '/', method: 'GET', expectStatusBelow: 400, expectBody: '' },
   intervalMs: 5000,
   timeoutMs: 1500,
   unhealthyThreshold: 3,

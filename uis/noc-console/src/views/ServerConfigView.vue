@@ -50,6 +50,8 @@ const form = reactive({
 
   healthEnabled: true,
   healthMode: 'port' as 'port' | 'http',
+  httpScheme: 'http' as 'http' | 'https',
+  httpAllowInvalidCert: false,
   httpPath: '/',
   httpMethod: 'GET' as 'GET' | 'HEAD',
   httpExpectStatus: '',
@@ -107,6 +109,8 @@ function load(cfg: ServerConfig): void {
     resetAfterMs: String(cfg.restart.resetAfterMs),
     healthEnabled: cfg.health.enabled,
     healthMode: cfg.health.mode,
+    httpScheme: cfg.health.http.scheme,
+    httpAllowInvalidCert: cfg.health.http.allowInvalidCert,
     httpPath: cfg.health.http.path,
     httpMethod: cfg.health.http.method,
     httpExpectStatus: cfg.health.http.expectStatus == null ? '' : String(cfg.health.http.expectStatus),
@@ -173,6 +177,8 @@ function buildPayload(): Record<string, unknown> {
       enabled: form.healthEnabled,
       mode: form.healthMode,
       http: {
+        scheme: form.httpScheme,
+        allowInvalidCert: form.httpAllowInvalidCert,
         path: form.httpPath,
         method: form.httpMethod,
         // `null` clears the exact-status check; omitting it would keep an existing value.
@@ -422,6 +428,13 @@ async function remove(): Promise<void> {
 
               <div v-if="form.healthEnabled && form.healthMode === 'http'" class="grid" style="margin-top: 0.5rem">
                 <label class="field">
+                  <span class="field__label">scheme</span>
+                  <select v-model="form.httpScheme">
+                    <option value="http">http</option>
+                    <option value="https">https</option>
+                  </select>
+                </label>
+                <label class="field">
                   <span class="field__label">http path</span>
                   <input v-model="form.httpPath" placeholder="/healthz">
                 </label>
@@ -439,6 +452,11 @@ async function remove(): Promise<void> {
                 <label class="field">
                   <span class="field__label">healthy below status</span>
                   <input v-model="form.httpExpectStatusBelow" inputmode="numeric">
+                </label>
+                <label v-if="form.httpScheme === 'https'" class="field grid__full">
+                  <span class="field__label">accept any certificate</span>
+                  <input v-model="form.httpAllowInvalidCert" type="checkbox">
+                  <span class="field__hint">for a self-signed backend</span>
                 </label>
                 <label class="field grid__full">
                   <span class="field__label">body must contain</span>

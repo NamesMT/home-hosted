@@ -121,6 +121,12 @@ describe('patch surface', () => {
       expect(Object.keys(patch[group]?.properties ?? {}).sort(), group)
         .toEqual(Object.keys(full[group]?.properties ?? {}).sort())
     }
+
+    // `health.http` is one level deeper, so the loop above only compares the group's own key.
+    const fullHttp = full.health?.properties?.http as { properties?: Record<string, unknown> } | undefined
+    const patchHttp = patch.health?.properties?.http as { properties?: Record<string, unknown> } | undefined
+    expect(Object.keys(patchHttp?.properties ?? {}).sort(), 'health.http')
+      .toEqual(Object.keys(fullHttp?.properties ?? {}).sort())
   })
 
   it('keeps the nested patch groups free of defaults', () => {
@@ -375,6 +381,26 @@ describe('numeric bounds', () => {
     expect(ok(healthSchema, { unhealthyThreshold: 0 })).toBe(false)
     expect(ok(healthSchema, { forceRestartAfterMs: 0 })).toBe(true)
     expect(ok(healthSchema, { forceRestartAfterMs: -1 })).toBe(false)
+  })
+
+  /**
+   * The probe's scheme is config, so it is validated like config.
+   *
+   * A TLS-only backend could not be probed at all before: `probeHttp` built an `http://` URL from
+   * the host and port alone, so every check against an HTTPS backend failed on the protocol — and
+   * `forceRestartAfterMs` then restarted a healthy server. Both fields are additive, and the
+   * defaults keep an existing config reading exactly as it did.
+   */
+  it('accepts both probe schemes, and defaults to the old http one', () => {
+    const defaults = unwrap(healthSchema({}))
+    expect(defaults.http.scheme, 'an existing config must not start probing https').toBe('http')
+    expect(defaults.http.allowInvalidCert, 'a certificate is verified unless asked otherwise').toBe(false)
+
+    expect(ok(healthSchema, { http: { scheme: 'https' } })).toBe(true)
+    expect(ok(healthSchema, { http: { scheme: 'https', allowInvalidCert: true } })).toBe(true)
+    // Only the two protocols the probe can actually speak.
+    expect(ok(healthSchema, { http: { scheme: 'ftp' } })).toBe(false)
+    expect(ok(healthSchema, { http: { scheme: 'https', bogus: 1 } })).toBe(false)
   })
 
   it('holds the auth and log bounds', () => {

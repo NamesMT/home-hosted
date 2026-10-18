@@ -123,7 +123,7 @@ export const SCHEMA_RESTART: RestartConfig = {
 export const SCHEMA_HEALTH: HealthConfig = {
   enabled: true,
   mode: 'port',
-  http: { path: '/', method: 'GET', expectStatusBelow: 400, expectBody: '' },
+  http: { scheme: 'http', allowInvalidCert: false, path: '/', method: 'GET', expectStatusBelow: 400, expectBody: '' },
   intervalMs: 5000,
   timeoutMs: 1500,
   unhealthyThreshold: 3,

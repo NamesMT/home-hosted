@@ -305,6 +305,11 @@ function validateCrossField(servers: ServerConfig[]): string[] {
     if (health.mode === 'http' && health.http.method === 'HEAD' && health.http.expectBody.length > 0)
       errors.push(`"${server.id}" requires a response body with method HEAD, which has none — the body check is ignored`)
 
+    // `allowInvalidCert` only means anything over TLS; set on a plain-http check it reads as a
+    // setting that is silently in force. Said out loud so it is not mistaken for one.
+    if (health.mode === 'http' && health.http.scheme === 'http' && health.http.allowInvalidCert)
+      errors.push(`"${server.id}" sets allowInvalidCert on an http probe, where there is no certificate to check`)
+
     for (const dependency of server.dependsOn) {
       if (dependency === server.id)
         errors.push(`"${server.id}" depends on itself`)
