@@ -27,10 +27,19 @@ line in `AGENTS.md` instead.
 - **A bounded read must stay bounded.** `readLog` (`providers/log-tail.ts`) answers `logs --lines N`
   from the tail of the file, so peak allocation does not scale with a 10 MB pair; the test asserts
   that shape rather than a wall-clock number, which would be flaky on CI.
-- **`pnpm run media` needs fonts *and* the X/NSS/Mesa libraries** for Playwright's Chromium. In a
-  bare container point `FONTCONFIG_PATH` at a `fonts.conf` covering any TTF and `LD_LIBRARY_PATH` at
-  a directory holding those libraries — without fonts, Skia panics instead of rendering, and the
+- **`pnpm run media` needs a browser that `pnpm install` does not fetch, plus fonts and the
+  X/NSS/Mesa libraries.** Playwright's package is a dependency but its Chromium is a separate
+  download (`pnpm exec playwright install chromium`, ~150 MB in `~/.cache/ms-playwright`), so the
+  script loads it lazily and names that command rather than letting Playwright's ad panel read as a
+  crash — `gif` alone re-encodes frames already on disk and never touches it. In a bare container
+  also point `FONTCONFIG_PATH` at a `fonts.conf` covering any TTF and `LD_LIBRARY_PATH` at a
+  directory holding those libraries: without fonts, Skia panics instead of rendering, and the
   failure looks like a broken page rather than a missing package.
+- **`capture-media.mjs` writes a *workspace-era* home.** It used to write `control` and `defaults`
+  into `servers.config.json`, which the workspace split moved to `settings.json` — so the panel
+  ignored the port it was given and listened on 3999, and the `uis` capture timed out waiting on
+  the port it thought it had chosen. The layout it writes now is `.hh/settings.json` (panel-wide),
+  `.hh/default/settings.json` and `.hh/default/servers.config.json`.
 
 ## Supervision
 

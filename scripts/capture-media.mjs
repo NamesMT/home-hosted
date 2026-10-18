@@ -14,8 +14,14 @@
  *   node scripts/capture-media.mjs uis        # served UIs only
  *   node scripts/capture-media.mjs gif        # rebuild the GIF from the frames on disk
  *
- * Playwright drives Chromium. Two things a bare container usually lacks, both of which make
- * Chromium die while rendering (a Skia font panic, or a missing shared library):
+ * Playwright drives Chromium, and `gif` alone does not need it: the browser is imported only
+ * when it is about to be launched, and the mode that just re-encodes frames already on disk
+ * reaches none of it. Playwright's browser binary is a separate download (`pnpm exec
+ * playwright install chromium`, ~150 MB into `~/.cache/ms-playwright`) — nothing in the normal
+ * `pnpm install` fetches it, which is why the failure is a clear message rather than a crash.
+ *
+ * Two things a bare container usually lacks, both of which make Chromium die while rendering
+ * (a Skia font panic, or a missing shared library):
  *
  *   FONTCONFIG_PATH=/path/to/conf   a fonts.conf with a <dir> holding any TTF
  *   LD_LIBRARY_PATH=/path/to/usr/lib   the X/NSS/Mesa libraries if the system has none
@@ -30,7 +36,6 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import gifenc from 'gifenc'
-import { chromium } from 'playwright'
 import pngjs from 'pngjs'
 
 // both are CommonJS when Node resolves them, so take the named members off the default
@@ -154,13 +159,26 @@ async function makeHome(uiDist, label) {
     autostart: false,
   })
 
+  // `control` and `defaults` are panel-wide and live in the global settings; the workspace
+  // config holds only its own entries. Both files belong at `$HHOSTED_HOME/.hh`, one level
+  // below the directory the panel is pointed at — not beside `servers.config.json`.
   const port = await freePort()
+  const hh = path.join(state, '.hh')
+  fs.mkdirSync(path.join(hh, 'default'), { recursive: true })
   fs.writeFileSync(
-    path.join(state, 'servers.config.json'),
-    `${JSON.stringify({ control: { port, host: 'local', auth: { enabled: false }, ...(label ? { label } : {}) }, defaults: { logBufferLines: 500 }, servers }, null, 2)}\n`,
+    path.join(hh, 'settings.json'),
+    `${JSON.stringify({ control: { port, host: 'local', auth: { enabled: false }, ...(label ? { label } : {}) } }, null, 2)}\n`,
+  )
+  fs.writeFileSync(
+    path.join(hh, 'default', 'settings.json'),
+    `${JSON.stringify({ defaults: { logBufferLines: 500 } }, null, 2)}\n`,
+  )
+  fs.writeFileSync(
+    path.join(hh, 'default', 'servers.config.json'),
+    `${JSON.stringify({ servers }, null, 2)}\n`,
   )
   if (uiDist)
-    fs.cpSync(uiDist, path.join(state, '.ui'), { recursive: true })
+    fs.cpSync(uiDist, path.join(hh, '.ui'), { recursive: true })
 
   return { home, state, port }
 }
@@ -283,13 +301,39 @@ async function buildGif() {
   process.stdout.write(`[media] tour.gif — ${frames.length} frames, ${Math.round(size / 1024)} KB\n`)
 }
 
+/**
+ * Chromium, or a message that says what to do.
+ *
+ * Playwright's own missing-browser panel is a boxed advertisement printed from inside its
+ * stack, which reads like a crashed tool rather than an uninstalled one. The browser binary is
+ * deliberately not an install-time dependency, so this is the expected first run on most
+ * machines.
+ */
+async function launchChromium() {
+  let playwright
+  try {
+    playwright = await import('playwright')
+  }
+  catch {
+    throw new Error('`pnpm exec playwright install chromium` is needed to render the media — the browser binary is not part of `pnpm install`')
+  }
+
+  try {
+    return await playwright.chromium.launch()
+  }
+  catch (error) {
+    const detail = error instanceof Error ? error.message.split('\n')[0] : String(error)
+    throw new Error(`Chromium would not start: ${detail}\n  run: pnpm exec playwright install chromium`)
+  }
+}
+
 fs.mkdirSync(mediaDir, { recursive: true })
 
 if (wants('gif') && only.length === 1 && only[0] === 'gif') {
   await buildGif()
 }
 else {
-  const browser = await chromium.launch()
+  const browser = await launchChromium()
   const page = await browser.newPage({ viewport: FULL, deviceScaleFactor: 2 })
   try {
     if (wants('mockups'))

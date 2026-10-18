@@ -69,7 +69,8 @@ pnpm run set-password              # non-interactive through HHOSTED_PASSWORD
 pnpm run set-token                 # --generate prints a new API token once
 pnpm run migrate                   # bring the config up to this release's schema
 pnpm exec tsx src/cli.ts init      # scaffold a project (interactive; --yes for defaults)
-pnpm run media                     # regenerate docs/media (mockups, both served UIs, tour.gif)
+pnpm run media                     # regenerate docs/media; needs `pnpm exec playwright install chromium`
+                                   #   once (browser only; `gif` alone does not)
 ```
 
 The published bin is `home-hosted`, with an `hh` alias: both names run the same CLI.
