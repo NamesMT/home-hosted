@@ -112,6 +112,7 @@
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",
     "@i18n-micro/vue": "^1.4.9",
+    "@lucide/vue": "^1.59.0",
     "@standard-schema/spec": "^1.1.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
@@ -123,7 +124,6 @@
     "gifenc": "^1.0.3",
     "happy-dom": "^20.14.5",
     "lint-staged": "^17.5.1",
-    "lucide-vue-next": "^1.0.0",
     "playwright": "^1.63.0",
     "pngjs": "^7.0.0",
     "reka-ui": "^2.10.5",

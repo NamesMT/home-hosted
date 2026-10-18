@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ServerView } from '@shared/contracts'
+import { Code2, ExternalLink, MoreHorizontal, Pencil, Play, RotateCw, Square, Trash2 } from '@lucide/vue'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
-import { Code2, ExternalLink, MoreHorizontal, Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-vue-next'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'

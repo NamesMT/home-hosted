@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Tone } from '@/lib/status'
-import { CircleCheck, CircleX, Info, TriangleAlert, X } from 'lucide-vue-next'
+import { CircleCheck, CircleX, Info, TriangleAlert, X } from '@lucide/vue'
 import { computed } from 'vue'
 import { useToasts } from '@/composables/useToasts'
 import { t } from '@/i18n'

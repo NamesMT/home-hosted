@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { LogLine } from '@shared/contracts'
-import { ArrowDownToLine, ChevronDown, ChevronUp, Circle, Pause, Play, Search, Trash2, X } from 'lucide-vue-next'
+import { ArrowDownToLine, ChevronDown, ChevronUp, Circle, Pause, Play, Search, Trash2, X } from '@lucide/vue'
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import LogRow from '@/components/log/LogRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'

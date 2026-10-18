@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LoaderCircle } from 'lucide-vue-next'
+import { LoaderCircle } from '@lucide/vue'
 import { computed, useAttrs } from 'vue'
 import { cn } from '@/lib/cn'
 import { focusRing } from '@/lib/ui'

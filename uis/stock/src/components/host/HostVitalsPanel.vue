@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
-import { Cpu, HardDrive, MemoryStick, Thermometer } from 'lucide-vue-next'
+import { Cpu, HardDrive, MemoryStick, Thermometer } from '@lucide/vue'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
 import Meter from '@/components/telemetry/Meter.vue'

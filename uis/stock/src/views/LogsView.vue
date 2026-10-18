@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { LogLine } from '@shared/contracts'
+import { ArrowDownToLine, CircleAlert, FileText, RefreshCw, ScrollText, Trash2 } from '@lucide/vue'
 import { errorMessage } from '@shared/error-message'
-import { ArrowDownToLine, CircleAlert, FileText, RefreshCw, ScrollText, Trash2 } from 'lucide-vue-next'
 import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import LogViewer from '@/components/log/LogViewer.vue'

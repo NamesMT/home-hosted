@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { HistoryEvent, ServerView } from '@shared/contracts'
 import type { HistoryType } from '@/lib/status'
-import { CircleAlert, CircleCheck, Play, RotateCw, Square, TriangleAlert } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, Play, RotateCw, Square, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { t } from '@/i18n'

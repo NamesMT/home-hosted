@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown } from 'lucide-vue-next'
+import { ChevronDown } from '@lucide/vue'
 import { useId } from 'vue'
 import { cn } from '@/lib/cn'
 import { hintClass, inputClass, labelClass } from '@/lib/ui'

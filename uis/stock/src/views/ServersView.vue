@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Play, Plus, Search, Server as ServerIcon, Square, X } from 'lucide-vue-next'
+import { Play, Plus, Search, Server as ServerIcon, Square, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import AddServerDialog from '@/components/server/AddServerDialog.vue'
 import ServerCard from '@/components/server/ServerCard.vue'

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Command, LogOut, Menu, Monitor, Moon, Search, Sun } from 'lucide-vue-next'
+import { Command, LogOut, Menu, Monitor, Moon, Search, Sun } from '@lucide/vue'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'

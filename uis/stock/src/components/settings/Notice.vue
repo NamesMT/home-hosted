@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
 import type { Tone } from '@/lib/status'
-import { AlertTriangle, CheckCircle2, Info, OctagonAlert, ShieldAlert } from 'lucide-vue-next'
+import { AlertTriangle, CheckCircle2, Info, OctagonAlert, ShieldAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import { cn } from '@/lib/cn'
 import { TONE_SURFACE } from '@/lib/status'

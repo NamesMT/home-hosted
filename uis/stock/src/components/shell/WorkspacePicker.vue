@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { WorkspaceView } from '@shared/contracts'
-import { Check, ChevronsUpDown, Layers, Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import { Check, ChevronsUpDown, Layers, Pencil, Plus, Trash2 } from '@lucide/vue'
 import { PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed, nextTick, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, EyeOff, LogIn, ShieldAlert, ShieldCheck, ShieldOff } from 'lucide-vue-next'
+import { Eye, EyeOff, LogIn, ShieldAlert, ShieldCheck, ShieldOff } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppButton from '@/components/ui/AppButton.vue'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
-import { Boxes, Globe, LayoutDashboard, ScrollText, Server, Settings2, SlidersHorizontal, Waypoints, X } from 'lucide-vue-next'
+import { Boxes, Globe, LayoutDashboard, ScrollText, Server, Settings2, SlidersHorizontal, Waypoints, X } from '@lucide/vue'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import InstrumentCluster from '@/components/shell/InstrumentCluster.vue'

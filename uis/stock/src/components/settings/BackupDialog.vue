@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { BackupsView } from '@shared/contracts'
 import type { EntryChoice } from '@/components/settings/backupSelection'
+import { Boxes, Layers } from '@lucide/vue'
 import { errorMessage } from '@shared/error-message'
-import { Boxes, Layers } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { allLeavesSelected, captureEntries, includeIds, selectAll, selectionCount } from '@/components/settings/backupSelection'
 import Notice from '@/components/settings/Notice.vue'

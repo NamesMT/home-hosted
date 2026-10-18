@@ -20,7 +20,7 @@ import {
   Sun,
   Terminal,
   Waypoints,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
 import { DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'

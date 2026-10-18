@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, Copy } from 'lucide-vue-next'
+import { Check, Copy } from '@lucide/vue'
 import { onScopeDispose, ref } from 'vue'
 import { t } from '@/i18n'
 import { cn } from '@/lib/cn'

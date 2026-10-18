@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, CircleAlert, Cpu, Layers, Plus, Server as ServerIcon } from 'lucide-vue-next'
+import { Activity, CircleAlert, Cpu, Layers, Plus, Server as ServerIcon } from '@lucide/vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import HostVitalsPanel from '@/components/host/HostVitalsPanel.vue'

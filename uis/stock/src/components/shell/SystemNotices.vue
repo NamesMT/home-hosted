@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ControlView } from '@shared/contracts'
-import { CircleAlert, TriangleAlert } from 'lucide-vue-next'
+import { CircleAlert, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import { t } from '@/i18n'
 

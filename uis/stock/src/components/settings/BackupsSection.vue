@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import type { BackupsConfig, BackupsView, WorkspaceView } from '@shared/contracts'
 import type { BackupsForm } from '@/components/settings/settingsForm'
+import { Archive, Download, RotateCcw } from '@lucide/vue'
 import { errorMessage } from '@shared/error-message'
-import { Archive, Download, RotateCcw } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import BackupDialog from '@/components/settings/BackupDialog.vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'

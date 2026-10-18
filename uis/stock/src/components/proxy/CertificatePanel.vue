@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ProxyCertificateView, ProxyView } from '@shared/contracts'
+import { KeyRound, Plus, Trash2 } from '@lucide/vue'
 import { errorMessage } from '@shared/error-message'
-import { KeyRound, Plus, Trash2 } from 'lucide-vue-next'
 import { PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
 import CertificateDialog from '@/components/proxy/CertificateDialog.vue'

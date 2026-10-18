@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, CircleAlert, Play, Plus, Server as ServerIcon, Square, Timer } from 'lucide-vue-next'
+import { Activity, CircleAlert, Play, Plus, Server as ServerIcon, Square, Timer } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
 import AddServerDialog from '@/components/server/AddServerDialog.vue'

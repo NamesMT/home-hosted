@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ProxyRouteView } from '@shared/contracts'
 import type { ProxyWorkspace, RouteDraft } from '@/lib/proxy'
-import { Pencil, Plus, Trash2, Waypoints } from 'lucide-vue-next'
+import { Pencil, Plus, Trash2, Waypoints } from '@lucide/vue'
 import { computed } from 'vue'
 import RetryCertificateButton from '@/components/proxy/RetryCertificateButton.vue'
 import Notice from '@/components/settings/Notice.vue'

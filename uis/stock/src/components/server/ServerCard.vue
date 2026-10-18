@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { ServerView } from '@shared/contracts'
 import type { ServerSeries } from '@/lib/telemetry'
-import { browserServerUrl, pageHostname } from '@shared/server-url'
 import {
   CircleAlert,
   CircleCheck,
@@ -14,7 +13,8 @@ import {
   Square,
   Trash2,
   TriangleAlert,
-} from 'lucide-vue-next'
+} from '@lucide/vue'
+import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
 import KillPortButton from '@/components/server/KillPortButton.vue'
