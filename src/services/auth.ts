@@ -18,6 +18,15 @@ const ATTEMPT_RECORD_TTL_MS = 60 * 60_000
 export interface SessionRecord {
   token: string
   /**
+   * The `updatedAt` of the password this session was issued under.
+   *
+   * Sessions live in this process's memory, so a password written by *another* process — the
+   * `set-password` CLI, which writes the secrets file directly — was invisible here: it rotated
+   * the hash the panel honoured while every existing cookie stayed valid for up to `sessionTtlMs`.
+   * Stamping the revision on the session makes any rotation invalidate it, whoever wrote it.
+   */
+  passwordRevision: number | null
+  /**
    * Slid forward on every validated request, so this is an **idle** timeout — `sessionTtlMs` after the
    * last visit, not after login. There is deliberately no absolute cap; the login page says so.
    */
@@ -171,6 +180,15 @@ export class AuthService {
     const session = this.sessions.get(token)
     if (!session)
       return null
+    // The password changed since this session was issued — by the API, or by `set-password` in
+    // another process writing the same file. Either way the credential it represents is gone.
+
+    // The password changed since this session was issued — by the API, or by `set-password` in
+    // another process writing the same file. Either way the credential it represents is gone.
+    if (session.passwordRevision !== this.secrets.passwordUpdatedAt) {
+      this.sessions.delete(token)
+      return null
+    }
 
     const now = Date.now()
     if (session.expiresAt <= now) {
@@ -234,6 +252,7 @@ export class AuthService {
     const token = crypto.randomBytes(32).toString('base64url')
     this.sessions.set(token, {
       token,
+      passwordRevision: this.secrets.passwordUpdatedAt,
       expiresAt: now + config.sessionTtlMs,
       lastSeenAt: now,
       ip,
@@ -258,7 +277,13 @@ export class AuthService {
    */
   setPassword(password: string, options: { isDefault?: boolean, keepToken?: string | null } = {}): void {
     this.secrets.setPassword(password, options)
-    this.logoutOthers(options.keepToken ?? null)
+    const keep = options.keepToken ?? null
+    this.logoutOthers(keep)
+    // The kept session is re-stamped with the new revision, or the freshness check below would
+    // sign the very browser that made the change out of the page it just used.
+    const session = keep === null ? undefined : this.sessions.get(keep)
+    if (session !== undefined)
+      session.passwordRevision = this.secrets.passwordUpdatedAt
   }
 
   /** Drops every session except one, which is how a password change stays signed in. */

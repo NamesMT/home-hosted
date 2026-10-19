@@ -200,6 +200,30 @@ describe('auth service', () => {
     expect(auth.validate(outcome.token)).toBeNull()
   })
 
+  /**
+   * A password written by *another process* must invalidate sessions too.
+   *
+   * `home-hosted set-password` writes the secrets file directly — it cannot reach this process's
+   * in-memory sessions — so the old behaviour rotated the hash the panel honoured while every
+   * existing cookie stayed valid for up to `sessionTtlMs` (a week by default). Sessions now carry
+   * the password revision they were issued under, so any rotation drops them whoever wrote it.
+   */
+  it('invalidates sessions when another process changes the password file', async () => {
+    const { auth, file } = await makeAuth()
+    auth.setPassword('a-good-password')
+
+    const outcome = auth.login('a-good-password', null)
+    if (!outcome.ok)
+      throw new Error('could not sign in')
+    expect(auth.validate(outcome.token)).not.toBeNull()
+
+    // A second store over the same file is exactly what the CLI is: another process, same state.
+    const second = new SecretsStore(file)
+    second.setPassword('written-by-the-cli')
+
+    expect(auth.validate(outcome.token), 'the old cookie must not survive a rotation').toBeNull()
+  })
+
   it('keeps the session that changed the password, and drops the others', async () => {
     const { auth } = await makeAuth()
     auth.setPassword('a-good-password')

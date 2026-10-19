@@ -38,7 +38,7 @@ export async function runSetPassword(clear: boolean): Promise<void> {
   process.stdout.write(`${green('password stored')} in ${secretsPath} (mode 0600)\n`)
   if (password.length < 8)
     process.stdout.write(`${dim(`"${password}" is short — easy to guess if the panel is reachable beyond loopback`)}\n`)
-  process.stdout.write(`${dim('restart the panel for it to take effect: home-hosted restart')}\n`)
+  process.stdout.write(`${dim('a running panel picks it up immediately, and every existing browser session is signed out')}\n`)
 }
 
 export const setPasswordCommand = defineCommand({
