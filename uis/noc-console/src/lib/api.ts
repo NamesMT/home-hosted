@@ -306,20 +306,21 @@ export function testWebhook(workspace: string, payload: { target: Record<string,
   return request(scoped('/api/notifications/test-webhook', workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
-export function saveTelegramToken(botToken: string, workspace?: string | null): Promise<{ ok: boolean, username: string | null }> {
-  return request(scoped('/api/notifications/token', workspace), { method: 'PUT', body: JSON.stringify({ botToken }) })
+/** A Telegram destination's bot token, keyed by destination id: one workspace may hold several. */
+export function saveTelegramToken(id: string, botToken: string, workspace?: string | null): Promise<{ ok: boolean, username: string | null }> {
+  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/token`, workspace), { method: 'PUT', body: JSON.stringify({ botToken }) })
 }
 
-export function clearTelegramToken(workspace?: string | null): Promise<unknown> {
-  return request(scoped('/api/notifications/token', workspace), { method: 'DELETE' })
+export function clearTelegramToken(id: string, workspace?: string | null): Promise<unknown> {
+  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/token`, workspace), { method: 'DELETE' })
 }
 
-export function sendTelegramTest(payload: { botToken?: string, chatId?: string }, workspace?: string | null): Promise<{ ok: boolean, error?: string }> {
-  return request(scoped('/api/notifications/test', workspace), { method: 'POST', body: JSON.stringify(payload) })
+export function sendTelegramTest(id: string, payload: { chatId?: string }, workspace?: string | null): Promise<{ ok: boolean, error?: string }> {
+  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/test`, workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
-export function detectTelegramChats(payload: { botToken?: string }, workspace?: string | null): Promise<{ chats: Array<{ id: number | string, title: string }> }> {
-  return request(scoped('/api/notifications/detect-chats', workspace), { method: 'POST', body: JSON.stringify(payload) })
+export function detectTelegramChats(id: string, payload: { botToken?: string }, workspace?: string | null): Promise<{ chats: Array<{ id: number | string, title: string }> }> {
+  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/detect-chats`, workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export async function fetchDdns(workspace?: string | null): Promise<DdnsView> {

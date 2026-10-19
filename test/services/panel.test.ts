@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CONFIG_SCHEMA } from '#src/config/migrations'
 
 /**
  * The real `PanelService`, not a stand-in.
@@ -183,6 +184,7 @@ async function makeHarness(options: {
   if (options.servers !== undefined) {
     fs.writeFileSync(panel.requireWorkspace('default').store.path, JSON.stringify({
       $schema: './servers.config.schema.json',
+      meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
       servers: options.servers,
     }, null, 2))
     panel.requireWorkspace('default').store.reloadFromDisk()
@@ -233,7 +235,7 @@ describe('panelService', () => {
       // every event and the assertion below would hold vacuously.
       expect(first!.notifications).not.toBe(second!.notifications)
       for (const runtime of [first!, second!])
-        runtime.store.updateNotifications({ telegram: { enabled: true, chatId: '1', cooldownMs: 60_000 } })
+        runtime.store.updateNotifications({ destinations: [{ kind: 'telegram', id: 'tg', enabled: true, chatId: '1', cooldownMs: 60_000 }] })
       const flap: NotificationEvent = { serverId: 'api', label: 'api', reason: 'crash', detail: 'boom' }
       const now = 1_000_000
       first!.notifications.markSent(flap, now)
@@ -344,7 +346,7 @@ describe('panelService', () => {
       // `makeHarness` seeds `servers` into the *default* workspace, so the removal loop would find
       // nothing to stop here. Write this workspace's own file, then reload the store it already built.
       const stuck = { id: 'stuck', command: process.execPath, args: ['-e', 'null'] }
-      fs.writeFileSync(runtime.store.path, JSON.stringify({ $schema: './servers.config.schema.json', servers: [stuck] }, null, 2))
+      fs.writeFileSync(runtime.store.path, JSON.stringify({ $schema: './servers.config.schema.json', meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers: [stuck] }, null, 2))
       runtime.store.reloadFromDisk()
       expect(runtime.store.servers, 'the workspace must have a server to stop').toHaveLength(1)
 
@@ -577,6 +579,7 @@ describe('panelService', () => {
       const runtime = panel.requireWorkspace('default')
       fs.writeFileSync(runtime.store.path, JSON.stringify({
         $schema: './servers.config.schema.json',
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
         servers: [{ id: 'added', command: process.execPath, args: ['-e', 'null'] }],
       }, null, 2))
 
@@ -610,6 +613,7 @@ describe('panelService', () => {
       // …and fixing it clears the error without a restart.
       fs.writeFileSync(runtime.store.path, JSON.stringify({
         $schema: './servers.config.schema.json',
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
         servers: [{ id: 'web', command: process.execPath, args: ['-e', 'null'] }],
       }, null, 2))
       await waitFor(() => runtime.store.configError === null)
@@ -661,6 +665,7 @@ describe('panelService', () => {
 
       fs.writeFileSync(runtime.store.path, JSON.stringify({
         $schema: './servers.config.schema.json',
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
         servers: [{ ...runningServer, id: 'auto', autostart: true, enabled: true }],
       }, null, 2))
 
@@ -684,6 +689,7 @@ describe('panelService', () => {
       const runtime = panel.requireWorkspace('default')
       fs.writeFileSync(runtime.store.path, JSON.stringify({
         $schema: './servers.config.schema.json',
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
         servers: [{ ...runningServer, id: 'auto', autostart: true, enabled: true }],
       }, null, 2))
 
@@ -779,7 +785,9 @@ describe('the state frame a UI actually reads', () => {
       expect(view.serverCount).toBe(0)
       expect(view.runningCount).toBe(0)
       expect(view.configError).toBeNull()
-      expect(view.notifications.telegram.enabled).toBe(false)
+      // The new workspace carries the general block and no destinations until one is added.
+      expect(view.notifications.defaults?.onCrash).toBe(true)
+      expect(view.notifications.destinations).toEqual([])
       expect(view.logsDir).toContain('media')
     }
     finally {

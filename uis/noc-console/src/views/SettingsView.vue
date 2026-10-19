@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import type { DdnsConfig, LogsConfig, ServerDefaults, TelegramStatus, WebhookStatus, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { DdnsConfig, DestinationStatusView, LogsConfig, ServerDefaults, WorkspaceSettingsPatch } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { DraftConfig } from '@/lib/ddns'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import ConfirmButton from '@/components/ConfirmButton.vue'
 import DdnsPanel from '@/components/DdnsPanel.vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
@@ -22,15 +21,22 @@ import { repairNumbers } from '@/lib/forms'
 const control = useControlPlane()
 const workspace = useWorkspaces()
 
-/** The config schema carries `onHost`; the derived SSE view type has not caught up. */
-type TelegramPolicy = TelegramStatus & { onHost?: boolean }
-/** One webhook target as the config carries it: the status row minus its derived pair. */
-type WebhookPolicy = Omit<WebhookStatus, 'lastResult' | 'lastResultAt'>
+/** The general block as this page edits it. */
+interface PolicyDraft {
+  onCrash: boolean
+  onUnhealthy: boolean
+  onForcedRestart: boolean
+  onRecovered: boolean
+  onHost: boolean
+  onDdns: boolean
+  cooldownMs: number
+}
+/** One destination as the config carries it: the status row minus its derived fields. */
+type DestinationDraft = Omit<DestinationStatusView, 'lastResult' | 'lastResultAt'>
 
 const activeId = computed(() => workspace.activeId.value)
 const selected = computed(() => workspace.selected.value)
 const defaultsView = computed<ServerDefaults | null>(() => workspace.defaults.value)
-const telegram = computed<TelegramPolicy | null>(() => selected.value?.notifications.telegram ?? null)
 
 const settingsMessage = ref<string | null>(null)
 const settingsError = ref<string | null>(null)
@@ -47,9 +53,8 @@ const form = reactive({
     keep: 3,
   },
   notifications: {
-    telegram: {
-      enabled: false,
-      chatId: '',
+    /** The general block: what a destination inherits unless it opts out. */
+    policy: {
       onCrash: true,
       onUnhealthy: true,
       onForcedRestart: true,
@@ -57,9 +62,9 @@ const form = reactive({
       onHost: true,
       onDdns: true,
       cooldownMs: 120000,
-    },
-    /** The general transport: a list, because a panel alerts more than one place. */
-    webhooks: [] as WebhookPolicy[],
+    } as PolicyDraft,
+    /** One list, whatever the kind, because a panel alerts more than one place. */
+    destinations: [] as DestinationDraft[],
   },
   defaults: {
     enabled: true,
@@ -82,16 +87,14 @@ const form = reactive({
   },
 })
 
-/** Only the config-facing fields of the telegram status; the rest is derived. */
-function telegramConfig(status: TelegramPolicy): Record<string, unknown> {
+/** The general block as the form holds it. */
+function policyConfig(status: Omit<PolicyDraft, 'onDdns'> & { onDdns?: boolean }): PolicyDraft {
   return {
-    enabled: status.enabled,
-    chatId: status.chatId,
     onCrash: status.onCrash,
     onUnhealthy: status.onUnhealthy,
     onForcedRestart: status.onForcedRestart,
     onRecovered: status.onRecovered,
-    onHost: status.onHost === true,
+    onHost: status.onHost,
     // A panel from before DDNS sends no flag; absent means "on".
     onDdns: status.onDdns !== false,
     cooldownMs: status.cooldownMs,
@@ -99,24 +102,22 @@ function telegramConfig(status: TelegramPolicy): Record<string, unknown> {
 }
 
 /**
- * Only the config-facing fields of a webhook target; `id` is the list key and the last-result
- * pair is derived, so neither belongs in a patch.
+ * One destination as the form holds it. The row carries its *effective* policy, which is what a
+ * read-only view should show for an inheriting destination.
  */
-function webhookConfig(target: WebhookPolicy): WebhookPolicy {
+function destinationConfig(row: DestinationStatusView): DestinationDraft {
   return {
-    id: target.id,
-    url: target.url,
-    enabled: target.enabled,
-    method: target.method,
-    format: target.format,
-    headers: target.headers,
-    onCrash: target.onCrash,
-    onUnhealthy: target.onUnhealthy,
-    onForcedRestart: target.onForcedRestart,
-    onRecovered: target.onRecovered,
-    onHost: target.onHost,
-    onDdns: target.onDdns !== false,
-    cooldownMs: target.cooldownMs,
+    id: row.id,
+    kind: row.kind,
+    enabled: row.enabled,
+    useOwnSettings: row.useOwnSettings,
+    chatId: row.chatId ?? '',
+    tokenSet: row.tokenSet,
+    url: row.url ?? '',
+    method: row.method ?? 'POST',
+    format: row.format ?? 'json',
+    headers: row.headers ?? '',
+    ...policyConfig(row),
   }
 }
 
@@ -130,70 +131,59 @@ const POLICY_TOGGLES = [
   { key: 'onDdns', label: 'dynamic DNS' },
 ] as const
 
-/** One row's last test/send outcome, by position; a draft has no stored result. */
-const hookResults = ref<string[]>([])
+/** A row's own message (test result, token saved), by destination id. */
+const hookResults = ref<Record<string, string>>({})
 const hookError = ref<string | null>(null)
 
-function addHook(): void {
-  const existing = new Set(form.notifications.webhooks.map(hook => hook.id))
-  const base = 'hook'
-  let id = base
+function uniqueId(kind: DestinationDraft['kind']): string {
+  const existing = new Set(form.notifications.destinations.map(entry => entry.id))
+  if (!existing.has(kind))
+    return kind
   let suffix = 2
-  while (existing.has(id))
-    id = `${base}-${suffix++}`
+  while (existing.has(`${kind}-${suffix}`))
+    suffix += 1
+  return `${kind}-${suffix}`
+}
 
-  form.notifications.webhooks = [...form.notifications.webhooks, {
-    id,
-    url: '',
+function addDestination(kind: DestinationDraft['kind']): void {
+  form.notifications.destinations = [...form.notifications.destinations, {
+    id: uniqueId(kind),
+    kind,
     enabled: true,
+    // A destination created here opts into inheritance: that is what the general block is for.
+    useOwnSettings: false,
+    chatId: '',
+    tokenSet: false,
+    url: '',
     method: 'POST',
     format: 'json',
     headers: '',
-    onCrash: true,
-    onUnhealthy: true,
-    onForcedRestart: true,
-    onRecovered: false,
-    onHost: true,
-    onDdns: true,
-    cooldownMs: 120000,
-  }]
+    policy: undefined as never,
+    ...form.notifications.policy,
+  } as DestinationDraft]
 }
 
-function removeHook(id: string): void {
-  form.notifications.webhooks = form.notifications.webhooks.filter(hook => hook.id !== id)
+function removeDestination(id: string): void {
+  form.notifications.destinations = form.notifications.destinations.filter(entry => entry.id !== id)
 }
 
-/** Tests the target as the form holds it, so an unsaved URL and header block are what is tried. */
-async function testHook(hook: WebhookPolicy): Promise<void> {
+/** Tests the destination as the form holds it, so an unsaved URL and header block are what is tried. */
+async function testDestination(entry: DestinationDraft): Promise<void> {
   hookError.value = null
-  const index = form.notifications.webhooks.indexOf(hook)
   try {
-    await api.testWebhook(activeId.value, {
-      target: {
-        url: hook.url,
-        method: hook.method,
-        format: hook.format,
-        headers: hook.headers,
-        enabled: hook.enabled,
-        cooldownMs: hook.cooldownMs,
-        onCrash: hook.onCrash,
-        onUnhealthy: hook.onUnhealthy,
-        onForcedRestart: hook.onForcedRestart,
-        onRecovered: hook.onRecovered,
-        onHost: hook.onHost,
-        onDdns: hook.onDdns,
-      },
-      id: hook.id,
-    })
-    hookResults.value[index] = 'test sent'
+    if (entry.kind === 'telegram')
+      await api.sendTelegramTest(entry.id, { chatId: entry.chatId || undefined }, activeId.value)
+    else
+      await api.testWebhook(activeId.value, { target: { url: entry.url, method: entry.method, format: entry.format, headers: entry.headers, enabled: entry.enabled, cooldownMs: entry.cooldownMs, onCrash: entry.onCrash, onUnhealthy: entry.onUnhealthy, onForcedRestart: entry.onForcedRestart, onRecovered: entry.onRecovered, onHost: entry.onHost, onDdns: entry.onDdns }, id: entry.id })
+    hookResults.value[entry.id] = 'test sent'
   }
   catch (caught) {
-    hookResults.value[index] = ''
+    hookResults.value[entry.id] = ''
     hookError.value = errorMessage(caught)
   }
 }
 
-type FormBlock = 'defaults' | 'logs' | 'telegram'
+type FormBlock = 'defaults' | 'logs' | 'notifications'
 
 /** A copy of the health group, nested `http` included. */
 function cloneHealth(health: ServerDefaults['health']): ServerDefaults['health'] {
@@ -225,19 +215,19 @@ function fillLogs(): boolean {
   return true
 }
 
-function fillTelegram(): boolean {
-  const status = selected.value?.notifications.telegram
-  if (!status)
+function fillNotifications(): boolean {
+  const configured = selected.value?.notifications
+  if (!configured?.defaults)
     return false
-  Object.assign(form.notifications.telegram, telegramConfig(status))
-  form.notifications.webhooks = (selected.value?.notifications.webhooks ?? []).map(webhookConfig)
+  Object.assign(form.notifications.policy, policyConfig(configured.defaults))
+  form.notifications.destinations = (configured.destinations ?? []).map(destinationConfig)
   return true
 }
 
 const FILLERS: Record<FormBlock, () => boolean> = {
   defaults: fillDefaults,
   logs: fillLogs,
-  telegram: fillTelegram,
+  notifications: fillNotifications,
 }
 
 /** What each block held when it was last filled; absent means "never filled". */
@@ -252,7 +242,13 @@ function blockSnapshot(block: FormBlock): unknown {
       stop: { ...form.defaults.stop },
     }
     case 'logs': return { ...form.logs }
-    case 'telegram': return { ...form.notifications.telegram }
+    // The block holds the Telegram policy **and** the webhook list; both, or a state frame
+    // re-fills the list over an edit (the stock UI had the same defect).
+    // The block owns the general policy *and* the list: both, or a state frame re-fills an edit.
+    case 'notifications': return {
+      policy: { ...form.notifications.policy },
+      destinations: form.notifications.destinations.map(entry => ({ ...entry })),
+    }
   }
 }
 
@@ -315,8 +311,8 @@ function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
   if (live !== null) {
     repairNumbers(form.logs as unknown as Record<string, unknown>, live.logs as unknown as Record<string, unknown>)
     repairNumbers(
-      form.notifications.telegram as unknown as Record<string, unknown>,
-      live.notifications.telegram as unknown as Record<string, unknown>,
+      form.notifications.policy as unknown as Record<string, unknown>,
+      (live.notifications.defaults ?? form.notifications.policy) as unknown as Record<string, unknown>,
     )
   }
 
@@ -334,14 +330,26 @@ function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
     if (Object.keys(logsPatch).length > 0)
       patch.logs = logsPatch as WorkspaceSettingsPatch['logs']
 
+    // The general block merges; the list is **replaced** — a merge cannot express removing one.
+    // An inheriting destination sends no policy columns: they would be ignored anyway, and writing
+    // them would make the config say something the page does not mean.
     const notificationsPatch = diffFields(
-      configured.notifications as unknown as Patch,
       {
-        telegram: { ...form.notifications.telegram },
-        // Replaced, not merged: a merge cannot express removing a target.
-        webhooks: form.notifications.webhooks,
+        defaults: policyConfig(configured.notifications.defaults ?? form.notifications.policy),
+        destinations: (configured.notifications.destinations ?? []).map(destinationConfig),
       } as unknown as Patch,
-      ['telegram'],
+      {
+        defaults: { ...form.notifications.policy },
+        destinations: form.notifications.destinations.map(({ id, kind, enabled, useOwnSettings, chatId, url, method, format, headers, onCrash, onUnhealthy, onForcedRestart, onRecovered, onHost, onDdns, cooldownMs }) => ({
+          kind,
+          id,
+          enabled,
+          useOwnSettings,
+          ...(kind === 'telegram' ? { chatId } : { url, method, format, headers }),
+          ...(useOwnSettings ? { onCrash, onUnhealthy, onForcedRestart, onRecovered, onHost, onDdns, cooldownMs } : {}),
+        })),
+      } as unknown as Patch,
+      ['defaults'],
     )
     if (Object.keys(notificationsPatch).length > 0)
       patch.notifications = notificationsPatch as WorkspaceSettingsPatch['notifications']
@@ -367,7 +375,7 @@ const currentSnapshot = computed<Patch>(() => {
     logs: configured?.logs ?? {},
     notifications: configured === null
       ? {}
-      : { telegram: configured.notifications.telegram, webhooks: (configured.notifications.webhooks ?? []).map(webhookConfig) },
+      : { defaults: configured.notifications.defaults ?? {}, destinations: (configured.notifications.destinations ?? []).map(destinationConfig) },
     ddns: ddnsBaseline.value ?? {},
   }
 })
@@ -435,6 +443,16 @@ async function saveSettings(): Promise<void> {
   }
 }
 
+/**
+ * The Telegram destination the token controls act on.
+ *
+ * The page shows one token box (a secret is typed rarely), so it points at the first Telegram
+ * destination. Adding a second chat is the case the old singleton could not express at all; each
+ * one's token is saved under its own id, so this pick is a UI convenience, never a limit.
+ */
+const tokenTarget = computed<DestinationDraft | null>(() =>
+  form.notifications.destinations.find(entry => entry.kind === 'telegram') ?? null)
+
 const tokenInput = ref('')
 const tokenMessage = ref<string | null>(null)
 const tokenError = ref<string | null>(null)
@@ -445,7 +463,9 @@ async function saveToken(): Promise<void> {
   tokenError.value = null
   tokenMessage.value = null
   try {
-    const result = await api.saveTelegramToken(tokenInput.value.trim(), activeId.value)
+    if (tokenTarget.value === null)
+      return
+    const result = await api.saveTelegramToken(tokenTarget.value.id, tokenInput.value.trim(), activeId.value)
     tokenInput.value = ''
     tokenMessage.value = `token saved${result.username ? ` (bot @${result.username})` : ''}`
     await control.refresh()
@@ -459,7 +479,9 @@ async function removeToken(): Promise<void> {
   tokenError.value = null
   tokenMessage.value = null
   try {
-    await api.clearTelegramToken(activeId.value)
+    if (tokenTarget.value === null)
+      return
+    await api.clearTelegramToken(tokenTarget.value.id, activeId.value)
     tokenMessage.value = 'token removed'
     await control.refresh()
   }
@@ -472,8 +494,10 @@ async function detectChats(): Promise<void> {
   notifyBusy.value = true
   tokenError.value = null
   try {
+    if (tokenTarget.value === null)
+      return
     const override = tokenInput.value.trim()
-    const result = await api.detectTelegramChats(override.length > 0 ? { botToken: override } : {}, activeId.value)
+    const result = await api.detectTelegramChats(tokenTarget.value.id, override.length > 0 ? { botToken: override } : {}, activeId.value)
     detectedChats.value = result.chats
     if (result.chats.length === 0)
       tokenError.value = 'no chats found — send /start to the bot first, then detect again'
@@ -491,10 +515,10 @@ async function sendTest(): Promise<void> {
   tokenError.value = null
   tokenMessage.value = null
   try {
-    const override = tokenInput.value.trim()
-    const result = await api.sendTelegramTest({
-      chatId: form.notifications.telegram.chatId.length > 0 ? form.notifications.telegram.chatId : undefined,
-      ...(override.length > 0 ? { botToken: override } : {}),
+    if (tokenTarget.value === null)
+      return
+    const result = await api.sendTelegramTest(tokenTarget.value.id, {
+      chatId: (tokenTarget.value.chatId ?? '').length > 0 ? tokenTarget.value.chatId ?? undefined : undefined,
     }, activeId.value)
     if (result.ok)
       tokenMessage.value = 'test message sent'
@@ -626,183 +650,164 @@ async function sendTest(): Promise<void> {
         </div>
       </section>
 
-      <section class="pane">
+      <section id="notifications" class="pane">
         <div class="pane__head">
-          <span class="pane__title">telegram notifications</span>
+          <span class="pane__title">notifications</span>
           <span class="view__spacer" />
-          <span v-if="telegram?.tokenSet" class="chip chip--ok">token set</span>
-          <span v-else class="chip chip--warn">no token</span>
+          <span class="faint">{{ form.notifications.destinations.length }} destination(s)</span>
         </div>
         <div class="pane__body">
-          <div class="group">
-            <div class="grid">
-              <label class="field field--check">
-                <input v-model="form.notifications.telegram.enabled" type="checkbox">
-                <span class="field__label">send notifications</span>
-              </label>
-              <label class="field">
-                <span class="field__label">chat id</span>
-                <input v-model="form.notifications.telegram.chatId" placeholder="123456789 or @channel">
-              </label>
-              <label class="field">
-                <span class="field__label">cooldown per event (ms)</span>
-                <input v-model.number="form.notifications.telegram.cooldownMs" inputmode="numeric">
-              </label>
-            </div>
-            <div class="grid">
-              <label class="field field--check">
-                <input v-model="form.notifications.telegram.onCrash" type="checkbox">
-                <span class="field__label">retries exhausted</span>
-              </label>
-              <label class="field field--check">
-                <input v-model="form.notifications.telegram.onUnhealthy" type="checkbox">
-                <span class="field__label">port unhealthy</span>
-              </label>
-              <label class="field field--check">
-                <input v-model="form.notifications.telegram.onForcedRestart" type="checkbox">
-                <span class="field__label">forced restart</span>
-              </label>
-              <label class="field field--check">
-                <input v-model="form.notifications.telegram.onRecovered" type="checkbox">
-                <span class="field__label">recovered</span>
-              </label>
-              <label class="field field--check">
-                <input v-model="form.notifications.telegram.onHost" type="checkbox">
-                <span class="field__label">host thresholds</span>
-              </label>
-              <label class="field field--check">
-                <input v-model="form.notifications.telegram.onDdns" type="checkbox">
-                <span class="field__label">dynamic DNS changes and failures</span>
-              </label>
-            </div>
-            <p class="note">
-              Policy above lives in this workspace's <code>settings.json</code>; the bot token is a
-              secret and is stored in the git-ignored secrets file instead.
-              <template v-if="telegram?.lastResult">
-                Last send: {{ telegram?.lastResult }}.
-              </template>
-            </p>
-
-            <label class="field">
-              <span class="field__label">bot token (from @BotFather)</span>
-              <input
-                v-model="tokenInput"
-                type="password"
-                autocomplete="off"
-                :placeholder="telegram?.tokenSet ? '•••••• (saved) — type to replace' : '123456:ABC-DEF...'"
-              >
-            </label>
-
-            <div class="actions actions--start">
-              <button type="button" class="btn btn--sm btn--ghost" :disabled="notifyBusy" @click="detectChats">
-                Detect chats
-              </button>
-              <ConfirmButton
-                v-if="telegram?.tokenSet"
-                label="Remove token"
-                confirm-label="Confirm remove"
-                tone="danger"
-                title="Remove the bot token?"
-                hint="Notifications stop until you paste a token again."
-                :disabled="notifyBusy"
-                @confirm="removeToken"
-              />
-              <button type="button" class="btn btn--sm" :disabled="notifyBusy || tokenInput.trim().length === 0" @click="saveToken">
-                Save token
-              </button>
-              <button type="button" class="btn btn--sm btn--primary" :disabled="notifyBusy" @click="sendTest">
-                Send test
-              </button>
-            </div>
-
-            <div v-if="detectedChats.length > 0" class="row">
-              <span class="faint">found:</span>
-              <button
-                v-for="chat in detectedChats"
-                :key="String(chat.id)"
-                type="button"
-                class="btn btn--xs"
-                @click="form.notifications.telegram.chatId = String(chat.id)"
-              >
-                {{ chat.title }} ({{ chat.id }})
-              </button>
-            </div>
-            <p v-if="tokenError" class="note note--error">
-              {{ tokenError }}
-            </p>
-            <p v-if="tokenMessage" class="note note--ok">
-              {{ tokenMessage }}
-            </p>
-          </div>
-
           <!--
-            The general transport: a list, because a panel alerts more than one place. Each
-            target carries its own URL, body format and headers, so the same form configures
-            ntfy (plain text plus Title/Priority headers), Discord or Slack (JSON) and a
-            bearer-token endpoint (an Authorization header).
+            The general block: the toggles and throttle, set once. A destination that does not carry
+            its own settings follows this, which is what stops the same policy being repeated per
+            transport and again per chat.
           -->
           <div class="group">
             <div class="group__title">
-              webhooks
+              general
             </div>
             <p class="note">
-              Any HTTP endpoint. <code>JSON</code> suits Discord, Slack or your own service;
-              <code>plain text</code> suits ntfy, whose title and priority are headers — put
-              <code>Title: …</code> in the header box.
+              What every destination follows unless it sets its own.
+            </p>
+            <div class="grid">
+              <label v-for="toggle in POLICY_TOGGLES" :key="toggle.key" class="field field--check">
+                <input v-model="form.notifications.policy[toggle.key]" type="checkbox">
+                <span class="field__label">{{ toggle.label }}</span>
+              </label>
+              <label class="field">
+                <span class="field__label">cooldown (ms)</span>
+                <input v-model.number="form.notifications.policy.cooldownMs" inputmode="numeric">
+                <span class="field__hint">per destination, server and reason</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="group">
+            <div class="group__title">
+              destinations
+            </div>
+            <p class="note">
+              Where events go. A Telegram chat or a webhook — the same list, because both are just
+              somewhere an alert lands. A bot token is a secret, stored per destination.
             </p>
 
-            <div v-for="(hook, index) in form.notifications.webhooks" :key="hook.id" class="hook">
+            <div v-for="entry in form.notifications.destinations" :key="entry.id" class="hook">
               <div class="grid">
                 <label class="field field--check">
-                  <input v-model="hook.enabled" type="checkbox">
-                  <span class="field__label">{{ hook.id }}</span>
+                  <input v-model="entry.enabled" type="checkbox">
+                  <span class="field__label">{{ entry.kind }} · {{ entry.id }}</span>
                 </label>
-                <label class="field grid__full">
-                  <span class="field__label">url</span>
-                  <input v-model="hook.url" placeholder="https://ntfy.sh/my-topic">
+
+                <template v-if="entry.kind === 'telegram'">
+                  <label class="field">
+                    <span class="field__label">chat id</span>
+                    <input v-model="entry.chatId" placeholder="123456789 or @channel">
+                  </label>
+                </template>
+                <template v-else>
+                  <label class="field grid__full">
+                    <span class="field__label">url</span>
+                    <input v-model="entry.url" placeholder="https://ntfy.sh/my-topic">
+                  </label>
+                  <label class="field">
+                    <span class="field__label">method</span>
+                    <select v-model="entry.method">
+                      <option value="POST">POST</option>
+                      <option value="PUT">PUT</option>
+                    </select>
+                  </label>
+                  <label class="field">
+                    <span class="field__label">body</span>
+                    <select v-model="entry.format">
+                      <option value="json">JSON</option>
+                      <option value="text">plain text</option>
+                    </select>
+                  </label>
+                  <label class="field grid__full">
+                    <span class="field__label">headers (Name: value per line)</span>
+                    <textarea v-model="entry.headers" rows="2" placeholder="Authorization: Bearer …" />
+                  </label>
+                </template>
+
+                <label class="field field--check grid__full">
+                  <input v-model="entry.useOwnSettings" type="checkbox">
+                  <span class="field__label">own settings</span>
+                  <span class="field__hint">off follows the general block above</span>
                 </label>
-                <label class="field">
-                  <span class="field__label">method</span>
-                  <select v-model="hook.method">
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                  </select>
-                </label>
-                <label class="field">
-                  <span class="field__label">body</span>
-                  <select v-model="hook.format">
-                    <option value="json">JSON</option>
-                    <option value="text">plain text</option>
-                  </select>
-                </label>
-                <label class="field">
-                  <span class="field__label">cooldown (ms)</span>
-                  <input v-model.number="hook.cooldownMs" inputmode="numeric">
-                </label>
-                <label class="field grid__full">
-                  <span class="field__label">headers (Name: value per line)</span>
-                  <textarea v-model="hook.headers" rows="2" placeholder="Authorization: Bearer …" />
-                </label>
-                <label v-for="toggle in POLICY_TOGGLES" :key="toggle.key" class="field field--check">
-                  <input v-model="hook[toggle.key]" type="checkbox">
-                  <span class="field__label">{{ toggle.label }}</span>
-                </label>
+                <template v-if="entry.useOwnSettings">
+                  <label v-for="toggle in POLICY_TOGGLES" :key="toggle.key" class="field field--check">
+                    <input v-model="entry[toggle.key]" type="checkbox">
+                    <span class="field__label">{{ toggle.label }}</span>
+                  </label>
+                  <label class="field">
+                    <span class="field__label">cooldown (ms)</span>
+                    <input v-model.number="entry.cooldownMs" inputmode="numeric">
+                  </label>
+                </template>
               </div>
+
               <div class="hook__actions">
-                <button class="btn btn--ghost" type="button" @click="testHook(hook)">
+                <button class="btn btn--ghost" type="button" @click="testDestination(entry)">
                   send a test
                 </button>
-                <span v-if="hookResults[index]" class="faint">{{ hookResults[index] }}</span>
+                <span v-if="hookResults[entry.id]" class="faint">{{ hookResults[entry.id] }}</span>
                 <span class="view__spacer" />
-                <button class="btn btn--ghost" type="button" @click="removeHook(hook.id)">
+                <button class="btn btn--ghost" type="button" @click="removeDestination(entry.id)">
                   remove
                 </button>
               </div>
             </div>
 
-            <button class="btn btn--ghost" type="button" @click="addHook">
-              add a webhook
-            </button>
+            <div class="row">
+              <button class="btn btn--ghost" type="button" @click="addDestination('telegram')">
+                add telegram
+              </button>
+              <button class="btn btn--ghost" type="button" @click="addDestination('webhook')">
+                add webhook
+              </button>
+            </div>
+
+            <!-- The token belongs to one Telegram destination; this box edits the first one. -->
+            <template v-if="tokenTarget !== null">
+              <div class="grid">
+                <label class="field grid__full">
+                  <span class="field__label">bot token — {{ tokenTarget.id }}</span>
+                  <input v-model="tokenInput" :placeholder="tokenTarget.tokenSet ? '•••••• (saved) — type to replace' : '123456:ABC-DEF...'">
+                </label>
+              </div>
+              <div class="row">
+                <button class="btn btn--ghost" type="button" :disabled="tokenInput.trim().length === 0" @click="saveToken">
+                  save token
+                </button>
+                <button class="btn btn--ghost" type="button" @click="detectChats">
+                  detect chats
+                </button>
+                <button class="btn btn--ghost" type="button" @click="sendTest">
+                  send test
+                </button>
+                <button v-if="tokenTarget.tokenSet" class="btn btn--ghost" type="button" @click="removeToken">
+                  remove token
+                </button>
+              </div>
+              <p v-if="detectedChats.length > 0" class="note">
+                <button
+                  v-for="chat in detectedChats"
+                  :key="String(chat.id)"
+                  class="btn btn--ghost"
+                  type="button"
+                  @click="tokenTarget.chatId = String(chat.id)"
+                >
+                  {{ chat.title }}
+                </button>
+              </p>
+              <p v-if="tokenMessage" class="note note--ok">
+                {{ tokenMessage }}
+              </p>
+              <p v-if="tokenError" class="note note--error">
+                {{ tokenError }}
+              </p>
+            </template>
+
             <p v-if="hookError" class="note note--error">
               {{ hookError }}
             </p>

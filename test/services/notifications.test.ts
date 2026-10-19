@@ -30,24 +30,48 @@ function stubApi(token: string, method: string, impl: (...args: unknown[]) => un
   api[method] = impl
 }
 
+/** The first destination's row, which is what the page reads. */
+function row(service: NotificationService, id = 'tg') {
+  const found = service.destinations().find(entry => entry.id === id)
+  if (found === undefined)
+    throw new Error(`no destination ${id}`)
+  return found
+}
+
 /** Lets a fire-and-forget `notify()` settle without depending on timing. */
 function flush(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve))
 }
 
+/**
+ * A service over one workspace's config, with an optional Telegram destination.
+ *
+ * `telegram` is the *destination*, not the old singleton: `id` is the list key and the bot token is
+ * stored under it, so two services (or two destinations) can hold different tokens.
+ */
 async function makeService(options: {
-  telegram?: Record<string, unknown>
+  telegram?: Record<string, unknown> | false
   token?: string
+  id?: string
+  /** Overrides merged onto the general block, which every destination inherits by default. */
+  defaults?: Record<string, unknown>
 } = {}) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-notify-'))
   dirs.push(dir)
 
-  const notifications = notificationsSchema({ telegram: options.telegram ?? {} })
+  const id = options.id ?? 'tg'
+  // `useOwnSettings: true` by default so these cases drive *this destination's* toggles; the
+  // inheritance path has its own cases below.
+  const destinations = options.telegram === false
+    ? []
+    : [{ kind: 'telegram', id, chatId: '', useOwnSettings: true, ...(options.telegram ?? {}) }]
+
+  const notifications = notificationsSchema({ defaults: options.defaults ?? {}, destinations })
   if (notifications instanceof type.errors)
     throw new Error(notifications.summary)
   const secrets = new SecretsStore(path.join(dir, 'secrets.json'))
   if (options.token !== undefined)
-    secrets.setTelegramToken(options.token)
+    secrets.setTelegramToken(id, options.token)
 
   return new NotificationService(secrets, () => notifications)
 }
@@ -84,18 +108,18 @@ describe('notification policy', () => {
 
   it('reports a missing token or chat id without attempting a send', async () => {
     const noToken = await makeService({ telegram: { enabled: true, chatId: '1' } })
-    expect(await noToken.sendTest()).toEqual({ ok: false, error: 'no bot token configured' })
+    expect(await noToken.sendTest('tg')).toEqual({ ok: false, error: 'no bot token configured for this destination' })
 
     const noChat = await makeService({ telegram: { enabled: true, chatId: '' }, token: 'token' })
-    expect(await noChat.sendTest()).toEqual({ ok: false, error: 'no chat id configured' })
+    expect(await noChat.sendTest('tg')).toEqual({ ok: false, error: 'no chat id configured' })
   })
 
   it('exposes the telegram status without leaking the token', async () => {
     const service = await makeService({ telegram: { enabled: true, chatId: '42' }, token: 'super-secret-token' })
-    const status = service.status()
+    const status = row(service)
     expect(status.chatId).toBe('42')
     expect(status.tokenSet).toBe(true)
-    expect(JSON.stringify(status)).not.toContain('super-secret-token')
+    expect(JSON.stringify(service.destinations()), 'the token never reaches the page').not.toContain('super-secret-token')
   })
 })
 
@@ -143,9 +167,9 @@ describe('reason toggles', () => {
 })
 
 describe('telegram delivery', () => {
-  it('reports whether a bot token is stored', async () => {
-    expect((await makeService()).telegramTokenSet).toBe(false)
-    expect((await makeService({ token: BOT_TOKEN })).telegramTokenSet).toBe(true)
+  it('reports whether a bot token is stored, per destination', async () => {
+    expect(row(await makeService()).tokenSet).toBe(false)
+    expect(row(await makeService({ token: BOT_TOKEN })).tokenSet).toBe(true)
   })
 
   it('sends an alert once and then suppresses the flap', async () => {
@@ -161,7 +185,7 @@ describe('telegram delivery', () => {
     expect(sent[0]![0]).toBe('42')
     expect(sent[0]![1]).toContain('server down')
     expect(sent[0]![1]).toContain('Web (web) gave up restarting')
-    expect(service.status().lastResult).toBe('sent')
+    expect(row(service).lastResult).toBe('sent')
 
     // The same server crashing again inside the cooldown stays quiet.
     expect(await service.dispatch(crash)).toBe(false)
@@ -171,11 +195,11 @@ describe('telegram delivery', () => {
   it('records why a delivery was refused instead of pretending it was sent', async () => {
     const noChat = await makeService({ telegram: { enabled: true, chatId: '' }, token: BOT_TOKEN })
     expect(await noChat.dispatch(crash)).toBe(false)
-    expect(noChat.status().lastResult).toBe('no chat id configured')
+    expect(row(noChat).lastResult).toBe('no chat id configured')
 
     const noToken = await makeService({ telegram: { enabled: true, chatId: '42' } })
     expect(await noToken.dispatch(crash)).toBe(false)
-    expect(noToken.status().lastResult).toBe('no bot token configured')
+    expect(row(noToken).lastResult).toBe('no bot token configured for this destination')
   })
 
   it('records a provider failure rather than throwing at the supervisor', async () => {
@@ -187,7 +211,7 @@ describe('telegram delivery', () => {
     })
 
     expect(await service.dispatch(crash)).toBe(false)
-    expect(service.status().lastResult).toBe('bot was blocked by the user (403)')
+    expect(row(service).lastResult).toBe('bot was blocked by the user (403)')
   })
 
   it('never lets a failed fire-and-forget notification reject the caller', async () => {
@@ -198,7 +222,7 @@ describe('telegram delivery', () => {
 
     expect(() => service.notify(crash)).not.toThrow()
     await flush()
-    expect(service.status().lastResult).toBe('network down')
+    expect(row(service).lastResult).toBe('network down')
   })
 
   it('sends the test message, honouring an override', async () => {
@@ -211,12 +235,12 @@ describe('telegram delivery', () => {
     stubApi(BOT_TOKEN, 'sendMessage', record)
     stubApi(OVERRIDE_TOKEN, 'sendMessage', record)
 
-    expect(await service.sendTest()).toEqual({ ok: true })
+    expect(await service.sendTest('tg')).toEqual({ ok: true })
     expect(sent[0]![0]).toBe('42')
     expect(sent[0]![1]).toContain('home-hosted test')
-    expect(service.status().lastResult).toBe('test message sent')
+    expect(row(service).lastResult).toBe('test message sent')
 
-    expect(await service.sendTest({ chatId: '99', botToken: OVERRIDE_TOKEN })).toEqual({ ok: true })
+    expect(await service.sendTest('tg', { chatId: '99' })).toEqual({ ok: true })
     expect(sent[1]![0]).toBe('99')
   })
 
@@ -226,8 +250,8 @@ describe('telegram delivery', () => {
       throw new Error('chat not found')
     })
 
-    expect(await service.sendTest()).toEqual({ ok: false, error: 'chat not found' })
-    expect(service.status().lastResult).toBe('chat not found')
+    expect(await service.sendTest('tg')).toEqual({ ok: false, error: 'chat not found' })
+    expect(row(service).lastResult).toBe('chat not found')
   })
 
   it('lists the chats the bot can see, and reports a failure', async () => {
@@ -236,18 +260,18 @@ describe('telegram delivery', () => {
       { update_id: 1, message: { chat: { id: 7, title: 'Group' } } },
     ]))
 
-    expect(await service.detectChats()).toEqual({ ok: true, chats: [{ id: 7, title: 'Group' }] })
-    expect(service.status().lastResult).toBe('1 chat(s) found')
+    expect(await service.detectChats('tg')).toEqual({ ok: true, chats: [{ id: 7, title: 'Group' }] })
+    expect(row(service).lastResult).toBe('1 chat(s) found')
 
     const noToken = await makeService()
-    expect(await noToken.detectChats()).toEqual({ ok: false, chats: [], error: 'no bot token configured' })
+    expect(await noToken.detectChats('tg')).toEqual({ ok: false, chats: [], error: 'no bot token configured for this destination' })
 
     stubApi(BOT_TOKEN, 'getUpdates', () => {
       // eslint-disable-next-line no-throw-literal
       throw { error_code: 401, description: 'Unauthorized' }
     })
-    expect((await service.detectChats()).ok).toBe(false)
-    expect(service.status().lastResult).toBe('Unauthorized (401)')
+    expect((await service.detectChats('tg')).ok).toBe(false)
+    expect(row(service).lastResult).toBe('Unauthorized (401)')
   })
 
   it('verifies a token without sending anything', async () => {
@@ -413,34 +437,32 @@ describe('the webhook transport', () => {
  * Fan-out across the list: a target's own toggles decide what it receives, and one target
  * being throttled or switched off must not affect another.
  */
-describe('a list of webhook targets', () => {
-  async function makeService(webhooks: Array<Record<string, unknown>>) {
+describe('a list of destinations', () => {
+  async function makeService(destinations: Array<Record<string, unknown>>) {
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-notify-hooks-'))
     dirs.push(dir)
-    const config = notificationsSchema({ webhooks })
+    const config = notificationsSchema({ destinations })
     if (config instanceof type.errors)
       throw new Error(config.summary)
     const secrets = new SecretsStore(path.join(dir, 'secrets.json'))
     return new NotificationService(secrets, () => config)
   }
 
-  const phone = { id: 'phone', url: 'https://ntfy.sh/a', format: 'text', headers: 'Title: x' }
-  const chat = { id: 'chat', url: 'https://hooks.example.com/b' }
+  const phone = { kind: 'webhook', id: 'phone', url: 'https://ntfy.sh/a', format: 'text', headers: 'Title: x', useOwnSettings: true }
+  const chat = { kind: 'webhook', id: 'chat', url: 'https://hooks.example.com/b', useOwnSettings: true }
 
-  it('treats every configured webhook as its own target', async () => {
+  it('treats every configured destination as its own target', async () => {
     const service = await makeService([phone, chat])
-    const ids = service.targetsFor(crash).map(delivery => delivery.kind === 'webhook' ? delivery.target.id : delivery.kind)
-    expect(ids).toEqual(['phone', 'chat'])
-    expect(service.webhookStatuses().map(status => status.id)).toEqual(['phone', 'chat'])
+    expect(service.targetsFor(crash).map(target => target.id)).toEqual(['phone', 'chat'])
+    expect(service.destinations().map(status => status.id)).toEqual(['phone', 'chat'])
   })
 
-  it('lets one target be switched off for a reason without silencing the others', async () => {
+  it('lets one destination be switched off for a reason without silencing the others', async () => {
     const service = await makeService([{ ...phone, onCrash: false }, chat])
-    const ids = service.targetsFor(crash).map(delivery => delivery.kind === 'webhook' ? delivery.target.id : delivery.kind)
-    expect(ids, 'the phone wants no crash alerts').toEqual(['chat'])
+    expect(service.targetsFor(crash).map(target => target.id), 'the phone wants no crash alerts').toEqual(['chat'])
   })
 
-  it('throttles per target, so one going quiet does not silence another', async () => {
+  it('throttles per destination, so one going quiet does not silence another', async () => {
     // The phone has a long cooldown, the chat none at all.
     const service = await makeService([{ ...phone, cooldownMs: 60_000 }, { ...chat, cooldownMs: 0 }])
     const now = 1_000_000
@@ -448,16 +470,57 @@ describe('a list of webhook targets', () => {
 
     service.markSent(crash, now)
     expect(
-      service.targetsFor(crash, now + 1).map(delivery => delivery.kind === 'webhook' ? delivery.target.id : delivery.kind),
+      service.targetsFor(crash, now + 1).map(target => target.id),
       'the phone is inside its window, the chat is not',
     ).toEqual(['chat'])
     expect(service.targetsFor(crash, now + 120_000), 'both are past it').toHaveLength(2)
   })
 
-  it('skips a target that is disabled, without touching the others', async () => {
+  it('skips a destination that is disabled, without touching the others', async () => {
     const service = await makeService([{ ...phone, enabled: false }, chat])
-    const ids = service.targetsFor(crash).map(delivery => delivery.kind === 'webhook' ? delivery.target.id : delivery.kind)
-    expect(ids).toEqual(['chat'])
+    expect(service.targetsFor(crash).map(target => target.id)).toEqual(['chat'])
     expect(service.shouldNotify(crash)).toBe(true)
+  })
+
+  /**
+   * A destination that does not opt out follows the general block *entirely* — no field merges,
+   * because a half-inherited policy is one nobody can reason about.
+   */
+  it('inherits the general block when useOwnSettings is off', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-notify-inherit-'))
+    dirs.push(dir)
+    const config = notificationsSchema({
+      defaults: { onCrash: false, onHost: true, cooldownMs: 5_000 },
+      destinations: [{ kind: 'webhook', id: 'phone', url: 'https://ntfy.sh/a', useOwnSettings: false, onCrash: true }],
+    })
+    if (config instanceof type.errors)
+      throw new Error(config.summary)
+    const service = new NotificationService(new SecretsStore(path.join(dir, 'secrets.json')), () => config)
+
+    // The destination's own `onCrash: true` is *ignored*: it does not carry its own settings.
+    expect(service.targetsFor(crash), 'the general block says no crashes').toEqual([])
+    expect(service.effectivePolicy(config.destinations[0]!).cooldownMs).toBe(5_000)
+  })
+
+  it('follows the general block when it changes, without touching the destination', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-notify-inherit2-'))
+    dirs.push(dir)
+    let defaults = { onCrash: true, onUnhealthy: true, onForcedRestart: true, onRecovered: false, onHost: true, onDdns: true, cooldownMs: 0 }
+    const config = notificationsSchema({
+      defaults,
+      destinations: [{ kind: 'webhook', id: 'phone', url: 'https://ntfy.sh/a', useOwnSettings: false }],
+    })
+    if (config instanceof type.errors)
+      throw new Error(config.summary)
+    const service = new NotificationService(new SecretsStore(path.join(dir, 'secrets.json')), () => config)
+
+    expect(service.shouldNotify(crash)).toBe(true)
+    defaults = { ...defaults, onCrash: false }
+    // The service reads the config on every call, so the next evaluation follows the new block.
+    const updated = notificationsSchema({ defaults, destinations: config.destinations })
+    if (updated instanceof type.errors)
+      throw new Error(updated.summary)
+    const following = new NotificationService(new SecretsStore(path.join(dir, 's2.json')), () => updated)
+    expect(following.shouldNotify(crash)).toBe(false)
   })
 })

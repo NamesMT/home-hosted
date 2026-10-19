@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { WorkspaceStore } from '#src/config/store'
 import { stockCopy } from '../helpers/stock-copy'
+import { configJson } from '../support/config-fixture'
 
 /**
  * The notice that lists `configWarnings` must not name a narrower cause than the array holds.
@@ -23,7 +24,7 @@ describe('the config-warning notice', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-warncopy-'))
     try {
       const servers = path.join(dir, 'servers.config.json')
-      fs.writeFileSync(servers, JSON.stringify({ servers: [{ id: 'app', command: 'node', dependsOn: ['ghost'], notARealKey: 1 }] }, null, 2))
+      fs.writeFileSync(servers, configJson({ servers: [{ id: 'app', command: 'node', dependsOn: ['ghost'], notARealKey: 1 }] }))
       const store = new WorkspaceStore('default', path.join(dir, 'settings.json'), servers)
       store.load()
 

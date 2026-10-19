@@ -273,23 +273,29 @@ export async function restoreUploadedBackup(file: File, confirm: boolean, option
   return payload as RestorePlan
 }
 
-export function saveTelegramToken(workspace: string, botToken: string): Promise<{ ok: boolean, username: string | null }> {
-  return request(scoped('/api/notifications/token', workspace), { method: 'PUT', body: JSON.stringify({ botToken }) })
+/**
+ * A Telegram destination's bot token.
+ *
+ * Keyed by destination id in the path: a workspace may point at several chats, and each carries its
+ * own bot. The token never travels in the settings patch, so it never lands in a config file.
+ */
+export function saveTelegramToken(workspace: string, id: string, botToken: string): Promise<{ ok: boolean, username: string | null }> {
+  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/token`, workspace), { method: 'PUT', body: JSON.stringify({ botToken }) })
 }
 
-export function clearTelegramToken(workspace: string): Promise<unknown> {
-  return request(scoped('/api/notifications/token', workspace), { method: 'DELETE' })
+export function clearTelegramToken(workspace: string, id: string): Promise<unknown> {
+  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/token`, workspace), { method: 'DELETE' })
 }
 
-export function sendTelegramTest(workspace: string, payload: { botToken?: string, chatId?: string }): Promise<{ ok: boolean, error?: string }> {
-  return request(scoped('/api/notifications/test', workspace), { method: 'POST', body: JSON.stringify(payload) })
+export function sendTelegramTest(workspace: string, id: string, payload: { chatId?: string }): Promise<{ ok: boolean, error?: string }> {
+  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/test`, workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
-export function detectTelegramChats(workspace: string, payload: { botToken?: string }): Promise<{ chats: Array<{ id: number | string, title: string }> }> {
-  return request(scoped('/api/notifications/detect-chats', workspace), { method: 'POST', body: JSON.stringify(payload) })
+export function detectTelegramChats(workspace: string, id: string, payload: { botToken?: string }): Promise<{ chats: Array<{ id: number | string, title: string }> }> {
+  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/detect-chats`, workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
-/** One webhook target, as the settings form holds it. */
+/** One webhook destination, as the settings form holds it. */
 export interface WebhookTestTarget {
   url: string
   method: 'POST' | 'PUT'
@@ -305,10 +311,6 @@ export interface WebhookTestTarget {
   onDdns: boolean
 }
 
-/**
- * Tests one webhook target. The whole target travels, so an unsaved URL and header block are
- * what gets tried — `id` is echoed so the result can be recorded against the right row.
- */
 export function testWebhook(workspace: string, payload: { target: WebhookTestTarget, id?: string }): Promise<{ ok: boolean, error?: string }> {
   return request(scoped('/api/notifications/test-webhook', workspace), { method: 'POST', body: JSON.stringify(payload) })
 }

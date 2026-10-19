@@ -345,3 +345,90 @@ describe('the three-way trustProxy', () => {
     expect(controlPatch(view, form)).toEqual({ auth: { trustProxy: true } })
   })
 })
+
+/**
+ * A block's snapshot must cover everything the block's form holds.
+ *
+ * The `notifications` block carries two things: the Telegram policy and the webhook *list*. The
+ * snapshot was `{ ...form.telegram }` — the list was not in it, so adding a webhook never made the
+ * block look edited. `syncFromLive()` therefore treated it as untouched and re-filled the list from
+ * every state frame, which the panel pushes on its tick: a webhook being typed vanished every few
+ * seconds, and the same thing happened to the whole list after a save. Reported from the UI as
+ * "webhooks settings gets reverted automatically periodically".
+ */
+describe('a block snapshot covers the whole block', () => {
+  it('marks the notifications block edited when only a destination changed', () => {
+    const form = createWorkspaceForm()
+    // Filled from live: the snapshot and the form agree, so nothing is pending.
+    const filled = workspaceBlockSnapshot(form, 'notifications')
+    expect(isBlockEdited(filled, workspaceBlockSnapshot(form, 'notifications')), 'an untouched block').toBe(false)
+
+    // Add a destination, as the page's "Add webhook" does.
+    form.destinations = [{
+      id: 'hook',
+      kind: 'webhook',
+      url: 'https://ntfy.sh/topic',
+      enabled: true,
+      useOwnSettings: false,
+      chatId: '',
+      tokenSet: false,
+      method: 'POST',
+      format: 'json',
+      headers: '',
+      policy: { ...form.policy },
+    }]
+
+    expect(
+      isBlockEdited(filled, workspaceBlockSnapshot(form, 'notifications')),
+      'a new destination must block the next re-fill, or a state frame erases it',
+    ).toBe(true)
+  })
+
+  it('marks the block edited when only a destination policy changed', () => {
+    const form = createWorkspaceForm()
+    const filled = workspaceBlockSnapshot(form, 'notifications')
+    form.destinations = [{
+      id: 'tg',
+      kind: 'telegram',
+      enabled: true,
+      useOwnSettings: true,
+      chatId: '42',
+      tokenSet: true,
+      url: '',
+      method: 'POST',
+      format: 'json',
+      headers: '',
+      policy: { ...form.policy },
+    }]
+    form.destinations[0]!.policy.onCrash = false
+    // A nested edit has to count too: the policy is part of what the block owns.
+    expect(isBlockEdited(filled, workspaceBlockSnapshot(form, 'notifications'))).toBe(true)
+  })
+})
+
+/**
+ * The regression guard for the class, not the instance.
+ *
+ * Two blocks have now shipped this defect (the notifications block, and the reason the control
+ * group grew a per-part guard). It is always the same shape: a form field the block owns does not
+ * appear in its snapshot, so an edit to it never counts and every state frame re-fills over it.
+ * This walks each block's *own* form fields and asserts the snapshot mentions the same set.
+ */
+describe('every block snapshots every field it owns', () => {
+  it('covers each workspace block, key for key', () => {
+    const form = createWorkspaceForm()
+    const parts: Record<'defaults' | 'logs' | 'notifications', Record<string, unknown>> = {
+      defaults: { ...form.defaults, restart: form.defaults.restart, health: form.defaults.health, stop: form.defaults.stop },
+      logs: { ...form.logs },
+      // The block owns two things — the general policy and the destination list — and has shipped
+      // with only one of them snapshotted, so both are spelled out here rather than inferred.
+      notifications: { policy: form.policy, destinations: form.destinations },
+    }
+
+    for (const [block, owned] of Object.entries(parts)) {
+      const snapshot = workspaceBlockSnapshot(form, block as 'defaults' | 'logs' | 'notifications') as Record<string, unknown>
+      expect(Object.keys(snapshot).sort(), `${block} is missing a field its form owns`)
+        .toEqual(Object.keys(owned).sort())
+    }
+  })
+})

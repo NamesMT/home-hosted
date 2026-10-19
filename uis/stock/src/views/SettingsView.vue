@@ -9,22 +9,20 @@ import DdnsSection from '@/components/settings/DdnsSection.vue'
 import DefaultsSection from '@/components/settings/DefaultsSection.vue'
 import LogsSection from '@/components/settings/LogsSection.vue'
 import Notice from '@/components/settings/Notice.vue'
-import NotificationsSection from '@/components/settings/NotificationsSection.vue'
 import {
   cloneHealth,
   createWorkspaceForm,
   defaultsPatch,
+  destinationBaseline,
+  destinationsPatch,
   isBlockEdited,
   logsPatch,
-  telegramBaseline,
-  telegramPatch,
-  webhookBaseline,
-  webhooksPatch,
+  policyBaseline,
+  policyPatch,
   workspaceBlockSnapshot,
 } from '@/components/settings/settingsForm'
 import SettingsSection from '@/components/settings/SettingsSection.vue'
 import SettingsShell from '@/components/settings/SettingsShell.vue'
-import WebhookSection from '@/components/settings/WebhookSection.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
@@ -60,8 +58,8 @@ const ddnsSection = ref<{ reload: () => Promise<void> } | null>(null)
 
 const defaultsView = computed(() => workspace.defaults.value)
 const logsConfig = computed(() => workspace.logsConfig.value)
-const telegramStatus = computed(() => workspace.notifications.value?.telegram ?? null)
-const webhookStatuses = computed(() => workspace.notifications.value?.webhooks ?? [])
+const notificationDefaults = computed(() => workspace.notifications.value?.defaults ?? null)
+const destinationStatuses = computed(() => workspace.notifications.value?.destinations ?? [])
 const logsDir = computed(() => workspace.logsDir.value)
 
 /** Only fields that differ from what the workspace currently holds. */
@@ -69,7 +67,6 @@ const patch = computed<WorkspaceSettingsPatch>(() => {
   const out: WorkspaceSettingsPatch = {}
   const defaults = defaultsView.value
   const logs = logsConfig.value
-  const telegram = telegramStatus.value
 
   if (defaults !== null) {
     const diff = defaultsPatch(defaults, form.defaults)
@@ -81,19 +78,19 @@ const patch = computed<WorkspaceSettingsPatch>(() => {
     if (Object.keys(diff).length > 0)
       out.logs = diff as WorkspaceSettingsPatch['logs']
   }
-  if (telegram !== null) {
-    const diff = telegramPatch(telegram, form.telegram)
-    if (Object.keys(diff).length > 0)
-      out.notifications = diff as WorkspaceSettingsPatch['notifications']
+  // The general block merges; the destination list is replaced when it changed at all.
+  const policy = notificationDefaults.value
+  const notifications: Record<string, unknown> = {}
+  if (policy !== null) {
+    const diff = policyPatch(policy, form.policy)
+    if (diff !== null)
+      Object.assign(notifications, diff)
   }
-  // The list is replaced when it changed at all: a merge cannot express removing a target.
-  const hooks = webhooksPatch(webhookStatuses.value, form.webhooks)
-  if (hooks !== null) {
-    out.notifications = {
-      ...(out.notifications ?? {}),
-      webhooks: hooks.webhooks,
-    } as WorkspaceSettingsPatch['notifications']
-  }
+  const list = destinationsPatch(destinationStatuses.value, form.destinations)
+  if (list !== null)
+    Object.assign(notifications, list)
+  if (Object.keys(notifications).length > 0)
+    out.notifications = notifications as WorkspaceSettingsPatch['notifications']
   return out
 })
 
@@ -101,11 +98,11 @@ const changedCount = computed(() => countLeaves(patch.value as Record<string, un
 
 /** What every patch compares against, keyed the way the patch is. */
 const currentSnapshot = computed<Record<string, unknown>>(() => {
-  const telegram = telegramStatus.value
+  const policy = notificationDefaults.value
   return {
     defaults: defaultsView.value ?? {},
     logs: logsConfig.value ?? {},
-    notifications: telegram === null ? {} : { telegram: telegramBaseline(telegram) },
+    notifications: policy === null ? {} : { defaults: policyBaseline(policy), destinations: destinationStatuses.value.map(destinationBaseline) },
     ddns: ddnsBaseline.value ?? {},
   }
 })
@@ -114,9 +111,9 @@ const changes = computed(() => describeChanges({ ...(patch.value as Record<strin
 
 const defaultsDirty = computed(() => defaultsView.value !== null && Object.keys(defaultsPatch(defaultsView.value, form.defaults)).length > 0)
 const logsDirty = computed(() => logsConfig.value !== null && Object.keys(logsPatch(logsConfig.value, form.logs)).length > 0)
-const telegramDirty = computed(() => telegramStatus.value !== null
-  && (Object.keys(telegramPatch(telegramStatus.value, form.telegram)).length > 0
-    || webhooksPatch(webhookStatuses.value, form.webhooks) !== null))
+const notificationsDirty = computed(() => notificationDefaults.value !== null
+  && (policyPatch(notificationDefaults.value, form.policy) !== null
+    || destinationsPatch(destinationStatuses.value, form.destinations) !== null))
 
 /** What each block held when it was last filled, so an edit is not overwritten. */
 const snapshots: FormSnapshots = {}
@@ -151,13 +148,13 @@ function syncFromLive(): void {
   if (logs !== null)
     fill('logs', () => Object.assign(form.logs, logs))
 
-  const telegram = telegramStatus.value
-  if (telegram !== null) {
-    fill('telegram', () => {
-      Object.assign(form.telegram, telegramBaseline(telegram))
-      // The webhook list belongs to the same notifications block, so it fills and resets with
-      // it — a second guard would make one half save while the other stayed stale.
-      form.webhooks = webhookStatuses.value.map(webhookBaseline)
+  const policy = notificationDefaults.value
+  if (policy !== null) {
+    fill('notifications', () => {
+      Object.assign(form.policy, policyBaseline(policy))
+      // The list belongs to the same block: one guard, so one half cannot save while the other
+      // stays stale.
+      form.destinations = destinationStatuses.value.map(destinationBaseline)
     })
   }
 }
@@ -167,7 +164,7 @@ function forgetSnapshots(): void {
     delete snapshots[key as WorkspaceFormBlock]
 }
 
-watch([defaultsView, logsConfig, telegramStatus], () => {
+watch([defaultsView, logsConfig, notificationDefaults], () => {
   syncFromLive()
 }, { immediate: true })
 
@@ -235,12 +232,12 @@ function resetLogs(): void {
   remember('logs')
 }
 
-function resetTelegram(): void {
-  if (telegramStatus.value !== null) {
-    Object.assign(form.telegram, telegramBaseline(telegramStatus.value))
-    form.webhooks = webhookStatuses.value.map(webhookBaseline)
+function resetNotifications(): void {
+  if (notificationDefaults.value !== null) {
+    Object.assign(form.policy, policyBaseline(notificationDefaults.value))
+    form.destinations = destinationStatuses.value.map(destinationBaseline)
   }
-  remember('telegram')
+  remember('notifications')
 }
 
 /** A reset re-baselines its own block; the guards of the other blocks stay where they were. */
@@ -307,16 +304,23 @@ watch(() => workspace.activeId.value, () => {
     </SettingsSection>
 
     <SettingsSection id="notifications" :title="t('views.settings.sectionNotifications')" :description="t('views.settings.notificationsDescription')">
-      <NotificationsSection
-        v-model:telegram="form.telegram"
-        :status="telegramStatus"
-        :dirty="telegramDirty"
-        @reset="resetTelegram"
-      />
-      <WebhookSection
-        v-model:webhooks="form.webhooks"
-        :statuses="webhookStatuses"
-        :dirty="telegramDirty"
+      <FieldGroup
+        :title="t('settings.destination.title')"
+        :description="t('settings.destination.description')"
+        :columns="1"
+      >
+        <template #actions>
+          <AppButton size="xs" variant="ghost" :disabled="!notificationsDirty" @click="resetNotifications">
+            {{ t('common.reset') }}
+          </AppButton>
+        </template>
+        <NotificationPolicyFields v-model="form.policy" editable />
+      </FieldGroup>
+      <DestinationsSection
+        v-model:destinations="form.destinations"
+        :statuses="destinationStatuses"
+        :dirty="notificationsDirty"
+        @reset="resetNotifications"
       />
     </SettingsSection>
 

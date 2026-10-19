@@ -6,6 +6,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { CONFIG_SCHEMA } from '#src/config/migrations'
+import { configJson } from '../support/config-fixture'
 
 /**
  * `up` refuses to start — exit 1, the exact problem printed — when any file this
@@ -73,7 +75,7 @@ async function seedControlPort(home: string): Promise<void> {
     return
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, `${JSON.stringify({
-    meta: { writtenBy: 'test', schema: 1 },
+    meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
     control: { port: await freeDevPort() },
   }, null, 2)}\n`)
 }
@@ -151,9 +153,9 @@ describe('startup guard: an unreadable file stops `up`', () => {
   it('refuses a workspace with a duplicate server id', async () => {
     const home = makeHome()
     const { workspace } = seedWorkspace(home)
-    fs.writeFileSync(path.join(workspace, 'servers.config.json'), JSON.stringify({
+    fs.writeFileSync(path.join(workspace, 'servers.config.json'), configJson({
       servers: [{ id: 'dup', command: 'node' }, { id: 'dup', command: 'node' }],
-    }, null, 2))
+    }))
 
     const result = await runUp(home)
 
@@ -169,7 +171,7 @@ describe('startup guard: an unreadable file stops `up`', () => {
       meta: { writtenBy: '9.9.9', schema: 99 },
       defaults: {},
     }, null, 2))
-    fs.writeFileSync(path.join(workspace, 'servers.config.json'), JSON.stringify({ servers: [] }, null, 2))
+    fs.writeFileSync(path.join(workspace, 'servers.config.json'), configJson({ servers: [] }))
 
     const result = await runUp(home)
 
@@ -212,10 +214,7 @@ describe('startup guard: a busy control port', () => {
     await new Promise<void>(resolve => holder.listen(port, '127.0.0.1', resolve))
     // The preflight runs before the config guard, so the port has to be the one it will check.
     fs.mkdirSync(path.join(home, '.hh'), { recursive: true })
-    fs.writeFileSync(path.join(home, '.hh', 'settings.json'), `${JSON.stringify({
-      meta: { writtenBy: 'test', schema: 1 },
-      control: { port },
-    }, null, 2)}\n`)
+    fs.writeFileSync(path.join(home, '.hh', 'settings.json'), configJson({ control: { port } }))
 
     try {
       const result = await runUp(home)

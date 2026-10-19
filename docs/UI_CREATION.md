@@ -242,6 +242,15 @@ Two things the API will not tell you, and both are what people report as bugs:
   guard reads that late arrival as a pending edit, leaves those fields showing schema defaults
   forever, and offers to "revert" a change nobody made. Fill each block on its own, and only while
   that block is untouched since it was last filled (`uis/stock/src/components/settings/settingsForm.ts`).
+- **A block's snapshot must cover every field the block's form holds — including a list.**
+  The guard is "has this block been edited since it was filled?", and it answers by comparing the
+  snapshot against the form. Leave one field out of the snapshot and an edit to *it* never counts
+  as an edit: the next frame re-fills the block over it, every few seconds, for as long as the
+  panel ticks. This has shipped twice — the Notifications block snapshotted only its Telegram
+  policy while its form also held the webhook list, so typed webhooks vanished on each frame; and
+  the `control` group grew a per-part guard for the same reason. When a block gains a field or a
+  sibling list, extend the snapshot in the same commit as the form, and keep the two side by side
+  so the omission is visible.
 - **A boolean setting is a switch, not a checkbox.** Keep checkboxes for picking items out of a set
   (a restore plan), where the control is the list entry. `uis/stock/src/components/ui/ToggleSwitch.vue`
   is the reference.

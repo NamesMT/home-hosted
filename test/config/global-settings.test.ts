@@ -7,6 +7,7 @@ import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { GLOBAL_SETTINGS_KEYS, globalSettingsSchema, WORKSPACE_SETTINGS_KEYS } from '#src/config/schema'
 import { SEED_GLOBAL_SETTINGS } from '#src/config/seed'
 import { ConfigError, GlobalSettingsStore } from '#src/config/settings'
+import { configJson } from '../support/config-fixture'
 
 const dirs: string[] = []
 
@@ -29,12 +30,12 @@ async function makeStore(settings: Record<string, unknown> | null = {}) {
   const dir = await tempDir()
   const file = path.join(dir, 'settings.json')
   if (settings !== null)
-    await fs.promises.writeFile(file, JSON.stringify(settings, null, 2))
+    await fs.promises.writeFile(file, configJson(settings))
   const workspaceSettings = path.join(dir, 'default', 'settings.json')
   const workspaceServers = path.join(dir, 'default', 'servers.config.json')
   fs.mkdirSync(path.dirname(workspaceSettings), { recursive: true })
-  fs.writeFileSync(workspaceSettings, '{"defaults":{}}\n')
-  fs.writeFileSync(workspaceServers, '{"servers":[]}\n')
+  fs.writeFileSync(workspaceSettings, configJson({ defaults: {} }))
+  fs.writeFileSync(workspaceServers, configJson({ servers: [] }))
   const store = new GlobalSettingsStore(file)
   store.load()
   return { store, file, dir, workspaceSettings, workspaceServers }
@@ -152,7 +153,7 @@ describe('globalSettingsStore', () => {
     store.updateControl({ label: 'via the panel' })
     expect(store.reloadFromDisk()).toEqual({ changed: false, applied: false, error: null })
 
-    await fs.promises.writeFile(file, JSON.stringify({ control: { port: 4111 } }, null, 2))
+    await fs.promises.writeFile(file, configJson({ control: { port: 4111 } }))
     const reloaded = store.reloadFromDisk()
     expect(reloaded.changed).toBe(true)
     expect(reloaded.applied).toBe(true)
@@ -181,7 +182,7 @@ describe('globalSettingsStore', () => {
     store.updateControl({ label: 'x' })
     expect(notified).toBe(1)
 
-    await fs.promises.writeFile(file, JSON.stringify({ control: { label: 'y' } }, null, 2))
+    await fs.promises.writeFile(file, configJson({ control: { label: 'y' } }))
     store.load()
     expect(notified).toBe(2)
   })

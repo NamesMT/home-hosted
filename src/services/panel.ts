@@ -548,8 +548,8 @@ function stateSignature(state: AppState): string {
       workspace.ddns === undefined
         ? ''
         : [workspace.ddns.running, workspace.ddns.lastRunAt, workspace.ddns.ipv4, workspace.ddns.ipv6, ...workspace.ddns.records.map(record => `${record.host}:${record.type}:${record.state}:${record.ip}`)].join(':'),
-      workspace.notifications.telegram.enabled,
-      workspace.notifications.telegram.tokenSet,
+      // Every destination is part of the signature: a rename, an edit or a token arriving is news.
+      ...(workspace.notifications.destinations ?? []).map(destination => `${destination.id}:${destination.kind}:${destination.enabled}:${destination.tokenSet}:${destination.lastResult ?? ''}`),
       ...workspace.servers.map(server => [
         server.id,
         server.status,

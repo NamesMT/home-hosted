@@ -103,13 +103,13 @@ async function makeFixture(
   fs.writeFileSync(path.join(dataDir, 'empty.txt'), '')
   fs.writeFileSync(globalSecretsPath, options.globalSecrets ?? '{ "password": null }\n', { mode: 0o600 })
   fs.writeFileSync(workspaceSecretsPath, options.workspaceSecrets ?? '{ "telegram": null }\n', { mode: 0o600 })
-  fs.writeFileSync(workspaceSettingsPath, '{ "logs": {} }\n')
+  fs.writeFileSync(workspaceSettingsPath, `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, logs: {} }, null, 2)}\n`)
 
   const parsed = backupsSchema({ dir: '.backups', keep: options.keep ?? 5, enabled: options.enabled ?? true, includePaths: options.includePaths ?? (options.coverStateRoot === true ? [dataRoot] : []), ...(options.schedule === undefined ? {} : { schedule: options.schedule }) })
   if (parsed instanceof type.errors)
     throw new Error(parsed.summary)
 
-  fs.writeFileSync(globalSettingsPath, `${JSON.stringify({ backups: parsed }, null, 2)}\n`)
+  fs.writeFileSync(globalSettingsPath, `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, backups: parsed }, null, 2)}\n`)
 
   const dataEnvs: Record<string, string> = {}
   ;(options.dataPaths ?? [dataDir]).forEach((target, index) => {
@@ -120,7 +120,7 @@ async function makeFixture(
     dataEnvs,
     ...(options.ignoreGenerated === undefined ? {} : { backupIgnoreGenerated: options.ignoreGenerated }),
   })]
-  fs.writeFileSync(serversPath, `${JSON.stringify({ servers }, null, 2)}\n`)
+  fs.writeFileSync(serversPath, `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers }, null, 2)}\n`)
 
   const sources: BackupSources = {
     globalSettingsPath,
@@ -606,8 +606,9 @@ describe('backup service', () => {
           { slug: 'second-app', path: '/home/someone/second-app', origin: 'global', workspace: 'default' },
         ],
       }),
-      'global/settings.json': JSON.stringify({ backups: { includePaths: [] } }),
+      'global/settings.json': JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, backups: { includePaths: [] } }),
       'workspaces/default/servers.config.json': JSON.stringify({
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
         // Two global include paths, plus the server's own env — the same origin twice.
         servers: [{ id: 'app', command: 'node', dataEnvs: {}, backupPaths: [] }],
       }),
@@ -670,7 +671,7 @@ describe('backup service', () => {
         hostname: 'elsewhere',
         data: [{ slug, path: fixture.dataDir, origin: 'app:DATA_DIR', workspace: 'default' }],
       }),
-      'workspaces/default/servers.config.json': JSON.stringify({ servers: [] }),
+      'workspaces/default/servers.config.json': JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers: [] }),
       [`data/${slug}/db.sqlite`]: 'RESTORED\n',
     })
 
@@ -704,9 +705,10 @@ describe('backup service', () => {
         hostname: 'somewhere-else',
         data: [{ slug: 'home-someone-app', path: '/home/someone/.app', origin: 'app:DATA_DIR' }],
       }),
-      'global/settings.json': JSON.stringify({ control: { port: 4123 }, backups: { includePaths: [] } }),
+      'global/settings.json': JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, control: { port: 4123 }, backups: { includePaths: [] } }),
       'global/secrets.json': '{"password":"hash"}\n',
       'workspaces/default/servers.config.json': JSON.stringify({
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
         servers: [{
           id: 'app',
           command: 'node',
@@ -758,6 +760,7 @@ describe('backup service', () => {
         data: [{ slug: 'old-app', path: '/home/someone/old-project/data/.9router', origin: 'app:DATA_DIR', workspace: 'default' }],
       }),
       'workspaces/default/servers.config.json': JSON.stringify({
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
         servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: '{projectDir}/data/.9router' } }],
       }),
       'data/old-app/db.sqlite': 'RESTORED\n',
@@ -819,6 +822,7 @@ describe('backup service', () => {
         data: [{ slug: 'x', path: '/home/someone/.app', origin: 'app:DATA_DIR', workspace: 'default' }],
       }),
       'workspaces/default/servers.config.json': JSON.stringify({
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
         servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: path.join(fixture.root, 'app') } }],
       }),
       'data/x/db.sqlite': 'RESTORED\n',

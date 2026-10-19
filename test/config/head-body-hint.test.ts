@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { parseServersFile } from '#src/config/parse'
 import { stockCopy } from '../helpers/stock-copy'
+import { configObject } from '../support/config-fixture'
 
 /**
  * The `HEAD`-cannot-check-a-body rule must be warned about where the field is set.
@@ -21,9 +22,9 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
 
 /** The exact predicate the parser uses, exercised rather than transcribed. */
 function serverWarns(method: string, expectBody: string): boolean {
-  const { warnings } = parseServersFile({
+  const { warnings } = parseServersFile(configObject({
     servers: [{ id: 'app', command: 'node', health: { mode: 'http', http: { method, expectBody } } }],
-  }, {})
+  }), {})
   return warnings.some(warning => warning.includes('requires a response body with method HEAD'))
 }
 
@@ -40,7 +41,7 @@ describe('the HEAD/body rule', () => {
    */
   it('warns when a certificate setting cannot apply', () => {
     const parse = (health: Record<string, unknown>): string[] =>
-      parseServersFile({ servers: [{ id: 'app', command: 'node', health }] }, {}).warnings
+      parseServersFile(configObject({ servers: [{ id: 'app', command: 'node', health }] }), {}).warnings
 
     expect(parse({ mode: 'http', http: { scheme: 'http', allowInvalidCert: true } })
       .some(warning => warning.includes('no certificate to check'))).toBe(true)

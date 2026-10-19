@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { applyPatch, mergeGroup } from '#src/config/patch'
 import { WorkspaceStore } from '#src/config/store'
 import { serverPatchSchema } from '#src/shared/contracts'
+import { configJson } from '../support/config-fixture'
 
 /**
  * An explicit `null` **removes** a key, at the top level as well as inside a group.
@@ -57,7 +58,7 @@ describe('a field where null is a value', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-nullvalue-'))
       try {
         const file = path.join(dir, 'servers.config.json')
-        fs.writeFileSync(file, JSON.stringify({ servers: [entry] }))
+        fs.writeFileSync(file, configJson({ servers: [entry] }))
         const store = new WorkspaceStore('default', path.join(dir, 'settings.json'), file)
         store.load()
         expect(store.getServer('web')?.port, JSON.stringify(entry)).toBeNull()
@@ -72,7 +73,7 @@ describe('a field where null is a value', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-nullclear-'))
     try {
       const file = path.join(dir, 'servers.config.json')
-      fs.writeFileSync(file, JSON.stringify({ servers: [{ id: 'web', command: 'node', port: 4000 }] }))
+      fs.writeFileSync(file, configJson({ servers: [{ id: 'web', command: 'node', port: 4000 }] }))
       const store = new WorkspaceStore('default', path.join(dir, 'settings.json'), file)
       store.load()
 
@@ -100,7 +101,7 @@ describe('a null written by hand', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-hand-null-'))
     try {
       const file = path.join(dir, 'servers.config.json')
-      fs.writeFileSync(file, JSON.stringify({
+      fs.writeFileSync(file, configJson({
         servers: [
           { id: 'web', command: 'node', label: null, port: null, bootstrap: null },
           { id: 'api', command: 'node', label: 'API' },
@@ -146,7 +147,7 @@ describe('the patch schema accepts the null the editor sends', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-clear-label-'))
     try {
       const file = path.join(dir, 'servers.config.json')
-      fs.writeFileSync(file, JSON.stringify({ servers: [{ id: 'web', command: 'node', label: 'Demo' }] }))
+      fs.writeFileSync(file, configJson({ servers: [{ id: 'web', command: 'node', label: 'Demo' }] }))
       const store = new WorkspaceStore('default', path.join(dir, 'settings.json'), file)
       store.load()
 

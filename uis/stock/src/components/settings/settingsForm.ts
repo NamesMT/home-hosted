@@ -3,15 +3,15 @@ import type {
   BackupScheduleConfig,
   BackupsView,
   ControlView,
+  DestinationStatusView,
   HealthConfig,
   HostConfig,
   LogsConfig,
+  NotificationDefaults,
   OnPortConflict,
   RestartConfig,
   ServerDefaults,
   StopConfig,
-  TelegramStatus,
-  WebhookStatus,
 } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
@@ -101,46 +101,46 @@ export interface DefaultsForm {
   stop: StopConfig
 }
 
-export interface TelegramForm {
-  enabled: boolean
-  chatId: string
-  cooldownMs: number
+/** The general block: what a destination inherits unless it opts out. */
+export interface PolicyForm {
   onCrash: boolean
   onUnhealthy: boolean
   onForcedRestart: boolean
   onRecovered: boolean
   onHost: boolean
   onDdns: boolean
+  cooldownMs: number
 }
 
 /**
- * One webhook target as the form edits it.
+ * One destination as the form edits it, whichever kind it is.
  *
- * `headers` stays a textarea (`Name: value` per line) rather than a key/value widget: the
- * values are opaque (`Bearer …`), and a line of text is what a person pastes from a service's
- * docs. `providers/webhook.ts` owns the parsing, so the page and the sender agree.
+ * One shape with two optional halves rather than a discriminated union: the list is rendered as
+ * rows of the *same* component, and a union would put a `kind` switch in every field binding. The
+ * kind decides which half is shown and which is written back.
  */
-export interface WebhookForm {
+export interface DestinationForm {
   id: string
-  url: string
+  kind: 'telegram' | 'webhook'
   enabled: boolean
+  useOwnSettings: boolean
+  /** Telegram: the chat, and whether a token is already stored for it. */
+  chatId: string
+  tokenSet: boolean
+  /** Webhook. `headers` is `Name: value` per line — see `providers/webhook.ts`. */
+  url: string
   method: 'POST' | 'PUT'
   format: 'json' | 'text'
   headers: string
-  cooldownMs: number
-  onCrash: boolean
-  onUnhealthy: boolean
-  onForcedRestart: boolean
-  onRecovered: boolean
-  onHost: boolean
-  onDdns: boolean
+  /** The destination's own policy; only sent when `useOwnSettings` is true. */
+  policy: PolicyForm
 }
 
 export interface WorkspaceSettingsForm {
   defaults: DefaultsForm
   logs: LogsForm
-  telegram: TelegramForm
-  webhooks: WebhookForm[]
+  policy: PolicyForm
+  destinations: DestinationForm[]
 }
 
 /** The schema's own defaults, for a form that has not been filled yet. */
@@ -209,19 +209,18 @@ export function createWorkspaceForm(): WorkspaceSettingsForm {
       stop: { ...SCHEMA_STOP },
     },
     logs: { persist: true, maxBytes: 2_000_000, keep: 3 },
-    telegram: {
-      enabled: false,
-      chatId: '',
-      cooldownMs: 120_000,
+    // The schema defaults, so an untouched form writes nothing.
+    policy: {
       onCrash: true,
       onUnhealthy: true,
       onForcedRestart: true,
       onRecovered: false,
       onHost: true,
       onDdns: true,
+      cooldownMs: 120_000,
     },
     // Filled from the live status on load; empty until then.
-    webhooks: [],
+    destinations: [],
   }
 }
 
@@ -263,22 +262,6 @@ export function listenerBaseline(view: ControlView): ListenerForm {
   return { label: view.label, port: view.port, host: view.host, openBrowser: view.openBrowser, tlsEnabled: view.tls.enabled }
 }
 
-/** A panel from before DDNS sends no flag; the form treats that as "on". */
-export function telegramBaseline(status: TelegramStatus): TelegramForm {
-  return {
-    enabled: status.enabled,
-    chatId: status.chatId,
-    cooldownMs: status.cooldownMs,
-    onCrash: status.onCrash,
-    onUnhealthy: status.onUnhealthy,
-    onForcedRestart: status.onForcedRestart,
-    onRecovered: status.onRecovered,
-    onHost: status.onHost,
-    onDdns: status.onDdns ?? true,
-  }
-}
-
-/** A comma-separated field back into the list the config stores. */
 export function splitList(value: string): string[] {
   return value.split(',').map(entry => entry.trim()).filter(entry => entry.length > 0)
 }
@@ -380,43 +363,66 @@ export function logsPatch(current: LogsConfig, form: LogsForm): Patch {
   return diffFields(current as unknown as Patch, form as unknown as Patch)
 }
 
-/** One target as the form holds it, from its status row. */
-export function webhookBaseline(status: WebhookStatus): WebhookForm {
+/** The general block as the form holds it. */
+export function policyBaseline(status: Pick<NotificationDefaults, 'onCrash' | 'onUnhealthy' | 'onForcedRestart' | 'onRecovered' | 'onHost' | 'cooldownMs'> & { onDdns?: boolean }): PolicyForm {
   return {
-    id: status.id,
-    url: status.url,
-    enabled: status.enabled,
-    method: status.method,
-    format: status.format,
-    headers: status.headers,
-    cooldownMs: status.cooldownMs,
     onCrash: status.onCrash,
     onUnhealthy: status.onUnhealthy,
     onForcedRestart: status.onForcedRestart,
     onRecovered: status.onRecovered,
     onHost: status.onHost,
+    // A panel from before DDNS sends no flag; the form treats that as "on".
     onDdns: status.onDdns ?? true,
+    cooldownMs: status.cooldownMs,
   }
 }
 
-/**
- * The whole list, because the API **replaces** it — a merge cannot express removing a target.
- * Only changed targets are sent, but the array itself is the request's unit.
- */
-export function webhooksPatch(current: WebhookStatus[], forms: WebhookForm[]): Patch | null {
-  const before = new Map(current.map(status => [status.id, webhookBaseline(status)]))
-  const changed = forms.filter((form) => {
-    const original = before.get(form.id)
-    return original === undefined || JSON.stringify(original) !== JSON.stringify(form)
-  })
-  if (changed.length === 0 && forms.length === current.length)
-    return null
-  return { webhooks: forms }
+/** One destination as the form holds it, from its status row. */
+export function destinationBaseline(status: DestinationStatusView): DestinationForm {
+  return {
+    id: status.id,
+    kind: status.kind,
+    enabled: status.enabled,
+    useOwnSettings: status.useOwnSettings,
+    chatId: status.chatId ?? '',
+    tokenSet: status.tokenSet,
+    url: status.url ?? '',
+    method: status.method ?? 'POST',
+    format: status.format ?? 'json',
+    headers: status.headers ?? '',
+    // The row carries the *effective* policy; on an inheriting destination those are the
+    // general block's values, which is what the read-only view should show.
+    policy: policyBaseline(status),
+  }
 }
 
-/** Telegram policy only — the bot token is a secret with its own endpoint. */
-export function telegramPatch(current: TelegramStatus, form: TelegramForm): Patch {
-  return diffFields({ telegram: telegramBaseline(current) }, { telegram: { ...form } }, ['telegram'])
+/** The general block's patch, or null when nothing changed. */
+export function policyPatch(current: NotificationDefaults, form: PolicyForm): Patch | null {
+  const diff = diffFields({ defaults: policyBaseline(current) }, { defaults: { ...form } }, ['defaults'])
+  return Object.keys(diff).length === 0 ? null : diff
+}
+
+/**
+ * The whole destination list, because the API **replaces** it — a merge cannot express removing
+ * one. A destination that inherits sends no policy columns: they would be ignored, and writing them
+ * would make the config say something the page does not mean.
+ */
+export function destinationsPatch(current: DestinationStatusView[], forms: DestinationForm[]): Patch | null {
+  const before = new Map(current.map(status => [status.id, destinationBaseline(status)]))
+  const changed = forms.some(form => JSON.stringify(before.get(form.id)) !== JSON.stringify(form))
+  if (!changed && forms.length === current.length)
+    return null
+
+  return {
+    destinations: forms.map(form => ({
+      kind: form.kind,
+      id: form.id,
+      enabled: form.enabled,
+      useOwnSettings: form.useOwnSettings,
+      ...(form.kind === 'telegram' ? { chatId: form.chatId } : { url: form.url, method: form.method, format: form.format, headers: form.headers }),
+      ...(form.useOwnSettings ? form.policy : {}),
+    })),
+  }
 }
 
 /**
@@ -428,7 +434,7 @@ export function telegramPatch(current: TelegramStatus, form: TelegramForm): Patc
  * user is editing is the one that must not be overwritten.
  */
 export type GlobalFormBlock = 'control' | 'host' | 'backups'
-export type WorkspaceFormBlock = 'defaults' | 'logs' | 'telegram'
+export type WorkspaceFormBlock = 'defaults' | 'logs' | 'notifications'
 
 /** What a block held when it was last filled; absent means "never filled". */
 export type FormSnapshots = Partial<Record<GlobalFormBlock | WorkspaceFormBlock, unknown>>
@@ -473,6 +479,16 @@ export function rememberControlPart(form: GlobalSettingsForm, snapshots: FormSna
   snapshots.control = { ...current, [part]: controlPartSnapshot(form, part) }
 }
 
+/**
+ * Every field a block owns, copied.
+ *
+ * **A block's snapshot must cover every field its form holds**, because `isBlockEdited` decides
+ * "somebody is editing, leave it alone" by comparing the two. Omitting one silently un-guards it:
+ * the notifications block once snapshotted only `telegram`, so adding a webhook never counted as
+ * an edit and every state frame re-filled the list over it — reported as "webhooks settings gets
+ * reverted automatically periodically". Keeping the two lists side by side here is what makes the
+ * omission visible: add a field to one, add it to the other.
+ */
 export function workspaceBlockSnapshot(form: WorkspaceSettingsForm, block: WorkspaceFormBlock): unknown {
   switch (block) {
     case 'defaults': return {
@@ -482,7 +498,17 @@ export function workspaceBlockSnapshot(form: WorkspaceSettingsForm, block: Works
       stop: { ...form.defaults.stop },
     }
     case 'logs': return { ...form.logs }
-    case 'telegram': return { ...form.telegram }
+    /**
+     * The whole block: the general policy **and** the destination list.
+     *
+     * The live-state guard compares this against the form to decide whether somebody is editing,
+     * so a field left out of it is a field whose edit no frame protects — the webhook list was
+     * once omitted here and every state frame re-filled it while it was being typed.
+     */
+    case 'notifications': return {
+      policy: { ...form.policy },
+      destinations: form.destinations.map(destination => ({ ...destination, policy: { ...destination.policy } })),
+    }
   }
 }
 

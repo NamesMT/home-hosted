@@ -93,7 +93,7 @@ describe('workspace settings route', () => {
 
     const response = await patch(created, {
       logs: { keep: 7 },
-      notifications: { telegram: { onHost: false } },
+      notifications: { defaults: { onHost: false } },
       defaults: { autostart: true },
     }, '/api/settings/workspace')
 
@@ -108,13 +108,13 @@ describe('workspace settings route', () => {
     const written = JSON.parse(fs.readFileSync(created.store.settingsPath, 'utf8')) as {
       logs: { keep: number }
       defaults: { autostart: boolean }
-      notifications: { telegram: { onHost: boolean } }
+      notifications: { defaults: { onHost: boolean } }
     }
     expect(written.logs.keep).toBe(7)
     expect(written.defaults.autostart).toBe(true)
-    expect(written.notifications.telegram.onHost).toBe(false)
+    expect(written.notifications.defaults.onHost).toBe(false)
     expect(created.store.logs.keep).toBe(7)
-    expect(created.store.notifications.telegram.onHost).toBe(false)
+    expect(created.store.notifications.defaults.onHost).toBe(false)
     // Never the panel-wide file.
     expect(fs.readFileSync(created.settings.path, 'utf8')).toBe(globalBefore)
   })

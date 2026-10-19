@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it } from 'vitest'
+import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { serversFileSchema, workspaceSettingsSchema } from '#src/config/schema'
 import { SEED_SERVERS_FILE, SEED_WORKSPACE_SETTINGS } from '#src/config/seed'
 import { ConfigError, WorkspaceStore } from '#src/config/store'
@@ -29,10 +30,12 @@ async function tempStore(
   dirs.push(dir)
   const settingsFile = path.join(dir, 'settings.json')
   const serversFile = path.join(dir, 'servers.config.json')
+  // Stamped as the current schema: these fixtures are written in today's shape, and an unstamped
+  // file reads as schema 1, which now has a migration pending.
   if (settings !== null)
-    await fs.promises.writeFile(settingsFile, JSON.stringify(settings, null, 2))
+    await fs.promises.writeFile(settingsFile, JSON.stringify({ ...settings, meta: { writtenBy: 'test', schema: CONFIG_SCHEMA } }, null, 2))
   if (servers !== null)
-    await fs.promises.writeFile(serversFile, JSON.stringify(servers, null, 2))
+    await fs.promises.writeFile(serversFile, JSON.stringify({ ...servers, meta: { writtenBy: 'test', schema: CONFIG_SCHEMA } }, null, 2))
   return { store: new WorkspaceStore('default', settingsFile, serversFile), dir, settingsFile, serversFile }
 }
 
@@ -40,6 +43,11 @@ async function storeWith(server: Record<string, unknown>, settings: Record<strin
   const created = await tempStore(settings, { servers: [server] })
   created.store.load()
   return created
+}
+
+/** A fixture file in today's shape. Every raw write goes through this, so none forgets the stamp. */
+function json(config: unknown): string {
+  return JSON.stringify({ ...(config as Record<string, unknown>), meta: { writtenBy: 'test', schema: CONFIG_SCHEMA } }, null, 2)
 }
 
 function read(file: string): Record<string, any> {
@@ -114,14 +122,14 @@ describe('workspaceStore', () => {
       { defaults: {} },
     )
     // A second bad entry, written directly so both are reported in one read.
-    fs.writeFileSync(store.settingsPath, JSON.stringify({ defaults: {} }, null, 2))
-    fs.writeFileSync(store.path, JSON.stringify({
+    fs.writeFileSync(store.settingsPath, json({ defaults: {} }))
+    fs.writeFileSync(store.path, json({
       servers: [
         { id: 'good', command: 'node' },
         { id: 'bad id', command: 'node' },
         { id: 'missing-command' },
       ],
-    }, null, 2))
+    }))
     store.load()
 
     expect(store.configError).toContain('servers[1]')
@@ -135,7 +143,7 @@ describe('workspaceStore', () => {
     const { store } = await storeWith({ id: 'keep', command: 'node' })
     expect(store.getServer('keep')).toBeDefined()
 
-    await fs.promises.writeFile(store.path, JSON.stringify({ servers: [{ id: 'keep', command: 'node', port: 'nope' }] }, null, 2))
+    await fs.promises.writeFile(store.path, json({ servers: [{ id: 'keep', command: 'node', port: 'nope' }] }))
     store.load()
 
     expect(store.configError).toContain('servers[0]')
@@ -152,9 +160,9 @@ describe('workspaceStore', () => {
     store.updateServer('a', { label: 'via the panel' })
     expect(store.reloadFromDisk()).toEqual({ changed: false, applied: false, error: null })
 
-    await fs.promises.writeFile(store.path, JSON.stringify({
+    await fs.promises.writeFile(store.path, json({
       servers: [{ id: 'a', command: 'node', label: 'via an editor' }, { id: 'b', command: 'node' }],
-    }, null, 2))
+    }))
 
     expect(store.reloadFromDisk()).toEqual({ changed: true, applied: true, error: null })
     expect(store.getServer('a')?.label).toBe('via an editor')
@@ -169,7 +177,7 @@ describe('workspaceStore', () => {
     store.updateDefaults({ autostart: true })
     expect(store.reloadFromDisk()).toEqual({ changed: false, applied: false, error: null })
 
-    await fs.promises.writeFile(store.settingsPath, JSON.stringify({ defaults: { bind: 'lan' } }, null, 2))
+    await fs.promises.writeFile(store.settingsPath, json({ defaults: { bind: 'lan' } }))
     expect(store.reloadFromDisk()).toEqual({ changed: true, applied: true, error: null })
     expect(store.getServer('a')?.bind).toBe('lan')
   })
@@ -249,7 +257,7 @@ describe('workspaceStore', () => {
 
   it('reports duplicate ids', async () => {
     const { store } = await storeWith({ id: 'dup', command: 'node' })
-    await fs.promises.writeFile(store.path, JSON.stringify({
+    await fs.promises.writeFile(store.path, json({
       servers: [{ id: 'dup', command: 'node' }, { id: 'dup', command: 'node' }],
     }))
     store.load()
@@ -265,7 +273,7 @@ describe('workspaceStore', () => {
     const settingsFile = path.join(dir, 'settings.json')
     const serversFile = path.join(dir, 'servers.config.json')
     await fs.promises.writeFile(settingsFile, '{ nope')
-    await fs.promises.writeFile(serversFile, JSON.stringify({ servers: [] }))
+    await fs.promises.writeFile(serversFile, json({ servers: [] }))
     const store = new WorkspaceStore('default', settingsFile, serversFile)
     store.load()
     expect(store.configError).not.toBeNull()
@@ -295,7 +303,7 @@ describe('workspaceStore', () => {
     store.onChange(() => notified++)
 
     // Something else replaced the file, e.g. a restored backup.
-    await fs.promises.writeFile(store.path, JSON.stringify({ servers: [{ id: 'b', command: 'node' }] }))
+    await fs.promises.writeFile(store.path, json({ servers: [{ id: 'b', command: 'node' }] }))
     store.load()
 
     expect(notified).toBe(1)
@@ -598,13 +606,16 @@ describe('logs, notifications and dependencies', () => {
     const { store } = await storeWith({ id: 'a', command: 'node' })
 
     store.updateLogs({ persist: false, keep: 5 })
-    store.updateNotifications({ telegram: { enabled: true, chatId: '42' } })
+    store.updateNotifications({ destinations: [{ kind: 'telegram', id: 'tg', enabled: true, chatId: '42' }] })
 
     expect(store.logs.persist).toBe(false)
     expect(store.logs.keep).toBe(5)
     expect(store.logs.maxBytes).toBe(2000000)
-    expect(store.notifications.telegram.chatId).toBe('42')
-    expect(store.notifications.telegram.onCrash).toBe(true)
+    expect(store.notifications.destinations[0]?.kind).toBe('telegram')
+    expect(store.notifications.destinations[0]).toMatchObject({ kind: 'telegram', chatId: '42' })
+    // The schema default: a destination set through the API carries its own policy unless it says
+    // otherwise. The page chooses inheritance when it creates one; a bare patch is taken literally.
+    expect(store.notifications.destinations[0]?.useOwnSettings).toBe(true)
   })
 
   /**
@@ -617,19 +628,19 @@ describe('logs, notifications and dependencies', () => {
   it('refuses a webhook list with a duplicate id, and keeps the previous one', async () => {
     const { store, settingsFile } = await storeWith({ id: 'a', command: 'node' })
 
-    store.updateNotifications({ webhooks: [{ id: 'phone', url: 'https://ntfy.sh/a' }] })
+    store.updateNotifications({ destinations: [{ kind: 'webhook', id: 'phone', url: 'https://ntfy.sh/a' }] })
     const before = read(settingsFile)
 
     expect(() => store.updateNotifications({
-      webhooks: [
-        { id: 'phone', url: 'https://ntfy.sh/a' },
-        { id: 'phone', url: 'https://ntfy.sh/b' },
+      destinations: [
+        { kind: 'webhook', id: 'phone', url: 'https://ntfy.sh/a' },
+        { kind: 'webhook', id: 'phone', url: 'https://ntfy.sh/b' },
       ],
     })).toThrow(/duplicate webhook id "phone"/)
 
-    // The refused write changed nothing: the file still holds the one good target.
+    // The refused write changed nothing: the file still holds the one good destination.
     expect(read(settingsFile)).toEqual(before)
-    expect(store.notifications.webhooks).toHaveLength(1)
+    expect(store.notifications.destinations).toHaveLength(1)
   })
 
   /**
@@ -641,16 +652,16 @@ describe('logs, notifications and dependencies', () => {
   it('refuses a webhook target with no usable URL', async () => {
     const { store } = await storeWith({ id: 'a', command: 'node' })
 
-    expect(() => store.updateNotifications({ webhooks: [{ id: 'empty', url: '' }] }))
+    expect(() => store.updateNotifications({ destinations: [{ kind: 'webhook', id: 'empty', url: '' }] }))
       .toThrow(/webhook "empty" no URL configured/)
-    expect(() => store.updateNotifications({ webhooks: [{ id: 'bad', url: 'file:///etc/passwd' }] }))
+    expect(() => store.updateNotifications({ destinations: [{ kind: 'webhook', id: 'bad', url: 'file:///etc/passwd' }] }))
       .toThrow(/webhook "bad" the URL must be http or https/)
-    expect(() => store.updateNotifications({ webhooks: [{ id: 'ok', url: 'https://ntfy.sh/t', headers: 'nope' }] }))
+    expect(() => store.updateNotifications({ destinations: [{ kind: 'webhook', id: 'ok', url: 'https://ntfy.sh/t', headers: 'nope' }] }))
       .toThrow(/Name: value/)
 
     // A usable one lands.
-    store.updateNotifications({ webhooks: [{ id: 'ok', url: 'https://ntfy.sh/t' }] })
-    expect(store.notifications.webhooks.map(target => target.id)).toEqual(['ok'])
+    store.updateNotifications({ destinations: [{ kind: 'webhook', id: 'ok', url: 'https://ntfy.sh/t' }] })
+    expect(store.notifications.destinations.map(target => target.id)).toEqual(['ok'])
   })
 
   it('rejects an out-of-range retention value', async () => {

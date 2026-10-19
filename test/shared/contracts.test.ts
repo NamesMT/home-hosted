@@ -18,6 +18,7 @@ import {
   healthSchema,
   logBufferLinesSchema,
   logsSchema,
+  notificationDefaultsSchema,
   notificationsSchema,
   onPortConflictSchema,
   passwordSchema,
@@ -41,7 +42,6 @@ import {
   serverViewSchema,
   settingsPatchSchema,
   telegramChatsSchema,
-  telegramSchema,
   workspaceSettingsPatchSchema,
   workspaceViewSchema,
 } from '#src/shared/contracts'
@@ -211,10 +211,12 @@ describe('view contracts', () => {
       defaults: unwrap(defaultsSchema({})),
       logs: unwrap(logsSchema({})),
       notifications: {
-        telegram: {
+        defaults: { onCrash: true, onUnhealthy: true, onForcedRestart: true, onRecovered: false, onHost: true, onDdns: true, cooldownMs: 120000 },
+        destinations: [{
+          id: 'tg',
+          kind: 'telegram',
           enabled: false,
-          tokenSet: false,
-          chatId: '',
+          useOwnSettings: false,
           onCrash: true,
           onUnhealthy: true,
           onForcedRestart: true,
@@ -222,9 +224,15 @@ describe('view contracts', () => {
           onHost: true,
           onDdns: true,
           cooldownMs: 120000,
+          chatId: '',
+          tokenSet: false,
+          url: null,
+          method: null,
+          format: null,
+          headers: null,
           lastResult: null,
           lastResultAt: null,
-        },
+        }],
       },
       serverCount: 1,
       runningCount: 0,
@@ -426,14 +434,19 @@ describe('numeric bounds', () => {
    * and the id pattern; uniqueness is a separate predicate because a schema `narrow` cannot be
    * rendered to JSON Schema, and every route's OpenAPI document calls `toJsonSchema()`.
    */
-  it('checks the webhook list shape, and reports duplicate ids separately', () => {
-    const parses = (webhooks: unknown): boolean => !(notificationsSchema({ webhooks } as unknown) instanceof type.errors)
+  it('checks the destination list shape, and reports duplicate ids separately', () => {
+    const parses = (destinations: unknown): boolean => !(notificationsSchema({ destinations } as unknown) instanceof type.errors)
     expect(parses([])).toBe(true)
-    expect(parses([{ id: 'phone', url: 'https://ntfy.sh/a' }, { id: 'chat', url: 'https://x/b' }])).toBe(true)
-    // The id pattern is the shared one.
-    expect(parses([{ id: 'Bad Id', url: 'https://a/' }]), 'the id pattern still rejects').toBe(false)
+    expect(parses([
+      { kind: 'telegram', id: 'tg', chatId: '42' },
+      { kind: 'webhook', id: 'phone', url: 'https://ntfy.sh/a' },
+    ])).toBe(true)
+    // The id pattern is the shared one, and `kind` is required: a bare entry is not a destination.
+    expect(parses([{ kind: 'webhook', id: 'Bad Id', url: 'https://a/' }]), 'the id pattern still rejects').toBe(false)
+    expect(parses([{ id: 'nokind', url: 'https://a/' }]), 'a destination needs a kind').toBe(false)
+    expect(parses([{ kind: 'email', id: 'x' }]), 'an unknown kind is not deliverable').toBe(false)
 
-    // Uniqueness: the schema cannot say it, so the helper does, and the store refuses the write.
+    // Uniqueness spans kinds — the id keys a token as well as a cooldown — so the helper does it.
     expect(duplicateWebhookIds([{ id: 'a' }, { id: 'b' }]), 'a unique list reports nothing').toEqual([])
     expect(duplicateWebhookIds([{ id: 'a' }, { id: 'a' }, { id: 'b' }, { id: 'b' }])).toEqual(['a', 'b'])
   })
@@ -490,12 +503,12 @@ describe('dynamic DNS schema', () => {
     expect(ok(ddnsConfigSchema, { ttl: 0 })).toBe(false)
   })
 
-  it('carries DDNS into the Telegram policy, defaulting on', () => {
-    expect(unwrap(telegramSchema({})).onDdns).toBe(true)
-    const patch = unwrap(workspaceSettingsPatchSchema({ notifications: { telegram: { onDdns: false } } }))
-    expect(patch.notifications?.telegram?.onDdns).toBe(false)
+  it('carries DDNS into the general policy, defaulting on', () => {
+    expect(unwrap(notificationDefaultsSchema({})).onDdns).toBe(true)
+    const patch = unwrap(workspaceSettingsPatchSchema({ notifications: { defaults: { onDdns: false } } }))
+    expect(patch.notifications?.defaults?.onDdns).toBe(false)
     // Notifications belong to a workspace now: the global patch rejects the block.
-    expect(settingsPatchSchema({ notifications: { telegram: {} } } as unknown) instanceof type.errors).toBe(true)
+    expect(settingsPatchSchema({ notifications: { defaults: {} } } as unknown) instanceof type.errors).toBe(true)
   })
 
   it('lets a state frame from a panel without DDNS still parse', () => {

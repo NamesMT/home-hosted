@@ -203,11 +203,11 @@ describe('ddns credentials on disk', () => {
     const file = await tempFile()
     const store = new SecretsStore(file, 's')
     store.setPassword('a-password')
-    store.setTelegramToken('bot-token')
+    store.setTelegramToken('tg', 'bot-token')
     store.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'x' })
 
     expect(read(file).password.algo).toBe('scrypt')
-    expect(read(file).telegram.botToken).toBe('bot-token')
+    expect(read(file).telegram.tg).toBe('bot-token')
     expect(new SecretsStore(file, 'different').passwordSet).toBe(true)
   })
 })
@@ -225,18 +225,18 @@ describe('secret scopes', () => {
 
     store.setPassword('a-password')
     store.setApiToken('hh_a-token')
-    store.setTelegramToken('bot-token')
+    store.setTelegramToken('tg', 'bot-token')
     store.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
 
     // The panel-wide secrets are there…
     expect(store.passwordSet).toBe(true)
     expect(store.apiTokenSet).toBe(true)
     // …and the workspace half was dropped, even from the write.
-    expect(store.telegramToken).toBeNull()
+    expect(store.telegramToken('tg')).toBeNull()
     expect(store.ddnsAccountIds).toEqual([])
     expect(fs.readFileSync(file, 'utf8')).not.toContain('bot-token')
     expect(fs.readFileSync(file, 'utf8')).not.toContain('cf-token-value')
-    expect(read(file).telegram).toBeNull()
+    expect(read(file).telegram).toEqual({})
     expect(read(file).ddns).toEqual({})
     expect(read(file).ddnsKdf).toBeNull()
   })
@@ -245,13 +245,13 @@ describe('secret scopes', () => {
     const file = await tempFile()
     const store = new SecretsStore(file, 's', 'workspace')
 
-    store.setTelegramToken('bot-token')
+    store.setTelegramToken('tg', 'bot-token')
     store.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
     store.setPassword('a-password')
     store.setApiToken('hh_a-token')
 
     // The workspace's own secrets are there…
-    expect(store.telegramToken).toBe('bot-token')
+    expect(store.telegramToken('tg')).toBe('bot-token')
     expect(store.getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'cf-token-value' })
     // …and the panel-wide half was dropped, never written into the workspace file.
     expect(store.passwordSet).toBe(false)
@@ -266,17 +266,17 @@ describe('secret scopes', () => {
     const both = new SecretsStore(file, 's', 'all')
     both.setPassword('a-password')
     both.setApiToken('hh_a-token')
-    both.setTelegramToken('bot-token')
+    both.setTelegramToken('tg', 'bot-token')
     both.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
 
     const global = new SecretsStore(file, 's', 'global')
     expect(global.passwordSet).toBe(true)
     expect(global.apiTokenSet).toBe(true)
-    expect(global.telegramToken).toBeNull()
+    expect(global.telegramToken('tg')).toBeNull()
     expect(global.ddnsAccountIds).toEqual([])
 
     const workspace = new SecretsStore(file, 's', 'workspace')
-    expect(workspace.telegramToken).toBe('bot-token')
+    expect(workspace.telegramToken('tg')).toBe('bot-token')
     expect(workspace.getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'cf-token-value' })
     expect(workspace.passwordSet).toBe(false)
     expect(workspace.apiTokenSet).toBe(false)
@@ -297,8 +297,9 @@ describe('secret scopes', () => {
     const global = new SecretsStore(file, 's', 'global')
     global.setPassword('a-password')
 
-    // The workspace half is not echoed back through a global write.
-    expect(read(file).telegram ?? null).toBeNull()
+    // The workspace half is not echoed back through a global write. The map reads as `{}` now
+    // rather than `null`: the tokens are keyed by destination id, and a scope keeps a map.
+    expect(read(file).telegram).toEqual({})
     expect(read(file).ddns ?? {}).toEqual({})
   })
 })

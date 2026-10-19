@@ -474,48 +474,59 @@ describe('backups route', () => {
 })
 
 describe('notifications route', () => {
+  /**
+   * A token is stored **per destination**, so every route names one in its path. That is what lets
+   * a workspace point at more than one Telegram chat, which the singleton could not.
+   */
   it('verifies a token before storing it, and stores it only then', async () => {
     const created = await fixture()
 
     created.notifications.verifyToken = async () => ({ ok: false, error: 'Unauthorized' })
-    const rejected = await request(created.app, '/api/notifications/token', 'PUT', { botToken: 'bad' })
+    const rejected = await request(created.app, '/api/notifications/destinations/tg/token', 'PUT', { botToken: 'bad' })
     expect(rejected.status).toBe(400)
     expect(await rejected.json()).toMatchObject({ code: 'TELEGRAM_TOKEN_REJECTED' })
-    expect(created.secrets.telegramTokenSet).toBe(false)
+    expect(created.secrets.telegramTokenSet('tg')).toBe(false)
 
     created.notifications.verifyToken = async () => ({ ok: true, username: 'hh_bot' })
-    const accepted = await request(created.app, '/api/notifications/token', 'PUT', { botToken: 'good-token' })
+    const accepted = await request(created.app, '/api/notifications/destinations/tg/token', 'PUT', { botToken: 'good-token' })
     expect(accepted.status).toBe(200)
     expect(await accepted.json()).toEqual({ ok: true, username: 'hh_bot' })
-    expect(created.secrets.telegramToken).toBe('good-token')
+    expect(created.secrets.telegramToken('tg')).toBe('good-token')
+
+    // A second destination keeps its own token; storing one does not overwrite the other.
+    await request(created.app, '/api/notifications/destinations/other/token', 'PUT', { botToken: 'second-token' })
+    expect(created.secrets.telegramToken('tg')).toBe('good-token')
+    expect(created.secrets.telegramToken('other')).toBe('second-token')
   })
 
-  it('forgets the token on delete', async () => {
+  it('forgets the token on delete, for that destination only', async () => {
     const created = await fixture()
-    created.secrets.setTelegramToken('something')
+    created.secrets.setTelegramToken('tg', 'something')
+    created.secrets.setTelegramToken('other', 'keep-me')
 
-    expect(await (await request(created.app, '/api/notifications/token', 'DELETE')).json()).toEqual({ ok: true })
-    expect(created.secrets.telegramTokenSet).toBe(false)
+    expect(await (await request(created.app, '/api/notifications/destinations/tg/token', 'DELETE')).json()).toEqual({ ok: true })
+    expect(created.secrets.telegramTokenSet('tg')).toBe(false)
+    expect(created.secrets.telegramToken('other')).toBe('keep-me')
   })
 
   it('reports a refused test message and a refused chat listing as 400s', async () => {
     const created = await fixture()
 
     created.notifications.sendTest = async () => ({ ok: false, error: 'no chat id configured' })
-    const test = await request(created.app, '/api/notifications/test', 'POST', {})
+    const test = await request(created.app, '/api/notifications/destinations/tg/test', 'POST', {})
     expect(test.status).toBe(400)
     expect(await test.json()).toMatchObject({ code: 'TELEGRAM_SEND_FAILED' })
 
     created.notifications.sendTest = async () => ({ ok: true })
-    expect((await request(created.app, '/api/notifications/test', 'POST', {})).status).toBe(200)
+    expect((await request(created.app, '/api/notifications/destinations/tg/test', 'POST', {})).status).toBe(200)
 
     created.notifications.detectChats = async () => ({ ok: false, chats: [], error: 'no bot token configured' })
-    const detect = await request(created.app, '/api/notifications/detect-chats', 'POST', {})
+    const detect = await request(created.app, '/api/notifications/destinations/tg/detect-chats', 'POST', {})
     expect(detect.status).toBe(400)
     expect(await detect.json()).toMatchObject({ code: 'TELEGRAM_LIST_FAILED' })
 
     created.notifications.detectChats = async () => ({ ok: true, chats: [{ id: 42, title: 'Group' }] })
-    const chats = await request(created.app, '/api/notifications/detect-chats', 'POST', {})
+    const chats = await request(created.app, '/api/notifications/destinations/tg/detect-chats', 'POST', {})
     expect(chats.status).toBe(200)
     expect(await chats.json()).toEqual({ chats: [{ id: 42, title: 'Group' }] })
   })

@@ -46,8 +46,8 @@ function buildWorkspaceSettings(runtime: WorkspaceRuntime) {
     defaults: runtime.store.defaults,
     logs: runtime.store.logs,
     notifications: {
-      telegram: runtime.notifications.status(),
-      webhooks: runtime.notifications.webhookStatuses(),
+      defaults: runtime.notifications.defaults(),
+      destinations: runtime.notifications.destinations(),
     },
   }
 }

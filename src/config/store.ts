@@ -325,13 +325,17 @@ export class WorkspaceStore {
     // The list's ids are its identity: the cooldown and the last-result record are keyed by
     // one, so two targets sharing it would behave as a single target. Refused here, where the
     // write lands, because the schema cannot express it (a predicate breaks `toJsonSchema`).
-    const duplicates = duplicateWebhookIds(notifications.webhooks)
+    const duplicates = duplicateWebhookIds(notifications.destinations)
     if (duplicates.length > 0)
       throw new ConfigError(`notifications: duplicate webhook id ${duplicates.map(id => `"${id}"`).join(', ')}`)
 
     // An enabled target with no usable URL fails every event it is asked to send, silently and
     // for ever — the page refuses to save one, but the API is a second door to the same list.
-    for (const target of notifications.webhooks) {
+    for (const target of notifications.destinations) {
+      // Only a webhook has a URL to check; a Telegram destination's failure mode is a missing token,
+      // which is surfaced on the page rather than refused here (the secret may arrive later).
+      if (target.kind !== 'webhook')
+        continue
       const problem = targetProblem(target, { requireUrl: true })
       if (problem !== null)
         throw new ConfigError(`notifications: webhook "${target.id}" ${problem}`)

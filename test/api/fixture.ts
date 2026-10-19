@@ -9,6 +9,7 @@ import path from 'node:path'
 import { type } from 'arktype'
 import { Hono } from 'hono'
 import { createRootApp } from '#src/app'
+import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceStore } from '#src/config/store'
@@ -225,8 +226,11 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     // A workspace created through the route lands here without its directory yet.
     fs.mkdirSync(workspaceDir(declaration.id), { recursive: true })
     const serversFile = workspaceServersFile(declaration.id)
+    // Stamped as the current schema: an unstamped file reads as the oldest shape, which now has a
+    // migration pending and would be refused.
     fs.writeFileSync(serversFile, JSON.stringify({
       $schema: './servers.config.schema.json',
+      meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
       servers: declaration.servers,
     }, null, 2))
 

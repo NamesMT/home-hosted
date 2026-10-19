@@ -3,7 +3,7 @@ import { isRecord } from '#src/shared/shape'
 export type SecretScope = 'global' | 'workspace'
 
 export interface SecretPart {
-  /** The leaf id: `password`, `apiToken`, `telegram`, `ddns`, or a future top-level key. */
+  /** The leaf id: `password`, `apiToken`, `telegram` (bot tokens by destination), `ddns`, or a future top-level key. */
   key: string
   /** The top-level file keys this part carries. `ddns` carries `['ddns', 'ddnsKdf']`. */
   fields: string[]

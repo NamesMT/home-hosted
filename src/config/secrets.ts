@@ -78,12 +78,22 @@ export type SecretsScope = 'all' | 'global' | 'workspace'
 interface SecretsFile {
   password: PasswordRecord | null
   apiToken: ApiTokenRecord | null
-  telegram: { botToken: string } | null
+  /**
+   * Bot tokens by destination id. A map, not a singleton: a workspace may point at more than one
+   * Telegram chat, and each destination carries its own bot.
+   */
+  telegram: Record<string, string>
   /** Per-DDNS-account credentials, keyed by the account id in the config. */
   ddns: Record<string, StoredDdnsRecord>
   /** How the DDNS key is derived; absent until the first sealed write. */
   ddnsKdf: DdnsKdfMeta | null
 }
+
+/**
+ * The id the config migration gives a pre-list Telegram destination, so its stored `{ botToken }`
+ * still finds an owner after the upgrade.
+ */
+export const LEGACY_TELEGRAM_ID = 'telegram'
 
 /** So a first run is sealed rather than plaintext; set `HHOSTED_DDNS_SECRET` for real protection. */
 export const DEFAULT_DDNS_SECRET = 'hh'
@@ -180,6 +190,27 @@ function isSealedDdns(value: unknown): value is SealedDdnsRecord {
 
 function isPlainDdns(value: StoredDdnsRecord): value is PlainDdnsRecord {
   return 'plain' in value
+}
+
+/**
+ * The bot tokens by destination id.
+ *
+ * Two shapes read: the map this release writes, and the single `{ botToken }` written before a
+ * workspace could have more than one Telegram destination. The old one arrives under the id the
+ * config migration gave the destination it came from, so an upgrade keeps a working Telegram.
+ */
+function readTelegramTokens(value: unknown): Record<string, string> {
+  if (!isRecord(value))
+    return {}
+  // The legacy singleton.
+  if (typeof value.botToken === 'string')
+    return value.botToken.trim().length > 0 ? { [LEGACY_TELEGRAM_ID]: value.botToken.trim() } : {}
+  const tokens: Record<string, string> = {}
+  for (const [id, token] of Object.entries(value)) {
+    if (typeof token === 'string' && token.trim().length > 0)
+      tokens[id] = token.trim()
+  }
+  return tokens
 }
 
 /**
@@ -348,12 +379,19 @@ export class SecretsStore {
     return this.apiToken?.hint ?? null
   }
 
-  get telegramToken(): string | null {
-    return this.load().telegram?.botToken ?? null
+  /** The bot token for one destination, or null when it has none. */
+  telegramToken(id: string): string | null {
+    const token = this.load().telegram[id] ?? ''
+    return token.length > 0 ? token : null
   }
 
-  get telegramTokenSet(): boolean {
-    return (this.telegramToken ?? '').length > 0
+  telegramTokenSet(id: string): boolean {
+    return this.telegramToken(id) !== null
+  }
+
+  /** Every destination id a token is stored for — including one the config no longer declares. */
+  get telegramTokenIds(): string[] {
+    return Object.keys(this.load().telegram).sort()
   }
 
   setPassword(password: string, options: { isDefault?: boolean } = {}): PasswordRecord {
@@ -383,9 +421,23 @@ export class SecretsStore {
     this.save({ ...this.load(), apiToken: null })
   }
 
-  setTelegramToken(token: string | null): void {
+  setTelegramToken(id: string, token: string | null): void {
     const trimmed = token?.trim() ?? ''
-    this.save({ ...this.load(), telegram: trimmed.length > 0 ? { botToken: trimmed } : null })
+    const current = { ...this.load().telegram }
+    if (trimmed.length > 0)
+      current[id] = trimmed
+    else
+      delete current[id]
+    this.save({ ...this.load(), telegram: current })
+  }
+
+  /** Drops every token whose destination is gone, so a deleted target leaves nothing behind. */
+  forgetTelegramTokens(keep: readonly string[]): void {
+    const allowed = new Set(keep)
+    const current = this.load().telegram
+    const next = Object.fromEntries(Object.entries(current).filter(([id]) => allowed.has(id)))
+    if (Object.keys(next).length !== Object.keys(current).length)
+      this.save({ ...this.load(), telegram: next })
   }
 
   /** Ids that have something stored, whether or not a config still declares them. */
@@ -488,7 +540,7 @@ export class SecretsStore {
 
   private read(): SecretsFile {
     this.error = null
-    const empty: SecretsFile = { password: null, apiToken: null, telegram: null, ddns: {}, ddnsKdf: null }
+    const empty: SecretsFile = { password: null, apiToken: null, telegram: {}, ddns: {}, ddnsKdf: null }
     if (!fs.existsSync(this.file))
       return this.inScope(empty)
     let text: string
@@ -505,7 +557,7 @@ export class SecretsStore {
       return this.inScope({
         password: parsed?.password ?? null,
         apiToken: parsed?.apiToken?.hash ? parsed.apiToken : null,
-        telegram: parsed?.telegram?.botToken ? { botToken: parsed.telegram.botToken } : null,
+        telegram: readTelegramTokens(parsed?.telegram),
         ddns: readStoredDdns(parsed?.ddns),
         ddnsKdf: readDdnsKdf((parsed as { ddnsKdf?: unknown })?.ddnsKdf),
       })
@@ -519,7 +571,7 @@ export class SecretsStore {
   /** Everything a store does not own is neither read from nor written to its file. */
   private inScope(contents: SecretsFile): SecretsFile {
     if (this.scope === 'global')
-      return { ...contents, telegram: null, ddns: {}, ddnsKdf: null }
+      return { ...contents, telegram: {}, ddns: {}, ddnsKdf: null }
     if (this.scope === 'workspace')
       return { ...contents, password: null, apiToken: null }
     return contents

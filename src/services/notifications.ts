@@ -1,5 +1,5 @@
 import type { SecretsStore } from '#src/config/secrets'
-import type { NotificationsConfig, TelegramStatus, WebhookStatus, WebhookTarget } from '#src/shared/contracts'
+import type { DestinationStatusView, NotificationDefaults, NotificationsConfig, NotificationTarget, WebhookTarget } from '#src/shared/contracts'
 import { logger } from '#src/helpers/logger'
 import { formatTelegramMessage, listTelegramChats, sendTelegramMessage, verifyTelegramToken } from '#src/providers/telegram'
 import { sendWebhook, targetProblem } from '#src/providers/webhook'
@@ -38,22 +38,10 @@ const TITLE: Record<NotificationReason, string> = {
   'ddns-error': '🌐 DNS update failed',
 }
 
-/** The event toggles and the throttle, which every target answers the same way. */
-interface NotificationPolicy {
-  enabled: boolean
-  onCrash: boolean
-  onUnhealthy: boolean
-  onForcedRestart: boolean
-  onRecovered: boolean
-  onHost: boolean
-  onDdns: boolean
-  cooldownMs: number
-}
+/** The event toggles and the throttle: what a destination may inherit, and what it may override. */
+type NotificationPolicy = NotificationDefaults
 
-/**
- * Which toggles apply to a reason. `rss` rides the crash toggle: an out-of-memory restart is
- * the same kind of event to anyone reading the alert.
- */
+/** Which toggles apply to a reason. `rss` rides the crash toggle: an out-of-memory restart is the same event to a reader. */
 const COVERS: Record<NotificationReason, (policy: NotificationPolicy) => boolean> = {
   'crash': policy => policy.onCrash,
   'rss': policy => policy.onCrash,
@@ -66,39 +54,29 @@ const COVERS: Record<NotificationReason, (policy: NotificationPolicy) => boolean
   'ddns-error': policy => policy.onDdns,
 }
 
-/**
- * One place an event can go. Telegram is a single target; each webhook is its own, so the
- * list can hold a phone, a chat channel and a dashboard at once.
- */
-type Delivery = { kind: 'telegram' } | { kind: 'webhook', target: WebhookTarget }
-
-/** A delivery's identity, for its cooldown key and its last-result record. */
-function deliveryKey(delivery: Delivery): string {
-  return delivery.kind === 'telegram' ? 'telegram' : `webhook:${delivery.target.id}`
-}
-
 interface DeliveryResult {
   lastResult: string | null
   lastResultAt: number | null
 }
 
 /**
- * Fans supervision events out to the configured targets.
+ * Fans supervision events out to the configured destinations.
  *
- * Two transports, one policy shape: a single Telegram chat, and a *list* of webhooks. The list
- * is what makes the second general — a target carries its own URL, method, body format and
- * headers, so ntfy (plain body with `Title`/`Priority` headers), a JSON receiver and a
- * bearer-token endpoint are all configuration rather than code.
+ * **One list, two kinds.** A destination is a Telegram chat or a webhook; both carry an `enabled`
+ * switch, an optional policy of their own, and one row on the page. A workspace may point at
+ * several Telegram chats, which is why the bot token is a per-destination secret rather than the
+ * singleton it used to be.
  *
- * Toggles are per target, so crashes to one chat and only host warnings to a phone works. The
- * throttle is per target *and* server *and* reason: a flapping server must not flood one
+ * **Inheritance is the default.** A destination with `useOwnSettings: false` follows
+ * `notifications.defaults`, so the common case is configured once instead of per destination. A
+ * destination that sets its own opts out entirely — no field is merged, because a half-inherited
+ * policy is one nobody can reason about.
+ *
+ * The throttle is per destination *and* server *and* reason: a flapping server must not flood one
  * destination, and one destination going quiet must not silence another.
  */
 export class NotificationService {
   private readonly cooldowns = new Map<string, number>()
-  private lastResult: string | null = null
-  private lastResultAt: number | null = null
-  /** Telegram's own record and each webhook's, keyed by `deliveryKey`. */
   private readonly results = new Map<string, DeliveryResult>()
 
   constructor(
@@ -106,83 +84,97 @@ export class NotificationService {
     private readonly getConfig: () => NotificationsConfig,
   ) {}
 
-  get telegramTokenSet(): boolean {
-    return this.secrets.telegramTokenSet
-  }
-
-  status(): TelegramStatus {
-    return {
-      ...this.policyOf(this.getConfig().telegram),
-      tokenSet: this.secrets.telegramTokenSet,
-      chatId: this.getConfig().telegram.chatId,
-      ...this.resultOf('telegram'),
-    }
-  }
-
-  /** Every configured webhook with its own last delivery outcome, in config order. */
-  webhookStatuses(): WebhookStatus[] {
-    return this.getConfig().webhooks.map(target => ({
-      id: target.id,
-      url: target.url,
-      method: target.method,
-      format: target.format,
-      headers: target.headers,
-      ...this.policyOf(target),
-      ...this.resultOf(`webhook:${target.id}`),
-    }))
-  }
-
-  /** The policy columns of a target, whatever else its own status carries. */
-  private policyOf(policy: NotificationPolicy): NotificationPolicy {
-    return {
-      enabled: policy.enabled,
-      onCrash: policy.onCrash,
-      onUnhealthy: policy.onUnhealthy,
-      onForcedRestart: policy.onForcedRestart,
-      onRecovered: policy.onRecovered,
-      onHost: policy.onHost,
-      onDdns: policy.onDdns,
-      cooldownMs: policy.cooldownMs,
-    }
-  }
-
-  private resultOf(key: string): DeliveryResult {
-    return this.results.get(key) ?? { lastResult: null, lastResultAt: null }
+  /** The general block, as the page edits it. */
+  defaults(): NotificationDefaults {
+    return { ...this.getConfig().defaults }
   }
 
   /**
-   * The targets that would deliver this event right now.
+   * Every destination as a row: its own fields, the policy it will actually use, and its last result.
    *
-   * Per target rather than one boolean for the service: a single answer would either send a
-   * host warning somewhere switched off for it, or silence a crash because another target's
+   * The page shows this rather than the raw config, so an inheriting destination displays the
+   * inherited toggles — the values a send will use, not the stale ones on disk.
+   */
+  destinations(): DestinationStatusView[] {
+    return this.getConfig().destinations.map((target) => {
+      const result = this.results.get(target.id) ?? { lastResult: null, lastResultAt: null }
+      const common = {
+        id: target.id,
+        kind: target.kind,
+        enabled: target.enabled,
+        useOwnSettings: target.useOwnSettings,
+        ...this.effectivePolicy(target),
+        lastResult: result.lastResult,
+        lastResultAt: result.lastResultAt,
+      }
+      if (target.kind === 'telegram') {
+        return {
+          ...common,
+          chatId: target.chatId,
+          tokenSet: this.secrets.telegramTokenSet(target.id),
+          url: null,
+          method: null,
+          format: null,
+          headers: null,
+        }
+      }
+      return {
+        ...common,
+        chatId: null,
+        tokenSet: false,
+        url: target.url,
+        method: target.method,
+        format: target.format,
+        headers: target.headers,
+      }
+    })
+  }
+
+  /** The policy a destination actually uses: its own, or the general block's. */
+  effectivePolicy(target: NotificationTarget): NotificationPolicy {
+    if (target.useOwnSettings) {
+      return {
+        onCrash: target.onCrash,
+        onUnhealthy: target.onUnhealthy,
+        onForcedRestart: target.onForcedRestart,
+        onRecovered: target.onRecovered,
+        onHost: target.onHost,
+        onDdns: target.onDdns,
+        cooldownMs: target.cooldownMs,
+      }
+    }
+    // No field merges: a half-inherited policy is one nobody can reason about.
+    return { ...this.getConfig().defaults }
+  }
+
+  /**
+   * The destinations that would deliver this event right now.
+   *
+   * Per destination rather than one boolean for the service: a single answer would either send a
+   * host warning somewhere switched off for it, or silence a crash because another destination's
    * cooldown was still running.
    */
-  targetsFor(event: NotificationEvent, now = Date.now()): Delivery[] {
-    const config = this.getConfig()
-    const candidates: Delivery[] = [
-      { kind: 'telegram' },
-      ...config.webhooks.map(target => ({ kind: 'webhook', target }) as const),
-    ]
-
-    return candidates.filter((delivery) => {
-      const policy = this.policyOf(delivery.kind === 'telegram' ? config.telegram : delivery.target)
-      if (!policy.enabled || !COVERS[event.reason](policy))
+  targetsFor(event: NotificationEvent, now = Date.now()): NotificationTarget[] {
+    return this.getConfig().destinations.filter((target) => {
+      if (!target.enabled)
         return false
-      const until = this.cooldowns.get(this.cooldownKey(delivery, event)) ?? 0
+      const policy = this.effectivePolicy(target)
+      if (!COVERS[event.reason](policy))
+        return false
+      const until = this.cooldowns.get(this.cooldownKey(target, event)) ?? 0
       return !(policy.cooldownMs > 0 && until > now)
     })
   }
 
-  /** Whether *any* target would deliver this event. */
+  /** Whether *any* destination would deliver this event. */
   shouldNotify(event: NotificationEvent, now = Date.now()): boolean {
     return this.targetsFor(event, now).length > 0
   }
 
-  /** Starts the cooldown window for every target about to be asked to send. */
+  /** Starts the cooldown window for every destination about to be asked to send. */
   markSent(event: NotificationEvent, now = Date.now()): void {
-    for (const delivery of this.targetsFor(event, now)) {
-      const policy = this.policyOf(delivery.kind === 'telegram' ? this.getConfig().telegram : delivery.target)
-      this.cooldowns.set(this.cooldownKey(delivery, event), now + policy.cooldownMs)
+    for (const target of this.targetsFor(event, now)) {
+      this.cooldowns.set(this.cooldownKey(target, event), now + this.effectivePolicy(target).cooldownMs)
     }
   }
 
@@ -202,63 +194,58 @@ export class NotificationService {
 
     const title = TITLE[event.reason]
     const message = `${event.label} (${event.serverId}) ${REASON_LABEL[event.reason]}\n${event.detail}`
-    // One target failing must not stop the others, so each is settled on its own.
-    const results = await Promise.all(targets.map(delivery => this.deliver(delivery, title, message, event)))
+    // One destination failing must not stop the others, so each is settled on its own.
+    const results = await Promise.all(targets.map(target => this.deliver(target, title, message, event)))
     return results.includes(true)
   }
 
-  /** One target, one event. A throw is recorded against that target and nothing else. */
-  private async deliver(delivery: Delivery, title: string, message: string, event: NotificationEvent): Promise<boolean> {
-    const key = deliveryKey(delivery)
+  /** One destination, one event. A throw is recorded against it and nothing else. */
+  private async deliver(target: NotificationTarget, title: string, message: string, event: NotificationEvent): Promise<boolean> {
     try {
-      if (delivery.kind === 'telegram') {
-        const result = await this.sendTelegram(title, message)
-        this.remember(key, result.ok ? 'sent' : result.error ?? 'send failed')
-        return result.ok
-      }
-
-      const result = await sendWebhook(delivery.target, {
-        title,
-        message,
-        reason: event.reason,
-        serverId: event.serverId,
-        label: event.label,
-      })
-      this.remember(key, result.ok ? 'sent' : result.error ?? 'send failed')
+      const result = target.kind === 'telegram'
+        ? await this.sendTelegram(target, title, message)
+        : await sendWebhook(target, { title, message, reason: event.reason, serverId: event.serverId, label: event.label })
+      this.remember(target.id, result.ok ? 'sent' : result.error ?? 'send failed')
       return result.ok
     }
     catch (error) {
-      this.remember(key, errorMessage(error))
+      this.remember(target.id, errorMessage(error))
       return false
     }
   }
 
-  /** Used by the "send test" button against the Telegram card. */
-  async sendTest(overrides: { botToken?: string, chatId?: string } = {}): Promise<{ ok: boolean, error?: string }> {
-    const chatId = overrides.chatId ?? this.getConfig().telegram.chatId
-    if (chatId.length === 0)
-      return { ok: false, error: 'no chat id configured' }
+  /** A probe for one destination. */
+  async sendTest(id: string, overrides: { chatId?: string } = {}): Promise<{ ok: boolean, error?: string }> {
+    const target = this.getConfig().destinations.find(entry => entry.id === id)
+    if (target === undefined)
+      return { ok: false, error: 'no such destination' }
 
-    const token = this.resolveToken(overrides.botToken)
-    if (token === null)
-      return { ok: false, error: 'no bot token configured' }
-
-    const result = await sendTelegramMessage(
-      token,
-      chatId,
-      formatTelegramMessage('✅ home-hosted test', ['notifications are wired up correctly']),
-    )
-    this.remember('telegram', result.ok ? 'test message sent' : result.error ?? 'test failed')
+    const result = target.kind === 'telegram'
+      ? await this.testTelegram(id, target.chatId, overrides.chatId)
+      : await this.testWebhook(target, id)
+    this.remember(id, result.ok ? 'test message sent' : result.error ?? 'test failed')
     return result
   }
 
+  /** A Telegram destination's own token, with the chat id overridable for an unsaved edit. */
+  private async testTelegram(id: string, chatId: string, overrideChatId?: string): Promise<{ ok: boolean, error?: string }> {
+    const chat = (overrideChatId ?? chatId).trim()
+    if (chat.length === 0)
+      return { ok: false, error: 'no chat id configured' }
+    const token = this.secrets.telegramToken(id)
+    if (token === null)
+      return { ok: false, error: 'no bot token configured for this destination' }
+
+    return sendTelegramMessage(token, chat, formatTelegramMessage('✅ home-hosted test', ['notifications are wired up correctly']))
+  }
+
   /**
-   * A probe for one webhook target, or for a draft the page has not saved.
+   * A webhook probe, for a saved destination or for a draft the page has not saved.
    *
-   * A draft is passed whole, so a URL and its headers can be tried before they are stored — and
-   * so a target's own "test" tests *that* target, not whichever one comes first.
+   * A draft is passed whole, so a URL and its headers can be tried before they are stored — and so
+   * a destination's own "test" tests *that* destination, not whichever one comes first.
    */
-  async sendWebhookTest(target: Pick<WebhookTarget, 'url' | 'method' | 'format' | 'headers'>, id?: string): Promise<{ ok: boolean, error?: string }> {
+  async testWebhook(target: Pick<WebhookTarget, 'url' | 'method' | 'format' | 'headers'>, id?: string): Promise<{ ok: boolean, error?: string }> {
     const problem = targetProblem(target, { requireUrl: true })
     if (problem !== null)
       return { ok: false, error: problem }
@@ -271,56 +258,45 @@ export class NotificationService {
       label: '',
     })
     if (id !== undefined)
-      this.remember(`webhook:${id}`, result.ok ? 'test message sent' : result.error ?? 'test failed')
+      this.remember(id, result.ok ? 'test message sent' : result.error ?? 'test failed')
     return result
   }
 
-  async detectChats(overrides: { botToken?: string } = {}): Promise<{ ok: boolean, chats: Array<{ id: number | string, title: string }>, error?: string }> {
-    const token = this.resolveToken(overrides.botToken)
-    if (token === null)
-      return { ok: false, chats: [], error: 'no bot token configured' }
+  /** Lists the chats a destination's bot can see, so its chat id can be picked. */
+  async detectChats(id: string, overrides: { botToken?: string } = {}): Promise<{ ok: boolean, chats: Array<{ id: number | string, title: string }>, error?: string }> {
+    const token = (overrides.botToken ?? this.secrets.telegramToken(id) ?? '').trim()
+    if (token.length === 0)
+      return { ok: false, chats: [], error: 'no bot token configured for this destination' }
 
     const result = await listTelegramChats(token)
-    this.remember('telegram', result.ok ? `${result.chats.length} chat(s) found` : result.error ?? 'detect failed')
+    this.remember(id, result.ok ? `${result.chats.length} chat(s) found` : result.error ?? 'detect failed')
     return result
   }
 
-  /** Verifies a token without sending anything. */
+  /** Verifies a token without storing or sending anything. */
   async verifyToken(token: string): Promise<{ ok: boolean, username?: string, error?: string }> {
     return verifyTelegramToken(token)
   }
 
-  private cooldownKey(delivery: Delivery, event: NotificationEvent): string {
-    return `${deliveryKey(delivery)}:${event.serverId}:${event.reason}`
+  private cooldownKey(target: NotificationTarget, event: NotificationEvent): string {
+    return `${target.id}:${event.serverId}:${event.reason}`
   }
 
-  private resolveToken(tokenOverride?: string): string | null {
-    const token = tokenOverride?.trim() ?? this.secrets.telegramToken ?? ''
-    return token.length > 0 ? token : null
-  }
-
-  private async sendTelegram(title: string, message: string): Promise<{ ok: boolean, error?: string }> {
-    const telegram = this.getConfig().telegram
-    if (telegram.chatId.length === 0)
+  private async sendTelegram(target: Extract<NotificationTarget, { kind: 'telegram' }>, title: string, message: string): Promise<{ ok: boolean, error?: string }> {
+    if (target.chatId.length === 0)
       return { ok: false, error: 'no chat id configured' }
 
-    const token = this.resolveToken()
+    const token = this.secrets.telegramToken(target.id)
     if (token === null)
-      return { ok: false, error: 'no bot token configured' }
+      return { ok: false, error: 'no bot token configured for this destination' }
 
     // The title is the first line of the message; Telegram gets it bold, the rest as bullets.
     const body = message.split('\n').filter(line => line.length > 0)
-    return sendTelegramMessage(token, telegram.chatId, formatTelegramMessage(title, body))
+    return sendTelegramMessage(token, target.chatId, formatTelegramMessage(title, body))
   }
 
-  /**
-   * Records one target's outcome. The service-wide pair mirrors the most recent attempt, so a
-   * reader that only knows the older single field still sees something true.
-   */
-  private remember(key: string, message: string): void {
-    const at = Date.now()
-    this.results.set(key, { lastResult: message, lastResultAt: at })
-    this.lastResult = message
-    this.lastResultAt = at
+  /** Records one destination's outcome, keyed by its id. */
+  private remember(id: string, message: string): void {
+    this.results.set(id, { lastResult: message, lastResultAt: Date.now() })
   }
 }

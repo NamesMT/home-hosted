@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseServersFile } from '#src/config/parse'
+import { configObject } from '../support/config-fixture'
 
 /**
  * Dependency validation: dangling ids and cycles are *reported*, never fatal, because
@@ -8,7 +9,7 @@ import { parseServersFile } from '#src/config/parse'
  */
 
 function parse(servers: unknown[]): { errors: string[], warnings: string[] } {
-  return parseServersFile({ servers }, {})
+  return parseServersFile(configObject({ servers }), {})
 }
 
 describe('cross-field validation', () => {

@@ -8,6 +8,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceStore } from '#src/config/store'
@@ -108,7 +109,7 @@ async function makeSupervisor(
     await prepare(dir)
   const workspaceId = 'default'
   const file = path.join(dir, 'servers.config.json')
-  await fs.promises.writeFile(file, JSON.stringify({ servers }, null, 2))
+  await fs.promises.writeFile(file, JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers }, null, 2))
 
   const store = new WorkspaceStore(workspaceId, path.join(dir, 'settings.json'), file)
   store.load()

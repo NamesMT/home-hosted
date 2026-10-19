@@ -199,14 +199,13 @@ export const authSchema = type({
 export type AuthConfig = typeof authSchema.infer
 
 /**
- * The event toggles and the throttle, shared by every transport.
+ * The event toggles and the throttle — the part a target may **inherit** instead of setting.
  *
- * One definition rather than three: they answer the same questions, and a fourth transport
- * that quietly spelled `onRecovered` differently would be a defect nobody sees until it is
- * the one they are relying on.
+ * `enabled` is deliberately not here: "send to this one" is a property of the target, never
+ * something to inherit. Everything else answers the same question for every transport, and one
+ * definition means a fourth cannot quietly spell `onRecovered` differently.
  */
 const notificationPolicyShape = {
-  enabled: 'boolean = true',
   onCrash: 'boolean = true',
   onUnhealthy: 'boolean = true',
   onForcedRestart: 'boolean = true',
@@ -219,13 +218,43 @@ const notificationPolicyShape = {
   cooldownMs: 'number >= 0 = 120000',
 } as const
 
-/** Outbound crash/health notifications. The bot token lives in the secrets file. */
-export const telegramSchema = type({
-  chatId: 'string = ""',
+/**
+ * The general settings: what applies to every target that does not override it.
+ *
+ * The point of the block is that the common case — "tell me about crashes and host thresholds,
+ * throttled every two minutes" — is set **once**, instead of once per transport and again per
+ * destination.
+ */
+export const notificationDefaultsSchema = type({
   ...notificationPolicyShape,
-  /** Telegram is opt-in; a webhook target is on once it exists. */
-  enabled: 'boolean = false',
 }).onUndeclaredKey('reject')
+export type NotificationDefaults = typeof notificationDefaultsSchema.infer
+
+/**
+ * Whether a target follows the general block or carries its own.
+ *
+ * **Defaults to `true`**, which is what an existing config means: before this block existed every
+ * target carried its own toggles, and reading one as "inherit" would silently change which events
+ * it delivers on upgrade. A target the page creates opts *in* to inheritance explicitly, so the
+ * new default applies to new targets without rewriting anybody's config.
+ */
+const useOwnSettingsSchema = 'boolean = true'
+
+/**
+ * One Telegram destination.
+ *
+ * `chatId` is config; the bot token is a **secret**, keyed by this target's `id` in the workspace's
+ * `.secrets.json`. More than one is allowed, which is why the token cannot be a singleton any more.
+ */
+const telegramDestinationSchema = type({
+  kind: '"telegram"',
+  id: '/^[a-z0-9][a-z0-9_-]*$/',
+  /** Off until configured: a bare `enabled: true` with no chat would fail every send. */
+  enabled: 'boolean = false',
+  chatId: 'string = ""',
+  useOwnSettings: useOwnSettingsSchema,
+  ...notificationPolicyShape,
+})
 
 /**
  * One webhook target: a URL, a method, and the headers to send with it.
@@ -236,10 +265,13 @@ export const telegramSchema = type({
  * receiver wants `Authorization`, and a JSON receiver wants `content-type`. One shape covers
  * all three; a per-service adapter would be a code change per service.
  */
+/** One webhook destination. */
 export const webhookTargetSchema = type({
+  kind: '"webhook"',
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   /** Empty only while the target is a draft; the page will not save one without it. */
   url: 'string = ""',
+  enabled: 'boolean = true',
   method: '"POST" | "PUT" = "POST"',
   /** Payload format: `json` sends the event as JSON, `text` sends the plain message. */
   format: '"json" | "text" = "json"',
@@ -249,6 +281,7 @@ export const webhookTargetSchema = type({
    * with a header-shaped contract.
    */
   headers: 'string = ""',
+  useOwnSettings: useOwnSettingsSchema,
   ...notificationPolicyShape,
 }).onUndeclaredKey('reject')
 export type WebhookTarget = typeof webhookTargetSchema.infer
@@ -261,12 +294,25 @@ export type WebhookTarget = typeof webhookTargetSchema.infer
  * `duplicateWebhookIds` rather than a schema `narrow`: a predicate cannot be rendered to JSON
  * Schema, and every route's `toJsonSchema()` (the OpenAPI document) would throw.
  */
-const webhookListSchema = webhookTargetSchema.array()
+/** A destination is one of the kinds this build can deliver to. */
+export const notificationTargetSchema = telegramDestinationSchema.or(webhookTargetSchema)
+export type NotificationTarget = typeof notificationTargetSchema.infer
+
+/**
+ * The destination list.
+ *
+ * `id` is the list key — the cooldown, the last-result record and a Telegram target's token are all
+ * keyed by it — so it must be unique across kinds, not just within one. Enforced by
+ * `duplicateWebhookIds` at the write; a schema `narrow` cannot be rendered to JSON Schema and every
+ * route's `toJsonSchema()` would throw.
+ */
+const destinationListSchema = notificationTargetSchema.array()
 
 export const notificationsSchema = type({
-  telegram: telegramSchema.default(() => ({})),
-  /** The list is replaced by a patch, the same way `ddns.accounts` is. */
-  webhooks: webhookListSchema.default(() => []),
+  /** What every destination inherits unless it carries its own settings. */
+  defaults: notificationDefaultsSchema.default(() => ({})),
+  /** Replaced by a patch, the same way `ddns.accounts` is: a merge cannot express removing one. */
+  destinations: destinationListSchema.default(() => []),
 }).onUndeclaredKey('reject')
 
 /**
@@ -579,17 +625,22 @@ const notificationPolicyPatchShape = {
   cooldownMs: 'number >= 0?',
 } as const
 
-const telegramPatchSchema = type({
-  enabled: 'boolean?',
-  chatId: 'string?',
-  ...notificationPolicyPatchShape,
-}).onUndeclaredKey('reject')
-
-/** A target's editable fields; `id` is the list key, so a patch replaces the whole list. */
-const webhookTargetPatchSchema = type({
+/**
+ * The patch shape for one destination.
+ *
+ * `kind` is required: a patch cannot change a destination's kind (that would silently drop its
+ * credential), so it names the kind it is addressing. The list is **replaced**, not merged — a merge
+ * cannot express removing a destination, the same reason `ddns.accounts` is replaced.
+ */
+const destinationPatchSchema = type({
+  kind: '"telegram" | "webhook"',
   id: '/^[a-z0-9][a-z0-9_-]*$/',
-  url: 'string?',
   enabled: 'boolean?',
+  useOwnSettings: 'boolean?',
+  /** Telegram only. */
+  chatId: 'string?',
+  /** Webhook only. */
+  url: 'string?',
   method: '"POST" | "PUT"?',
   format: '"json" | "text"?',
   headers: 'string?',
@@ -597,12 +648,10 @@ const webhookTargetPatchSchema = type({
 }).onUndeclaredKey('reject')
 
 const notificationsPatchSchema = type({
-  telegram: telegramPatchSchema.optional(),
-  /**
-   * Replaced, not merged: a merge cannot express removing a target, the same reason
-   * `ddns.accounts` and `ddns.domains` are lists a patch replaces.
-   */
-  webhooks: webhookTargetPatchSchema.array().optional(),
+  /** Merged key by key, like the other nested groups. */
+  defaults: notificationDefaultsSchema.partial().optional(),
+  /** Replaced whole, so a removed destination stays removed. */
+  destinations: destinationPatchSchema.array().optional(),
 }).onUndeclaredKey('reject')
 
 const hostPatchSchema = type({
@@ -1086,9 +1135,8 @@ export const proxyEngineInstallSchema = type({
   version: 'string = ""',
 }).onUndeclaredKey('reject')
 
-/** The policy columns every transport's status row carries. */
-const notificationStatusShape = {
-  enabled: 'boolean',
+/** The policy columns a destination row carries — the values a send will actually use. */
+const notificationPolicyStatusShape = {
   onCrash: 'boolean',
   onUnhealthy: 'boolean',
   onForcedRestart: 'boolean',
@@ -1098,48 +1146,51 @@ const notificationStatusShape = {
   /** Dynamic DNS, when this panel knows about it (optional for an older panel). */
   onDdns: 'boolean?',
   cooldownMs: 'number',
-  /** Last delivery outcome, for the settings page. */
-  lastResult: 'string | null',
-  lastResultAt: 'number | null',
 } as const
 
-export const telegramStatusSchema = type({
-  ...notificationStatusShape,
-  /** Whether a bot token is stored. The token itself never leaves the server. */
-  tokenSet: 'boolean',
-  chatId: 'string',
-})
-export type TelegramStatus = typeof telegramStatusSchema.infer
-
-/** One target as the page reads it: its config plus its own last delivery outcome. */
-export const webhookStatusSchema = type({
+/**
+ * One destination as the page reads it: the fields it owns, the policy it will use, and the outcome
+ * of the last send to it.
+ *
+ * The policy here is the **effective** one — inherited from the general block when
+ * `useOwnSettings` is false — so the page shows what will happen, not what is stored.
+ */
+export const destinationStatusSchema = type({
   id: 'string',
-  url: 'string',
-  method: '"POST" | "PUT"',
-  format: '"json" | "text"',
-  headers: 'string',
-  ...notificationStatusShape,
+  kind: '"telegram" | "webhook"',
+  enabled: 'boolean',
+  useOwnSettings: 'boolean',
+  ...notificationPolicyStatusShape,
+  /** Telegram only, null on a webhook. */
+  chatId: 'string | null',
+  /** Telegram only: whether a bot token is stored for this destination. */
+  tokenSet: 'boolean',
+  /** Webhook only, null on a Telegram destination. */
+  url: 'string | null',
+  method: '"POST" | "PUT" | null',
+  format: '"json" | "text" | null',
+  headers: 'string | null',
+  /** Last delivery outcome, for the page. */
+  lastResult: 'string | null',
+  lastResultAt: 'number | null',
 })
-export type WebhookStatus = typeof webhookStatusSchema.infer
+export type DestinationStatusView = typeof destinationStatusSchema.infer
 
 /**
- * The chats a bot can see, as `POST /notifications/detect-chats` answers them.
+ * The chats a bot can see, as `POST /notifications/destinations/:id/detect-chats` answers them.
  *
  * This was declared inline in the route while `TelegramChat` in `providers/telegram.ts` described the
- * same two fields — one shape written twice, which is the drift this file exists to prevent. The route's
- * copy also sat outside `contracts/`, against the extension rule in AGENTS.md.
+ * same two fields — one shape written twice, which is the drift this file exists to prevent.
  */
 export const telegramChatsSchema = type({
   chats: type({ id: 'string | number', title: 'string' }).array(),
 })
 
-/**
- * `webhooks` is optional on the view: a panel from before it sends none, and a required field
- * there would blank the settings page for that older panel.
- */
 export const notificationViewSchema = type({
-  'telegram': telegramStatusSchema,
-  'webhooks?': webhookStatusSchema.array(),
+  /** The general block: what a destination inherits unless it overrides it. Optional for an older panel. */
+  'defaults?': notificationDefaultsSchema,
+  /** Every destination, in config order. Optional for an older panel. */
+  'destinations?': destinationStatusSchema.array(),
 })
 export type NotificationView = typeof notificationViewSchema.infer
 
@@ -1634,6 +1685,19 @@ export const notificationActionSchema = type({
   /** Optional override, so the token can be tried before it is saved. */
   botToken: 'string?',
   chatId: 'string?',
+}).onUndeclaredKey('reject')
+
+/**
+ * `POST /api/notifications/test-webhook`: the webhook to try, as a draft or by id.
+ *
+ * The target travels whole because the page tests what is in its form, which may not be saved yet —
+ * and the request schema rejects undeclared keys, so the webhook shape is reused rather than a
+ * second DTO that could drift from it.
+ */
+export const destinationTestSchema = type({
+  target: webhookTargetSchema.omit('kind', 'id').and(type({ id: 'string?', kind: '"webhook"?' })),
+  /** Echoed so the result is recorded against the right row; absent for a draft. */
+  id: 'string?',
 }).onUndeclaredKey('reject')
 
 export const telegramTokenSchema = type({

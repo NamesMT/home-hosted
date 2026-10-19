@@ -6,77 +6,107 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { forgetBots } from '#src/providers/telegram'
-import { notificationActionSchema, telegramChatsSchema, telegramTokenSchema, webhookTestSchema } from '#src/shared/contracts'
+import { destinationTestSchema, notificationActionSchema, telegramChatsSchema, telegramTokenSchema } from '#src/shared/contracts'
 
 /**
- * The bot token is written straight to a workspace's secrets file and never into a
+ * A destination's credential is written straight to a workspace's secrets file and never into a
  * servers config, so notification *policy* and the *credential* stay separate.
  *
- * Notifications belong to a workspace: each one keeps its own token and chat.
+ * Notifications belong to a workspace, and every route is scoped to one. The token is keyed by the
+ * **destination id**, which is what lets a workspace point at more than one Telegram chat.
  */
 export function createNotificationsRoute(deps: AppDeps) {
+  const runtimeFor = (workspace: string | undefined) =>
+    requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), workspace)
+
   return appFactory.createApp()
     .put(
-      '/notifications/token',
+      '/notifications/destinations/:id/token',
       describeRoute({
         tags: ['notifications'],
-        summary: 'Store the Telegram bot token (verified first)',
+        summary: 'Store a Telegram destination\'s bot token (verified first)',
         responses: { 200: { description: 'Stored' }, 400: ERROR_RESPONSES[400] },
       }),
       validate('query', workspaceQuerySchema),
       validate('json', telegramTokenSchema),
       async (c) => {
-        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const runtime = runtimeFor(c.req.valid('query').workspace)
+        const id = c.req.param('id')
         const { botToken } = c.req.valid('json')
         const verified = await runtime.notifications.verifyToken(botToken)
         if (!verified.ok)
           throw new DetailedError(`telegram rejected the token: ${verified.error ?? 'unknown error'}`, { statusCode: 400, code: 'TELEGRAM_TOKEN_REJECTED' })
 
-        runtime.secrets.setTelegramToken(botToken)
+        runtime.secrets.setTelegramToken(id, botToken)
         forgetBots()
         return c.json({ ok: true, username: verified.username ?? null })
       },
     )
 
     .delete(
-      '/notifications/token',
+      '/notifications/destinations/:id/token',
       describeRoute({
         tags: ['notifications'],
-        summary: 'Forget the Telegram bot token',
+        summary: 'Forget a Telegram destination\'s bot token',
         responses: { 200: { description: 'Removed' } },
       }),
       validate('query', workspaceQuerySchema),
       (c) => {
-        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        runtime.secrets.setTelegramToken(null)
+        const runtime = runtimeFor(c.req.valid('query').workspace)
+        runtime.secrets.setTelegramToken(c.req.param('id'), null)
         forgetBots()
         return c.json({ ok: true })
       },
     )
 
     .post(
-      '/notifications/test',
+      '/notifications/destinations/:id/test',
       describeRoute({
         tags: ['notifications'],
-        summary: 'Send a test message',
+        summary: 'Send a test message to one destination',
         responses: { 200: { description: 'Sent or refused' }, 400: ERROR_RESPONSES[400] },
       }),
       validate('query', workspaceQuerySchema),
       validate('json', notificationActionSchema),
       async (c) => {
-        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.notifications.sendTest(c.req.valid('json'))
+        const runtime = runtimeFor(c.req.valid('query').workspace)
+        const result = await runtime.notifications.sendTest(c.req.param('id'), c.req.valid('json'))
         if (!result.ok)
           throw new DetailedError(result.error ?? 'the test message failed', { statusCode: 400, code: 'TELEGRAM_SEND_FAILED' })
         return c.json(result)
       },
     )
 
+    /**
+     * Tests a webhook the page has **not saved yet**.
+     *
+     * The target travels whole, so a URL and its headers can be tried before they are stored — and
+     * so a destination's own button tests that destination rather than the first in the list.
+     */
     .post(
-      '/notifications/detect-chats',
+      '/notifications/test-webhook',
       describeRoute({
         tags: ['notifications'],
-        summary: 'List the chats the bot can see',
+        summary: 'Send a test to one webhook destination',
+        responses: { 200: { description: 'Sent or refused' }, 400: ERROR_RESPONSES[400] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('json', destinationTestSchema),
+      async (c) => {
+        const runtime = runtimeFor(c.req.valid('query').workspace)
+        const { target, id } = c.req.valid('json')
+        const result = await runtime.notifications.testWebhook(target, id)
+        if (!result.ok)
+          throw new DetailedError(result.error ?? 'the test message failed', { statusCode: 400, code: 'WEBHOOK_SEND_FAILED' })
+        return c.json(result)
+      },
+    )
+
+    .post(
+      '/notifications/destinations/:id/detect-chats',
+      describeRoute({
+        tags: ['notifications'],
+        summary: 'List the chats a Telegram destination\'s bot can see',
         responses: {
           200: { description: 'Chats', content: jsonBody(telegramChatsSchema) },
           400: ERROR_RESPONSES[400],
@@ -85,36 +115,11 @@ export function createNotificationsRoute(deps: AppDeps) {
       validate('query', workspaceQuerySchema),
       validate('json', notificationActionSchema),
       async (c) => {
-        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.notifications.detectChats(c.req.valid('json'))
+        const runtime = runtimeFor(c.req.valid('query').workspace)
+        const result = await runtime.notifications.detectChats(c.req.param('id'), c.req.valid('json'))
         if (!result.ok)
           throw new DetailedError(result.error ?? 'could not list chats', { statusCode: 400, code: 'TELEGRAM_LIST_FAILED' })
         return c.json({ chats: result.chats })
-      },
-    )
-
-    /**
-     * Tests one webhook target, or a draft the page has not saved.
-     *
-     * The whole target travels in the body, so a URL and its headers can be tried before they
-     * are stored — and a target's own button tests that target rather than the first in the
-     * list.
-     */
-    .post(
-      '/notifications/test-webhook',
-      describeRoute({
-        tags: ['notifications'],
-        summary: 'Send a test to one webhook target',
-        responses: { 200: { description: 'Sent or refused' }, 400: ERROR_RESPONSES[400] },
-      }),
-      validate('query', workspaceQuerySchema),
-      validate('json', webhookTestSchema),
-      async (c) => {
-        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.notifications.sendWebhookTest(c.req.valid('json').target, c.req.valid('json').id)
-        if (!result.ok)
-          throw new DetailedError(result.error ?? 'the test message failed', { statusCode: 400, code: 'WEBHOOK_SEND_FAILED' })
-        return c.json(result)
       },
     )
 }

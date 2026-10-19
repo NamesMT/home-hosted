@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { appVersion } from '#src/helpers/version'
+import { configObject } from '../support/config-fixture'
 
 const fixtures = fileURLToPath(new URL('../fixtures/config/', import.meta.url))
 
@@ -34,10 +35,15 @@ const WORKSPACE_KEYS = ['$schema', 'meta', 'defaults', 'logs', 'notifications', 
 const SERVERS_KEYS = ['$schema', 'meta', 'servers'] as const
 
 describe('reading configs from other releases', () => {
-  it('loads a config written by the last release, unchanged', () => {
+  it('loads a config written by the last release, after its migrations', () => {
     const raw = fixture('v0.3.0.json')
 
-    const global = parseGlobalSettings(pick(raw, GLOBAL_KEYS))
+    // The file predates the schema stamp, so this release cannot read it as-is — it says so, and
+    // `migrate` is what lifts it. What must keep working is the *migrated* result.
+    const stale = parseGlobalSettings(pick(raw, GLOBAL_KEYS))
+    expect(stale.errors.join(' '), 'a released file is refused only as "needs migration"').toContain('migration')
+
+    const global = parseGlobalSettings(pick(applyConfigMigrations(raw, UNSTAMPED_SCHEMA).config, GLOBAL_KEYS))
     expect(global.errors).toEqual([])
     expect(global.warnings).toEqual([])
     expect(global.unknownKeys).toEqual([])
@@ -45,12 +51,12 @@ describe('reading configs from other releases', () => {
     expect(global.config?.control.port).toBe(3999)
     expect(global.config?.control.label).toBe('Home server')
 
-    const workspace = parseWorkspaceSettings(pick(raw, WORKSPACE_KEYS))
+    const workspace = parseWorkspaceSettings(pick(applyConfigMigrations(raw, UNSTAMPED_SCHEMA).config, WORKSPACE_KEYS))
     expect(workspace.errors).toEqual([])
     expect(workspace.config?.defaults.bind).toBe('local')
     expect(workspace.config?.logs.keep).toBe(3)
 
-    const servers = parseServersFile(pick(raw, SERVERS_KEYS), workspace.config?.defaults as unknown as Record<string, unknown> ?? {})
+    const servers = parseServersFile(pick(applyConfigMigrations(raw, UNSTAMPED_SCHEMA).config, SERVERS_KEYS), workspace.config?.defaults as unknown as Record<string, unknown> ?? {})
     expect(servers.errors).toEqual([])
     expect(servers.servers.map(server => server.id)).toEqual(['omniroute', 'static'])
     expect(servers.servers[1]?.port).toBe(4010)
@@ -66,16 +72,24 @@ describe('reading configs from other releases', () => {
   it('treats an unstamped file as the oldest schema, whatever the current one is', () => {
     const parsed = parseGlobalSettings({ control: { port: 3999 } })
 
+    // Unstamped is the *oldest* shape, not the current one — so once a migration exists it is
+    // refused with the reason a person can act on, rather than read as if it were current.
     expect(parsed.writtenBy).toBeNull()
     expect(parsed.schemaVersion).toBe(UNSTAMPED_SCHEMA)
-    expect(parsed.config?.meta).toEqual({ writtenBy: '', schema: UNSTAMPED_SCHEMA })
-    expect(parsed.config?.control.port).toBe(3999)
+    expect(parsed.errors.join(' ')).toContain('migration')
+
+    // And the migrated form reads, which is what a released home goes through.
+    const lifted = parseGlobalSettings(applyConfigMigrations({ control: { port: 3999 } }, UNSTAMPED_SCHEMA).config)
+    expect(lifted.errors).toEqual([])
+    expect(lifted.config?.control.port).toBe(3999)
   })
 
   it('keeps what it knows of a config from a newer release, and lists the rest', () => {
     const raw = fixture('newer-release.json')
 
-    const global = parseGlobalSettings(pick(raw, GLOBAL_KEYS))
+    // Stamped schema 1, so it takes its migration first: this test is about unrecognized keys
+    // surviving a read, not about the schema gate (which the suite above pins).
+    const global = parseGlobalSettings(pick(applyConfigMigrations(raw, UNSTAMPED_SCHEMA).config, GLOBAL_KEYS))
     expect(global.errors).toEqual([])
     expect(global.writtenBy).toBe('0.4.0')
     // The values around the unknown keys survived, including nested groups.
@@ -86,7 +100,7 @@ describe('reading configs from other releases', () => {
       'control.auth.futureAuthField',
     ]))
 
-    const servers = parseServersFile(pick(raw, SERVERS_KEYS), {})
+    const servers = parseServersFile(pick(applyConfigMigrations(raw, UNSTAMPED_SCHEMA).config, SERVERS_KEYS), {})
     expect(servers.errors).toEqual([])
     expect(servers.servers[0]?.port).toBe(4200)
     expect(servers.servers[0]?.health.enabled).toBe(true)
@@ -97,13 +111,13 @@ describe('reading configs from other releases', () => {
   })
 
   it('reports a top-level key a newer release added instead of failing the file', () => {
-    const global = parseGlobalSettings({ control: { port: 4123 }, futureTopLevelBlock: { anything: true } })
+    const global = parseGlobalSettings(configObject({ control: { port: 4123 }, futureTopLevelBlock: { anything: true } }))
 
     expect(global.errors).toEqual([])
     expect(global.unknownKeys).toContain('futureTopLevelBlock')
     expect(global.config?.control.port).toBe(4123)
 
-    const workspace = parseWorkspaceSettings({ defaults: { autostart: true }, futureWorkspaceBlock: 1 })
+    const workspace = parseWorkspaceSettings(configObject({ defaults: { autostart: true }, futureWorkspaceBlock: 1 }))
     expect(workspace.errors).toEqual([])
     expect(workspace.unknownKeys).toContain('futureWorkspaceBlock')
     expect(workspace.config?.defaults.autostart).toBe(true)

@@ -10,6 +10,7 @@ import { writeFileAtomic } from '#src/helpers/atomic'
 import { globalSettingsPath, workspaceServersPath, workspaceSettingsPath } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { errorMessage } from '#src/shared/error-message'
+import { isRecord } from '#src/shared/shape'
 
 /**
  * `migrate` lifts a state directory to the config schema this release understands:
@@ -60,9 +61,15 @@ function targets(configOverride?: string): Target[] {
       label: `workspace ${workspace.id} servers`,
       validate: (raw) => {
         // The defaults live in the workspace settings; an absent one reads as schema defaults.
+        // Read through the *parser* only when that file is already this release's schema; a
+        // pending migration means the reader would refuse it, and the defaults would be lost.
         let defaults: Record<string, unknown> = {}
         try {
-          defaults = parseWorkspaceSettings(JSON.parse(fs.readFileSync(workspaceSettingsPath(workspace.id), 'utf8'))).config?.defaults as unknown as Record<string, unknown> ?? {}
+          const settingsRaw = JSON.parse(fs.readFileSync(workspaceSettingsPath(workspace.id), 'utf8')) as Record<string, unknown>
+          const meta = typeof settingsRaw.meta === 'object' && settingsRaw.meta !== null ? settingsRaw.meta as { schema?: number } : {}
+          const from = typeof meta.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
+          const lifted = planConfigMigrations(from).steps.length > 0 ? applyConfigMigrations(settingsRaw, from).config : settingsRaw
+          defaults = (lifted?.defaults ?? {}) as Record<string, unknown>
         }
         catch {
           // No settings file yet: the servers still have to be readable.
@@ -100,7 +107,20 @@ export async function runMigrate(config: string | undefined, dryRun: boolean, ye
       fail(`${target.file} was written by home-hosted ${meta.writtenBy ?? 'a newer release'} (config schema ${from});\n  this release understands schema ${plan.to}. Install that version, or edit the file yourself.`)
     }
 
-    const problem = target.validate(raw)
+    /**
+     * Validate what this release will actually read: the file as-is when it needs no migration,
+     * otherwise the result the steps produce.
+     *
+     * The parsed check cannot be run on the raw file when a migration is pending — the reader
+     * refuses an older schema by design (`readStamp`), which would make `migrate` refuse every
+     * config it exists to lift. `checkShape` below catches a file that is not even JSON-shaped
+     * before the steps touch it.
+     */
+    const migrated = plan.steps.length === 0 ? raw : applyConfigMigrations(raw, from).config
+    if (plan.steps.length > 0 && (!isRecord(migrated))) {
+      fail(`${target.file} did not produce an object when migrated — refusing to write it`)
+    }
+    const problem = target.validate(migrated)
     if (problem !== null)
       fail(`${target.file} is not a config this release can read: ${problem}`)
 
@@ -138,7 +158,6 @@ export async function runMigrate(config: string | undefined, dryRun: boolean, ye
       }
     }
 
-    const { config: migrated } = applyConfigMigrations(raw, from)
     const migratedProblem = target.validate(migrated)
     if (migratedProblem !== null)
       fail(`the migration produced a config this release cannot read:\n  ${migratedProblem}`)

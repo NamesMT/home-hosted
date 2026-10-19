@@ -21,6 +21,10 @@ defineProps<{
         {{ description }}
       </p>
     </header>
-    <slot />
+    <!-- A section may hold more than one group (Notifications holds the general policy, Telegram
+         and Webhooks); without this they sit flush against each other. -->
+    <div class="space-y-3">
+      <slot />
+    </div>
   </section>
 </template>
