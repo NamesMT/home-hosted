@@ -696,7 +696,7 @@ plus types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 | if you want to… | read |
 | --- | --- |
 | declare a server: every field, placeholders, port conflicts | [SERVERS.md](./docs/SERVERS.md) |
-| get Telegram alerts working end to end | [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) |
+| get Telegram or webhook alerts working end to end | [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) |
 | expose the stack behind one hostname, with HTTPS | [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
 | build a UI against the API | [UI_CREATION.md](./docs/UI_CREATION.md) |
 | change the internals: architecture and the rules | [AGENTS.md](./AGENTS.md) |

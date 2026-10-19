@@ -215,24 +215,30 @@ export class NotificationService {
   }
 
   /** A probe for one destination. */
-  async sendTest(id: string, overrides: { chatId?: string } = {}): Promise<{ ok: boolean, error?: string }> {
+  async sendTest(id: string, overrides: { chatId?: string, botToken?: string } = {}): Promise<{ ok: boolean, error?: string }> {
     const target = this.getConfig().destinations.find(entry => entry.id === id)
     if (target === undefined)
       return { ok: false, error: 'no such destination' }
 
     const result = target.kind === 'telegram'
-      ? await this.testTelegram(id, target.chatId, overrides.chatId)
+      ? await this.testTelegram(id, target.chatId, overrides.chatId, overrides.botToken)
       : await this.testWebhook(target, id)
     this.remember(id, result.ok ? 'test message sent' : result.error ?? 'test failed')
     return result
   }
 
-  /** A Telegram destination's own token, with the chat id overridable for an unsaved edit. */
-  private async testTelegram(id: string, chatId: string, overrideChatId?: string): Promise<{ ok: boolean, error?: string }> {
+  /**
+   * A Telegram destination's own token, with the chat id and the token both overridable.
+   *
+   * The override is what lets a token be tried before it is saved — the route advertises it and
+   * `detect-chats` honours it, so ignoring it here made "send a test" fail on a token the page was
+   * still holding.
+   */
+  private async testTelegram(id: string, chatId: string, overrideChatId?: string, overrideToken?: string): Promise<{ ok: boolean, error?: string }> {
     const chat = (overrideChatId ?? chatId).trim()
     if (chat.length === 0)
       return { ok: false, error: 'no chat id configured' }
-    const token = this.secrets.telegramToken(id)
+    const token = overrideToken !== undefined && overrideToken.length > 0 ? overrideToken : this.secrets.telegramToken(id)
     if (token === null)
       return { ok: false, error: 'no bot token configured for this destination' }
 

@@ -21,8 +21,9 @@ either is a last resort, and never an accidental one.
   key this release does not know never blocks a save: removing a key from a schema must not brick the
   page that writes it.
 - **A config records what wrote it.** Every write stamps a top-level `meta`
-  (`{ writtenBy, schema }`). An unstamped file reads as the current schema, so nothing that existed
-  before needed changing.
+  (`{ writtenBy, schema }`). An unstamped file reads as the **oldest** schema (`UNSTAMPED_SCHEMA`,
+  still 1), not the current one — so once a migration exists it is refused with "needs N migrations"
+  and `migrate` lifts it. Reading it as current would skip that step silently.
 - **Nobody runs a config this release cannot read.** `up` refuses to start — exit 1, the exact
   problem printed — when the file is unparseable, has an invalid value or a duplicate id, carries a
   newer `meta.schema`, or has a migration pending. A panel that is *already* running keeps the config

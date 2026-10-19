@@ -5,6 +5,7 @@ import type { DraftConfig } from '@/lib/ddns'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import ConfirmButton from '@/components/ConfirmButton.vue'
 import DdnsPanel from '@/components/DdnsPanel.vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
@@ -98,6 +99,27 @@ function policyConfig(status: Omit<PolicyDraft, 'onDdns'> & { onDdns?: boolean }
     // A panel from before DDNS sends no flag; absent means "on".
     onDdns: status.onDdns !== false,
     cooldownMs: status.cooldownMs,
+  }
+}
+
+/**
+ * One destination in the shape the API *stores* — the only shape a diff may compare.
+ *
+ * `tokenSet` is derived and never written, so it must not appear on either side of the diff; the
+ * policy columns are written only for a destination that carries its own. Comparing the form's
+ * richer shape against the wire shape made every untouched row look edited, so the change dialog
+ * always claimed an edit and a save rewrote the list in its reduced form.
+ */
+function destinationWire(entry: DestinationDraft): Record<string, unknown> {
+  return {
+    kind: entry.kind,
+    id: entry.id,
+    enabled: entry.enabled,
+    useOwnSettings: entry.useOwnSettings,
+    ...(entry.kind === 'telegram' ? { chatId: entry.chatId } : { url: entry.url, method: entry.method, format: entry.format, headers: entry.headers }),
+    ...(entry.useOwnSettings
+      ? { onCrash: entry.onCrash, onUnhealthy: entry.onUnhealthy, onForcedRestart: entry.onForcedRestart, onRecovered: entry.onRecovered, onHost: entry.onHost, onDdns: entry.onDdns, cooldownMs: entry.cooldownMs }
+      : {}),
   }
 }
 
@@ -336,18 +358,12 @@ function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
     const notificationsPatch = diffFields(
       {
         defaults: policyConfig(configured.notifications.defaults ?? form.notifications.policy),
-        destinations: (configured.notifications.destinations ?? []).map(destinationConfig),
+        // Through the form mapper first, so both sides of the diff are the same type.
+        destinations: (configured.notifications.destinations ?? []).map(destinationConfig).map(destinationWire),
       } as unknown as Patch,
       {
         defaults: { ...form.notifications.policy },
-        destinations: form.notifications.destinations.map(({ id, kind, enabled, useOwnSettings, chatId, url, method, format, headers, onCrash, onUnhealthy, onForcedRestart, onRecovered, onHost, onDdns, cooldownMs }) => ({
-          kind,
-          id,
-          enabled,
-          useOwnSettings,
-          ...(kind === 'telegram' ? { chatId } : { url, method, format, headers }),
-          ...(useOwnSettings ? { onCrash, onUnhealthy, onForcedRestart, onRecovered, onHost, onDdns, cooldownMs } : {}),
-        })),
+        destinations: form.notifications.destinations.map(destinationWire),
       } as unknown as Patch,
       ['defaults'],
     )
@@ -752,9 +768,14 @@ async function sendTest(): Promise<void> {
                 </button>
                 <span v-if="hookResults[entry.id]" class="faint">{{ hookResults[entry.id] }}</span>
                 <span class="view__spacer" />
-                <button class="btn btn--ghost" type="button" @click="removeDestination(entry.id)">
-                  remove
-                </button>
+                <!-- One click away and destructive, so it confirms in a popover. -->
+                <ConfirmButton
+                  label="remove"
+                  tone="danger"
+                  :title="`Remove ${entry.id}?`"
+                  :hint="entry.kind === 'telegram' ? 'Its alerts stop, and any stored bot token for it is removed.' : 'Its alerts stop being sent.'"
+                  @confirm="removeDestination(entry.id)"
+                />
               </div>
             </div>
 
@@ -785,9 +806,14 @@ async function sendTest(): Promise<void> {
                 <button class="btn btn--ghost" type="button" @click="sendTest">
                   send test
                 </button>
-                <button v-if="tokenTarget.tokenSet" class="btn btn--ghost" type="button" @click="removeToken">
-                  remove token
-                </button>
+                <ConfirmButton
+                  v-if="tokenTarget.tokenSet"
+                  label="remove token"
+                  tone="danger"
+                  title="Remove the bot token?"
+                  hint="This destination stops sending until a token is saved again."
+                  @confirm="removeToken"
+                />
               </div>
               <p v-if="detectedChats.length > 0" class="note">
                 <button

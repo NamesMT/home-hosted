@@ -244,6 +244,21 @@ describe('telegram delivery', () => {
     expect(sent[1]![0]).toBe('99')
   })
 
+  it('tries an unsaved bot token, as the route advertises', async () => {
+    // No token stored, so this only works if the override is honoured. The route's schema takes
+    // `botToken` and OpenAPI advertises it, but it was dropped on the way to the sender.
+    const service = await makeService({ telegram: { enabled: true, chatId: '42' } })
+    const sent: unknown[][] = []
+    stubApi(OVERRIDE_TOKEN, 'sendMessage', (...args) => {
+      sent.push(args)
+      return Promise.resolve({ ok: true })
+    })
+
+    expect(await service.sendTest('tg')).toEqual({ ok: false, error: 'no bot token configured for this destination' })
+    expect(await service.sendTest('tg', { botToken: OVERRIDE_TOKEN }), 'the override is used').toEqual({ ok: true })
+    expect(sent[0]![0]).toBe('42')
+  })
+
   it('records a refused test message', async () => {
     const service = await makeService({ telegram: { enabled: true, chatId: '42' }, token: BOT_TOKEN })
     stubApi(BOT_TOKEN, 'sendMessage', () => {

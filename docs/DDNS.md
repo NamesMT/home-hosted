@@ -81,7 +81,8 @@ public DNS API).
 
 Telegram carries one message per pass that changed a record, and one for a pass that failed — the
 same switch as every other event, under Workspace Settings → Notifications → *Dynamic DNS changes and
-failures* (`telegram.onDdns`). There is no second switch in this section.
+failures* (`notifications.defaults.onDdns`, or a destination's own when it carries its own
+settings). There is no second switch in this section.
 
 ## Adding a provider
 
