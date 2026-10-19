@@ -277,7 +277,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 📈 **Resources** | CPU and RSS of the whole process tree, with an optional memory ceiling that triggers a restart. |
 | 🌡️ **Host vitals** | Load, memory, swap, disk and CPU temperature, with thresholds that notify once and again on recovery. |
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
-| 🔔 **Notifications** | Telegram **and any number of webhooks** (ntfy, Discord, Slack, your own endpoint) on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes — [setup here](./docs/NOTIFICATIONS.md). |
+| 🔔 **Notifications** | One list of **destinations** — Telegram chats and webhooks (ntfy, Discord, Slack, your own endpoint) — on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes. The event toggles and throttle are set once, and each destination may inherit them or carry its own. [Setup here](./docs/NOTIFICATIONS.md). |
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
 | 🔀 **Reverse proxy** | One engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `media.example.com` → a service on another box, `panel.example.com` → the panel. Caddy, installed and supervised by the panel. [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
 | 💾 **Backups** | Global settings, TLS, workspaces, and inside each one its settings, servers, secrets and declared data — plain `.zip`, or AES-256 with a password. Each secret is picked separately, and a restore can be customized. |

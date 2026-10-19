@@ -304,9 +304,10 @@ watch(() => workspace.activeId.value, () => {
     </SettingsSection>
 
     <SettingsSection id="notifications" :title="t('views.settings.sectionNotifications')" :description="t('views.settings.notificationsDescription')">
+      <!-- The general block: the policy every destination follows unless it carries its own. -->
       <FieldGroup
-        :title="t('settings.destination.title')"
-        :description="t('settings.destination.description')"
+        :title="t('settings.destination.generalTitle')"
+        :description="t('settings.destination.generalDescription')"
         :columns="1"
       >
         <template #actions>

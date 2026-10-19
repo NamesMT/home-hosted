@@ -10,8 +10,8 @@ level: `settings.json` (listener, auth, TLS policy, host vitals, backups, revers
 `.ui/`, `.logs/` (the panel console), `.proxy/` (the engine, its generated config and nanny state), and
 `run.json` (the live daemon's pid/url/token, 0600). Every workspace owns `.hh/<id>/`: `settings.json`
 (server defaults, log retention, notifications, DDNS), `servers.config.json`, `.secrets.json` (0600:
-Telegram token, plus DDNS credentials sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET` — only DDNS
-is sealed, because it is the one thing replayed to a third party), `.logs/` (per server, `<id>.log`
+Telegram bot tokens, one per destination, plus DDNS credentials sealed with AES-256-GCM under
+`HHOSTED_DDNS_SECRET` — only DDNS is sealed, because it is the one thing replayed to a third party), `.logs/` (per server, `<id>.log`
 plus `<id>.log.1` when it rotates), and `.state/` (nanny state, its 0600 spawn spec until read,
 `ddns.json`). A home still on the 0.6.x layout is **refused** by `ensureLayout()`, which names the file
 and tells the person to install the latest 0.7.x; 0.8.0 does not relocate it. **The package ships no
@@ -39,7 +39,7 @@ Where knowledge lives, and when to reach for each:
 | [`.agentDocs/COMPATIBILITY.md`](.agentDocs/COMPATIBILITY.md) | config and UI compatibility, migrations |
 | [`.agentDocs/RELEASING.md`](.agentDocs/RELEASING.md) | how a release is cut, and which version to dispatch |
 | [`docs/SERVERS.md`](docs/SERVERS.md) | entries, port conflicts, persistent entries |
-| [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | notification transports: Telegram, webhooks |
+| [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | notification destinations: Telegram, webhooks, shared defaults |
 | [`docs/DDNS.md`](docs/DDNS.md) | dynamic-DNS providers and hostnames |
 | [`docs/REVERSE_PROXY.md`](docs/REVERSE_PROXY.md) | the Caddy engine, routes, certificates |
 | [`docs/UI_CREATION.md`](docs/UI_CREATION.md) | the contract for a new UI |
