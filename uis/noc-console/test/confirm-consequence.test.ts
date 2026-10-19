@@ -68,6 +68,25 @@ describe('destructive confirmations', () => {
     expect(silent, 'a confirmation that states no consequence reads as "confirm remove?"').toEqual([])
   })
 
+  /**
+   * The other half: a destructive action that is **not** a `ConfirmButton` at all.
+   *
+   * The scan above only reads `ConfirmButton` uses, so it cannot notice one that should exist and
+   * does not — `SettingsView` shipped "remove destination" and "remove token" as plain buttons
+   * during the notifications restructure and both tests stayed green. This finds a plain button
+   * whose label is destructive and whose block carries no confirmation.
+   */
+  it('has no destructive plain button where a confirmation belongs', () => {
+    const views = fs.readdirSync(path.join(root, 'src/views')).filter(name => name.endsWith('.vue'))
+    const plainDestructive = /<button[^>]*>\s*(?:remove|delete|forget|revoke|clear|disable)[^<]*<\/button>/i
+
+    const offenders = views
+      .filter(name => plainDestructive.test(fs.readFileSync(path.join(root, 'src/views', name), 'utf8')))
+      .map(name => `src/views/${name}`)
+
+    expect(offenders, 'a destructive action one click away must confirm in a popover').toEqual([])
+  })
+
   it('keeps the contextual exemption to one, so another is added deliberately', () => {
     expect([...CONTEXTUAL.keys()]).toEqual(['GlobalSettingsView.vue'])
   })

@@ -36,6 +36,21 @@ computed at **module load**.
 **`npm publish` exiting 0 is the whole answer.** The registry can take up to ten minutes to show a
 package it has accepted — npm's queue, not this run's. Do not poll it, and do not hold work waiting.
 
+## Before you dispatch: the findings are closed
+
+**A release is not a checkpoint, it is a claim that this version is good.** Every finding from the
+review of the work — including the ones ranked minor — is fixed, or explicitly deferred with the
+user's agreement, *before* the version is dispatched. Shipping a known defect and patching it an
+hour later is not a fast fix: it hands someone the broken version first, and `latest` is what they
+install.
+
+The trap is judging a finding "too big for this change". That is never a reason to ship it. It is a
+reason to say so and let the scope be decided. Measured once, the hard way: 0.9.0 went out with two
+known majors from its own review and was patched as 0.9.1 ninety minutes later.
+
+So the pre-dispatch check is: read the review's findings list top to bottom and account for every
+line. "Addressed in a follow-up" is only true if the user chose the follow-up.
+
 ## Which version to dispatch
 
 Below 1.0 the **minor is the breaking channel**: a fix or non-breaking feature is a **patch**, while a
