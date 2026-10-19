@@ -31,21 +31,28 @@ const toggles = computed(() => [
 ])
 </script>
 
+<!--
+  A single root element, not a fragment: these fields are slotted into a `FieldGroup`'s grid, and
+  a bare `<template v-for>` beside another root makes the component render **nothing at all** — the
+  page showed an empty Notifications section with no error anywhere.
+-->
 <template>
-  <template v-for="toggle in toggles" :key="toggle.key">
+  <div class="contents">
     <ToggleSwitch
+      v-for="toggle in toggles"
+      :key="toggle.key"
       v-model="policy[toggle.key]"
       :label="toggle.label"
-      :hint="props.inherited ? t('settings.notifications.inheritedHint') : toggle.hint"
+      :hint="props.inherited ? t('settings.destination.inherited') : toggle.hint"
       :disabled="props.editable === false"
     />
-  </template>
-  <NumberField
-    :model-value="policy.cooldownMs"
-    :label="t('settings.telegram.cooldown')"
-    :min="0"
-    :hint="props.editable === false ? t('settings.notifications.inheritedHint') : t('settings.telegram.cooldownHint')"
-    :disabled="props.editable === false"
-    @update:model-value="policy.cooldownMs = $event ?? 0"
-  />
+    <NumberField
+      :model-value="policy.cooldownMs"
+      :label="t('settings.telegram.cooldown')"
+      :min="0"
+      :hint="props.editable === false ? t('settings.destination.inherited') : t('settings.telegram.cooldownHint')"
+      :disabled="props.editable === false"
+      @update:model-value="policy.cooldownMs = $event ?? 0"
+    />
+  </div>
 </template>
