@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { buildDaemonArgv } from '#src/cli/args'
-import { bold, delay, dim, fail, green, paint } from '#src/cli/io'
+import { bold, delay, dim, fail, green, invocation, paint } from '#src/cli/io'
 import { rotateLog, tailLog } from '#src/helpers/daemon-log'
 import { runtimeArgs } from '#src/helpers/runtime'
 import { versionMismatchNote } from '#src/helpers/version'
@@ -86,7 +86,8 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
     const note = versionMismatchNote(existing.version)
     if (note !== null)
       process.stdout.write(`${dim(note)}\n`)
-    process.stdout.write(`${dim('stop it with `home-hosted down`')}\n`)
+    // The user may have arrived via `npx`, which leaves no `home-hosted` on their PATH.
+    process.stdout.write(`${dim(`stop it with \`${invocation()} down\``)}\n`)
     return
   }
   // Only a record with *nothing* behind its pid is deleted. A pid that merely looks recycled is left

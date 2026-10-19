@@ -230,7 +230,11 @@ describe('status paths', () => {
       expect(result.stdout).toContain('home-hosted is not running')
       // `init` specifically: the *other* branch also offers `up`, so matching either proved nothing
       // (a mutation that always reported "initialised" passed it).
-      expect(result.stdout, 'a fresh home must name `init`, not just the running state').toContain('home-hosted init')
+      expect(result.stdout, 'a fresh home must name `init`, not just the running state').toContain('init')
+      // The hint names how *this* process was invoked. Under vitest that is the source checkout,
+      // never a bare `home-hosted` — which is the point: an `npx` user has no `home-hosted` on
+      // their PATH, so a hard-coded name printed advice they could not follow.
+      expect(result.stdout, 'the hint must be runnable, not the installed-bin spelling').not.toContain('`home-hosted init`')
     }
     finally {
       fs.rmSync(empty, { recursive: true, force: true })

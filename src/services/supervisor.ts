@@ -27,6 +27,7 @@ import {
   clearNannySpec,
   clearNannyState,
   describeNannyExit,
+  describeSpawnError,
   nannyEntryPoint,
   nannyIsAlive,
   nannyLogFile,
@@ -529,11 +530,16 @@ export class Supervisor {
       const target = this.entries.get(dependency.id)
       if (!target || !dependency.enabled)
         continue
-      if (target.status === 'running' || target.child !== null)
-        continue
 
-      this.log(entry, 'system', `starting dependency "${dependency.id}" first`)
-      await this.start(dependency.id)
+      // Start it only when it is not already on its way up — but *always* wait for it to be
+      // ready. Returning early on "it already has a child" skipped the wait along with the
+      // start, so on the boot and `start-all` paths (`orderByDependencies` has already spawned
+      // every dependency) a dependent began 18 ms after its dependency and served before that
+      // dependency had bound its port, which is the exact ordering `dependsOn` exists to stop.
+      if (target.status !== 'running' && target.child === null) {
+        this.log(entry, 'system', `starting dependency "${dependency.id}" first`)
+        await this.start(dependency.id)
+      }
 
       const deadline = Date.now() + dependency.health.startTimeoutMs
       const isReady = (): boolean => {
@@ -1337,7 +1343,10 @@ export class Supervisor {
     this.publishServer(entry)
 
     child.once('error', (error) => {
-      entry.lastError = (error as Error).message
+      // `spawn java -jar x ENOENT` is raw errno text, and the UI printed it verbatim with no way
+      // to learn what it meant. Naming the program and what to check is the whole difference
+      // between "the product is broken" and "Java is not installed".
+      entry.lastError = describeSpawnError(error as NodeJS.ErrnoException, entry.config.command)
       this.log(entry, 'system', `process error: ${entry.lastError}`)
       flush?.()
       this.handleExit(entry, child, null, null)

@@ -1,6 +1,6 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { fail, green } from '#src/cli/io'
+import { fail, green, invocation } from '#src/cli/io'
 
 /**
  * `start`/`stop`/`restart` for one supervised server.
@@ -30,7 +30,7 @@ export async function runServerAction(action: ServerAction, id: string, workspac
     // Only a record with nothing behind the pid is deleted — see `runtimeIsGone`.
     if (runtime !== null && await runtimeIsGone(runtime))
       clearRuntime()
-    fail('home-hosted is not running — start it with `home-hosted up`')
+    fail(`home-hosted is not running — start it with \`${invocation()} up\``)
   }
 
   const query = workspace === undefined || workspace.length === 0 ? '' : `?workspace=${encodeURIComponent(workspace)}`
@@ -74,7 +74,7 @@ function serverCommand(action: ServerAction) {
     run: async ({ args }) => {
       const id = typeof args.id === 'string' ? args.id.trim() : ''
       if (id.length === 0)
-        fail(`${action} needs a server id — see \`home-hosted status\` or the workspace's servers.config.json`)
+        fail(`${action} needs a server id — see \`${invocation()} status\` or the workspace's servers.config.json`)
       const workspace = typeof args.workspace === 'string' ? args.workspace.trim() : undefined
       await runServerAction(action, id, workspace)
     },

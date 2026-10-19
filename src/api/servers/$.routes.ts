@@ -4,7 +4,7 @@ import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { streamSSE } from 'hono/streaming'
 import { ConfigError } from '#src/config/store'
-import { statusForAction, unknownServerError } from '#src/helpers/action-result'
+import { actionAnswer, actionCode, statusForAction, unknownServerError } from '#src/helpers/action-result'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
@@ -192,7 +192,7 @@ export function createServersRoute(deps: AppDeps) {
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.start(c.req.valid('param').id, { actor: requestActor(c, deps.auth) })
-        return c.json(result, statusForAction(result))
+        return c.json(actionAnswer(result), statusForAction(result))
       },
     )
 
@@ -204,7 +204,7 @@ export function createServersRoute(deps: AppDeps) {
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.stop(c.req.valid('param').id)
-        return c.json(result, result.ok ? 200 : 404)
+        return c.json(actionAnswer(result), statusForAction(result))
       },
     )
 
@@ -216,7 +216,7 @@ export function createServersRoute(deps: AppDeps) {
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.restart(c.req.valid('param').id, { actor: requestActor(c, deps.auth) })
-        return c.json(result, statusForAction(result))
+        return c.json(actionAnswer(result), statusForAction(result))
       },
     )
 
@@ -227,7 +227,12 @@ export function createServersRoute(deps: AppDeps) {
       validate('param', idParam),
       (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        runtime.supervisor.clearLogs(c.req.valid('param').id)
+        const { id } = c.req.valid('param')
+        // `200 {"ok":true}` for an id that never existed is a lie a script believes: it cannot
+        // tell "cleared" from "I typo'd the id".
+        if (!runtime.store.getServer(id))
+          throw unknownServerError(id)
+        runtime.supervisor.clearLogs(id)
         return c.json({ ok: true })
       },
     )
@@ -254,8 +259,14 @@ export function createServersRoute(deps: AppDeps) {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
         const result = await runtime.supervisor.freePort(id)
-        if (!result.ok)
-          throw new DetailedError(result.error ?? `could not free the port for "${id}"`, { statusCode: statusForAction(result), code: 'FREE_PORT_FAILED' })
+        if (!result.ok) {
+          // `UNKNOWN_SERVER` for a missing id, because that is the fix the caller needs; every
+          // other refusal here is genuinely about the port.
+          throw new DetailedError(result.error ?? `could not free the port for "${id}"`, {
+            statusCode: statusForAction(result),
+            code: actionCode(result) === 'UNKNOWN_SERVER' ? 'UNKNOWN_SERVER' : 'FREE_PORT_FAILED',
+          })
+        }
         return c.json(result)
       },
     )

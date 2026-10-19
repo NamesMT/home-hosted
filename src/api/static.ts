@@ -44,6 +44,12 @@ export function createStaticRoute(options: StaticRouteOptions): Hono {
     if (pathname === null)
       return c.text('bad path', 400)
 
+    // A path under `/api` that reached this catch-all matched no route, so it is a client
+    // mistake — never a UI route. Falling through to `index.html` answered a typo'd API call
+    // with `200 text/html`, which `curl --fail` and a `.json()` parse both treat as success.
+    if (isApiPath(pathname))
+      return c.json({ message: `no route for ${c.req.method} ${pathname}`, code: 'NOT_FOUND' }, 404)
+
     const file = resolveWithin(root, pathname)
     if (file !== null) {
       const response = await serveFile(c, file, pathname)
@@ -62,6 +68,11 @@ export function createStaticRoute(options: StaticRouteOptions): Hono {
   })
 
   return route
+}
+
+/** `/api` itself and everything under it is the JSON surface, never a UI route. */
+function isApiPath(pathname: string): boolean {
+  return pathname === '/api' || pathname.startsWith('/api/')
 }
 
 function safeDecode(value: string): string | null {

@@ -38,6 +38,28 @@ export function unknownServerError(id: string): DetailedError {
   return new DetailedError(`unknown server "${id}"`, { statusCode: 404, code: 'UNKNOWN_SERVER' })
 }
 
+/**
+ * The stable code for a failed action, so a script can branch on it rather than on English.
+ *
+ * The lifecycle routes answered a bare `{ok, error}` while every other route answered the
+ * `{message, code, detail}` envelope — on exactly the routes a deploy script calls most, so
+ * the README's "a stable `code` a tool can branch on" held everywhere except here. `code` is
+ * added rather than replacing `ok`/`error`: an older UI reads those and ignores what it does
+ * not know, and a newer panel answering an older client must not change shape underneath it.
+ *
+ * Two values, not one per message: a missing id is the case a caller must fix, and everything
+ * else ("disabled", "stopping", "port in use") is the entry refusing right now. Inventing a
+ * code per sentence would be a second copy of the messages.
+ */
+export function actionCode(result: ActionResult): string {
+  return result[UNKNOWN_SERVER] === true ? 'UNKNOWN_SERVER' : 'ACTION_FAILED'
+}
+
+/** What a lifecycle route puts on the wire: the result it already had, plus its stable code. */
+export function actionAnswer(result: ActionResult): ActionResult & { code: string } {
+  return { ...result, code: actionCode(result) }
+}
+
 /** Unknown ids are 404; a server that exists but cannot act is a 409. */
 export function statusForAction(result: ActionResult): 200 | 404 | 409 {
   if (result.ok)

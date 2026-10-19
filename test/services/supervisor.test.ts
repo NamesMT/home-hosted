@@ -1715,6 +1715,59 @@ describe('the documented placeholder table', () => {
 })
 
 /**
+ * `dependsOn` means "healthy first", and the boot path is the one that skipped it.
+ *
+ * `startDependencies` returned early whenever the dependency already had a child, and on
+ * `start-all`/boot `orderByDependencies` has already spawned every dependency — so the
+ * readiness wait never ran. `awaitReadiness` is fire-and-forget, so `start()` answers at
+ * spawn; a dependent could therefore be serving seconds before its dependency bound its port.
+ * Both docs promise the opposite ("waits for a dependency to be *healthy* — not merely spawned").
+ */
+describe('dependsOn readiness', () => {
+  it('does not start the dependent until the dependency is accepting connections', async () => {
+    const slowPort = await freePort()
+    const needsPort = await freePort()
+    const harness = await makeSupervisor([
+      {
+        id: 'slow',
+        command: process.execPath,
+        // Takes a full second to bind, so "spawned" and "serving" are far apart.
+        args: ['-e', 'setTimeout(()=>require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1"),1000); setInterval(()=>{},1000)'],
+        env: { PORT: '{port}' },
+        port: slowPort,
+        health: { intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 3, forceRestartAfterMs: 0, startTimeoutMs: 15000 },
+        restart: { maxRetries: 0, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+      },
+      {
+        id: 'needs',
+        command: process.execPath,
+        args: ['-e', 'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")'],
+        env: { PORT: '{port}' },
+        port: needsPort,
+        dependsOn: ['slow'],
+        health: { intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 3, forceRestartAfterMs: 0, startTimeoutMs: 15000 },
+        restart: { maxRetries: 0, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+      },
+    ])
+
+    // The boot path: `orderByDependencies` spawns `slow` first, then `needs` walks into
+    // `startDependencies` while `slow` is spawned-but-not-yet-listening.
+    await harness.supervisor.startAll()
+    await waitFor(() => harness.supervisor.views().every(view => view.status === 'running'), 25000)
+
+    // The dependent's own log is the evidence: it must record that it waited.
+    const slowLines = harness.supervisor.logLines('slow', 50).map(line => line.text)
+    const slowReady = slowLines.find(text => text.includes('accepting connections'))
+    expect(slowReady, `slow log was: ${JSON.stringify(slowLines)}`).toBeDefined()
+    // And the timing: the dependent started after the dependency was serving. The
+    // regression made this gap ~0 because the wait was skipped entirely.
+    const slowStart = view(harness.supervisor, 'slow').startedAt ?? 0
+    const needsStart = view(harness.supervisor, 'needs').startedAt ?? 0
+    expect(needsStart - slowStart).toBeGreaterThanOrEqual(900)
+  })
+})
+
+/**
  * Stopping a dependency names the dependents it leaves running.
  *
  * `stopAll` stops dependents first (`orderByDependencies(...).reverse()`), but a single stop does not

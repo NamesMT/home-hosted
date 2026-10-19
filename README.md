@@ -210,7 +210,7 @@ home-hosted set-token --generate
 curl -H "Authorization: Bearer hh_9uA2…" http://127.0.0.1:3999/api/state
 curl -H "Authorization: Bearer hh_9uA2…" -X POST 'http://127.0.0.1:3999/api/servers/omniroute/restart?workspace=default'
 curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/servers/omniroute/stream?workspace=default'   # SSE
-home-hosted status --json        # machine-readable: pid, url, health, paths
+home-hosted status --json        # machine-readable: running, liveness, degraded, pid, url, paths
 ```
 
 A token has the same authority as a signed-in browser and outlives restarts; `set-token --clear`
@@ -225,13 +225,13 @@ default workspace.
 | `GET /api/state` | the full snapshot: global settings, every workspace with its servers, host vitals | ❌ |
 | `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the registry: list, create, rename, remove | ❌ |
 | `GET /api/events` | SSE: the live state, plus logs (`?logs=0`, `?serverId=…`; a `server` payload carries its `workspaceId`) | ❌ |
-| `GET`/`POST /api/servers`, `POST /api/servers/{start,stop}-all` | that workspace's entries, and its lifecycle for all of them | ✅ |
+| `GET`/`POST /api/servers`, `POST /api/servers/start-all`, `POST /api/servers/stop-all` | that workspace's entries, and its lifecycle for all of them | ✅ |
 | `GET`/`PATCH`/`DELETE /api/servers/:id` | one entry | ✅ |
 | `POST /api/servers/:id/{start,stop,restart}`, `POST /api/servers/:id/free-port` | one entry's lifecycle, and freeing its port | ✅ |
 | `GET /api/servers/:id/logs`, `GET /api/servers/:id/stream` | that entry's buffered lines, and its SSE | ✅ |
 | `GET /api/logs` | persisted history and files | ✅ |
 | `GET`/`PUT /api/ddns`, `/api/ddns/credentials/:id`, `/api/ddns/check` | that workspace's Dynamic DNS policy, credentials and a check | ✅ |
-| `PUT`/`DELETE /api/notifications/token`, `POST /api/notifications/{test,detect-chats}` | that workspace's bot credential and a test send | ✅ |
+| `PUT`/`DELETE /api/notifications/destinations/:id/token`, `POST /api/notifications/destinations/:id/{test,detect-chats}`, `POST /api/notifications/test-webhook` | one destination's bot credential, and a test send | ✅ |
 | `GET`/`PATCH /api/settings/workspace` | server defaults, logs, notifications | ✅ |
 | `GET`/`PATCH /api/settings` | panel-wide: listener, authentication, TLS, host vitals, backups | ❌ |
 | `GET`/`POST /api/backups`, restore | archives | ❌ |

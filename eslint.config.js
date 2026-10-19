@@ -13,6 +13,7 @@ export default antfu(
     vue: true,
 
     ignores: [
+      '.audit',
       '.static-data',
       'web/dist',
       'servers.config.schema.json',

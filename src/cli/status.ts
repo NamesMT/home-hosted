@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, green, paint } from '#src/cli/io'
+import { bold, dim, green, invocation, paint } from '#src/cli/io'
 
 /** `status` answers "is it running, where, and how do I reach it". */
 
@@ -24,9 +24,9 @@ export async function runStatus(json: boolean): Promise<void> {
     if (json)
       process.stdout.write(`${JSON.stringify({ running: false, initialised }, null, 2)}\n`)
     else if (initialised)
-      process.stdout.write('home-hosted is not running — start it with `home-hosted up`\n')
+      process.stdout.write(`home-hosted is not running — start it with \`${invocation()} up\`\n`)
     else
-      process.stdout.write('home-hosted is not running — nothing is set up here yet; `home-hosted init` creates a project, `home-hosted up` starts one here\n')
+      process.stdout.write(`home-hosted is not running — nothing is set up here yet; \`${invocation()} init\` creates a project, \`${invocation()} up\` starts one here\n`)
     process.exitCode = 1
     return
   }
@@ -95,7 +95,7 @@ export async function runStatus(json: boolean): Promise<void> {
       const dir = path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs')
       return fs.existsSync(dir) ? `${dir} (one file per server: <id>.log)` : dir
     })()],
-    ['ui', ui.custom ? `custom — ${uiLabel} (revert with \`home-hosted ui-revert\`)` : 'stock'],
+    ['ui', ui.custom ? `custom — ${uiLabel} (revert with \`${invocation()} ui-revert\`)` : 'stock'],
   ]
 
   process.stdout.write(`${bold(`home-hosted ${runtime.version}`)}\n`)

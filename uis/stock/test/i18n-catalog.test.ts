@@ -265,6 +265,21 @@ describe('keys the code names statically', () => {
     expect(keys.length).toBeGreaterThan(5)
     expect(keys.filter(key => !englishKeys().has(key))).toEqual([])
   })
+
+  /**
+   * The command palette's section tables name catalog keys as plain strings, and `t()` renders a
+   * missing one back verbatim — so the palette listed `Global setting: settings.backups.title` to
+   * anyone searching for the settings page. Four of those keys had never existed; the pages
+   * themselves title the same sections from `views.globalSettings.section*`.
+   */
+  it('resolves every section key the command palette names', () => {
+    const palette = fs.readFileSync(path.join(root, 'src', 'components', 'shell', 'CommandPalette.vue'), 'utf8')
+    // The two tables are arrays of `['id', 'catalog.key']` pairs.
+    const keys = [...palette.matchAll(/\[\s*'[a-z]+',\s*'([^']+)'\s*\]/g)].map(match => match[1]!)
+    // Anti-vacuity: a regex that matched nothing would make the assertion below pass for free.
+    expect(keys.length).toBeGreaterThan(8)
+    expect(keys.filter(key => !englishKeys().has(key))).toEqual([])
+  })
 })
 
 describe('locale coverage', () => {

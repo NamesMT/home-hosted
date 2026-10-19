@@ -80,7 +80,7 @@ interface OptionSection {
 }
 
 /** Every section lays its left column out at this width, so the two views align. */
-const OPTION_WIDTH = 19
+const OPTION_WIDTH = 21
 
 const UP_SECTION: OptionSection = {
   heading: 'Options for up/restart',
@@ -115,6 +115,7 @@ const SERVER_SECTION: OptionSection = {
   heading: 'Arguments for start/stop',
   lines: [
     ['<id>', 'the server id from servers.config.json'],
+    ['-w, --workspace <id>', 'the workspace to act in (default: the default workspace)'],
   ],
 }
 
@@ -149,6 +150,7 @@ const SET_TOKEN_SECTION: OptionSection = {
 const MIGRATE_SECTION: OptionSection = {
   heading: 'Options for migrate',
   lines: [
+    ['-c, --config <file>', 'one config file to migrate (default: every file this state root owns)'],
     ['--dry-run', 'print what would change, write nothing'],
     ['-y, --yes', 'apply without asking (or set HHOSTED_MIGRATE=allow)'],
   ],

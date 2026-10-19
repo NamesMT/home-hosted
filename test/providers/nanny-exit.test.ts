@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describeNannyExit } from '#src/providers/nanny'
+import { describeNannyExit, describeSpawnError } from '#src/providers/nanny'
 
 /**
  * How a child's exit is described in the log and in history.
@@ -36,5 +36,46 @@ describe('describing a child exit', () => {
     const term = describeNannyExit({ code: 143, signal: null } as never)
     expect(term).toContain('SIGTERM')
     expect(term).toContain('if the shell reported')
+  })
+})
+
+/**
+ * A spawn failure is where a non-technical user's first attempt ends.
+ *
+ * Node's `spawn java -jar server.jar ENOENT` names the whole command line, so it reads as "the
+ * program is missing" even when the user pasted a command *line* into the `command` field and the
+ * program is installed. The message a person sees has to name the program and what to check.
+ */
+describe('describeSpawnError', () => {
+  const enoent = Object.assign(new Error('spawn java -jar server.jar ENOENT'), { code: 'ENOENT' })
+
+  it('names a bare command as a missing program, not a missing file', () => {
+    const message = describeSpawnError(enoent as NodeJS.ErrnoException, 'java')
+    expect(message).toContain('`java`')
+    expect(message).toContain('not found')
+    expect(message).toContain('PATH')
+    // It must not repeat the raw errno text the user cannot act on.
+    expect(message).not.toContain('ENOENT')
+  })
+
+  it('points at the path when the command names one', () => {
+    const missing = Object.assign(new Error('spawn /opt/app/server ENOENT'), { code: 'ENOENT' })
+    const message = describeSpawnError(missing as NodeJS.ErrnoException, '/opt/app/server')
+    expect(message).toContain('/opt/app/server')
+    expect(message).toContain('does not exist')
+  })
+
+  it('treats a permission failure as its own, actionable case', () => {
+    const denied = Object.assign(new Error('spawn ./run.sh EACCES'), { code: 'EACCES' })
+    const message = describeSpawnError(denied as NodeJS.ErrnoException, './run.sh')
+    expect(message).toContain('not executable')
+    expect(message).toContain('chmod')
+  })
+
+  it('falls back to the original message for anything else', () => {
+    const other = Object.assign(new Error('spawn EMFILE'), { code: 'EMFILE' })
+    const message = describeSpawnError(other as NodeJS.ErrnoException, 'node')
+    expect(message).toContain('EMFILE')
+    expect(message).toContain('node')
   })
 })

@@ -124,14 +124,41 @@ describe('servers route', () => {
     expect(await conflict.json()).toMatchObject({ error: 'port 3999 is already in use' })
   })
 
-  it('maps a stop failure onto 404 and a restart failure onto 409', async () => {
+  /**
+   * One rule for all three actions: a missing id is 404, a refusal is 409.
+   *
+   * `stop` used to answer 404 for *every* failure (`result.ok ? 200 : 404`), so "not running"
+   * and "no such server" were the same status and a script could not tell which mistake it
+   * had made. The 404-on-refusal is what this test used to pin.
+   */
+  it('separates a missing id from a refusal on every lifecycle route', async () => {
     const created = await withServer()
 
-    created.supervisor.stop = async () => ({ ok: false, error: 'not running' })
-    expect((await request(created.app, '/api/servers/web/stop', 'POST')).status).toBe(404)
+    for (const action of ['start', 'stop', 'restart'] as const) {
+      created.supervisor[action] = async () => ({ ok: false, error: 'not running' })
+      expect(
+        (await request(created.app, `/api/servers/web/${action}`, 'POST')).status,
+        `${action} on an entry that refuses is a conflict`,
+      ).toBe(409)
 
-    created.supervisor.restart = async () => ({ ok: false, error: 'backoff' })
-    expect((await request(created.app, '/api/servers/web/restart', 'POST')).status).toBe(409)
+      created.supervisor[action] = async () => missingServer('web')
+      expect(
+        (await request(created.app, `/api/servers/web/${action}`, 'POST')).status,
+        `${action} on a missing id is not found`,
+      ).toBe(404)
+    }
+  })
+
+  it('answers a failed action with the envelope code a script branches on', async () => {
+    const created = await withServer()
+
+    created.supervisor.start = async () => ({ ok: false, error: 'port 3999 is already in use' })
+    expect(await (await request(created.app, '/api/servers/web/start', 'POST')).json())
+      .toMatchObject({ ok: false, code: 'ACTION_FAILED' })
+
+    created.supervisor.start = async () => missingServer('web')
+    expect(await (await request(created.app, '/api/servers/web/start', 'POST')).json())
+      .toMatchObject({ ok: false, code: 'UNKNOWN_SERVER' })
   })
 
   it('clamps the log limit so a bad client cannot slice from the wrong end', async () => {
@@ -754,6 +781,36 @@ describe('lifecycle routes', () => {
     expect((await request(created.app, '/api/servers/start-all', 'POST')).status).toBe(200)
     expect((await request(created.app, '/api/servers/stop-all', 'POST')).status).toBe(200)
     expect(calls).toEqual(['start', 'stop'])
+  })
+})
+
+/**
+ * A path under `/api` that matched no route is a client mistake, not a UI route.
+ *
+ * The static catch-all is mounted last and falls back to `index.html` for client-side
+ * routes. Because it is a plain `get('*')`, an unmatched `GET /api/...` fell through to it
+ * and answered `200 text/html` — so `curl --fail` passed and `.json()` failed on a page,
+ * which is the worst possible shape for a typo'd endpoint. `POST` typos were already a
+ * plain-text 404, so the two methods disagreed about what a missing route looks like.
+ */
+describe('an unmatched api path', () => {
+  it('answers the JSON envelope with a 404, never the UI', async () => {
+    const created = await fixture()
+
+    // The fixture has a real stock UI dir, so without the guard this is a 200 HTML page.
+    const response = await request(created.app, '/api/servres')
+    expect(response.status).toBe(404)
+    expect(response.headers.get('content-type')).toContain('application/json')
+    expect(await response.json()).toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('keeps serving the UI for a real client-side route', async () => {
+    const created = await fixture()
+
+    const response = await request(created.app, '/global/settings')
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('text/html')
+    expect(await response.text()).toContain('stock')
   })
 })
 

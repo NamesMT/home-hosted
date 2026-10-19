@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { PassThrough } from 'node:stream'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { bold, cyan, dim, green, heading, isTty, paint, style } from '#src/cli/io'
+import { bold, cyan, dim, green, heading, invocation, isTty, paint, style } from '#src/cli/io'
 
 /**
  * The colour seam every command prints through.
@@ -252,5 +252,50 @@ describe('cli io — delay', () => {
     const started = Date.now()
     await expect(delay(30)).resolves.toBeUndefined()
     expect(Date.now() - started).toBeGreaterThanOrEqual(25)
+  })
+})
+
+/**
+ * A hint that names a command the user cannot run is worse than no hint.
+ *
+ * The documented quick start is `npx home-hosted`, which leaves nothing on `PATH`, so a
+ * hard-coded `stop it with \`home-hosted down\`` printed advice that failed with
+ * `bash: home-hosted: command not found` — on the second run, the first thing a quick-start
+ * user sees after it worked.
+ */
+describe('invocation', () => {
+  const originalArgv = process.argv[1]
+  const originalOverride = process.env.HHOSTED_INVOCATION
+
+  afterEach(() => {
+    process.argv[1] = originalArgv as string
+    if (originalOverride === undefined)
+      delete process.env.HHOSTED_INVOCATION
+    else
+      process.env.HHOSTED_INVOCATION = originalOverride
+  })
+
+  it('names `npx` when the entry is a package-manager cache', () => {
+    process.argv[1] = '/home/u/.npm/_npx/abc123/node_modules/.bin/home-hosted'
+    expect(invocation()).toBe('npx home-hosted')
+
+    process.argv[1] = '/home/u/.local/share/pnpm/dlx/abc/node_modules/home-hosted/bin/home-hosted.mjs'
+    expect(invocation()).toBe('npx home-hosted')
+  })
+
+  it('names the source checkout when run from the repo', () => {
+    // This is the shape the repo's own tests and scripts use, and it has no installed bin.
+    process.argv[1] = '/home/mt/mine/home-hosted/src/cli.ts'
+    expect(invocation()).toBe('pnpm exec tsx src/cli.ts')
+  })
+
+  it('names the bin itself for an installed copy', () => {
+    process.argv[1] = '/usr/local/bin/home-hosted'
+    expect(invocation()).toBe('home-hosted')
+  })
+
+  it('lets a wrapper override it', () => {
+    process.env.HHOSTED_INVOCATION = 'hh'
+    expect(invocation()).toBe('hh')
   })
 })

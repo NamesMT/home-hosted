@@ -170,15 +170,18 @@ const commands = computed<PaletteCommand[]>(() => {
   }
 
   // Section labels are catalog keys: the section list and its sidebar rail share one wording.
+  // These keys are the settings pages' own section titles, read from the same catalog entry
+  // the page renders — four of them used to point at `settings.<x>.title` keys that exist
+  // nowhere, so the palette listed `Global setting: settings.backups.title` verbatim.
   const globalSections = [
-    ['listener', 'settings.listener.title'],
-    ['authentication', 'settings.authentication.title'],
-    ['host', 'settings.host.title'],
-    ['backups', 'settings.backups.title'],
-    ['tls', 'settings.tls.title'],
+    ['listener', 'views.globalSettings.sectionListener'],
+    ['authentication', 'views.globalSettings.sectionAuthentication'],
+    ['host', 'views.globalSettings.sectionHost'],
+    ['backups', 'views.globalSettings.sectionBackups'],
+    ['tls', 'views.globalSettings.sectionTls'],
     ['language', 'language.label'],
-    ['interface', 'settings.interface.title'],
-    ['paths', 'settings.paths.title'],
+    ['interface', 'views.globalSettings.sectionInterface'],
+    ['paths', 'views.globalSettings.sectionPaths'],
   ] as const
   for (const [id, label] of globalSections) {
     out.push({
@@ -192,10 +195,10 @@ const commands = computed<PaletteCommand[]>(() => {
   }
 
   const workspaceSections = [
-    ['defaults', 'settings.defaults.title'],
-    ['logs', 'settings.logs.title'],
-    ['notifications', 'settings.notifications.title'],
-    ['ddns', 'settings.ddns.title'],
+    ['defaults', 'views.settings.sectionDefaults'],
+    ['logs', 'views.settings.sectionLogs'],
+    ['notifications', 'views.settings.sectionNotifications'],
+    ['ddns', 'views.settings.sectionDdns'],
   ] as const
   for (const [id, label] of workspaceSections) {
     out.push({

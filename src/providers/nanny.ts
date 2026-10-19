@@ -158,6 +158,31 @@ function exitCodeHint(code: number | null): string | null {
     : `${signal}, if the shell reported the kill`
 }
 
+/**
+ * A spawn failure in words a person can act on.
+ *
+ * Node reports a missing program as `spawn <cmd> ENOENT` — the same errno as a missing *file*, and
+ * the same wording whichever of the two it is. A user who pasted `java -jar server.jar` into
+ * `command` saw exactly that and had nothing to go on: the message names the whole line, so it
+ * reads as "the program is missing" even when the program is fine and only the argument is wrong.
+ *
+ * `command` is the configured program, so the two cases can be told apart: if a bare name has no
+ * path separator, the shell would have searched `PATH` and this one did not.
+ */
+export function describeSpawnError(error: NodeJS.ErrnoException, command: string): string {
+  if (error.code === 'ENOENT') {
+    return command.includes('/') || command.includes('\\')
+      // A path was given, so the path is what is missing — the file, or a directory on the way.
+      ? `\`${command}\` does not exist — check the path, and any directory on the way to it`
+      // A bare name: spawn does not search a shell's PATH aliases, and the program may simply
+      // not be installed. Naming the program is the whole value here.
+      : `\`${command}\` was not found — is it installed, and is it on PATH for the user running the panel?`
+  }
+  if (error.code === 'EACCES')
+    return `\`${command}\` exists but is not executable — check its permissions (chmod +x)`
+  return `${error.message} (while running \`${command}\`)`
+}
+
 /** `SIGKILL` for 9, or null when the number names nothing. */
 function signalName(number: number): string | null {
   for (const [name, value] of Object.entries(os.constants.signals)) {

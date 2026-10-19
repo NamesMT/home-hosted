@@ -171,7 +171,7 @@ onMounted(async () => {
             <p class="text-2xs leading-4 text-warn">
               <TransText k="login.noPasswordWarning">
                 <template #command>
-                  <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">pnpm run auth:set-password</code>
+                  <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">home-hosted set-password</code>
                 </template>
               </TransText>
             </p>

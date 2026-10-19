@@ -21,6 +21,35 @@ export const heading = (text: string): string => paint('1;4', text)
 /** The seam `ui-switch` takes, so the command stays testable without a terminal. */
 export const style = { bold, dim, green }
 
+/**
+ * How this process was invoked, for hints that tell a person what to type next.
+ *
+ * The documented quick start is `npx home-hosted`, which puts no `home-hosted` on the user's
+ * `PATH` — so `stop it with \`home-hosted down\`` printed advice they could not follow
+ * (`bash: home-hosted: command not found`). The bin's own argv names the shape: a global install
+ * or a linked checkout runs `.../bin/home-hosted.mjs` (or the built `dist/cli.js`), while `npx`
+ * and `pnpm dlx` hand over a cache path. `HHOSTED_INVOCATION` overrides it for a wrapper that
+ * knows better.
+ *
+ * Deliberately a *string to print*, not a parser: every caller only concatenates it.
+ */
+export function invocation(): string {
+  const override = process.env.HHOSTED_INVOCATION?.trim()
+  if (override !== undefined && override.length > 0)
+    return override
+
+  const entry = process.argv[1] ?? ''
+  // A package-manager cache (`~/.npm/_npx/…`, `~/.local/share/pnpm/dlx/…`) means the package is
+  // not installed, so the bare name would not resolve in the user's shell.
+  if (/[\\/](?:_npx|dlx)[\\/]/.test(entry))
+    return 'npx home-hosted'
+  // A source checkout (`tsx src/cli.ts`, the repo's own scripts) has no installed bin either.
+  if (/[\\/]cli\.ts$/.test(entry))
+    return 'pnpm exec tsx src/cli.ts'
+
+  return 'home-hosted'
+}
+
 /** One shape for every failure: a red `error <message>` on stderr and exit 1. */
 export function fail(message: string): never {
   process.stderr.write(`${paint('31', 'error')} ${message}\n`)
