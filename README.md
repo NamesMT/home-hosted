@@ -467,10 +467,15 @@ Everything binds `127.0.0.1` until you say otherwise.
 
 ## 🔔 Notifications
 
-Telegram, when something happens while you are not looking: a server that gave up restarting, a
+A message when something happens while you are not looking: a server that gave up restarting, a
 failing health check, a forced restart, a recovery, a host threshold (disk, memory, swap, load,
-temperature), or a dynamic DNS change. Opt-in, rate-limited per server *and* reason, and the bot token
-stays in the secrets file. **Two minutes of setup: [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md).**
+temperature), or a dynamic DNS change.
+
+Every alert goes to a list of **destinations** — a Telegram chat, a webhook, or several of each. The
+event toggles and the throttle are set **once**, and each destination either inherits them or carries
+its own. Rate-limited per destination, server *and* reason. Bot tokens and webhook credentials stay in
+the secrets file, never in a config. **Two minutes of setup:
+[NOTIFICATIONS.md](./docs/NOTIFICATIONS.md).**
 
 ---
 
