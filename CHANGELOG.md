@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.9.1
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.0...v0.9.1)
+
+### 🩹 Fixes
+
+- A newer panel's additive field no longer blanks the app ([31e8ad8](https://github.com/NamesMT/home-hosted/commit/31e8ad8))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.9.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.8.3...v0.9.0)
