@@ -21,7 +21,7 @@
  * somewhere else, and the default state may not be `~/.home-hosted` at all.
  */
 // @ts-check
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -32,8 +32,14 @@ const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 
 const DEFAULT_PANEL_PORT = 6000
 const DEFAULT_UI_PORT = 6001
+// `pnpm` is a `.cmd` shim on Windows and cannot be spawned without a shell. `scripts/build-uis.mjs`
+// resolves the same way for the same reason.
+const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+
 /** `resolveDataRoot()`'s own default: the one directory dev must never touch on its own. */
 const REAL_STATE = path.join(os.homedir(), '.home-hosted')
+/** The dev panel's password. Weak on purpose — it is loopback-only, and nobody should hunt for it. */
+const DEV_PASSWORD = 'dev'
 
 function parseArgs(argv) {
   const options = { ui: 'stock', panelPort: undefined, uiPort: undefined, home: undefined, passthrough: [] }
@@ -111,6 +117,41 @@ if (canonical(stateDir) === canonical(REAL_STATE)) {
   process.exit(1)
 }
 
+/**
+ * Gives a fresh dev state the known password, so a wiped `.dev-state/` is not a locked door.
+ *
+ * Only when there is none: a password set deliberately — here or through the UI — is left alone,
+ * which is what keeps this from quietly resetting somebody's change on every run. Delegated to
+ * `set-password` rather than hashing here, so the record is written by the one implementation that
+ * owns its shape; the panel re-reads the file per request, so no restart is needed for it to apply.
+ */
+function seedDevPassword() {
+  const secretsPath = path.join(stateDir, '.hh', '.control-secrets.json')
+  try {
+    const existing = JSON.parse(fs.readFileSync(secretsPath, 'utf8'))
+    if (existing !== null && typeof existing === 'object' && existing.password != null)
+      return false
+  }
+  catch {
+    // Absent or unreadable. An unreadable file is reported by the panel itself; only a missing
+    // password is this function's business, and `set-password` overwrites the password key alone.
+  }
+
+  const result = spawnSync(pnpm, ['exec', 'tsx', 'src/cli.ts', 'set-password'], {
+    cwd: root,
+    stdio: 'ignore',
+    shell: process.platform === 'win32',
+    env: { ...process.env, HHOSTED_HOME: stateDir, HHOSTED_PASSWORD: DEV_PASSWORD },
+  })
+  if (result.status !== 0) {
+    process.stderr.write(`could not seed the dev password (set-password exited ${result.status})\n`)
+    return false
+  }
+  return true
+}
+
+const seeded = seedDevPassword()
+
 /** The panel gets `--port` unless the caller already named one in the passthrough. */
 const named = options.passthrough.some(arg => arg === '--port' || arg === '-p' || arg.startsWith('--port='))
 const panelArgs = [
@@ -127,10 +168,6 @@ const panelArgs = [
   '--home',
   stateDir,
 ]
-
-// `pnpm` is a `.cmd` shim on Windows and cannot be spawned without a shell. `scripts/build-uis.mjs`
-// resolves the same way for the same reason.
-const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 
 const children = []
 
@@ -185,6 +222,10 @@ const devEnv = {
 process.stdout.write(`panel    http://127.0.0.1:${options.panelPort}\n`)
 process.stdout.write(`${options.ui.padEnd(8)} http://127.0.0.1:${options.uiPort}\n`)
 process.stdout.write(`state    ${stateDir}\n`)
+if (seeded)
+  process.stdout.write(`password ${DEV_PASSWORD} (seeded for this dev state) — sign in at the URL below\n`)
+else
+  process.stdout.write(`password ${DEV_PASSWORD} unless changed in the UI\n`)
 if (options.home === undefined && process.env.HHOSTED_HOME !== undefined)
   process.stdout.write(`         (HHOSTED_HOME=${process.env.HHOSTED_HOME} is set and ignored — pass --home to use it)\n`)
 
