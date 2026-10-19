@@ -56,6 +56,8 @@ pnpm run start                     # up --foreground (systemd, docker, a foregro
 pnpm exec tsx src/cli.ts logs      # the panel's own console output (--lines, --follow, --json)
 pnpm dev                           # tsx-watch panel :6000 + the stock UI's Vite :6001, state in .dev-state/
 pnpm dev --ui noc-console          # the same, for another UI; --port/--ui-port override
+pnpm dev --home /tmp/hh-dev        # state elsewhere; HHOSTED_HOME is IGNORED here, and the real
+                                   #   ~/.home-hosted is refused
 pnpm run build                     # dist/cli.js + the stock UI (uis/stock/dist)
 pnpm run build:uis                 # every UI under uis/, zipped into uis/dist/ (release assets)
 pnpm run build:locales             # i18n/sheets/*.csv -> the git-ignored i18n/generated/*.json (also
