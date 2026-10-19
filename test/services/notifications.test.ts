@@ -144,6 +144,9 @@ describe('reason toggles', () => {
       ['rss', 'onCrash'],
       ['unhealthy', 'onUnhealthy'],
       ['forced-restart', 'onForcedRestart'],
+      // The closure of a force restart rides the same switch: someone who asked to be told
+      // about restarts asked to hear how each one ended.
+      ['restart-ok', 'onForcedRestart'],
       ['recovered', 'onRecovered'],
       ['host', 'onHost'],
       ['host-recovered', 'onHost'],

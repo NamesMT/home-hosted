@@ -225,6 +225,7 @@ export class PanelService {
       globalSettingsPath: this.options.settings.path,
       globalSecretsPath: this.options.secrets.path,
       tlsDir: this.options.tls.directory,
+      registryPath: this.options.registry.path,
       includePaths: this.options.settings.backups.includePaths,
       workspaces: this.workspaces().map<BackupWorkspaceSource>(runtime => ({
         id: runtime.id,
@@ -244,6 +245,27 @@ export class PanelService {
     logger.info(`workspace "${workspace.id}" created at ${workspaceDir(workspace.id)}`)
     this.scheduleState()
     return runtime.view()
+  }
+
+  /**
+   * Registers a workspace an archive brought but this host did not have, then builds
+   * its runtime so the files a restore is about to write have an owner.
+   *
+   * Idempotent, and it never touches an existing workspace: a restore must fill one
+   * that is already here, not replace its label or its runtime.
+   */
+  ensureWorkspace(input: { id: string, label: string }): void {
+    if (this.options.registry.has(input.id))
+      return
+    const workspace = this.options.registry.create(input)
+    const runtime = this.createRuntime(workspace)
+    this.runtimes.set(workspace.id, runtime)
+    logger.info(`workspace "${workspace.id}" restored from an archive`)
+    // Its leaves were written before this ran, so `createRuntime` already loaded them —
+    // which means the `reloadAll()` that follows sees no *new* ids here. Start them now,
+    // for the same reason that method starts the ones it reveals.
+    this.startRestored(runtime, new Set())
+    this.scheduleState()
   }
 
   rename(id: string, label: string): WorkspaceView {
@@ -292,15 +314,37 @@ export class PanelService {
     return entry
   }
 
-  /** Re-reads every workspace and the global settings, e.g. after a restore. */
+  /**
+   * Re-reads every workspace and the global settings, e.g. after a restore.
+   *
+   * `store.load()` resets the byte baseline the config watcher compares against, so the
+   * poll that follows sees "no change" and never reaches its autostart pass. The entries
+   * an archive brought therefore waited for a panel restart — which is why the start of
+   * newly appeared autostart entries belongs here, the one place that knows what was new.
+   */
   reloadAll(): void {
     this.options.settings.load()
     for (const runtime of this.workspaces()) {
+      const before = new Set(runtime.store.servers.map(server => server.id))
       runtime.store.load()
       runtime.history.load()
       this.reportWorkspaceErrors(runtime.id)
+      this.startRestored(runtime, before)
     }
     this.scheduleState()
+  }
+
+  /** Starts the autostart entries a reload just revealed, exactly as a hand edit would. */
+  private startRestored(runtime: WorkspaceRuntime, before: Set<string>): void {
+    if (!this.options.autostart)
+      return
+    for (const server of runtime.store.servers) {
+      if (before.has(server.id) || !server.enabled || !server.autostart)
+        continue
+      void runtime.supervisor.start(server.id, { actor: 'boot' }).catch((error: unknown) => {
+        logger.error(`could not start the restored server ${server.id}`, error)
+      })
+    }
   }
 
   /** Starts whatever the config marks autostart, across every workspace. */

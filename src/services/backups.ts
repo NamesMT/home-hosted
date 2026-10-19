@@ -5,9 +5,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { type } from 'arktype'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings } from '#src/config/parse'
 import { mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts } from '#src/config/secret-parts'
+import { workspacesFileSchema } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
 import { logger } from '#src/helpers/logger'
@@ -16,11 +18,17 @@ import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { serverTemplateVars } from '#src/services/supervisor'
+import { workspaceIdSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
 import { isGeneratedPath } from '#src/shared/generated'
 import { isRecord } from '#src/shared/shape'
 
 const MANIFEST = 'manifest.json'
+/**
+ * The workspace registry inside an archive. Under `global/` because it is panel-wide, and
+ * named as the live file is, so the two are recognisably the same document.
+ */
+const REGISTRY = 'workspaces.json'
 const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data'])
 /** Every archive this service writes is a zip, encrypted or not. */
 const SUFFIX = '.zip'
@@ -216,10 +224,24 @@ export interface BackupWorkspaceSource {
   servers: ServerConfig[]
 }
 
+/** One workspace the registry names, whether or not this host has it. */
+interface ArchivedWorkspace {
+  id: string
+  label: string
+}
+
 export interface BackupSources {
   globalSettingsPath: string
   globalSecretsPath: string
   tlsDir: string
+  /**
+   * The workspace registry: ids and labels in selector order.
+   *
+   * Carried so a restore onto a blank host can *create* the workspaces an archive names,
+   * with their labels. It is never written back as a file — a restore must not drop a
+   * workspace this host added since, so only the missing ones are created.
+   */
+  registryPath: string
   /** Extra paths in every backup, in addition to each server's own. */
   includePaths: string[]
   workspaces: BackupWorkspaceSource[]
@@ -272,6 +294,44 @@ function readableGlobalSettings(text: string | null): boolean {
   }
   catch {
     return false
+  }
+}
+
+/**
+ * The workspaces an archive's registry names.
+ *
+ * Tolerant on purpose: an archive written before the registry was captured has no such
+ * file, and a damaged one must not fail a restore whose leaves are perfectly readable.
+ * The registry only contributes labels, so anything unreadable is simply dropped.
+ */
+function readArchivedRegistry(file: string): ArchivedWorkspace[] {
+  const text = readText(file)
+  if (text === null)
+    return []
+  try {
+    const parsed = workspacesFileSchema(JSON.parse(text))
+    if (parsed instanceof type.errors)
+      return []
+    return parsed.workspaces
+  }
+  catch {
+    return []
+  }
+}
+
+/**
+ * Where a workspace created by a restore keeps its three leaves.
+ *
+ * Derived from the service's own `dataRoot` (the `.hh` directory the panel passes) rather
+ * than the module-level path helpers, so a restore writes under the state root of the panel
+ * running it — not under whatever `HHOSTED_HOME` resolves to at import time.
+ */
+function workspacePathsFor(dataRoot: string, id: string): Pick<BackupWorkspaceSource, 'settingsPath' | 'serversPath' | 'secretsPath'> {
+  const dir = path.join(dataRoot, id)
+  return {
+    settingsPath: path.join(dir, 'settings.json'),
+    serversPath: path.join(dir, 'servers.config.json'),
+    secretsPath: path.join(dir, '.secrets.json'),
   }
 }
 
@@ -342,6 +402,12 @@ export class BackupService {
       dataRoot: string
       getConfig: () => BackupsConfig
       getSources: () => BackupSources
+      /**
+       * Creates a workspace the archive brought and this host lacks, registry entry and
+       * runtime together. Without it a restore can only fill workspaces that already
+       * exist, which is what made "one archive is a whole setup" false.
+       */
+      ensureWorkspace?: (input: { id: string, label: string }) => void
       /** Called after a restore wrote settings/server files; the panel re-reads everything. */
       onRestored?: () => void
     },
@@ -492,6 +558,12 @@ export class BackupService {
         copySecrets('global/secrets.json', sources.globalSecretsPath, 'global:secrets', 'global')
       if (capturesGlobal('global:tls'))
         copy('global/tls', sources.tlsDir)
+      // Always, and unconditionally: the registry is what lets a restore onto a blank host
+      // know a workspace exists at all, and it is a few bytes of ids and labels. Tying it
+      // to a selection would make "restore this workspace" impossible on a host that has
+      // never heard of it. Not counted as a capture — a selection that names nothing real
+      // is still "nothing was selected", which the check below refuses.
+      this.copyInto(staging, `global/${REGISTRY}`, sources.registryPath)
 
       const data: BackupManifest['data'] = []
       for (const workspace of sources.workspaces) {
@@ -564,7 +636,7 @@ export class BackupService {
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
     // The two structured lists are optional on the wire (a new UI reads an older panel), but this
     // side always fills them, so it builds them as required.
-    const plan: RestorePlan & { appliedIds: string[], skippedItems: RestoreSkip[] } = {
+    const plan: RestorePlan & { appliedIds: string[], skippedItems: RestoreSkip[], createdWorkspaces: string[] } = {
       dryRun: !options.confirm,
       encrypted: false,
       needsPassword: false,
@@ -575,6 +647,7 @@ export class BackupService {
       skippedItems: [],
       restartRequired: false,
       reloaded: false,
+      createdWorkspaces: [],
     }
 
     if (!isZipArchive(archivePath))
@@ -719,9 +792,28 @@ export class BackupService {
         }, ['tls'])
       }
 
+      // ------------------------------------------------------- workspace registry
+      /**
+       * The workspaces the archive names, from its registry file.
+       *
+       * Optional: an archive written before the registry was captured carries none, and
+       * then every archived workspace is still restorable under its own id — the label is
+       * the only thing the registry adds.
+       */
+      const archivedWorkspaces = new Map<string, ArchivedWorkspace>()
+      for (const entry of readArchivedRegistry(path.join(staging, 'global', REGISTRY))) {
+        archivedWorkspaces.set(entry.id, entry)
+      }
+
       // ------------------------------------------------------------ workspaces
       /** Every archived servers file this release can read, selected or not. */
       const archivedServers = new Map<string, ServerConfig[]>()
+      /**
+       * Workspaces the archive names that this host does not have, with the paths a
+       * restore will create them under. The directories are made only when one of
+       * their leaves is actually applied, so a dry run writes nothing.
+       */
+      const createdWorkspaces = new Map<string, BackupWorkspaceSource>()
 
       const archiveWorkspaces = path.join(staging, 'workspaces')
       if (fs.existsSync(archiveWorkspaces)) {
@@ -730,34 +822,35 @@ export class BackupService {
             continue
           const id = entry.name
           const dir = path.join(archiveWorkspaces, id)
-          const workspace = sources.workspaces.find(candidate => candidate.id === id)
           const settings = readText(path.join(dir, 'settings.json'))
           const servers = readText(path.join(dir, 'servers.config.json'))
           const secrets = readText(path.join(dir, 'secrets.json'))
+          // A label the archive's registry carried, else the id: the registry is the
+          // only place a label lives, so an archive without it still restores under a
+          // name the person can find afterwards.
+          const archivedLabel = archivedWorkspaces.get(id)?.label ?? id
 
+          // A workspace this host does not have is *created*, not skipped: an archive is
+          // the whole setup, and "unknown workspace" used to drop the leaves while the
+          // data below still matched by origin — writing one workspace's database into
+          // whatever directory another one declared.
+          const workspace = sources.workspaces.find(candidate => candidate.id === id)
+            ?? createdWorkspaces.get(id)
+            ?? (workspaceIdSchema(id) instanceof type.errors
+              ? undefined
+              : { id, label: archivedLabel, ...workspacePathsFor(this.options.dataRoot, id), servers: [] as ServerConfig[] })
           if (workspace === undefined) {
-            const leaves = [['settings', 'Settings', settings], ['servers', 'Servers', servers], ['secrets', 'Secrets', secrets]] as const
-            for (const [suffix, label, text] of leaves) {
-              if (text === null)
-                continue
-              addItem({
-                id: `workspace:${id}:${suffix}`,
-                label: `${id}: ${label}`,
-                labelKey: 'settings.backup.restoreItemLabel',
-                labelParams: { workspace: id, item: suffix },
-                kind: suffix,
-                workspaceId: id,
-                restorable: false,
-                note: 'unknown workspace',
-                noteKey: 'settings.backup.noteUnknownWorkspace',
-              }, null)
-            }
+            plan.skipped.push(`${id} (not a usable workspace id)`)
+            plan.skippedItems.push({ label: id, reasonKey: 'settings.restore.reasonInvalidWorkspace' })
             continue
           }
+          if (!sources.workspaces.some(candidate => candidate.id === id))
+            createdWorkspaces.set(id, workspace)
 
           if (settings !== null) {
             if (readableWorkspaceSettings(settings)) {
               addItem({ id: `workspace:${id}:settings`, label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, kind: 'settings', workspaceId: id, restorable: true, note: null }, () => {
+                fs.mkdirSync(path.dirname(workspace.settingsPath), { recursive: true })
                 writeFileAtomic(workspace.settingsPath, settings)
               })
             }
@@ -772,6 +865,7 @@ export class BackupService {
             if (parsed !== null) {
               archivedServers.set(id, parsed)
               addItem({ id: `workspace:${id}:servers`, label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, kind: 'servers', workspaceId: id, restorable: true, note: null }, () => {
+                fs.mkdirSync(path.dirname(workspace.serversPath), { recursive: true })
                 writeFileAtomic(workspace.serversPath, servers)
               })
             }
@@ -783,6 +877,7 @@ export class BackupService {
 
           if (secrets !== null) {
             addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'secrets' }, kind: 'secrets', workspaceId: id, restorable: true, note: null }, () => {
+              fs.mkdirSync(path.dirname(workspace.secretsPath), { recursive: true })
               writeFileAtomic(workspace.secretsPath, secrets, { mode: 0o600 })
             })
             for (const part of secretParts('workspace', presentSecretKeys(parseSecrets(secrets)))) {
@@ -796,6 +891,7 @@ export class BackupService {
                 restorable: true,
                 note: null,
               }, () => {
+                fs.mkdirSync(path.dirname(workspace.secretsPath), { recursive: true })
                 mergeIntoFile(workspace.secretsPath, secrets, part.fields)
               })
             }
@@ -844,21 +940,27 @@ export class BackupService {
         used.add(found)
         return found
       }
+      /**
+       * Where one archived data path lands, never across a workspace boundary.
+       *
+       * An archive that names a workspace is only ever matched against that workspace's
+       * declarations: the un-scoped fallbacks below exist to survive a re-labelled or
+       * re-ordered config, and letting them cross workspaces wrote one workspace's data
+       * over a path another one had declared. A path only one workspace declares has no
+       * candidate at all in the other, so the entry is reported instead of guessed at.
+       */
       const matchTarget = (origin: string | undefined, workspace: string | undefined, archivedPath: string): DataTarget | undefined => {
+        const inScope = (target: DataTarget): boolean => workspace === undefined || target.workspace === workspace
+        const archive = archiveTargets.filter(inScope)
+        const instance = instanceTargets.filter(inScope)
         if (origin !== undefined) {
-          if (workspace !== undefined) {
-            const scoped = take(archiveTargets, usedArchive, target => target.origin === origin && target.workspace === workspace)
-              ?? take(instanceTargets, usedInstance, target => target.origin === origin && target.workspace === workspace)
-            if (scoped !== undefined)
-              return scoped
-          }
-          return take(archiveTargets, usedArchive, target => target.origin === origin)
-            ?? take(instanceTargets, usedInstance, target => target.origin === origin)
-            ?? take(archiveTargets, usedArchive, target => target.path === archivedPath)
-            ?? take(instanceTargets, usedInstance, target => target.path === archivedPath)
+          return take(archive, usedArchive, target => target.origin === origin)
+            ?? take(instance, usedInstance, target => target.origin === origin)
+            ?? take(archive, usedArchive, target => target.path === archivedPath)
+            ?? take(instance, usedInstance, target => target.path === archivedPath)
         }
-        return take(archiveTargets, usedArchive, target => target.path === archivedPath)
-          ?? take(instanceTargets, usedInstance, target => target.path === archivedPath)
+        return take(archive, usedArchive, target => target.path === archivedPath)
+          ?? take(instance, usedInstance, target => target.path === archivedPath)
       }
 
       const archivedEntries = Array.isArray(manifest.data) ? manifest.data.filter(isRecord) : []
@@ -934,6 +1036,16 @@ export class BackupService {
         plan.applied.push(labelOf(plan, id))
       }
       plan.appliedIds = [...actions.keys()]
+
+      // The registry entries come last, and only once their leaves landed: a workspace
+      // the panel knows about but whose files were never written would be a workspace
+      // that exists and is empty, which is worse than one that is plainly absent.
+      for (const workspace of createdWorkspaces.values()) {
+        if (![...actions.keys()].some(id => id.startsWith(`workspace:${workspace.id}:`)))
+          continue
+        this.options.ensureWorkspace?.({ id: workspace.id, label: workspace.label })
+        plan.createdWorkspaces.push(workspace.id)
+      }
 
       if (this.options.onRestored !== undefined && [...actions.keys()].some(id => RELOADABLE.test(id))) {
         plan.reloaded = true

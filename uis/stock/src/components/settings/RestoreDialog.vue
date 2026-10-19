@@ -166,6 +166,10 @@ async function apply(): Promise<void> {
       notes.push(t('settings.restore.noteReloaded'))
     if (result.restartRequired)
       notes.push(t('settings.restore.noteRestart'))
+    // A workspace the target did not have is created by the restore; say so, because it is
+    // the difference between "my setup came back" and "only some of it did".
+    if (result.createdWorkspaces !== undefined && result.createdWorkspaces.length > 0)
+      notes.push(t('settings.restore.createdWorkspaces', { items: result.createdWorkspaces.join(', ') }))
     const count = result.applied.length
     emit('applied', notes.length === 0
       ? t('settings.restore.restored', { count })

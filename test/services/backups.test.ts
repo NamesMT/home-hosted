@@ -48,6 +48,7 @@ interface Fixture {
   globalSettingsPath: string
   globalSecretsPath: string
   tlsDir: string
+  registryPath: string
   workspaceSettingsPath: string
   serversPath: string
   workspaceSecretsPath: string
@@ -88,6 +89,7 @@ async function makeFixture(
   const globalSettingsPath = path.join(dataRoot, 'settings.json')
   const globalSecretsPath = path.join(dataRoot, '.control-secrets.json')
   const tlsDir = path.join(dataRoot, '.tls')
+  const registryPath = path.join(dataRoot, 'workspaces.json')
   const workspaceDir = path.join(dataRoot, 'default')
   const workspaceSettingsPath = path.join(workspaceDir, 'settings.json')
   const serversPath = path.join(workspaceDir, 'servers.config.json')
@@ -102,6 +104,7 @@ async function makeFixture(
   fs.writeFileSync(path.join(dataDir, 'db.sqlite'), 'ORIGINAL\n')
   fs.writeFileSync(path.join(dataDir, 'empty.txt'), '')
   fs.writeFileSync(globalSecretsPath, options.globalSecrets ?? '{ "password": null }\n', { mode: 0o600 })
+  fs.writeFileSync(registryPath, `${JSON.stringify({ $schema: './workspaces.schema.json', workspaces: [{ id: 'default', label: 'Default' }] }, null, 2)}\n`)
   fs.writeFileSync(workspaceSecretsPath, options.workspaceSecrets ?? '{ "telegram": null }\n', { mode: 0o600 })
   fs.writeFileSync(workspaceSettingsPath, `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, logs: {} }, null, 2)}\n`)
 
@@ -126,6 +129,7 @@ async function makeFixture(
     globalSettingsPath,
     globalSecretsPath,
     tlsDir,
+    registryPath,
     includePaths: parsed.includePaths,
     workspaces: [{
       id: 'default',
@@ -151,6 +155,7 @@ async function makeFixture(
     globalSettingsPath,
     globalSecretsPath,
     tlsDir,
+    registryPath,
     workspaceSettingsPath,
     serversPath,
     workspaceSecretsPath,
@@ -939,6 +944,216 @@ describe('backup service', () => {
     expect(fixture.service.remove(created.file!.name)).toBe(true)
     expect(fixture.service.list()).toHaveLength(0)
     expect(fixture.service.remove(created.file!.name)).toBe(false)
+  })
+})
+
+/**
+ * Restoring a multi-workspace archive onto a host that has only `default`.
+ *
+ * This is the "one archive is a whole setup" promise from a *blank* host: an archive names
+ * workspaces the target has never heard of, and the target has to create them. Before this,
+ * such an archive's leaves were reported as "unknown workspace" — and the data pass then
+ * matched the unknown workspace's directory by origin against `default`'s declaration,
+ * writing it over `default`'s database.
+ */
+describe('restoring workspaces the host does not have', () => {
+  /** An archive built by hand, in the layout the service writes. */
+  async function makeArchive(file: string, options: {
+    registry?: unknown
+    workspaces: Record<string, { servers?: Record<string, unknown>[] }>
+    data?: Array<{ slug: string, path: string, origin?: string, workspace?: string }>
+    files?: Record<string, string>
+  }): Promise<void> {
+    const entries: Record<string, string> = {
+      'manifest.json': JSON.stringify({
+        version: 1,
+        createdAt: Date.now(),
+        hostname: 'elsewhere',
+        schema: CONFIG_SCHEMA,
+        data: options.data ?? [],
+      }),
+    }
+    if (options.registry !== undefined)
+      entries['global/workspaces.json'] = JSON.stringify(options.registry)
+    for (const [id, content] of Object.entries(options.workspaces)) {
+      entries[`workspaces/${id}/servers.config.json`] = JSON.stringify({
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
+        servers: content.servers ?? [],
+      })
+    }
+    await makeZip(file, { ...entries, ...options.files })
+  }
+
+  it('creates a workspace the archive names, with its label', async () => {
+    const fixture = await makeFixture()
+    const archive = path.join(fixture.root, 'multi.zip')
+    await makeArchive(archive, {
+      registry: { workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }] },
+      workspaces: { default: {}, staging: { servers: [{ id: 'app', command: 'node' }] } },
+    })
+
+    const ensured: Array<{ id: string, label: string }> = []
+    const service = new BackupService({
+      dataRoot: fixture.dataRoot,
+      getConfig: () => fixture.config,
+      getSources: () => fixture.sources,
+      ensureWorkspace: input => ensured.push(input),
+    })
+
+    const plan = await service.restore(archive, { confirm: true })
+    expect(plan.error).toBeUndefined()
+    expect(plan.items.find(item => item.id === 'workspace:staging:servers')).toMatchObject({ restorable: true })
+    // Created after its leaves landed, under the label the archive carried.
+    expect(ensured).toEqual([{ id: 'staging', label: 'Staging' }])
+    expect(plan.createdWorkspaces).toEqual(['staging'])
+    expect(fs.existsSync(path.join(fixture.dataRoot, 'staging', 'servers.config.json'))).toBe(true)
+  })
+
+  it('names the workspace by its id when the archive carries no registry', async () => {
+    const fixture = await makeFixture()
+    const archive = path.join(fixture.root, 'older.zip')
+    // An archive written before the registry was captured: still restorable.
+    await makeArchive(archive, { workspaces: { staging: { servers: [{ id: 'app', command: 'node' }] } } })
+
+    const ensured: Array<{ id: string, label: string }> = []
+    const service = new BackupService({
+      dataRoot: fixture.dataRoot,
+      getConfig: () => fixture.config,
+      getSources: () => fixture.sources,
+      ensureWorkspace: input => ensured.push(input),
+    })
+
+    const plan = await service.restore(archive, { confirm: true })
+    expect(plan.error).toBeUndefined()
+    expect(ensured).toEqual([{ id: 'staging', label: 'staging' }])
+  })
+
+  it('creates nothing on a dry run', async () => {
+    const fixture = await makeFixture()
+    const archive = path.join(fixture.root, 'multi.zip')
+    await makeArchive(archive, {
+      registry: { workspaces: [{ id: 'staging', label: 'Staging' }] },
+      workspaces: { staging: { servers: [{ id: 'app', command: 'node' }] } },
+    })
+
+    const ensured: Array<{ id: string, label: string }> = []
+    const service = new BackupService({
+      dataRoot: fixture.dataRoot,
+      getConfig: () => fixture.config,
+      getSources: () => fixture.sources,
+      ensureWorkspace: input => ensured.push(input),
+    })
+
+    const plan = await service.restore(archive, { confirm: false })
+    expect(plan.items.find(item => item.id === 'workspace:staging:servers')).toMatchObject({ restorable: true })
+    expect(ensured).toEqual([])
+    expect(fs.existsSync(path.join(fixture.dataRoot, 'staging'))).toBe(false)
+  })
+
+  /**
+   * The data-loss half, in its sharpest form: the archive brings data for a workspace
+   * whose *config* the person did not select.
+   *
+   * `staging`'s declaration is then not a destination, and the only declarations left
+   * are `default`'s. Matching by origin alone found one anyway and wrote staging's
+   * database over default's directory. A workspace the restore is not placing must be
+   * reported, never guessed at.
+   */
+  it('never writes another workspace\'s data when its config is not selected', async () => {
+    const fixture = await makeFixture({ dataPaths: [] })
+    const defaultDir = path.join(fixture.root, 'data-default')
+    const stagingDir = path.join(fixture.root, 'data-staging')
+    fs.mkdirSync(defaultDir, { recursive: true })
+    fs.mkdirSync(stagingDir, { recursive: true })
+    fs.writeFileSync(path.join(defaultDir, 'db.sqlite'), 'DEFAULT-LIVE\n')
+    fs.writeFileSync(path.join(stagingDir, 'db.sqlite'), 'STAGING-LIVE\n')
+
+    const sources: BackupSources = {
+      ...fixture.sources,
+      workspaces: [{
+        ...fixture.sources.workspaces[0]!,
+        servers: [serverConfig({ id: 'app', dataEnvs: { DATA_DIR: defaultDir } })],
+      }],
+    }
+    const service = new BackupService({ dataRoot: fixture.dataRoot, getConfig: () => fixture.config, getSources: () => sources })
+
+    const archive = path.join(fixture.root, 'multi.zip')
+    await makeArchive(archive, {
+      registry: { workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }] },
+      workspaces: {
+        default: { servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: defaultDir } }] },
+        staging: { servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: stagingDir } }] },
+      },
+      data: [
+        { slug: 'default-data', path: defaultDir, origin: 'app:DATA_DIR', workspace: 'default' },
+        { slug: 'staging-data', path: stagingDir, origin: 'app:DATA_DIR', workspace: 'staging' },
+      ],
+      files: {
+        'data/default-data/db.sqlite': 'DEFAULT-ARCHIVED\n',
+        'data/staging-data/db.sqlite': 'STAGING-ARCHIVED\n',
+      },
+    })
+
+    // Only `default`'s config is applied; staging's declaration never becomes a destination.
+    const plan = await service.restore(archive, { confirm: true, include: ['workspace:default:servers', `workspace:default:data:${defaultDir}`] })
+    expect(plan.error).toBeUndefined()
+
+    expect(fs.readFileSync(path.join(defaultDir, 'db.sqlite'), 'utf8')).toBe('DEFAULT-ARCHIVED\n')
+    // Staging's live data is untouched, and its entry is reported rather than misrouted.
+    expect(fs.readFileSync(path.join(stagingDir, 'db.sqlite'), 'utf8')).toBe('STAGING-LIVE\n')
+    const stagingItem = plan.items.find(item => item.label === stagingDir || item.label.endsWith('stagingDir'))
+    expect(stagingItem?.restorable).not.toBe(true)
+  })
+
+  /**
+   * The data-loss half. `staging` declares a data directory; `default` declares its own.
+   * A restore must write each under *its own* workspace's declaration, never let the
+   * un-scoped origin fallback carry one over the other.
+   */
+  it('never writes one workspace\'s data into another one\'s declared path', async () => {
+    const fixture = await makeFixture({ dataPaths: [] })
+    const defaultDir = path.join(fixture.root, 'data-default')
+    const stagingDir = path.join(fixture.root, 'data-staging')
+    fs.mkdirSync(defaultDir, { recursive: true })
+    fs.mkdirSync(stagingDir, { recursive: true })
+    fs.writeFileSync(path.join(defaultDir, 'db.sqlite'), 'DEFAULT-LIVE\n')
+    fs.writeFileSync(path.join(stagingDir, 'db.sqlite'), 'STAGING-LIVE\n')
+
+    // The live host: `default` only, declaring its own directory.
+    const sources: BackupSources = {
+      ...fixture.sources,
+      workspaces: [{
+        ...fixture.sources.workspaces[0]!,
+        servers: [serverConfig({ id: 'app', dataEnvs: { DATA_DIR: defaultDir } })],
+      }],
+    }
+    const service = new BackupService({ dataRoot: fixture.dataRoot, getConfig: () => fixture.config, getSources: () => sources })
+
+    const archive = path.join(fixture.root, 'multi.zip')
+    await makeArchive(archive, {
+      registry: { workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }] },
+      workspaces: {
+        default: { servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: defaultDir } }] },
+        staging: { servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: stagingDir } }] },
+      },
+      data: [
+        { slug: 'default-data', path: defaultDir, origin: 'app:DATA_DIR', workspace: 'default' },
+        { slug: 'staging-data', path: stagingDir, origin: 'app:DATA_DIR', workspace: 'staging' },
+      ],
+      files: {
+        'data/default-data/db.sqlite': 'DEFAULT-ARCHIVED\n',
+        'data/staging-data/db.sqlite': 'STAGING-ARCHIVED\n',
+      },
+    })
+
+    const plan = await service.restore(archive, { confirm: true })
+    expect(plan.error).toBeUndefined()
+
+    // Each workspace's data landed under its own declaration, as distinct items.
+    expect(fs.readFileSync(path.join(defaultDir, 'db.sqlite'), 'utf8')).toBe('DEFAULT-ARCHIVED\n')
+    expect(fs.readFileSync(path.join(stagingDir, 'db.sqlite'), 'utf8')).toBe('STAGING-ARCHIVED\n')
+    const dataItems = plan.items.filter(item => item.kind === 'data')
+    expect(new Set(dataItems.map(item => item.id)).size).toBe(dataItems.length)
   })
 })
 

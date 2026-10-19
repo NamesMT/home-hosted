@@ -155,6 +155,29 @@ line in `AGENTS.md` instead.
 
 ## Data
 
+- **A restore must never match an archived data path against another workspace's declaration.**
+  `matchTarget` fell back from "this workspace declares this origin" to "some workspace declares this
+  origin" and then to "this absolute path matches", so an archive naming a workspace the target lacked
+  wrote that workspace's data over whichever directory another one declared. Two items also collapsed
+  onto one id, so one workspace's data never restored at all. Those fallbacks exist for a re-labelled or
+  re-ordered config; they are now filtered to the entry's own `workspace`, and an unknown one is
+  reported instead of guessed at.
+- **The workspace registry travels in the archive.** Without `.hh/workspaces.json` a restore onto a
+  blank host could not create a workspace it does not have, so a multi-workspace archive silently
+  restored only the one that already existed. It is captured unconditionally — a few ids and labels —
+  and a created workspace is registered only *after* its leaves land, so it exists with content or not
+  at all. The new paths come from `BackupSources.dataRoot`, not the module-level path helpers: those
+  reflect `HHOSTED_HOME` at import time, not the panel that is running.
+- **`reloadAll()` must itself start the autostart entries it revealed.** `store.load()` resets the
+  byte baseline `ConfigWatch` compares against, so the poll that follows reports "no change" and the
+  autostart pass in `handleConfigChange` never runs. A restored entry therefore waited for a panel
+  restart, against the README's "autostart entries come up immediately".
+- **A force restart must announce its outcome, not only its start.** The restart resets health to
+  `unknown`, so the `unhealthy -> healthy` transition that sends `recovered` never happens and a
+  successful recovery sent nothing — "came back fine" and "came back broken" read the same. `Entry`
+  carries `pendingRestart`, set where the restart is decided and cleared both where the entry is first
+  seen serving and where it gives up, so a stale flag cannot announce a recovery that never happened.
+
 - **Generated directories are skipped by the `filter` handed to `fs.cpSync`**, matched on an exact path
   *segment* at any depth: `dist/` and `app/node_modules/` go, `distributed/` and `my_node_modules/`
   stay. Only paths an entry declares are filtered; a global `backups.includePaths` entry is captured as

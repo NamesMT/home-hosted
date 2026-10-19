@@ -62,9 +62,15 @@ can be tried before it is saved; `DELETE /api/notifications/destinations/alerts/
 | a server exceeded its memory limit | `onCrash` | ✅ |
 | a health check is failing | `onUnhealthy` | ✅ |
 | a server was force-restarted (health timeout) | `onForcedRestart` | ✅ |
+| a force-restarted server is serving again | `onForcedRestart` | ✅ |
 | a server recovered | `onRecovered` | ⬜ |
 | host thresholds breached, and recovered | `onHost` | ✅ |
 | a dynamic DNS record changed, or a pass failed | `onDdns` | ✅ |
+
+A **forced restart** is two messages, not one: the restart is announced, and then its outcome is —
+the entry is serving again, or it did not come back (in which case its crash is the second message).
+That is what makes "restarted and fine" distinguishable from "restarted and still broken" without
+reading the panel.
 
 Host thresholds themselves — disk, memory, swap, load, temperature — are **Global settings → Host
 vitals**. Dynamic DNS carries one message per pass that changed a record, and one per failed pass —

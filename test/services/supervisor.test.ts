@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
@@ -964,6 +964,44 @@ describe('supervisor', () => {
 
     await supervisor.dispose()
     expect(store.listenerCount).toBe(attached - 1)
+  })
+
+  /**
+   * A force restart was announced and then never closed: the restart resets health to
+   * `unknown`, so the `unhealthy -> healthy` transition that sends `recovered` never
+   * happened. "It restarted and is fine" and "it restarted and is broken" therefore read
+   * the same in a chat until the next crash.
+   */
+  it('announces that a force-restarted entry came back, not only that it restarted', async () => {
+    const port = await freePort()
+    // Listens, then drops the listener while staying alive: the health probe starts
+    // failing, which is what makes the supervisor force a restart. On the restart it
+    // listens again, so the outcome is "serving again".
+    const harness = await makeSupervisor([{
+      id: 'flaky',
+      command: process.execPath,
+      args: ['-e', 'const s=require("node:http").createServer((q,r)=>r.end("ok")); s.listen(Number(process.env.PORT),"127.0.0.1"); setTimeout(()=>s.close(),700); setInterval(()=>{},1000)'],
+      env: { PORT: '{port}' },
+      port,
+      health: { intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 100, startTimeoutMs: 8000 },
+      restart: { maxRetries: 3, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+    }])
+    const { supervisor, notifications } = harness
+
+    const sent: string[] = []
+    const original = notifications.notify.bind(notifications)
+    vi.spyOn(notifications, 'notify').mockImplementation((event) => {
+      sent.push(event.reason)
+      original(event)
+    })
+
+    await supervisor.start('flaky')
+    await waitForStatus(supervisor, 'flaky', 'running')
+
+    await waitFor(() => sent.includes('forced-restart'), 30000)
+    // …and then the outcome, once it is serving again.
+    await waitFor(() => sent.includes('restart-ok'), 30000)
+    expect(sent.filter(reason => reason === 'restart-ok')).toHaveLength(1)
   })
 })
 

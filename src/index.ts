@@ -282,6 +282,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     dataRoot: hhDir,
     getConfig: () => settings.backups,
     getSources: () => panel!.backupSources(),
+    ensureWorkspace: input => panel?.ensureWorkspace(input),
     onRestored: () => panel?.reloadAll(),
   })
 

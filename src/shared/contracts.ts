@@ -1467,6 +1467,12 @@ export const restorePlanSchema = type({
   'restartRequired': 'boolean',
   /** The panel re-read the restored config within this same restore. */
   'reloaded': 'boolean',
+  /**
+   * Workspaces this restore created because the archive named them and the host did not
+   * have them. Optional: an older panel never sends the row, and an archive written
+   * before the registry was captured creates none.
+   */
+  'createdWorkspaces?': type('string[]'),
   'error': 'string?',
 })
 export type RestorePlan = typeof restorePlanSchema.infer

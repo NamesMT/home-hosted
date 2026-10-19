@@ -530,14 +530,57 @@ Two things to know before restoring onto a machine already in use:
 <summary><b>🚚 One archive is a whole setup</b></summary>
 
 Start a **blank** home-hosted anywhere — another machine, another user, a fresh container — upload the
-archive and restore. Definitions come back, data lands where *this* machine's config says, and
-`autostart` entries come up immediately.
+archive and restore. Definitions come back, workspaces the target has never heard of are created with
+their labels, data lands where *this* machine's config says, and `autostart` entries come up
+immediately.
 
-It works because an archive carries each workspace's `settings.json` and `servers.config.json`, and
-paths are matched by the **declaration** (`omniroute:DATA_DIR`), not by an absolute path from the
-source machine. A restore never writes where no config declares. A declaration using `{projectDir}`,
-`{dataRoot}` or `{home}` follows the restoring panel (`{projectDir}` is `HHOSTED_PROJECT` or the
-panel's cwd, not `HHOSTED_HOME`); a literal absolute path is restored to that same path.
+It works because an archive carries the workspace registry, each workspace's `settings.json` and
+`servers.config.json`, and paths are matched by the **declaration** (`omniroute:DATA_DIR`), not by an
+absolute path from the source machine. A declaration using `{projectDir}`, `{dataRoot}` or `{home}`
+follows the restoring panel (`{projectDir}` is `HHOSTED_PROJECT` or the panel's cwd, not
+`HHOSTED_HOME`); a literal absolute path is restored to that same path.
+
+**A restore never writes where no config declares, and never across workspaces.** A data path is only
+placed under a workspace the archive says it belongs to — if that workspace's `servers.config.json` is
+not part of the restore, its data is reported as skipped rather than guessed at.
+
+</details>
+
+<details>
+<summary><b>✅ What comes back, and what you still have to do</b></summary>
+
+| | Restored | Still yours to do |
+| --- | --- | --- |
+| Panel settings, listener, host vitals, backups policy | ✅ | Restart the panel if the listener or TLS policy changed (the plan says so) |
+| Workspaces, their order and labels | ✅ | — |
+| `servers.config.json`, server defaults, log retention | ✅ | `autostart` entries start by themselves; the rest are one *Start* away |
+| Data directories each entry declares | ✅ | Nothing — but see the consistency note below |
+| Telegram bots and chats, webhook targets | ✅ | Send a test from *Notifications* if the chat id came from another account |
+| DDNS hostnames and their accounts | ✅ | Credentials only open under the same `HHOSTED_DDNS_SECRET`; otherwise re-enter them |
+| Panel password and API token | ⬜ ticked per secret | Leave unticked, or rotate with `pnpm run set-token --generate` |
+| Reverse-proxy routes | ✅ | Automatic HTTPS certificates are reissued by the engine on the new host. A pair **you uploaded** for a `tls: "manual"` route is not in the archive — re-upload it |
+| Reverse-proxy engine binary | ❌ | Installed again from *Global settings → Reverse proxy* |
+| Server logs, crash history, nanny state | ❌ | These describe the old box; the new one starts a fresh history |
+| A server's `envFile` | ❌ not archived | It is the machine-local layer by design — copy it yourself, or declare its directory in `backupPaths` |
+| Environment variables the panel runs with | ❌ | `HHOSTED_*`, `HHOSTED_DDNS_SECRET`, and anything a `${ENV}` placeholder needs |
+
+</details>
+
+<details>
+<summary><b>⚠️ A backup of a running database may not be restorable</b></summary>
+
+Data directories are copied file by file while your servers keep running — the panel does not stop or
+freeze anything to take an archive, because doing so would mean a backup could take your services down.
+
+That is fine for files, uploads and most app data. It is **not** a consistent snapshot of a live
+database: SQLite mid-transaction, a Postgres data directory, or a WAL in the middle of a write can all
+be captured torn, and the copy will look complete while failing to open.
+
+For anything with a real database, do one of these before relying on the archive:
+
+- **Quiesce it** — stop that entry from the panel, take the backup, start it again; or
+- **dump it properly** (`sqlite3 app.db ".backup out.db"`, `pg_dump`, `mysqldump`) into a directory you
+  declare in `backupPaths`, so the archive carries the dump rather than the live files.
 
 </details>
 

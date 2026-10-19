@@ -718,6 +718,69 @@ describe('panelService', () => {
     }
   })
 
+  /**
+   * A restore ends with `reloadAll()`, and `store.load()` resets the byte baseline the
+   * config watcher compares against. The poll that follows therefore reports "no change",
+   * so the autostart pass in `handleConfigChange` never ran and a restored entry stayed
+   * stopped until the panel was restarted — against the README's "autostart entries come
+   * up immediately".
+   */
+  it('starts an autostart entry that a restore revealed, without waiting for a restart', async () => {
+    const { panel, dispose } = await makeHarness({ autostart: true })
+
+    try {
+      const runtime = panel.requireWorkspace('default')
+      expect(runtime.store.servers).toHaveLength(0)
+
+      // What a restore does: write the archive's servers file, then re-read everything.
+      fs.writeFileSync(runtime.store.path, JSON.stringify({
+        $schema: './servers.config.schema.json',
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
+        servers: [{ ...runningServer, id: 'restored', autostart: true, enabled: true }],
+      }, null, 2))
+      panel.reloadAll()
+
+      const started = await waitFor(() => {
+        const view = panel.serverViews()[0]
+        return view !== undefined && view.status !== 'stopped' ? view : undefined
+      }, 20000)
+      expect(started.id).toBe('restored')
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  /**
+   * A workspace the archive created is built by `ensureWorkspace`, whose `createRuntime`
+   * loads the restored servers file — so the `reloadAll()` that follows sees no *new* ids
+   * and would leave its autostart entries stopped.
+   */
+  it('starts the autostart entries of a workspace a restore created', async () => {
+    const { panel, hhDir, dispose } = await makeHarness({ autostart: true })
+
+    try {
+      // What the restore writes before it registers the workspace.
+      const staging = path.join(hhDir, 'staging')
+      fs.mkdirSync(staging, { recursive: true })
+      fs.writeFileSync(path.join(staging, 'servers.config.json'), JSON.stringify({
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
+        servers: [{ ...runningServer, id: 'restored', autostart: true, enabled: true }],
+      }, null, 2))
+
+      panel.ensureWorkspace({ id: 'staging', label: 'Staging' })
+
+      const started = await waitFor(() => {
+        const view = panel.requireWorkspace('staging').supervisor.views()[0]
+        return view !== undefined && view.status !== 'stopped' ? view : undefined
+      }, 20000)
+      expect(started.id).toBe('restored')
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('starts nothing on its own when autostart is off', async () => {
     const { panel, dispose } = await makeHarness({ autostart: false })
 

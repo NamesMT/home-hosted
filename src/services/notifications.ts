@@ -5,7 +5,7 @@ import { formatTelegramMessage, listTelegramChats, sendTelegramMessage, verifyTe
 import { sendWebhook, targetProblem } from '#src/providers/webhook'
 import { errorMessage } from '#src/shared/error-message'
 
-export type NotificationReason = 'crash' | 'unhealthy' | 'forced-restart' | 'recovered' | 'rss' | 'host' | 'host-recovered' | 'ddns' | 'ddns-error'
+export type NotificationReason = 'crash' | 'unhealthy' | 'forced-restart' | 'recovered' | 'restart-ok' | 'rss' | 'host' | 'host-recovered' | 'ddns' | 'ddns-error'
 
 export interface NotificationEvent {
   serverId: string
@@ -18,6 +18,14 @@ const REASON_LABEL: Record<NotificationReason, string> = {
   'crash': 'gave up restarting',
   'unhealthy': 'health check failing',
   'forced-restart': 'force restarted',
+  /**
+   * The other half of `forced-restart`: the entry came back and is serving.
+   *
+   * Without it a force restart was announced and then never closed, so a reader could not
+   * tell "it restarted and is fine now" from "it restarted and is still broken" — the two
+   * cases looked identical until the next crash.
+   */
+  'restart-ok': 'restarted and healthy again',
   'recovered': 'recovered',
   'rss': 'exceeded its memory limit',
   'host': 'host thresholds breached',
@@ -30,6 +38,7 @@ const TITLE: Record<NotificationReason, string> = {
   'crash': '🔴 server down',
   'unhealthy': '🟠 server unhealthy',
   'forced-restart': '🔁 server force restarted',
+  'restart-ok': '🟢 server back up',
   'recovered': '🟢 server recovered',
   'rss': '🔴 server over its memory limit',
   'host': '🟠 host warning',
@@ -47,6 +56,9 @@ const COVERS: Record<NotificationReason, (policy: NotificationPolicy) => boolean
   'rss': policy => policy.onCrash,
   'unhealthy': policy => policy.onUnhealthy,
   'forced-restart': policy => policy.onForcedRestart,
+  // The closure of a force restart, so it rides the same toggle: someone who asked to be
+  // told about restarts asked to hear how each one ended, not only that it began.
+  'restart-ok': policy => policy.onForcedRestart,
   'recovered': policy => policy.onRecovered,
   'host': policy => policy.onHost,
   'host-recovered': policy => policy.onHost,

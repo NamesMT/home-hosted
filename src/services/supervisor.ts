@@ -105,6 +105,13 @@ interface Entry {
   retryTimer: NodeJS.Timeout | null
   healthFailures: number
   unhealthySince: number | null
+  /**
+   * A force restart (health timeout, memory ceiling) whose outcome has not been announced
+   * yet, with the cause it was forced for. It is remembered rather than inferred from
+   * `health` because the restart itself resets health to `unknown`, so the old
+   * `unhealthy -> healthy` transition never happens and a successful recovery sent nothing.
+   */
+  pendingRestart: { cause: string } | null
   lastProbeAt: number
   lastOccupancyProbeAt: number
   probing: boolean
@@ -709,6 +716,7 @@ export class Supervisor {
       retryTimer: null,
       healthFailures: 0,
       unhealthySince: null,
+      pendingRestart: null,
       lastProbeAt: 0,
       lastOccupancyProbeAt: 0,
       probing: false,
@@ -1468,6 +1476,25 @@ export class Supervisor {
     this.drainRelay(entry)
   }
 
+  /**
+   * Announces the outcome of a force restart, once, the first moment the entry is serving.
+   *
+   * Every "it is up again" path calls this — spawn with no port, readiness accepted, and the
+   * first healthy probe — and the pending flag makes it idempotent, so whichever happens
+   * first is the one that reports.
+   */
+  private settleRestart(entry: Entry, detail: string): void {
+    const pending = entry.pendingRestart
+    if (pending === null)
+      return
+    entry.pendingRestart = null
+    // The cause is repeated in the outcome: chat messages arrive out of order and hours
+    // apart, so "back up" alone does not say what it came back from.
+    const message = `after ${pending.cause}: ${detail}`
+    this.log(entry, 'system', `restarted, and it is serving again — ${message}`)
+    this.notify(entry, 'restart-ok', message)
+  }
+
   /** One probe using the configured mode (TCP or HTTP), with timing. */
   private async probeEntryHealth(entry: Entry): Promise<{ healthy: boolean, ms: number, detail: string }> {
     const { port, health } = entry.config
@@ -1492,6 +1519,7 @@ export class Supervisor {
       entry.status = 'running'
       entry.health = health.enabled ? 'unknown' : 'disabled'
       this.log(entry, 'system', 'running (no port configured; readiness assumed on spawn)')
+      this.settleRestart(entry, 'it spawned and is running')
       this.publishServer(entry)
       return
     }
@@ -1506,6 +1534,7 @@ export class Supervisor {
         entry.status = 'running'
         entry.lastProbeAt = Date.now()
         this.log(entry, 'system', `accepting connections on port ${port}`)
+        this.settleRestart(entry, `accepting connections on port ${port}`)
         this.publishServer(entry)
         return
       }
@@ -1615,6 +1644,9 @@ export class Supervisor {
     else {
       entry.status = 'crashed'
       entry.nextRetryAt = null
+      // Its outcome is no longer "it will come back": the crash below is the answer, and a
+      // flag left standing would announce a recovery this restart never had.
+      entry.pendingRestart = null
       entry.lastError = restart.enabled
         ? `gave up after ${restart.maxRetries} retries (${detail})`
         : `${detail} (automatic restart disabled)`
@@ -1712,6 +1744,11 @@ export class Supervisor {
           this.options.history.record(entry.config.id, { type: 'recovered', detail: probe.detail })
           this.notify(entry, 'recovered', probe.detail)
         }
+        // A force restart is announced before it happens, so its outcome has to be said too
+        // — otherwise "came back fine" and "came back broken" look the same in the chat.
+        // A restart that did *not* recover never reaches this branch, and its `crash` (or
+        // the next `unhealthy`) is the answer instead.
+        this.settleRestart(entry, `${probe.detail} (${probe.ms}ms)`)
         entry.health = 'healthy'
         entry.healthFailures = 0
         entry.unhealthySince = null
@@ -1744,6 +1781,7 @@ export class Supervisor {
     this.log(entry, 'system', `${detail} — restarting`)
     this.options.history.record(entry.config.id, { type: 'forced-restart', detail })
     this.notify(entry, 'rss', detail)
+    entry.pendingRestart = { cause: 'exceeding its memory limit' }
     await this.restart(entry.config.id)
     return true
   }
@@ -1760,6 +1798,8 @@ export class Supervisor {
     this.log(entry, 'system', `unhealthy for ${health.forceRestartAfterMs}ms — forcing a restart`)
     this.options.history.record(entry.config.id, { type: 'forced-restart', detail: `health check stayed unhealthy` })
     this.notify(entry, 'forced-restart', `unhealthy for ${Math.round(health.forceRestartAfterMs / 1000)}s`)
+    // The restart resets health, so this is the only place that remembers an outcome is owed.
+    entry.pendingRestart = { cause: 'staying unhealthy through its health check' }
     return true
   }
 

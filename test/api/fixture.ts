@@ -404,6 +404,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       globalSettingsPath: settings.path,
       globalSecretsPath: globalSecrets.path,
       tlsDir: tls.directory,
+      registryPath: registry.path,
       includePaths: settings.backups.includePaths,
       workspaces: [...workspaces.values()].map(workspace => ({
         id: workspace.id,
