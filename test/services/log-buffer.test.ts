@@ -14,6 +14,36 @@ describe('logBuffer', () => {
     expect(buffer.size).toBe(3)
   })
 
+  /**
+   * The line count is the user's setting; it must not double as a memory budget.
+   *
+   * A line is capped at 64 KiB by the splitter, so `logBufferLines: 500` of a chatty writer is
+   * ~32 MB of heap per server, held forever. The panel climbed from 284 MB to 601 MB with 2 MB
+   * lines in the operator audit. The ring now also caps total characters.
+   */
+  it('drops the oldest lines past its total-size ceiling, not only past its line count', () => {
+    const buffer = new LogBuffer(500)
+    const chunk = 'x'.repeat(60 * 1024)
+    // Well under the 500-line capacity, and far over the ceiling.
+    for (let index = 0; index < 200; index += 1)
+      buffer.push({ ts: index, stream: 'stdout', text: `${index}:${chunk}` })
+
+    const held = buffer.size
+    expect(held).toBeLessThan(200)
+    expect(held).toBeGreaterThan(1)
+    // The newest line always survives: a ceiling must never leave the panel with nothing to show.
+    expect(buffer.list(1)[0]?.text.startsWith('199:')).toBe(true)
+  })
+
+  it('still honours the line count when lines are small', () => {
+    const buffer = new LogBuffer(3)
+    for (let index = 0; index < 10; index += 1)
+      buffer.push({ ts: index, stream: 'stdout', text: `line-${index}` })
+
+    expect(buffer.size).toBe(3)
+    expect(buffer.list().map(line => line.text)).toEqual(['line-7', 'line-8', 'line-9'])
+  })
+
   it('returns a copy so callers cannot mutate the ring', () => {
     const buffer = new LogBuffer(2)
     buffer.push(line('a'))
