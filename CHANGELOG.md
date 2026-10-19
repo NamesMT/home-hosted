@@ -1,6 +1,53 @@
 # Changelog
 
 
+## v0.9.0
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.8.3...v0.9.0)
+
+### 🚀 Enhancements
+
+- **backups:** Write one on a schedule, with its own retention ([10a456a](https://github.com/NamesMT/home-hosted/commit/10a456a))
+- **notifications:** Webhooks, a list of general outbound targets ([18fe7f4](https://github.com/NamesMT/home-hosted/commit/18fe7f4))
+- **dev:** Seed the dev panel's password as `dev` ([b887386](https://github.com/NamesMT/home-hosted/commit/b887386))
+- **notifications:** ⚠️  One destination list, with shared defaults to inherit ([c0e10e2](https://github.com/NamesMT/home-hosted/commit/c0e10e2))
+
+### 🩹 Fixes
+
+- **supervisor:** A removed entry's state file is not written back by its exit ([95ae151](https://github.com/NamesMT/home-hosted/commit/95ae151))
+- **health:** Probe a TLS backend over https, not only http ([dfba82f](https://github.com/NamesMT/home-hosted/commit/dfba82f))
+- **media:** Render from a workspace-era home, and load Chromium on demand ([0aafab1](https://github.com/NamesMT/home-hosted/commit/0aafab1))
+- The review found a hang, an unbounded body, and five smaller defects ([25cdebc](https://github.com/NamesMT/home-hosted/commit/25cdebc))
+- **stock:** The webhook header field is a textarea, not a text input ([6487d5f](https://github.com/NamesMT/home-hosted/commit/6487d5f))
+- **dev:** Never inherit the state directory, and refuse the real one ([9956596](https://github.com/NamesMT/home-hosted/commit/9956596))
+- **stock:** The Notifications section rendered as an empty heading ([1bec5a5](https://github.com/NamesMT/home-hosted/commit/1bec5a5))
+- **stock:** An inheriting destination no longer echoes the general policy ([d666b04](https://github.com/NamesMT/home-hosted/commit/d666b04))
+- **notifications:** A one-toggle save no longer resets the general block ([ecb3916](https://github.com/NamesMT/home-hosted/commit/ecb3916))
+- The remaining QA review findings ([7e8d6cb](https://github.com/NamesMT/home-hosted/commit/7e8d6cb))
+
+### 💅 Refactors
+
+- **stock:** Swap the deprecated lucide-vue-next for @lucide/vue ([f31cc36](https://github.com/NamesMT/home-hosted/commit/f31cc36))
+- **uis:** Stop committing the build's tag and build time ([d3c1389](https://github.com/NamesMT/home-hosted/commit/d3c1389))
+
+### 📖 Documentation
+
+- The catalog source is the sheets, and name every script ([1897963](https://github.com/NamesMT/home-hosted/commit/1897963))
+- A destination list, and the general block it inherits from ([20ec4ef](https://github.com/NamesMT/home-hosted/commit/20ec4ef))
+- The README's notifications section names the destinations list ([84f2812](https://github.com/NamesMT/home-hosted/commit/84f2812))
+
+### ✅ Tests
+
+- **stock:** Mount the notifications components, and lint undefined ones ([d224c81](https://github.com/NamesMT/home-hosted/commit/d224c81))
+
+#### ⚠️ Breaking Changes
+
+- **notifications:** ⚠️  One destination list, with shared defaults to inherit ([c0e10e2](https://github.com/NamesMT/home-hosted/commit/c0e10e2))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.8.3
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.8.2...v0.8.3)
