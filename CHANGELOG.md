@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.9.2
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.1...v0.9.2)
+
+### ✅ Tests
+
+- **noc-console:** A destructive plain button cannot skip its confirmation ([3f14081](https://github.com/NamesMT/home-hosted/commit/3f14081))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.9.1
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.0...v0.9.1)
