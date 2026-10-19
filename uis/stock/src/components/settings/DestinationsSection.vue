@@ -6,7 +6,6 @@ import { computed, ref } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import NotificationPolicyFields from '@/components/settings/NotificationPolicyFields.vue'
-import { destinationBaseline } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import SelectField from '@/components/ui/SelectField.vue'
@@ -223,11 +222,6 @@ async function sendTest(form: DestinationForm): Promise<void> {
   }
 }
 
-/** The general block's values, shown read-only on a destination that inherits them. */
-function inherited(row: DestinationStatusView | undefined): DestinationForm['policy'] | null {
-  return row === undefined ? null : destinationBaseline(row).policy
-}
-
 function tokenPlaceholder(form: DestinationForm): string {
   return form.tokenSet
     ? t('settings.telegram.tokenSavedPlaceholder')
@@ -359,24 +353,17 @@ function tokenPlaceholder(form: DestinationForm): string {
         </div>
       </template>
 
-      <!-- Inheritance: one switch, then either the general values or this destination's own. -->
+      <!--
+        One switch, then this destination's own policy only when it carries one. Off shows nothing:
+        the general block is the section directly above, so echoing its values per row is noise.
+      -->
       <ToggleSwitch
         v-model="form.useOwnSettings"
         :label="t('settings.destination.ownSettings')"
         :hint="t('settings.destination.ownSettingsHint')"
       />
-      <div v-if="!form.useOwnSettings" class="grid gap-1.5 rounded-control border border-line/60 bg-page/40 p-2 sm:grid-cols-3">
-        <span class="text-2xs text-muted sm:col-span-3">{{ t('settings.destination.inherited') }}</span>
-        <NotificationPolicyFields
-          v-if="inherited(rows.get(form.id)) !== null"
-          :model-value="inherited(rows.get(form.id))!"
-          editable
-          inherited
-          readonly
-        />
-      </div>
-      <div v-else class="grid gap-2 sm:grid-cols-3">
-        <NotificationPolicyFields v-model="form.policy" editable />
+      <div v-if="form.useOwnSettings" class="grid gap-2 sm:grid-cols-3">
+        <NotificationPolicyFields v-model="form.policy" />
       </div>
 
       <div class="flex flex-wrap items-center gap-1.5">

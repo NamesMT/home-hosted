@@ -8,17 +8,10 @@ import { t } from '@/i18n'
 /**
  * The event toggles and the throttle, for whichever policy is being edited.
  *
- * One component because these render in two places — the general block, and a target that has
- * opted into its own settings — and the two must stay the same set. A field added to one and not
- * the other would leave that event unreachable for whichever mode the target is in.
+ * One component because these render in two places — the general block, and a destination that
+ * has opted into its own settings — and the two must stay the same set. A field added to one and
+ * not the other would leave that event unreachable in one of the modes.
  */
-const props = defineProps<{
-  /** `false` renders read-only, for a target that inherits the general block. */
-  editable?: boolean
-  /** The inherited values, shown as the current state when `editable` is off. */
-  inherited?: boolean
-}>()
-
 const policy = defineModel<PolicyForm>({ required: true })
 
 const toggles = computed(() => [
@@ -43,15 +36,13 @@ const toggles = computed(() => [
       :key="toggle.key"
       v-model="policy[toggle.key]"
       :label="toggle.label"
-      :hint="props.inherited ? t('settings.destination.inherited') : toggle.hint"
-      :disabled="props.editable === false"
+      :hint="toggle.hint"
     />
     <NumberField
       :model-value="policy.cooldownMs"
       :label="t('settings.telegram.cooldown')"
       :min="0"
-      :hint="props.editable === false ? t('settings.destination.inherited') : t('settings.telegram.cooldownHint')"
-      :disabled="props.editable === false"
+      :hint="t('settings.telegram.cooldownHint')"
       @update:model-value="policy.cooldownMs = $event ?? 0"
     />
   </div>

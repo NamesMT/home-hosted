@@ -319,7 +319,7 @@ watch(() => workspace.activeId.value, () => {
             {{ t('common.reset') }}
           </AppButton>
         </template>
-        <NotificationPolicyFields v-model="form.policy" editable />
+        <NotificationPolicyFields v-model="form.policy" />
       </FieldGroup>
       <DestinationsSection
         v-model:destinations="form.destinations"
