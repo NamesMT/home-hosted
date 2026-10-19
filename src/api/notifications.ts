@@ -6,7 +6,7 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { forgetBots } from '#src/providers/telegram'
-import { destinationTestSchema, notificationActionSchema, telegramChatsSchema, telegramTokenSchema } from '#src/shared/contracts'
+import { destinationIdParamSchema, destinationTestSchema, notificationActionSchema, telegramChatsSchema, telegramTokenSchema } from '#src/shared/contracts'
 
 /**
  * A destination's credential is written straight to a workspace's secrets file and never into a
@@ -28,10 +28,11 @@ export function createNotificationsRoute(deps: AppDeps) {
         responses: { 200: { description: 'Stored' }, 400: ERROR_RESPONSES[400] },
       }),
       validate('query', workspaceQuerySchema),
+      validate('param', destinationIdParamSchema),
       validate('json', telegramTokenSchema),
       async (c) => {
         const runtime = runtimeFor(c.req.valid('query').workspace)
-        const id = c.req.param('id')
+        const id = c.req.valid('param').id
         const { botToken } = c.req.valid('json')
         const verified = await runtime.notifications.verifyToken(botToken)
         if (!verified.ok)
@@ -51,9 +52,10 @@ export function createNotificationsRoute(deps: AppDeps) {
         responses: { 200: { description: 'Removed' } },
       }),
       validate('query', workspaceQuerySchema),
+      validate('param', destinationIdParamSchema),
       (c) => {
         const runtime = runtimeFor(c.req.valid('query').workspace)
-        runtime.secrets.setTelegramToken(c.req.param('id'), null)
+        runtime.secrets.setTelegramToken(c.req.valid('param').id, null)
         forgetBots()
         return c.json({ ok: true })
       },
@@ -67,10 +69,11 @@ export function createNotificationsRoute(deps: AppDeps) {
         responses: { 200: { description: 'Sent or refused' }, 400: ERROR_RESPONSES[400] },
       }),
       validate('query', workspaceQuerySchema),
+      validate('param', destinationIdParamSchema),
       validate('json', notificationActionSchema),
       async (c) => {
         const runtime = runtimeFor(c.req.valid('query').workspace)
-        const result = await runtime.notifications.sendTest(c.req.param('id'), c.req.valid('json'))
+        const result = await runtime.notifications.sendTest(c.req.valid('param').id, c.req.valid('json'))
         if (!result.ok)
           throw new DetailedError(result.error ?? 'the test message failed', { statusCode: 400, code: 'TELEGRAM_SEND_FAILED' })
         return c.json(result)
@@ -113,10 +116,11 @@ export function createNotificationsRoute(deps: AppDeps) {
         },
       }),
       validate('query', workspaceQuerySchema),
+      validate('param', destinationIdParamSchema),
       validate('json', notificationActionSchema),
       async (c) => {
         const runtime = runtimeFor(c.req.valid('query').workspace)
-        const result = await runtime.notifications.detectChats(c.req.param('id'), c.req.valid('json'))
+        const result = await runtime.notifications.detectChats(c.req.valid('param').id, c.req.valid('json'))
         if (!result.ok)
           throw new DetailedError(result.error ?? 'could not list chats', { statusCode: 400, code: 'TELEGRAM_LIST_FAILED' })
         return c.json({ chats: result.chats })

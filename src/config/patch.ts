@@ -2,7 +2,8 @@ import { isRecord } from '#src/shared/shape'
 /** Nested groups a patch merges into instead of replacing. */
 export const SERVER_MERGE_KEYS = new Set(['restart', 'health', 'stop'])
 export const CONTROL_MERGE_KEYS = new Set(['auth', 'tls'])
-export const NOTIFICATION_MERGE_KEYS = new Set(['telegram'])
+/** The general block merges key by key; `destinations` is a list a patch replaces. */
+export const NOTIFICATION_MERGE_KEYS = new Set(['defaults'])
 /** The DDNS lists are replaced; only its two IP-family groups merge. */
 export const DDNS_MERGE_KEYS = new Set(['ipv4', 'ipv6'])
 /** The proxy's one nested group; `routes` and `certificates` are lists a patch replaces. */

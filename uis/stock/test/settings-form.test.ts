@@ -384,9 +384,16 @@ describe('a block snapshot covers the whole block', () => {
     ).toBe(true)
   })
 
+  /**
+   * A **nested** edit inside an existing row must count.
+   *
+   * The snapshot has to be taken *after* the row exists, or comparing an empty list against one row
+   * is enough to answer `true` on its own — which is how this test used to pass while the snapshot
+   * copied each row shallowly and a policy edit went unnoticed. That shallow copy is the original
+   * "webhooks gets reverted periodically" defect, one level down.
+   */
   it('marks the block edited when only a destination policy changed', () => {
     const form = createWorkspaceForm()
-    const filled = workspaceBlockSnapshot(form, 'notifications')
     form.destinations = [{
       id: 'tg',
       kind: 'telegram',
@@ -400,9 +407,21 @@ describe('a block snapshot covers the whole block', () => {
       headers: '',
       policy: { ...form.policy },
     }]
+    // Filled from live *with the row present*, so the snapshot and the form agree.
+    const filled = workspaceBlockSnapshot(form, 'notifications')
+    expect(isBlockEdited(filled, workspaceBlockSnapshot(form, 'notifications')), 'an untouched block').toBe(false)
+
+    // An edit to a policy field, in place, as the row's toggle does it.
     form.destinations[0]!.policy.onCrash = false
-    // A nested edit has to count too: the policy is part of what the block owns.
-    expect(isBlockEdited(filled, workspaceBlockSnapshot(form, 'notifications'))).toBe(true)
+    expect(
+      isBlockEdited(filled, workspaceBlockSnapshot(form, 'notifications')),
+      'a nested policy edit must block the next re-fill',
+    ).toBe(true)
+
+    // And the general block's own copy of the same field, which is a separate object.
+    form.destinations[0]!.policy.onCrash = true
+    form.policy.onCrash = false
+    expect(isBlockEdited(filled, workspaceBlockSnapshot(form, 'notifications')), 'a general-policy edit').toBe(true)
   })
 })
 

@@ -254,7 +254,9 @@ const telegramDestinationSchema = type({
   chatId: 'string = ""',
   useOwnSettings: useOwnSettingsSchema,
   ...notificationPolicyShape,
-})
+  // Rejects any other key, which is what keeps a `botToken` out of a config file: without this the
+  // schema tolerated it, so a hand-edited settings.json loaded a plaintext secret with no warning.
+}).onUndeclaredKey('reject')
 
 /**
  * One webhook target: a URL, a method, and the headers to send with it.
@@ -649,7 +651,16 @@ const destinationPatchSchema = type({
 
 const notificationsPatchSchema = type({
   /** Merged key by key, like the other nested groups. */
-  defaults: notificationDefaultsSchema.partial().optional(),
+  /**
+   * A merge key-by-key, and **every field optional** — `notificationPolicyPatchShape`, not a
+   * `.partial()` of the defaults schema.
+   *
+   * ArkType's `.partial()` leaves a field's `= false` / `= 120000` default in place, so a body of
+   * `{ onHost: false }` validated into all seven keys and one toggle overwrote the rest. A patch
+   * schema here carries no defaults (the rule for every patch), and the store merges it over the
+   * stored block.
+   */
+  defaults: type({ ...notificationPolicyPatchShape }).onUndeclaredKey('reject').optional(),
   /** Replaced whole, so a removed destination stays removed. */
   destinations: destinationPatchSchema.array().optional(),
 }).onUndeclaredKey('reject')
@@ -1694,6 +1705,18 @@ export const notificationActionSchema = type({
  * and the request schema rejects undeclared keys, so the webhook shape is reused rather than a
  * second DTO that could drift from it.
  */
+/**
+ * The `:id` path parameter of a destination route.
+ *
+ * Validated, because the id is not only a lookup key: it also keys a bot token in the secrets file.
+ * Unvalidated, `DELETE /destinations/ghost/token` answered `200`, and an id of `botToken` wrote the
+ * literal secrets key `telegram.botToken`, which the reader then took for the **legacy singleton** —
+ * every real destination's token became unreachable.
+ */
+export const destinationIdParamSchema = type({
+  id: '/^[a-z0-9][a-z0-9_-]*$/',
+})
+
 export const destinationTestSchema = type({
   target: webhookTargetSchema.omit('kind', 'id').and(type({ id: 'string?', kind: '"webhook"?' })),
   /** Echoed so the result is recorded against the right row; absent for a draft. */
@@ -1702,19 +1725,6 @@ export const destinationTestSchema = type({
 
 export const telegramTokenSchema = type({
   botToken: 'string >= 1',
-}).onUndeclaredKey('reject')
-
-/**
- * `POST /api/notifications/test-webhook`: the target to try, as a draft or by id.
- *
- * The target travels whole rather than by reference because the page tests what is in its
- * form, which may not be saved yet — and the request schema rejects undeclared keys, so the
- * exact webhook shape is reused instead of a second DTO that could drift from it.
- */
-export const webhookTestSchema = type({
-  target: webhookTargetSchema.omit('id').and(type({ id: 'string?' })),
-  /** Echoed so the result is recorded against the right row; absent for a draft. */
-  id: 'string?',
 }).onUndeclaredKey('reject')
 
 /**

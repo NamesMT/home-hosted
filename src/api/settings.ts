@@ -257,8 +257,12 @@ export function createSettingsRoute(deps: AppDeps) {
             runtime.store.updateDefaults(patch.defaults)
           if (patch.logs !== undefined)
             runtime.store.updateLogs(patch.logs)
-          if (patch.notifications !== undefined)
-            runtime.store.updateNotifications(patch.notifications)
+          if (patch.notifications !== undefined) {
+            const saved = runtime.store.updateNotifications(patch.notifications)
+            // A removed destination must not leave its bot token behind: the id keys the secret, so
+            // a later destination reusing that id would silently inherit another bot's token.
+            runtime.secrets.forgetTelegramTokens(saved.destinations.map(destination => destination.id))
+          }
         }
         catch (error) {
           if (error instanceof ConfigError)

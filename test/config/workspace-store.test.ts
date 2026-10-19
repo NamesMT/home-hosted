@@ -619,6 +619,50 @@ describe('logs, notifications and dependencies', () => {
   })
 
   /**
+   * A bot token in a config file is dropped, and reported.
+   *
+   * The token belongs in `.secrets.json`; `telegramDestinationSchema` was the one destination branch
+   * without `.onUndeclaredKey('reject')`, so a hand-edited `settings.json` loaded a plaintext token
+   * with no warning and served it back to the page. The config reader tolerates an unknown key by
+   * design (a newer release's file must keep working), so the guarantee is *dropped and named*.
+   */
+  it('drops a bot token written into the config, and names it', async () => {
+    const { store } = await storeWith({ id: 'a', command: 'node' }, {
+      notifications: { destinations: [{ kind: 'telegram', id: 'tg', chatId: '1', botToken: 'PLAINTEXT-IN-CONFIG' }] },
+    })
+
+    expect(JSON.stringify(store.notifications)).not.toContain('PLAINTEXT-IN-CONFIG')
+    expect(store.configWarnings.join(' '), 'and the ignore must be reported').toContain('botToken')
+    expect(store.notifications.destinations[0]).toMatchObject({ kind: 'telegram', id: 'tg', chatId: '1' })
+  })
+
+  /**
+   * The general block merges key by key, so one toggle must not rewrite the rest.
+   *
+   * `NOTIFICATION_MERGE_KEYS` still named the deleted `telegram` key after schema 2, which made
+   * `notifications.defaults` a *replaced* group: flipping one switch in the UI reset the cooldown
+   * to its schema default and turned `onRecovered` off for every inheriting destination, silently.
+   * The pair with the patch schema matters — a `.partial()` there re-added the defaults to the
+   * request body, so fixing only the merge key left the same overwrite.
+   */
+  it('merges one general toggle without touching the others', async () => {
+    const { store } = await storeWith({ id: 'a', command: 'node' }, {
+      notifications: {
+        defaults: { onCrash: true, onUnhealthy: true, onForcedRestart: true, onRecovered: true, onHost: true, onDdns: true, cooldownMs: 600_000 },
+      },
+    })
+
+    store.updateNotifications({ defaults: { onHost: false } })
+
+    const defaults = store.notifications.defaults
+    expect(defaults.onHost).toBe(false)
+    expect(defaults.cooldownMs, 'a toggle must not reset the cooldown').toBe(600_000)
+    expect(defaults.onRecovered, 'onRecovered was on and must stay on').toBe(true)
+    expect(defaults.onCrash).toBe(true)
+    expect(defaults.onDdns).toBe(true)
+  })
+
+  /**
    * A webhook list is written whole, so its ids are the write's responsibility.
    *
    * `id` keys the per-target cooldown and last-result record; two targets sharing one would
