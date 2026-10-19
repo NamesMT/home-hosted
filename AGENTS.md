@@ -132,7 +132,7 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   `README.md` are exempt — neither is in the built asset).
   `src/shared/**` is a UI build input, so a runtime contract needs the bump too — the hook does not
   inspect that commit. **`tag` and `unix` are build provenance**, stamped into `dist/ui.json` by
-  `build-uis.mjs`; never committed to `public/ui.json`.
+  `build-uis.mjs`; never committed to `uis/<name>/public/ui.json`.
 - **Paths.** `dataRoot` is state, under `dataRoot/.hh`; `projectDir` is the base for relative entry
   paths. `{…}` and `${ENV}` expand in config — the full list is the table in
   [`docs/SERVERS.md`](docs/SERVERS.md), which is what to keep in step. No package-relative state.

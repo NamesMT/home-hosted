@@ -66,7 +66,7 @@ state layout is there too.
   template, env-file, openapi, factory.
 - `uis/<name>/` — a Vite app (Vue 3 + Tailwind v4) built through `uis/vite.shared.ts`; `stock` is
   the one shipped in the package. Aliases: `@` → that UI's `src`, `@shared` → `src/shared`,
-  `@server` → `src` (**types only**). `public/ui.json` is the UI's identity.
+  `@server` → `src` (**types only**). `uis/<name>/public/ui.json` is the UI's identity.
 - `bin/home-hosted.mjs` — the published bin: `dist/cli.js`, or `src/cli.ts` through tsx when the
   build is missing (a linked checkout).
 - `scripts/` — build and CI helpers. **Build:** `build-uis.mjs`, `build-locales.mjs` (the sheet →

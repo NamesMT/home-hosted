@@ -268,7 +268,7 @@ A pending-edit summary pays for itself: show how many fields changed, and let th
 
 The repo's own UIs are Vite apps: `uis/<name>/` holds `index.html`, `src/`, a `tsconfig.json`
 (copied from a sibling) and a two-line `vite.config.ts` calling `createUiConfig` from
-`uis/vite.shared.ts`, with `public/ui.json` naming it. Yours does not have to be Vite — only the
+`uis/vite.shared.ts`, with `uis/<name>/public/ui.json` naming it. Yours does not have to be Vite — only the
 output matters.
 
 ```sh
