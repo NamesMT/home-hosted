@@ -49,15 +49,24 @@ export function unknownServerError(id: string): DetailedError {
  *
  * Two values, not one per message: a missing id is the case a caller must fix, and everything
  * else ("disabled", "stopping", "port in use") is the entry refusing right now. Inventing a
- * code per sentence would be a second copy of the messages.
+ * code per sentence would be a second copy of the messages. A **success has no code**: a code
+ * exists to describe a failure, and stamping one on success answered `ok: true, code:
+ * ACTION_FAILED`.
  */
 export function actionCode(result: ActionResult): string {
   return result[UNKNOWN_SERVER] === true ? 'UNKNOWN_SERVER' : 'ACTION_FAILED'
 }
 
-/** What a lifecycle route puts on the wire: the result it already had, plus its stable code. */
-export function actionAnswer(result: ActionResult): ActionResult & { code: string } {
-  return { ...result, code: actionCode(result) }
+/**
+ * What a lifecycle route puts on the wire: the result it already had, plus its stable code.
+ *
+ * A **success does not carry a code at all.** Stamping one on it was the first version of this
+ * function, and it answered `{"ok":true,"code":"ACTION_FAILED"}` for a start that worked — a code
+ * that exists to describe a failure, printed on a success. `code` is added only when there is a
+ * failure to name.
+ */
+export function actionAnswer(result: ActionResult): ActionResult & { code?: string } {
+  return result.ok ? { ...result } : { ...result, code: actionCode(result) }
 }
 
 /** Unknown ids are 404; a server that exists but cannot act is a 409. */

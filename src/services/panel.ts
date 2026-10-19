@@ -227,6 +227,12 @@ export class PanelService {
       tlsDir: this.options.tls.directory,
       registryPath: this.options.registry.path,
       includePaths: this.options.settings.backups.includePaths,
+      // Live state, so a restore can say whose data it replaced under a running process.
+      runningServers: () => this.workspaces().flatMap(runtime =>
+        runtime.supervisor.views()
+          .filter(view => view.status === 'running')
+          .map(view => ({ workspaceId: runtime.id, serverId: view.id })),
+      ),
       workspaces: this.workspaces().map<BackupWorkspaceSource>(runtime => ({
         id: runtime.id,
         label: runtime.label,

@@ -546,8 +546,11 @@ export class Supervisor {
         const status = this.statusOf(target)
         if (status !== 'running')
           return false
-        // A dependency that is listening but failing its check is not ready.
-        return target.health !== 'unhealthy'
+        // "Healthy" specifically, not "not unhealthy": in http mode the entry is `unknown` from
+        // the moment it accepts a connection until the first probe answers, and starting a
+        // dependent in that window is starting it against a dependency nobody has checked.
+        // `disabled` means the entry declares no health check, so its `running` is all there is.
+        return target.health === 'healthy' || target.health === 'disabled'
       }
 
       while (!isReady() && Date.now() < deadline) await delay(250)
@@ -1539,9 +1542,14 @@ export class Supervisor {
         return
       if (await this.portAccepts(entry, port, Math.min(health.timeoutMs, 1000))) {
         entry.portState = 'in-use'
-        entry.health = health.enabled ? 'healthy' : 'disabled'
+        // A TCP accept is the whole probe in `port` mode, but only the *first half* of one in
+        // `http` mode: the server is listening, and may still answer 500 to every request. Calling
+        // that `healthy` made `dependsOn` release a dependent against a dependency that could not
+        // serve, which is the ordering it exists to prevent. In http mode the first real probe
+        // decides, so this leaves `unknown` and `probeEntry` reports what it finds.
+        entry.health = !health.enabled ? 'disabled' : health.mode === 'http' ? 'unknown' : 'healthy'
         entry.status = 'running'
-        entry.lastProbeAt = Date.now()
+        entry.lastProbeAt = 0
         this.log(entry, 'system', `accepting connections on port ${port}`)
         this.settleRestart(entry, `accepting connections on port ${port}`)
         this.publishServer(entry)

@@ -1397,6 +1397,17 @@ export const backupsViewSchema = type({
   'schedule?': backupScheduleSchema,
   /** When the last automatic archive was written; null until one has run. Optional for the same reason. */
   'lastAutomaticAt?': 'number | null',
+  /**
+   * Why the last scheduled pass failed, and when it tried.
+   *
+   * A failed pass wrote only a panel-console warning, so "enabled, zero archives" looked the same
+   * as "failing every interval since the day it was enabled" — indistinguishable from the page,
+   * which is the only place a person looks. Null once a pass succeeds.
+   */
+  'scheduleError?': type({
+    message: 'string',
+    at: 'number',
+  }),
   /** Extra paths from the global config, in addition to each server's own. */
   'includePaths': type('string[]'),
   /** Every selectable entry, global first, then each workspace. */
@@ -1467,6 +1478,21 @@ export const restorePlanSchema = type({
   'restartRequired': 'boolean',
   /** The panel re-read the restored config within this same restore. */
   'reloaded': 'boolean',
+  /**
+   * Servers that are **running now** and whose declared data path this restore overwrote.
+   *
+   * A data path is copied over while its owner keeps running, holding open handles to files
+   * that were just replaced — the process keeps its old view and the archive's copy wins on
+   * disk, so anything written since the archive was taken is gone. The plan has to say which
+   * entries that happened to, because nothing else in the result mentions them.
+   *
+   * Optional: an older panel does not send it, and a plan that touched no running entry sends none.
+   */
+  'replacedUnderRunning?': type({
+    workspaceId: 'string',
+    serverId: 'string',
+    path: 'string',
+  }).array(),
   /**
    * Workspaces this restore created because the archive named them and the host did not
    * have them. Optional: an older panel never sends the row, and an archive written

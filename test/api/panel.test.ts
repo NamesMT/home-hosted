@@ -209,6 +209,34 @@ describe('healthz', () => {
   })
 
   /**
+   * A crash is a crash whoever started it.
+   *
+   * The filter was `autostart && crashed`, so a server started by hand from the panel or the
+   * API could die and `/healthz` still answered `ok` — the one case an external monitor exists
+   * for. The deliberate-stop worry that motivated it does not apply: stopping sets `stopped`,
+   * never `crashed`, which the next test pins.
+   */
+  it('reports degraded when a manually-started server has crashed', async () => {
+    const created = await fixture({
+      views: [makeView('web', { status: 'crashed', config: { id: 'web', command: 'node', autostart: false } as never })],
+    })
+
+    const response = await created.app.request('/healthz')
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({ status: 'degraded' })
+  })
+
+  it('stays ok for a server someone deliberately stopped', async () => {
+    // The reason `autostart` was in the filter; `stopped` already carries it, so the filter
+    // can be dropped without a stopped server holding the panel degraded.
+    const created = await fixture({
+      views: [makeView('web', { status: 'stopped', config: { id: 'web', command: 'node', autostart: true } as never })],
+    })
+
+    expect(await (await created.app.request('/healthz')).json()).toMatchObject({ status: 'ok' })
+  })
+
+  /**
    * A server that is up but failing its own health check is exactly what an external
    * monitor cannot otherwise see: nothing crashed, so a crash-only rule answered `ok`
    * while the service was refusing requests.

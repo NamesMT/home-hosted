@@ -245,6 +245,15 @@ export interface BackupSources {
   /** Extra paths in every backup, in addition to each server's own. */
   includePaths: string[]
   workspaces: BackupWorkspaceSource[]
+  /**
+   * The servers that are running right now, so a restore can say whose data it just replaced.
+   *
+   * A data path is copied over while its owner keeps running: the process holds open handles to
+   * files that no longer exist under it, and whatever it wrote since the archive was taken is
+   * gone. `origin` on a declared path is `<serverId>:<ENV>`, which is what names the owner.
+   * Optional so a test or an embedded caller can leave it out.
+   */
+  runningServers?: () => Array<{ workspaceId: string, serverId: string }>
 }
 
 export interface BackupManifest {
@@ -395,6 +404,13 @@ export class BackupService {
    * long as the failure lasts. This is the in-memory backstop for that case.
    */
   private lastAttemptAt: number | null = null
+  /**
+   * Why the most recent scheduled pass failed, cleared on the next that works.
+   *
+   * The failure used to reach only the panel console, so the page showed "enabled" and an archive
+   * count that never moved — the same view as a schedule that had simply not come due yet.
+   */
+  private scheduleError: { message: string, at: number } | null = null
 
   constructor(
     private readonly options: {
@@ -436,6 +452,7 @@ export class BackupService {
       keep: config.keep,
       schedule: { ...config.schedule },
       lastAutomaticAt: this.lastAutomatic(),
+      ...(this.scheduleError === null ? {} : { scheduleError: { ...this.scheduleError } }),
       includePaths: [...sources.includePaths],
       entries: this.entries(sources),
       files: this.list(),
@@ -636,7 +653,7 @@ export class BackupService {
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
     // The two structured lists are optional on the wire (a new UI reads an older panel), but this
     // side always fills them, so it builds them as required.
-    const plan: RestorePlan & { appliedIds: string[], skippedItems: RestoreSkip[], createdWorkspaces: string[] } = {
+    const plan: RestorePlan & { appliedIds: string[], skippedItems: RestoreSkip[], createdWorkspaces: string[], replacedUnderRunning: NonNullable<RestorePlan['replacedUnderRunning']> } = {
       dryRun: !options.confirm,
       encrypted: false,
       needsPassword: false,
@@ -648,6 +665,7 @@ export class BackupService {
       restartRequired: false,
       reloaded: false,
       createdWorkspaces: [],
+      replacedUnderRunning: [],
     }
 
     if (!isZipArchive(archivePath))
@@ -963,6 +981,17 @@ export class BackupService {
           ?? take(instance, usedInstance, target => target.path === archivedPath)
       }
 
+      /**
+       * `workspace:serverId` for every entry running at this moment.
+       *
+       * Built once, before anything is copied: a data path whose owner is running is about to be
+       * replaced under a live process, and the plan has to name it. Read here rather than in the
+       * apply closure so a dry run reports the same list the apply would.
+       */
+      const runningOwners = new Set(
+        (sources.runningServers?.() ?? []).map(entry => `${entry.workspaceId}:${entry.serverId}`),
+      )
+
       const archivedEntries = Array.isArray(manifest.data) ? manifest.data.filter(isRecord) : []
       for (const entry of archivedEntries) {
         const archivedPath = typeof entry.path === 'string' ? entry.path : ''
@@ -999,6 +1028,14 @@ export class BackupService {
           continue
         }
 
+        // The entry that declares this path, so a restore can name it if it is running.
+        // Recorded at *plan* time, not inside the apply closure: a dry run has to report the
+        // same list, otherwise the person cannot see what to stop before applying.
+        const ownerId = target.origin.split(':')[0] ?? ''
+        const covered = selectedIds === null || selectedIds.has(base.id) || aliases.includes(base.id)
+        if (covered && runningOwners.has(`${target.workspace}:${ownerId}`))
+          plan.replacedUnderRunning.push({ workspaceId: target.workspace, serverId: ownerId, path: target.path })
+
         addItem(
           { ...base, restorable: true, ...(target.path === archivedPath ? { note: null } : { note: `restored from ${archivedPath}`, noteKey: 'settings.backup.noteRestoredFrom', noteParams: { path: archivedPath } }) },
           // `cpSync` follows symlinks already in the destination tree, so a link
@@ -1006,11 +1043,13 @@ export class BackupService {
           // it. The destination of each entry is what is checked, because that is
           // where the link is resolved; the links themselves are never recreated,
           // which is the stated invariant.
-          () => fs.cpSync(from, target.path, {
-            recursive: true,
-            force: true,
-            filter: (_source, destination) => isInsideResolved(target.path, destination),
-          }),
+          () => {
+            fs.cpSync(from, target.path, {
+              recursive: true,
+              force: true,
+              filter: (_source, destination) => isInsideResolved(target.path, destination),
+            })
+          },
           aliases,
         )
       }
@@ -1316,10 +1355,17 @@ export class BackupService {
     this.lastAttemptAt = now
     void this.create({ automatic: true })
       .then((result) => {
-        if (!result.ok)
-          logger.warn('the scheduled backup failed', result.error)
+        // Remembered, not just logged: the page has nowhere else to show this, and a schedule
+        // failing silently is indistinguishable from one that has not come due.
+        if (result.ok) {
+          this.scheduleError = null
+          return
+        }
+        this.scheduleError = { message: result.error ?? 'the scheduled backup failed', at: Date.now() }
+        logger.warn('the scheduled backup failed', result.error)
       })
       .catch((error: unknown) => {
+        this.scheduleError = { message: errorMessage(error), at: Date.now() }
         logger.error('the scheduled backup failed', error)
       })
       .finally(() => {

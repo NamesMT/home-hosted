@@ -170,6 +170,12 @@ async function apply(): Promise<void> {
     // the difference between "my setup came back" and "only some of it did".
     if (result.createdWorkspaces !== undefined && result.createdWorkspaces.length > 0)
       notes.push(t('settings.restore.createdWorkspaces', { items: result.createdWorkspaces.join(', ') }))
+    // A data path copied over while its server kept running: the process holds handles to files
+    // that were just replaced, so it must be cycled for the restore to take effect.
+    if (result.replacedUnderRunning !== undefined && result.replacedUnderRunning.length > 0) {
+      const owners = [...new Set(result.replacedUnderRunning.map(entry => `${entry.workspaceId}/${entry.serverId}`))]
+      notes.push(t('settings.restore.replacedUnderRunning', { items: owners.join(', ') }))
+    }
     const count = result.applied.length
     emit('applied', notes.length === 0
       ? t('settings.restore.restored', { count })

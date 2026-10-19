@@ -57,6 +57,33 @@ interface Fixture {
   sources: BackupSources
 }
 
+/** An archive built by hand, in the layout the service writes. */
+async function makeArchive(file: string, options: {
+  registry?: unknown
+  workspaces: Record<string, { servers?: Record<string, unknown>[] }>
+  data?: Array<{ slug: string, path: string, origin?: string, workspace?: string }>
+  files?: Record<string, string>
+}): Promise<void> {
+  const entries: Record<string, string> = {
+    'manifest.json': JSON.stringify({
+      version: 1,
+      createdAt: Date.now(),
+      hostname: 'elsewhere',
+      schema: CONFIG_SCHEMA,
+      data: options.data ?? [],
+    }),
+  }
+  if (options.registry !== undefined)
+    entries['global/workspaces.json'] = JSON.stringify(options.registry)
+  for (const [id, content] of Object.entries(options.workspaces)) {
+    entries[`workspaces/${id}/servers.config.json`] = JSON.stringify({
+      meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
+      servers: content.servers ?? [],
+    })
+  }
+  await makeZip(file, { ...entries, ...options.files })
+}
+
 /**
  * A realistic two-level instance: the global `.hh` files, one `default`
  * workspace beside them, and a declared data directory. The backup directory
@@ -957,33 +984,6 @@ describe('backup service', () => {
  * writing it over `default`'s database.
  */
 describe('restoring workspaces the host does not have', () => {
-  /** An archive built by hand, in the layout the service writes. */
-  async function makeArchive(file: string, options: {
-    registry?: unknown
-    workspaces: Record<string, { servers?: Record<string, unknown>[] }>
-    data?: Array<{ slug: string, path: string, origin?: string, workspace?: string }>
-    files?: Record<string, string>
-  }): Promise<void> {
-    const entries: Record<string, string> = {
-      'manifest.json': JSON.stringify({
-        version: 1,
-        createdAt: Date.now(),
-        hostname: 'elsewhere',
-        schema: CONFIG_SCHEMA,
-        data: options.data ?? [],
-      }),
-    }
-    if (options.registry !== undefined)
-      entries['global/workspaces.json'] = JSON.stringify(options.registry)
-    for (const [id, content] of Object.entries(options.workspaces)) {
-      entries[`workspaces/${id}/servers.config.json`] = JSON.stringify({
-        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
-        servers: content.servers ?? [],
-      })
-    }
-    await makeZip(file, { ...entries, ...options.files })
-  }
-
   it('creates a workspace the archive names, with its label', async () => {
     const fixture = await makeFixture()
     const archive = path.join(fixture.root, 'multi.zip')
@@ -1026,6 +1026,55 @@ describe('restoring workspaces the host does not have', () => {
     const plan = await service.restore(archive, { confirm: true })
     expect(plan.error).toBeUndefined()
     expect(ensured).toEqual([{ id: 'staging', label: 'staging' }])
+  })
+
+  /**
+   * A restore copies a data path over while its owner may be running.
+   *
+   * The process keeps open handles to files that were just replaced and never learns about it;
+   * anything it wrote since the archive was taken is gone. The restore still proceeds — the
+   * blank-host case depends on it, and a stopped panel cannot ask anyone — but it must not be
+   * silent: the plan names every entry whose data moved under it.
+   */
+  it('names the running server whose data the restore replaced', async () => {
+    const fixture = await makeFixture({ dataPaths: [] })
+    const liveDir = path.join(fixture.root, 'data-live')
+    fs.mkdirSync(liveDir, { recursive: true })
+    fs.writeFileSync(path.join(liveDir, 'db.sqlite'), 'WRITTEN-AFTER-THE-BACKUP\n')
+
+    const servers = [serverConfig({ id: 'app', dataEnvs: { DATA_DIR: liveDir } })]
+    const sources: BackupSources = {
+      ...fixture.sources,
+      workspaces: [{ ...fixture.sources.workspaces[0]!, servers }],
+      // The entry is up: this is the case that used to be reported as an ordinary success.
+      runningServers: () => [{ workspaceId: 'default', serverId: 'app' }],
+    }
+    const service = new BackupService({ dataRoot: fixture.dataRoot, getConfig: () => fixture.config, getSources: () => sources })
+
+    const archive = path.join(fixture.root, 'live.zip')
+    await makeArchive(archive, {
+      workspaces: { default: { servers: [{ id: 'app', command: 'node', dataEnvs: { DATA_DIR: liveDir } }] } },
+      data: [{ slug: 'live', path: liveDir, origin: 'app:DATA_DIR', workspace: 'default' }],
+      files: { 'data/live/db.sqlite': 'ARCHIVED\n' },
+    })
+
+    // A dry run already says so, so a person can stop the entry before applying.
+    const dryRun = await service.restore(archive, { confirm: false })
+    expect(dryRun.replacedUnderRunning).toEqual([{ workspaceId: 'default', serverId: 'app', path: liveDir }])
+
+    const applied = await service.restore(archive, { confirm: true })
+    expect(applied.replacedUnderRunning).toEqual([{ workspaceId: 'default', serverId: 'app', path: liveDir }])
+    expect(fs.readFileSync(path.join(liveDir, 'db.sqlite'), 'utf8')).toBe('ARCHIVED\n')
+  })
+
+  it('reports nothing when the entry is stopped', async () => {
+    const fixture = await makeFixture()
+    const sources: BackupSources = { ...fixture.sources, runningServers: () => [] }
+    const service = new BackupService({ dataRoot: fixture.dataRoot, getConfig: () => fixture.config, getSources: () => sources })
+
+    const created = await service.create()
+    const plan = await service.restore(path.join(service.directory, created.file!.name), { confirm: true })
+    expect(plan.replacedUnderRunning).toEqual([])
   })
 
   it('creates nothing on a dry run', async () => {
@@ -1465,6 +1514,43 @@ describe('the backup schedule', () => {
     failing.tick(now + 61_000)
     await new Promise(resolve => setTimeout(resolve, 300))
     expect(attempts).toHaveLength(2)
+  })
+
+  /**
+   * A failing schedule has to be visible on the page, not only in the console.
+   *
+   * "Enabled, zero archives" looked identical to "failing every interval for a week": the failure
+   * wrote a `logger.warn` and nothing else, and `lastAutomaticAt` never advances on a failed pass.
+   */
+  it('reports why the last scheduled pass failed, and clears it when one works', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7 } })
+    const blocker = path.join(fixture.root, 'not-a-dir')
+    fs.writeFileSync(blocker, 'x')
+    const failing = new BackupService({
+      dataRoot: fixture.dataRoot,
+      getConfig: () => ({ ...fixture.config, dir: blocker }),
+      getSources: () => fixture.sources,
+    })
+
+    expect(failing.view().scheduleError, 'nothing has run yet').toBeUndefined()
+
+    failing.tick(Date.now())
+    await new Promise(resolve => setTimeout(resolve, 400))
+
+    const failed = failing.view().scheduleError
+    expect(failed, 'a failed pass must be readable from the view').toBeDefined()
+    expect(failed!.message.length).toBeGreaterThan(0)
+    expect(failed!.at).toBeGreaterThan(0)
+
+    // A pass that works clears it, so a stale error does not outlive the problem.
+    const working = new BackupService({
+      dataRoot: fixture.dataRoot,
+      getConfig: () => fixture.config,
+      getSources: () => fixture.sources,
+    })
+    working.tick(Date.now())
+    await new Promise(resolve => setTimeout(resolve, 400))
+    expect(working.view().scheduleError).toBeUndefined()
   })
 
   it('exposes the schedule and the last automatic time to the page', async () => {

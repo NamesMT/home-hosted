@@ -161,6 +161,17 @@ describe('servers route', () => {
       .toMatchObject({ ok: false, code: 'UNKNOWN_SERVER' })
   })
 
+  it('carries no failure code on a success', async () => {
+    const created = await withServer()
+    created.supervisor.start = async () => ({ ok: true })
+
+    const body = await (await request(created.app, '/api/servers/web/start', 'POST')).json() as { ok: boolean, code?: string }
+    expect(body.ok).toBe(true)
+    // A code names a failure. Stamping one unconditionally answered a *successful* start with
+    // `{"ok":true,"code":"ACTION_FAILED"}`, which a script would read as the opposite.
+    expect(body).not.toHaveProperty('code')
+  })
+
   it('clamps the log limit so a bad client cannot slice from the wrong end', async () => {
     const created = await withServer()
     const seen: Array<number | undefined> = []

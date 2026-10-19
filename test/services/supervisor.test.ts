@@ -1768,6 +1768,51 @@ describe('dependsOn readiness', () => {
 })
 
 /**
+ * `dependsOn` promises "healthy", and in `http` mode a listening socket is not that.
+ *
+ * `awaitReadiness` set `health = 'healthy'` on the first TCP accept — correct for `port` mode,
+ * where the accept *is* the probe, but wrong for `http` mode, where a server can listen and answer
+ * 500 to everything. `isReady` then accepted `not unhealthy`, which `unknown` satisfies, so a
+ * dependent started against a dependency nobody had probed.
+ */
+describe('http health and dependsOn', () => {
+  it('does not treat a listening-but-failing dependency as ready', async () => {
+    const dependsPort = await freePort()
+    const brokenPort = await freePort()
+    const harness = await makeSupervisor([
+      {
+        id: 'broken',
+        command: process.execPath,
+        // Binds at once and answers 500 forever: listening, and not healthy.
+        args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+        env: { PORT: '{port}' },
+        port: brokenPort,
+        health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 0, startTimeoutMs: 3000 },
+        restart: { maxRetries: 0, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+      },
+      {
+        id: 'dependent',
+        command: process.execPath,
+        args: ['-e', 'setInterval(()=>{},1000)'],
+        port: dependsPort,
+        dependsOn: ['broken'],
+        health: { mode: 'port', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 3, forceRestartAfterMs: 0, startTimeoutMs: 3000 },
+        restart: { maxRetries: 0, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+      },
+    ])
+
+    await harness.supervisor.startAll()
+    await waitFor(() => harness.supervisor.views().every(entry => entry.status === 'running'), 20000)
+
+    // The dependency was probed and found unhealthy before the dependent was released; the
+    // "starting anyway" line is the timeout path, which is the only correct way past here.
+    const lines = harness.supervisor.logLines('dependent', 50).map(line => line.text)
+    expect(lines.some(text => text.includes('starting anyway')), `dependent log: ${JSON.stringify(lines)}`).toBe(true)
+    expect(harness.supervisor.views().find(entry => entry.id === 'broken')?.health).toBe('unhealthy')
+  })
+})
+
+/**
  * Stopping a dependency names the dependents it leaves running.
  *
  * `stopAll` stops dependents first (`orderByDependencies(...).reverse()`), but a single stop does not

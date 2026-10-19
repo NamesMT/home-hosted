@@ -53,6 +53,9 @@ const lastAutomatic = computed(() => {
   return at === null ? null : formatDateTime(at)
 })
 
+/** Why the last scheduled pass failed, if it did: the page had no way to show this before. */
+const scheduleError = computed(() => props.state?.scheduleError ?? null)
+
 const busy = ref(false)
 const message = ref<string | null>(null)
 const error = ref<string | null>(null)
@@ -137,6 +140,13 @@ async function removeBackup(name: string): Promise<void> {
         <NumberField v-model="scheduleKeep" :label="t('settings.backups.scheduleKeep')" :min="1" :hint="t('settings.backups.scheduleKeepHint')" />
         <p v-if="lastAutomatic !== null" class="text-2xs text-muted sm:col-span-2">
           {{ t('settings.backups.scheduleLast', { when: lastAutomatic }) }}
+        </p>
+        <!--
+          A failing schedule used to reach only the panel console. On the page it was
+          indistinguishable from one that had not come due yet — "enabled, no archives".
+        -->
+        <p v-if="scheduleError !== null" class="text-2xs text-danger sm:col-span-2" role="status">
+          {{ t('settings.backups.scheduleFailed', { when: formatDateTime(scheduleError.at), message: scheduleError.message }) }}
         </p>
       </template>
       <TextField

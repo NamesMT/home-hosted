@@ -582,6 +582,11 @@ For anything with a real database, do one of these before relying on the archive
 - **dump it properly** (`sqlite3 app.db ".backup out.db"`, `pg_dump`, `mysqldump`) into a directory you
   declare in `backupPaths`, so the archive carries the dump rather than the live files.
 
+**Restoring** has the mirror-image hazard, and the plan names it: a data path copied over while its
+server is running is replaced under a live process, which keeps its old view and loses whatever it
+wrote since. The restore reports those entries — `Data was replaced under a running server` — and
+the fix is to stop and start each one, or stop them before applying.
+
 </details>
 
 ---
