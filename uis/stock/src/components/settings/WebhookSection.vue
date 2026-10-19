@@ -9,6 +9,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
+import TextAreaField from '@/components/ui/TextAreaField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
@@ -223,12 +224,15 @@ async function sendTest(form: WebhookForm): Promise<void> {
           <NumberField :model-value="hook.cooldownMs" :label="t('settings.webhook.cooldown')" :min="0" :hint="t('settings.webhook.cooldownHint')" @update:model-value="cooldown(hook).value = $event" />
         </div>
 
-        <TextField
+        <!-- One `Name: value` per line, so a textarea: a text input makes Enter submit, and
+             there would be no way to add a second header. -->
+        <TextAreaField
           v-model="hook.headers"
           :label="t('settings.webhook.headers')"
           placeholder="Authorization: Bearer …"
           :hint="t('settings.webhook.headersHint')"
-          multiline
+          :rows="2"
+          mono
         />
 
         <div class="flex flex-wrap items-center gap-1.5">
