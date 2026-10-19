@@ -12,6 +12,8 @@
  * 2 — notifications: one Telegram singleton plus a webhook list became one `destinations`
  *     list of typed entries, and the shared policy moved to `notifications.defaults`.
  */
+import { LEGACY_TELEGRAM_ID } from '#src/config/secrets'
+
 export const CONFIG_SCHEMA = 2
 
 /**
@@ -47,10 +49,10 @@ export interface ConfigMigration {
 /**
  * The id the pre-list Telegram destination takes.
  *
- * Shared with the secrets reader (`config/secrets.ts`), because that is where the bot token for it
- * already sits: the two have to agree on the id or the upgrade loses a working Telegram.
+ * **The one definition**, imported from the secrets reader, because that is where the bot token for
+ * it already sits: the two have to agree on the id or the upgrade loses a working Telegram. They
+ * were two literals with a comment claiming they were shared, and drifting one was undetected.
  */
-const LEGACY_TELEGRAM_ID = 'telegram'
 
 /**
  * Schema 1 → 2: `notifications.{telegram, webhooks}` → `notifications.{defaults, destinations}`.

@@ -548,8 +548,32 @@ function stateSignature(state: AppState): string {
       workspace.ddns === undefined
         ? ''
         : [workspace.ddns.running, workspace.ddns.lastRunAt, workspace.ddns.ipv4, workspace.ddns.ipv6, ...workspace.ddns.records.map(record => `${record.host}:${record.type}:${record.state}:${record.ip}`)].join(':'),
-      // Every destination is part of the signature: a rename, an edit or a token arriving is news.
-      ...(workspace.notifications.destinations ?? []).map(destination => `${destination.id}:${destination.kind}:${destination.enabled}:${destination.tokenSet}:${destination.lastResult ?? ''}`),
+      /*
+       * Every field a row shows, because any of them changing is news: a rename, an edit, a token
+       * arriving. A policy-only save used to publish no frame at all — the page then showed stale
+       * values until the host sample happened to move, up to an interval later.
+       */
+      ...(workspace.notifications.destinations ?? []).map(destination => [
+        destination.id,
+        destination.kind,
+        destination.enabled,
+        destination.useOwnSettings,
+        destination.chatId ?? '',
+        destination.tokenSet,
+        destination.url ?? '',
+        destination.method ?? '',
+        destination.format ?? '',
+        destination.headers ?? '',
+        destination.onCrash,
+        destination.onUnhealthy,
+        destination.onForcedRestart,
+        destination.onRecovered,
+        destination.onHost,
+        destination.onDdns ?? '',
+        destination.cooldownMs,
+        destination.lastResult ?? '',
+        destination.lastResultAt ?? '',
+      ].join(':')),
       ...workspace.servers.map(server => [
         server.id,
         server.status,

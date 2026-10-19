@@ -572,6 +572,42 @@ describe('panelService', () => {
     }
   })
 
+  /**
+   * A save that only changes a destination's policy must publish a frame.
+   *
+   * The signature keyed on `id:kind:enabled:tokenSet:lastResult` only, so changing
+   * `useOwnSettings`, a chat id, a URL or any toggle published nothing — the page kept showing the
+   * old values until the host sample happened to move, up to one interval later.
+   */
+  it('publishes a frame when only a destination policy value changes', async () => {
+    const { panel, frames, dispose } = await makeHarness()
+
+    try {
+      const runtime = panel.requireWorkspace('default')
+      runtime.store.updateNotifications({ destinations: [{ kind: 'webhook', id: 'hook', url: 'https://ntfy.sh/a', useOwnSettings: true }] })
+
+      // Freeze the clock-driven parts, so the policy edit is the only thing that can move.
+      const patched = panel as unknown as { options: { hostMonitor: { current: unknown, tick: () => Promise<void> } } }
+      const host = patched.options.hostMonitor
+      const fixed = { ...(host.current as object) }
+      host.tick = async () => { host.current = fixed }
+
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > 0)
+      const before = frames.length
+
+      runtime.store.updateNotifications({ destinations: [{ kind: 'webhook', id: 'hook', url: 'https://ntfy.sh/a', useOwnSettings: true, onCrash: false }] })
+      panel.notifyStateChange()
+      await new Promise(resolve => setTimeout(resolve, 200))
+
+      expect(frames.length, 'a policy-only edit published no frame').toBeGreaterThan(before)
+      expect(frames.at(-1)?.workspaces[0]?.notifications.destinations?.[0]).toMatchObject({ id: 'hook', onCrash: false })
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('sees a hand edit through its own watchers, without a restart', async () => {
     const { panel, frames, dispose } = await makeHarness()
 

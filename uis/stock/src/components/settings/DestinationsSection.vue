@@ -95,11 +95,13 @@ function remove(id: string): void {
 }
 
 function lastSend(row: DestinationStatusView | undefined): string {
-  if (row === undefined || row.lastResult === null)
+  // Both are optional on the wire: a panel that has never sent one, or a newer one that has not
+  // published an outcome yet, is a row with nothing to show rather than an error.
+  if (row === undefined || row.lastResult === null || row.lastResult === undefined)
     return ''
   return t('settings.destination.lastSend', {
     result: row.lastResult,
-    when: row.lastResultAt === null ? '' : formatAgo(row.lastResultAt, Date.now()),
+    when: row.lastResultAt === null || row.lastResultAt === undefined ? '' : formatAgo(row.lastResultAt, Date.now()),
   })
 }
 

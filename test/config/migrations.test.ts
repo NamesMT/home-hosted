@@ -1,5 +1,9 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
+import { SecretsStore } from '#src/config/secrets'
 
 /**
  * The schema-1 -> 2 notification migration, by **content**.
@@ -87,6 +91,24 @@ describe('the notifications migration', () => {
     const notifications = migrate(schema1).notifications
     expect('telegram' in notifications).toBe(false)
     expect('webhooks' in notifications).toBe(false)
+  })
+
+  /**
+   * The migrated id and the secrets reader's legacy id are the same string.
+   *
+   * They were two literals with a comment claiming they were shared; QA changed one to
+   * `legacy-telegram` and the whole suite stayed green, so an upgrade could have lost a working
+   * Telegram with no test noticing. They are one definition now, and this pins the behaviour.
+   */
+  it('gives the migrated destination the id the stored token is read under', () => {
+    const id = migrate(schema1).notifications.destinations.find((entry: any) => entry.kind === 'telegram').id
+    const legacy = new SecretsStore(path.join(os.tmpdir(), `hh-${Date.now()}`, 'secrets.json'), undefined, 'workspace')
+
+    // A pre-list secrets file stores the token under the legacy id; the reader must find it there.
+    fs.mkdirSync(path.dirname(legacy.path), { recursive: true })
+    fs.writeFileSync(legacy.path, JSON.stringify({ telegram: { botToken: 'TOKEN' } }), { mode: 0o600 })
+    expect(legacy.telegramTokenIds).toEqual([id])
+    expect(legacy.telegramToken(id)).toBe('TOKEN')
   })
 
   it('stamps the schema it reached, so the result is readable by this release', () => {

@@ -231,6 +231,18 @@ export const notificationDefaultsSchema = type({
 export type NotificationDefaults = typeof notificationDefaultsSchema.infer
 
 /**
+ * The same block **as a response**: tolerant of a key this release does not know.
+ *
+ * A request schema rejects undeclared keys, a response schema must not — an upgrade writes a new UI
+ * while an old panel keeps serving, and a newer panel adding one field here must not blank this
+ * build's whole app. Reusing the strict schema in the view did exactly that: one additive key in
+ * `defaults` rejected the state frame and the page went blank.
+ */
+export const notificationDefaultsViewSchema = type({
+  ...notificationPolicyShape,
+})
+
+/**
  * Whether a target follows the general block or carries its own.
  *
  * **Defaults to `true`**, which is what an existing config means: before this block existed every
@@ -1167,23 +1179,23 @@ const notificationPolicyStatusShape = {
  * `useOwnSettings` is false — so the page shows what will happen, not what is stored.
  */
 export const destinationStatusSchema = type({
-  id: 'string',
-  kind: '"telegram" | "webhook"',
-  enabled: 'boolean',
-  useOwnSettings: 'boolean',
+  'id': 'string',
+  'kind': '"telegram" | "webhook"',
+  'enabled': 'boolean',
+  'useOwnSettings': 'boolean',
   ...notificationPolicyStatusShape,
   /** Telegram only, null on a webhook. */
-  chatId: 'string | null',
+  'chatId': 'string | null',
   /** Telegram only: whether a bot token is stored for this destination. */
-  tokenSet: 'boolean',
+  'tokenSet': 'boolean',
   /** Webhook only, null on a Telegram destination. */
-  url: 'string | null',
-  method: '"POST" | "PUT" | null',
-  format: '"json" | "text" | null',
-  headers: 'string | null',
-  /** Last delivery outcome, for the page. */
-  lastResult: 'string | null',
-  lastResultAt: 'number | null',
+  'url': 'string | null',
+  'method': '"POST" | "PUT" | null',
+  'format': '"json" | "text" | null',
+  'headers': 'string | null',
+  /** Last delivery outcome, for the page. Optional: a newer panel may not have sent one yet. */
+  'lastResult?': 'string | null',
+  'lastResultAt?': 'number | null',
 })
 export type DestinationStatusView = typeof destinationStatusSchema.infer
 
@@ -1199,7 +1211,7 @@ export const telegramChatsSchema = type({
 
 export const notificationViewSchema = type({
   /** The general block: what a destination inherits unless it overrides it. Optional for an older panel. */
-  'defaults?': notificationDefaultsSchema,
+  'defaults?': notificationDefaultsViewSchema,
   /** Every destination, in config order. Optional for an older panel. */
   'destinations?': destinationStatusSchema.array(),
 })
