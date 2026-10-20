@@ -59,9 +59,10 @@ re-applies to the engine already bound to them.
 
 One limit worth knowing: a process carrying a file capability (the `setcap` above) is
 **non-dumpable**, so the panel cannot see the socket it holds — `lsof` and the OS report nothing.
-The panel identifies its own engine from the records it wrote (the ports it last applied, plus the
-engine's live nanny state) rather than from the process table, and says so when it refuses a port it
-cannot attribute. A stranger holding a capped process's ports is reported without a pid.
+The panel identifies its own engine from the records it wrote — the ports the applied configuration
+actually listens on, plus the engine's live nanny state — rather than from the process table, and
+says so when it refuses a port it cannot attribute. A stranger holding a capped process's ports is
+reported without a pid.
 
 ## Routes
 
@@ -121,7 +122,10 @@ deleting the file or by reloading the configuration, but it *is* released when t
 leaves the configuration — so the panel reloads without that one route, drops the stored
 pair while it is out, and puts the route back. Every other route keeps serving; the name
 itself has no certificate until the CA answers. It is not offered while a name is still
-*pending*, because there the engine is already mid-ACME.
+*pending*, because there the engine is already mid-ACME. It is refused when removing that route would
+leave **nothing served** — it is the only working route, or every other one is disabled or has no
+upstream — because a configuration with no listeners takes the site dark. Add another working route
+first.
 
 A **removed** route has its stored certificate dropped on the next apply, so adding it
 back asks the CA instead of serving the old pair. A **disabled** route keeps its
@@ -226,7 +230,7 @@ rather than adding a 151st record to a zone already at the limit.
 | Replaceable | Drop any `hh-caddy` build at that path and the panel runs it: it reports *a path configured by hand* and probes no version. Installing or updating is refused while the engine is up — **Stop** it first, because the binary is replaced on disk. |
 | Runs as | A child of the panel's own nanny, exactly like a `persistent: true` entry. |
 | Supervised by | The panel. The admin API is opened on the panel side only: a unix socket in a `0700` directory (loopback TCP plus Caddy's origin check on Windows). |
-| Reloaded by | `POST /load` — atomic, and the revision that applied is kept on disk so a change can be reverted in one click (the first one has nothing to go back to). A reload onto a port something else holds is refused with that pid before the engine is touched, and the panel keeps reporting the ports the engine is really on. |
+| Reloaded by | `POST /load` — atomic, and the revision that applied is kept on disk so a change can be reverted in one click (the first one has nothing to go back to). A reload onto a port a stranger holds is refused before the engine is touched, naming the pid when the OS will tell it and saying so when it will not, and the panel keeps reporting the ports the engine is really on. |
 | Stops with | **Stop** in the page, switching the proxy off, or `POST /api/proxy/stop`. It never stops itself, and `down` leaves it serving — the socket facing the internet is not something a panel restart should drop. It is never restarted automatically either: a configuration the engine refuses needs a person, not a retry loop. |
 
 Because it runs under a nanny, a panel restart does not drop the socket that faces the

@@ -3,7 +3,7 @@ import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
 import { caddyEngine } from '#src/providers/proxy/caddy'
-import { renderCaddyConfig } from '#src/services/proxy-config'
+import { boundPorts, renderCaddyConfig } from '#src/services/proxy-config'
 import { proxyConfigSchema, proxyRouteSchema } from '#src/shared/contracts'
 
 function config(input: Record<string, unknown>) {
@@ -582,5 +582,31 @@ describe('the generated pages', () => {
       expect(headers['cache-control']).toEqual(['no-store'])
       expect(headers.vary).toEqual(['Host'])
     }
+  })
+})
+
+/**
+ * Which ports a rendered document actually listens on — the one derivation the applied record and
+ * the port preflight both read, so they cannot disagree about what the engine is bound to.
+ */
+describe('boundPorts', () => {
+  const config = { httpPort: 18080, httpsPort: 18443, routes: [] } as unknown as ProxyConfigInput['config']
+
+  function rendered(routes: RouteInput[]): Record<string, unknown> {
+    return render({ config, admin: unixAdmin, engineDir: '/state/engine', manual: [], routes })
+  }
+
+  it('reports both ports for a TLS route', () => {
+    const ports = boundPorts(rendered([{ host: 'a.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }]))
+    expect(ports.sort((a, b) => a - b)).toEqual([18080, 18443])
+  })
+
+  it('reports only the cleartext port for a tls: off table', () => {
+    // No HTTPS listener is rendered, so claiming that port would admit a stranger standing on it.
+    expect(boundPorts(rendered([{ host: 'a.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'off' }]))).toEqual([18080])
+  })
+
+  it('reports nothing when there is nothing to serve', () => {
+    expect(boundPorts(rendered([]))).toEqual([])
   })
 })

@@ -111,11 +111,6 @@ function acmeIssuers(acme: ProxyConfigInput['acme'], challenge: Record<string, u
 }
 
 /**
- * The one page shell both visitor-facing pages use. They are the same document with
- * different words, and the stylesheet has to stay identical — a page the engine serves
- * on a port a person reaches by hand is a page that has to look like this panel.
- */
-/**
  * HTML-escape a value interpolated into a page.
  *
  * The notice page interpolates a routed hostname — configuration, but a config file may be
@@ -131,6 +126,11 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;')
 }
 
+/**
+ * The one page shell both visitor-facing pages use. They are the same document with
+ * different words, and the stylesheet has to stay identical — a page the engine serves
+ * on a port a person reaches by hand is a page that has to look like this panel.
+ */
 function htmlPage(title: string, heading: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
@@ -250,6 +250,23 @@ function proxyHandler(route: ProxyUpstreamRoute): Record<string, unknown> {
 }
 
 /**
+ * The ports a rendered configuration listens on.
+ *
+ * The one derivation: `httpPort`/`httpsPort` are what was *asked for*, not what is bound — a
+ * `tls: 'off'`-only table binds no HTTPS listener, and a table with no servable route binds nothing.
+ * Both the applied record and the port preflight read this, so they cannot disagree.
+ */
+export function boundPorts(rendered: Record<string, unknown>): number[] {
+  const servers = (rendered.apps as { http?: { servers?: Record<string, { listen?: string[] }> } } | undefined)?.http?.servers
+  if (servers === undefined)
+    return []
+  return Object.values(servers)
+    .flatMap(server => server.listen ?? [])
+    .map(listen => Number.parseInt(listen.replace(/^.*:/, ''), 10))
+    .filter(port => Number.isInteger(port))
+}
+
+/**
  * The whole engine configuration, generated from the panel's route table.
  *
  * Two servers on purpose: one terminates TLS for the names that ask for it, the
@@ -257,22 +274,6 @@ function proxyHandler(route: ProxyUpstreamRoute): Record<string, unknown> {
  * an explicit redirect. Caddy's own redirect insertion is off so the redirect
  * carries our `httpsPort`, which is not necessarily 443.
  */
-/**
- * The ports this configuration actually binds.
- *
- * Not the same as `httpPort`/`httpsPort`: a config with only `tls: 'off'` routes binds no HTTPS
- * listener, and one with no routes binds nothing at all. Anything asking "is this port ours" has to
- * use this rather than the configured numbers, or it will claim a port nothing is listening on.
- */
-export function boundPorts(config: ProxyConfigInput['config'], routes: ProxyUpstreamRoute[]): number[] {
-  const ports: number[] = []
-  if (routes.some(route => route.tls !== 'off'))
-    ports.push(config.httpsPort)
-  if (routes.length > 0)
-    ports.push(config.httpPort)
-  return ports
-}
-
 export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unknown> {
   const { config, admin, engineDir, routes } = input
   const managed = routes.filter(route => route.tls !== 'off')

@@ -138,10 +138,16 @@ interface ResolvedRoute {
   message: string | null
 }
 
-/** The ports the engine actually bound, so a rejected reload cannot make the panel lie. */
+/**
+ * The ports the engine actually bound, so a rejected reload cannot make the panel lie.
+ *
+ * `null` means the document did not listen there — a `tls: 'off'`-only route table binds no HTTPS
+ * listener, and a route whose upstream is down binds nothing at all. Configured-but-unbound is not
+ * the same as bound, and treating it as bound admits a stranger standing on that port.
+ */
 const appliedRecordSchema = type({
-  httpPort: '1 <= number.integer <= 65535',
-  httpsPort: '1 <= number.integer <= 65535',
+  httpPort: '1 <= number.integer <= 65535 | null',
+  httpsPort: '1 <= number.integer <= 65535 | null',
   at: 'number',
 }).onUndeclaredKey('reject')
 
@@ -965,7 +971,7 @@ export class ProxyService {
     // or whose target is down renders no listener either, and a `load` the engine accepts would
     // take the site dark.
     const staged = this.render(new Set([route.id]))
-    if (this.boundPortsOf(staged).length === 0) {
+    if (boundPorts(staged).length === 0) {
       throw new DetailedError(
         `making the engine forget its certificate for "${route.host}" would leave nothing served — add another working route first`,
         { statusCode: 409, code: 'PROXY_CERT_RETRY_LAST_ROUTE' },
@@ -974,17 +980,6 @@ export class ProxyService {
     await this.loadIntoEngine(staged)
     this.forgetCertificates(route.host)
     await this.apply({ force: true })
-  }
-
-  /** The ports a rendered configuration listens on — read from the config, not recomputed. */
-  private boundPortsOf(rendered: Record<string, unknown>): number[] {
-    const servers = (rendered.apps as { http?: { servers?: Record<string, { listen?: string[] }> } } | undefined)?.http?.servers
-    if (servers === undefined)
-      return []
-    return Object.values(servers)
-      .flatMap(server => server.listen ?? [])
-      .map(listen => Number.parseInt(listen.replace(/^.*:/, ''), 10))
-      .filter(port => Number.isInteger(port))
   }
 
   /** Removes the engine's stored certificates for one name, and nothing else. */
@@ -1038,7 +1033,10 @@ export class ProxyService {
     // Only now is this the configuration: the file the engine boots from must never
     // hold a revision it refused.
     this.rememberConfig(text)
-    this.rememberApplied(this.config.httpPort, this.config.httpsPort)
+    // What the document actually listens on, not what was configured: a down upstream or a
+    // `tls: 'off'`-only table means some configured port is not bound.
+    const bound = boundPorts(rendered)
+    this.rememberApplied(bound.includes(this.config.httpPort) ? this.config.httpPort : null, bound.includes(this.config.httpsPort) ? this.config.httpsPort : null)
     // The reload is also what makes the engine forget a name it no longer serves, so
     // this is the moment its stored certificate for that name is safe to drop.
     const swept = this.sweepUnroutedCertificates()
@@ -1124,18 +1122,18 @@ export class ProxyService {
     writeFileAtomic(this.options.configPath, text, { mode: 0o600 })
   }
 
-  /** The ports the engine last bound. */
-  private readApplied(): { httpPort: number, httpsPort: number } | null {
+  /** The ports the engine last bound — `null` for a configured port the document did not bind. */
+  private readApplied(): { httpPort: number | null, httpsPort: number | null } | null {
     try {
       const parsed = appliedRecordSchema(JSON.parse(fs.readFileSync(path.join(this.options.stateDir, 'applied.json'), 'utf8')))
-      return parsed instanceof type.errors ? null : { httpPort: parsed.httpPort, httpsPort: parsed.httpsPort }
+      return parsed instanceof type.errors ? null : { httpPort: parsed.httpPort ?? null, httpsPort: parsed.httpsPort ?? null }
     }
     catch {
       return null
     }
   }
 
-  private rememberApplied(httpPort: number, httpsPort: number): void {
+  private rememberApplied(httpPort: number | null, httpsPort: number | null): void {
     writeFileAtomic(path.join(this.options.stateDir, 'applied.json'), `${JSON.stringify({ httpPort, httpsPort, at: Date.now() })}\n`, { mode: 0o600 })
   }
 
@@ -1800,8 +1798,11 @@ export class ProxyService {
   private async assertPortsFree(httpPort: number, httpsPort: number): Promise<void> {
     const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
     const live = state !== null && await nannyIsAlive(state, PROXY_ID)
-    // The same routes `render()` will emit, so "does this config bind the port" cannot drift.
-    const binds = new Set(boundPorts(this.config, this.engineRoutes()))
+    // What the engine is actually listening on, per the record written when it last applied. NOT
+    // `engineRoutes()`: that drops every route whose upstream is down, so a stopped supervised
+    // server would empty the set and freeze the config — the original bug in a narrower case.
+    const applied = this.readApplied()
+    const binds = new Set([applied?.httpPort ?? null, applied?.httpsPort ?? null].filter((port): port is number => port !== null))
     const enginePids = state === null ? [] : [state.nannyPid, state.childPid].filter((pid): pid is number => pid !== null)
 
     for (const port of [httpPort, httpsPort]) {
@@ -1841,8 +1842,13 @@ export class ProxyService {
     const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
     // The engine's own ports are accepted before this is reached, so a port landing here is *not*
     // the engine — say only what is known: the socket cannot be inspected.
-    if (state !== null)
-      return ` — the listener cannot be identified by this user (a process carrying cap_net_bind_service is non-dumpable), and the panel's engine binds :${boundPorts(this.config, this.engineRoutes()).join('/')}, not this port`
+    if (state !== null) {
+      const applied = this.readApplied()
+      const bound = [applied?.httpPort ?? null, applied?.httpsPort ?? null].filter((port): port is number => port !== null)
+      return bound.length === 0
+        ? ' — the listener cannot be identified by this user (a process carrying cap_net_bind_service is non-dumpable), and the engine has no applied ports to match it against'
+        : ` — the listener cannot be identified by this user (a process carrying cap_net_bind_service is non-dumpable), and the panel's engine binds :${bound.join('/')}, not this port`
+    }
     return ' — the socket cannot be inspected by this user, so the holder cannot be named'
   }
 

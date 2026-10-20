@@ -1489,9 +1489,45 @@ describe('the port preflight and its own engine', () => {
         httpsPort: listener.port,
         routes: [{ id: 'r', host: 'r.example.com', target: 'external', url: 'http://127.0.0.1:4000' }],
       })
+      // The applied record is what the engine is actually bound to — the preflight's witness.
+      fs.mkdirSync(options.stateDir, { recursive: true })
+      fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: listener.port, httpsPort: listener.port, at: Date.now() }))
 
       // The listener is a stranger to this process's `lsof`, so the holder list is empty —
       // exactly the shape that used to throw.
+      await expect(preflight(service, listener.port, listener.port)).resolves.toBeUndefined()
+    }
+    finally {
+      await listener.close()
+    }
+  })
+
+  /**
+   * A stopped supervised server must not freeze the whole proxy config.
+   *
+   * `engineRoutes()` drops every route whose upstream is `no-upstream`, and a stopped entry
+   * resolves exactly that way. Deriving "which ports do we bind" from it made the set empty, so
+   * every re-apply threw PROXY_PORT_IN_USE against the panel's own healthy engine — the original
+   * bug again, triggered by stopping one server. The applied record is what the engine is actually
+   * listening on, and it does not consult upstream health.
+   */
+  it('passes while the only route points at a stopped server', async () => {
+    const { service, options, settings } = await harness({
+      resolveServer: () => ({ url: null, message: 'blog is not running' }),
+    })
+    const listener = await busyPort()
+    try {
+      liveState(options)
+      settings.updateProxy({
+        enabled: true,
+        httpPort: listener.port,
+        httpsPort: listener.port,
+        routes: [{ id: 'blog', host: 'blog.example.com', target: 'server', workspace: 'default', server: 'blog' }],
+      })
+      // The engine applied these ports while the server was up; the server is down now.
+      fs.mkdirSync(options.stateDir, { recursive: true })
+      fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: listener.port, httpsPort: listener.port, at: Date.now() }))
+
       await expect(preflight(service, listener.port, listener.port)).resolves.toBeUndefined()
     }
     finally {
@@ -1516,8 +1552,9 @@ describe('the port preflight and its own engine', () => {
         httpsPort: stranger.port,
         routes: [{ id: 'r', host: 'r.example.com', target: 'external', url: 'http://127.0.0.1:4000', tls: 'off' }],
       })
+      // The record says the HTTPS port was NOT bound: nothing listens there.
       fs.mkdirSync(options.stateDir, { recursive: true })
-      fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: 18080, httpsPort: stranger.port, at: Date.now() }))
+      fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: 18080, httpsPort: null, at: Date.now() }))
 
       await expect(preflight(service, 18080, stranger.port)).rejects.toMatchObject({ code: 'PROXY_PORT_IN_USE' })
     }
