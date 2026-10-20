@@ -115,6 +115,22 @@ function acmeIssuers(acme: ProxyConfigInput['acme'], challenge: Record<string, u
  * different words, and the stylesheet has to stay identical — a page the engine serves
  * on a port a person reaches by hand is a page that has to look like this panel.
  */
+/**
+ * HTML-escape a value interpolated into a page.
+ *
+ * The notice page interpolates a routed hostname — configuration, but a config file may be
+ * hand-edited, so it is not trusted markup. Escaped here rather than left to the engine's
+ * authority parser, so correct encoding does not depend on what sits in front of it.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function htmlPage(title: string, heading: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
@@ -144,8 +160,8 @@ function notConfiguredPage(): string {
   return htmlPage(
     'No route for this hostname',
     'This route is not configured for any target yet',
-    `  <p>No route in <strong>home-hosted</strong>'s reverse proxy claims the hostname
-  <code>{http.request.host}</code>, so there is nothing here to serve.</p>
+    `  <p>No route in <strong>home-hosted</strong>'s reverse proxy claims the hostname you
+  reached, so there is nothing here to serve.</p>
   <p>Add a route for it under <strong>Others → Reverse Proxy</strong>, or check that you
   reached the hostname you meant to.</p>
   <footer>home-hosted reverse proxy</footer>`,
@@ -158,7 +174,11 @@ function notConfiguredRoute(): Record<string, unknown> {
     handle: [{
       handler: 'static_response',
       status_code: 404,
-      headers: { 'content-type': ['text/html; charset=utf-8'] },
+      headers: {
+        'content-type': ['text/html; charset=utf-8'],
+        'cache-control': ['no-store'],
+        'vary': ['Host'],
+      },
       body: notConfiguredPage(),
     }],
   }
@@ -166,15 +186,16 @@ function notConfiguredRoute(): Record<string, unknown> {
 
 /** The page a visitor gets when a name has no certificate yet and HTTPS cannot work. */
 function noticePage(host: string, httpPort: number, httpsPort: number): string {
+  const safeHost = escapeHtml(host)
   return htmlPage(
-    `Certificate not ready — ${host}`,
-    `No certificate yet for ${host}`,
+    escapeHtml(`Certificate not ready — ${host}`),
+    escapeHtml(`No certificate yet for ${host}`),
     `  <p>This hostname is routed, but the certificate authority has not issued a certificate
   for it yet, so HTTPS cannot complete a handshake. The engine keeps trying in the
   background and will serve the name as soon as it succeeds.</p>
   <p>The usual cause is that the CA cannot reach this machine: with the proxy on
   <code>${httpPort}</code>/<code>${httpsPort}</code>, forward <code>80 → ${httpPort}</code>
-  and <code>443 → ${httpsPort}</code> on your router. Otherwise <code>http://${host}</code>
+  and <code>443 → ${httpsPort}</code> on your router. Otherwise <code>http://${safeHost}</code>
   will keep landing here.</p>
   <footer>Details, and the engine's own reason, are in the panel: Others → Reverse Proxy.</footer>`,
   )
@@ -281,7 +302,11 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
           handle: [{
             handler: 'static_response',
             status_code: 503,
-            headers: { 'content-type': ['text/html; charset=utf-8'] },
+            headers: {
+              'content-type': ['text/html; charset=utf-8'],
+              'cache-control': ['no-store'],
+              'vary': ['Host'],
+            },
             body: noticePage(host, config.httpPort, config.httpsPort),
           }],
         })),

@@ -16,6 +16,13 @@ line in `AGENTS.md` instead.
   picked up the *next* one's contents — `global group 'defaults'` failing against the global keys list.
   Linux CI passed; only the platform gate caught it. Normalize (`replaceAll('\r\n', '\n')`) **and throw
   when the boundary is missing**, because silent bleed is the failure mode.
+- **A file capability makes a process non-dumpable, so attribution tools see nothing.** An engine
+  told to `setcap cap_net_bind_service` (what `docs/REVERSE_PROXY.md` instructs to bind :80) has
+  `/proc/<pid>/environ` and `/proc/<pid>/fd` owned by root, so `lsof`/`fuser` return an empty list
+  for the port it is serving on and `processCarriesServerId` answers false — the witness the *nanny*
+  path relies on. An empty holder list is not a free port, and the panel's own engine is the
+  likeliest invisible holder. Identify it from records the panel wrote (the ports last applied, the
+  nanny state's heartbeat), never from the process table.
 - **A basename is not an identity.** `sameWord` compares two spellings of the same file, and it fell
   back to `path.basename` on **both** sides — so `/tmp/evil/server.js` matched `/srv/web/server.js`,
   the exact guarantee the comment above it claimed to make. A false match here is not cosmetic:

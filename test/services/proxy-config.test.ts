@@ -520,3 +520,67 @@ describe('proxy route schema', () => {
     })
   })
 })
+
+/**
+ * The pages the engine serves are per-host and contain values this panel did not author.
+ *
+ * The 404 used to echo `{http.request.host}` — substituted by the engine at request time, so it
+ * cannot be escaped from here. Not echoing it removes the encoding question entirely. The notice
+ * page echoes a routed hostname, which comes from a config file a person may hand-edit, so it is
+ * escaped. Neither page may be cached or reused across hosts.
+ */
+describe('the generated pages', () => {
+  /** The catch-all 404, and the 503 notice for a name whose certificate is not ready yet. */
+  function pages(host: string) {
+    const rendered = render({
+      config: { httpPort: 80, httpsPort: 443, routes: [] } as unknown as ProxyConfigInput['config'],
+      admin: { kind: 'unix', path: '/tmp/x.sock' },
+      engineDir: '/tmp/engine',
+      manual: [],
+      routes: [{ host, path: '', dial: '127.0.0.1:4000', upstreamTls: false, tls: 'auto', certificateReady: false }],
+    }) as { apps: { http: { servers: Record<string, { routes: Array<{ handle: Array<Record<string, unknown>> }> }> } } }
+    const bodies: string[] = []
+    for (const server of Object.values(rendered.apps.http.servers)) {
+      for (const route of server.routes) {
+        for (const handler of route.handle ?? []) {
+          if (typeof handler.body === 'string')
+            bodies.push(handler.body)
+        }
+      }
+    }
+    return { bodies, rendered }
+  }
+
+  it('never echoes the request host into the catch-all page', () => {
+    const { bodies } = pages('a.example.com')
+    expect(bodies.some(body => body.includes('{http.request.host}') && body.includes('<p>No route'))).toBe(false)
+  })
+
+  it('escapes a routed hostname before putting it in the page', () => {
+    // A config file is editable by hand, so the hostname is not trusted markup.
+    const { bodies } = pages('bad.example"><script>alert(1)</script>')
+    const notice = bodies.find(body => body.includes('No certificate yet'))
+    expect(notice, 'the notice page must be generated').toBeDefined()
+    expect(notice).not.toContain('<script>')
+    expect(notice).toContain('&lt;script&gt;')
+  })
+
+  it('marks both pages uncacheable and per-host', () => {
+    const { rendered } = pages('a.example.com')
+    const responses: Array<Record<string, unknown>> = []
+    for (const server of Object.values(rendered.apps.http.servers)) {
+      for (const route of server.routes) {
+        for (const handler of route.handle ?? []) {
+          if (handler.handler === 'static_response' && (handler.status_code === 404 || handler.status_code === 503))
+            responses.push(handler)
+        }
+      }
+    }
+    expect(responses.length).toBeGreaterThan(0)
+    for (const response of responses) {
+      const headers = response.headers as Record<string, string[]>
+      expect(headers['cache-control']).toEqual(['no-store'])
+      expect(headers.vary).toEqual(['Host'])
+    }
+  })
+})

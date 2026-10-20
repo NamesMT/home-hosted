@@ -51,9 +51,17 @@ sudo setcap 'cap_net_bind_service=+ep' "$HHOSTED_HOME/.hh/.proxy/bin/hh-caddy"
 ```
 
 Otherwise use **4480/4443** — one click in the page, or `httpPort`/`httpsPort` — and
-forward `80 → 4480` and `443 → 4443` on your router. A port already in use is reported with
-the pid that holds it, on a first start and on a later change alike, and no listener the
-panel did not start is ever killed.
+forward `80 → 4480` and `443 → 4443` on your router.
+
+A port a *stranger* holds is refused before anything is started, and no listener the panel did not
+start is ever killed. The engine's own ports are not a conflict: once it is running, a settings edit
+re-applies to the engine already bound to them.
+
+One limit worth knowing: a process carrying a file capability (the `setcap` above) is
+**non-dumpable**, so the panel cannot see the socket it holds — `lsof` and the OS report nothing.
+The panel identifies its own engine from the records it wrote (the ports it last applied, plus the
+engine's live nanny state) rather than from the process table, and says so when it refuses a port it
+cannot attribute. A stranger holding a capped process's ports is reported without a pid.
 
 ## Routes
 
