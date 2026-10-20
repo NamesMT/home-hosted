@@ -58,6 +58,8 @@ export const SERVER_PRESETS: ServerPreset[] = [
     nameKey: 'presets.minecraft',
     descriptionKey: 'presets.minecraftHint',
     command: 'java',
+    // No `{port}`: the vanilla server takes its port from `server.properties`, not from argv, so a
+    // port argument here would be silently ignored. The entry's port is what the panel probes.
     args: ['-Xmx2G', '-jar', 'server.jar', 'nogui'],
     port: 25565,
     autostart: true,
@@ -68,6 +70,8 @@ export const SERVER_PRESETS: ServerPreset[] = [
     nameKey: 'presets.jellyfin',
     descriptionKey: 'presets.jellyfinHint',
     command: 'jellyfin',
+    // No port argument: Jellyfin's HTTP port lives in its own `network.xml` and is changed in its
+    // web UI. The entry's port is only what the panel probes.
     args: [],
     port: 8096,
     autostart: true,
@@ -78,17 +82,20 @@ export const SERVER_PRESETS: ServerPreset[] = [
     nameKey: 'presets.node',
     descriptionKey: 'presets.nodeHint',
     command: 'node',
+    // The app reads `PORT`, which is the convention every Node server follows; `{port}` is what
+    // makes the form's port field actually mean something to the process.
     args: ['server.js'],
     port: 3000,
     autostart: true,
     label: 'Node app',
+    env: ['PORT={port}'],
   },
   {
     id: 'python',
     nameKey: 'presets.python',
     descriptionKey: 'presets.pythonHint',
     command: 'python',
-    args: ['-m', 'http.server', '8000'],
+    args: ['-m', 'http.server', '{port}'],
     port: 8000,
     autostart: false,
     label: 'Python server',
@@ -104,14 +111,17 @@ export const SERVER_PRESETS: ServerPreset[] = [
     port: 3000,
     autostart: true,
     label: 'Gitea (rootless)',
-    env: ['GITEA_WORK_DIR=./data', 'GITEA__server__HTTP_PORT=3000', 'GITEA__server__SSH_PORT=2222', 'GITEA__server__START_SSH_SERVER=true'],
+    // The web port follows the form (`{port}`); templates are plain substitution with no
+    // arithmetic, so the SSH port stays a fixed 2222 — a second Gitea on another web port would
+    // still collide there, and the form cannot express "web + 1".
+    env: ['GITEA_WORK_DIR=./data', 'GITEA__server__HTTP_PORT={port}', 'GITEA__server__SSH_PORT=2222', 'GITEA__server__START_SSH_SERVER=true'],
   },
   {
     id: 'mongodb',
     nameKey: 'presets.mongodb',
     descriptionKey: 'presets.mongodbHint',
     command: 'mongod',
-    args: ['--dbpath', './data'],
+    args: ['--dbpath', './data', '--port', '{port}'],
     port: 27017,
     autostart: true,
     label: 'MongoDB',

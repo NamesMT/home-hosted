@@ -84,7 +84,54 @@ describe('server presets', () => {
     expect(form.env.split('\n')).toEqual(gitea!.env)
     // …and the payload the route receives is the parsed record, not the text block.
     const payload = addServerPayload(form, DEFAULTS)
-    expect(payload.env).toMatchObject({ GITEA__server__HTTP_PORT: '3000' })
+    // The value is the *placeholder*, which the supervisor substitutes at spawn time — this test
+    // originally pinned the literal `3000`, codifying the very bug it now guards against.
+    expect(payload.env).toMatchObject({ GITEA__server__HTTP_PORT: '{port}' })
+  })
+
+  /**
+   * A preset's port must come from the form, not be typed twice.
+   *
+   * The first Gitea preset hardcoded `HTTP_PORT=3000` while the entry declared port 3000. Change
+   * the port in the form and the panel probes 3001 while Gitea still listens on 3000 — a "failing"
+   * health check with no visible cause. `{port}` is the placeholder that makes the two agree, and
+   * the supervisor resolves it in `env` as well as in `args`.
+   */
+  it('never hardcodes the port a preset also declares', () => {
+    const offenders: string[] = []
+    for (const preset of SERVER_PRESETS) {
+      if (preset.port === null)
+        continue
+      const declared = String(preset.port)
+      for (const line of preset.env ?? []) {
+        const [key, value] = line.split('=')
+        // A port-ish env var carrying the literal default instead of `{port}` pins it.
+        if (/PORT/i.test(key ?? '') && value === declared)
+          offenders.push(`${preset.id}: ${line}`)
+      }
+      for (const arg of preset.args) {
+        if (arg === declared)
+          offenders.push(`${preset.id}: arg "${arg}" should be {port}`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('passes {port} through to whatever carries the port', () => {
+    const byId = new Map(SERVER_PRESETS.map(preset => [preset.id, preset]))
+
+    // Where the program takes a port argument, the placeholder is in the args.
+    expect(byId.get('python')!.args).toContain('{port}')
+    expect(byId.get('mongodb')!.args).toContain('{port}')
+
+    // Where it takes the port from its environment, the placeholder is in the env.
+    expect(byId.get('gitea')!.env).toContain('GITEA__server__HTTP_PORT={port}')
+    expect(byId.get('node')!.env).toContain('PORT={port}')
+
+    // And where the program owns its port (a properties/xml file), there is deliberately none —
+    // asserted so the omission reads as a decision rather than an oversight.
+    expect(byId.get('minecraft')!.args.join(' ')).not.toContain('{port}')
+    expect(byId.get('jellyfin')!.args.join(' ')).not.toContain('{port}')
   })
 
   it('offers the three that were asked for, and no Plex', () => {
