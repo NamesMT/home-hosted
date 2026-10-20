@@ -115,10 +115,9 @@ Seven more modules, each created because the same code existed twice — the cla
 **The rule for what belongs here, and what does not.** A module moves in when its dependencies already
 resolve within `src/shared/`; it stays out when it would import *upward*. `rpc.ts` needs `AppType` from
 `src/app.ts`, so it stays duplicated in each UI, and the same reasoning keeps the `ddns`/`proxy` helpers
-where they are — they use Vue's `toRaw`. `formatBytes` and `formatDateTime` also stay
-per-UI on purpose: their signatures and unit thresholds genuinely differ between the two products
-(`formatBytes` is `number` in one and `number | null` in the other), which is a distinction worth
-keeping rather than collapsing for tidiness.
+where they are — they use Vue's `toRaw`. `formatBytes` and `formatDateTime` also stay per-UI: their
+signatures and unit thresholds genuinely differ between the two products (`formatBytes` is `number` in
+one and `number | null` in the other), a distinction worth keeping rather than collapsing for tidiness.
 
 **`api-client.ts` carries its own tests, and had to.** The UIs exercised those calls *through the UI*,
 so the move left the module at 25% and dropped `src/shared` below its 95% floor. **Moving code means

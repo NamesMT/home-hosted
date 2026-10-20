@@ -422,6 +422,11 @@ export class Supervisor {
       // back on every attempt — the endless loop this budget exists to stop.
       if (entry.actor !== 'policy')
         entry.healthRestarts = 0
+      // Same rule for the owed outcome: a restart the panel forced is announced by the panel. A
+      // start someone asked for is a new sequence, so an outcome left over from a restart that a
+      // manual stop cut short would credit a recovery that never happened.
+      if (entry.actor !== 'policy')
+        entry.pendingRestart = null
       entry.healthFailures = 0
       entry.unhealthySince = null
       // A start someone asked for ends the previous crash sequence, so the reset has
@@ -487,7 +492,13 @@ export class Supervisor {
   }
 
   async restart(id: string, options: { actor?: HistoryActor } = {}): Promise<StartResult> {
+    // A force restart is announced before it happens and its outcome is owed, so the internal stop
+    // below must not discard it. A *user's* restart is a new sequence, and `start()` clears it.
+    const owed = this.entries.get(id)?.pendingRestart ?? null
     await this.stop(id)
+    const entry = this.entries.get(id)
+    if (entry !== undefined && owed !== null && entry.pendingRestart === null)
+      entry.pendingRestart = owed
     return this.start(id, options)
   }
 
@@ -1081,7 +1092,7 @@ export class Supervisor {
       ? ` — pid ${own} is a detached restart of this entry: set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a supervised process, or "kill" to stop whatever holds the port`
       : docker === null
         ? ''
-        : ` — the panel cannot signal it, because that socket belongs to root; run \`docker compose down\` in that stack first`
+        : ` — it is published by a docker container, which \`kill\` stops through docker; \`block\` and \`warn\` leave it alone`
 
     // `follow` and `reclaim` refine `block`: never a stranger's port.
     if (entry.config.onPortConflict !== 'warn') {

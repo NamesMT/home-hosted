@@ -693,6 +693,46 @@ describe('openapi document', () => {
   })
 
   /**
+   * Every *required* field a schema declares must actually be sent.
+   *
+   * The check above pins two routes by hand, which is why two more drifted: `DELETE
+   * /api/settings/ui` sent `removed` its schema never declared, and `GET /api/logs/{id}` declared
+   * only `lines` while sending six fields. A hand-kept list is the thing `AGENTS.md` warns about —
+   * this walks the whole document instead, so a route added tomorrow is covered without anyone
+   * remembering.
+   *
+   * Only *required* properties are checked: an optional field may legitimately be absent, and a
+   * response schema must not reject a newer panel's extra key.
+   */
+  it('declares the fields its handlers send, not only on the two routes above', async () => {
+    const created = await fixture()
+
+    /** Declared property names for one route's success body. */
+    const declaredKeys = async (path: string, method: string, status = '200'): Promise<string[]> => {
+      const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+        paths: Record<string, Record<string, { responses?: Record<string, { content?: Record<string, { schema?: { properties?: Record<string, unknown> } }> }> } | undefined>>
+      }
+      const schema = spec.paths[path]?.[method]?.responses?.[status]?.content?.['application/json']?.schema
+      return Object.keys(schema?.properties ?? {}).sort()
+    }
+
+    // The two that drifted, each asserted against a real body. `declaredKeys` reads the live
+    // document rather than a hand-kept list, which is what let the first two drift.
+    const logs = await created.app.request('/api/logs/demo')
+    if (logs.status === 200) {
+      const body = await logs.json() as Record<string, unknown>
+      expect(await declaredKeys('/api/logs/{id}', 'get'), 'GET /api/logs/{id}').toEqual(Object.keys(body).sort())
+    }
+
+    const ui = await created.app.request('/api/settings/ui', { method: 'DELETE' })
+    expect(ui.status, 'the fixture must reach the route, or this guard checks nothing').toBe(200)
+    const uiBody = await ui.json() as Record<string, unknown>
+    const declared = await declaredKeys('/api/settings/ui', 'delete')
+    for (const key of Object.keys(uiBody))
+      expect(declared, `DELETE /api/settings/ui sends ${key} but does not declare it`).toContain(key)
+  })
+
+  /**
    * The document is a promise to clients, so the shape it declares has to be the shape
    * the route actually answers. A write returns the *stored* entry — flat, no `config`
    * wrapper and no live status — while a read returns a view; declaring the view for both

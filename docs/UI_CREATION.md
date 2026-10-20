@@ -64,9 +64,9 @@ With those set, `home-hosted ui-update` lists the releases carrying your `asset`
 you pick; `--old` lists older ones. A version bump in your own repo is enough — nothing about the
 panel is involved.
 
-> **Official UIs** (`repo: NamesMT/home-hosted`) are paired with the panel instead: the panel knows
-> its own release, so `home-hosted ui-update` installs the matching tag without asking, and
-> upgrading the panel re-pairs the UI on the next `up`.
+> **Official UIs** (`repo: NamesMT/home-hosted`) follow the panel instead: the panel knows its own
+> release, so `home-hosted ui-update` installs the matching version without asking, and upgrading the
+> panel switches the UI to the matching version on the next `up`.
 
 Nothing is built on the server side: whatever you upload is served as-is, so ship plain
 HTML/JS/CSS or the output of your own Vite/Next/Astro build with relative asset paths.
@@ -142,12 +142,12 @@ naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fall
 | `POST` / `DELETE /api/settings/ui` | install or revert a UI — what Global settings calls |
 | `POST` / `DELETE /api/settings/tls` | upload or clear a PEM pair |
 | `GET` / `PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `PUT` / `DELETE /api/proxy/certificates/:id`, `POST /api/proxy/routes/:id/retry-certificate` | the panel-wide reverse proxy: engine, route table, its uploaded PEM pairs. Its live view also rides in the state frame as an optional `proxy` — read it defensively |
-| `GET` / `POST /api/backups`, `/api/backups/restore`, `/api/backups/:name/download` | archives; entries are global (`global:settings`, `global:secrets`, `global:tls`) or per workspace, whose leaves are `workspace:<id>:settings`, `:servers`, `:secrets` plus `data:<path>`; a create/restore body `include` selects them |
+| `GET` / `POST /api/backups`, `/api/backups/restore`, `/api/backups/:name/download` | archives; entries are global (`global:settings`, `global:secrets`, `global:tls`) or per workspace, whose leaves are `workspace:<id>:{settings,servers,secrets,data:<path>}`; a create/restore body `include` selects them |
 | `POST` / `DELETE /api/auth/password` | set the panel password, or clear it and disable auth. `POST` needs the current one unless none is set; an empty password is refused |
-| `POST` / `DELETE /api/notifications/token`, `/api/notifications/test`, `/detect-chats` | Telegram, per workspace |
+| `PUT` / `DELETE /api/notifications/destinations/:id/token`, `POST /api/notifications/destinations/:id/{test,detect-chats}`, `POST /api/notifications/test-webhook` | one destination's bot credential and a test send, per workspace |
 | `GET` / `PUT /api/ddns`, `PUT` / `DELETE /api/ddns/credentials/:id`, `POST /api/ddns/check` | dynamic DNS, per workspace: the policy plus live per-record state, one account's sealed credentials (write-only — the view exposes ids and whether each is set, never the values), and a pass run now |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | the session |
-| `GET /healthz` | liveness — **no session**, and `503` when an autostart server has crashed or a running one is failing its health check |
+| `GET /healthz` | liveness — **no session**, and `503` when a server has crashed or a running one is failing its health check |
 | `GET /api/metrics` | Prometheus text (needs a session) |
 
 `GET /healthz` and `GET /openapi/*` are the only unauthenticated reads; the SPA shell itself is

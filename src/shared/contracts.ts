@@ -1778,6 +1778,8 @@ export const uiInstallResponseSchema = type({
   'ok': 'boolean',
   'meta?': uiStatusSchema.get('meta'),
   'ui': uiStatusSchema,
+  /** Revert only: whether there was a custom UI to remove. */
+  'removed?': 'boolean',
 })
 
 /** A backup was created: the new archive and the list it belongs to. */
@@ -1788,6 +1790,13 @@ export const backupCreatedResponseSchema = type({
 
 /** Buffered or persisted log lines, the shape every log-reading route returns. */
 export const logLinesResponseSchema = type({
+  serverId: 'string',
+  enabled: 'boolean',
+  sizeBytes: 'number',
+  /** The rotated files this entry has, newest first. */
+  files: 'string[]',
+  /** The whole search window, or null when the request carried no `search`. */
+  searched: logLineSchema.array().or(type('null')),
   lines: logLineSchema.array(),
 })
 

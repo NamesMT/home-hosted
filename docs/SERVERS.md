@@ -57,7 +57,7 @@ platform cannot confirm is exactly what the rest of this file refuses to signal 
 
 | field | what it does |
 | --- | --- |
-| `command`, `args`, `cwd` | what to run, with `{placeholders}` resolved per entry |
+| `command`, `args`, `cwd` | what to run. `{placeholders}` resolve in `args` only (`env`, `dataEnvs`, `backupPaths` and `bootstrap.args` too); `command`, `cwd` and `envFile` are used literally, so `cwd: "~/app"` is not a home directory |
 | `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config |
 | `enabled` | `true` (default) starts it; `false` keeps the entry in the config but refuses to start it, stops it if it is running, and leaves a disabled `persistent` entry unattached at boot |
 | `port`, `bind` | enables the readiness wait, health checks and the conflict preflight; `local` keeps it on `127.0.0.1` |
@@ -65,7 +65,7 @@ platform cannot confirm is exactly what the rest of this file refuses to signal 
 | `persistent` | run it under its own nanny so it survives the panel — see below |
 | `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body — a `HEAD` carries no body, so it is warned about and the body check is skipped) |
 | `health.http.scheme`, `health.http.allowInvalidCert` | `http` (default) or `https` for a backend that serves TLS itself; the second accepts a self-signed certificate, which is the usual case on a home network. A certificate is verified unless you say otherwise |
-| `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway — bounded by `restart.maxRetries`, after which the entry is `crashed` rather than restarted forever |
+| `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway — bounded by `restart.maxRetries`, after which the entry is stopped rather than restarted forever, with the reason left on its card |
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` — the spent budget is remembered on disk, so a crash loop cannot outlast `maxRetries` by outliving the panel |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
 | `dependsOn` | ids that must be healthy first. `stop-all`/`down` stop dependents before their dependencies; stopping **one** server does not cascade — the log names any dependent it left running |
@@ -127,16 +127,17 @@ the entry and a stop takes the stack down. Set `port` to the port the compose fi
 published port is the health probe.
 
 ```json
-{ "id": "blog", "command": "docker", "args": ["compose", "up"], "cwd": "~/srv/blog", "port": 8080 }
+{ "id": "blog", "command": "docker", "args": ["compose", "up"], "cwd": "./blog", "port": 8080 }
 ```
 
 `docker compose up -d` is not an entry: it exits as soon as the containers start, so there is nothing
 left to supervise, and the entry backs off against the stack it just started. Drop the `-d`.
 
 A published port belongs to a root-owned `docker-proxy`, so it has no pid this process may signal.
-The panel asks docker instead and stops the container through it, which needs no extra privileges:
-`free-port` and `onPortConflict: kill` both clear a docker-held port the same way they clear any
-other. Nothing is left for you to run by hand.
+The panel asks docker instead and names the container. Both ways of freeing a port — the **Free
+port** button (or `free-port`) and `onPortConflict: kill` — then stop that container through docker,
+needing no privileges beyond the socket you already have. Under `block` the entry is reported and the
+message names the stack to stop.
 
 ### When a program restarts itself
 

@@ -31,7 +31,7 @@ line in `AGENTS.md` instead.
   config says `node`, the process table says `/usr/bin/node`); it must not apply when both name a
   directory.
 - `vite.server.config.ts` targets `node22` while `engines` requires >= 24 — deliberate margin.
-- **A bounded read must stay bounded.** `readLog` (`providers/log-tail.ts`) answers `logs --lines N`
+- **A bounded read must stay bounded.** `readLog` (`helpers/daemon-log.ts`) answers `logs --lines N`
   from the tail of the file, so peak allocation does not scale with a 10 MB pair; the test asserts
   that shape rather than a wall-clock number, which would be flaky on CI.
 - **`pnpm run media` needs a browser that `pnpm install` does not fetch, plus fonts and the

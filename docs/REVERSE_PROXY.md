@@ -54,8 +54,9 @@ Otherwise use **4480/4443** — one click in the page, or `httpPort`/`httpsPort`
 forward `80 → 4480` and `443 → 4443` on your router.
 
 A port a *stranger* holds is refused before anything is started, and no listener the panel did not
-start is ever killed. The engine's own ports are not a conflict: once it is running, a settings edit
-re-applies to the engine already bound to them.
+start is ever killed. The ports the engine actually bound are not a conflict: once it is running, a
+settings edit re-applies to the engine already listening on them. A configured port it did **not**
+bind — a `tls: "off"`-only route table binds no HTTPS listener — is not claimed on its behalf.
 
 One limit worth knowing: a process carrying a file capability (the `setcap` above) is
 **non-dumpable**, so the panel cannot see the socket it holds — `lsof` and the OS report nothing.
@@ -112,9 +113,11 @@ never gets its certificate.
 
 A name the CA will not issue for falls back to the engine's own CA. The route reads
 **Fell back to Local CA**: the name answers, but with an untrusted certificate, and the
-engine keeps trying on its own. certmagic renews once a third of a certificate's lifetime
-is left, and the engine's own CA issues 12 hours by default, so the next attempt is about
-**8 hours** away — no restart, no downtime.
+engine keeps trying on its own. The next attempt is about **8 hours** away — no restart,
+no downtime. The panel derives that wait from the certificate: certmagic renews once a
+third of the lifetime is left, so two thirds of it is the wait, and the engine's own CA
+issues 12 hours by default. The interval is read, never configured, so there is no knob to
+shorten it.
 
 **Force retry certificate** appears on that row only, and asks the CA again immediately.
 The engine is **not** restarted: a certificate the engine holds cannot be cleared by
@@ -122,19 +125,15 @@ deleting the file or by reloading the configuration, but it *is* released when t
 leaves the configuration — so the panel reloads without that one route, drops the stored
 pair while it is out, and puts the route back. Every other route keeps serving; the name
 itself has no certificate until the CA answers. It is not offered while a name is still
-*pending*, because there the engine is already mid-ACME. It is refused when removing that route would
-leave **nothing served** — it is the only working route, or every other one is disabled or has no
-upstream — because a configuration with no listeners takes the site dark. Add another working route
-first.
+*pending*, because there the engine is already mid-ACME. It is refused when removing that
+route would leave **nothing served** — it is the only working route, or every other one is
+disabled or has no upstream — because a configuration with no listeners takes the site
+dark. Add another working route first.
 
 A **removed** route has its stored certificate dropped on the next apply, so adding it
 back asks the CA instead of serving the old pair. A **disabled** route keeps its
 certificate: it is still configured, and switching it back on should not cost a new
 issuance.
-
-The panel derives that wait from the certificate itself: certmagic renews once a third of
-the lifetime is left, so two thirds of it is the wait — about 8 hours for the engine's own
-12-hour CA. The interval is read, never configured, so there is no knob to shorten it.
 
 A hostname **no route claims** gets a page saying so, on both ports — not a redirect into
 a handshake that cannot finish. A visitor with no hostname at all (a bare IP on the HTTPS

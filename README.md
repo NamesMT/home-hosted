@@ -84,7 +84,7 @@ environment you give it. A preset can fill that in for you, and you can change e
 
 <sub>Manage them from the panel, `home-hosted start|stop <id>` from a shell, `home-hosted status --json`,
 or `GET /api/state`; `GET /healthz` is the same status line for your own monitor, no session needed —
-`503` when an autostart server has crashed or a running one is failing its health check.</sub>
+`503` when a server has crashed or a running one is failing its health check.</sub>
 
 ---
 
@@ -154,6 +154,8 @@ state/.hh/*                             # secrets, logs, TLS keys and archives s
 !state/.hh/settings.json                 # …but the workspace definitions are committed
 !state/.hh/workspaces.json
 state/.hh/*/*
+!state/.hh/*/                           # git will not descend into an excluded directory,
+                                        #   so the directories must be un-ignored first
 !state/.hh/*/settings.json
 !state/.hh/*/servers.config.json
 data/                                   # per-server data directories, declared through dataEnvs
@@ -457,12 +459,13 @@ Everything binds `127.0.0.1` until you say otherwise.
   are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET` (default `hh` — set your own).
 - **Behind a proxy** pick how far to trust it, and let `cookieSecure: auto` add `Secure` on https — or
   upload a PEM pair and let home-hosted terminate TLS itself.
-  - **`loopback`** trusts `x-forwarded-*` only when the request really came from this machine. That is the
-    right choice for a proxy on the same host: the panel gets the real client address for its lockout and
-    the logs, and a forged header from anywhere else is ignored.
-  - **on** trusts the header from *any* peer. Only when the proxy is the only way in: the client address
-    then comes from the caller's own header, so the per-IP lockout counts per *forged* address and stops
-    throttling brute force. The panel warns at startup when that combination is exposed.
+  - **`loopback`** trusts `x-forwarded-*` only when the request came from this machine. Right for a
+    proxy on the same host: the panel gets the real client address for its lockout and the logs, and
+    a forged header from anywhere else is ignored.
+  - **on** trusts the header from *any* peer. Only when the proxy is the only way in: the client
+    address then comes from the caller's own header, so the per-IP lockout counts per *forged*
+    address and stops throttling brute force. The panel warns at startup when that combination is
+    exposed.
   - **off** ignores the header entirely. Use it when nothing sits in front, or when the proxy does not set
     one.
 
@@ -495,19 +498,19 @@ Provider tokens stay in the workspace's secrets file. **Providers and the config
 ## 💾 Backups
 
 **Global settings → Backups** archives the panel's own settings, its secrets and the TLS pair — plus
-every workspace you pick. It is two-level: the top of *Create backup…* lists the global items and
-each workspace; opening one lists its **settings**, **servers**, its **secrets** and every data
-directory its entries declare, and you can drop any single piece. Each secret has its own checkbox.
-*Restore…* shows the same list from an archive before anything is written. Either way it is an
-ordinary `.zip`, or WinZip AES-256 with a password, restored per path. Known build output and
-dependency directories (`node_modules`, `dist`, `.next`, framework caches) are skipped per entry;
-`backupIgnoreGenerated: false` captures them anyway.
+every workspace you pick. It is two-level: *Create backup…* lists the global items and each workspace;
+opening one lists its **settings**, **servers**, **secrets** and every data directory its entries
+declare, and you can drop any single piece. Each secret has its own checkbox. *Restore…* shows the
+same list from an archive before anything is written. Either way it is an ordinary `.zip`, or WinZip
+AES-256 with a password, restored per path. Build output and dependency directories (`node_modules`,
+`dist`, `.next`, framework caches) are skipped per entry; `backupIgnoreGenerated: false` captures them
+anyway.
 
-**Automatic backups** write one archive on a schedule you set — the page asks in hours; the config
-stores `intervalMs` — with a retention of its own (`Keep automatic`). The two counts are independent: `Keep` bounds the archives you take by hand,
-and a scheduled pass never prunes one of yours to make room for its own. Both live in the same
-directory, and an automatic archive is named `auto-…` so you can tell them apart — a name you drop
-in by hand with that prefix is treated as one, so do not use it.
+**Automatic backups** write one archive on a schedule you set — the page asks in hours, the config
+stores `intervalMs` — with a retention of its own (`Keep automatic`). The two counts are independent:
+`Keep` bounds the archives you take by hand, and a scheduled pass never prunes one of yours to make
+room for its own. Both land in the same directory, and an automatic archive is named `auto-…` so you
+can tell them apart — a name you drop in by hand with that prefix is treated as one, so do not use it.
 
 <details>
 <summary><b>🔑 Restoring a secret</b></summary>
@@ -523,7 +526,7 @@ Two things to know before restoring onto a machine already in use:
 
 - **The password hash and API token hash are secrets like any other.** Restoring them reinstates the
   old machine's password and long-lived token, so anyone holding that token keeps access. Leave them
-  unticked, or rotate afterwards with `pnpm run set-token --generate`.
+  unticked, or rotate afterwards with `home-hosted set-token --generate`.
 - **`HHOSTED_DDNS_SECRET` is not in the archive.** DDNS credentials travel sealed under it, so a host
   with a different value cannot open them. Supply the same secret, or re-enter the credentials.
 
@@ -560,7 +563,7 @@ not part of the restore, its data is reported as skipped rather than guessed at.
 | Data directories each entry declares | ✅ | Nothing — but see the consistency note below |
 | Telegram bots and chats, webhook targets | ✅ | Send a test from *Notifications* if the chat id came from another account |
 | DDNS hostnames and their accounts | ✅ | Credentials only open under the same `HHOSTED_DDNS_SECRET`; otherwise re-enter them |
-| Panel password and API token | ⬜ ticked per secret | Leave unticked, or rotate with `pnpm run set-token --generate` |
+| Panel password and API token | ⬜ ticked per secret | Leave unticked, or rotate with `home-hosted set-token --generate` |
 | Reverse-proxy routes | ✅ | Automatic HTTPS certificates are reissued by the engine on the new host. A pair **you uploaded** for a `tls: "manual"` route is not in the archive — re-upload it |
 | Reverse-proxy engine binary | ❌ | Installed again from *Global settings → Reverse proxy* |
 | Server logs, crash history, nanny state | ❌ | These describe the old box; the new one starts a fresh history |
@@ -604,7 +607,11 @@ Two ship in this repo: `uis/stock`, and `uis/noc-console` for TUI and shortcuts 
 attaches both as `home-hosted-ui-<name>.zip`. Yours can be anything that compiles to static files —
 the server never cares what built it.
 
-<sub>Install a UI from the CLI: `home-hosted ui-switch` `--asset noc-console` selects an UI directly, no flags interactively show official assets. Official UIs's version auto-sync when you update `home-hosted`. For unofficial UIs, `home-hosted ui-update` offers its newer releases to pick from — or `--old` for older (author must set up `ui.json` and GH releases).</sub>
+<sub>Install a UI from the CLI: `home-hosted ui-switch --asset noc-console` selects a UI directly, and
+with no flags it lists the official assets to pick from. An official UI is switched to the version
+that matches your panel when you update `home-hosted`. For unofficial UIs, `home-hosted ui-update`
+offers their newer releases — or `--old` for older ones (the author sets up `ui.json` and GitHub
+releases).</sub>
 
 <details>
 <summary><b>🤖 Or have an agent build the UI you actually want</b></summary>
@@ -625,8 +632,8 @@ specific:
 <details>
 <summary><b>The panel is up but something is wrong — where do I look?</b></summary>
 
-`home-hosted logs` prints the panel's own console output, which is where it reports what it is
-doing and anything it could not finish:
+`home-hosted logs` prints the panel's own console output — what it is doing, and anything it could
+not finish:
 
 ```bash
 home-hosted logs              # the last 50 lines
@@ -635,9 +642,8 @@ home-hosted logs --lines all  # the whole thing, including the rotation
 home-hosted logs --json       # { path, lines } — or one object per line with --follow
 ```
 
-It is the same file `status` names, and reading it needs no session or API token — a panel that
-is answering badly is exactly when you cannot get one. `up` prints the tail automatically when
-the panel fails to start.
+It reads the same file `status` names, and needs no session or API token — a panel answering badly is
+exactly when you cannot get one. `up` prints the tail when the panel fails to start.
 
 </details>
 
@@ -692,7 +698,7 @@ run.json                     the running panel (pid, url, token, mode 0600)
 <workspace>/servers.config.json  your servers, plus meta: which release and schema wrote it
 <workspace>/.secrets.json    Telegram token + DDNS credentials (mode 0600)
 <workspace>/.logs/           per-server logs: <id>.log, rotated to <id>.log.1 … (newest first)
-<workspace>/.state/          persistent entries' nanny state
+<workspace>/.state/          nanny state, the last detached child (<id>.run.json) and ddns.json
 ```
 
 `home-hosted status` prints the paths.
@@ -707,9 +713,9 @@ proxy is the one panel-wide listener, and only when you switch it on: `80`/`443`
 or `4480`/`4443` unprivileged with your router forwarding to them
 ([REVERSE_PROXY.md](./docs/REVERSE_PROXY.md#ports)).
 
-**If that port is taken, `up` names who holds it** — the pid and the command line, when the OS will
-tell it — rather than only reporting the number. A `follow` entry adopts the process that replaced it;
-an unrelated listener is never signalled
+**If that port is taken, `up` names the pid holding it** when the OS will say — rather than only
+reporting the number — and exits, so a second panel never starts beside the first. A `follow` entry
+adopts the process that replaced it; an unrelated listener is never signalled
 ([SERVERS.md](./docs/SERVERS.md#a-busy-port)).
 
 </details>
