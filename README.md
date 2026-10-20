@@ -75,8 +75,8 @@ command or a `docker compose` stack.
 | ❌ **"Move it to the new box"** | One archive: config **and** data, restored on a blank host |
 | ✅ **home-hosted** | Declare it once, watch it forever, one command to stop it all |
 
-It ships with **nothing**: no blessed paths, no opinion about what you run — a server is a command,
-some arguments, and the environment you give it:
+It ships with **no servers configured**: what you run is a command, some arguments, and the
+environment you give it. A preset can fill that in for you, and you can change every field after:
 
 ```json
 { "id": "gateway", "command": "node", "args": ["server.js"], "port": 4000, "autostart": true }
@@ -287,7 +287,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🌍 **Nine languages** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French, German — picked on the login page or in **Global settings → Language**, kept per browser. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
-| 🧩 **No special treatment** | A server is `command` + `args` + `env` + `cwd`; nothing is built in for any particular app. |
+| 🧩 **Bring any program** | A server is `command` + `args` + `env` + `cwd` — if it runs in a shell, it runs here. Presets fill the form in for common ones; nothing requires one. |
 | 🖥 **Cross-platform** | Linux, macOS and Windows: `/proc`, `ps` or Win32_Process, process groups or `taskkill /T`, no shell dependencies. |
 
 ---

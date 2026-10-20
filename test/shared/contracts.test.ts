@@ -317,7 +317,10 @@ describe('view contracts', () => {
 })
 
 /**
- * The control plane must stay server-agnostic: no blessed ids, no blessed paths.
+ * Core may not special-case a *server entry*: no blessed ids, no blessed paths.
+ *
+ * Infrastructure the panel owns (the proxy engine, docker, notification and DDNS providers) is not
+ * a server entry and is expected in `src/` — this only stops an entry from becoming a code path.
  *
  * Scans every source file rather than a hand-kept list: a list is exactly how this
  * rots — `src/providers/proc.ts` named a real server in a comment and stayed green

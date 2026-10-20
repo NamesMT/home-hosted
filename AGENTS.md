@@ -38,7 +38,7 @@ Where knowledge lives, and when to reach for each:
 | [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md) | the traps this codebase already paid for, with causes |
 | [`.agentDocs/COMPATIBILITY.md`](.agentDocs/COMPATIBILITY.md) | config and UI compatibility, migrations |
 | [`.agentDocs/RELEASING.md`](.agentDocs/RELEASING.md) | how a release is cut, and which version to dispatch |
-| [`docs/SERVERS.md`](docs/SERVERS.md) | entries, port conflicts, persistent entries |
+| [`docs/SERVERS.md`](docs/SERVERS.md) | entries, presets, port conflicts, persistent entries |
 | [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | notification destinations: Telegram, webhooks, shared defaults |
 | [`docs/DDNS.md`](docs/DDNS.md) | dynamic-DNS providers and hostnames |
 | [`docs/REVERSE_PROXY.md`](docs/REVERSE_PROXY.md) | the Caddy engine, routes, certificates |
@@ -116,10 +116,12 @@ workspace config guard, so a busy default port turns config tests red for the wr
 These prevent defects if broken. The *why* for the non-obvious ones is in
 [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 
-- **Server-agnostic core; UIs are clients.** No blessed ids, no `dataDir`-style globals: a server gets
-  only its own `command`/`args`/`env`/`dataEnvs`/`envFile`/`bootstrap`, and `#src/*` inside `src/` is
-  the only import form — UIs use `@shared/*` (and `@server` for types only). A test fails if a core
-  file learns one.
+- **A server gets only its own fields; UIs are clients.** No blessed ids and no `dataDir`-style
+  globals: an entry is `command`/`args`/`env`/`dataEnvs`/`envFile`/`bootstrap`, and `#src/*` inside
+  `src/` is the only import form — UIs use `@shared/*` (and `@server` for types only). A test fails
+  if a core file names a particular server. Integrations the panel owns as infrastructure (the proxy
+  engine, docker's container lookup, notification providers, DDNS) are not server entries and are
+  expected in `src/`.
 - **UIs are external clients.** Nothing in `src/**` may know a UI's markup or files;
   `$HHOSTED_HOME/.hh/.ui` overrides the packaged UI at runtime.
 - **`src/shared` has exactly one declaration per member** — neither a UI nor `src/**` may re-declare

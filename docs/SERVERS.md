@@ -25,6 +25,22 @@ Pick one in the header; the workspace's server defaults and log retention sit in
 Relative paths resolve against the directory you ran `home-hosted` from, so a project can keep its
 servers and its state together.
 
+## Presets
+
+The add-server panel offers a gallery — Minecraft, Jellyfin, a Node app, a Python file server, Gitea,
+MongoDB, Docker Compose, a chat bot. Picking one **fills the form**; it creates nothing you cannot edit
+afterwards, and no preset is required to add a server.
+
+A preset is only a starting point, so two things to check:
+
+- **The port is what the panel probes, not always what the program binds.** Node, Python, Gitea and
+  MongoDB take the form's port (`{port}`, in `args` or `env`). Three cannot: Minecraft reads
+  `server-port` from `server.properties`, Jellyfin reads `network.xml`, and a compose stack publishes
+  what its file says — for those the port only moves the probe, so set it to the port the program
+  actually uses. The bot has no port at all, so it has no probe.
+- **The working directory matters.** Python's `http.server` serves the working directory; Minecraft
+  needs it set to the folder holding `server.jar`. The preset description names what to point it at.
+
 ## Orphaned processes
 
 A child the panel spawns is detached, so it outlives a hard panel death. The handle is
