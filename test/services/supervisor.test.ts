@@ -1715,6 +1715,56 @@ describe('the documented placeholder table', () => {
 })
 
 /**
+ * A force restart needs a budget, the same way a crash does.
+ *
+ * `restart.maxRetries` bounded crashes only. `shouldForceRestart` restarted an unhealthy entry
+ * with no counter, no backoff and no give-up — the operator audit measured 16 forced restarts in
+ * a minute on a server whose `/healthz` always answered 500, and it would have gone on forever.
+ */
+describe('the health restart budget', () => {
+  it('gives up, and says so, instead of restarting a permanently unhealthy entry forever', async () => {
+    const port = await freePort()
+    const harness = await makeSupervisor([{
+      id: 'sick',
+      command: process.execPath,
+      // Always 500: up, serving, and never healthy.
+      args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+      env: { PORT: '{port}' },
+      port,
+      health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 200, startTimeoutMs: 5000 },
+      restart: { enabled: true, maxRetries: 2, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+    }])
+
+    await harness.supervisor.start('sick')
+    // It must stop trying and say why — bounded, not endless.
+    await waitFor(() => view(harness.supervisor, 'sick').status === 'crashed', 45000)
+
+    const dead = view(harness.supervisor, 'sick')
+    expect(dead.lastError).toContain('health restarts')
+    // The budget is `maxRetries`, so it cannot have restarted more than that many times.
+    const forced = view(harness.supervisor, 'sick').history.forcedRestarts
+    expect(forced).toBeLessThanOrEqual(2)
+  })
+
+  it('does not restart a health-failing entry at all when restarts are disabled', async () => {
+    const port = await freePort()
+    const harness = await makeSupervisor([{
+      id: 'sick',
+      command: process.execPath,
+      args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+      env: { PORT: '{port}' },
+      port,
+      health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 200, startTimeoutMs: 5000 },
+      restart: { enabled: false, maxRetries: 3, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+    }])
+
+    await harness.supervisor.start('sick')
+    await waitFor(() => view(harness.supervisor, 'sick').status === 'crashed', 30000)
+    expect(view(harness.supervisor, 'sick').history.forcedRestarts).toBe(0)
+  })
+})
+
+/**
  * Health describes a process, and must not outlive it.
  *
  * With `onPortConflict: "warn"` and a stranger already on the port, the entry's own process dies

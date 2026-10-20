@@ -274,7 +274,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. |
 | 📝 **Hand edits welcome** | Change a workspace's `servers.config.json` in an editor, a `git checkout` or a config tool: the panel notices within seconds, no restart. A file it cannot read is reported in the panel, and the running servers are left alone. |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. The budget is remembered across a restart of the panel. |
-| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout, check ports before starting — and [follow or replace](./docs/SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
+| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout (bounded by the same retry budget as a crash, so a permanently sick entry stops instead of restarting forever), check ports before starting — and [follow or replace](./docs/SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned. `stop-all`/`down` stop dependents before their dependencies; stopping one server names the dependents it leaves running. [SERVERS.md](./docs/SERVERS.md#field-reference) |
 | 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, filter to one stream, download, one click to clear. |
 | 📈 **Resources** | CPU and RSS of the whole process tree, with an optional memory ceiling that triggers a restart. |

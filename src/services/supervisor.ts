@@ -101,6 +101,13 @@ interface Entry {
   exitCode: number | null
   exitSignal: string | null
   restarts: number
+  /**
+   * Force restarts spent on the current unhealthy sequence, bounded by `restart.maxRetries`.
+   *
+   * The crash path had a budget from the start; the health path had none, so an entry that stayed
+   * up but failed every probe was restarted forever — 16 times in a minute in the operator audit.
+   */
+  healthRestarts: number
   lastError: string | null
   nextRetryAt: number | null
   retryTimer: NodeJS.Timeout | null
@@ -720,6 +727,7 @@ export class Supervisor {
       exitCode: null,
       exitSignal: null,
       restarts: persisted?.restarts ?? 0,
+      healthRestarts: persisted?.healthRestarts ?? 0,
       lastError: null,
       nextRetryAt: null,
       retryTimer: null,
@@ -1775,6 +1783,14 @@ export class Supervisor {
         entry.health = 'healthy'
         entry.healthFailures = 0
         entry.unhealthySince = null
+        // The sequence is over, so the health budget starts again — the same rule the crash
+        // counter follows via `restart.resetAfterMs`, expressed as "it is serving normally".
+        // Without this the budget would be a lifetime cap and the N+1th unrelated blip would
+        // kill an entry that had been fine for a week.
+        if (entry.healthRestarts > 0) {
+          entry.healthRestarts = 0
+          this.persistEntryState(entry)
+        }
         return
       }
 
@@ -1810,7 +1826,7 @@ export class Supervisor {
   }
 
   private shouldForceRestart(entry: Entry, now: number): boolean {
-    const { port, health } = entry.config
+    const { port, health, restart } = entry.config
     if (port === null || entry.status !== 'running' || entry.health !== 'unhealthy')
       return false
     if (entry.unhealthySince === null || health.forceRestartAfterMs <= 0)
@@ -1818,12 +1834,46 @@ export class Supervisor {
     if (now - entry.unhealthySince < health.forceRestartAfterMs)
       return false
 
-    this.log(entry, 'system', `unhealthy for ${health.forceRestartAfterMs}ms — forcing a restart`)
+    // The crash path has always been bounded by `restart.maxRetries`; this one had no budget at
+    // all, so an entry that stayed up and failed every probe was restarted forever. Same budget,
+    // separate counter: a server that crashes is a different failure from one that cannot serve.
+    if (!restart.enabled || entry.healthRestarts >= restart.maxRetries) {
+      this.giveUpOnHealth(entry, restart.enabled)
+      return false
+    }
+
+    entry.healthRestarts += 1
+    this.persistEntryState(entry)
+    this.log(entry, 'system', `unhealthy for ${health.forceRestartAfterMs}ms — forcing a restart (${entry.healthRestarts}/${restart.maxRetries})`)
     this.options.history.record(entry.config.id, { type: 'forced-restart', detail: `health check stayed unhealthy` })
     this.notify(entry, 'forced-restart', `unhealthy for ${Math.round(health.forceRestartAfterMs / 1000)}s`)
     // The restart resets health, so this is the only place that remembers an outcome is owed.
     entry.pendingRestart = { cause: 'staying unhealthy through its health check' }
     return true
+  }
+
+  /**
+   * Stops restarting an entry that cannot pass its own health check.
+   *
+   * Marked `crashed` rather than left `running`+`unhealthy`: it is not serving, the budget is
+   * spent, and nothing further will happen until someone acts — which is exactly what `crashed`
+   * tells a reader, `/healthz` and the notification. Guarded on the message so a tick loop does
+   * not re-record the same crash every second.
+   */
+  private giveUpOnHealth(entry: Entry, budgetEnabled: boolean): void {
+    const detail = budgetEnabled
+      ? `gave up after ${entry.config.restart.maxRetries} health restarts (the health check kept failing)`
+      : 'health restarts are disabled, and the health check is failing'
+    if (entry.lastError === detail)
+      return
+    entry.status = 'crashed'
+    entry.lastError = detail
+    entry.pendingRestart = null
+    entry.unhealthySince = null
+    this.log(entry, 'system', detail)
+    this.options.history.record(entry.config.id, { type: 'crash', detail })
+    this.notify(entry, 'crash', detail)
+    this.publishServer(entry)
   }
 
   private clearRetry(entry: Entry): void {
@@ -1843,6 +1893,7 @@ export class Supervisor {
       return
     writeEntryState(entryStatePath(this.options.nannyDir, entry.config.id), {
       restarts: entry.restarts,
+      healthRestarts: entry.healthRestarts,
       bootstrapDone: entry.bootstrapDone,
       // A persistent entry's nanny state is already its record; a second one could only
       // disagree with it, and `resumePersistent` reads the nanny's.

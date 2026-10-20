@@ -37,7 +37,7 @@ servers and its state together.
 | `persistent` | run it under its own nanny so it survives the panel — see below |
 | `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body — a `HEAD` carries no body, so it is warned about and the body check is skipped) |
 | `health.http.scheme`, `health.http.allowInvalidCert` | `http` (default) or `https` for a backend that serves TLS itself; the second accepts a self-signed certificate, which is the usual case on a home network. A certificate is verified unless you say otherwise |
-| `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway |
+| `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway — bounded by `restart.maxRetries`, after which the entry is `crashed` rather than restarted forever |
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` — the spent budget is remembered on disk, so a crash loop cannot outlast `maxRetries` by outliving the panel |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
 | `dependsOn` | ids that must be healthy first. `stop-all`/`down` stop dependents before their dependencies; stopping **one** server does not cascade — the log names any dependent it left running |

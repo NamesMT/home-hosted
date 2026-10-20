@@ -829,6 +829,15 @@ export type NannyState = typeof nannyStateSchema.infer
 export const entryStateSchema = type({
   /** Attempts spent on the current crash sequence; reset once the process stays up. */
   'restarts': 'number.integer >= 0',
+  /**
+   * Force restarts spent on the current unhealthy sequence.
+   *
+   * Separate from `restarts` because the two are different failures — a process that keeps dying
+   * and a process that stays up but cannot serve. Persisted for the same reason the crash counter
+   * is: a budget that lives only in memory is handed back fresh by every panel restart, so a
+   * health-storm that is restarted often enough never exhausts it.
+   */
+  'healthRestarts?': 'number.integer >= 0',
   /** The `runOnce` bootstrap already ran for this entry. */
   'bootstrapDone': 'boolean',
   /**
