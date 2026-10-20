@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AddServerForm } from '@/components/server/addServerForm'
+import type { AddServerField, AddServerForm } from '@/components/server/addServerForm'
 import { serverCreateSchema } from '@shared/contracts'
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
@@ -28,6 +28,9 @@ const control = useControlPlane()
 
 const creating = ref(false)
 const formError = ref<string | null>(null)
+/** Which input the error is about, so it can be flagged and scrolled to instead of only printed. */
+const errorField = ref<AddServerField | null>(null)
+const formEl = ref<HTMLFormElement | null>(null)
 
 /** Placeholders the supervisor substitutes in `args` (and in paths). */
 const PLACEHOLDERS = ['{port}', '{host}', '{home}', '{projectDir}', '{dataRoot}', '{id}', '{label}', '{cwd}', '{bind}', '{lanIp}']
@@ -47,6 +50,23 @@ const portError = computed(() => {
 function reset(): void {
   Object.assign(form, blankAddServerForm(panelDefaults.value))
   formError.value = null
+  errorField.value = null
+}
+
+/**
+ * Puts the failure where the person is looking.
+ *
+ * The message used to render only at the very bottom of a long form — off screen on a laptop —
+ * with the offending input unmarked and unfocused, so an empty Id read as "the button is broken".
+ */
+function showError(message: string, field: AddServerField | null): void {
+  formError.value = message
+  errorField.value = field
+  if (field === null)
+    return
+  const target = formEl.value?.querySelector<HTMLElement>(`[data-field="${field}"] input, [data-field="${field}"] textarea`)
+  target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  target?.focus()
 }
 
 watch(open, (isOpen) => {
@@ -56,15 +76,17 @@ watch(open, (isOpen) => {
 
 async function submit(): Promise<void> {
   formError.value = null
+  errorField.value = null
   const invalid = addServerProblem(form)
   if (invalid !== null) {
-    formError.value = t(invalid)
+    showError(t(invalid.key), invalid.field)
     return
   }
 
   const parsed = serverCreateSchema(addServerPayload(form, panelDefaults.value))
   if (parsed instanceof type.errors) {
-    formError.value = parsed.summary
+    // A schema error names a path; point at the field it names when there is one.
+    showError(parsed.summary, null)
     return
   }
 
@@ -72,7 +94,7 @@ async function submit(): Promise<void> {
   try {
     await control.create(props.workspaceId, parsed)
     if (control.lastError.value !== null) {
-      formError.value = control.lastError.value
+      showError(control.lastError.value, null)
       return
     }
     emit('created')
@@ -92,26 +114,44 @@ async function submit(): Promise<void> {
     :description="t('addServer.description', { workspace: workspaceLabel })"
     width="w-[min(94vw,40rem)]"
   >
-    <form id="add-server-form" class="flex flex-col gap-3" @submit.prevent="submit">
+    <!--
+      Sticky, above the fields: the error belongs where the eye lands on submit, not after ten
+      placeholders at the bottom of a scrollable form.
+    -->
+    <p
+      v-if="formError"
+      role="alert"
+      class="sticky top-0 z-10 mb-3 rounded-control border border-danger/40 bg-danger-soft px-2.5 py-1.5 font-mono text-2xs leading-4 text-danger"
+    >
+      {{ formError }}
+    </p>
+
+    <form id="add-server-form" ref="formEl" class="flex flex-col gap-3" @submit.prevent="submit">
       <FieldGroup :title="t('addServer.identity')" :columns="2" dense>
-        <TextField
-          v-model="form.id"
-          :label="t('addServer.id')"
-          placeholder="my-server"
-          :hint="t('addServer.idHint')"
-          class="font-mono text-xs"
-        />
+        <div data-field="id">
+          <TextField
+            v-model="form.id"
+            :label="t('addServer.id')"
+            placeholder="my-server"
+            :hint="t('addServer.idHint')"
+            :error="errorField === 'id' ? formError : null"
+            class="font-mono text-xs"
+          />
+        </div>
         <TextField v-model="form.label" :label="t('common.label')" placeholder="My server" :hint="t('addServer.labelHint')" />
       </FieldGroup>
 
       <FieldGroup :title="t('addServer.process')" :columns="2" dense>
-        <TextField
-          v-model="form.command"
-          :label="t('common.command')"
-          placeholder="node"
-          :hint="t('addServer.commandHint')"
-          class="font-mono text-xs"
-        />
+        <div data-field="command">
+          <TextField
+            v-model="form.command"
+            :label="t('common.command')"
+            placeholder="node"
+            :hint="t('addServer.commandHint')"
+            :error="errorField === 'command' ? formError : null"
+            class="font-mono text-xs"
+          />
+        </div>
         <TextField
           v-model="form.cwd"
           :label="t('serverForm.workingDirectory')"
@@ -273,10 +313,6 @@ async function submit(): Promise<void> {
           </code>
         </div>
       </div>
-
-      <p v-if="formError" class="rounded-control border border-danger/40 bg-danger-soft px-2.5 py-1.5 font-mono text-2xs leading-4 text-danger">
-        {{ formError }}
-      </p>
     </form>
 
     <template #footer>

@@ -43,6 +43,9 @@ const host = computed(() => control.host.value)
 const panelUptime = computed(() => (panel.startedAt.value === null ? '—' : formatDuration(control.now.value - panel.startedAt.value)))
 const hostUptime = computed(() => (host.value?.enabled ? formatDuration(host.value.uptimeMs) : '—'))
 
+/** Where a first entry goes when there is nothing yet: the workspace that is already selected. */
+const defaultWorkspaceId = computed(() => groups.value[0]?.id ?? workspace.activeId.value)
+
 function openAdd(workspaceId: string): void {
   addTarget.value = workspaceId
   addOpen.value = true
@@ -74,7 +77,7 @@ onMounted(async () => {
       </div>
       <div v-else class="grid grid-cols-2 divide-line-soft sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
         <div class="p-4">
-          <StatTile :label="t('views.globalOverview.workspaces')" :value="String(groups.length)" :hint="t('views.globalOverview.serversTotal', { count: all.length })" />
+          <StatTile :label="t('views.globalOverview.workspaces')" :value="String(groups.length)" :hint="tc('views.globalOverview.serversTotal', all.length)" />
         </div>
         <div class="p-4">
           <StatTile :label="t('views.overview.running')" :value="`${running.length}/${all.length}`" tone="ok" :hint="t('views.overview.notUp', { count: all.length - running.length })" />
@@ -144,13 +147,24 @@ onMounted(async () => {
       </Panel>
     </div>
 
+    <!--
+      The only call to action on a first run, and it had none: a new user landed on a wall of
+      host vitals with nothing to press. It also sits above the stats now — the numbers are
+      noise when there is nothing yet to describe.
+    -->
     <EmptyState
       v-if="!loading && all.length === 0"
+      class="order-first"
       :title="t('views.globalOverview.emptyTitle')"
       :description="t('views.globalOverview.emptyDescription')"
     >
       <template #icon>
         <ServerIcon class="size-4" />
+      </template>
+      <template #action>
+        <AppButton variant="primary" @click="openAdd(defaultWorkspaceId)">
+          <Plus class="size-3.5" />{{ t('views.actions.addAServer') }}
+        </AppButton>
       </template>
     </EmptyState>
 

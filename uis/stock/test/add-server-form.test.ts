@@ -129,22 +129,41 @@ describe('add-server validation', () => {
   // A validation failure carries a catalog key, not the sentence: the checks run outside any
   // component, so the dialog reads the key through `t()` at render time. These assert the key
   // resolves to the wording a person reads, which is what the dialog shows.
+  const wording = (form: Parameters<typeof addServerProblem>[0]): string => t(addServerProblem(form)!.key)
+
   it('requires an id the supervisor can key an entry by', () => {
-    expect(t(addServerProblem(blankAddServerForm())!)).toContain('id is required')
-    expect(t(addServerProblem({ ...blankAddServerForm(), id: 'Bad Id', command: 'node' })!)).toContain('lowercase')
+    expect(wording(blankAddServerForm())).toContain('id is required')
+    expect(wording({ ...blankAddServerForm(), id: 'Bad Id', command: 'node' })).toContain('lowercase')
   })
 
   it('requires a command', () => {
-    expect(t(addServerProblem({ ...blankAddServerForm(), id: 'web' })!)).toContain('command is required')
+    expect(wording({ ...blankAddServerForm(), id: 'web' })).toContain('command is required')
   })
 
   it('bounds the port, but allows none at all', () => {
     const base = { ...blankAddServerForm(), id: 'web', command: 'node' }
     expect(addServerProblem(base)).toBeNull()
     expect(addServerProblem({ ...base, port: 4100 })).toBeNull()
-    expect(t(addServerProblem({ ...base, port: 0 })!)).toContain('between 1 and 65535')
-    expect(t(addServerProblem({ ...base, port: 70000 })!)).toContain('between 1 and 65535')
+    expect(wording({ ...base, port: 0 })).toContain('between 1 and 65535')
+    expect(wording({ ...base, port: 70000 })).toContain('between 1 and 65535')
     expect(addServerPortError(4100)).toBeNull()
+  })
+
+  /**
+   * The dialog has to know *which* field failed, not only what to say.
+   *
+   * The message rendered at the bottom of a long form with the offending input unmarked, so
+   * pressing submit with an empty Id looked like a dead button. A field lets the dialog focus and
+   * flag it.
+   */
+  it('names the field the failure belongs to', () => {
+    expect(addServerProblem(blankAddServerForm())?.field).toBe('id')
+    expect(addServerProblem({ ...blankAddServerForm(), id: 'Bad Id', command: 'node' })?.field).toBe('id')
+    expect(addServerProblem({ ...blankAddServerForm(), id: 'web' })?.field).toBe('command')
+
+    const base = { ...blankAddServerForm(), id: 'web', command: 'node' }
+    expect(addServerProblem({ ...base, port: 0 })?.field).toBe('port')
+    expect(addServerProblem({ ...base, bootstrapEnabled: true, bootstrapCommand: '' })?.field).toBe('bootstrapCommand')
   })
 })
 
@@ -220,6 +239,6 @@ describe('add-server policy groups', () => {
       timeoutMs: 120000,
       runOnce: true,
     })
-    expect(t(addServerProblem({ ...base, bootstrapEnabled: true })!)).toContain('bootstrap needs a command')
+    expect(t(addServerProblem({ ...base, bootstrapEnabled: true })!.key)).toContain('bootstrap needs a command')
   })
 })

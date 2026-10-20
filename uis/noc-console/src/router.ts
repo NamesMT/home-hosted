@@ -63,7 +63,9 @@ router.beforeEach(async (to) => {
 
   if (required && !authenticated && to.name !== 'login')
     return { name: 'login', query: to.fullPath === '/' ? undefined : { next: to.fullPath } }
-  if (to.name === 'login' && (!required || authenticated))
+  // Only a signed-in visitor is sent away: `!required` is also the no-password state, where the
+  // login page's first-run variant is the only screen that names the command to set one.
+  if (to.name === 'login' && authenticated)
     return { name: 'global-overview', replace: true }
 
   if (to.name === 'login')

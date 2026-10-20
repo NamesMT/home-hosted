@@ -228,17 +228,23 @@ function openDetail(): void {
 
     <div v-if="props.variant !== 'compact'" class="space-y-2.5 border-y border-line-soft px-4 py-3">
       <div class="grid grid-cols-2 gap-x-4 gap-y-2">
+        <!--
+          "collecting…" is a promise that data is on its way. On a stopped entry nothing is
+          coming, so the label read as a spinner that never finished; say the honest thing.
+        -->
         <MetricSpark
           :label="t('common.cpu')"
           :values="cpuValues"
           :format="formatCpuPercent"
           :max="100"
+          :empty-hint="isRunning ? undefined : t('metric.notRunning')"
           color-class="text-cpu"
         />
         <MetricSpark
           :label="t('common.memory')"
           :values="rssValues"
           :format="formatBytesShort"
+          :empty-hint="isRunning ? undefined : t('metric.notRunning')"
           color-class="text-mem"
         />
       </div>

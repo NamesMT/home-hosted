@@ -1,2 +1,3 @@
 KEY,en,vi,zh-CN,ja,es,ko,ru,fr,de
 metric.emptyHint,collecting…,đang thu thập…,正在采集…,収集中…,recopilando…,수집 중…,сбор…,collecte…,sammle…
+metric.notRunning,not running,không chạy,未运行,停止中,sin ejecutar,실행 중 아님,не запущено,arrêté,gestoppt

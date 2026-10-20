@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
 import { useWorkspaces } from '@/composables/useWorkspaces'
+import { loginRedirect } from '@/lib/login-redirect'
 import GlobalOverviewView from '@/views/GlobalOverviewView.vue'
 import GlobalSettingsView from '@/views/GlobalSettingsView.vue'
 import LoginView from '@/views/LoginView.vue'
@@ -61,13 +62,9 @@ router.beforeEach(async (to) => {
   if (session.value === null)
     await refresh()
 
-  const required = session.value?.authRequired === true
-  const authenticated = session.value?.authenticated === true
-
-  if (required && !authenticated && to.name !== 'login')
-    return { name: 'login', query: to.fullPath === '/' ? undefined : { next: to.fullPath } }
-  if (to.name === 'login' && (!required || authenticated))
-    return { name: 'global-overview', replace: true }
+  const redirect = loginRedirect(to, session.value)
+  if (redirect !== null)
+    return redirect
 
   if (to.name === 'login')
     return true

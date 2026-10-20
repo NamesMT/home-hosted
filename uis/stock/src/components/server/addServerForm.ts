@@ -198,15 +198,31 @@ export function addServerPayload(form: AddServerForm, defaults?: ServerDefaults)
   }
 }
 
-/** The catalog key of the first thing that stops this form from being created, or null. */
-export function addServerProblem(form: AddServerForm): string | null {
+/** A field the form can point at, so the dialog can focus and flag it rather than only print text. */
+export type AddServerField = 'id' | 'command' | 'bootstrapCommand' | 'port'
+
+export interface AddServerProblem {
+  key: string
+  field: AddServerField
+}
+
+/**
+ * The first thing that stops this form from being created, and which field it is.
+ *
+ * The field matters: the message used to render only at the bottom of the form, below the ten
+ * argument placeholders, so on a laptop window pressing the submit button looked like nothing
+ * happened — the red text was off screen and the offending input was not marked. A dialog that
+ * knows *which* field can focus it, flag it, and put the message where the person is looking.
+ */
+export function addServerProblem(form: AddServerForm): AddServerProblem | null {
   if (form.id.trim().length === 0)
-    return VALIDATION_KEYS.idRequired
+    return { key: VALIDATION_KEYS.idRequired, field: 'id' }
   if (!ID_PATTERN.test(form.id.trim()))
-    return VALIDATION_KEYS.idPattern
+    return { key: VALIDATION_KEYS.idPattern, field: 'id' }
   if (form.command.trim().length === 0)
-    return VALIDATION_KEYS.commandRequired
+    return { key: VALIDATION_KEYS.commandRequired, field: 'command' }
   if (form.bootstrapEnabled && form.bootstrapCommand.trim().length === 0)
-    return VALIDATION_KEYS.bootstrapCommand
-  return addServerPortError(form.port)
+    return { key: VALIDATION_KEYS.bootstrapCommand, field: 'bootstrapCommand' }
+  const port = addServerPortError(form.port)
+  return port === null ? null : { key: port, field: 'port' }
 }
