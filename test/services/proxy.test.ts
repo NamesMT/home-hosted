@@ -1478,14 +1478,17 @@ describe('the port preflight and its own engine', () => {
     return (service as unknown as { assertPortsFree: (h: number, s: number) => Promise<void> }).assertPortsFree.apply(service, [httpPort, httpsPort])
   }
 
-  it('passes when the engine is live and these are the ports it last applied', async () => {
-    const { service, options } = await harness()
+  it('passes when the engine is live and the config binds the port', async () => {
+    const { service, options, settings } = await harness()
     const listener = await busyPort()
     try {
       liveState(options)
-      // The engine's own record of what it bound. No pid attribution involved.
-      fs.mkdirSync(options.stateDir, { recursive: true })
-      fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: listener.port, httpsPort: listener.port, at: Date.now() }))
+      settings.updateProxy({
+        enabled: true,
+        httpPort: listener.port,
+        httpsPort: listener.port,
+        routes: [{ id: 'r', host: 'r.example.com', target: 'external', url: 'http://127.0.0.1:4000' }],
+      })
 
       // The listener is a stranger to this process's `lsof`, so the holder list is empty —
       // exactly the shape that used to throw.
@@ -1493,6 +1496,33 @@ describe('the port preflight and its own engine', () => {
     }
     finally {
       await listener.close()
+    }
+  })
+
+  /**
+   * `applied.json` records *configuration*, not bound sockets. A `tls: 'off'`-only config binds no
+   * HTTPS listener, so a stranger standing on that port must not be admitted just because the
+   * record names it — the old `alreadyOurs` check did exactly that.
+   */
+  it('refuses a stranger on a configured but unbound port', async () => {
+    const { service, options, settings } = await harness()
+    const stranger = await busyPort()
+    try {
+      liveState(options)
+      settings.updateProxy({
+        enabled: true,
+        httpPort: 18080,
+        // Configured, but nothing binds it: every route is `tls: 'off'`.
+        httpsPort: stranger.port,
+        routes: [{ id: 'r', host: 'r.example.com', target: 'external', url: 'http://127.0.0.1:4000', tls: 'off' }],
+      })
+      fs.mkdirSync(options.stateDir, { recursive: true })
+      fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: 18080, httpsPort: stranger.port, at: Date.now() }))
+
+      await expect(preflight(service, 18080, stranger.port)).rejects.toMatchObject({ code: 'PROXY_PORT_IN_USE' })
+    }
+    finally {
+      await stranger.close()
     }
   })
 
@@ -1568,9 +1598,14 @@ describe('re-applying when a certificate arrives', () => {
     // recorded error the way the real status getter would.
     expect(record).toHaveBeenCalledWith(expect.stringContaining('port 80 is already in use'))
 
-    // …and the next tick tries again, because the signature was not advanced.
+    // …and it is retried, but not on the very next tick: the tick is one second and retrying
+    // every one of them posts to the engine 86k times a day. Backed off instead.
     await service.sync()
-    expect(apply, 'a failed apply must be retried, not skipped forever').toHaveBeenCalledTimes(2)
+    expect(apply, 'a backed-off retry must not fire immediately').toHaveBeenCalledTimes(1)
+    // Once the backoff elapses it does try again.
+    vi.setSystemTime(Date.now() + 10 * 60_000)
+    await service.sync()
+    expect(apply, 'a failed apply must be retried once the backoff elapses').toHaveBeenCalledTimes(2)
   })
 
   it('does not re-record the same error every second', async () => {
@@ -1608,6 +1643,25 @@ describe('retrying a certificate on the only route', () => {
     const load = vi.spyOn(service as unknown as { loadIntoEngine: () => Promise<void> }, 'loadIntoEngine')
 
     await expect(service.retryCertificate('only')).rejects.toMatchObject({ code: 'PROXY_CERT_RETRY_LAST_ROUTE' })
+    expect(load, 'nothing may be posted before the refusal').not.toHaveBeenCalled()
+  })
+
+  it('refuses when the remaining route serves nothing, even with two configured', async () => {
+    const { service } = await harness()
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    vi.spyOn(service, 'status').mockReturnValue({ state: 'running' } as ReturnType<typeof service.status>)
+    vi.spyOn(service, 'config', 'get').mockReturnValue(config({
+      enabled: true,
+      routes: [
+        { id: 'retry', host: 'a.example.com', tls: 'auto', target: 'external', url: 'http://127.0.0.1:4000', enabled: true },
+        // Configured, but disabled: the staged render emits no server for it either, so removing
+        // the first leaves nothing being served. Counting routes would have posted that.
+        { id: 'off', host: 'b.example.com', tls: 'auto', target: 'external', url: 'http://127.0.0.1:4001', enabled: false },
+      ],
+    }))
+    const load = vi.spyOn(service as unknown as { loadIntoEngine: () => Promise<void> }, 'loadIntoEngine')
+
+    await expect(service.retryCertificate('retry')).rejects.toMatchObject({ code: 'PROXY_CERT_RETRY_LAST_ROUTE' })
     expect(load, 'nothing may be posted before the refusal').not.toHaveBeenCalled()
   })
 })

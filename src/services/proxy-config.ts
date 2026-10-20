@@ -257,6 +257,22 @@ function proxyHandler(route: ProxyUpstreamRoute): Record<string, unknown> {
  * an explicit redirect. Caddy's own redirect insertion is off so the redirect
  * carries our `httpsPort`, which is not necessarily 443.
  */
+/**
+ * The ports this configuration actually binds.
+ *
+ * Not the same as `httpPort`/`httpsPort`: a config with only `tls: 'off'` routes binds no HTTPS
+ * listener, and one with no routes binds nothing at all. Anything asking "is this port ours" has to
+ * use this rather than the configured numbers, or it will claim a port nothing is listening on.
+ */
+export function boundPorts(config: ProxyConfigInput['config'], routes: ProxyUpstreamRoute[]): number[] {
+  const ports: number[] = []
+  if (routes.some(route => route.tls !== 'off'))
+    ports.push(config.httpsPort)
+  if (routes.length > 0)
+    ports.push(config.httpPort)
+  return ports
+}
+
 export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unknown> {
   const { config, admin, engineDir, routes } = input
   const managed = routes.filter(route => route.tls !== 'off')

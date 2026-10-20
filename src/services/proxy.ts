@@ -46,13 +46,17 @@ import {
 import { isPortFree, isProcessAlive, listPortHolders } from '#src/providers/port'
 import { processCarriesServerId } from '#src/providers/proc'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
-import { FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
+import { boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { TlsStore } from '#src/services/tls'
 import { errorMessage } from '#src/shared/error-message'
 import { isPublicHost } from '#src/shared/proxy-form'
 
 /** The engine is not a server entry, but it borrows the nanny's shape. */
 const PROXY_ID = 'proxy'
+/** A failing `sync()` re-apply backs off from this, doubling to the cap, then stops retrying. */
+const SYNC_RETRY_BASE_MS = 2_000
+const SYNC_RETRY_MAX_MS = 5 * 60_000
+const SYNC_MAX_FAILURES = 8
 
 const ADMIN_TIMEOUT_MS = 5000
 const READY_TIMEOUT_MS = 20_000
@@ -907,6 +911,11 @@ export class ProxyService {
   // --------------------------------------------------------------------- config
 
   /** Records why the last start or apply failed, for the frame the page reads. */
+  /** Backoff for a failing `sync()` re-apply; see the retry notes there. */
+  private nextSyncAttemptAt = 0
+  private syncFailures = 0
+  private lastSyncError: string | null = null
+
   recordError(message: string | null): void {
     this.lastError = message
     this.options.onStateChange()
@@ -952,15 +961,30 @@ export class ProxyService {
     // certificate. With a single route that configuration has **no listeners at all** — the render
     // drops every server when no route is left — and a `load` it accepts takes the site dark, so
     // refuse before posting anything rather than rely on the apply behind it to put it back.
-    if (this.config.routes.length <= 1) {
+    // Count what the staged config actually *serves*, not routes: a second route that is disabled
+    // or whose target is down renders no listener either, and a `load` the engine accepts would
+    // take the site dark.
+    const staged = this.render(new Set([route.id]))
+    if (this.boundPortsOf(staged).length === 0) {
       throw new DetailedError(
-        `"${route.host}" is the only route, so making the engine forget its certificate would leave nothing served — add another route first`,
+        `making the engine forget its certificate for "${route.host}" would leave nothing served — add another working route first`,
         { statusCode: 409, code: 'PROXY_CERT_RETRY_LAST_ROUTE' },
       )
     }
-    await this.loadIntoEngine(this.render(new Set([route.id])))
+    await this.loadIntoEngine(staged)
     this.forgetCertificates(route.host)
     await this.apply({ force: true })
+  }
+
+  /** The ports a rendered configuration listens on — read from the config, not recomputed. */
+  private boundPortsOf(rendered: Record<string, unknown>): number[] {
+    const servers = (rendered.apps as { http?: { servers?: Record<string, { listen?: string[] }> } } | undefined)?.http?.servers
+    if (servers === undefined)
+      return []
+    return Object.values(servers)
+      .flatMap(server => server.listen ?? [])
+      .map(listen => Number.parseInt(listen.replace(/^.*:/, ''), 10))
+      .filter(port => Number.isInteger(port))
   }
 
   /** Removes the engine's stored certificates for one name, and nothing else. */
@@ -1147,18 +1171,33 @@ export class ProxyService {
       this.certificateSignature = signature
       return
     }
+    // A failure must be retried — that is the difference between "transient" and "permanently
+    // stuck" — but the tick is one second, so retrying every tick posts to the engine 86k times a
+    // day and logs every one. Back off, and give up on a failure that has repeated.
+    if (Date.now() < this.nextSyncAttemptAt)
+      return
     try {
       await this.apply()
-      // Advanced only on success, so a failure is retried on the next tick instead of being
-      // skipped forever because the signature already matched.
       this.certificateSignature = signature
+      this.syncFailures = 0
+      this.nextSyncAttemptAt = 0
     }
     catch (error) {
       const message = errorMessage(error)
-      logger.warn(`proxy:    could not re-apply after a certificate change: ${message}`)
-      // The tick runs every second; record it once, not once per tick, or the page never settles.
+      this.syncFailures += 1
+      this.nextSyncAttemptAt = Date.now() + Math.min(SYNC_RETRY_MAX_MS, SYNC_RETRY_BASE_MS * 2 ** (this.syncFailures - 1))
+      // Logged on the first failure and then only when it changes, so a stuck route neither
+      // floods the log nor goes quiet.
+      if (message !== this.lastSyncError) {
+        this.lastSyncError = message
+        logger.warn(`proxy:    could not re-apply after a certificate change: ${message}`)
+      }
       if (this.lastError !== message)
         this.recordError(message)
+      // After the cap, stop retrying this signature until it changes again: a re-apply that has
+      // failed this many times will not start working on its own.
+      if (this.syncFailures >= SYNC_MAX_FAILURES)
+        this.certificateSignature = signature
     }
   }
 
@@ -1745,34 +1784,41 @@ export class ProxyService {
    * "May we bind these ports" — a **start** question, asked before handing the engine a
    * configuration it would fail to serve.
    *
-   * A busy port is not automatically a problem: on a re-apply the engine is already bound to
-   * those exact ports, which is the normal case. What must not happen is letting a *stranger*
-   * hold them, and pid attribution is the wrong tool for that — the engine carries
-   * `cap_net_bind_service`, which makes it non-dumpable, so `/proc/<pid>/fd` is root's and
-   * `listPortHolders` returns an empty list for the port it is serving on. The old code required
-   * a non-empty holder list before it would consider the port its own, so the empty list fell
-   * through to a 409 and every re-apply failed permanently.
+   * A busy port is not automatically a problem: on a re-apply the engine is already bound to it,
+   * which is the normal case. Pid attribution cannot tell the difference — the engine carries
+   * `cap_net_bind_service`, which makes it non-dumpable, so `listPortHolders` returns an empty list
+   * for the very port it serves on, and the old code read that as "nothing there" and then threw.
    *
-   * So the identity question is answered by records this panel writes, none of which need to
-   * inspect the engine: the ports it last applied, and a nanny state whose heartbeat proves the
-   * engine is live. An unattributable port that fails both is refused — a stranger must still
-   * be a stranger.
+   * What makes a port ours is the engine being live *and this configuration binding it*, both
+   * answerable without inspecting anything: the nanny state's heartbeat, and the rendered config.
+   * Note the two are not `httpPort`/`httpsPort` — a `tls: 'off'`-only config binds no HTTPS
+   * listener, so claiming that port would admit a stranger standing on it.
+   *
+   * An attributable pid that is neither the nanny nor the engine is always foreign, whatever the
+   * records say.
    */
   private async assertPortsFree(httpPort: number, httpsPort: number): Promise<void> {
-    const applied = this.readApplied()
     const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
-    const ours = state !== null && await nannyIsAlive(state, PROXY_ID)
+    const live = state !== null && await nannyIsAlive(state, PROXY_ID)
+    // The same routes `render()` will emit, so "does this config bind the port" cannot drift.
+    const binds = new Set(boundPorts(this.config, this.engineRoutes()))
+    const enginePids = state === null ? [] : [state.nannyPid, state.childPid].filter((pid): pid is number => pid !== null)
 
     for (const port of [httpPort, httpsPort]) {
       if (await isPortFree(port))
         continue
       const holders = await listPortHolders(port)
-      if (state !== null && [state.nannyPid, state.childPid].some(pid => pid !== null && holders.includes(pid)))
+      if (holders.some(pid => enginePids.includes(pid)))
         continue
-      // The engine is live and we last applied these very ports: the listener is ours, whether
-      // or not this user may inspect it.
-      const alreadyOurs = ours && applied !== null && (port === applied.httpPort || port === applied.httpsPort)
-      if (alreadyOurs)
+      // A pid we can attribute is decisive: the engine is the only listener that may be ours.
+      if (holders.length > 0) {
+        throw new DetailedError(
+          `port ${port} is already in use${this.describeHolders(port, holders)} — stop what holds it, or set another port in the reverse proxy settings`,
+          { statusCode: 409, code: 'PROXY_PORT_IN_USE', detail: { port, holders } },
+        )
+      }
+      // Unattributable: ours only if the engine is live *and* this configuration binds the port.
+      if (live && binds.has(port))
         continue
       throw new DetailedError(
         `port ${port} is already in use${this.describeHolders(port, holders)} — stop what holds it, or set another port in the reverse proxy settings`,
@@ -1793,8 +1839,10 @@ export class ProxyService {
     if (holders.length > 0)
       return ` (pid ${holders.join(', ')})`
     const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
+    // The engine's own ports are accepted before this is reached, so a port landing here is *not*
+    // the engine — say only what is known: the socket cannot be inspected.
     if (state !== null)
-      return ` (this panel's own engine, pid ${state.childPid ?? state.nannyPid} — started before these ports were applied, and its socket cannot be inspected: the engine carries cap_net_bind_service, which makes it non-dumpable)`
+      return ` — the listener cannot be identified by this user (a process carrying cap_net_bind_service is non-dumpable), and the panel's engine binds :${boundPorts(this.config, this.engineRoutes()).join('/')}, not this port`
     return ' — the socket cannot be inspected by this user, so the holder cannot be named'
   }
 

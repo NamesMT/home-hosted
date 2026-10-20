@@ -1561,7 +1561,7 @@ export const serverViewSchema = type({
 export type ServerView = Omit<typeof serverViewSchema.infer, 'config'> & { config: ServerConfig }
 
 /**
- * What `/healthz` answers, on both statuses — 200 when serving, 503 when an autostart entry has crashed,
+ * What `/healthz` answers, on both statuses — 200 when serving, 503 when a server has crashed,
  * which shares this response's `content` in the spec. The detail fields are optional because they are
  * only included for an authenticated caller.
  */

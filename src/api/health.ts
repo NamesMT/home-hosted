@@ -8,9 +8,9 @@ import { healthResponseSchema } from '#src/shared/contracts'
 
 /**
  * Liveness for external monitors. Mounted outside `/api`, so it answers without a
- * session: it reports whether the panel itself is serving, and 503 when an
- * autostart server has crashed, or a running one is failing its own health check.
- * Server details are only included for an authenticated caller.
+ * session: it reports whether the panel itself is serving, and 503 when any server
+ * has crashed, or a running one is failing its own health check. Server details are
+ * only included for an authenticated caller.
  */
 export function createHealthRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -24,7 +24,7 @@ export function createHealthRoute(deps: AppDeps) {
             description: 'Serving',
             content: jsonBody(healthResponseSchema),
           },
-          503: { description: 'An autostart server has crashed, or a running one is unhealthy' },
+          503: { description: 'A server has crashed, or a running one is unhealthy' },
         },
       }),
       (c) => {
