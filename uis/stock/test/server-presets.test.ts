@@ -68,4 +68,28 @@ describe('server presets', () => {
     const form = applyPreset(SERVER_PRESETS[0]!)
     expect(form.args.split('\n')).toEqual(SERVER_PRESETS[0]!.args)
   })
+
+  /**
+   * Environment is how a preset configures a program that has no config file on a first run.
+   *
+   * A rootless Gitea is the case: its web port and its SSH port are env-only until its install
+   * wizard writes `app.ini`, so a preset that dropped the env would start it on the wrong ports.
+   */
+  it('carries the environment into the form, one KEY=value per line', () => {
+    const gitea = SERVER_PRESETS.find(preset => preset.id === 'gitea')
+    expect(gitea, 'the rootless Gitea preset must exist').toBeDefined()
+    expect(gitea!.env?.length, 'it needs its ports set, or it listens where the form says it does not').toBeGreaterThan(0)
+
+    const form = applyPreset(gitea!)
+    expect(form.env.split('\n')).toEqual(gitea!.env)
+    // …and the payload the route receives is the parsed record, not the text block.
+    const payload = addServerPayload(form, DEFAULTS)
+    expect(payload.env).toMatchObject({ GITEA__server__HTTP_PORT: '3000' })
+  })
+
+  it('offers the three that were asked for, and no Plex', () => {
+    const ids = SERVER_PRESETS.map(preset => preset.id)
+    expect(ids).toEqual(expect.arrayContaining(['jellyfin', 'gitea', 'mongodb']))
+    expect(ids).not.toContain('plex')
+  })
 })

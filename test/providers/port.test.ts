@@ -66,7 +66,19 @@ async function freePort(): Promise<number> {
 async function waitForZombieChild(parentPid: number): Promise<number> {
   let found: number | null = null
   await waitFor(() => {
-    const rows = execFileSync('ps', ['-o', 'pid=,stat=', '--ppid', String(parentPid)], { encoding: 'utf8' })
+    // `execFileSync` throws when `ps` itself fails — a fork limit, an EAGAIN under a loaded CI box —
+    // and a throw here failed the whole test rather than meaning "not yet". That is exactly how
+    // this flaked: `Error: Command failed: ps -o pid=,stat= --ppid …` on a full `--coverage` run,
+    // green on the same test in isolation. A transient failure is no evidence either way, so it is
+    // retried like an empty answer, and only a real timeout fails the test.
+    let output: string
+    try {
+      output = execFileSync('ps', ['-o', 'pid=,stat=', '--ppid', String(parentPid)], { encoding: 'utf8' })
+    }
+    catch {
+      return false
+    }
+    const rows = output
       .trim()
       .split('\n')
       .filter(Boolean)

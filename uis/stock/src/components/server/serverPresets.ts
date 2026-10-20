@@ -39,6 +39,13 @@ export interface ServerPreset {
   autostart: boolean
   /** Filled into the label so the card reads as a name, not an id. */
   label: string
+  /**
+   * Environment the program needs to run the way the preset describes, as `KEY=value` lines.
+   *
+   * A rootless Gitea is the case that needs it: it has no config file on a first run, so its two
+   * ports are env-only until the install wizard writes `app.ini`.
+   */
+  env?: string[]
 }
 
 /**
@@ -57,14 +64,14 @@ export const SERVER_PRESETS: ServerPreset[] = [
     label: 'Minecraft',
   },
   {
-    id: 'plex',
-    nameKey: 'presets.plex',
-    descriptionKey: 'presets.plexHint',
-    command: 'plexmediaserver',
+    id: 'jellyfin',
+    nameKey: 'presets.jellyfin',
+    descriptionKey: 'presets.jellyfinHint',
+    command: 'jellyfin',
     args: [],
-    port: 32400,
+    port: 8096,
     autostart: true,
-    label: 'Plex',
+    label: 'Jellyfin',
   },
   {
     id: 'node',
@@ -85,6 +92,29 @@ export const SERVER_PRESETS: ServerPreset[] = [
     port: 8000,
     autostart: false,
     label: 'Python server',
+  },
+  {
+    id: 'gitea',
+    nameKey: 'presets.gitea',
+    descriptionKey: 'presets.giteaHint',
+    // The rootless binary: no privileged port to bind, no system user needed. The web UI and the
+    // built-in SSH server both need telling, and neither has a config file until the wizard runs.
+    command: 'gitea',
+    args: ['web'],
+    port: 3000,
+    autostart: true,
+    label: 'Gitea (rootless)',
+    env: ['GITEA_WORK_DIR=./data', 'GITEA__server__HTTP_PORT=3000', 'GITEA__server__SSH_PORT=2222', 'GITEA__server__START_SSH_SERVER=true'],
+  },
+  {
+    id: 'mongodb',
+    nameKey: 'presets.mongodb',
+    descriptionKey: 'presets.mongodbHint',
+    command: 'mongod',
+    args: ['--dbpath', './data'],
+    port: 27017,
+    autostart: true,
+    label: 'MongoDB',
   },
   {
     id: 'docker',
@@ -129,5 +159,6 @@ export function applyPreset(
     args: preset.args.join('\n'),
     port: preset.port,
     autostart: preset.autostart,
+    env: (preset.env ?? []).join('\n'),
   }
 }
