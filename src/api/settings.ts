@@ -21,6 +21,7 @@ import {
   settingsPatchSchema,
   settingsSavedSchema,
   settingsViewSchema,
+  uiInstallResponseSchema,
   workspaceSettingsPatchSchema,
   workspaceSettingsSavedSchema,
   workspaceSettingsViewSchema,
@@ -172,7 +173,7 @@ export function createSettingsRoute(deps: AppDeps) {
     .post('/settings/ui', describeRoute({
       tags: ['panel'],
       summary: 'Replace the panel UI with an uploaded static build',
-      responses: { 200: { description: 'Installed' }, 400: ERROR_RESPONSES[400], 413: ERROR_RESPONSES[413] },
+      responses: { 200: { description: 'Installed', content: jsonBody(uiInstallResponseSchema) }, 400: ERROR_RESPONSES[400], 413: ERROR_RESPONSES[413] },
     }),
     /**
      * Bound the body **while it arrives**, not after. The checks below read `Content-Length`, which a
@@ -219,7 +220,7 @@ export function createSettingsRoute(deps: AppDeps) {
     .delete('/settings/ui', describeRoute({
       tags: ['panel'],
       summary: 'Go back to the stock UI',
-      responses: { 200: { description: 'Reverted' } },
+      responses: { 200: { description: 'Reverted', content: jsonBody(uiInstallResponseSchema) } },
     }), (c) => {
       const removed = deps.ui.revert()
       logger.info(removed ? 'custom UI removed — the stock panel is back' : 'no custom UI was installed')

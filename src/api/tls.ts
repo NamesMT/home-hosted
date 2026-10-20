@@ -4,10 +4,10 @@ import { describeRoute } from 'hono-openapi'
 import { afterResponse } from '#src/helpers/deferred'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
-import { ERROR_RESPONSES } from '#src/helpers/openapi'
+import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { buildControlView } from '#src/services/state'
-import { tlsUploadSchema } from '#src/shared/contracts'
+import { okResponseSchema, tlsUploadSchema } from '#src/shared/contracts'
 
 /**
  * Uploads the PEM pair used for https on the control panel.
@@ -56,7 +56,7 @@ export function createTlsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['tls'],
         summary: 'Remove the certificate pair',
-        responses: { 200: { description: 'Removed' } },
+        responses: { 200: { description: 'Removed', content: jsonBody(okResponseSchema) } },
       }),
       (c) => {
         deps.tls.clear()

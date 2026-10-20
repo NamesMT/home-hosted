@@ -27,11 +27,35 @@ export function setupOpenAPI(app: Parameters<typeof openAPIRouteHandler>[0]) {
             { name: 'panel', description: 'Snapshot, health and the local shutdown channel' },
             { name: 'servers', description: 'The processes being supervised' },
             { name: 'logs', description: 'Live and persisted logs' },
+            { name: 'workspaces', description: 'The ownership boundary: one scope per setup' },
             { name: 'backups', description: 'Archives of config, secrets, TLS and data paths' },
             { name: 'auth', description: 'Sessions and the panel password' },
-            { name: 'notifications', description: 'Telegram delivery' },
+            { name: 'notifications', description: 'Telegram delivery and webhook destinations' },
+            { name: 'ddns', description: 'Dynamic DNS accounts and hostnames' },
+            { name: 'proxy', description: 'The reverse proxy: engine, routes and certificates' },
             { name: 'tls', description: 'The panel certificate' },
           ],
+          /**
+           * The auth scheme, so a generated client can be told how to send a credential.
+           *
+           * Every `/api` route takes `Authorization: Bearer hh_…`, and the spec said nothing
+           * about it: openapi-typescript, openapi-generator and Scalar's "try it" all produced
+           * clients with no auth hook, and the README tells an agent this document *is* the API
+           * it may call. Two lines here are the difference between generating a client and
+           * hand-writing one.
+           */
+
+          components: {
+            securitySchemes: {
+              bearerAuth: {
+                type: 'http',
+                scheme: 'bearer',
+                description: 'An API token from `home-hosted set-token --generate`. A cookie session works too, but is not part of this scheme.',
+              },
+            },
+          },
+          security: [{ bearerAuth: [] }],
+          servers: [{ url: '/', description: 'This panel' }],
         },
       }),
     )

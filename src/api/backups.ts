@@ -15,7 +15,7 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { parseOrThrow } from '#src/helpers/validate'
 import { validate } from '#src/helpers/validator'
 import { buildBackupsView } from '#src/services/state'
-import { backupCreateSchema, backupsViewSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
+import { backupCreatedResponseSchema, backupCreateSchema, backupFilesResponseSchema, backupsViewSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
 
 /** Uploads are buffered in memory by `parseBody`, so they get a hard ceiling. */
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024
@@ -44,7 +44,7 @@ export function createBackupsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['backups'],
         summary: 'Create a backup (optionally password-protected)',
-        responses: { 200: { description: 'Created' }, 400: ERROR_RESPONSES[400] },
+        responses: { 200: { description: 'Created', content: jsonBody(backupCreatedResponseSchema) }, 400: ERROR_RESPONSES[400] },
       }),
       validate('json', backupCreateSchema),
       async (c) => {
@@ -92,7 +92,7 @@ export function createBackupsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['backups'],
         summary: 'Delete one archive',
-        responses: { 200: { description: 'Removed' }, 404: ERROR_RESPONSES[404] },
+        responses: { 200: { description: 'Removed', content: jsonBody(backupFilesResponseSchema) }, 404: ERROR_RESPONSES[404] },
       }),
       validate('param', nameParam),
       (c) => {

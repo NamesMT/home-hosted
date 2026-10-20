@@ -10,7 +10,7 @@ import { validate } from '#src/helpers/validator'
 import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middleware/auth'
 import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
-import { loginSchema, passwordSchema, sessionViewSchema } from '#src/shared/contracts'
+import { loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchema, sessionViewSchema } from '#src/shared/contracts'
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
 function secureCookie(c: Context, deps: AppDeps): boolean {
@@ -72,7 +72,7 @@ export function createAuthRoute(deps: AppDeps) {
       describeRoute({
         tags: ['auth'],
         summary: 'Drop the session cookie',
-        responses: { 200: { description: 'Signed out' } },
+        responses: { 200: { description: 'Signed out', content: jsonBody(okResponseSchema) } },
       }),
       (c) => {
         deps.auth.logout(deps.auth.tokenFromCookie(c.req.header('cookie')))
@@ -96,7 +96,7 @@ export function createAuthRoute(deps: AppDeps) {
       describeRoute({
         tags: ['auth'],
         summary: 'Set, change or enable the panel password',
-        responses: { 200: { description: 'Updated' }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401] },
+        responses: { 200: { description: 'Updated', content: jsonBody(passwordSetResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401] },
       }),
       validate('json', passwordSchema),
       (c) => {
@@ -137,7 +137,7 @@ export function createAuthRoute(deps: AppDeps) {
       describeRoute({
         tags: ['auth'],
         summary: 'Clear the password and turn authentication off',
-        responses: { 200: { description: 'Cleared' }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401] },
+        responses: { 200: { description: 'Cleared', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401] },
       }),
       (c) => {
         if (!requestIdentity(c, deps.auth).authenticated)

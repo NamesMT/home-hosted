@@ -567,6 +567,98 @@ describe('openapi document', () => {
   })
 
   /**
+   * A generated client cannot authenticate from a spec that never mentions auth.
+   *
+   * Every `/api` route takes `Authorization: Bearer hh_…`, and the document declared no
+   * `securitySchemes` at all — so openapi-typescript, openapi-generator and Scalar's "try it"
+   * all produced clients with no auth hook, while the README tells an agent this document *is*
+   * the API it may call. The workaround was to read the prose and hand-write a client.
+   */
+  it('declares the auth scheme a generated client needs', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      components?: { securitySchemes?: Record<string, { type?: string, scheme?: string }> }
+      security?: Array<Record<string, unknown>>
+    }
+
+    const scheme = spec.components?.securitySchemes?.bearerAuth
+    expect(scheme, 'a client generator needs a securitySchemes entry').toBeDefined()
+    expect(scheme).toMatchObject({ type: 'http', scheme: 'bearer' })
+    // Declared globally, so every operation inherits it without repeating the block.
+    expect(spec.security).toEqual([{ bearerAuth: [] }])
+  })
+
+  /**
+   * Every tag an operation uses has to be declared, or a docs renderer dumps it in an
+   * uncategorised bucket. Three (`ddns`, `proxy`, `workspaces`) were used but never listed.
+   */
+  it('declares every tag its operations use', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      tags?: Array<{ name: string }>
+      paths: Record<string, Record<string, { tags?: string[] } | undefined>>
+    }
+
+    const declared = new Set((spec.tags ?? []).map(tag => tag.name))
+    expect(declared.size).toBeGreaterThan(5)
+
+    const used = new Set<string>()
+    for (const operations of Object.values(spec.paths)) {
+      for (const [method, operation] of Object.entries(operations)) {
+        if (method === 'parameters' || operation === undefined)
+          continue
+        for (const tag of operation.tags ?? []) used.add(tag)
+      }
+    }
+    expect([...used].filter(tag => !declared.has(tag))).toEqual([])
+  })
+
+  /**
+   * A documented success with no schema is a body a client cannot bind to. The lifecycle
+   * routes were the worst case: their failure shape was non-standard *and* their success was
+   * declared as an untyped "Result", so there was nothing to generate either direction from.
+   */
+  it('gives every documented 2xx a schema', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      paths: Record<string, Record<string, { responses?: Record<string, { content?: Record<string, { schema?: unknown }> }> } | undefined>>
+    }
+
+    /**
+     * Routes that answer something other than a JSON body, so a JSON schema is the wrong thing
+     * to ask of them. Listed rather than skipped by content-type: the point of the guard is that
+     * adding an untyped JSON route fails it, which needs the exception to be explicit.
+     */
+    const NOT_JSON = new Set([
+      'GET /api/events', // SSE stream
+      'GET /api/servers/{id}/stream', // SSE stream
+      'GET /api/metrics', // Prometheus text
+      'GET /api/logs/{id}/download', // a log file
+      'GET /api/backups/{name}/download', // a zip
+      'POST /_acme/{action}', // the engine's challenge channel
+      'POST /api/settings/tls', // moves the listener; answers the new TLS status with no body contract
+    ])
+
+    const untyped: string[] = []
+    for (const [path, operations] of Object.entries(spec.paths)) {
+      for (const [method, operation] of Object.entries(operations)) {
+        if (method === 'parameters' || operation?.responses === undefined)
+          continue
+        for (const [status, response] of Object.entries(operation.responses)) {
+          if (!status.startsWith('2'))
+            continue
+          if (NOT_JSON.has(`${method.toUpperCase()} ${path}`))
+            continue
+          const schema = response.content?.['application/json']?.schema
+          if (schema === undefined)
+            untyped.push(`${method.toUpperCase()} ${path} → ${status}`)
+        }
+      }
+    }
+    expect(untyped).toEqual([])
+  })
+
+  /**
    * The document is a promise to clients, so the shape it declares has to be the shape
    * the route actually answers. A write returns the *stored* entry — flat, no `config`
    * wrapper and no live status — while a read returns a view; declaring the view for both

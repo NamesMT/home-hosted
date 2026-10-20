@@ -242,7 +242,10 @@ default workspace.
 ✅ takes `?workspace=<id>`; ❌ is panel-wide. Omitting `?workspace` means `default` workspace is used.
 
 `GET /openapi/spec.json` describes all of it, `/openapi/ui` is the browsable version, and every error
-comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on.
+comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on. The
+document declares its own `securitySchemes` (`bearerAuth`), every documented 2xx carries a schema, and
+each operation is tagged — so `openapi-typescript`, `openapi-generator` or a docs renderer can generate
+a working client without hand-written glue.
 
 </details>
 

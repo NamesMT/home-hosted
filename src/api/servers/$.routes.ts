@@ -11,7 +11,7 @@ import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
-import { freePortResultSchema, logQuerySchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, freePortResultSchema, logLinesResponseSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
 
 const idParam = type({ id: 'string >= 1' })
 /** Pending SSE writes per connection; log frames are dropped past it, state is not. */
@@ -25,7 +25,6 @@ const serversResponse = type({ servers: serverViewSchema.array() })
  * off a create got `undefined` with no error anywhere.
  */
 const storedServerResponse = type({ server: serverSchema })
-const okResponse = type({ ok: 'boolean' })
 const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
 
 export function createServersRoute(deps: AppDeps) {
@@ -109,7 +108,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .get(
       '/:id/logs',
-      describeRoute({ tags: ['servers'], summary: 'Buffered log lines from memory', responses: { 200: { description: 'Lines' }, 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Buffered log lines from memory', responses: { 200: { description: 'Lines', content: jsonBody(logLinesResponseSchema) }, 404: ERROR_RESPONSES[404] } }),
       validate('query', bufferedLogsQuery),
       validate('param', idParam),
       (c) => {
@@ -186,7 +185,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .post(
       '/:id/start',
-      describeRoute({ tags: ['servers'], summary: 'Start a server', responses: { 200: { description: 'Result' }, 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Start a server', responses: { 200: { description: 'Result', content: jsonBody(actionResultSchema) }, 404: ERROR_RESPONSES[404], 409: { description: 'The entry cannot act right now' } } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
@@ -198,7 +197,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .post(
       '/:id/stop',
-      describeRoute({ tags: ['servers'], summary: 'Stop a server', responses: { 200: { description: 'Result' }, 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Stop a server', responses: { 200: { description: 'Result', content: jsonBody(actionResultSchema) }, 404: ERROR_RESPONSES[404], 409: { description: 'The entry cannot act right now' } } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
@@ -210,7 +209,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .post(
       '/:id/restart',
-      describeRoute({ tags: ['servers'], summary: 'Restart a server', responses: { 200: { description: 'Result' }, 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Restart a server', responses: { 200: { description: 'Result', content: jsonBody(actionResultSchema) }, 404: ERROR_RESPONSES[404], 409: { description: 'The entry cannot act right now' } } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
@@ -222,7 +221,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .post(
       '/:id/clear-logs',
-      describeRoute({ tags: ['servers'], summary: 'Forget the buffered log lines', responses: { 200: { description: 'Cleared', content: jsonBody(okResponse) } } }),
+      describeRoute({ tags: ['servers'], summary: 'Forget the buffered log lines', responses: { 200: { description: 'Cleared', content: jsonBody(okResponseSchema) } } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       (c) => {
@@ -296,7 +295,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .delete(
       '/:id',
-      describeRoute({ tags: ['servers'], summary: 'Stop and remove a server', responses: { 200: { description: 'Removed', content: jsonBody(okResponse) }, 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Stop and remove a server', responses: { 200: { description: 'Removed', content: jsonBody(okResponseSchema) }, 404: ERROR_RESPONSES[404] } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {

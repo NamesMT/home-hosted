@@ -1681,6 +1681,66 @@ export const logQuerySchema = type({
  * process left, and which listeners were deliberately left alone because this
  * panel supervises them.
  */
+/**
+ * What a per-server lifecycle action answers with.
+ *
+ * `ok`/`error` are what the panel returns and every UI already reads; `code` was added so a
+ * script can branch without matching English, and it is **absent on success** — a code names a
+ * failure.
+ */
+export const actionResultSchema = type({
+  'ok': 'boolean',
+  'error?': 'string',
+  'code?': 'string',
+})
+export type ActionResultBody = typeof actionResultSchema.infer
+
+/** Whether a probe (a test send, a token check) worked, and why not when it did not. */
+export const deliveryResultSchema = type({
+  'ok': 'boolean',
+  'error?': 'string',
+})
+
+/** A password was set or changed, and what that means for the caller's session. */
+export const passwordSetResponseSchema = type({
+  ok: 'boolean',
+  enabled: 'boolean',
+  sessionsInvalidated: 'boolean',
+})
+
+/**
+ * The plain acknowledgement most mutations answer with.
+ *
+ * Defined once because a dozen routes return it, and each was declaring its own or none at all —
+ * which is why the spec had untyped `200`s where a generated client needs a shape.
+ */
+export const okResponseSchema = type({ ok: 'boolean' })
+
+/** A backup was removed: the archive list it leaves behind. */
+export const backupFilesResponseSchema = type({
+  ok: 'boolean',
+  files: backupFileSchema.array(),
+})
+
+/** A UI build was installed (it also reports the build), or reverted. */
+export const uiInstallResponseSchema = type({
+  'ok': 'boolean',
+  'meta?': uiStatusSchema.get('meta'),
+  'ui': uiStatusSchema,
+})
+
+/** A backup was created: the new archive and the list it belongs to. */
+export const backupCreatedResponseSchema = type({
+  ok: 'boolean',
+  file: backupFileSchema,
+  files: backupFileSchema.array(),
+})
+
+/** Buffered or persisted log lines, the shape every log-reading route returns. */
+export const logLinesResponseSchema = type({
+  lines: logLineSchema.array(),
+})
+
 export const freePortResultSchema = type({
   ok: 'boolean',
   port: 'number | null',

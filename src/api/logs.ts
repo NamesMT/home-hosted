@@ -9,7 +9,7 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
-import { logHistoryQuerySchema, logServersViewSchema } from '#src/shared/contracts'
+import { logHistoryQuerySchema, logLinesResponseSchema, logServersViewSchema, okResponseSchema } from '#src/shared/contracts'
 
 /** Bounds for the tail query, so a bad client cannot ask for the whole file. */
 const MIN_TAIL = 50
@@ -48,7 +48,7 @@ export function createLogsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['logs'],
         summary: 'Persisted log lines, with search and a stream filter',
-        responses: { 200: { description: 'Lines' }, 404: ERROR_RESPONSES[404] },
+        responses: { 200: { description: 'Lines', content: jsonBody(logLinesResponseSchema) }, 404: ERROR_RESPONSES[404] },
       }),
       validate('query', historyQuery),
       validate('param', idParam),
@@ -137,7 +137,7 @@ export function createLogsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['logs'],
         summary: 'Delete the persisted logs of one server',
-        responses: { 200: { description: 'Cleared' }, 404: ERROR_RESPONSES[404] },
+        responses: { 200: { description: 'Cleared', content: jsonBody(okResponseSchema) }, 404: ERROR_RESPONSES[404] },
       }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),

@@ -6,7 +6,7 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { forgetBots } from '#src/providers/telegram'
-import { destinationIdParamSchema, destinationTestSchema, notificationActionSchema, telegramChatsSchema, telegramTokenSchema } from '#src/shared/contracts'
+import { deliveryResultSchema, destinationIdParamSchema, destinationTestSchema, notificationActionSchema, okResponseSchema, telegramChatsSchema, telegramTokenSchema } from '#src/shared/contracts'
 
 /**
  * A destination's credential is written straight to a workspace's secrets file and never into a
@@ -25,7 +25,7 @@ export function createNotificationsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['notifications'],
         summary: 'Store a Telegram destination\'s bot token (verified first)',
-        responses: { 200: { description: 'Stored' }, 400: ERROR_RESPONSES[400] },
+        responses: { 200: { description: 'Stored', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400] },
       }),
       validate('query', workspaceQuerySchema),
       validate('param', destinationIdParamSchema),
@@ -49,7 +49,7 @@ export function createNotificationsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['notifications'],
         summary: 'Forget a Telegram destination\'s bot token',
-        responses: { 200: { description: 'Removed' } },
+        responses: { 200: { description: 'Removed', content: jsonBody(okResponseSchema) } },
       }),
       validate('query', workspaceQuerySchema),
       validate('param', destinationIdParamSchema),
@@ -66,7 +66,7 @@ export function createNotificationsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['notifications'],
         summary: 'Send a test message to one destination',
-        responses: { 200: { description: 'Sent or refused' }, 400: ERROR_RESPONSES[400] },
+        responses: { 200: { description: 'Sent or refused', content: jsonBody(deliveryResultSchema) }, 400: ERROR_RESPONSES[400] },
       }),
       validate('query', workspaceQuerySchema),
       validate('param', destinationIdParamSchema),
@@ -91,7 +91,7 @@ export function createNotificationsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['notifications'],
         summary: 'Send a test to one webhook destination',
-        responses: { 200: { description: 'Sent or refused' }, 400: ERROR_RESPONSES[400] },
+        responses: { 200: { description: 'Sent or refused', content: jsonBody(deliveryResultSchema) }, 400: ERROR_RESPONSES[400] },
       }),
       validate('query', workspaceQuerySchema),
       validate('json', destinationTestSchema),

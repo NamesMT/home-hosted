@@ -6,10 +6,12 @@ import { statusForAction } from '#src/helpers/action-result'
 import { afterResponse } from '#src/helpers/deferred'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
+import { jsonBody } from '#src/helpers/openapi'
 import { secretEqual } from '#src/helpers/secret-compare'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
+import { okResponseSchema } from '#src/shared/contracts'
 
 /**
  * The local control channel used by `home-hosted down` and `home-hosted start|stop`.
@@ -36,7 +38,7 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Stop the panel and everything it supervises (local token required)',
-        responses: { 200: { description: 'Stopping' }, 403: { description: 'Bad token, or not a local caller' } },
+        responses: { 200: { description: 'Stopping', content: jsonBody(okResponseSchema) }, 403: { description: 'Bad token, or not a local caller' } },
       }),
       (c) => {
         assertLocalCall(c, 'stop the control panel')
@@ -53,7 +55,7 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Start one server, without a session (local token required)',
-        responses: { 200: { description: 'Started' }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
+        responses: { 200: { description: 'Started', content: jsonBody(okResponseSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {
@@ -69,7 +71,7 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Stop one server, without a session (local token required)',
-        responses: { 200: { description: 'Stopped' }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
+        responses: { 200: { description: 'Stopped', content: jsonBody(okResponseSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {
@@ -88,7 +90,7 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Restart one server, without a session (local token required)',
-        responses: { 200: { description: 'Restarted' }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
+        responses: { 200: { description: 'Restarted', content: jsonBody(okResponseSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {
