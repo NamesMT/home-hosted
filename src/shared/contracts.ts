@@ -1740,6 +1740,18 @@ export const passwordSetResponseSchema = type({
 })
 
 /**
+ * What both TLS mutation routes answer: the panel's listener and the move that is in flight.
+ *
+ * Declared once because the two routes return the same `review()` body — the DELETE declared
+ * `okResponseSchema` while returning this, so a generated client read `undefined` for every field.
+ */
+export const tlsReviewResponseSchema = type({
+  control: controlViewSchema,
+  rebinding: 'boolean',
+  targetUrl: 'string',
+})
+
+/**
  * The plain acknowledgement most mutations answer with.
  *
  * Defined once because a dozen routes return it, and each was declaring its own or none at all —
@@ -1762,7 +1774,6 @@ export const uiInstallResponseSchema = type({
 
 /** A backup was created: the new archive and the list it belongs to. */
 export const backupCreatedResponseSchema = type({
-  ok: 'boolean',
   file: backupFileSchema,
   files: backupFileSchema.array(),
 })

@@ -7,7 +7,7 @@ import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { buildControlView } from '#src/services/state'
-import { okResponseSchema, tlsUploadSchema } from '#src/shared/contracts'
+import { tlsReviewResponseSchema, tlsUploadSchema } from '#src/shared/contracts'
 
 /**
  * Uploads the PEM pair used for https on the control panel.
@@ -29,7 +29,7 @@ export function createTlsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['tls'],
         summary: 'Upload the certificate and key the panel should serve',
-        responses: { 200: { description: 'Stored; the panel may be moving to https' }, 400: ERROR_RESPONSES[400] },
+        responses: { 200: { description: 'Stored; the panel may be moving to https', content: jsonBody(tlsReviewResponseSchema) }, 400: ERROR_RESPONSES[400] },
       }),
       validate('json', tlsUploadSchema),
       (c) => {
@@ -56,7 +56,7 @@ export function createTlsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['tls'],
         summary: 'Remove the certificate pair',
-        responses: { 200: { description: 'Removed', content: jsonBody(okResponseSchema) } },
+        responses: { 200: { description: 'Removed', content: jsonBody(tlsReviewResponseSchema) } },
       }),
       (c) => {
         deps.tls.clear()

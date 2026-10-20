@@ -1572,6 +1572,8 @@ describe('orphaned processes', () => {
         lastStartedAt: Date.now(),
       })
 
+      // The list is refreshed by the tick; call the same path the view reads after one refresh.
+      await (supervisor as unknown as { refreshOrphans: (n?: number) => Promise<void> }).refreshOrphans()
       expect(supervisor.orphans()).toContainEqual({
         serverId: 'renamed-away',
         pid: child.pid,
@@ -1614,6 +1616,41 @@ describe('orphaned processes', () => {
     expect(result.error).toContain('no orphaned process')
   })
 
+  /**
+   * A recycled pid is somebody else's process, and must never be offered for stopping.
+   *
+   * The first version only checked liveness, so a pid the OS had recycled after a reboot matched a
+   * stale record — the panel listed a stranger as an orphan and `stopOrphan` SIGTERMed it. The
+   * project already owns the witness for this (`processLiveness` returns `'recycled'`).
+   */
+  it('never reports a pid the OS recycled to a different process', async () => {
+    const harness = await makeSupervisor([])
+    const { supervisor, nannyDir } = harness
+
+    // Alive now, but the record claims it started an hour ago: it cannot be ours.
+    const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', detached: true })
+    child.unref()
+    const pid = child.pid!
+    writeEntryState(entryStatePath(nannyDir, 'recycled-name'), {
+      restarts: 0,
+      bootstrapDone: false,
+      lastPid: pid,
+      lastStartedAt: Date.now() - 3_600_000,
+    })
+
+    try {
+      await (supervisor as unknown as { refreshOrphans: (n?: number) => Promise<void> }).refreshOrphans()
+      expect(supervisor.orphans(), 'a recycled pid belongs to a stranger').toEqual([])
+      // …and the action refuses it, rather than killing a process the panel never started.
+      expect((await supervisor.stopOrphan('recycled-name')).ok).toBe(false)
+      expect(isAlive(pid), 'the stranger must still be alive').toBe(true)
+    }
+    finally {
+      if (isAlive(pid))
+        process.kill(pid, 'SIGKILL')
+    }
+  })
+
   it('says nothing about a state file whose process is gone', async () => {
     const harness = await makeSupervisor([])
     const { supervisor, nannyDir } = harness
@@ -1626,6 +1663,7 @@ describe('orphaned processes', () => {
       lastStartedAt: Date.now(),
     })
 
+    await (supervisor as unknown as { refreshOrphans: (n?: number) => Promise<void> }).refreshOrphans()
     expect(supervisor.orphans()).toEqual([])
   })
 
@@ -1637,6 +1675,7 @@ describe('orphaned processes', () => {
     await waitForStatus(harness.supervisor, 'web', 'running')
 
     // Its own state file is not an orphan: the entry that owns it is right here.
+    await (harness.supervisor as unknown as { refreshOrphans: (n?: number) => Promise<void> }).refreshOrphans()
     expect(harness.supervisor.orphans()).toEqual([])
   })
 })
@@ -1816,7 +1855,14 @@ describe('the documented placeholder table', () => {
  * a minute on a server whose `/healthz` always answered 500, and it would have gone on forever.
  */
 describe('the health restart budget', () => {
-  it('gives up, and says so, instead of restarting a permanently unhealthy entry forever', async () => {
+  /**
+   * Giving up must **stop it**, not just relabel it.
+   *
+   * The first version set `status = 'crashed'` and left the child running, so the panel reported a
+   * live pid and a serving port as down — and `/healthz` degraded the whole panel for a process
+   * that was up. `stopped` with the reason kept on `lastError` is the honest pair.
+   */
+  it('stops a permanently unhealthy entry, and says why, instead of restarting it forever', async () => {
     const port = await freePort()
     const harness = await makeSupervisor([{
       id: 'sick',
@@ -1830,14 +1876,17 @@ describe('the health restart budget', () => {
     }])
 
     await harness.supervisor.start('sick')
-    // It must stop trying and say why — bounded, not endless.
-    await waitFor(() => view(harness.supervisor, 'sick').status === 'crashed', 45000)
+    await waitFor(() => view(harness.supervisor, 'sick').status === 'stopped' && view(harness.supervisor, 'sick').lastError !== null, 45000)
 
-    const dead = view(harness.supervisor, 'sick')
-    expect(dead.lastError).toContain('health restarts')
+    const givenUp = view(harness.supervisor, 'sick')
+    expect(givenUp.lastError).toContain('health restarts')
+    // The process must be gone: a `stopped` entry with a live pid is the false report this fixes.
+    expect(givenUp.pid, 'a stopped entry must have no pid').toBeNull()
+    expect(givenUp.status).toBe('stopped')
+    // …and nothing listens on its port any more.
+    expect(await portAccepts(port), 'the stopped entry must have released its port').toBe(false)
     // The budget is `maxRetries`, so it cannot have restarted more than that many times.
-    const forced = view(harness.supervisor, 'sick').history.forcedRestarts
-    expect(forced).toBeLessThanOrEqual(2)
+    expect(givenUp.history.forcedRestarts).toBeLessThanOrEqual(2)
   })
 
   it('does not restart a health-failing entry at all when restarts are disabled', async () => {
@@ -1853,7 +1902,10 @@ describe('the health restart budget', () => {
     }])
 
     await harness.supervisor.start('sick')
-    await waitFor(() => view(harness.supervisor, 'sick').status === 'crashed', 30000)
+    // `stopped`, not `crashed`: giving up now actually stops the process, so the status and the pid
+    // agree. The reason is still on `lastError`.
+    await waitFor(() => view(harness.supervisor, 'sick').status === 'stopped' && view(harness.supervisor, 'sick').lastError !== null, 30000)
+    expect(view(harness.supervisor, 'sick').pid).toBeNull()
     expect(view(harness.supervisor, 'sick').history.forcedRestarts).toBe(0)
   })
 })

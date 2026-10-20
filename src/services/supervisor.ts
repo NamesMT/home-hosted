@@ -213,6 +213,8 @@ export class Supervisor {
   })
 
   private readonly entries = new Map<string, Entry>()
+  /** Processes no entry owns, refreshed by the tick; read synchronously by the state frame. */
+  private orphanCache: ServerOrphan[] = []
   private readonly tickTimer: NodeJS.Timeout
   /** Detaches this supervisor from the store's listener set in `dispose()`. */
   private readonly storeUnsubscribe: () => void
@@ -259,13 +261,25 @@ export class Supervisor {
    * found too. Reported, never touched: a pid here is one whose identity the platform may not be
    * able to confirm, and killing on a guess is exactly what the rest of this file refuses to do.
    */
-  orphans(now = Date.now()): ServerOrphan[] {
+  orphans(): ServerOrphan[] {
+    return [...this.orphanCache]
+  }
+
+  /**
+   * Re-reads the state directory for processes no entry owns.
+   *
+   * Async (it asks the platform for a birth time per pid) and therefore driven by the tick, not by
+   * the state frame: the view is built on every publish, and a `readdirSync` plus an async birth
+   * check there would either block or force the whole frame async.
+   */
+  private async refreshOrphans(): Promise<void> {
     let names: string[]
     try {
       names = fs.readdirSync(this.options.nannyDir)
     }
     catch {
-      return []
+      this.orphanCache = []
+      return
     }
 
     const found: ServerOrphan[] = []
@@ -280,21 +294,21 @@ export class Supervisor {
       const pid = state?.lastPid ?? null
       if (pid === null || pid === process.pid)
         continue
-      // Only a pid that is still alive and still born when we recorded it. A recycled pid is
-      // somebody else's process, and reporting it would invite killing a stranger.
       const startedAt = state?.lastStartedAt ?? 0
-      if (startedAt > 0) {
-        const age = now - startedAt
-        // Cheap synchronous screen; `processLiveness` is async and the view is a hot path.
-        if (!isProcessAlive(pid) || age < 0)
-          continue
-      }
-      else if (!isProcessAlive(pid)) {
+      // The same witness `up`/`down` and the adoption guard use: a pid born *after* the record is
+      // not the process we started, whoever now owns the number. Reporting it would offer a
+      // one-click "Stop it" for a stranger's process, and `stopOrphan` would SIGTERM it.
+      //
+      // No stamp (an older state file) can only be judged by liveness, and `unknown` counts as
+      // alive — the record is preserved rather than discarded on a guess.
+      const liveness = startedAt > 0
+        ? await processLiveness(pid, startedAt)
+        : (isProcessAlive(pid) ? 'unknown' : 'gone')
+      if (liveness === 'gone' || liveness === 'recycled')
         continue
-      }
       found.push({ serverId: id, pid, startedAt: startedAt > 0 ? startedAt : null })
     }
-    return found
+    this.orphanCache = found
   }
 
   /**
@@ -305,6 +319,7 @@ export class Supervisor {
    * that survived SIGKILL keeps its file, so the next boot can still find it.
    */
   async stopOrphan(serverId: string): Promise<{ ok: boolean, error?: string }> {
+    await this.refreshOrphans()
     const orphan = this.orphans().find(entry => entry.serverId === serverId)
     if (orphan === undefined)
       return { ok: false, error: `no orphaned process is running as "${serverId}"` }
@@ -315,6 +330,8 @@ export class Supervisor {
       return { ok: false, error: `pid ${orphan.pid} survived the stop — kill it from a shell, its record is kept` }
 
     clearEntryState(statePath)
+    // The record is gone, so the cached list is already wrong; refresh before publishing.
+    await this.refreshOrphans()
     logger.info(`stopped the orphaned process ${orphan.pid} (was "${serverId}")${forced.length > 0 ? ', force-killed' : ''}`)
     this.publishState()
     return { ok: true }
@@ -1774,6 +1791,11 @@ export class Supervisor {
     const now = Date.now()
 
     await this.sampleResources(now)
+    // Cheap when nothing changed (a readdir); the birth check per pid only runs for state files no
+    // entry owns, which is normally none.
+    await this.refreshOrphans().catch((error: unknown) => {
+      logger.warn('could not refresh the orphaned-process list', error)
+    })
 
     // Probes run concurrently: one slow server must not delay the others' health.
     await Promise.allSettled([...this.entries.values()].map(entry => this.probeEntry(entry, now)))
@@ -1786,6 +1808,10 @@ export class Supervisor {
       }
       if (await this.enforceMemoryLimit(entry))
         continue
+      if (this.healthBudgetSpent(entry)) {
+        await this.giveUpOnHealth(entry)
+        continue
+      }
       if (this.shouldForceRestart(entry, now)) {
         await this.restart(entry.config.id)
         continue
@@ -1913,7 +1939,8 @@ export class Supervisor {
     // all, so an entry that stayed up and failed every probe was restarted forever. Same budget,
     // separate counter: a server that crashes is a different failure from one that cannot serve.
     if (!restart.enabled || entry.healthRestarts >= restart.maxRetries) {
-      this.giveUpOnHealth(entry, restart.enabled)
+      // Stopping is a side effect, so it cannot happen here (this is a predicate the tick calls).
+      // The tick reads `healthBudgetSpent` and stops the entry once.
       return false
     }
 
@@ -1927,28 +1954,42 @@ export class Supervisor {
     return true
   }
 
+  /** Whether this entry's health budget is spent, so the tick should stop it. */
+  private healthBudgetSpent(entry: Entry): boolean {
+    const { port, health, restart } = entry.config
+    if (port === null || entry.status !== 'running' || entry.health !== 'unhealthy')
+      return false
+    if (entry.unhealthySince === null || health.forceRestartAfterMs <= 0)
+      return false
+    return !restart.enabled || entry.healthRestarts >= restart.maxRetries
+  }
+
   /**
-   * Stops restarting an entry that cannot pass its own health check.
+   * Stops an entry that cannot pass its own health check, once the restart budget is spent.
    *
-   * Marked `crashed` rather than left `running`+`unhealthy`: it is not serving, the budget is
-   * spent, and nothing further will happen until someone acts — which is exactly what `crashed`
-   * tells a reader, `/healthz` and the notification. Guarded on the message so a tick loop does
-   * not re-record the same crash every second.
+   * It has to **actually stop**: leaving the process running and marking it `crashed` made the
+   * panel state something false — a live pid and a serving port reported as down, and `/healthz`
+   * degrading the panel for a process that was up. `stopped` is the honest status, and the reason
+   * is kept on `lastError` so the card and the notification still say why.
    */
-  private giveUpOnHealth(entry: Entry, budgetEnabled: boolean): void {
+  private async giveUpOnHealth(entry: Entry): Promise<void> {
+    const budgetEnabled = entry.config.restart.enabled
     const detail = budgetEnabled
-      ? `gave up after ${entry.config.restart.maxRetries} health restarts (the health check kept failing)`
-      : 'health restarts are disabled, and the health check is failing'
-    if (entry.lastError === detail)
-      return
-    entry.status = 'crashed'
-    entry.lastError = detail
+      ? `stopped after ${entry.config.restart.maxRetries} health restarts (the health check kept failing)`
+      : 'stopped because health restarts are disabled and the health check is failing'
+
     entry.pendingRestart = null
-    entry.unhealthySince = null
+    entry.healthRestarts = 0
     this.log(entry, 'system', detail)
+    // Recorded as a crash: the entry is down and stayed down, which is what the history means.
     this.options.history.record(entry.config.id, { type: 'crash', detail })
     this.notify(entry, 'crash', detail)
-    this.publishServer(entry)
+    await this.stopEntry(entry)
+    // Set after the stop, because `stopEntry` clears `lastError` on the stopped path.
+    if (!entry.removed) {
+      entry.lastError = detail
+      this.publishServer(entry)
+    }
   }
 
   private clearRetry(entry: Entry): void {

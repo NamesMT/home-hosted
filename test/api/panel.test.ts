@@ -659,6 +659,40 @@ describe('openapi document', () => {
   })
 
   /**
+   * A schema that describes a body the route never sends is worse than none: a generated client
+   * binds to fields that are always `undefined`, with no error anywhere.
+   *
+   * The guard above only checks a schema *exists*, so it passed while two of them were wrong —
+   * `POST /api/backups` declared an `ok` the handler never sends, and `DELETE /api/settings/tls`
+   * declared the plain `{ok}` envelope while returning the TLS review. This one compares the
+   * declared property names against a real response body, so the description has to be true.
+   */
+  it('declares the fields its handlers actually send', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      paths: Record<string, Record<string, { responses?: Record<string, { content?: Record<string, { schema?: { properties?: Record<string, unknown> } }> }> } | undefined>>
+    }
+
+    /** Declared property names for one route's success body. */
+    const declaredKeys = (path: string, method: string, status = '200'): string[] => {
+      const schema = spec.paths[path]?.[method]?.responses?.[status]?.content?.['application/json']?.schema
+      return Object.keys(schema?.properties ?? {}).sort()
+    }
+
+    // `POST /api/backups` — the handler sends `{ file, files }`.
+    const backup = await form(created.app, '/api/backups', 'POST', {})
+    expect(backup.status).toBe(200)
+    const backupBody = await backup.json() as Record<string, unknown>
+    expect(declaredKeys('/api/backups', 'post')).toEqual(Object.keys(backupBody).sort())
+
+    // `DELETE /api/settings/tls` — the handler sends the review, not `{ ok }`.
+    const tls = await created.app.request('/api/settings/tls', { method: 'DELETE' })
+    expect(tls.status).toBe(200)
+    const tlsBody = await tls.json() as Record<string, unknown>
+    expect(declaredKeys('/api/settings/tls', 'delete')).toEqual(Object.keys(tlsBody).sort())
+  })
+
+  /**
    * The document is a promise to clients, so the shape it declares has to be the shape
    * the route actually answers. A write returns the *stored* entry — flat, no `config`
    * wrapper and no live status — while a read returns a view; declaring the view for both

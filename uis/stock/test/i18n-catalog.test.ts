@@ -152,6 +152,34 @@ describe('the sheets', () => {
     expect(offenders).toEqual([])
   })
 
+  /**
+   * An unquoted comma shifts every column after it, so the translation for one locale lands in
+   * another and the rest fall off the end.
+   *
+   * Two rows shipped that way: `views.servers.orphansDescription` became 12 columns, so the orphan
+   * notice — the whole deliverable of that commit — read as truncated English in every language,
+   * and `presets.startFromScratch` showed French or Korean text under "Start from scratch". The
+   * suite passed because the sheet reader and the catalog builder make the *same* misparse, so
+   * they agreed with each other; `build-locales` only warns. Counting columns is what disagrees
+   * with both.
+   */
+  it('keeps every row at exactly one column per locale', () => {
+    const width = 1 + LOCALES.length
+    const offenders: string[] = []
+    for (const name of sheetNames()) {
+      const file = path.join(sheetsDir, `${name}.csv`)
+      const { data } = parseCsvData({ csvString: fs.readFileSync(file, 'utf8'), delimiter: undefined, logName: `${name}.csv` })
+      for (const row of data as Record<string, string>[]) {
+        const key = String(row.KEY ?? '')
+        // A row whose cells are not the header's width means a delimiter split a cell.
+        const cells = Object.values(row).filter(value => value !== undefined).length
+        if (cells !== width)
+          offenders.push(`${name}.csv: ${key} has ${cells} cells, expected ${width}`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
   it('never puts a comma-separated list in the KEY column', () => {
     // `parseCsvData` treats extra columns as fields, so a stray comma in a key silently becomes
     // an unnamed column rather than an error.
