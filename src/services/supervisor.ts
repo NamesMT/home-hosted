@@ -1079,6 +1079,8 @@ export class Supervisor {
     this.forgetRecordedChild(entry, adoptedPid)
     entry.resources = null
     entry.responseMs = null
+    // The same reset as a child we spawned: health is about a process, and this one is gone.
+    entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
     entry.exitCode = null
     entry.exitSignal = null
     if (!entry.removed) {
@@ -1584,6 +1586,10 @@ export class Supervisor {
     entry.adopted = false
     entry.resources = null
     entry.responseMs = null
+    // Health describes a *process*. Left alone it outlives the process and lies: a dead entry
+    // whose port a stranger still holds kept the last `healthy` verdict, so a crashed server read
+    // as green while nothing of its own was running. Reset with the measurements beside it.
+    entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
     entry.exitCode = code
     entry.exitSignal = signal
 

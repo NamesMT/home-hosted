@@ -1715,6 +1715,46 @@ describe('the documented placeholder table', () => {
 })
 
 /**
+ * Health describes a process, and must not outlive it.
+ *
+ * With `onPortConflict: "warn"` and a stranger already on the port, the entry's own process dies
+ * with EADDRINUSE — and the probe, which cannot tell whose listener answers, kept reporting
+ * `healthy`. The card then read `status: crashed, health: healthy, pid: None`: green, for a
+ * process that did not exist. An external monitor watching `health` saw the same lie.
+ */
+describe('health of a dead entry', () => {
+  it('does not keep a healthy verdict after the process is gone', async () => {
+    const port = await freePort()
+    // A stranger holds the port; the entry's own process cannot bind and dies.
+    const stranger = net.createServer()
+    await new Promise<void>(resolve => stranger.listen(port, '127.0.0.1', () => resolve()))
+
+    const harness = await makeSupervisor([{
+      id: 'clash',
+      command: process.execPath,
+      args: ['-e', 'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1"); setInterval(()=>{},1000)'],
+      env: { PORT: '{port}' },
+      port,
+      onPortConflict: 'warn',
+      health: { intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 3, forceRestartAfterMs: 0, startTimeoutMs: 3000 },
+      restart: { maxRetries: 0, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+    }])
+
+    try {
+      await harness.supervisor.start('clash')
+      // Once it has given up, the entry says so — and its health must not still read green.
+      await waitFor(() => view(harness.supervisor, 'clash').status === 'crashed', 20000)
+      const dead = view(harness.supervisor, 'clash')
+      expect(dead.pid).toBeNull()
+      expect(dead.health, `a dead entry must not report healthy — got ${JSON.stringify({ status: dead.status, health: dead.health })}`).not.toBe('healthy')
+    }
+    finally {
+      await new Promise<void>(resolve => stranger.close(() => resolve()))
+    }
+  })
+})
+
+/**
  * `dependsOn` means "healthy first", and the boot path is the one that skipped it.
  *
  * `startDependencies` returned early whenever the dependency already had a child, and on
