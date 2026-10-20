@@ -417,6 +417,11 @@ export function useControlPlane() {
     stop: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'stop'), { title: `Could not stop ${id}` }),
     restart: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'restart'), { title: `Could not restart ${id}` }),
     startAll: (workspaceId: string) => run(() => api.startAll(workspaceId), { title: 'Could not start every server', success: 'Starting every enabled server' }),
+    /**
+     * Stops a process the panel started that no entry owns any more. The workspace view reports
+     * them; this is the action that makes the report fixable without a shell.
+     */
+    stopOrphan: (workspaceId: string, id: string) => run(() => api.stopOrphan(workspaceId, id), { title: `Could not stop the orphaned process "${id}"`, success: 'Orphaned process stopped' }),
     stopAll: (workspaceId: string) => run(() => api.stopAll(workspaceId), { title: 'Could not stop every server', success: 'Stopping every server' }),
     setAutostart: (workspaceId: string, id: string, autostart: boolean) => run(() => api.patchServer(workspaceId, id, { autostart }), { title: `Could not change autostart for ${id}` }),
     setEnabled: (workspaceId: string, id: string, enabled: boolean) => run(() => api.patchServer(workspaceId, id, { enabled }), { title: `Could not change ${id}` }),

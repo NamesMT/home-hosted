@@ -110,6 +110,30 @@ export function createServersRoute(deps: AppDeps) {
       },
     )
 
+    /**
+     * Stop a process the panel started that no entry claims any more.
+     *
+     * The orphan list is on the workspace view; this is the action that makes it recoverable from
+     * the panel instead of from `ps` and `kill` in a shell.
+     */
+    .post(
+      '/orphans/:id/stop',
+      describeRoute({
+        tags: ['servers'],
+        summary: 'Stop an orphaned process this panel started',
+        responses: { 200: { description: 'Stopped', content: jsonBody(okResponseSchema) }, 404: ERROR_RESPONSES[404], 409: { description: 'The process survived the stop' } },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      async (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.stopOrphan(c.req.valid('param').id)
+        if (!result.ok)
+          throw new DetailedError(result.error ?? 'could not stop the orphan', { statusCode: 404, code: 'ORPHAN_STOP_FAILED' })
+        return c.json({ ok: true })
+      },
+    )
+
     // Registered before `/:id` so the literal segments always win.
     .post(
       '/start-all',

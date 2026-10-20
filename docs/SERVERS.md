@@ -25,6 +25,18 @@ Pick one in the header; the workspace's server defaults and log retention sit in
 Relative paths resolve against the directory you ran `home-hosted` from, so a project can keep its
 servers and its state together.
 
+## Orphaned processes
+
+A child the panel spawns is detached, so it outlives a hard panel death. The handle is
+`.state/<id>.run.json`, keyed by the id it was started under — so an entry that is **renamed** or
+**removed** while its process is still running leaves that process with no entry to own it. It keeps
+running, holding its port and its resources, and nothing in the panel lists it.
+
+**Servers** now shows them: a warning above the list names each id, its pid and when it started, with
+a **Stop it** button. The state file is left alone until the process is actually gone, so a survivor
+of `SIGKILL` is still findable on the next boot. There is no automatic kill — a pid whose identity the
+platform cannot confirm is exactly what the rest of this file refuses to signal on a guess.
+
 ## Field reference
 
 | field | what it does |

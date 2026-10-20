@@ -362,6 +362,11 @@ export async function serverAction(workspace: string, id: string, action: 'start
   return payload ?? { ok: true }
 }
 
+/** Stops a process the panel started that no entry claims any more; see the workspace view. */
+export async function stopOrphan(workspace: string, serverId: string): Promise<ActionResult> {
+  return request<ActionResult>(scoped(`/api/servers/orphans/${encodeURIComponent(serverId)}/stop`, workspace), { method: 'POST' })
+}
+
 export function startAll(workspace: string): Promise<unknown> {
   return request(scoped('/api/servers/start-all', workspace), { method: 'POST' })
 }

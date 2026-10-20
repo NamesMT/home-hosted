@@ -1627,6 +1627,16 @@ export const uiStatusSchema = type({
 })
 export type UiStatus = typeof uiStatusSchema.infer
 
+/** One process a panel spawned that no configured entry claims any more. */
+export const serverOrphanSchema = type({
+  /** The id it was started as, which is also the key of the state file it was found in. */
+  serverId: 'string',
+  pid: 'number',
+  /** When the panel spawned it; null when the record predates the stamp. */
+  startedAt: 'number | null',
+})
+export type ServerOrphan = typeof serverOrphanSchema.infer
+
 export const workspaceViewSchema = type({
   'id': 'string',
   'label': 'string',
@@ -1645,6 +1655,18 @@ export const workspaceViewSchema = type({
   'serverCount': 'number',
   'runningCount': 'number',
   'crashedCount': 'number',
+  /**
+   * Processes this panel started that no current entry owns.
+   *
+   * A detached child outlives a hard panel death, and its handle is the entry-state file keyed by
+   * the *id* it was started under. Rename the entry and nothing ever reads that file again; delete
+   * the entry while the panel is down and the file is reclaimed, destroying the last handle. The
+   * orphan then runs with no card, no `/healthz` line and no CLI action — for a queue consumer,
+   * two consumers of the same queue. This is the view that makes it actionable.
+   *
+   * Optional: an older panel never sends it.
+   */
+  'orphans?': serverOrphanSchema.array(),
   'servers': serverViewSchema.array(),
 })
 export type WorkspaceView = typeof workspaceViewSchema.infer

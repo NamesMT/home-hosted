@@ -3,6 +3,7 @@ import { Play, Plus, Search, Server as ServerIcon, Square, X } from '@lucide/vue
 import { computed, ref } from 'vue'
 import AddServerDialog from '@/components/server/AddServerDialog.vue'
 import ServerCard from '@/components/server/ServerCard.vue'
+import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -11,11 +12,15 @@ import Skeleton from '@/components/ui/Skeleton.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import { t } from '@/i18n'
+import { formatDateTime } from '@/lib/format'
 import { inputClass } from '@/lib/ui'
 
 const control = useControlPlane()
 const workspace = useWorkspaces()
 const { servers } = workspace
+
+/** Processes the panel started that no entry owns any more, from the workspace view. */
+const orphans = computed(() => workspace.selected.value?.orphans ?? [])
 
 const showAdd = ref(false)
 const query = ref('')
@@ -113,6 +118,26 @@ const filterOptions = computed(() => FILTERS.map(option => ({
         </button>
       </div>
     </div>
+
+    <!--
+      A process the panel started that no entry owns any more. Without this it runs with no card,
+      no /healthz line and no CLI action, and the only recovery was `ps` + `kill`.
+    -->
+    <Notice v-if="orphans.length > 0" tone="warn" :title="t('views.servers.orphansTitle')">
+      <p class="mt-0.5">
+        {{ t('views.servers.orphansDescription') }}
+      </p>
+      <ul class="mt-2 space-y-1">
+        <li v-for="orphan in orphans" :key="orphan.serverId" class="flex flex-wrap items-center gap-2">
+          <code class="rounded-control bg-black/10 px-1.5 py-0.5 font-mono text-2xs dark:bg-white/10">{{ orphan.serverId }}</code>
+          <span class="font-mono text-2xs text-muted">pid {{ orphan.pid }}</span>
+          <span v-if="orphan.startedAt !== null" class="text-2xs text-faint">{{ t('views.servers.orphanStartedAt', { when: formatDateTime(orphan.startedAt) }) }}</span>
+          <AppButton size="xs" variant="ghost" class="ml-auto" @click="control.stopOrphan(workspace.activeId.value, orphan.serverId)">
+            {{ t('views.servers.stopOrphan') }}
+          </AppButton>
+        </li>
+      </ul>
+    </Notice>
 
     <div v-if="loading" class="grid gap-4 lg:grid-cols-2">
       <Skeleton v-for="index in 4" :key="index" class="h-72 w-full" rounded="rounded-panel" />

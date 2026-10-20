@@ -271,7 +271,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | | |
 | --- | --- |
 | 🗂 **Workspaces** | One panel, many scopes: pick a workspace in the header and it owns its servers, secrets, logs and settings. Create, rename and delete them there. Panel-wide things — listener, auth, host vitals, backups, TLS, UI — stay in **Global settings**. |
-| 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. |
+| 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. A process left behind by a renamed or removed entry is listed on **Servers** with a stop button, instead of running invisible. |
 | 📝 **Hand edits welcome** | Change a workspace's `servers.config.json` in an editor, a `git checkout` or a config tool: the panel notices within seconds, no restart. A file it cannot read is reported in the panel, and the running servers are left alone. |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. The budget is remembered across a restart of the panel. |
 | 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout (bounded by the same retry budget as a crash, so a permanently sick entry stops instead of restarting forever), check ports before starting — and [follow or replace](./docs/SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |

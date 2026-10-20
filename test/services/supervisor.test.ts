@@ -1548,6 +1548,100 @@ describe('a removed server', () => {
 })
 
 /**
+ * A process the panel started that no entry claims any more has to be visible.
+ *
+ * The handle is the entry-state file keyed by the id the child was started under. Rename the entry
+ * after a hard panel death and nothing reads that file again; remove the entry while the panel is
+ * down and `sync` reclaims it. Either way the child keeps running with no card, no `/healthz` line
+ * and no CLI action — and for a queue consumer that is two consumers of one queue, the most
+ * damaging duplicate this tool can produce.
+ */
+describe('orphaned processes', () => {
+  it('reports a live child whose entry no longer exists', async () => {
+    const harness = await makeSupervisor([])
+    const { supervisor, nannyDir } = harness
+
+    // A child that is genuinely alive, recorded under an id the config does not have.
+    const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', detached: true })
+    child.unref()
+    try {
+      writeEntryState(entryStatePath(nannyDir, 'renamed-away'), {
+        restarts: 0,
+        bootstrapDone: false,
+        lastPid: child.pid ?? null,
+        lastStartedAt: Date.now(),
+      })
+
+      expect(supervisor.orphans()).toContainEqual({
+        serverId: 'renamed-away',
+        pid: child.pid,
+        startedAt: expect.any(Number),
+      })
+    }
+    finally {
+      if (child.pid !== undefined)
+        process.kill(child.pid, 'SIGKILL')
+    }
+  })
+
+  it('stops a reported orphan and reclaims its record', async () => {
+    const harness = await makeSupervisor([])
+    const { supervisor, nannyDir } = harness
+
+    const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', detached: true })
+    child.unref()
+    const pid = child.pid!
+    const statePath = entryStatePath(nannyDir, 'stray')
+    writeEntryState(statePath, { restarts: 0, bootstrapDone: false, lastPid: pid, lastStartedAt: Date.now() })
+
+    try {
+      expect(await supervisor.stopOrphan('stray')).toEqual({ ok: true })
+      await waitFor(() => !isAlive(pid))
+      // The handle is only cleared once the process is known gone, so a survivor stays findable.
+      expect(fs.existsSync(statePath)).toBe(false)
+      expect(supervisor.orphans()).toEqual([])
+    }
+    finally {
+      if (isAlive(pid))
+        process.kill(pid, 'SIGKILL')
+    }
+  })
+
+  it('refuses an id that is not an orphan', async () => {
+    const harness = await makeSupervisor([])
+    const result = await harness.supervisor.stopOrphan('nothing')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('no orphaned process')
+  })
+
+  it('says nothing about a state file whose process is gone', async () => {
+    const harness = await makeSupervisor([])
+    const { supervisor, nannyDir } = harness
+
+    // A pid that cannot be alive: the record outlived its process, which is the normal case.
+    writeEntryState(entryStatePath(nannyDir, 'long-gone'), {
+      restarts: 0,
+      bootstrapDone: false,
+      lastPid: 2 ** 22 + 12345,
+      lastStartedAt: Date.now(),
+    })
+
+    expect(supervisor.orphans()).toEqual([])
+  })
+
+  it('never reports an id a configured entry owns', async () => {
+    const port = await freePort()
+    // A real listener, so the entry reaches `running` and writes its state file.
+    const harness = await makeSupervisor([httpServerConfig(port)])
+    await harness.supervisor.start('web')
+    await waitForStatus(harness.supervisor, 'web', 'running')
+
+    // Its own state file is not an orphan: the entry that owns it is right here.
+    expect(harness.supervisor.orphans()).toEqual([])
+  })
+})
+
+/**
  * A NUL in an environment key must not stop the entry from starting.
  *
  * `spawn` **throws** on one — `must be a string without null bytes` — so the entry crashed with Node's

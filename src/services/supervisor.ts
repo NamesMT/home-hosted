@@ -7,8 +7,9 @@ import type { EventHub } from '#src/services/events'
 import type { HistoryStore } from '#src/services/history'
 import type { LogFiles } from '#src/services/log-files'
 import type { NotificationReason, NotificationService } from '#src/services/notifications'
-import type { FreePortResult, HealthState, HistoryActor, LogLine, LogStream, NannyExit, NannySpec, PortState, ProcessResources, ServerConfig, ServerStatus, ServerView } from '#src/shared/contracts'
+import type { FreePortResult, HealthState, HistoryActor, LogLine, LogStream, NannyExit, NannySpec, PortState, ProcessResources, ServerConfig, ServerOrphan, ServerStatus, ServerView } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -243,6 +244,80 @@ export class Supervisor {
 
   views(): ServerView[] {
     return [...this.entries.values()].map(entry => this.view(entry))
+  }
+
+  /**
+   * Processes this panel started that no configured entry claims any more.
+   *
+   * A detached child outlives a hard panel death, and the only handle is the entry-state file
+   * keyed by the id it was started under. Rename the entry and no code path reads that file again;
+   * remove the entry while the panel is down and `sync` reclaims it, destroying the last handle.
+   * The orphan then runs with no card, no `/healthz` line and no CLI action — for a queue consumer
+   * that is two consumers of one queue, which is the most damaging duplicate this tool can create.
+   *
+   * Read from the state directory rather than from a list, so a file left by an *earlier* panel is
+   * found too. Reported, never touched: a pid here is one whose identity the platform may not be
+   * able to confirm, and killing on a guess is exactly what the rest of this file refuses to do.
+   */
+  orphans(now = Date.now()): ServerOrphan[] {
+    let names: string[]
+    try {
+      names = fs.readdirSync(this.options.nannyDir)
+    }
+    catch {
+      return []
+    }
+
+    const found: ServerOrphan[] = []
+    for (const name of names) {
+      if (!name.endsWith('.run.json'))
+        continue
+      const id = name.slice(0, -'.run.json'.length)
+      // A live entry owns its own state file; that is not an orphan.
+      if (this.entries.has(id))
+        continue
+      const state = readEntryState(path.join(this.options.nannyDir, name))
+      const pid = state?.lastPid ?? null
+      if (pid === null || pid === process.pid)
+        continue
+      // Only a pid that is still alive and still born when we recorded it. A recycled pid is
+      // somebody else's process, and reporting it would invite killing a stranger.
+      const startedAt = state?.lastStartedAt ?? 0
+      if (startedAt > 0) {
+        const age = now - startedAt
+        // Cheap synchronous screen; `processLiveness` is async and the view is a hot path.
+        if (!isProcessAlive(pid) || age < 0)
+          continue
+      }
+      else if (!isProcessAlive(pid)) {
+        continue
+      }
+      found.push({ serverId: id, pid, startedAt: startedAt > 0 ? startedAt : null })
+    }
+    return found
+  }
+
+  /**
+   * Stops one reported orphan and reclaims its record.
+   *
+   * Reporting without acting is a dead end: the alternative was `ps` + `kill` in a shell, which is
+   * the thing this panel exists to avoid. The record is cleared only once the pid is gone — a pid
+   * that survived SIGKILL keeps its file, so the next boot can still find it.
+   */
+  async stopOrphan(serverId: string): Promise<{ ok: boolean, error?: string }> {
+    const orphan = this.orphans().find(entry => entry.serverId === serverId)
+    if (orphan === undefined)
+      return { ok: false, error: `no orphaned process is running as "${serverId}"` }
+
+    const { forced } = await terminatePids([orphan.pid], { graceMs: 5000 })
+    const statePath = entryStatePath(this.options.nannyDir, serverId)
+    if (isProcessAlive(orphan.pid))
+      return { ok: false, error: `pid ${orphan.pid} survived the stop — kill it from a shell, its record is kept` }
+
+    clearEntryState(statePath)
+    logger.info(`stopped the orphaned process ${orphan.pid} (was "${serverId}")${forced.length > 0 ? ', force-killed' : ''}`)
+    this.publishState()
+    return { ok: true }
   }
 
   logLines(id: string, limit?: number): LogLine[] {

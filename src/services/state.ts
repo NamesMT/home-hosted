@@ -3,7 +3,7 @@ import type { AuthService } from '#src/services/auth'
 import type { BackupService } from '#src/services/backups'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { TlsStore } from '#src/services/tls'
-import type { ControlConfig, ControlView, DdnsStatus, DestinationStatusView, LogsConfig, NotificationDefaults, ServerDefaults, ServerView, WorkspaceView } from '#src/shared/contracts'
+import type { ControlConfig, ControlView, DdnsStatus, DestinationStatusView, LogsConfig, NotificationDefaults, ServerDefaults, ServerOrphan, ServerView, WorkspaceView } from '#src/shared/contracts'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { checkExposure } from '#src/services/exposure'
@@ -22,7 +22,7 @@ export interface WorkspaceViewSource {
   logsDir: string
   notifications: { defaults: () => NotificationDefaults, destinations: () => DestinationStatusView[] }
   ddns: { view: DdnsStatus }
-  supervisor: { views: () => ServerView[] }
+  supervisor: { views: () => ServerView[], orphans?: () => ServerOrphan[] }
 }
 
 /**
@@ -92,6 +92,9 @@ export function buildWorkspaceView(source: WorkspaceViewSource): WorkspaceView {
     serverCount: servers.length,
     runningCount: servers.filter(server => server.status === 'running').length,
     crashedCount: servers.filter(server => server.status === 'crashed').length,
+    // Optional on the source so a fixture need not implement it; the real supervisor always
+    // answers, and an empty array is the honest answer for "nothing is running stray".
+    orphans: source.supervisor.orphans?.() ?? [],
     servers,
   }
 }
