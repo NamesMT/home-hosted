@@ -32,11 +32,14 @@ export function createHealthRoute(deps: AppDeps) {
         // Every workspace's servers, so a crash anywhere degrades the panel.
         const servers = state.workspaces.flatMap(workspace => workspace.servers)
         // A crash degrades the panel whoever started the entry — `autostart` is a boot
-        // preference, not ownership of the failure. A deliberate stop sets `stopped`, never
-        // `crashed`, so it cannot degrade the panel. The `running` test is load-bearing for
-        // `health`: that keeps its last value through a stop.
+        // preference, not ownership of the failure. An operator's stop is not a problem, and
+        // `stopped` is what it sets. But the panel also *stops* an entry that cannot serve once
+        // its health budget is spent, and that is a broken service: `stoppedByPanel` is what tells
+        // the two apart, since the status alone cannot. The `running` test is load-bearing for
+        // `health`, which keeps its last value through a stop.
         const broken = servers.filter(server =>
           server.status === 'crashed'
+          || server.stoppedByPanel === true
           || (server.status === 'running' && server.health === 'unhealthy'),
         )
         // Detail is for a signed-in browser or an API token; the status line itself

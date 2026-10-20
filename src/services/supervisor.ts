@@ -126,6 +126,8 @@ interface Entry {
   probing: boolean
   /** The running process is a detached successor we adopted, not a child we spawned. */
   adopted: boolean
+  /** The panel stopped this entry because it could not serve — not the operator. */
+  stoppedByPanel: boolean
   /**
    * How the child of a persistent entry ended, read from its nanny's state file: the
    * panel was not its parent, so `code`/`signal` of the *nanny* are only a mirror.
@@ -411,6 +413,7 @@ export class Supervisor {
     // Carried on the entry so every path that reaches `attachChild` records the same
     // actor; a retry is always the panel's own doing, whatever asked for the start.
     entry.actor = options.retry ? 'policy' : (options.actor ?? 'policy')
+    entry.stoppedByPanel = false
     this.clearRetry(entry)
     if (!options.retry) {
       entry.restarts = 0
@@ -863,6 +866,7 @@ export class Supervisor {
       lastOccupancyProbeAt: 0,
       probing: false,
       adopted: false,
+      stoppedByPanel: false,
       nannyExit: null,
       starting: false,
       stopping: false,
@@ -1704,7 +1708,11 @@ export class Supervisor {
         entry.status = 'running'
         entry.lastProbeAt = 0
         this.log(entry, 'system', `accepting connections on port ${port}`)
-        this.settleRestart(entry, `accepting connections on port ${port}`)
+        // `port` mode: the accept *is* the health answer, so the restart's outcome is known.
+        // `http` mode: it is not — announcing "serving again" here told the chat a server was
+        // back while it answered 500 to everything, and the real probe below says so instead.
+        if (health.mode !== 'http')
+          this.settleRestart(entry, `accepting connections on port ${port}`)
         this.publishServer(entry)
         return
       }
@@ -1935,11 +1943,12 @@ export class Supervisor {
         entry.health = 'healthy'
         entry.healthFailures = 0
         entry.unhealthySince = null
-        // The sequence is over, so the health budget starts again — the same rule the crash
-        // counter follows via `restart.resetAfterMs`, expressed as "it is serving normally".
-        // Without this the budget would be a lifetime cap and the N+1th unrelated blip would
-        // kill an entry that had been fine for a week.
-        if (entry.healthRestarts > 0) {
+        // The budget refills on the same rule the crash counter uses: `restart.resetAfterMs` of
+        // *uptime*, not one healthy probe. Resetting on the probe made the budget a per-life cap
+        // of one — a server answering 500 after a single good response was force-restarted
+        // forever, which is the loop the budget exists to stop.
+        const servedForMs = entry.startedAt === null ? 0 : Date.now() - entry.startedAt
+        if (entry.healthRestarts > 0 && servedForMs >= entry.config.restart.resetAfterMs) {
           entry.healthRestarts = 0
           this.persistEntryState(entry)
         }
@@ -2030,6 +2039,7 @@ export class Supervisor {
 
     entry.pendingRestart = null
     entry.healthRestarts = 0
+    entry.stoppedByPanel = true
     this.log(entry, 'system', detail)
     // Recorded as a crash: the entry is down and stayed down, which is what the history means.
     this.options.history.record(entry.config.id, { type: 'crash', detail })
@@ -2087,6 +2097,7 @@ export class Supervisor {
       pid: entry.pid,
       // Omitted when false: an optional ArkType property rejects an explicit undefined.
       ...(entry.adopted ? { adopted: true } : {}),
+      ...(entry.stoppedByPanel ? { stoppedByPanel: true } : {}),
       startedAt: entry.startedAt,
       exitCode: entry.exitCode,
       exitSignal: entry.exitSignal,

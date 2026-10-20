@@ -2079,3 +2079,92 @@ describe('stopping a dependency', () => {
     expect(soloLines.some(text => text.includes('still running and depending on this'))).toBe(false)
   })
 })
+
+/**
+ * The tests beside these three defects all passed while the defects were present, because their
+ * fake servers either really recovered or never did. These drive the shapes that broke.
+ */
+describe('the health budget and the recovery it announces', () => {
+  it('does not announce a restart as served when http mode has not probed yet', async () => {
+    const port = await freePort()
+    const harness = await makeSupervisor([{
+      id: 'liar',
+      command: process.execPath,
+      // Spawns, accepts TCP, answers 500 to every request: "up" and not serving.
+      args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+      env: { PORT: '{port}' },
+      port,
+      health: { mode: 'http', intervalMs: 2000, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 0, startTimeoutMs: 5000 },
+      restart: { enabled: true, maxRetries: 2, baseDelayMs: 50, factor: 1, maxDelayMs: 50, resetAfterMs: 60000 },
+    }])
+
+    await harness.supervisor.start('liar')
+    await waitFor(() => view(harness.supervisor, 'liar').health === 'unhealthy', 15000)
+
+    // A force restart is announced before it happens, so its outcome is owed — but the outcome is
+    // not known at the TCP accept, and this server never serves a 200.
+    const entry = harness.supervisor as unknown as { entries: Map<string, { pendingRestart: unknown }> }
+    const e = entry.entries.get('liar')!
+    e.pendingRestart = { cause: 'the test forced one' }
+    const notify = vi.spyOn(harness.supervisor as unknown as { notify: () => void }, 'notify')
+    await harness.supervisor.restart('liar')
+    await waitFor(() => view(harness.supervisor, 'liar').health === 'unhealthy', 15000)
+
+    const announced = notify.mock.calls.some(call => (call as unknown as [string, string])[1] === 'restart-ok')
+    expect(announced, 'a server answering 500 was announced as serving again').toBe(false)
+  }, 60000)
+
+  it('does not refill the budget after one healthy probe', async () => {
+    const port = await freePort()
+    // Healthy for the first request only, then 500 forever: one 200 per life.
+    const harness = await makeSupervisor([{
+      id: 'flaky',
+      command: process.execPath,
+      args: ['-e', 'let n=0;require("node:http").createServer((q,s)=>{n++;s.statusCode=n===1?200:500;s.end("x")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+      env: { PORT: '{port}' },
+      port,
+      health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 400, startTimeoutMs: 5000 },
+      restart: { enabled: true, maxRetries: 2, baseDelayMs: 30, factor: 1, maxDelayMs: 30, resetAfterMs: 600000 },
+    }])
+
+    const res = await harness.supervisor.start('flaky')
+    expect(res.ok, `the fixture must actually start: ${res.error ?? ''}`).toBe(true)
+    // It must stop rather than restart forever: the budget is 2, and `resetAfterMs` is far away.
+    // Read defensively — a view can disappear between ticks if the entry exits. Not `async`:
+    // `waitFor` treats any truthy return as done, and a Promise is always truthy.
+    const stopped = (): boolean =>
+      harness.supervisor.views().some(entry => entry.id === 'flaky' && (entry.status === 'stopped' || entry.status === 'crashed'))
+    await waitFor(stopped, 45000)
+    const finished = harness.supervisor.views().find(entry => entry.id === 'flaky')
+    expect(finished, 'the entry must have reached a settled state').toBeDefined()
+    // Bounded: with one 200 refilling the budget it restarts without end (6 in 20s, measured).
+    expect(finished!.history.forcedRestarts).toBeLessThanOrEqual(3)
+  }, 60000)
+})
+
+/** A panel that gave up is a broken service; an operator's stop is not. */
+describe('an entry the panel stopped', () => {
+  it('reports stoppedByPanel, and /healthz degrades on it', async () => {
+    const port = await freePort()
+    const harness = await makeSupervisor([{
+      id: 'sick',
+      command: process.execPath,
+      args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+      env: { PORT: '{port}' },
+      port,
+      health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 400, startTimeoutMs: 5000 },
+      restart: { enabled: true, maxRetries: 1, baseDelayMs: 30, factor: 1, maxDelayMs: 30, resetAfterMs: 600000 },
+    }])
+
+    await harness.supervisor.start('sick')
+    await waitFor(() => view(harness.supervisor, 'sick').status === 'stopped', 45000)
+    const givenUp = view(harness.supervisor, 'sick')
+    expect(givenUp.stoppedByPanel, 'the panel must say it was the one that stopped it').toBe(true)
+
+    // …and an operator's stop of a healthy entry is not that.
+    const other = await makeSupervisor([{ id: 'fine', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] }])
+    await other.supervisor.start('fine')
+    await other.supervisor.stop('fine')
+    expect(view(other.supervisor, 'fine').stoppedByPanel).toBeUndefined()
+  }, 60000)
+})

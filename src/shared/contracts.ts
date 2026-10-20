@@ -1542,6 +1542,14 @@ export const serverViewSchema = type({
   'pid': 'number | null',
   /** True when the process serving this entry was adopted, not spawned by the panel. */
   'adopted': 'boolean?',
+  /**
+   * The panel stopped this entry because it could not serve, rather than someone asking.
+   *
+   * Optional, like every new field: an older panel does not send it. `/healthz` needs it because
+   * the status alone cannot tell "the operator switched this off" (never a problem) from "the
+   * panel gave up on it" (a broken service) — both are `stopped`.
+   */
+  'stoppedByPanel?': 'boolean',
   'startedAt': 'number | null',
   'exitCode': 'number | null',
   'exitSignal': 'string | null',
