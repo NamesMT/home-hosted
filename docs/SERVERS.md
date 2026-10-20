@@ -106,28 +106,21 @@ Preflight runs before every start, so two servers cannot silently fight over one
 ### Docker and compose
 
 A compose stack is a supervised entry like any other — `command: docker`, `args: ["compose","up"]`,
-`cwd` the directory holding `compose.yml`. Use the **foreground** form:
+`cwd` the directory holding `compose.yml`. The foreground form streams every container's log into
+the entry and a stop takes the stack down. Set `port` to the port the compose file publishes; that
+published port is the health probe.
 
-| form | what the panel sees |
-| --- | --- |
-| `docker compose up` | stays in the foreground, streams every container's logs into the entry's log, and a stop tears the stack down. **This is the one to use.** |
-| `docker compose up -d` | exits 0 as soon as the containers start, so the entry goes to `backoff` and retries against its own running stack. Not supervisable — put `-d` in a systemd unit instead. |
-
-Set the entry's `port` to the port the compose file **publishes**. That published port is the health
-probe: `curl`-ing it from the panel is the same check your browser does.
-
-**A published port is bound by root.** Docker forwards through `docker-proxy`, which runs as root, so
-the panel's `lsof`/`fuser` cannot see it — a container that is very much running looked like "nothing
-is listening". The panel asks docker instead and names the container, but it will not signal a socket
-it does not own:
-
-```text
-port 8098 is already in use (published by the docker container "blog-web-1") — the panel cannot
-signal it, because that socket belongs to root; run `docker compose down` in that stack first
+```json
+{ "id": "blog", "command": "docker", "args": ["compose", "up"], "cwd": "~/srv/blog", "port": 8080 }
 ```
 
-So `free-port` and `onPortConflict: kill` cannot clear a docker-held port. Run `docker compose down`
-in the stack's directory; the panel then starts cleanly.
+`docker compose up -d` is not an entry: it exits as soon as the containers start, so there is nothing
+left to supervise, and the entry backs off against the stack it just started. Drop the `-d`.
+
+A published port belongs to a root-owned `docker-proxy`, so it has no pid this process may signal.
+The panel asks docker instead and stops the container through it, which needs no extra privileges:
+`free-port` and `onPortConflict: kill` both clear a docker-held port the same way they clear any
+other. Nothing is left for you to run by hand.
 
 ### When a program restarts itself
 

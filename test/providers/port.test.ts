@@ -5,7 +5,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { findDockerPortHolder, isProcessAlive, killPortHolders, listPortHolders, parseFiletime, parseProcBirth, parsePsBirth, processBirth, processLiveness, terminatePids } from '#src/providers/port'
+import { findDockerPortHolder, isProcessAlive, killPortHolders, listPortHolders, parseFiletime, parseProcBirth, parsePsBirth, processBirth, processLiveness, releaseDockerPort, terminatePids } from '#src/providers/port'
 
 const children: ChildProcess[] = []
 
@@ -384,5 +384,49 @@ describe('findDockerPortHolder', () => {
     await withFakeDocker('exit 127', async () => {
       expect(await findDockerPortHolder(8080)).toBeNull()
     })
+  })
+})
+
+/**
+ * Freeing a docker-published port means stopping the container.
+ *
+ * The socket belongs to a root-owned `docker-proxy`, so there is no pid this process may signal —
+ * docker itself is the only way to release it, and `docker stop` needs no privileges beyond the
+ * socket the user already has. This is what makes `free-port` work on a compose stack instead of
+ * telling the person to run `docker compose down` themselves.
+ */
+describe('releaseDockerPort', () => {
+  it('stops the named container and reports success', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-rel-'))
+    const bin = path.join(dir, 'docker')
+    const calls = path.join(dir, 'calls')
+    // Record argv so the test asserts *which* container was stopped, not merely that it ran.
+    fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s ' "$@" > ${calls}\nexit 0\n`, { mode: 0o755 })
+    const original = process.env.PATH
+    process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
+    try {
+      const holder = { container: 'blog-web-1', composeDir: '/srv/blog', port: 8080 }
+      expect(await releaseDockerPort(holder)).toBe(true)
+      expect(fs.readFileSync(calls, 'utf8').trim()).toBe('stop blog-web-1')
+    }
+    finally {
+      process.env.PATH = original
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reports failure when docker refuses, rather than claiming the port is free', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-rel-'))
+    const bin = path.join(dir, 'docker')
+    fs.writeFileSync(bin, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    const original = process.env.PATH
+    process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
+    try {
+      expect(await releaseDockerPort({ container: 'gone', composeDir: null, port: 8080 })).toBe(false)
+    }
+    finally {
+      process.env.PATH = original
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

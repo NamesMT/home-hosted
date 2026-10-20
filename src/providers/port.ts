@@ -328,6 +328,24 @@ export async function findDockerPortHolder(port: number): Promise<DockerPortHold
   }
 }
 
+/**
+ * Stops the container publishing a host port, which is how docker's port is freed.
+ *
+ * The socket belongs to a root-owned `docker-proxy`, so there is no pid this process may signal —
+ * but the container is the panel's to stop through docker itself, which needs no privileges
+ * beyond the socket the user already has. `docker stop` releases the published port and leaves the
+ * stack's other services alone.
+ */
+export async function releaseDockerPort(holder: DockerPortHolder, timeoutMs = 20000): Promise<boolean> {
+  try {
+    await execFileAsync('docker', ['stop', holder.container], { timeout: timeoutMs })
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 export async function listPortHolders(port: number): Promise<number[]> {
   if (process.platform === 'win32') {
     try {

@@ -38,7 +38,7 @@ import {
   sweepNannySpecs,
   writeNannySpec,
 } from '#src/providers/nanny'
-import { findDockerPortHolder, isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, processLiveness, terminatePids } from '#src/providers/port'
+import { findDockerPortHolder, isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, processLiveness, releaseDockerPort, terminatePids } from '#src/providers/port'
 import { processCarriesServerId, ProcessSampler, processTreePids } from '#src/providers/proc'
 import { resolveCommand, resolveCwd, spawnManaged, terminate, terminatePid } from '#src/providers/process'
 import { dependenciesOf, dependentsOf, orderByDependencies } from '#src/services/dependencies'
@@ -517,11 +517,26 @@ export class Supervisor {
       // running looked like nothing at all — and the advice was to retry, forever.
       const docker = await findDockerPortHolder(port)
       if (docker !== null) {
-        const where = docker.composeDir === null ? '' : ` (compose project in ${docker.composeDir})`
+        // The socket is root's, so there is no pid to signal — but the container is stopped
+        // through docker, which needs no privileges the user lacks. Freeing it is the panel's job;
+        // the error below is only for docker refusing.
+        this.log(entry, 'system', `freeing port ${port}: stopping the docker container "${docker.container}"`)
+        const released = await releaseDockerPort(docker)
+        const free = released && await this.waitForPortRelease(entry, port)
+        if (free) {
+          if (entry.status === 'conflict') {
+            entry.status = 'stopped'
+            entry.lastError = null
+          }
+          entry.portState = 'free'
+          this.log(entry, 'system', `port ${port} is free (stopped the docker container "${docker.container}")`)
+          this.publishServer(entry)
+          return { ...empty, ok: true, port, terminated: [], forced: [], skipped: [], free: true }
+        }
         return {
           ...empty,
           port,
-          error: `port ${port} is published by the docker container "${docker.container}"${where} — run \`docker compose down\` there, or stop the container; the panel cannot signal it because that socket belongs to root`,
+          error: `docker could not stop the container "${docker.container}" publishing port ${port} — check \`docker logs ${docker.container}\``,
         }
       }
       return { ...empty, port, error: `nothing is listening on port ${port} any more` }
@@ -1027,6 +1042,17 @@ export class Supervisor {
       }
 
       if (foreign.length === 0) {
+        if (docker !== null) {
+          // `kill` means "I want this port". Docker's socket is root's, so there is no pid to
+          // signal — but the container is stoppable through docker, which is the same intent.
+          this.log(entry, 'system', `port ${port} is published by the docker container "${docker.container}" — onPortConflict: kill, stopping it`)
+          if (await releaseDockerPort(docker) && await this.waitForPortRelease(entry, port))
+            return { kind: 'free' }
+          entry.status = 'conflict'
+          entry.lastError = `docker could not stop the container "${docker.container}" publishing port ${port}`
+          this.publishServer(entry)
+          return { kind: 'blocked', error: entry.lastError }
+        }
         // The probe says busy but no listener could be listed: let the start decide.
         this.log(entry, 'system', `port ${port} looks busy but no listener could be found — starting anyway`)
         return { kind: 'free' }
