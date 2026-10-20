@@ -345,6 +345,13 @@ describe('killPortHolders', () => {
  * unactionable. Driven through a fake `docker` on `PATH` rather than a real one: the assertion is
  * about parsing and about docker being absent, not about running containers.
  */
+/**
+ * The fixture is a `#!/bin/sh` shim, so these cannot run on Windows — it would spawn nothing and
+ * report `null`, which is the answer a *missing* docker gives too. The production paths are
+ * cross-platform; the shim is not, so the suite is gated rather than faked.
+ */
+const posixShim = it.runIf(process.platform !== 'win32')
+
 describe('findDockerPortHolder', () => {
   /** Runs `body` with a `docker` shim first on PATH, restoring PATH afterwards. */
   async function withFakeDocker(script: string, body: () => Promise<void>): Promise<void> {
@@ -362,25 +369,25 @@ describe('findDockerPortHolder', () => {
     }
   }
 
-  it('names the container and the compose directory publishing the port', async () => {
+  posixShim('names the container and the compose directory publishing the port', async () => {
     await withFakeDocker('printf \'blog-web-1\\t/srv/blog\\n\'', async () => {
       expect(await findDockerPortHolder(8080)).toEqual({ container: 'blog-web-1', composeDir: '/srv/blog', port: 8080 })
     })
   })
 
-  it('answers null for a container that is not from compose', async () => {
+  posixShim('answers null for a container that is not from compose', async () => {
     await withFakeDocker('printf \'plain-container\\t\\n\'', async () => {
       expect(await findDockerPortHolder(8080)).toEqual({ container: 'plain-container', composeDir: null, port: 8080 })
     })
   })
 
-  it('answers null when no container publishes the port', async () => {
+  posixShim('answers null when no container publishes the port', async () => {
     await withFakeDocker('exit 0', async () => {
       expect(await findDockerPortHolder(8080)).toBeNull()
     })
   })
 
-  it('answers null when docker is missing, rather than claiming anything', async () => {
+  posixShim('answers null when docker is missing, rather than claiming anything', async () => {
     await withFakeDocker('exit 127', async () => {
       expect(await findDockerPortHolder(8080)).toBeNull()
     })
@@ -396,7 +403,7 @@ describe('findDockerPortHolder', () => {
  * telling the person to run `docker compose down` themselves.
  */
 describe('releaseDockerPort', () => {
-  it('stops the named container and reports success', async () => {
+  posixShim('stops the named container and reports success', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-rel-'))
     const bin = path.join(dir, 'docker')
     const calls = path.join(dir, 'calls')
@@ -415,7 +422,7 @@ describe('releaseDockerPort', () => {
     }
   })
 
-  it('reports failure when docker refuses, rather than claiming the port is free', async () => {
+  posixShim('reports failure when docker refuses, rather than claiming the port is free', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-rel-'))
     const bin = path.join(dir, 'docker')
     fs.writeFileSync(bin, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
