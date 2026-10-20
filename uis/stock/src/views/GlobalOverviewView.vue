@@ -68,7 +68,26 @@ onMounted(async () => {
       :description="t('views.globalOverview.description')"
     />
 
-    <Panel class="p-0">
+    <!--
+      A first run is one call to action, not a wall of host vitals. The statistics describe
+      nothing yet, so they move below the empty state instead of in front of it.
+    -->
+    <EmptyState
+      v-if="!loading && all.length === 0"
+      :title="t('views.globalOverview.emptyTitle')"
+      :description="t('views.globalOverview.emptyDescription')"
+    >
+      <template #icon>
+        <ServerIcon class="size-4" />
+      </template>
+      <template #action>
+        <AppButton variant="primary" @click="openAdd(defaultWorkspaceId)">
+          <Plus class="size-3.5" />{{ t('views.actions.addAServer') }}
+        </AppButton>
+      </template>
+    </EmptyState>
+
+    <Panel v-if="all.length > 0 || loading" class="p-0">
       <div v-if="loading" class="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3 lg:grid-cols-5">
         <div v-for="index in 5" :key="index" class="space-y-2">
           <Skeleton class="h-2.5 w-16" />
@@ -146,27 +165,6 @@ onMounted(async () => {
         <ActivityFeed :servers="all" :now="control.now.value" :limit="12" />
       </Panel>
     </div>
-
-    <!--
-      The only call to action on a first run, and it had none: a new user landed on a wall of
-      host vitals with nothing to press. It also sits above the stats now — the numbers are
-      noise when there is nothing yet to describe.
-    -->
-    <EmptyState
-      v-if="!loading && all.length === 0"
-      class="order-first"
-      :title="t('views.globalOverview.emptyTitle')"
-      :description="t('views.globalOverview.emptyDescription')"
-    >
-      <template #icon>
-        <ServerIcon class="size-4" />
-      </template>
-      <template #action>
-        <AppButton variant="primary" @click="openAdd(defaultWorkspaceId)">
-          <Plus class="size-3.5" />{{ t('views.actions.addAServer') }}
-        </AppButton>
-      </template>
-    </EmptyState>
 
     <section v-for="group in groups" :key="group.id" class="space-y-3">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">

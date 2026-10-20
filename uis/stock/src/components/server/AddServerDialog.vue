@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import type { AddServerField, AddServerForm } from '@/components/server/addServerForm'
+import type { ServerPreset } from '@/components/server/serverPresets'
 import { serverCreateSchema } from '@shared/contracts'
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import { addServerPayload, addServerPortError, addServerProblem, blankAddServerForm } from '@/components/server/addServerForm'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
+import { applyPreset, SERVER_PRESETS } from '@/components/server/serverPresets'
 import AppButton from '@/components/ui/AppButton.vue'
 import Disclosure from '@/components/ui/Disclosure.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
@@ -31,6 +33,13 @@ const formError = ref<string | null>(null)
 /** Which input the error is about, so it can be flagged and scrolled to instead of only printed. */
 const errorField = ref<AddServerField | null>(null)
 const formEl = ref<HTMLFormElement | null>(null)
+/**
+ * The gallery is shown until a preset is chosen or the person declines it.
+ *
+ * A brand-new user has a line someone gave them, not a command/args/port trio. Filling the form
+ * from a preset is the whole of "onboarding" that does not need a second screen.
+ */
+const showPresets = ref(true)
 
 /** Placeholders the supervisor substitutes in `args` (and in paths). */
 const PLACEHOLDERS = ['{port}', '{host}', '{home}', '{projectDir}', '{dataRoot}', '{id}', '{label}', '{cwd}', '{bind}', '{lanIp}']
@@ -40,6 +49,21 @@ const panelDefaults = computed(() => control.workspaceById(props.workspaceId)?.d
 const workspaceLabel = computed(() => control.workspaceById(props.workspaceId)?.label ?? t('addServer.thisWorkspace'))
 
 const form = reactive<AddServerForm>(blankAddServerForm(panelDefaults.value))
+function choosePreset(preset: ServerPreset): void {
+  Object.assign(form, applyPreset(preset, {
+    ...(panelDefaults.value === undefined ? {} : { defaults: panelDefaults.value }),
+    id: form.id,
+    label: form.label,
+  }))
+  showPresets.value = false
+  formError.value = null
+  errorField.value = null
+}
+
+function startFromScratch(): void {
+  showPresets.value = false
+}
+
 /** A catalog key: the check runs outside any component, so it is read through `t()` here. */
 const portError = computed(() => {
   const key = addServerPortError(form.port)
@@ -51,6 +75,9 @@ function reset(): void {
   Object.assign(form, blankAddServerForm(panelDefaults.value))
   formError.value = null
   errorField.value = null
+  // Every open starts at the gallery: a second server is usually the same kind as the first, and
+  // the presets are one click.
+  showPresets.value = true
 }
 
 /**
@@ -126,7 +153,38 @@ async function submit(): Promise<void> {
       {{ formError }}
     </p>
 
-    <form id="add-server-form" ref="formEl" class="flex flex-col gap-3" @submit.prevent="submit">
+    <!--
+      The gallery a new user lands on: "what do you want to run?" instead of a command/args/port
+      form whose first sentence names a config file. Picking one fills the form below, which stays
+      fully editable.
+    -->
+    <div v-if="showPresets" class="flex flex-col gap-3">
+      <div>
+        <p class="text-sm font-medium text-ink">
+          {{ t('presets.pickTitle') }}
+        </p>
+        <p class="mt-0.5 text-2xs text-muted">
+          {{ t('presets.pickDescription') }}
+        </p>
+      </div>
+      <ul class="grid gap-2 sm:grid-cols-2">
+        <li v-for="preset in SERVER_PRESETS" :key="preset.id">
+          <button
+            type="button"
+            class="flex h-full w-full flex-col items-start gap-1 rounded-panel border border-line bg-raise px-3 py-2.5 text-left transition-colors hover:bg-hover"
+            @click="choosePreset(preset)"
+          >
+            <span class="text-xs font-medium text-ink">{{ t(preset.nameKey) }}</span>
+            <span class="text-2xs leading-4 text-muted">{{ t(preset.descriptionKey) }}</span>
+          </button>
+        </li>
+      </ul>
+      <AppButton variant="ghost" size="xs" class="self-start" @click="startFromScratch">
+        {{ t('presets.startFromScratch') }}
+      </AppButton>
+    </div>
+
+    <form v-show="!showPresets" id="add-server-form" ref="formEl" class="flex flex-col gap-3" @submit.prevent="submit">
       <FieldGroup :title="t('addServer.identity')" :columns="2" dense>
         <div data-field="id">
           <TextField
@@ -319,7 +377,8 @@ async function submit(): Promise<void> {
       <AppButton variant="ghost" @click="open = false">
         {{ t('common.cancel') }}
       </AppButton>
-      <AppButton type="submit" form="add-server-form" variant="primary" :loading="creating">
+      <!-- Nothing to submit while the gallery is up: the form below is not showing yet. -->
+      <AppButton v-if="!showPresets" type="submit" form="add-server-form" variant="primary" :loading="creating">
         {{ t('addServer.submit') }}
       </AppButton>
     </template>
