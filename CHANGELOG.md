@@ -1,6 +1,57 @@
 # Changelog
 
 
+## v0.9.4
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.2...v0.9.4)
+
+### 🚀 Enhancements
+
+- **openapi:** A spec a client generator can actually use ([9f39ecc](https://github.com/NamesMT/home-hosted/commit/9f39ecc))
+- **api:** `PUT /api/servers/:id` is create-or-replace ([3858ad4](https://github.com/NamesMT/home-hosted/commit/3858ad4))
+- **servers:** A process no entry owns is listed, and can be stopped ([4520ff1](https://github.com/NamesMT/home-hosted/commit/4520ff1))
+- **stock:** The first run asks what you want to run ([bf24cdb](https://github.com/NamesMT/home-hosted/commit/bf24cdb))
+- **stock:** Jellyfin, Gitea (rootless) and MongoDB presets ([8c5c881](https://github.com/NamesMT/home-hosted/commit/8c5c881))
+
+### 🩹 Fixes
+
+- **backups:** Restore a multi-workspace archive onto a blank host ([38027d2](https://github.com/NamesMT/home-hosted/commit/38027d2))
+- An API typo answered the SPA, and dependsOn never waited ([6524271](https://github.com/NamesMT/home-hosted/commit/6524271))
+- A restore under a running server now says so, and /healthz sees every crash ([6506d2f](https://github.com/NamesMT/home-hosted/commit/6506d2f))
+- **auth:** A password changed by another process now signs sessions out ([f18e323](https://github.com/NamesMT/home-hosted/commit/f18e323))
+- **logs:** The line ring also caps total size, not only line count ([2532bfc](https://github.com/NamesMT/home-hosted/commit/2532bfc))
+- **supervisor:** A dead entry no longer keeps its last healthy verdict ([969c8c0](https://github.com/NamesMT/home-hosted/commit/969c8c0))
+- **stock:** The first run has a button, and the errors land where you look ([31a4b87](https://github.com/NamesMT/home-hosted/commit/31a4b87))
+- **supervisor:** A health force-restart is bounded, like a crash ([bae2bf8](https://github.com/NamesMT/home-hosted/commit/bae2bf8))
+- **stock:** Every preset takes its port from the form ([acd3be9](https://github.com/NamesMT/home-hosted/commit/acd3be9))
+- **stock:** A server card opened the global overview instead of its detail page ([9d65ad8](https://github.com/NamesMT/home-hosted/commit/9d65ad8))
+- Two P0s from the QA review, and the guards that should have caught them ([e3355fe](https://github.com/NamesMT/home-hosted/commit/e3355fe))
+- **api:** The orphan stop route declares a 409 it could not reach ([9d6cccf](https://github.com/NamesMT/home-hosted/commit/9d6cccf))
+- **ports:** A docker-published port looked like nothing was listening ([a859fe8](https://github.com/NamesMT/home-hosted/commit/a859fe8))
+- **ports:** Free a docker-held port by stopping the container, not by telling the user to ([091a929](https://github.com/NamesMT/home-hosted/commit/091a929))
+- **proxy:** The port preflight could not see its own engine ([9ac896d](https://github.com/NamesMT/home-hosted/commit/9ac896d))
+- **proxy:** The catch-all page echoed a host it could not escape ([788d20c](https://github.com/NamesMT/home-hosted/commit/788d20c))
+- **proxy:** Three holes QA found in the preflight fix ([432d3b8](https://github.com/NamesMT/home-hosted/commit/432d3b8))
+- **proxy:** A stopped server froze the whole proxy config ([21b56cc](https://github.com/NamesMT/home-hosted/commit/21b56cc))
+- **supervisor:** Three regressions where a later commit half-undid an earlier one ([8934a60](https://github.com/NamesMT/home-hosted/commit/8934a60))
+- **archive:** A path is not a password rejection ([f2342f0](https://github.com/NamesMT/home-hosted/commit/f2342f0))
+- Four P1s from the session-wide QA review ([5179472](https://github.com/NamesMT/home-hosted/commit/5179472))
+
+### 📖 Documentation
+
+- Qualify the ui.json paths ([c50b3be](https://github.com/NamesMT/home-hosted/commit/c50b3be))
+- **stock:** The form said placeholders were for arguments only ([4c4768a](https://github.com/NamesMT/home-hosted/commit/4c4768a))
+- Trim the comments that argued for their own change ([a58a139](https://github.com/NamesMT/home-hosted/commit/a58a139))
+- Drop the "no special treatment" claims that presets made untrue ([6ea5cb2](https://github.com/NamesMT/home-hosted/commit/6ea5cb2))
+
+### ✅ Tests
+
+- **ports:** The docker shim cannot run on Windows ([8e38ce0](https://github.com/NamesMT/home-hosted/commit/8e38ce0))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.9.2
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.1...v0.9.2)
