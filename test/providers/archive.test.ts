@@ -109,6 +109,12 @@ describe('telling a wrong password from an unreadable archive', () => {
       }
       expect(thrown, 'a missing archive must throw').toBeDefined()
       expect(isInvalidPassword(thrown), `must not read as a wrong password: ${(thrown as Error).message}`).toBe(false)
+
+      // Platform-dependent message, so asserted directly as well as through the real call above:
+      // Linux names the path (`ENOENT: … stat '/tmp/…/my-password-backup.zip'`), while macOS and a
+      // local run say `Unable to open file as blob`. The path one carries the word "password"
+      // because the caller chose the filename, and a substring test read that as a bad password.
+      expect(isInvalidPassword(new Error('ENOENT: no such file or directory, stat \'/tmp/x/my-password-backup.zip\'')), 'a path is not a password rejection').toBe(false)
     }
     finally {
       fs.rmSync(dir, { recursive: true, force: true })
