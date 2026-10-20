@@ -9,7 +9,7 @@ views.globalOverview.groupRunning,{running}/{total} running,{running}/{total} đ
 views.globalOverview.hostUptime,Host uptime,Thời gian hoạt động của máy chủ,主机在线时长,ホストの稼働時間,Tiempo activo del host,호스트 가동 시간,Время работы хоста,Durée de fonctionnement de l'hôte,Host-Laufzeit
 views.globalOverview.hostVitals,Host vitals,Chỉ số máy chủ,主机指标,ホストの状態,Estado del host,호스트 상태,Показатели хоста,Santé de l'hôte,Host-Werte
 views.globalOverview.hostVitalsNote,"This machine, shared by every workspace.","Máy này, được mọi không gian làm việc chia sẻ.",本机，由所有工作区共享。,このマシン。すべてのワークスペースで共有されます。,"Esta máquina, compartida por todos los espacios de trabajo.",이 컴퓨터이며 모든 워크스페이스가 공유합니다.,"Эта машина, общая для всех рабочих пространств.","Cette machine, partagée par tous les espaces de travail.","Diese Maschine, von jedem Arbeitsbereich geteilt."
-views.globalOverview.needLook[one],{count} server need a look,{count} máy chủ cần xem xét,{count} 台服务器需要关注,{count} 台のサーバーに対応が必要,{count} servidor necesita revisión,서버 {count}대를 살펴봐야 합니다,{count} сервер требует внимания,{count} serveur à surveiller,{count} Server braucht einen Blick
+views.globalOverview.needLook[one],{count} server needs a look,{count} máy chủ cần xem xét,{count} 台服务器需要关注,{count} 台のサーバーに対応が必要,{count} servidor necesita revisión,서버 {count}대를 살펴봐야 합니다,{count} сервер требует внимания,{count} serveur à surveiller,{count} Server braucht einen Blick
 views.globalOverview.needLook[few],,,,,,,{count} сервера требуют внимания,,
 views.globalOverview.needLook[many],,,,,,,{count} серверов требуют внимания,,
 views.globalOverview.needLook[other],{count} servers need a look,{count} máy chủ cần xem xét,{count} 台服务器需要关注,{count} 台のサーバーに対応が必要,{count} servidores necesitan revisión,서버 {count}대를 살펴봐야 합니다,{count} сервера требуют внимания,{count} serveurs à surveiller,{count} Server brauchen einen Blick
@@ -17,6 +17,9 @@ views.globalOverview.openWorkspace,Open workspace,Mở không gian làm việc,�
 views.globalOverview.panelUptime,Panel uptime,Thời gian hoạt động của bảng điều khiển,面板在线时长,パネルの稼働時間,Tiempo activo del panel,제어판 가동 시간,Время работы панели,Durée de fonctionnement du panneau,Panel-Laufzeit
 views.globalOverview.samplingOff,sampling off,đã tắt lấy mẫu,采样已关闭,サンプリング オフ,muestreo desactivado,샘플링 꺼짐,опрос выключен,échantillonnage arrêté,Sampling aus
 views.globalOverview.samplingOn,sampling on,đang lấy mẫu,采样已开启,サンプリング オン,muestreo activado,샘플링 켜짐,опрос включён,échantillonnage actif,Sampling an
-views.globalOverview.serversTotal,{count} servers in total,tổng cộng {count} máy chủ,共 {count} 台服务器,合計 {count} 台のサーバー,{count} servidores en total,총 서버 {count}대,всего {count} серверов,{count} serveurs au total,{count} Server insgesamt
+views.globalOverview.serversTotal[one],{count} server in total,tổng cộng {count} máy chủ,共 {count} 台服务器,合計 {count} 台のサーバー,{count} servidores en total,총 서버 {count}대,всего {count} серверов,{count} serveurs au total,{count} Server insgesamt
+views.globalOverview.serversTotal[few],,,,,,,всего {count} сервера,,
+views.globalOverview.serversTotal[many],,,,,,,всего {count} серверов,,
+views.globalOverview.serversTotal[other],{count} servers in total,tổng cộng {count} máy chủ,共 {count} 台服务器,合計 {count} 台のサーバー,{count} servidores en total,총 서버 {count}대,всего {count} серверов,{count} serveurs au total,{count} Server insgesamt
 views.globalOverview.serving,serving,đang phục vụ,正在服务,提供中,sirviendo,제공 중,обслуживание,en service,wird ausgeliefert
 views.globalOverview.workspaces,Workspaces,Không gian làm việc,工作区,ワークスペース,Espacios de trabajo,워크스페이스,Рабочие пространства,Espaces de travail,Arbeitsbereiche

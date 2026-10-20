@@ -74,7 +74,7 @@ onMounted(async () => {
       </div>
       <div v-else class="grid grid-cols-2 divide-line-soft sm:grid-cols-3 sm:divide-x lg:grid-cols-5">
         <div class="p-4">
-          <StatTile :label="t('views.globalOverview.workspaces')" :value="String(groups.length)" :hint="t('views.globalOverview.serversTotal', { count: all.length })" />
+          <StatTile :label="t('views.globalOverview.workspaces')" :value="String(groups.length)" :hint="tc('views.globalOverview.serversTotal', all.length)" />
         </div>
         <div class="p-4">
           <StatTile :label="t('views.overview.running')" :value="`${running.length}/${all.length}`" tone="ok" :hint="t('views.overview.notUp', { count: all.length - running.length })" />

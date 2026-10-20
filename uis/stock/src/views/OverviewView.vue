@@ -138,7 +138,7 @@ const uptime = computed(() => {
           <RouterLink
             v-for="server in attention"
             :key="server.id"
-            :to="`/servers/${server.id}`"
+            :to="workspacePath(workspace.activeId.value, 'servers', server.id)"
             class="font-mono underline-offset-2 hover:underline"
           >
             {{ server.id }}

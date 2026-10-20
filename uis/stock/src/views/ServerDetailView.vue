@@ -468,7 +468,7 @@ const SECTIONS = [
           <RouterLink
             v-for="id in config.dependsOn"
             :key="id"
-            :to="`/servers/${id}`"
+            :to="workspacePath(workspace.activeId.value, 'servers', id)"
             class="rounded-full border border-line px-2 py-0.5 font-mono text-2xs text-muted transition-colors duration-150 hover:border-accent/40 hover:text-accent"
           >
             {{ id }}

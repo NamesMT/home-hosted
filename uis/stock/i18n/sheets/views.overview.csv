@@ -7,7 +7,7 @@ views.overview.emptyDescription,Add the first process this workspace should keep
 views.overview.emptyTitle,No servers in this workspace,Không gian làm việc này không có máy chủ nào,此工作区没有服务器,このワークスペースにサーバーがありません,No hay servidores en este espacio de trabajo,이 워크스페이스에 서버가 없습니다,В этом рабочем пространстве нет серверов,Aucun serveur dans cet espace de travail,Keine Server in diesem Arbeitsbereich
 views.overview.enabled,{count} enabled,{count} đang bật,{count} 个已启用,{count} 台が有効,{count} activados,{count}대 사용,включено: {count},{count} activés,{count} aktiviert
 views.overview.longestUptime,Longest uptime,Hoạt động lâu nhất,最长在线时长,最長稼働時間,Mayor tiempo activo,최장 가동 시간,Наибольшее время работы,Plus longue durée de fonctionnement,Längste Laufzeit
-views.overview.needLook[one],{count} server need a look,{count} máy chủ cần xem xét,{count} 台服务器需要关注,{count} 台のサーバーに対応が必要,{count} servidor necesita revisión,서버 {count}대를 살펴봐야 합니다,{count} сервер требует внимания,{count} serveur à surveiller,{count} Server braucht einen Blick
+views.overview.needLook[one],{count} server needs a look,{count} máy chủ cần xem xét,{count} 台服务器需要关注,{count} 台のサーバーに対応が必要,{count} servidor necesita revisión,서버 {count}대를 살펴봐야 합니다,{count} сервер требует внимания,{count} serveur à surveiller,{count} Server braucht einen Blick
 views.overview.needLook[few],,,,,,,{count} сервера требуют внимания,,
 views.overview.needLook[many],,,,,,,{count} серверов требуют внимания,,
 views.overview.needLook[other],{count} servers need a look,{count} máy chủ cần xem xét,{count} 台服务器需要关注,{count} 台のサーバーに対応が必要,{count} servidores necesitan revisión,서버 {count}대를 살펴봐야 합니다,{count} сервера требуют внимания,{count} serveurs à surveiller,{count} Server brauchen einen Blick
