@@ -1,8 +1,11 @@
 import type { ChildProcess } from 'node:child_process'
 import { execFileSync, spawn } from 'node:child_process'
+import fs from 'node:fs'
 import net from 'node:net'
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { isProcessAlive, killPortHolders, listPortHolders, parseFiletime, parseProcBirth, parsePsBirth, processBirth, processLiveness, terminatePids } from '#src/providers/port'
+import { findDockerPortHolder, isProcessAlive, killPortHolders, listPortHolders, parseFiletime, parseProcBirth, parsePsBirth, processBirth, processLiveness, terminatePids } from '#src/providers/port'
 
 const children: ChildProcess[] = []
 
@@ -330,5 +333,56 @@ describe('killPortHolders', () => {
       if (isProcessAlive(pid))
         process.kill(pid, 'SIGKILL')
     }
+  })
+})
+
+/**
+ * A docker-published port has no visible pid.
+ *
+ * The listener is `docker-proxy`, owned by root, so an unprivileged `lsof`/`fuser` returns nothing
+ * for a port that refuses every bind. Docker itself answers without privileges, and names the
+ * compose stack — without it the panel's advice was "nothing is listening", which is both false and
+ * unactionable. Driven through a fake `docker` on `PATH` rather than a real one: the assertion is
+ * about parsing and about docker being absent, not about running containers.
+ */
+describe('findDockerPortHolder', () => {
+  /** Runs `body` with a `docker` shim first on PATH, restoring PATH afterwards. */
+  async function withFakeDocker(script: string, body: () => Promise<void>): Promise<void> {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-shim-'))
+    const bin = path.join(dir, 'docker')
+    fs.writeFileSync(bin, `#!/bin/sh\n${script}\n`, { mode: 0o755 })
+    const original = process.env.PATH
+    process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
+    try {
+      await body()
+    }
+    finally {
+      process.env.PATH = original
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it('names the container and the compose directory publishing the port', async () => {
+    await withFakeDocker('printf \'blog-web-1\\t/srv/blog\\n\'', async () => {
+      expect(await findDockerPortHolder(8080)).toEqual({ container: 'blog-web-1', composeDir: '/srv/blog', port: 8080 })
+    })
+  })
+
+  it('answers null for a container that is not from compose', async () => {
+    await withFakeDocker('printf \'plain-container\\t\\n\'', async () => {
+      expect(await findDockerPortHolder(8080)).toEqual({ container: 'plain-container', composeDir: null, port: 8080 })
+    })
+  })
+
+  it('answers null when no container publishes the port', async () => {
+    await withFakeDocker('exit 0', async () => {
+      expect(await findDockerPortHolder(8080)).toBeNull()
+    })
+  })
+
+  it('answers null when docker is missing, rather than claiming anything', async () => {
+    await withFakeDocker('exit 127', async () => {
+      expect(await findDockerPortHolder(8080)).toBeNull()
+    })
   })
 })

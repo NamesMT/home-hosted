@@ -38,7 +38,7 @@ import {
   sweepNannySpecs,
   writeNannySpec,
 } from '#src/providers/nanny'
-import { isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, processLiveness, terminatePids } from '#src/providers/port'
+import { findDockerPortHolder, isPortFree, isProcessAlive, killPortHolders, listPortHolders, probePort, processLiveness, terminatePids } from '#src/providers/port'
 import { processCarriesServerId, ProcessSampler, processTreePids } from '#src/providers/proc'
 import { resolveCommand, resolveCwd, spawnManaged, terminate, terminatePid } from '#src/providers/process'
 import { dependenciesOf, dependentsOf, orderByDependencies } from '#src/services/dependencies'
@@ -511,8 +511,21 @@ export class Supervisor {
     const { ours, foreign } = await this.portHolders(port)
     const holders = [...ours, ...foreign]
 
-    if (holders.length === 0)
+    if (holders.length === 0) {
+      // An empty pid list is not the same as a free port. Docker publishes through a root-owned
+      // `docker-proxy`, invisible to this user's `lsof`, so a compose stack that is very much
+      // running looked like nothing at all — and the advice was to retry, forever.
+      const docker = await findDockerPortHolder(port)
+      if (docker !== null) {
+        const where = docker.composeDir === null ? '' : ` (compose project in ${docker.composeDir})`
+        return {
+          ...empty,
+          port,
+          error: `port ${port} is published by the docker container "${docker.container}"${where} — run \`docker compose down\` there, or stop the container; the panel cannot signal it because that socket belongs to root`,
+        }
+      }
       return { ...empty, port, error: `nothing is listening on port ${port} any more` }
+    }
     if (foreign.length === 0) {
       const reason = `port ${port} is held by pid ${ours.join(', ')}, which this panel supervises — stop that server instead`
       return { ...empty, port, error: reason, skipped: ours }
@@ -994,7 +1007,12 @@ export class Supervisor {
     const { ours, foreign } = await this.portHolders(port)
     const holders = [...ours, ...foreign]
     const own = await this.ownPortHolder(entry, foreign)
-    const suffix = holders.length > 0 ? ` (pid ${holders.join(', ')})` : ''
+    // An empty pid list is not nothing: a docker-published port is bound by a root-owned proxy
+    // this user cannot see, so name the container instead of reporting no holder at all.
+    const docker = holders.length === 0 ? await findDockerPortHolder(port) : null
+    const suffix = holders.length > 0
+      ? ` (pid ${holders.join(', ')})`
+      : docker === null ? '' : ` (published by the docker container "${docker.container}")`
 
     // `kill` asks for the port outright: whoever holds it goes, this entry's own
     // successor included. It never touches our own process tree — a port held by
@@ -1031,7 +1049,9 @@ export class Supervisor {
 
     const hint = own !== null
       ? ` — pid ${own} is a detached restart of this entry: set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a supervised process, or "kill" to stop whatever holds the port`
-      : ''
+      : docker === null
+        ? ''
+        : ` — the panel cannot signal it, because that socket belongs to root; run \`docker compose down\` in that stack first`
 
     // `follow` and `reclaim` refine `block`: never a stranger's port.
     if (entry.config.onPortConflict !== 'warn') {

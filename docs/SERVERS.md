@@ -103,6 +103,32 @@ Preflight runs before every start, so two servers cannot silently fight over one
 | `reclaim` | same detection, but it stops that successor and starts a fully supervised process of its own |
 | `kill` | stops **whatever holds the port** — no ownership test — then starts. The blunt one: see below |
 
+### Docker and compose
+
+A compose stack is a supervised entry like any other — `command: docker`, `args: ["compose","up"]`,
+`cwd` the directory holding `compose.yml`. Use the **foreground** form:
+
+| form | what the panel sees |
+| --- | --- |
+| `docker compose up` | stays in the foreground, streams every container's logs into the entry's log, and a stop tears the stack down. **This is the one to use.** |
+| `docker compose up -d` | exits 0 as soon as the containers start, so the entry goes to `backoff` and retries against its own running stack. Not supervisable — put `-d` in a systemd unit instead. |
+
+Set the entry's `port` to the port the compose file **publishes**. That published port is the health
+probe: `curl`-ing it from the panel is the same check your browser does.
+
+**A published port is bound by root.** Docker forwards through `docker-proxy`, which runs as root, so
+the panel's `lsof`/`fuser` cannot see it — a container that is very much running looked like "nothing
+is listening". The panel asks docker instead and names the container, but it will not signal a socket
+it does not own:
+
+```text
+port 8098 is already in use (published by the docker container "blog-web-1") — the panel cannot
+signal it, because that socket belongs to root; run `docker compose down` in that stack first
+```
+
+So `free-port` and `onPortConflict: kill` cannot clear a docker-held port. Run `docker compose down`
+in the stack's directory; the panel then starts cleanly.
+
 ### When a program restarts itself
 
 Some programs restart themselves by launching a new detached process and exiting — a plugin doing an

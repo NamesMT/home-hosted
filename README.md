@@ -59,13 +59,18 @@ command or a `docker compose` stack.
    │ gateway │               │ files   │                │ bot     │
    │ :4000   │               │ :4010   │                │  ...    │
    └────┬────┘               └─────────┘                └─────────┘
-        │ compose up -d
+        │ compose up
         ▼
    ┌────────────┬────────────┬────────────┐
    │  gateway   │  postgres  │   redis    │          restarts ↻
    └────────────┴────────────┴────────────┘
      health ✓ (the published port is the probe)
 ```
+
+A compose stack is supervised as `docker compose up` — the **foreground** form, which is what keeps
+the container logs flowing into the panel and lets a stop take the stack down. `docker compose up -d`
+exits as soon as the containers start, so there is nothing left to supervise; put `-d` in a systemd
+unit or run it by hand instead.
 
 |  |  |
 | --- | --- |

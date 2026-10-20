@@ -290,6 +290,44 @@ export function parseNetstatListeners(output: string, port: number): number[] {
   return [...pids]
 }
 
+/**
+ * The container publishing a host port, when docker is holding it.
+ *
+ * A published port is bound by `docker-proxy`, which runs as **root** — so `lsof`/`fuser` return
+ * nothing for it, and `listPortHolders` reports an empty list for a port that is plainly refusing
+ * every bind. Docker itself answers the question without privileges, and names the stack too, so
+ * the caller can say *whose* stack it is instead of "nothing is listening".
+ */
+export interface DockerPortHolder {
+  /** `com.docker.compose.project.working_dir` when the container came from compose. */
+  composeDir: string | null
+  container: string
+  port: number
+}
+
+export async function findDockerPortHolder(port: number): Promise<DockerPortHolder | null> {
+  try {
+    const { stdout } = await execFileAsync('docker', [
+      'ps',
+      '--filter',
+      `publish=${port}`,
+      '--format',
+      '{{.Names}}\t{{.Label "com.docker.compose.project.working_dir"}}',
+    ], { timeout: 3000 })
+    const line = stdout.split('\n').find(entry => entry.trim().length > 0)
+    if (line === undefined)
+      return null
+    const [container = '', composeDir = ''] = line.split('\t')
+    if (container.trim().length === 0)
+      return null
+    return { container: container.trim(), composeDir: composeDir.trim().length > 0 ? composeDir.trim() : null, port }
+  }
+  catch {
+    // docker absent, not running, or not permissioned: no claim either way.
+    return null
+  }
+}
+
 export async function listPortHolders(port: number): Promise<number[]> {
   if (process.platform === 'win32') {
     try {
