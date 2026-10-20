@@ -1,6 +1,19 @@
 # Changelog
 
 
+## v0.9.3
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.2...v0.9.3)
+
+### 🩹 Fixes
+
+- **stock:** A server card opened the global overview instead of its detail page ([c78b9c1](https://github.com/NamesMT/home-hosted/commit/c78b9c1))
+- **archive:** A path is not a password rejection ([7b80609](https://github.com/NamesMT/home-hosted/commit/7b80609))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.9.2
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.1...v0.9.2)
