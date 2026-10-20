@@ -81,9 +81,18 @@ export async function listZip(file: string): Promise<ArchiveEntry[]> {
   }
 }
 
-/** True when the archive rejected the password we used. */
+/**
+ * True when the archive rejected the password we used.
+ *
+ * Matched on the wording zip.js raises for a bad password, not on the word alone: the message is
+ * `Invalid password`, while a *file it cannot open* produces `ENOENT: … stat '/tmp/…/my-password-
+ * backup.zip'` — which carries the word because the caller named the archive that. A substring test
+ * read that as a wrong password and told the person to re-enter one, when the archive was simply
+ * not there. (Caught by CI, where Node's fs message names the path; the local run said
+ * `Unable to open file as blob`, so the same call looked fine.)
+ */
 export function isInvalidPassword(error: unknown): boolean {
-  return error instanceof Error && /password/i.test(error.message)
+  return error instanceof Error && /invalid password/i.test(error.message)
 }
 
 /**
