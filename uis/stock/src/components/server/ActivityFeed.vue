@@ -8,6 +8,7 @@ import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatDuration } from '@/lib/format'
 import { HISTORY_TYPE_LABEL_KEY, HISTORY_TYPE_TONE, TONE_TEXT } from '@/lib/status'
+import { workspacePath } from '@/router'
 
 const props = withDefaults(defineProps<{
   servers: ServerView[]
@@ -30,6 +31,8 @@ const ICONS = {
 
 interface Row extends HistoryEvent {
   label: string
+  /** The workspace the event's server belongs to; a detail page lives under it. */
+  workspaceId: string
 }
 
 const rows = computed<Row[]>(() => {
@@ -38,7 +41,8 @@ const rows = computed<Row[]>(() => {
     if (props.serverId !== undefined && server.id !== props.serverId)
       continue
     for (const event of server.history.events)
-      out.push({ ...event, label: server.config.label ?? server.id })
+      // The frame carries each server's workspace, so a row links to the page that exists.
+      out.push({ ...event, label: server.config.label ?? server.id, workspaceId: server.workspaceId ?? '' })
   }
   return out.sort((a, b) => b.ts - a.ts).slice(0, props.limit)
 })
@@ -66,7 +70,7 @@ const rows = computed<Row[]>(() => {
       <div class="min-w-0 flex-1">
         <p class="flex items-baseline gap-1.5">
           <span class="truncate text-xs font-medium text-ink">{{ t(HISTORY_TYPE_LABEL_KEY[row.type as HistoryType]) }}</span>
-          <RouterLink :to="`/servers/${row.serverId}`" class="truncate text-2xs text-muted hover:text-accent">
+          <RouterLink :to="workspacePath(row.workspaceId, 'servers', row.serverId)" class="truncate text-2xs text-muted hover:text-accent">
             {{ row.label }}
           </RouterLink>
         </p>

@@ -29,6 +29,7 @@ import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatBytesShort, formatCpuPercent, formatDuration, formatRatio, relativeFrom } from '@/lib/format'
 import { HISTORY_TYPE_LABEL_KEY, HISTORY_TYPE_TONE, serverTone, TONE_TEXT } from '@/lib/status'
+import { workspacePath } from '@/router'
 
 const props = withDefaults(defineProps<{
   server: ServerView
@@ -148,7 +149,16 @@ async function remove(): Promise<void> {
   await control.remove(props.workspaceId, props.server.id)
 }
 
-/** A detail page is workspace-scoped, so opening a card picks its workspace first. */
+/**
+ * A detail page is workspace-scoped, so this is the only shape the route matches.
+ *
+ * These links used to be the pre-workspace `/servers/<id>`, which no route has had since the
+ * routes moved under `/w/:workspaceId` — so clicking a card fell through to the catch-all and the
+ * guard rewrote it to the global overview. The click handler selecting the workspace first did not
+ * help: the `to` was still a path nothing matched.
+ */
+const detailPath = computed(() => workspacePath(props.workspaceId, 'servers', props.server.id))
+
 function openDetail(): void {
   workspace.select(props.workspaceId)
 }
@@ -177,7 +187,7 @@ function openDetail(): void {
       <div class="min-w-0">
         <div class="flex items-center gap-2">
           <RouterLink
-            :to="`/servers/${server.id}`"
+            :to="detailPath"
             class="truncate text-sm font-semibold tracking-tight text-ink hover:text-accent"
             @click="openDetail"
           >
@@ -320,7 +330,7 @@ function openDetail(): void {
       </AppButton>
 
       <Tip :label="t('serverCard.detailsHint')">
-        <RouterLink :to="`/servers/${server.id}`" @click="openDetail">
+        <RouterLink :to="detailPath" @click="openDetail">
           <AppButton size="xs" variant="ghost">
             <ScrollText class="size-3" />{{ t('common.details') }}
           </AppButton>

@@ -150,6 +150,30 @@ function seedDevPassword() {
   return true
 }
 
+/**
+ * Builds the generated catalogs before Vite starts.
+ *
+ * The catalogs are generated from the sheets and are git-ignored, so they exist only after
+ * `pnpm install` or an explicit `build:locales`. `install` runs it once, which is why this was
+ * missed: start `pnpm dev`, then edit a sheet, and Vite kept serving the catalog it read at boot —
+ * a key added a minute ago rendered as its own name (`views.globalOverview.serversTotal`), which
+ * reads as a missing translation rather than a stale build. Vite cannot watch a directory that
+ * `import.meta.glob` resolves at transform time, so the fix is to build once, before it starts.
+ */
+function buildLocales() {
+  const result = spawnSync('node', ['scripts/build-locales.mjs'], {
+    cwd: root,
+    stdio: 'ignore',
+    shell: process.platform === 'win32',
+  })
+  // Not fatal: a clone whose sheets are fine still runs on whatever is on disk, and refusing to
+  // start over a catalog would be a worse trade than a stale one.
+  if (result.status !== 0)
+    process.stderr.write('could not rebuild the i18n catalogs — serving whatever is on disk\n')
+}
+
+buildLocales()
+
 const seeded = seedDevPassword()
 
 /** The panel gets `--port` unless the caller already named one in the passthrough. */
