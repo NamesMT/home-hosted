@@ -31,17 +31,10 @@ export function createHealthRoute(deps: AppDeps) {
         const state = deps.panel.getState()
         // Every workspace's servers, so a crash anywhere degrades the panel.
         const servers = state.workspaces.flatMap(workspace => workspace.servers)
-        // Two things a monitor has to see, and nothing else.
-        //
-        // A `crashed` entry is broken whoever started it: filtering on `autostart` hid a
-        // manually-started server that had died, which is precisely the case an external monitor
-        // exists for. The deliberate-stop worry that motivated the filter does not apply —
-        // stopping sets `stopped`, never `crashed` (`serverStatusSchema`), so a server someone
-        // switched off cannot degrade the panel.
-        //
-        // An `unhealthy` *running* entry is the other half: it is up, so nothing else here would
-        // report it. `status === 'running'` is part of that test on purpose — `health` keeps its
-        // last value through a stop.
+        // A crash degrades the panel whoever started the entry — `autostart` is a boot
+        // preference, not ownership of the failure. A deliberate stop sets `stopped`, never
+        // `crashed`, so it cannot degrade the panel. The `running` test is load-bearing for
+        // `health`: that keeps its last value through a stop.
         const broken = servers.filter(server =>
           server.status === 'crashed'
           || (server.status === 'running' && server.health === 'unhealthy'),

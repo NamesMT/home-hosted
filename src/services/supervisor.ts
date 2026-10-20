@@ -1967,10 +1967,9 @@ export class Supervisor {
   /**
    * Stops an entry that cannot pass its own health check, once the restart budget is spent.
    *
-   * It has to **actually stop**: leaving the process running and marking it `crashed` made the
-   * panel state something false — a live pid and a serving port reported as down, and `/healthz`
-   * degrading the panel for a process that was up. `stopped` is the honest status, and the reason
-   * is kept on `lastError` so the card and the notification still say why.
+   * `stopped` because the process really is stopped; the reason stays on `lastError`, so the card
+   * and the notification still say why. Marking it `crashed` while leaving it running would report
+   * a live pid and a serving port as down.
    */
   private async giveUpOnHealth(entry: Entry): Promise<void> {
     const budgetEnabled = entry.config.restart.enabled

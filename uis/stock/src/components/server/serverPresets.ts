@@ -1,17 +1,10 @@
 /**
- * What a new user actually has: a line someone gave them, not a form.
+ * Presets for the add-server gallery: the program, its arguments, its usual port, one line of
+ * guidance.
  *
- * The empty add-server dialog asks for a command, arguments, a port, a bind address and a health
- * check, with hints like "Spawned without a shell." — every one of which assumes the person knows
- * what those mean. A user who pasted `java -jar server.jar` into *command* got
- * `spawn java -jar server.jar ENOENT` and no next step.
- *
- * A preset is the smallest thing that fixes that: a name, a command split correctly, the port the
- * thing usually listens on, and one sentence about what to change. It fills the form; it never
- * creates anything the person cannot then edit.
- *
- * Data, not components, so the mapping is testable on its own — the failure mode of a preset is a
- * field that silently does not reach `servers.config.json`.
+ * Only the starting point — it fills the form and the person edits it. Data rather than
+ * components, because the failure mode is a field that silently never reaches
+ * `servers.config.json`, and that is only testable outside a template.
  */
 
 import type { AddServerForm } from '@/components/server/addServerForm'

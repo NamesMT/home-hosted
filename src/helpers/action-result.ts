@@ -39,31 +39,20 @@ export function unknownServerError(id: string): DetailedError {
 }
 
 /**
- * The stable code for a failed action, so a script can branch on it rather than on English.
+ * The stable code for a failed action, so a script branches on it rather than on English.
  *
- * The lifecycle routes answered a bare `{ok, error}` while every other route answered the
- * `{message, code, detail}` envelope — on exactly the routes a deploy script calls most, so
- * the README's "a stable `code` a tool can branch on" held everywhere except here. `code` is
- * added rather than replacing `ok`/`error`: an older UI reads those and ignores what it does
- * not know, and a newer panel answering an older client must not change shape underneath it.
- *
- * Two values, not one per message: a missing id is the case a caller must fix, and everything
- * else ("disabled", "stopping", "port in use") is the entry refusing right now. Inventing a
- * code per sentence would be a second copy of the messages. A **success has no code**: a code
- * exists to describe a failure, and stamping one on success answered `ok: true, code:
- * ACTION_FAILED`.
+ * Two values, not one per message: a missing id is what the caller must fix, and everything else
+ * ("disabled", "stopping", "port in use") is the entry refusing right now. `code` is added beside
+ * `ok`/`error` rather than replacing them, because an older UI reads those.
  */
 export function actionCode(result: ActionResult): string {
   return result[UNKNOWN_SERVER] === true ? 'UNKNOWN_SERVER' : 'ACTION_FAILED'
 }
 
 /**
- * What a lifecycle route puts on the wire: the result it already had, plus its stable code.
+ * What a lifecycle route puts on the wire: the result it already had, plus its code.
  *
- * A **success does not carry a code at all.** Stamping one on it was the first version of this
- * function, and it answered `{"ok":true,"code":"ACTION_FAILED"}` for a start that worked — a code
- * that exists to describe a failure, printed on a success. `code` is added only when there is a
- * failure to name.
+ * A success carries no code — a code names a failure.
  */
 export function actionAnswer(result: ActionResult): ActionResult & { code?: string } {
   return result.ok ? { ...result } : { ...result, code: actionCode(result) }

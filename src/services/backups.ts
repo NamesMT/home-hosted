@@ -404,12 +404,7 @@ export class BackupService {
    * long as the failure lasts. This is the in-memory backstop for that case.
    */
   private lastAttemptAt: number | null = null
-  /**
-   * Why the most recent scheduled pass failed, cleared on the next that works.
-   *
-   * The failure used to reach only the panel console, so the page showed "enabled" and an archive
-   * count that never moved — the same view as a schedule that had simply not come due yet.
-   */
+  /** Why the most recent scheduled pass failed, cleared by the next that works. */
   private scheduleError: { message: string, at: number } | null = null
 
   constructor(
@@ -848,10 +843,9 @@ export class BackupService {
           // name the person can find afterwards.
           const archivedLabel = archivedWorkspaces.get(id)?.label ?? id
 
-          // A workspace this host does not have is *created*, not skipped: an archive is
-          // the whole setup, and "unknown workspace" used to drop the leaves while the
-          // data below still matched by origin — writing one workspace's database into
-          // whatever directory another one declared.
+          // A workspace this host does not have is created, not skipped: an archive is the whole
+          // setup. Skipping it also let the data pass match by origin alone, writing one
+          // workspace's database into another's declared directory.
           const workspace = sources.workspaces.find(candidate => candidate.id === id)
             ?? createdWorkspaces.get(id)
             ?? (workspaceIdSchema(id) instanceof type.errors

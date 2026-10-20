@@ -22,16 +22,11 @@ export const heading = (text: string): string => paint('1;4', text)
 export const style = { bold, dim, green }
 
 /**
- * How this process was invoked, for hints that tell a person what to type next.
+ * How this process was invoked, so a hint names a command the person can actually run.
  *
- * The documented quick start is `npx home-hosted`, which puts no `home-hosted` on the user's
- * `PATH` — so `stop it with \`home-hosted down\`` printed advice they could not follow
- * (`bash: home-hosted: command not found`). The bin's own argv names the shape: a global install
- * or a linked checkout runs `.../bin/home-hosted.mjs` (or the built `dist/cli.js`), while `npx`
- * and `pnpm dlx` hand over a cache path. `HHOSTED_INVOCATION` overrides it for a wrapper that
- * knows better.
- *
- * Deliberately a *string to print*, not a parser: every caller only concatenates it.
+ * `npx home-hosted` leaves no `home-hosted` on `PATH`, so a hard-coded "run `home-hosted down`"
+ * fails with `command not found`. A package-manager cache path means npx/dlx; `cli.ts` means a
+ * source checkout. A string to print, not a parser. `HHOSTED_INVOCATION` overrides it.
  */
 export function invocation(): string {
   const override = process.env.HHOSTED_INVOCATION?.trim()

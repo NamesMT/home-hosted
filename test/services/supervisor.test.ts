@@ -1856,11 +1856,8 @@ describe('the documented placeholder table', () => {
  */
 describe('the health restart budget', () => {
   /**
-   * Giving up must **stop it**, not just relabel it.
-   *
-   * The first version set `status = 'crashed'` and left the child running, so the panel reported a
-   * live pid and a serving port as down — and `/healthz` degraded the whole panel for a process
-   * that was up. `stopped` with the reason kept on `lastError` is the honest pair.
+   * Giving up must stop it, not just relabel it: `stopped` with a live pid is a false report that
+   * `/healthz` and every card read.
    */
   it('stops a permanently unhealthy entry, and says why, instead of restarting it forever', async () => {
     const port = await freePort()
