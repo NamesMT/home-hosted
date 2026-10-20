@@ -948,6 +948,16 @@ export class ProxyService {
       return
     }
 
+    // Loading a configuration with this route removed is what makes the engine let go of its
+    // certificate. With a single route that configuration has **no listeners at all** — the render
+    // drops every server when no route is left — and a `load` it accepts takes the site dark, so
+    // refuse before posting anything rather than rely on the apply behind it to put it back.
+    if (this.config.routes.length <= 1) {
+      throw new DetailedError(
+        `"${route.host}" is the only route, so making the engine forget its certificate would leave nothing served — add another route first`,
+        { statusCode: 409, code: 'PROXY_CERT_RETRY_LAST_ROUTE' },
+      )
+    }
     await this.loadIntoEngine(this.render(new Set([route.id])))
     this.forgetCertificates(route.host)
     await this.apply({ force: true })
@@ -1133,12 +1143,23 @@ export class ProxyService {
     if (signature === this.certificateSignature)
       return
     const first = this.certificateSignature === null
-    this.certificateSignature = signature
-    if (first)
+    if (first) {
+      this.certificateSignature = signature
       return
-    await this.apply().catch((error: unknown) => {
-      logger.warn(`proxy:    could not re-apply after a certificate change: ${errorMessage(error)}`)
-    })
+    }
+    try {
+      await this.apply()
+      // Advanced only on success, so a failure is retried on the next tick instead of being
+      // skipped forever because the signature already matched.
+      this.certificateSignature = signature
+    }
+    catch (error) {
+      const message = errorMessage(error)
+      logger.warn(`proxy:    could not re-apply after a certificate change: ${message}`)
+      // The tick runs every second; record it once, not once per tick, or the page never settles.
+      if (this.lastError !== message)
+        this.recordError(message)
+    }
   }
 
   /**
@@ -1720,19 +1741,61 @@ export class ProxyService {
     this.nanny = null
   }
 
+  /**
+   * "May we bind these ports" — a **start** question, asked before handing the engine a
+   * configuration it would fail to serve.
+   *
+   * A busy port is not automatically a problem: on a re-apply the engine is already bound to
+   * those exact ports, which is the normal case. What must not happen is letting a *stranger*
+   * hold them, and pid attribution is the wrong tool for that — the engine carries
+   * `cap_net_bind_service`, which makes it non-dumpable, so `/proc/<pid>/fd` is root's and
+   * `listPortHolders` returns an empty list for the port it is serving on. The old code required
+   * a non-empty holder list before it would consider the port its own, so the empty list fell
+   * through to a 409 and every re-apply failed permanently.
+   *
+   * So the identity question is answered by records this panel writes, none of which need to
+   * inspect the engine: the ports it last applied, and a nanny state whose heartbeat proves the
+   * engine is live. An unattributable port that fails both is refused — a stranger must still
+   * be a stranger.
+   */
   private async assertPortsFree(httpPort: number, httpsPort: number): Promise<void> {
+    const applied = this.readApplied()
+    const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
+    const ours = state !== null && await nannyIsAlive(state, PROXY_ID)
+
     for (const port of [httpPort, httpsPort]) {
       if (await isPortFree(port))
         continue
       const holders = await listPortHolders(port)
-      const mine = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
-      if (mine !== null && holders.length > 0 && [mine.nannyPid, mine.childPid].some(pid => pid !== null && holders.includes(pid)))
+      if (state !== null && [state.nannyPid, state.childPid].some(pid => pid !== null && holders.includes(pid)))
+        continue
+      // The engine is live and we last applied these very ports: the listener is ours, whether
+      // or not this user may inspect it.
+      const alreadyOurs = ours && applied !== null && (port === applied.httpPort || port === applied.httpsPort)
+      if (alreadyOurs)
         continue
       throw new DetailedError(
-        `port ${port} is already in use${holders.length > 0 ? ` (pid ${holders.join(', ')})` : ''} — stop what holds it, or set another port in the reverse proxy settings`,
+        `port ${port} is already in use${this.describeHolders(port, holders)} — stop what holds it, or set another port in the reverse proxy settings`,
         { statusCode: 409, code: 'PROXY_PORT_IN_USE', detail: { port, holders } },
       )
     }
+  }
+
+  /**
+   * Who holds a busy port, in the most specific terms available.
+   *
+   * An empty holder list is not "nothing is listening": for a capped engine it is the normal
+   * reading, and for a docker-published port it is a root-owned proxy this user may not inspect.
+   * Say which engine it is when it is our own, and say plainly that the socket is uninspectable
+   * rather than implying the port is idle.
+   */
+  private describeHolders(port: number, holders: number[]): string {
+    if (holders.length > 0)
+      return ` (pid ${holders.join(', ')})`
+    const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
+    if (state !== null)
+      return ` (this panel's own engine, pid ${state.childPid ?? state.nannyPid} — started before these ports were applied, and its socket cannot be inspected: the engine carries cap_net_bind_service, which makes it non-dumpable)`
+    return ' — the socket cannot be inspected by this user, so the holder cannot be named'
   }
 
   // ----------------------------------------------------------------------- admin

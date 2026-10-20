@@ -1061,7 +1061,12 @@ describe('proxyService', () => {
       enabled: true,
       httpPort: 18080,
       httpsPort: 18443,
-      routes: [{ id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' }],
+      // Two routes: the retry removes one to make the engine re-issue, and a single route would
+      // refuse that outright (see "retrying a certificate on the only route").
+      routes: [
+        { id: 'git', host: 'git.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+        { id: 'other', host: 'other.example.com', target: 'external', url: 'http://10.0.0.6:3000' },
+      ],
     })
     const engine = await stubEngine(options, { status: 400, message: 'not a valid configuration' })
 
@@ -1430,5 +1435,179 @@ describe('the failure-log cache', () => {
     fs.writeFileSync(logFile, failureLine('a.example.com', 'after rotation'))
 
     expect(service.routeViews()[0]?.certificate?.message).toContain('after rotation')
+  })
+})
+
+/**
+ * The port preflight must recognise the panel's own engine.
+ *
+ * On a host that binds :80 the way `docs/REVERSE_PROXY.md` instructs — `setcap cap_net_bind_service`
+ * on the engine binary — the engine becomes **non-dumpable**: `/proc/<pid>/fd` belongs to root, so
+ * `lsof`/`fuser` return an empty list for the very port it is serving on. The old preflight required
+ * a non-empty holder list before it would consider a port its own, so that empty list fell through
+ * to a 409 and every re-apply failed — permanently, because `sync()` advanced its signature before
+ * awaiting `apply()` and therefore never retried.
+ */
+describe('the port preflight and its own engine', () => {
+  /** A live nanny state for this service, as a running engine leaves behind. */
+  function liveState(options: ProxyServiceOptions): void {
+    writeNannyState(nannyStatePath(options.stateDir, 'proxy'), {
+      serverId: 'proxy',
+      nannyPid: process.pid,
+      childPid: process.pid,
+      startedAt: Date.now() - 60_000,
+      logFile: path.join(options.logDir ?? '', 'proxy.log'),
+      // Fresh, which is the only evidence available once pid attribution is impossible.
+      heartbeatAt: Date.now(),
+    })
+  }
+
+  /** A real listener, so the preflight sees a busy port and an empty holder list. */
+  async function busyPort(): Promise<{ port: number, close: () => Promise<void> }> {
+    const server = http.createServer((_request, response) => response.end('x'))
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    return {
+      port,
+      close: async () => new Promise<void>(resolve => server.close(() => resolve())),
+    }
+  }
+
+  /** Calls the preflight directly: `start()` also spawns, which is a different test. */
+  function preflight(service: ProxyService, httpPort = 80, httpsPort = 443): Promise<void> {
+    return (service as unknown as { assertPortsFree: (h: number, s: number) => Promise<void> }).assertPortsFree.apply(service, [httpPort, httpsPort])
+  }
+
+  it('passes when the engine is live and these are the ports it last applied', async () => {
+    const { service, options } = await harness()
+    const listener = await busyPort()
+    try {
+      liveState(options)
+      // The engine's own record of what it bound. No pid attribution involved.
+      fs.mkdirSync(options.stateDir, { recursive: true })
+      fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: listener.port, httpsPort: listener.port, at: Date.now() }))
+
+      // The listener is a stranger to this process's `lsof`, so the holder list is empty —
+      // exactly the shape that used to throw.
+      await expect(preflight(service, listener.port, listener.port)).resolves.toBeUndefined()
+    }
+    finally {
+      await listener.close()
+    }
+  })
+
+  it('still refuses a busy port it cannot attribute and did not apply', async () => {
+    const { service, options } = await harness()
+    const listener = await busyPort()
+    try {
+      liveState(options)
+      // No `applied.json`: this port is not one the engine bound.
+      await expect(preflight(service, listener.port, listener.port)).rejects.toMatchObject({ code: 'PROXY_PORT_IN_USE' })
+    }
+    finally {
+      await listener.close()
+    }
+  })
+
+  it('refuses when there is no state at all, whatever the port', async () => {
+    const { service } = await harness()
+    const listener = await busyPort()
+    try {
+      await expect(preflight(service, listener.port, listener.port)).rejects.toMatchObject({ code: 'PROXY_PORT_IN_USE' })
+    }
+    finally {
+      await listener.close()
+    }
+  })
+})
+
+/**
+ * `sync()` is the tick that notices a certificate arrived and re-applies. It had no test at all,
+ * which is how a permanent failure shipped: the signature was advanced *before* the apply.
+ */
+describe('re-applying when a certificate arrives', () => {
+  /** `sync()` returns early unless the proxy is on and the engine is installed. */
+  function syncable(service: ProxyService): void {
+    vi.spyOn(service, 'config', 'get').mockReturnValue(config({ enabled: true }))
+    vi.spyOn(service, 'status').mockReturnValue({ state: 'running' } as ReturnType<typeof service.status>)
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+  }
+
+  it('re-applies once the certificate state flips', async () => {
+    const { service } = await harness()
+    const apply = vi.spyOn(service, 'apply').mockResolvedValue()
+    syncable(service)
+    // First call seeds the signature, second sees a change.
+    const views = [{ route: { id: 'a' }, certificate: { state: 'pending' } }]
+    vi.spyOn(service, 'routeViews').mockImplementation(() => views as ReturnType<typeof service.routeViews>)
+
+    await service.sync()
+    expect(apply, 'the first tick only seeds the signature').not.toHaveBeenCalled()
+
+    views[0]!.certificate = { state: 'issued' }
+    await service.sync()
+    expect(apply).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries on the next tick when the apply fails, and records why', async () => {
+    const { service } = await harness()
+    syncable(service)
+    const views = [{ route: { id: 'a' }, certificate: { state: 'pending' } }]
+    vi.spyOn(service, 'routeViews').mockImplementation(() => views as ReturnType<typeof service.routeViews>)
+    const apply = vi.spyOn(service, 'apply')
+      .mockRejectedValueOnce(new Error('port 80 is already in use'))
+      .mockResolvedValue()
+    const record = vi.spyOn(service, 'recordError')
+
+    await service.sync()
+    views[0]!.certificate = { state: 'issued' }
+
+    await service.sync()
+    expect(apply).toHaveBeenCalledTimes(1)
+    // The failure is visible, not only in the log. `status()` is stubbed above, so read the
+    // recorded error the way the real status getter would.
+    expect(record).toHaveBeenCalledWith(expect.stringContaining('port 80 is already in use'))
+
+    // …and the next tick tries again, because the signature was not advanced.
+    await service.sync()
+    expect(apply, 'a failed apply must be retried, not skipped forever').toHaveBeenCalledTimes(2)
+  })
+
+  it('does not re-record the same error every second', async () => {
+    const { service } = await harness()
+    syncable(service)
+    const views = [{ route: { id: 'a' }, certificate: { state: 'pending' } }]
+    vi.spyOn(service, 'routeViews').mockImplementation(() => views as ReturnType<typeof service.routeViews>)
+    vi.spyOn(service, 'apply').mockRejectedValue(new Error('still broken'))
+    const record = vi.spyOn(service, 'recordError')
+
+    await service.sync()
+    views[0]!.certificate = { state: 'issued' }
+    await service.sync()
+    await service.sync()
+    await service.sync()
+
+    expect(record, 'recorded once, not once per tick').toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Letting the engine forget one certificate means loading a configuration with that route removed.
+ * With a single route that configuration has zero servers, and a `load` the engine accepts takes
+ * the site dark — so it must refuse before posting anything.
+ */
+describe('retrying a certificate on the only route', () => {
+  it('refuses instead of loading a configuration with no listeners', async () => {
+    const { service } = await harness()
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    vi.spyOn(service, 'status').mockReturnValue({ state: 'running' } as ReturnType<typeof service.status>)
+    vi.spyOn(service, 'config', 'get').mockReturnValue(config({
+      enabled: true,
+      routes: [{ id: 'only', host: 'a.example.com', tls: 'auto', target: 'external', url: 'http://127.0.0.1:4000', enabled: true }],
+    }))
+    const load = vi.spyOn(service as unknown as { loadIntoEngine: () => Promise<void> }, 'loadIntoEngine')
+
+    await expect(service.retryCertificate('only')).rejects.toMatchObject({ code: 'PROXY_CERT_RETRY_LAST_ROUTE' })
+    expect(load, 'nothing may be posted before the refusal').not.toHaveBeenCalled()
   })
 })
