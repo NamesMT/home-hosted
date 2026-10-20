@@ -414,6 +414,11 @@ export class Supervisor {
     this.clearRetry(entry)
     if (!options.retry) {
       entry.restarts = 0
+      // Only a start *someone asked for* ends the health sequence. The supervisor's own force
+      // restart also comes through `start()` (as `policy`), and resetting there handed the budget
+      // back on every attempt — the endless loop this budget exists to stop.
+      if (entry.actor !== 'policy')
+        entry.healthRestarts = 0
       entry.healthFailures = 0
       entry.unhealthySince = null
       // A start someone asked for ends the previous crash sequence, so the reset has

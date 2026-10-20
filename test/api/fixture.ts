@@ -57,6 +57,8 @@ export interface FakeSupervisor {
   clearLogs: (id: string) => void
   logLines: (id: string, limit?: number) => LogLine[]
   freePort: (id: string) => Promise<FreePortResult>
+  orphans?: () => Array<{ serverId: string, pid: number, startedAt: number | null }>
+  stopOrphan?: (id: string) => Promise<{ ok: boolean, error?: string }>
   dispose: () => Promise<void>
 }
 
@@ -184,6 +186,8 @@ function emptySupervisor(views: ServerView[]): FakeSupervisor {
     clearLogs: () => {},
     logLines: () => [],
     freePort: async () => ({ ok: true, port: null, terminated: [], forced: [], skipped: [], free: true }),
+    orphans: () => [],
+    stopOrphan: async () => ({ ok: true }),
     dispose: async () => {},
   }
 }

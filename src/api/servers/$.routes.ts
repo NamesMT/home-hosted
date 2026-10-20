@@ -127,9 +127,17 @@ export function createServersRoute(deps: AppDeps) {
       validate('param', idParam),
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.supervisor.stopOrphan(c.req.valid('param').id)
-        if (!result.ok)
-          throw new DetailedError(result.error ?? 'could not stop the orphan', { statusCode: 404, code: 'ORPHAN_STOP_FAILED' })
+        const id = c.req.valid('param').id
+        const result = await runtime.supervisor.stopOrphan(id)
+        if (!result.ok) {
+          // 404 when nothing is running under that id; 409 when a process is there and refused to
+          // die — two different fixes, and the declared 409 had no path to it.
+          const survived = result.error?.includes('survived the stop') === true
+          throw new DetailedError(result.error ?? `could not stop the orphaned process "${id}"`, {
+            statusCode: survived ? 409 : 404,
+            code: survived ? 'ORPHAN_SURVIVED' : 'UNKNOWN_ORPHAN',
+          })
+        }
         return c.json({ ok: true })
       },
     )

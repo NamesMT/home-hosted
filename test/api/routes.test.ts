@@ -151,6 +151,24 @@ describe('servers route', () => {
     expect(created.store.servers.map(server => server.id)).toEqual(order)
   })
 
+  it('stops an orphan, and separates "none" from "would not die"', async () => {
+    const created = await withServer()
+
+    created.supervisor.orphans = () => [{ serverId: 'stray', pid: 4242, startedAt: Date.now() }]
+    created.supervisor.stopOrphan = async () => ({ ok: true })
+    expect((await request(created.app, '/api/servers/orphans/stray/stop', 'POST')).status).toBe(200)
+
+    // Nothing running under that id is a 404…
+    created.supervisor.stopOrphan = async () => ({ ok: false, error: 'no orphaned process is running as "stray"' })
+    expect((await request(created.app, '/api/servers/orphans/stray/stop', 'POST')).status).toBe(404)
+
+    // …while a process that survived SIGKILL is a 409, the status the route declares for it.
+    created.supervisor.stopOrphan = async () => ({ ok: false, error: 'pid 4242 survived the stop — kill it from a shell, its record is kept' })
+    const survived = await request(created.app, '/api/servers/orphans/stray/stop', 'POST')
+    expect(survived.status).toBe(409)
+    expect(await survived.json()).toMatchObject({ code: 'ORPHAN_SURVIVED' })
+  })
+
   it('refuses an entry whose body id disagrees with the path', async () => {
     const created = await withServer()
     const response = await request(created.app, '/api/servers/api', 'PUT', { id: 'other', command: 'node' })
