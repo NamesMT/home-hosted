@@ -91,6 +91,35 @@ describe('dependency validation', () => {
     expect(warnings.filter(warning => warning.startsWith('dependency cycle'))).toHaveLength(1)
   })
 
+  /**
+   * Two entries on one port is the classic misconfiguration, and it used to load silently.
+   *
+   * Cycles and unknown dependency ids are warned about at load, so this was a gap in the same
+   * mechanism rather than a design choice: one entry starts, the other goes `conflict`, and the
+   * operator only finds out from a card.
+   */
+  it('warns when two entries declare the same port', () => {
+    const { errors, warnings } = parse([
+      { id: 'web', command: 'node', port: 7601 },
+      { id: 'api', command: 'node', port: 7601 },
+    ])
+
+    expect(warnings.filter(warning => warning.includes('7601'))).toEqual([
+      'port 7601 is declared by "web", "api" — only one can bind it',
+    ])
+    // A warning, not a refusal: `onPortConflict` may be exactly how the person wants this handled.
+    expect(errors).toEqual([])
+  })
+
+  it('says nothing about a shared port when one of the entries is disabled', () => {
+    // A disabled entry never binds, so it cannot clash with the one that does.
+    const { warnings } = parse([
+      { id: 'web', command: 'node', port: 7602 },
+      { id: 'api', command: 'node', port: 7602, enabled: false },
+    ])
+    expect(warnings.filter(warning => warning.includes('7602'))).toEqual([])
+  })
+
   it('says nothing about a well-formed graph, including a diamond', () => {
     const { errors, warnings } = parse([
       { id: 'top', command: 'node', dependsOn: ['left', 'right'] },

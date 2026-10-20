@@ -125,6 +125,40 @@ describe('servers route', () => {
   })
 
   /**
+   * A declarative caller re-runs its whole stack, so "create or replace" has to converge.
+   *
+   * `POST` refuses a duplicate (`400 INVALID_SERVER`) and `PATCH` only merges, so a deploy script
+   * had to GET, diff, then choose — and an unchanged re-run looked like a failure.
+   */
+  it('creates or replaces one entry, and says which it did', async () => {
+    const created = await withServer()
+    const body = { id: 'api', command: 'node', args: ['server.js'], port: 4100 }
+
+    const first = await request(created.app, '/api/servers/api', 'PUT', body)
+    expect(first.status).toBe(201)
+    expect((await first.json() as { server: { port: number } }).server.port).toBe(4100)
+
+    // The same declaration again converges instead of failing.
+    const again = await request(created.app, '/api/servers/api', 'PUT', body)
+    expect(again.status).toBe(200)
+    expect(created.store.servers.filter(server => server.id === 'api')).toHaveLength(1)
+
+    // A changed declaration replaces it in place, keeping its position in the list.
+    const order = created.store.servers.map(server => server.id)
+    const changed = await request(created.app, '/api/servers/api', 'PUT', { ...body, port: 4200 })
+    expect(changed.status).toBe(200)
+    expect((await changed.json() as { server: { port: number } }).server.port).toBe(4200)
+    expect(created.store.servers.map(server => server.id)).toEqual(order)
+  })
+
+  it('refuses an entry whose body id disagrees with the path', async () => {
+    const created = await withServer()
+    const response = await request(created.app, '/api/servers/api', 'PUT', { id: 'other', command: 'node' })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'ID_MISMATCH' })
+  })
+
+  /**
    * One rule for all three actions: a missing id is 404, a refusal is 409.
    *
    * `stop` used to answer 404 for *every* failure (`result.ok ? 200 : 404`), so "not running"

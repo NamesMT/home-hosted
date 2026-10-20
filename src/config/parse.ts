@@ -335,6 +335,22 @@ function validateCrossField(servers: ServerConfig[]): string[] {
   }
   for (const server of servers) walk(server.id)
 
+  // Two entries on one port: one starts and the other goes `conflict`, and the operator finds out
+  // from a card. A cycle and an unknown dependency id are already warned about here, so this is the
+  // same mechanism rather than a new one — and it is a warning, not an error, because the entries
+  // may be mutually exclusive by design (`onPortConflict` decides who wins).
+  const byPort = new Map<number, string[]>()
+  for (const server of servers) {
+    // A disabled entry never binds, so it cannot clash with anything.
+    if (server.port === null || !server.enabled)
+      continue
+    byPort.set(server.port, [...(byPort.get(server.port) ?? []), server.id])
+  }
+  for (const [port, ids] of byPort) {
+    if (ids.length > 1)
+      errors.push(`port ${port} is declared by ${ids.map(id => `"${id}"`).join(', ')} — only one can bind it`)
+  }
+
   return [...new Set(errors)]
 }
 

@@ -378,6 +378,34 @@ export class WorkspaceStore {
     return validated
   }
 
+  /**
+   * Creates the entry, or replaces a same-id one outright — "make it so".
+   *
+   * `addServer` refuses a duplicate and `updateServer` only patches an existing entry, so a config
+   * management pass had to GET, diff, then POST or PATCH, and a re-run of an unchanged declaration
+   * got `400 INVALID_SERVER` for its trouble. A replace is what a declarative caller means: the
+   * body is the whole entry, not a patch.
+   *
+   * Returns whether it created or replaced, so the route can answer 201 or 200 honestly.
+   */
+  putServer(input: Record<string, unknown>): { server: ServerConfig, created: boolean } {
+    const draft = structuredClone(this.rawServers)
+    const list = (draft.servers as Record<string, unknown>[] | undefined) ?? (draft.servers = [])
+    const index = list.findIndex(entry => entry.id === input.id)
+    const created = index < 0
+
+    // Replace in place so a re-declared entry keeps its position in the list, which is the order
+    // the panel shows; a create appends.
+    if (created)
+      list.push(structuredClone(input))
+    else
+      list[index] = structuredClone(input)
+
+    const validated = this.validateServer(list[created ? list.length - 1 : index]!, `servers[${created ? list.length - 1 : index}]`)
+    this.commitServers(draft)
+    return { server: validated, created }
+  }
+
   removeServer(id: string): void {
     const draft = structuredClone(this.rawServers)
     const list = (draft.servers as Record<string, unknown>[] | undefined) ?? []

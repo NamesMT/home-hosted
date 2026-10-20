@@ -68,6 +68,48 @@ export function createServersRoute(deps: AppDeps) {
       },
     )
 
+    /**
+     * Declare an entry whether or not it exists — "make it so", for config management.
+     *
+     * `POST` refuses a duplicate and `PATCH` only merges, so a deploy script had to GET, diff and
+     * then pick one; a re-run of an unchanged declaration answered `400 INVALID_SERVER` for its
+     * trouble. The body is the whole entry (the create schema), never a patch, so a re-run
+     * converges: 201 when it created, 200 when it replaced.
+     */
+    .put(
+      '/:id',
+      describeRoute({
+        tags: ['servers'],
+        summary: 'Create or replace one entry (idempotent)',
+        responses: {
+          200: { description: 'Replaced', content: jsonBody(storedServerResponse) },
+          201: { description: 'Created', content: jsonBody(storedServerResponse) },
+          400: ERROR_RESPONSES[400],
+        },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      validate('json', serverCreateSchema),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        const body = c.req.valid('json')
+        // The path names the entry; a body naming a different one is a mistake, not a rename.
+        if (body.id !== id)
+          throw new DetailedError(`the body's id "${body.id}" does not match the path id "${id}"`, { statusCode: 400, code: 'ID_MISMATCH' })
+
+        try {
+          const result = runtime.store.putServer(body)
+          return c.json({ server: result.server }, result.created ? 201 : 200)
+        }
+        catch (error) {
+          if (error instanceof ConfigError)
+            throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_SERVER' })
+          throw error
+        }
+      },
+    )
+
     // Registered before `/:id` so the literal segments always win.
     .post(
       '/start-all',
