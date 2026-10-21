@@ -158,7 +158,10 @@ export function createControlRoute(deps: AppDeps) {
         const archive = deps.backups.resolve(name)
         if (archive === null)
           throw new DetailedError(`no backup named "${name}"`, { statusCode: 404, code: 'BACKUP_NOT_FOUND' })
-        return c.json(await deps.backups.restore(archive, { confirm, password: c.req.query('password') }))
+        // `include` narrows the restore to the named items. Dropping it silently turned a subset
+        // restore into a full one, which writes more over live data than was asked for.
+        const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
+        return c.json(await deps.backups.restore(archive, { confirm, password: c.req.query('password'), include }))
       },
     )
 }

@@ -844,7 +844,6 @@ export class ProxyService {
     }
   }
 
-  /** True when a nanny this panel would recognise still owns the engine. */
   /**
    * True while a process from the installed binary is alive, however the panel's view
    * reads. `live()` additionally requires a fresh heartbeat, so a nanny that died and
@@ -927,12 +926,12 @@ export class ProxyService {
 
   // --------------------------------------------------------------------- config
 
-  /** Records why the last start or apply failed, for the frame the page reads. */
   /** Backoff for a failing `sync()` re-apply; see the retry notes there. */
   private nextSyncAttemptAt = 0
   private syncFailures = 0
   private lastSyncError: string | null = null
 
+  /** Records why the last start or apply failed, for the frame the page reads. */
   recordError(message: string | null): void {
     this.lastError = message
     this.options.onStateChange()
@@ -944,7 +943,6 @@ export class ProxyService {
     return config
   }
 
-  /** Renders the current route table and applies it; the engine keeps serving on failure. */
   /**
    * Makes the engine ask the CA again for one name, without restarting it.
    *
@@ -1014,6 +1012,7 @@ export class ProxyService {
     }
   }
 
+  /** Renders the current route table and applies it; the engine keeps serving on failure. */
   async apply(options: { force?: boolean } = {}): Promise<void> {
     if (!this.config.enabled || !this.installed())
       return
@@ -1238,11 +1237,16 @@ export class ProxyService {
     // Routed through the same helper as every other load: this path used to let a bare
     // request failure escape without recording `lastError`, and without the one error shape
     // the rest of the panel speaks.
-    await this.postConfiguration(JSON.parse(previous) as unknown)
+    const restored = JSON.parse(previous) as Record<string, unknown>
+    await this.postConfiguration(restored)
 
     // 0600 here too: reverting must not hand back a world-readable configuration
     // that carries the DNS-01 challenge password.
     writeFileAtomic(this.options.configPath, previous, { mode: 0o600 })
+    // The record follows the engine, not the file: a revert moves it to another revision, so
+    // leaving the old ports recorded makes `assertPortsFree` refuse this panel's own engine and
+    // admit a stranger standing on a port the reverted document no longer binds.
+    this.recordApplied(restored)
     if (current === null)
       fs.rmSync(this.options.previousConfigPath, { force: true })
     else writeFileAtomic(this.options.previousConfigPath, current, { mode: 0o600 })

@@ -100,11 +100,13 @@ export async function runBackupCreate(options: { password?: string, include?: st
   process.stdout.write(`${green('backup created')} ${file.name} ${dim(`(${human(file.sizeBytes)})`)}\n`)
 }
 
-export async function runBackupRestore(options: { name: string, password?: string, confirm: boolean }): Promise<void> {
+export async function runBackupRestore(options: { name: string, password?: string, include?: string[], confirm: boolean }): Promise<void> {
   const runtime = await livePanel()
   const query = new URLSearchParams({ name: options.name })
   if (options.password !== undefined && options.password.length > 0)
     query.set('password', options.password)
+  if (options.include !== undefined && options.include.length > 0)
+    query.set('include', options.include.join(','))
   if (options.confirm)
     query.set('confirm', 'true')
 
@@ -155,7 +157,7 @@ export const backupCommand = defineCommand({
       else if (action === 'restore') {
         if (args.target === undefined || args.target.length === 0)
           fail('restore needs the archive name — `backup list` shows them')
-        await runBackupRestore({ name: args.target, password: args.password, confirm: args.confirm === true })
+        await runBackupRestore({ name: args.target, password: args.password, include, confirm: args.confirm === true })
       }
       else {
         fail(`unknown action "${action}" — use list, create or restore`)

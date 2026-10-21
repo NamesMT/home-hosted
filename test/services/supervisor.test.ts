@@ -2142,6 +2142,46 @@ describe('the health budget and the recovery it announces', () => {
   }, 60000)
 })
 
+/**
+ * A start someone asked for clears the give-up flag, and that is load-bearing: with it left
+ * standing, a running and healthy entry keeps `stoppedByPanel`, and `/healthz` answers 503 for a
+ * server that is serving.
+ */
+describe('the give-up flag does not outlive the give-up', () => {
+  it('is cleared by a manual start', async () => {
+    const port = await freePort()
+    const marker = path.join(os.tmpdir(), `hh-ok-${process.pid}-${Date.now()}`)
+    const harness = await makeSupervisor([{
+      id: 'sick',
+      command: process.execPath,
+      // Answers 500 until the marker file exists, so it can be made healthy on demand: the point is
+      // that a *recovered* entry must not keep the flag, not that a broken one stays broken.
+      args: ['-e', 'require("node:http").createServer((q,s)=>{const fs=require("node:fs");s.statusCode=fs.existsSync(process.env.OK)?200:500;s.end("x")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+      env: { PORT: '{port}', OK: marker },
+      port,
+      health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 400, startTimeoutMs: 5000 },
+      restart: { enabled: true, maxRetries: 0, baseDelayMs: 30, factor: 1, maxDelayMs: 30, resetAfterMs: 600000 },
+    }])
+
+    await harness.supervisor.start('sick')
+    // Generous: the wait is on a force-restart sequence, and the full suite runs these in parallel
+    // with real children, so a tight bound fails under load rather than on a broken fix.
+    await waitFor(() => view(harness.supervisor, 'sick').stoppedByPanel === true, 120000)
+
+    // Make it serve, then start it by hand: the flag must not survive into a working entry.
+    fs.writeFileSync(marker, '')
+    try {
+      await harness.supervisor.start('sick')
+      await waitFor(() => harness.supervisor.views().some(entry => entry.id === 'sick' && entry.status === 'running'), 20000)
+      const restarted = view(harness.supervisor, 'sick')
+      expect(restarted.stoppedByPanel, 'a start someone asked for ends the give-up').toBeUndefined()
+    }
+    finally {
+      fs.rmSync(marker, { force: true })
+    }
+  }, 180000)
+})
+
 /** A panel that gave up is a broken service; an operator's stop is not. */
 describe('an entry the panel stopped', () => {
   it('reports stoppedByPanel for a give-up, and not for a stop someone asked for', async () => {

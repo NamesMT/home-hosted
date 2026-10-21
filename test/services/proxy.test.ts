@@ -1704,6 +1704,43 @@ describe('retrying a certificate on the only route', () => {
 })
 
 /**
+ * A revert moves the engine to another revision, so the applied record has to move with it.
+ *
+ * Leaving the old ports recorded is not cosmetic: `assertPortsFree` reads that record as its
+ * witness, so the panel then refuses its own working engine and admits a stranger standing on a
+ * port the reverted document no longer binds.
+ */
+describe('reverting follows the engine', () => {
+  it('records the ports of the revision it reverted to', async () => {
+    const { service, options } = await harness()
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    vi.spyOn(service, 'config', 'get').mockReturnValue(config({
+      enabled: true,
+      httpPort: 18080,
+      httpsPort: 18443,
+      routes: [{ id: 'plain', host: 'a.example.com', tls: 'off', target: 'external', url: 'http://127.0.0.1:3000', enabled: true }],
+    }))
+    fs.mkdirSync(options.stateDir, { recursive: true })
+    // The revision being reverted TO is `tls: 'off'`-only, so it binds no HTTPS listener.
+    const previous = {
+      apps: { http: { servers: { http: { listen: [':18080'] } } } },
+    }
+    fs.mkdirSync(path.dirname(options.previousConfigPath), { recursive: true })
+    fs.writeFileSync(options.previousConfigPath, JSON.stringify(previous))
+    fs.writeFileSync(options.configPath, JSON.stringify(previous))
+    // The record still describes the revision we are leaving.
+    fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: 18080, httpsPort: 18443, at: Date.now() }))
+    vi.spyOn(service as unknown as { postConfiguration: () => Promise<void> }, 'postConfiguration').mockResolvedValue(undefined)
+
+    await service.revert()
+
+    const record = JSON.parse(fs.readFileSync(path.join(options.stateDir, 'applied.json'), 'utf8')) as { httpPort: number | null, httpsPort: number | null }
+    expect(record.httpPort).toBe(18080)
+    expect(record.httpsPort, 'the reverted-to document binds no HTTPS listener').toBeNull()
+  })
+})
+
+/**
  * `applied.json` may now record `null` for a port the rendered document did not bind — that is what
  * makes the preflight's witness honest. Both write sites and the URL the page advertises have to
  * agree with it, or the record says one thing and the panel another.

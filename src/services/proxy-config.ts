@@ -65,18 +65,6 @@ const ACME_STAGING = 'https://acme-staging-v02.api.letsencrypt.org/directory'
 export const FALLBACK_NAME = 'hh-fallback.invalid'
 
 /**
- * The issuers for the public names: ACME with the account address, then the engine's
- * own CA as a last resort.
- *
- * The fallback is what keeps a missing certificate from being a dead connection: the
- * handshake completes with an untrusted certificate (the browser offers to continue),
- * instead of failing with a protocol error the visitor cannot read past. The engine
- * keeps trying ACME, and the panel reports which of the two is being served.
- *
- * ZeroSSL is deliberately absent: it needs an EAB key the panel does not collect, so
- * listing it only added a failing issuer and a second retry on every name.
- */
-/**
  * The DNS-01 challenge block, which names the panel as the one that answers it. The
  * engine holds no DNS credentials: it asks the panel over the ACMEProxy protocol, and
  * the panel writes the record through the workspace account the route names.
@@ -98,6 +86,18 @@ function challengeBlock(dns01: NonNullable<ProxyConfigInput['dns01']>): Record<s
   }
 }
 
+/**
+ * The issuers for the public names: ACME with the account address, then the engine's
+ * own CA as a last resort.
+ *
+ * The fallback is what keeps a missing certificate from being a dead connection: the
+ * handshake completes with an untrusted certificate (the browser offers to continue),
+ * instead of failing with a protocol error the visitor cannot read past. The engine
+ * keeps trying ACME, and the panel reports which of the two is being served.
+ *
+ * ZeroSSL is deliberately absent: it needs an EAB key the panel does not collect, so
+ * listing it only added a failing issuer and a second retry on every name.
+ */
 function acmeIssuers(acme: ProxyConfigInput['acme'], challenge: Record<string, unknown> = {}): Array<Record<string, unknown>> {
   return [
     {

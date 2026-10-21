@@ -356,6 +356,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
 | `home-hosted restart <id>` | restart one server, nothing else (`--workspace <id>`) — the same as the panel's per-server Restart |
 | `home-hosted logs` | read the panel's own console output — the file `up` redirects it into (`--lines`, `--follow`, `--json`) |
+| `home-hosted backup` | list, create or restore an archive without a browser (`create`, `restore <name> --confirm`, `--password`, `--include`) — see [RESTORE_DEMO.md](./docs/RESTORE_DEMO.md) |
 | `home-hosted set-password` | set the panel password without opening a browser; a running panel picks it up at once and signs every existing session out |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | bring every config up to the schema this release understands (`--dry-run`, `--yes`) |

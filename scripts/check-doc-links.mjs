@@ -17,6 +17,7 @@ const SHIPPED = [
   'AGENTS.md',
   'docs/DDNS.md',
   'docs/NOTIFICATIONS.md',
+  'docs/RESTORE_DEMO.md',
   'docs/REVERSE_PROXY.md',
   'docs/SERVERS.md',
   'docs/UI_CREATION.md',

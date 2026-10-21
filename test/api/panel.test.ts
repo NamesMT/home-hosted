@@ -771,11 +771,18 @@ describe('openapi document', () => {
 
     // The two that drifted, each asserted against a real body. `declaredKeys` reads the live
     // document rather than a hand-kept list, which is what let the first two drift.
-    const logs = await created.app.request('/api/logs/demo')
-    if (logs.status === 200) {
-      const body = await logs.json() as Record<string, unknown>
-      expect(await declaredKeys('/api/logs/{id}', 'get'), 'GET /api/logs/{id}').toEqual(Object.keys(body).sort())
-    }
+    //
+    // The logs half used to sit inside `if (logs.status === 200)` with a request for a server the
+    // fixture never creates — always 404, so the assertion never ran and undeclaring every log
+    // field left the suite green. The entry is declared here, and the status is asserted.
+    const withServer = await fixture({
+      servers: [{ id: 'web', command: 'node' }],
+      views: [makeView('web', { config: { id: 'web', command: 'node' } as never })],
+    })
+    const logs = await withServer.app.request('/api/logs/web')
+    expect(logs.status, 'the fixture must reach the route, or this guard checks nothing').toBe(200)
+    const logsBody = await logs.json() as Record<string, unknown>
+    expect(await declaredKeys('/api/logs/{id}', 'get'), 'GET /api/logs/{id}').toEqual(Object.keys(logsBody).sort())
 
     const ui = await created.app.request('/api/settings/ui', { method: 'DELETE' })
     expect(ui.status, 'the fixture must reach the route, or this guard checks nothing').toBe(200)

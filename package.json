@@ -59,11 +59,13 @@
     "dist",
     "docs/DDNS.md",
     "docs/NOTIFICATIONS.md",
+    "docs/RESTORE_DEMO.md",
     "docs/REVERSE_PROXY.md",
     "docs/SERVERS.md",
     "docs/UI_CREATION.md",
     "docs/branding/logo.svg",
     "docs/branding/social-preview.png",
+    "docs/demo/blank-host-restore.sh",
     "uis/stock/dist"
   ],
   "engines": {
