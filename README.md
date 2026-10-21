@@ -376,6 +376,7 @@ up                -c/--config -p/--port --host --open --no-autostart --foregroun
 down              (no flags)
 status            --json
 logs              --lines <n> --follow --json
+backup            [list|create|restore] [<name>] --include <ids> --all --password --confirm --json
 start, stop       <id> [-w/--workspace <id>]   (both need the panel up)
 restart           [<id>] [-w/--workspace <id>]  (no id: the panel; with one: that server)
 init              --dir --name --pm --no-install -y/--yes

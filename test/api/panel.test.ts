@@ -955,3 +955,31 @@ describe('workspace scoping', () => {
     expect((await created.app.request('/api/servers/ghost/start?workspace=ghost', { method: 'POST' })).status).toBe(404)
   })
 })
+
+/**
+ * A create without `confirm` answers the plan and writes nothing.
+ *
+ * This is what lets `home-hosted backup create` plan first: a script or a person reads what would be
+ * captured before an archive exists. `confirm=true` is the only way to make one.
+ */
+describe('/_hh/backups plan mode', () => {
+  const token = { 'x-home-hosted-token': 'runtime-token' }
+
+  it('answers a plan, not an archive, when confirm is absent', async () => {
+    const created = await fixture()
+    const response = await created.app.request('/_hh/backups', { method: 'POST', headers: token })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { apply?: boolean, entries?: unknown[], file?: unknown }
+    expect(body.apply, 'no confirm means plan only').toBe(false)
+    expect(Array.isArray(body.entries), 'the plan lists what would be captured').toBe(true)
+    expect(body.file, 'nothing was written').toBeUndefined()
+  })
+
+  it('narrows the plan to the requested ids', async () => {
+    const created = await fixture()
+    const response = await created.app.request('/_hh/backups?include=global:settings', { method: 'POST', headers: token })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { entries?: Array<{ id: string }> }
+    expect(body.entries?.map(entry => entry.id)).toEqual(['global:settings'])
+  })
+})

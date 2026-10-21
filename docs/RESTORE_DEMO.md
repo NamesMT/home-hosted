@@ -30,14 +30,50 @@ that is what the archive carries.
 
 ## Backing it up
 
+`create` plans first. That listing is what the archive *would* contain, and nothing has been written
+yet:
+
 ```console
 $ home-hosted backup create
-backup created backup-2026-10-21-04-15-49-881.zip (4 KB)
+Plan — what a backup would capture; nothing has been written yet
+  settings   global:settings
+  secrets    global:secrets
+    - global:secrets:password
+    - global:secrets:apiToken
+  tls        global:tls  (does not exist yet)
+  workspace  workspace:default
+    - workspace:default:settings
+    - workspace:default:servers
+    - workspace:default:data:/srv/blog/dump
+
+Take this backup? [y/N] y
 
 $ home-hosted backup list
 1 archive in /home/you/.home-hosted/.hh/.backups
   backup-2026-10-21-04-15-49-881.zip       4 KB  2026-10-21 04:15
 ```
+
+`--confirm` skips the prompt, which is what a cron job wants. `--json` prints the same plan as JSON
+and never applies, so a script or an agent can read it and decide.
+
+### Narrowing what an archive carries
+
+`--include` takes the ids from the plan, comma-separated:
+
+```console
+$ home-hosted backup create --include workspace:default:servers,global:settings
+```
+
+`--all` is the only way to say "everything", and it is the default when neither flag is given. An
+empty `--include` is **refused** rather than treated as "nothing selected" — a script passing an
+unset `$LIST` gets an error instead of quietly backing up (or restoring) the whole machine:
+
+```console
+$ home-hosted backup create --include "$UNSET"
+error --include is empty — name the ids to act on, or pass --all for everything
+```
+
+`--include` and `--all` together is also refused, since one of them would silently win.
 
 The archive is a plain zip. Its contents, in full:
 

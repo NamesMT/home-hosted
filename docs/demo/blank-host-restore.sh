@@ -5,7 +5,7 @@
 # Two hosts, one after the other, in throwaway directories:
 #
 #   1. host A — a panel with one entry (a MongoDB container) and some data in it
-#   2. take a backup: `home-hosted backup create`
+#   2. take a backup: `home-hosted backup create` (it plans first, then `--confirm` applies)
 #   3. host B — a *blank* home, nothing configured
 #   4. restore into it: `home-hosted backup restore <name> --confirm`
 #   5. start the entry on host B and read the database back
@@ -91,7 +91,9 @@ note "declared the entry: docker run mongo:7, backupPaths = $DATA/dump"
 
 say "Taking a backup"
 
+# The plan first: what the archive would capture, written nothing.
 HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create
+HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --confirm
 ARCHIVE="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup list --json | node -e '
   let raw = ""
   process.stdin.on("data", chunk => raw += chunk)

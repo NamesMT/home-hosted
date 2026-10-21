@@ -134,6 +134,17 @@ export function createControlRoute(deps: AppDeps) {
         // trust boundary as the token in the header.
         const password = c.req.query('password')
         const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
+        // Without `confirm` this answers the plan and writes nothing, so a script can read what a
+        // backup would capture before taking one.
+        if (c.req.query('confirm') !== 'true') {
+          const view = buildBackupsView(deps.backups)
+          const wanted = include === undefined ? null : new Set(include)
+          const entries = view.entries.filter(entry =>
+            wanted === null
+            || wanted.has(entry.id)
+            || (entry.workspaceId !== undefined && wanted.has(`workspace:${entry.workspaceId}`)))
+          return c.json({ apply: false, entries, includePaths: view.includePaths })
+        }
         const result = await deps.backups.create({ password, include })
         if (!result.ok)
           throw new DetailedError(result.error ?? 'the backup failed', { statusCode: 400, code: 'BACKUP_FAILED' })
