@@ -86,6 +86,32 @@ describe('server schema', () => {
     expect(bootstrapOrNullSchema({ command: 'node', timeoutMs: 10 }) instanceof type.errors).toBe(true)
   })
 
+  /**
+   * The `dump`/`load` hooks, and the thing that actually bites: a field in `serverSchema` but not in
+   * the **patch** cannot be edited at all, and a field in neither is silently dropped on save.
+   */
+  it('carries the dump and load hooks through both the schema and the patch', () => {
+    const hooks = {
+      dump: { command: 'mongodump', args: ['--archive={dumpDir}/db.archive'] },
+      load: { command: 'mongorestore', args: ['--archive={dumpDir}/db.archive'] },
+    }
+    const parsed = unwrap(serverSchema({ id: 'db', command: 'node', ...hooks }))
+    expect(parsed.dump?.command).toBe('mongodump')
+    expect(parsed.load?.command).toBe('mongorestore')
+    // The default timeout is the long one: a database dump is not a 2-minute job.
+    expect(parsed.dump?.timeoutMs).toBe(600000)
+
+    // The patch is what the editor sends, so a missing key here is an uneditable field.
+    const patched = unwrap(serverPatchSchema(hooks))
+    expect(patched.dump?.command).toBe('mongodump')
+    expect(patched.load?.command).toBe('mongorestore')
+
+    // `null` clears it, the same spelling `bootstrap` uses.
+    expect(unwrap(serverPatchSchema({ dump: null })).dump).toBeNull()
+    // An unknown key inside the hook is refused rather than stored and ignored.
+    expect(serverSchema({ id: 'db', command: 'node', dump: { command: 'x', nope: 1 } }) instanceof type.errors).toBe(true)
+  })
+
   it('rejects an unknown bind host but accepts local/lan/ipv4', () => {
     expect(unwrap(serverSchema({ id: 'a', command: 'node', bind: 'lan' })).bind).toBe('lan')
     expect(unwrap(serverSchema({ id: 'a', command: 'node', bind: '10.0.0.5' })).bind).toBe('10.0.0.5')

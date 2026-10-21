@@ -138,9 +138,9 @@ error --include is empty — name the ids to act on, or pass --all for everythin
 The archive is a plain zip. Its contents, in full:
 
 ```text
-data/
-data/srv-blog-dump/
-data/srv-blog-dump/blog.archive      <- the database dump
+dumps/
+dumps/default/blog-db/
+dumps/default/blog-db/blog.archive   <- what the entry's `dump` hook wrote
 global/
 global/secrets.json                  <- password hash, API token hash
 global/settings.json                 <- listener, TLS policy, host vitals, proxy
@@ -193,10 +193,12 @@ started blog-db
 $ docker exec hh-demo-blog mongosh --quiet --eval 'db.getSiblingDB("blog").posts.countDocuments()'
 0
 
-$ docker exec hh-demo-blog mongorestore --archive=/srv/blog/dump/blog.archive --drop
 $ docker exec hh-demo-blog mongosh --quiet --eval 'db.getSiblingDB("blog").posts.countDocuments()'
 3
 ```
+
+Nothing in that transcript applies the dump by hand: `start` ran the entry's `load` hook, which is
+what replays it. The hook waits for the port to answer first, so `mongorestore` finds a live server.
 
 Three documents, on a host that started with nothing.
 

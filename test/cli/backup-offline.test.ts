@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createOfflineBackup } from '#src/cli/backup-offline'
+import { entryStatePath, readEntryState } from '#src/providers/entry-state'
 
 /**
  * `backup` used to need the panel, because the service is built inside the daemon — so backing up
@@ -85,6 +86,45 @@ describe('the offline backup service', () => {
     await extractZip(archive, out, { names: ['workspaces/default/servers.config.json'] })
     const archived = JSON.parse(fs.readFileSync(path.join(out, 'workspaces/default/servers.config.json'), 'utf8')) as { servers?: Array<{ id: string }> }
     expect(archived.servers?.map(server => server.id), 'the entry must be in the archive, not just its data').toEqual(['web'])
+  })
+
+  /**
+   * The staged load must be written where the supervisor reads it, with fields it accepts.
+   *
+   * Two spellings of one thing broke this twice: `<id>.json` vs `<id>.run.json`, and a hand-rolled
+   * object missing `restarts`/`bootstrapDone`, which `readEntryState` rejects **silently** — so the
+   * dump was staged and then never loaded.
+   */
+  it('writes the staged load where the supervisor will find it', async () => {
+    const home = makeHome()
+    const hh = path.join(home, '.hh')
+    // A dump hook is what produces an archive with something to load; without one there is nothing
+    // to stage and the assertion below would pass for the wrong reason.
+    fs.writeFileSync(path.join(hh, 'default', 'servers.config.json'), `${JSON.stringify({
+      meta: { writtenBy: 'test', schema: 2 },
+      servers: [{
+        id: 'db',
+        command: 'node',
+        dump: { command: process.execPath, args: ['-e', 'require("node:fs").writeFileSync(process.argv[1] + "/db.archive", "D")', '{dumpDir}'] },
+        load: { command: 'node', args: ['-e', '0'] },
+      }],
+    })}\n`)
+
+    const { service } = createOfflineBackup({ hhDir: hh, settingsPath: path.join(hh, 'settings.json') })
+    await service.warm()
+    await service.create({})
+    const archive = path.join(hh, '.backups', service.list()[0]!.name)
+    const plan = await service.restore(archive, { confirm: true })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    // The exact path the supervisor uses, and a file `readEntryState` accepts.
+    const stateFile = entryStatePath(path.join(hh, 'default', '.state'), 'db')
+    expect(fs.existsSync(stateFile), `expected ${stateFile}`).toBe(true)
+    const state = readEntryState(stateFile)
+    expect(state, 'readEntryState must accept what we wrote').not.toBeNull()
+    expect(state?.pendingLoad).toContain('pending-load')
+    // `false`, not `true`: claiming the bootstrap already ran skipped a blank host's install step.
+    expect(state?.bootstrapDone, 'a staged load must not claim the bootstrap ran').toBe(false)
   })
 
   it('reports a persistent entry that is still running, from its state file', async () => {

@@ -147,6 +147,8 @@ interface Entry {
   bootstrapDone: boolean
   /** A staged dump this entry still has to load, run once its process is answering. */
   pendingLoad: string | null
+  /** A load is running right now, so a second `start` must not run it again. */
+  loadingPending: boolean
   logs: LogBuffer
   /**
    * Identity of the lines this panel wrote itself for a persistent entry. Its nanny
@@ -509,8 +511,17 @@ export class Supervisor {
   private async runPendingLoad(entry: Entry): Promise<void> {
     const dumpDir = entry.pendingLoad
     const hook = entry.config.load
-    if (dumpDir === null || hook === undefined || hook === null)
+    // Two overlapping starts would otherwise both reach the hook and load the dump twice. `pendingLoad`
+    // is cleared only after the readiness wait, which is long enough for the second to arrive.
+    if (entry.loadingPending || dumpDir === null || hook === undefined || hook === null) {
+      // No hook in the live config: drop the staged dump rather than keep a path nothing will read.
+      if (hook === undefined || hook === null) {
+        entry.pendingLoad = null
+        this.persistEntryState(entry)
+      }
       return
+    }
+    entry.loadingPending = true
 
     if (entry.config.port !== null) {
       const deadline = Date.now() + hook.timeoutMs
@@ -520,6 +531,11 @@ export class Supervisor {
         await new Promise(resolve => setTimeout(resolve, 500))
       }
     }
+    else if (hook.waitMs > 0) {
+      // No port to probe — a socket, or a database at a fixed address. Wait a bounded moment rather
+      // than run `pg_restore` against something that has not bound yet.
+      await new Promise(resolve => setTimeout(resolve, hook.waitMs))
+    }
 
     // Cleared before the run: a load that fails must not retry forever on every restart, and the
     // dump it read is still on disk for a person to try by hand.
@@ -527,6 +543,7 @@ export class Supervisor {
     this.persistEntryState(entry)
 
     const result = await runBackupHook(hook, entry.config, dumpDir)
+    entry.loadingPending = false
     this.log(entry, 'system', result.ok
       ? 'load: the restored dump was applied'
       : `load: ${hookFailure('load', entry.config, result)}`)
@@ -545,6 +562,10 @@ export class Supervisor {
     entry.pendingLoad = dumpDir
     this.persistEntryState(entry)
     this.log(entry, 'system', `load: a restored dump is waiting, it runs on the next start`)
+    // Already up: the restore's reload started it before this was recorded, so no later `start` is
+    // coming. Kick the load now rather than leave the dump sitting there.
+    if (entry.status === 'running' && !entry.starting)
+      void this.runPendingLoad(entry)
   }
 
   async stop(id: string): Promise<StartResult> {
@@ -958,6 +979,7 @@ export class Supervisor {
       removed: false,
       bootstrapDone: persisted?.bootstrapDone ?? !config.bootstrap,
       pendingLoad: persisted?.pendingLoad ?? null,
+      loadingPending: false,
       logs: new LogBuffer(config.logBufferLines),
       echoed: new Set(),
       responseMs: null,

@@ -58,7 +58,7 @@ curl -fsS -o /dev/null -X POST \
     \"command\": \"docker\",
     \"args\": [\"run\", \"--rm\", \"--name\", \"$APP\", \"-p\", \"27017:27017\", \"mongo:7\"],
     \"port\": 27017,
-    \"autostart\": false,
+    \"autostart\": true,
     \"dump\": {
       \"command\": \"sh\",
       \"args\": [\"-c\", \"docker exec $APP mongodump --db blog --archive=/tmp/blog.archive --quiet && docker cp $APP:/tmp/blog.archive {dumpDir}/blog.archive\"]
@@ -147,7 +147,7 @@ cp "$HOST_A/.hh/.backups/$ARCHIVE" "$WORK/$ARCHIVE"
 # The plan first, always: a restore writes over live data, so the default is to say what it would do.
 say "Planning the restore (nothing is written yet)"
 mkdir -p "$HOST_B/.hh/.backups"
-cp "$WORK/$ARCHIVE" "$HOST_B/.hh/.backups/$ARCHIVE"
+cp "$HOST_A/.hh/.backups/$ARCHIVE" "$HOST_B/.hh/.backups/$ARCHIVE"
 HHOSTED_HOME="$HOST_B" "${CLI[@]}" backup restore "$ARCHIVE" --all
 rm -f "$HOST_B/.hh/.backups/$ARCHIVE"
 curl -fsS -o /dev/null -X POST \

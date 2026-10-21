@@ -29,6 +29,7 @@ import {
 } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { ddnsProvider } from '#src/providers/ddns'
+import { entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { buildBackupSources } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
 import { DdnsService } from '#src/services/ddns'
@@ -335,8 +336,24 @@ export class PanelService {
    * entry has ever started, and a panel restart between the two must not lose the load.
    */
   stagePendingLoad(workspaceId: string, serverId: string, dumpDir: string): void {
-    // The supervisor owns both the entry and its state file, so it does the writing: reaching into
-    // its state path from here would be a second implementation of where that file lives.
+    // The supervisor owns both the entry and its state file, so it does the writing when there is
+    // one. On a blank host there is not: the restore creates the workspace, and its runtime appears
+    // only when `reloadAll` runs — so the state file is written here and the supervisor picks it up
+    // on the start that follows. An optional chain would silently drop the load instead.
+    // Whether the supervisor can record it is not the same as whether it has an entry: a workspace
+    // whose config the restore is about to write has a runtime but no entry yet, and the supervisor
+    // returns silently. So the state file is the authority, written here in every case.
+    const stateDir = workspaceStateDir(workspaceId)
+    // The directory is created here: `writeEntryState` is best-effort and swallows a failure, so on a
+    // blank host — where the workspace's `.state/` does not exist yet — the staged load vanished
+    // without a word.
+    fs.mkdirSync(stateDir, { recursive: true })
+    const statePath = entryStatePath(stateDir, serverId)
+    writeEntryState(statePath, {
+      ...(readEntryState(statePath) ?? { restarts: 0, bootstrapDone: false }),
+      pendingLoad: dumpDir,
+    })
+    // And tell the supervisor, which kicks the load if the entry is already up.
     this.runtimes.get(workspaceId)?.supervisor.stagePendingLoad(serverId, dumpDir)
   }
 

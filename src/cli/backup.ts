@@ -446,7 +446,9 @@ export async function runBackupRestore(options: { name: string, password?: strin
     }
     process.stdout.write(`${green('restored')} ${applied.length} ${applied.length === 1 ? 'item' : 'items'} from ${options.name}\n`)
     for (const hook of outcome.hooks)
-      process.stdout.write(`  ${dim(`load ${hook.serverId}: ran`)}${hook.output === undefined ? '' : ` ${dim(`(${hook.output.split('\n').slice(-1)[0]})`)}`}\n`)
+      // "staged", not "ran": the hook runs on the entry's next start, and saying it already ran
+      // would leave a person waiting for data that has not been loaded yet.
+      process.stdout.write(`  ${dim(`load ${hook.serverId}: ${hook.output ?? 'staged'}`)}\n`)
     for (const warning of plan?.warnings ?? [])
       process.stdout.write(`  ${dim('!')} ${warning}\n`)
     if (service !== null)

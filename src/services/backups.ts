@@ -1255,6 +1255,10 @@ export class BackupService {
        * actually brought a dump for — an archive taken before the hook existed has none, and running
        * `mongorestore` on a directory that is not there fails the whole restore for no reason.
        */
+      // Only dumps the selection actually applied: deselecting `workspace:<id>:dump:<server>` must not
+      // load it, exactly as for any other item.
+      // `actions` is filled while the plan is built, which happens after this line — so the
+      // selection is checked inside the loop below, not here.
       const archivedDumps = manifest.dumps ?? []
       // Recorded after `onRestored`: on a blank host the workspace and its entry are created by this
       // restore, so there is no supervisor to hold the pending load until that reload has run.
@@ -1262,6 +1266,11 @@ export class BackupService {
       for (const entry of archivedDumps) {
         if (!plan.appliedIds.some(id => id.startsWith(`workspace:${entry.workspaceId}:`)))
           continue
+        // Deselecting `workspace:<id>:dump:<server>` must not load it, exactly as for any other item.
+        if (!actions.has(`workspace:${entry.workspaceId}:dump:${entry.serverId}`)
+          && !actions.has(`workspace:${entry.workspaceId}`)) {
+          continue
+        }
         // The **archive's** config, not the live one: `sources` was read before the restore wrote
         // anything, so it still describes the host as it was. The hooks being restored are the
         // archive's, which is the whole point of a migration onto a blank machine.
@@ -1295,15 +1304,18 @@ export class BackupService {
         }]
       }
 
+      // Staged **before** the reload. `onRestored` re-reads the config and starts autostart entries,
+      // and `createEntry` reads `pendingLoad` from disk at that moment — so recording it afterwards
+      // missed both triggers: the entry was already running, and its state had been read already.
+      for (const load of pendingLoads)
+        this.options.onLoadPending?.(load.workspaceId, load.serverId, load.staged)
+
       if (this.options.onRestored !== undefined && [...actions.keys()].some(id => RELOADABLE.test(id))) {
         plan.reloaded = true
         // The panel re-reads the restored settings and servers here, so what the
         // archive brought exists immediately instead of after a restart.
         this.options.onRestored()
       }
-
-      for (const load of pendingLoads)
-        this.options.onLoadPending?.(load.workspaceId, load.serverId, load.staged)
 
       return plan
     }

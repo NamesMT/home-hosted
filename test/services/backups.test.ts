@@ -109,6 +109,8 @@ async function makeFixture(
     onRestored?: () => void
     /** Extra fields on the fixture's one server, e.g. `dump`/`load` hooks. */
     serverFields?: Record<string, unknown>
+    /** Records a dump the service staged for an entry to load on its next start. */
+    onLoadPending?: (workspaceId: string, serverId: string, dumpDir: string) => void
   } = {},
 ): Promise<Fixture> {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-backup-'))
@@ -174,6 +176,7 @@ async function makeFixture(
   const service = new BackupService({
     dataRoot,
     onRestored: options.onRestored,
+    onLoadPending: options.onLoadPending,
     getConfig: () => parsed,
     getSources: () => sources,
   })
@@ -1068,6 +1071,65 @@ describe('backup hooks', () => {
     // The dump is parked where the entry can reach it after a restart.
     expect(plan.hooks?.find(hook => hook.action === 'load')?.output).toContain('staged')
     expect(fs.existsSync(path.join(fixture.dataRoot, 'pending-load', 'default', 'app', 'db.archive'))).toBe(true)
+  })
+})
+
+describe('staging a load for the entry to run', () => {
+  /**
+   * The staging call must fire even when the entry does not exist yet.
+   *
+   * On a blank host the restore creates the workspace, so there is no runtime — and a supervisor with
+   * no entry returns silently. That is how the demo restored an empty database and never loaded it,
+   * while every test stayed green.
+   */
+  it('reports a staged load for an entry the restore itself created', async () => {
+    const staged: Array<{ workspaceId: string, serverId: string, dumpDir: string }> = []
+    const fixture = await makeFixture({
+      serverFields: {
+        dump: {
+          command: process.execPath,
+          args: ['-e', 'require("node:fs").writeFileSync(process.argv[1] + "/db.archive", "D")', '{dumpDir}'],
+        },
+        load: { command: process.execPath, args: ['-e', '0', '{dumpDir}'] },
+      },
+      onLoadPending: (workspaceId, serverId, dumpDir) => staged.push({ workspaceId, serverId, dumpDir }),
+    })
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+    const archive = path.join(fixture.dataRoot, '.backups', created.file!.name)
+    const plan = await fixture.service.restore(archive, { confirm: true })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    expect(staged).toHaveLength(1)
+    expect(staged[0]).toMatchObject({ workspaceId: 'default', serverId: 'app' })
+    // The dump is copied to the path the hook will be handed, not left only in the archive.
+    expect(fs.existsSync(path.join(staged[0]!.dumpDir, 'db.archive'))).toBe(true)
+  })
+
+  /**
+   * Deselecting the dump must not load it. Every other item obeys the selection, and a dump is an
+   * item — restoring only the settings must not replay a database over the host.
+   */
+  it('does not stage a dump the selection excluded', async () => {
+    const staged: unknown[] = []
+    const fixture = await makeFixture({
+      serverFields: {
+        dump: {
+          command: process.execPath,
+          args: ['-e', 'require("node:fs").writeFileSync(process.argv[1] + "/db.archive", "D")', '{dumpDir}'],
+        },
+        load: { command: process.execPath, args: ['-e', '0', '{dumpDir}'] },
+      },
+      onLoadPending: (...args) => staged.push(args),
+    })
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+    const archive = path.join(fixture.dataRoot, '.backups', created.file!.name)
+    const plan = await fixture.service.restore(archive, { confirm: true, include: ['global:settings'] })
+    expect(plan.error, plan.error).toBeUndefined()
+    expect(staged, 'a dump outside the selection must not load').toEqual([])
   })
 })
 

@@ -138,10 +138,21 @@ export const bootstrapOrNullSchema = bootstrapSchema.or(type('null'))
  * directory is filled again before `load` runs, so the two hooks see the same path.
  */
 export const backupHookSchema = type({
-  command: 'string',
+  // Non-empty: an empty command is accepted by `spawn`'s type but fails at run time, and a `dump`
+  // hook that cannot start refuses **every** backup — a config mistake that reads as a broken feature.
+  command: 'string >= 1',
   args: type('string[]').default(() => []),
   env: type('Record<string, string>').default(() => ({})),
   timeoutMs: 'number >= 1000 = 600000',
+  /**
+   * How long to wait for the entry to answer before running a `load`.
+   *
+   * Only matters for `load`, and only for an entry with no `port`: the wait is normally "the port
+   * accepts a connection", which an entry that declares no port cannot offer. Two seconds by
+   * default, because a portless entry usually starts fast and a fixed wait is pure delay; a slow
+   * database reached over a socket should raise it.
+   */
+  waitMs: 'number >= 0 = 2000',
 }).onUndeclaredKey('reject')
 export const backupHookOrNullSchema = backupHookSchema.or(type('null'))
 

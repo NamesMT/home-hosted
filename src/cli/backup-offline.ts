@@ -140,7 +140,9 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
       // is how the staged load became invisible to the panel that was supposed to run it.
       const persisted = readEntryState(statePath)
       writeEntryState(statePath, {
-        ...(persisted ?? { restarts: 0, bootstrapDone: true }),
+        // No `bootstrapDone` default of `true`: that told the entry its `runOnce` bootstrap had
+        // already run, so a restored blank host skipped its install/migrate step entirely.
+        ...(persisted ?? { restarts: 0, bootstrapDone: false }),
         pendingLoad: dumpDir,
       })
     },

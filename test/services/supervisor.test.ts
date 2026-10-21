@@ -267,6 +267,90 @@ describe('supervisor', () => {
    * stopped — so the hook has to wait for the process. The demo is what caught this: the inline
    * version failed with "connection refused" and the database stayed empty.
    */
+  /**
+   * Two starts must not load the same dump twice.
+   *
+   * `pendingLoad` is cleared only after the readiness wait, which is long enough for a second `start`
+   * to arrive and run the hook again — restoring data twice over a database being served.
+   */
+  it('loads a staged dump once, even when start is called twice', async () => {
+    const port = await freePort()
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-load2-'))
+    const marker = path.join(dir, 'runs.txt')
+    const dumpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dump2-'))
+    await fs.promises.writeFile(path.join(dumpDir, 'db.archive'), 'X')
+
+    const { supervisor } = await makeSupervisor([{
+      ...httpServerConfig(port),
+      load: {
+        command: process.execPath,
+        args: ['-e', `require("node:fs").appendFileSync(${JSON.stringify(marker)}, "run\\n")`, '{dumpDir}'],
+        timeoutMs: 10_000,
+      },
+    }])
+
+    supervisor.stagePendingLoad('web', dumpDir)
+    await Promise.all([supervisor.start('web'), supervisor.start('web')])
+    await waitFor(() => fs.existsSync(marker), 15_000)
+    await new Promise(resolve => setTimeout(resolve, 1500))
+
+    const runs = fs.readFileSync(marker, 'utf8').trim().split('\n').length
+    expect(runs, 'the dump must load exactly once').toBe(1)
+  })
+
+  /**
+   * A restore that finishes while the entry is already up still loads.
+   *
+   * This is the autostart case: the restore's reload starts the entry, so by the time the dump is
+   * recorded there is no later `start` to trigger it. Without the kick, a real migration restored an
+   * empty database and never loaded it.
+   */
+  it('loads a dump staged while the entry is already running', async () => {
+    const port = await freePort()
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-load4-'))
+    const marker = path.join(dir, 'loaded.txt')
+    const dumpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dump4-'))
+    await fs.promises.writeFile(path.join(dumpDir, 'db.archive'), 'LATE')
+
+    const { supervisor } = await makeSupervisor([{
+      ...httpServerConfig(port),
+      load: {
+        command: process.execPath,
+        args: ['-e', `require("node:fs").writeFileSync(${JSON.stringify(marker)}, require("node:fs").readFileSync(process.argv[1] + "/db.archive", "utf8"))`, '{dumpDir}'],
+        timeoutMs: 10_000,
+      },
+    }])
+
+    await supervisor.start('web')
+    await waitForStatus(supervisor, 'web', 'running')
+    // Staged *after* it is up, which is the order a restore with autostart produces.
+    supervisor.stagePendingLoad('web', dumpDir)
+
+    await waitFor(() => fs.existsSync(marker), 15_000)
+    expect(fs.readFileSync(marker, 'utf8')).toBe('LATE')
+  })
+
+  /**
+   * A staged dump whose entry has no `load` hook is dropped, not kept forever.
+   *
+   * Reachable from the plain restore UI: selecting only the workspace settings restores the config
+   * without the hook, so the staged path would sit in the state file and be retried on every start.
+   */
+  it('drops a staged dump when the entry has no load hook', async () => {
+    const port = await freePort()
+    const dumpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dump3-'))
+    const { supervisor } = await makeSupervisor([httpServerConfig(port)])
+
+    supervisor.stagePendingLoad('web', dumpDir)
+    await supervisor.start('web')
+    await waitFor(() => supervisor.logLines('web').some(entry => entry.text.includes('load:')), 10_000)
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    // A second start must not re-announce a load that can never run.
+    const staged = supervisor.logLines('web').filter(entry => entry.text.includes('a restored dump is waiting')).length
+    expect(staged, 'the pending load must be cleared once it is known it cannot run').toBe(1)
+  })
+
   it('runs a staged load once the entry is up, and clears it', async () => {
     const port = await freePort()
     const marker = path.join(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-load-')), 'loaded.txt')
