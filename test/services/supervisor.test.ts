@@ -2144,7 +2144,7 @@ describe('the health budget and the recovery it announces', () => {
 
 /** A panel that gave up is a broken service; an operator's stop is not. */
 describe('an entry the panel stopped', () => {
-  it('reports stoppedByPanel, and /healthz degrades on it', async () => {
+  it('reports stoppedByPanel for a give-up, and not for a stop someone asked for', async () => {
     const port = await freePort()
     const harness = await makeSupervisor([{
       id: 'sick',

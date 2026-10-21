@@ -553,6 +553,16 @@ export class Supervisor {
           error: `docker could not stop the container "${docker.container}" publishing port ${port} — check \`docker logs ${docker.container}\``,
         }
       }
+      // No holder could be listed and docker does not claim it. That is still not the same as a
+      // free port: a listener this user cannot inspect (a capped process, a root-owned socket)
+      // looks exactly like this. Probe before saying the port is idle.
+      if (!(await this.waitForPortRelease(entry, port))) {
+        return {
+          ...empty,
+          port,
+          error: `port ${port} is still in use, but no listener could be attributed to it — this user cannot inspect that socket, so it cannot be freed from here`,
+        }
+      }
       return { ...empty, port, error: `nothing is listening on port ${port} any more` }
     }
     if (foreign.length === 0) {

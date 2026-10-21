@@ -237,6 +237,23 @@ describe('healthz', () => {
   })
 
   /**
+   * The panel's own give-up must degrade too, though the entry is `stopped`.
+   *
+   * `stopped` is the status the guard above pins as never degrading, because an operator's stop is
+   * not a problem. But the panel also *stops* an entry that cannot serve once its health budget is
+   * spent, and that is a broken service — `stoppedByPanel` is the only thing that tells them apart.
+   */
+  it('reports degraded when the panel itself gave up on a server', async () => {
+    const created = await fixture({
+      views: [makeView('web', { status: 'stopped', stoppedByPanel: true, config: { id: 'web', command: 'node', autostart: true } as never })],
+    })
+
+    const response = await created.app.request('/healthz')
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({ status: 'degraded' })
+  })
+
+  /**
    * A server that is up but failing its own health check is exactly what an external
    * monitor cannot otherwise see: nothing crashed, so a crash-only rule answered `ok`
    * while the service was refusing requests.
