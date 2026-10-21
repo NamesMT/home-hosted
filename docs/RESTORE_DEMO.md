@@ -206,10 +206,10 @@ Three documents, on a host that started with nothing.
 | --- | --- |
 | ✅ **Recovered** | Every workspace and its label. Every entry, with its command, args, env, port and policies. Workspace settings: notifications, DDNS, log retention, server defaults. Panel settings: listener, TLS policy, host vitals, backup schedule, proxy routes. Secrets, if you kept them ticked. Declared data paths, including the database dump. |
 | ⚠️ **Recovered, then you must act** | The **password hash and API token hash** travel in `global/secrets.json`, so the restored host has the old machine's credentials. Anyone holding that token still has access. Rotate with `home-hosted set-token --generate`, or exclude those secrets and set them fresh. |
-| ⚠️ **Recovered, but the database needs its own step** | The panel restores **files**, not databases. It puts `blog.archive` back where it was; applying it is `mongorestore` (or `pg_restore`, `.restore`, whatever your engine calls it). That is deliberate: only the engine knows how to apply its own dump. |
+| ✅ **Recovered, and the database loads itself** | With `dump`/`load` hooks on the entry, the backup runs the engine's own dump and the restore replays it. The load runs on the entry's **next start**, because `mongorestore` needs a server that is answering. Without hooks, the panel restores files only and applying the dump is your step. |
 | ❌ **Not recovered** | `HHOSTED_DDNS_SECRET`, the key DDNS credentials are sealed under. It is never archived, so a restored host cannot decrypt them until you set it again. |
 | ❌ **Not recovered** | Anything not in a `backupPaths` directory or the panel's own state: files your entries wrote elsewhere, host packages, `/etc` changes, a reverse proxy outside the panel, cron jobs, the docker images themselves. |
-| ❌ **Not recovered** | The UI you had installed, if it was not the stock one. An official UI is fetched again on the next `up`. |
+| ❌ **Not recovered** | Your UI, if it was not the stock one. `$HHOSTED_HOME/.ui` is never archived, so the restored panel serves the stock UI until you install yours again. |
 
 ## Re-running it
 

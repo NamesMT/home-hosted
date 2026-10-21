@@ -11,6 +11,7 @@ import {
   tlsDir as defaultTlsDir,
   workspacesPath as defaultWorkspacesPath,
 } from '#src/helpers/paths'
+import { entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { readNannyState } from '#src/providers/nanny'
 import { buildBackupSources, BackupService as Service } from '#src/services/backups'
 
@@ -121,6 +122,28 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
      * panel there is nobody to do it, so the registry is written here — otherwise a restored
      * workspace's files land on disk unreachable, and the next `up` never looks at them.
      */
+    /**
+     * Record the staged dump so the entry's next `up` loads it.
+     *
+     * Nothing is running to hold it in memory, so this is the only path that matters offline: the
+     * panel is started afterwards, reads the entry state, and runs the hook.
+     */
+    onLoadPending: (workspaceId, serverId, dumpDir) => {
+      // `entryStatePath` is the one spelling of this file. Hand-building `<id>.json` wrote a
+      // different name than the supervisor reads (`<id>.run.json`), so the staged load was silently
+      // invisible — the same class of bug as the schema rejection just above.
+      const dir = path.join(hhDir, workspaceId, '.state')
+      fs.mkdirSync(dir, { recursive: true })
+      const statePath = entryStatePath(dir, serverId)
+      // Through `readEntryState`/`writeEntryState`, not hand-rolled JSON: the schema requires
+      // `restarts` and `bootstrapDone`, and a file missing them is silently rejected on read — which
+      // is how the staged load became invisible to the panel that was supposed to run it.
+      const persisted = readEntryState(statePath)
+      writeEntryState(statePath, {
+        ...(persisted ?? { restarts: 0, bootstrapDone: true }),
+        pendingLoad: dumpDir,
+      })
+    },
     ensureWorkspace: (input) => {
       if (registry.has(input.id))
         return

@@ -21,6 +21,7 @@ import { logger } from '#src/helpers/logger'
 import { dataRoot, projectDir } from '#src/helpers/paths'
 import { nannyArgv } from '#src/helpers/runtime'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
+import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
 import { clearEntryState, entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { probeHealth } from '#src/providers/health-check'
 import { identifyHolders } from '#src/providers/identity'
@@ -144,6 +145,8 @@ interface Entry {
    */
   removed: boolean
   bootstrapDone: boolean
+  /** A staged dump this entry still has to load, run once its process is answering. */
+  pendingLoad: string | null
   logs: LogBuffer
   /**
    * Identity of the lines this panel wrote itself for a persistent entry. Its nanny
@@ -402,8 +405,14 @@ export class Supervisor {
       return missingServer(id)
     if (!entry.config.enabled)
       return { ok: false, error: `server "${id}" is disabled` }
-    if (entry.status === 'running' || entry.status === 'starting' || entry.starting)
+    if (entry.status === 'running' || entry.status === 'starting' || entry.starting) {
+      // A staged load still has to run: the entry can already be up when the restore finished (a
+      // persistent entry keeps running, and the panel starts autostart entries itself), and the
+      // dump would otherwise sit there forever.
+      if (entry.pendingLoad !== null)
+        void this.runPendingLoad(entry)
       return { ok: true }
+    }
     if (entry.stopping)
       return { ok: false, error: `server "${id}" is stopping` }
 
@@ -477,11 +486,65 @@ export class Supervisor {
       if (conflict.kind === 'adopt')
         return this.adoptEntry(entry, conflict.pid, `a detached restart of this entry is already serving port ${entry.config.port}`)
 
-      return this.spawnEntry(entry)
+      const started = this.spawnEntry(entry)
+      // A restore staged this entry's dump because it could not load it while stopped. Run it now,
+      // in the background: `start` returns as soon as the process is spawned, and a `mongorestore`
+      // that took ten seconds would otherwise make every start feel hung.
+      if (entry.pendingLoad !== null)
+        void this.runPendingLoad(entry)
+      return started
     }
     finally {
       entry.starting = false
     }
+  }
+
+  /**
+   * Run the load hook a restore left behind, once the entry is answering.
+   *
+   * Waits for the port to accept a connection before running it: `mongorestore` and `pg_restore`
+   * connect, so running them the instant the process is spawned fails with "connection refused" —
+   * which is exactly the failure that made this a staged load rather than an inline one.
+   */
+  private async runPendingLoad(entry: Entry): Promise<void> {
+    const dumpDir = entry.pendingLoad
+    const hook = entry.config.load
+    if (dumpDir === null || hook === undefined || hook === null)
+      return
+
+    if (entry.config.port !== null) {
+      const deadline = Date.now() + hook.timeoutMs
+      while (Date.now() < deadline && entry.status !== 'stopped') {
+        if (await probePort('127.0.0.1', entry.config.port))
+          break
+        await new Promise(resolve => setTimeout(resolve, 500))
+      }
+    }
+
+    // Cleared before the run: a load that fails must not retry forever on every restart, and the
+    // dump it read is still on disk for a person to try by hand.
+    entry.pendingLoad = null
+    this.persistEntryState(entry)
+
+    const result = await runBackupHook(hook, entry.config, dumpDir)
+    this.log(entry, 'system', result.ok
+      ? 'load: the restored dump was applied'
+      : `load: ${hookFailure('load', entry.config, result)}`)
+  }
+
+  /**
+   * Mark that a restored dump is waiting to be loaded, on the entry and on disk.
+   *
+   * Persisted because the restore normally happens before the entry has ever started, and a panel
+   * restart in between must not lose it.
+   */
+  stagePendingLoad(id: string, dumpDir: string): void {
+    const entry = this.entries.get(id)
+    if (entry === undefined)
+      return
+    entry.pendingLoad = dumpDir
+    this.persistEntryState(entry)
+    this.log(entry, 'system', `load: a restored dump is waiting, it runs on the next start`)
   }
 
   async stop(id: string): Promise<StartResult> {
@@ -894,6 +957,7 @@ export class Supervisor {
       actor: 'policy',
       removed: false,
       bootstrapDone: persisted?.bootstrapDone ?? !config.bootstrap,
+      pendingLoad: persisted?.pendingLoad ?? null,
       logs: new LogBuffer(config.logBufferLines),
       echoed: new Set(),
       responseMs: null,
@@ -2092,6 +2156,9 @@ export class Supervisor {
       restarts: entry.restarts,
       healthRestarts: entry.healthRestarts,
       bootstrapDone: entry.bootstrapDone,
+      // Carried, not recomputed: a spawn that rewrote the state without it silently dropped a
+      // restore's staged load, which is exactly how it went missing the first time.
+      pendingLoad: entry.pendingLoad,
       // A persistent entry's nanny state is already its record; a second one could only
       // disagree with it, and `resumePersistent` reads the nanny's.
       lastPid: entry.config.persistent ? null : entry.lastChild?.pid ?? null,

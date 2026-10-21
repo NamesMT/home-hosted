@@ -328,6 +328,18 @@ export class PanelService {
    * an archive brought therefore waited for a panel restart — which is why the start of
    * newly appeared autostart entries belongs here, the one place that knows what was new.
    */
+  /**
+   * Record a dump a restore staged, so this entry's next start loads it.
+   *
+   * Written to the entry's own state file rather than memory: the restore usually happens before the
+   * entry has ever started, and a panel restart between the two must not lose the load.
+   */
+  stagePendingLoad(workspaceId: string, serverId: string, dumpDir: string): void {
+    // The supervisor owns both the entry and its state file, so it does the writing: reaching into
+    // its state path from here would be a second implementation of where that file lives.
+    this.runtimes.get(workspaceId)?.supervisor.stagePendingLoad(serverId, dumpDir)
+  }
+
   reloadAll(): void {
     this.options.settings.load()
     for (const runtime of this.workspaces()) {

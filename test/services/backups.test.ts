@@ -1033,7 +1033,12 @@ describe('backup hooks', () => {
     expect(fs.readFileSync(path.join(out, 'dumps/default/app/db.archive'), 'utf8')).toBe('FROM-DUMP')
   })
 
-  it('runs the load hook on restore, reading the dump the archive carried', async () => {
+  /**
+   * The load is **staged**, not run. `mongorestore` and `pg_restore` connect to a server, and the
+   * entry is stopped during a restore — running the hook there fails with "connection refused",
+   * which is what the demo caught. The next `start` runs it once the port answers.
+   */
+  it('stages the load on restore instead of running it against a stopped server', async () => {
     const seen = path.join(fixtureRootForHooks(), 'load-output.txt')
     const fixture = await makeFixture({
       serverFields: {
@@ -1058,7 +1063,11 @@ describe('backup hooks', () => {
     // The dump is a plan item, so `--all` reports it and the selection can name it.
     expect(plan.items.map(item => item.id)).toContain('workspace:default:dump:app')
     expect(plan.hooks?.map(hook => `${hook.action}:${hook.serverId}`)).toContain('load:app')
-    expect(fs.readFileSync(seen, 'utf8')).toBe('FROM-DUMP')
+    // Not run: the entry is stopped, so the hook has nothing to talk to yet.
+    expect(fs.existsSync(seen), 'the load must not run against a stopped server').toBe(false)
+    // The dump is parked where the entry can reach it after a restart.
+    expect(plan.hooks?.find(hook => hook.action === 'load')?.output).toContain('staged')
+    expect(fs.existsSync(path.join(fixture.dataRoot, 'pending-load', 'default', 'app', 'db.archive'))).toBe(true)
   })
 })
 

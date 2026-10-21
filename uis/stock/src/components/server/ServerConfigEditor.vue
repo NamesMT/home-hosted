@@ -67,6 +67,16 @@ interface EditorForm {
   bootstrapEnv: string
   bootstrapTimeoutMs: number | null
   bootstrapRunOnce: boolean
+  dumpEnabled: boolean
+  dumpCommand: string
+  dumpArgs: string
+  dumpEnv: string
+  dumpTimeoutMs: number | null
+  loadEnabled: boolean
+  loadCommand: string
+  loadArgs: string
+  loadEnv: string
+  loadTimeoutMs: number | null
 }
 
 /** Text stays text, numbers stay numbers, and a blank numeric field stays blank rather than 0. */
@@ -98,6 +108,16 @@ function formFrom(config: ServerConfig): EditorForm {
     bootstrapEnv: envToText(config.bootstrap?.env ?? {}),
     bootstrapTimeoutMs: config.bootstrap?.timeoutMs ?? 120000,
     bootstrapRunOnce: config.bootstrap?.runOnce ?? true,
+    dumpEnabled: config.dump !== null && config.dump !== undefined,
+    dumpCommand: config.dump?.command ?? '',
+    dumpArgs: (config.dump?.args ?? []).join('\n'),
+    dumpEnv: envToText(config.dump?.env ?? {}),
+    dumpTimeoutMs: config.dump?.timeoutMs ?? 600000,
+    loadEnabled: config.load !== null && config.load !== undefined,
+    loadCommand: config.load?.command ?? '',
+    loadArgs: (config.load?.args ?? []).join('\n'),
+    loadEnv: envToText(config.load?.env ?? {}),
+    loadTimeoutMs: config.load?.timeoutMs ?? 600000,
   }
 }
 
@@ -124,6 +144,8 @@ function buildPayload(): Record<string, unknown> {
   const maxRssMb = Number.isFinite(form.maxRssMb) ? form.maxRssMb! : 0
   const logBufferLines = Number.isFinite(form.logBufferLines) && form.logBufferLines! >= 50 ? form.logBufferLines! : 50
   const bootstrapTimeoutMs = Number.isFinite(form.bootstrapTimeoutMs) ? form.bootstrapTimeoutMs! : 0
+  const dumpTimeoutMs = Number.isFinite(form.dumpTimeoutMs) ? form.dumpTimeoutMs! : 0
+  const loadTimeoutMs = Number.isFinite(form.loadTimeoutMs) ? form.loadTimeoutMs! : 0
 
   return {
     // An emptied label sends **null**, which removes the key, so every display falls back to the id — which
@@ -159,6 +181,22 @@ function buildPayload(): Record<string, unknown> {
           env: textToEnv(form.bootstrapEnv),
           timeoutMs: bootstrapTimeoutMs,
           runOnce: form.bootstrapRunOnce,
+        }
+      : null,
+    dump: form.dumpEnabled
+      ? {
+          command: form.dumpCommand.trim(),
+          args: linesToArray(form.dumpArgs),
+          env: textToEnv(form.dumpEnv),
+          timeoutMs: dumpTimeoutMs,
+        }
+      : null,
+    load: form.loadEnabled
+      ? {
+          command: form.loadCommand.trim(),
+          args: linesToArray(form.loadArgs),
+          env: textToEnv(form.loadEnv),
+          timeoutMs: loadTimeoutMs,
         }
       : null,
   }
@@ -408,6 +446,70 @@ async function save(): Promise<void> {
           :rows="2"
           :hint="t('serverForm.bootstrapEnvHint')"
         />
+      </FieldGroup>
+
+      <FieldGroup
+        :title="t('serverForm.backupHooks')"
+        :description="t('serverForm.backupHooksDescription')"
+        :columns="2"
+      >
+        <ToggleSwitch
+          v-model="form.dumpEnabled"
+          :label="t('serverForm.dumpEnabled')"
+          :hint="t('serverForm.dumpEnabledHint')"
+          wide
+        />
+        <template v-if="form.dumpEnabled">
+          <TextField
+            v-model="form.dumpCommand"
+            :label="t('serverForm.dumpCommand')"
+            placeholder="mongodump"
+            class="font-mono text-xs"
+          />
+          <NumberField v-model="form.dumpTimeoutMs" :label="t('serverForm.timeoutMs')" :min="1000" :step="1000" />
+          <TextAreaField
+            v-model="form.dumpArgs"
+            :label="t('serverForm.dumpArgs')"
+            :rows="2"
+            :hint="t('serverForm.dumpArgsHint')"
+            wide
+          />
+          <TextAreaField
+            v-model="form.dumpEnv"
+            :label="t('serverForm.hookEnv')"
+            :rows="2"
+            wide
+          />
+        </template>
+
+        <ToggleSwitch
+          v-model="form.loadEnabled"
+          :label="t('serverForm.loadEnabled')"
+          :hint="t('serverForm.loadEnabledHint')"
+          wide
+        />
+        <template v-if="form.loadEnabled">
+          <TextField
+            v-model="form.loadCommand"
+            :label="t('serverForm.loadCommand')"
+            placeholder="mongorestore"
+            class="font-mono text-xs"
+          />
+          <NumberField v-model="form.loadTimeoutMs" :label="t('serverForm.timeoutMs')" :min="1000" :step="1000" />
+          <TextAreaField
+            v-model="form.loadArgs"
+            :label="t('serverForm.loadArgs')"
+            :rows="2"
+            :hint="t('serverForm.loadArgsHint')"
+            wide
+          />
+          <TextAreaField
+            v-model="form.loadEnv"
+            :label="t('serverForm.hookEnv')"
+            :rows="2"
+            wide
+          />
+        </template>
       </FieldGroup>
     </div>
 

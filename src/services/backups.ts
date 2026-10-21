@@ -35,6 +35,8 @@ const REGISTRY = 'workspaces.json'
 const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data', 'dumps'])
 /** Every archive this service writes is a zip, encrypted or not. */
 const SUFFIX = '.zip'
+/** Where a restore parks a dump until the entry's next start can load it. */
+const PENDING_LOAD = 'pending-load'
 /**
  * An archive the schedule wrote. The prefix is the only durable marker: a filename is the one
  * thing that survives a restart, and it is what lets the two retention counts stay independent.
@@ -501,6 +503,8 @@ export class BackupService {
       ensureWorkspace?: (input: { id: string, label: string }) => void
       /** Called after a restore wrote settings/server files; the panel re-reads everything. */
       onRestored?: () => void
+      /** Records a dump this entry still has to load, so its next start runs the hook. */
+      onLoadPending?: (workspaceId: string, serverId: string, dumpDir: string) => void
     },
   ) {}
 
@@ -1252,6 +1256,9 @@ export class BackupService {
        * `mongorestore` on a directory that is not there fails the whole restore for no reason.
        */
       const archivedDumps = manifest.dumps ?? []
+      // Recorded after `onRestored`: on a blank host the workspace and its entry are created by this
+      // restore, so there is no supervisor to hold the pending load until that reload has run.
+      const pendingLoads: Array<{ workspaceId: string, serverId: string, staged: string }> = []
       for (const entry of archivedDumps) {
         if (!plan.appliedIds.some(id => id.startsWith(`workspace:${entry.workspaceId}:`)))
           continue
@@ -1271,18 +1278,21 @@ export class BackupService {
           plan.skipped.push(`the dump for "${entry.serverId}" is missing from the archive`)
           continue
         }
-        const result = await runBackupHook(server.load, server, dumpDir)
+        // Staged, not run. A load hook talks to a server that is answering — `mongorestore`,
+        // `pg_restore`, `redis-cli` all connect — and this entry is stopped at this point. The dump
+        // is copied where the entry can reach it after a restart, and its next `start` runs the hook
+        // once the port accepts a connection.
+        const staged = path.join(this.options.dataRoot, PENDING_LOAD, entry.workspaceId, entry.serverId)
+        fs.mkdirSync(path.dirname(staged), { recursive: true })
+        fs.cpSync(dumpDir, staged, { recursive: true, force: true })
+        pendingLoads.push({ workspaceId: entry.workspaceId, serverId: entry.serverId, staged })
         plan.hooks = [...(plan.hooks ?? []), {
           serverId: entry.serverId,
           workspaceId: entry.workspaceId,
           action: 'load',
-          ok: result.ok,
-          ...(result.output.trim().length === 0 ? {} : { output: result.output.trim() }),
+          ok: true,
+          output: 'staged — runs when this entry next starts',
         }]
-        if (!result.ok) {
-          plan.error = hookFailure('load', server, result)
-          return plan
-        }
       }
 
       if (this.options.onRestored !== undefined && [...actions.keys()].some(id => RELOADABLE.test(id))) {
@@ -1291,6 +1301,9 @@ export class BackupService {
         // archive brought exists immediately instead of after a restart.
         this.options.onRestored()
       }
+
+      for (const load of pendingLoads)
+        this.options.onLoadPending?.(load.workspaceId, load.serverId, load.staged)
 
       return plan
     }

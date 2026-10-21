@@ -282,6 +282,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     getSources: () => panel!.backupSources(),
     ensureWorkspace: input => panel?.ensureWorkspace(input),
     onRestored: () => panel?.reloadAll(),
+    onLoadPending: (workspaceId, serverId, dumpDir) => panel?.stagePendingLoad(workspaceId, serverId, dumpDir),
   })
 
   panel = new PanelService({

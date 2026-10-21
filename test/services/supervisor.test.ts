@@ -260,6 +260,39 @@ describe('supervisor', () => {
     await waitFor(async () => !(await portAccepts(port)))
   })
 
+  /**
+   * A restored dump loads on the entry's next start, not during the restore.
+   *
+   * `mongorestore` and `pg_restore` connect to a server, and a restore runs while the entry is
+   * stopped — so the hook has to wait for the process. The demo is what caught this: the inline
+   * version failed with "connection refused" and the database stayed empty.
+   */
+  it('runs a staged load once the entry is up, and clears it', async () => {
+    const port = await freePort()
+    const marker = path.join(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-load-')), 'loaded.txt')
+    const dumpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dump-'))
+    await fs.promises.writeFile(path.join(dumpDir, 'db.archive'), 'FROM-DUMP')
+
+    const { supervisor } = await makeSupervisor([{
+      ...httpServerConfig(port),
+      load: {
+        command: process.execPath,
+        args: ['-e', `require("node:fs").writeFileSync(${JSON.stringify(marker)}, require("node:fs").readFileSync(process.argv[1] + "/db.archive", "utf8"))`, '{dumpDir}'],
+        timeoutMs: 10_000,
+      },
+    }])
+
+    supervisor.stagePendingLoad('web', dumpDir)
+    expect(view(supervisor, 'web').status).toBe('stopped')
+
+    await supervisor.start('web')
+    await waitFor(() => fs.existsSync(marker), 15_000)
+    expect(fs.readFileSync(marker, 'utf8')).toBe('FROM-DUMP')
+
+    // Cleared, so a restart does not replay a dump over data written since.
+    await waitFor(() => supervisor.logLines('web').some(entry => entry.text.includes('load: the restored dump was applied')), 15_000)
+  })
+
   it('restarts a crashed server with exponential backoff and gives up after maxRetries', async () => {
     const { supervisor } = await makeSupervisor([{
       id: 'boom',

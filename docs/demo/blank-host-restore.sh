@@ -44,37 +44,13 @@ trap cleanup EXIT
 
 say "Host A: a blank machine with one stack"
 
-mkdir -p "$DATA/dump"
-docker run -d --name "$MONGO" -p 27017:27017 mongo:7 >/dev/null
-note "started $MONGO"
-
-# Wait for it to accept connections, rather than sleeping and hoping.
-for _ in $(seq 1 60); do
-  docker exec "$MONGO" mongosh --quiet --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1 && break
-  sleep 1
-done
-
-docker exec "$MONGO" mongosh --quiet --eval '
-  db.getSiblingDB("blog").posts.insertMany([
-    { title: "How I stopped using tmux", slug: "tmux" },
-    { title: "One panel for six services", slug: "panel" },
-    { title: "Backups that survive a dead disk", slug: "backups" },
-  ])
-' >/dev/null
-note "seeded 3 documents into blog.posts"
-
-# The dump, not the live files. A running database's data directory copied file by file can be torn,
-# which the README warns about; `mongodump --archive` is the consistent artifact.
-docker exec "$MONGO" mongodump --db blog --archive=/tmp/blog.archive --quiet
-docker cp "$MONGO:/tmp/blog.archive" "$DATA/dump/blog.archive" >/dev/null
-note "dumped the database to $DATA/dump/blog.archive"
-
 mkdir -p "$HOST_A"
 HHOSTED_HOME="$HOST_A" "${CLI[@]}" up --port "$PANEL_A" --no-autostart >/dev/null
 TOKEN_A="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" set-token --generate | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
 note "panel on :$PANEL_A"
 
-# An entry whose `backupPaths` names the dump, and whose port lets the panel health-check it.
+# The entry owns the container, and the hooks reach it by name. That is the shape a real setup has,
+# and it is what makes the dump possible: `mongodump` is run by the entry's own `dump` hook.
 curl -fsS -o /dev/null -X POST \
   -H "Authorization: Bearer $TOKEN_A" -H 'content-type: application/json' \
   -d "{
@@ -82,10 +58,41 @@ curl -fsS -o /dev/null -X POST \
     \"command\": \"docker\",
     \"args\": [\"run\", \"--rm\", \"--name\", \"$APP\", \"-p\", \"27017:27017\", \"mongo:7\"],
     \"port\": 27017,
-    \"backupPaths\": [\"$DATA/dump\"]
+    \"autostart\": false,
+    \"dump\": {
+      \"command\": \"sh\",
+      \"args\": [\"-c\", \"docker exec $APP mongodump --db blog --archive=/tmp/blog.archive --quiet && docker cp $APP:/tmp/blog.archive {dumpDir}/blog.archive\"]
+    },
+    \"load\": {
+      \"command\": \"sh\",
+      \"args\": [\"-c\", \"docker cp {dumpDir}/blog.archive $APP:/tmp/blog.archive && docker exec $APP mongorestore --archive=/tmp/blog.archive --drop --quiet\"]
+    }
   }" \
   "http://127.0.0.1:$PANEL_A/api/servers?workspace=default"
-note "declared the entry: docker run mongo:7, backupPaths = $DATA/dump"
+note "declared the entry, with dump/load hooks so the database backs itself up"
+
+# The dump hook dumps inside the container, then copies the archive out to {dumpDir} — one command,
+# because a hook is one program. A database running on the host itself writes to {dumpDir} directly
+# and needs no copy.
+note "dump: mongodump in the container, copied out to the panel's dump directory"
+
+curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $TOKEN_A" \
+  "http://127.0.0.1:$PANEL_A/api/servers/blog-db/start?workspace=default"
+note "started blog-db"
+
+for _ in $(seq 1 60); do
+  docker exec "$APP" mongosh --quiet --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1 && break
+  sleep 1
+done
+
+docker exec "$APP" mongosh --quiet --eval '
+  db.getSiblingDB("blog").posts.insertMany([
+    { title: "How I stopped using tmux", slug: "tmux" },
+    { title: "One panel for six services", slug: "panel" },
+    { title: "Backups that survive a dead disk", slug: "backups" },
+  ])
+' >/dev/null
+note "seeded 3 documents into blog.posts"
 
 # ---------------------------------------------------------------------------- the backup
 
@@ -105,8 +112,10 @@ ARCHIVE="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup list --json | node -e '
 note "archive: $ARCHIVE"
 
 # Host A is gone, which is the premise of the whole exercise. Its container has to go with it, or
-# the port is still held when host B tries to start the restored entry.
-docker rm -f "$MONGO" >/dev/null 2>&1 || true
+# the port is still held when host B tries to start the restored entry. The entry owns $APP now, so
+# that is the one to remove — $MONGO only ever existed to seed it.
+HHOSTED_HOME="$HOST_A" "${CLI[@]}" down >/dev/null 2>&1 || true
+docker rm -f "$APP" "$MONGO" >/dev/null 2>&1 || true
 note "stopped host A's container (host A is gone, after all)"
 
 say "What is in the archive"
@@ -172,19 +181,19 @@ done
 
 say "Reading the database on the restored host"
 
-docker cp "$DATA/dump/blog.archive" "$APP:/tmp/blog.archive"
-BEFORE="$(docker exec "$APP" mongosh --quiet --eval 'db.getSiblingDB("blog").posts.countDocuments()')"
-note "documents in blog.posts before applying the dump: $BEFORE — the container is fresh, so it is empty"
-
-# The dump is the data; restoring the *panel* brought back the entry and the dump beside it. Applying
-# the dump is the database's own step, and this is it.
-docker exec "$APP" mongorestore --archive=/tmp/blog.archive --quiet --drop
-COUNT="$(docker exec "$APP" mongosh --quiet --eval 'db.getSiblingDB("blog").posts.countDocuments()')"
+# Nothing was applied by hand. The restore staged the dump, and the entry's own `load` hook ran
+# `mongorestore` when the entry started — that is the feature this demo exists to show.
+for _ in $(seq 1 30); do
+  COUNT="$(docker exec "$APP" mongosh --quiet --eval 'db.getSiblingDB("blog").posts.countDocuments()' 2>/dev/null || echo 0)"
+  [ "$COUNT" = "3" ] && break
+  sleep 1
+done
 TITLES="$(docker exec "$APP" mongosh --quiet --eval 'db.getSiblingDB("blog").posts.find({}, {title:1, _id:0}).toArray().map(p => p.title).join(" | ")')"
 
 say "Result"
 note "blog.posts documents: $COUNT"
 note "titles: $TITLES"
+note "applied by the entry's load hook, not by this script"
 
 if [ "$COUNT" = "3" ]; then
   printf '\n\033[32mrestored: the same 3 documents, on a host that started blank\033[0m\n'

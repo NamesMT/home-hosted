@@ -874,6 +874,15 @@ export const entryStateSchema = type({
   /** The `runOnce` bootstrap already ran for this entry. */
   'bootstrapDone': 'boolean',
   /**
+   * A restored dump this entry still has to load, and where it is.
+   *
+   * The restore cannot run the load hook itself: `mongorestore` needs a server that is answering, and
+   * the entry is stopped at that moment. So the restore stages the dump and records it here, and the
+   * next `start` runs the hook once the process is up. Persisted, because a restore followed by a
+   * panel restart must not lose the load.
+   */
+  'pendingLoad?': 'string | null',
+  /**
    * The last child this panel spawned for a non-persistent entry. A detached child
    * outlives the panel, so this is the only way a later boot recognizes its own
    * survivor instead of spawning a second copy beside it.
