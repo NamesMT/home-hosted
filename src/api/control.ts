@@ -11,6 +11,7 @@ import { secretEqual } from '#src/helpers/secret-compare'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
+import { selectionOf } from '#src/services/backups'
 import { buildBackupsView } from '#src/services/state'
 import { backupCreatedResponseSchema, backupsViewSchema, okResponseSchema, restorePlanSchema } from '#src/shared/contracts'
 
@@ -134,18 +135,20 @@ export function createControlRoute(deps: AppDeps) {
         // trust boundary as the token in the header.
         const password = c.req.query('password')
         const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
+        const exclude = c.req.query('exclude')?.split(',').filter(part => part.length > 0)
         // Without `confirm` this answers the plan and writes nothing, so a script can read what a
         // backup would capture before taking one.
         if (c.req.query('confirm') !== 'true') {
           const view = buildBackupsView(deps.backups)
-          const wanted = include === undefined ? null : new Set(include)
+          // The service's own selection rule, so the plan cannot disagree with what an apply writes —
+          // that divergence is exactly how `--exclude` would work on backup and do nothing in a plan.
+          const selects = selectionOf({ include, exclude })
           const entries = view.entries.filter(entry =>
-            wanted === null
-            || wanted.has(entry.id)
-            || (entry.workspaceId !== undefined && wanted.has(`workspace:${entry.workspaceId}`)))
+            selects(entry.id)
+            || (entry.workspaceId !== undefined && selects(`workspace:${entry.workspaceId}`)))
           return c.json({ apply: false, entries, includePaths: view.includePaths })
         }
-        const result = await deps.backups.create({ password, include })
+        const result = await deps.backups.create({ password, include, exclude })
         if (!result.ok)
           throw new DetailedError(result.error ?? 'the backup failed', { statusCode: 400, code: 'BACKUP_FAILED' })
         return c.json({ file: result.file, files: deps.backups.list() })
@@ -172,7 +175,8 @@ export function createControlRoute(deps: AppDeps) {
         // `include` narrows the restore to the named items. Dropping it silently turned a subset
         // restore into a full one, which writes more over live data than was asked for.
         const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
-        return c.json(await deps.backups.restore(archive, { confirm, password: c.req.query('password'), include }))
+        const exclude = c.req.query('exclude')?.split(',').filter(part => part.length > 0)
+        return c.json(await deps.backups.restore(archive, { confirm, password: c.req.query('password'), include, exclude }))
       },
     )
 }

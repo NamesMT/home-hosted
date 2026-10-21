@@ -996,6 +996,50 @@ function fixtureRootForHooks(): string {
   return hookScratch
 }
 
+describe('excluding a selection', () => {
+  /**
+   * `--all --exclude global:secrets` is the recommended default: everything but the machine's
+   * credentials. The archive must genuinely not contain them, not merely list them as skipped.
+   */
+  it('leaves an excluded secret out of the archive entirely', async () => {
+    const fixture = await makeFixture({ globalSecrets: '{ "password": "HASH", "apiToken": "TOKEN" }\n' })
+    const created = await fixture.service.create({ exclude: ['global:secrets'] })
+    expect(created.ok, created.error).toBe(true)
+
+    const names = (await listZip(path.join(fixture.dataRoot, '.backups', created.file!.name))).map(entry => entry.name)
+    expect(names).toContain('global/settings.json')
+    expect(names, 'the excluded secret must not be in the archive').not.toContain('global/secrets.json')
+  })
+
+  it('excludes the leaves beneath an excluded id', async () => {
+    // `global:secrets:password` is under `global:secrets`, and a workspace id covers its servers.
+    const fixture = await makeFixture({ globalSecrets: '{ "password": "HASH", "apiToken": "TOKEN" }\n' })
+    const created = await fixture.service.create({ exclude: ['global:secrets:password'] })
+    expect(created.ok, created.error).toBe(true)
+
+    const { extractZip } = await import('#src/providers/archive')
+    const out = path.join(fixture.root, 'unpacked-exclude')
+    await extractZip(path.join(fixture.dataRoot, '.backups', created.file!.name), out, { names: ['global/secrets.json'] })
+    const archived = JSON.parse(fs.readFileSync(path.join(out, 'global/secrets.json'), 'utf8')) as Record<string, unknown>
+    expect(archived.password).toBeUndefined()
+    expect(archived.apiToken).toBe('TOKEN')
+  })
+
+  it('does not restore an item the exclusion drops', async () => {
+    const fixture = await makeFixture({ globalSecrets: '{ "password": "HASH", "apiToken": "TOKEN" }\n' })
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    // Replace the secret on this host, then restore with the secret excluded: it must survive.
+    fs.writeFileSync(fixture.globalSecretsPath, '{ "password": "LOCAL", "apiToken": null }\n', { mode: 0o600 })
+    const archive = path.join(fixture.dataRoot, '.backups', created.file!.name)
+    const plan = await fixture.service.restore(archive, { confirm: true, exclude: ['global:secrets'] })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    expect(fs.readFileSync(fixture.globalSecretsPath, 'utf8'), 'the local secret must be untouched').toContain('LOCAL')
+  })
+})
+
 describe('backup hooks', () => {
   /**
    * A `dump` hook is what makes a database archive consistent, so a failure must refuse the backup

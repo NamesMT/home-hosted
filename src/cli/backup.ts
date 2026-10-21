@@ -134,6 +134,29 @@ function parseScope(all: boolean, raw: string | undefined): Scope | null {
 }
 
 /**
+ * The plan rows a scope selects, and an exclusion drops.
+ *
+ * `kind` is deliberately not part of this: it is the panel's label for a row, not an id, and every id
+ * the plan prints is already prefixed with it (`global:settings`, `workspace:default:servers`).
+ */
+function filterEntries<T extends { id: string }>(entries: T[], scope: Scope, exclude: string[] | undefined): T[] {
+  const unwanted = exclude ?? []
+  const excluded = (id: string): boolean => unwanted.some(entry => id === entry || id.startsWith(`${entry}:`))
+  const named = (id: string): boolean => scope.kind === 'all' || scope.ids.some(entry => id === entry || id.startsWith(`${entry}:`))
+  return entries.filter(entry => named(entry.id) && !excluded(entry.id))
+}
+
+/** `--exclude` parsed. An empty value is a mistake, not "exclude nothing". */
+function parseExclude(raw: string | undefined): string[] | undefined {
+  if (raw === undefined)
+    return undefined
+  const ids = raw.split(',').map(part => part.trim()).filter(part => part.length > 0)
+  if (ids.length === 0)
+    fail('--exclude is empty — name the ids to leave out, or drop the flag')
+  return ids
+}
+
+/**
  * Neither flag given. Refused outright — the ids are a *bonus*, not the reason.
  *
  * The refusal must not depend on a panel being up: a mistyped command deserves the flag error, not
@@ -141,8 +164,30 @@ function parseScope(all: boolean, raw: string | undefined): Scope | null {
  */
 async function refuseWithoutScope(action: 'create' | 'restore', suffix: string): Promise<never> {
   const ids = await availableIdsFor(action, suffix).catch(() => [] as string[])
-  const listed = ids.length === 0 ? '' : `\n\navailable:\n${ids.map(id => `  ${id}`).join('\n')}`
+  const listed = ids.length === 0
+    ? ''
+    : `\n\navailable (or narrow it):\n${ids.map(id => `  ${id}`).join('\n')}\n\n--exclude <ids> leaves those out: --all --exclude global:secrets`
   fail(`name what to act on — pass --include <ids> or --all${listed}`)
+}
+
+/**
+ * The ids an offline run could act on, read from the state files.
+ *
+ * The refusal has to name real ids whether or not a panel is up — an empty list is the one answer
+ * worse than no list, because it reads as "there is nothing to back up".
+ */
+async function availableIdsFromDisk(action: 'create' | 'restore'): Promise<string[]> {
+  try {
+    const { service } = await offlineBackup()
+    await service.warm()
+    const view = service.view()
+    return action === 'create'
+      ? view.entries.map(entry => entry.id)
+      : view.entries.flatMap(entry => [entry.id, ...entry.items.map(item => item.id)])
+  }
+  catch {
+    return []
+  }
 }
 
 /**
@@ -157,8 +202,8 @@ async function availableIdsFor(action: 'create' | 'restore', suffix: string): Pr
   // when the panel is down, and the caller turns an empty list into "nothing to list".
   const daemon = await import('#src/helpers/daemon')
   const runtime = daemon.readRuntime()
-  if (runtime === null)
-    return []
+  if (runtime === null || !await daemon.runtimeIsAlive(runtime))
+    return await availableIdsFromDisk(action)
   const path = action === 'create' ? '/_hh/backups' : '/_hh/backups/restore'
   const answer = await daemon.requestControl(runtime, `${path}${suffix}`, 120000)
   if (answer === null || answer.status !== 200)
@@ -256,7 +301,7 @@ function warnRunning(entries: Array<{ workspaceId?: string, serverId?: string, i
   process.stdout.write(`${dim(`! ${named.length} entr${isOne ? 'y is' : 'ies are'} still running (${named.join(', ')}) — its data may be captured mid-write`)}\n`)
 }
 
-export async function runBackupCreate(options: { password?: string, scope: Scope, confirm: boolean, json: boolean }): Promise<void> {
+export async function runBackupCreate(options: { password?: string, scope: Scope, exclude?: string[], confirm: boolean, json: boolean }): Promise<void> {
   const scope = options.scope
   const online = await usesPanel()
 
@@ -278,9 +323,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
     return service.view().entries as unknown as PlanItem[]
   })()
 
-  const wanted = scope.kind === 'all'
-    ? entries
-    : entries.filter(entry => scope.ids.some(id => entry.id === id || id.startsWith(`${entry.id}:`)))
+  const wanted = filterEntries(entries, scope, options.exclude)
 
   if (!options.confirm) {
     if (options.json) {
@@ -289,7 +332,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
     }
     process.stdout.write(`${bold('Plan')} — what a backup would capture; nothing has been written yet\n`)
     for (const entry of wanted) {
-      process.stdout.write(`  ${String(entry.kind ?? 'entry').padEnd(10)} ${entry.id}${entry.note == null ? '' : `  ${dim(`(${entry.note})`)}`}\n`)
+      process.stdout.write(`  ${entry.id}${entry.note == null ? '' : `  ${dim(`(${entry.note})`)}`}\n`)
       for (const item of entry.items ?? [])
         process.stdout.write(`    ${dim('-')} ${item.id}\n`)
     }
@@ -303,6 +346,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
   }
 
   const include = scope.kind === 'include' ? scope.ids : undefined
+  const exclude = options.exclude
   const created = await (async (): Promise<CreatedBody | null> => {
     if (online) {
       const runtime = await livePanel()
@@ -312,6 +356,8 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
           query.set('password', options.password)
         if (include !== undefined)
           query.set('include', include.join(','))
+        if (exclude !== undefined)
+          query.set('exclude', exclude.join(','))
         const answer = await runtime.request(runtime, `/_hh/backups${withParam(suffixOf(query), 'confirm', 'true')}`, 600000)
         if (answer === null)
           fail(`the control panel is not answering on ${runtime.probeUrl}`)
@@ -322,7 +368,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
     }
     const { service } = await offlineBackup()
     await service.warm()
-    const result = await service.create({ password: options.password, include })
+    const result = await service.create({ password: options.password, include, exclude })
     if (!result.ok)
       fail(result.error ?? 'the backup failed')
     return { file: result.file }
@@ -349,7 +395,7 @@ async function runningEntries(): Promise<Array<{ workspaceId: string, serverId: 
   return (await offlineBackup()).runningNow()
 }
 
-export async function runBackupRestore(options: { name: string, password?: string, scope: Scope, confirm: boolean, json: boolean }): Promise<void> {
+export async function runBackupRestore(options: { name: string, password?: string, scope: Scope, exclude?: string[], confirm: boolean, json: boolean }): Promise<void> {
   const scope = options.scope
   const online = await usesPanel()
 
@@ -363,7 +409,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
       const archive = service.resolve(options.name)
       if (archive === null)
         fail(`no backup named "${options.name}" — \`${invocation()} backup list\` shows them`)
-      return await service.restore(archive, { confirm: false, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined })
+      return await service.restore(archive, { confirm: false, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined, exclude: options.exclude })
     }
     const runtime = await livePanel()
     if (runtime === null)
@@ -373,6 +419,8 @@ export async function runBackupRestore(options: { name: string, password?: strin
       base.set('password', options.password)
     if (scope.kind === 'include')
       base.set('include', scope.ids.join(','))
+    if (options.exclude !== undefined)
+      base.set('exclude', options.exclude.join(','))
     const answer = await runtime.request(runtime, `/_hh/backups/restore${suffixOf(base)}`, 120000)
     if (answer === null)
       fail(`the control panel is not answering at ${runtime.probeUrl}`)
@@ -393,7 +441,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
   if (!options.json) {
     process.stdout.write(`${bold('Plan')} for ${options.name} — nothing has been written yet\n`)
     for (const item of items)
-      process.stdout.write(`  ${String(item.kind ?? 'item').padEnd(10)} ${item.id ?? item.label ?? ''}\n`)
+      process.stdout.write(`  ${item.id ?? item.label ?? ''}\n`)
     for (const warning of plan?.warnings ?? [])
       process.stdout.write(`  ${dim('!')} ${warning}\n`)
     if (items.length === 0) {
@@ -411,7 +459,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
     const outcome = await (async (): Promise<{ items: PlanItem[], hooks: PlanHook[] }> => {
       if (service !== null) {
         const archive = service.resolve(options.name)!
-        const result = await service.restore(archive, { confirm: true, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined })
+        const result = await service.restore(archive, { confirm: true, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined, exclude: options.exclude })
         // An offline restore leaves the panel to pick the files up on its next start, so say so when
         // the workspace list changed under it.
         return {
@@ -427,6 +475,8 @@ export async function runBackupRestore(options: { name: string, password?: strin
         base.set('password', options.password)
       if (scope.kind === 'include')
         base.set('include', scope.ids.join(','))
+      if (options.exclude !== undefined)
+        base.set('exclude', options.exclude.join(','))
       const answer = await runtime.request(runtime, `/_hh/backups/restore${withParam(suffixOf(base), 'confirm', 'true')}`, 600000)
       if (answer === null)
         fail(`the control panel is not answering at ${runtime.probeUrl}`)
@@ -465,6 +515,7 @@ export const backupCommand = defineCommand({
     target: { type: 'positional', description: 'the archive name, for restore', required: false },
     password: { type: 'string', description: 'encrypt the archive, or unlock it on restore' },
     include: { type: 'string', description: 'comma-separated item ids to act on' },
+    exclude: { type: 'string', description: 'comma-separated item ids to leave out, applied after --include' },
     all: { type: 'boolean', description: 'act on everything, rather than naming ids' },
     confirm: { type: 'boolean', description: 'apply without asking (a restore writes over live data)' },
     json: { type: 'boolean', description: 'print the plan or the result as JSON' },
@@ -475,6 +526,7 @@ export const backupCommand = defineCommand({
       // Validated up front, before any panel lookup: a bad flag combination is refused whether or
       // not anything is running, which is also what makes it testable without a panel.
       const parsed = action === 'create' || action === 'restore' ? parseScope(args.all === true, args.include) : null
+      const exclude = action === 'create' || action === 'restore' ? parseExclude(args.exclude) : undefined
       if (action === 'list') {
         await runBackupList(args.json === true)
       }
@@ -483,6 +535,7 @@ export const backupCommand = defineCommand({
         await runBackupCreate({
           password: args.password,
           scope,
+          exclude,
           confirm: args.confirm === true,
           json: args.json === true,
         })
@@ -495,6 +548,7 @@ export const backupCommand = defineCommand({
           name: args.target,
           password: args.password,
           scope,
+          exclude,
           confirm: args.confirm === true,
           json: args.json === true,
         })

@@ -119,6 +119,7 @@ const BACKUP_SECTION: OptionSection = {
     ['<name>', 'the archive, for restore — `backup list` shows them'],
     ['--include <ids>', 'comma-separated item ids to act on (required for create/restore)'],
     ['--all', 'act on everything; one of --include or --all is required'],
+    ['--exclude <ids>', 'leave these out; --all --exclude global:secrets keeps the password and token out of the archive'],
     ['--password <text>', 'encrypt a new archive, or unlock one on restore'],
     ['--confirm', 'apply without asking (create and restore plan first)'],
     ['--json', 'print the plan or the result as JSON'],

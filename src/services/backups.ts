@@ -336,6 +336,32 @@ export function buildBackupSources(input: {
   }
 }
 
+/**
+ * What a selection asks for, from `include` and `exclude` together.
+ *
+ * One implementation for `create` and `restore`: two copies of "does this id count as selected" is
+ * how a `--exclude` that works on backup silently does nothing on restore. `include` omitted means
+ * everything; `exclude` is applied after it, and an id under an excluded entry is excluded too.
+ */
+export function selectionOf(options: { include?: string[], exclude?: string[] }): ((id: string) => boolean) & { isExcluded: (id: string) => boolean } {
+  const wanted = options.include === undefined ? null : new Set(options.include)
+  const unwanted = new Set(options.exclude ?? [])
+  // `global:secrets:password` is under `global:secrets`, and `workspace:x:servers` under
+  // `workspace:x`, so an exclusion covers the leaves beneath it as well as the exact id.
+  const isExcluded = (id: string): boolean =>
+    unwanted.has(id) || [...unwanted].some(entry => id.startsWith(`${entry}:`))
+  const selects = ((id: string): boolean => {
+    if (isExcluded(id))
+      return false
+    // Downwards only: naming `a` selects `a:b`, because a coarse id means every leaf under it.
+    // It is **not** symmetric — naming `a:b` must not select `a`, or a whole-entry item would
+    // replace a file the person asked to touch only one field of.
+    return wanted === null || wanted.has(id) || [...wanted].some(entry => id.startsWith(`${entry}:`))
+  }) as ((id: string) => boolean) & { isExcluded: (id: string) => boolean }
+  selects.isExcluded = isExcluded
+  return selects
+}
+
 export interface BackupManifest {
   version: 1
   createdAt: number
@@ -361,6 +387,15 @@ export interface RestoreOptions {
   password?: string
   /** Item ids to restore; omitted means every restorable item. */
   include?: string[]
+  /**
+   * Item ids to leave out, applied after `include`.
+   *
+   * The common case is one entry, not many: `--all --exclude global:secrets` backs everything up
+   * except the password and token hashes. Naming the one thing to drop beats naming everything else,
+   * and it is the safe default to recommend — an archive carrying them hands whoever holds it the
+   * old machine's credentials.
+   */
+  exclude?: string[]
 }
 
 export type { RestorePlan }
@@ -570,18 +605,20 @@ export class BackupService {
    * counts apart: an automatic pass must never prune the backup a person took by hand, and a
    * manual one must not silently eat the history the schedule is keeping.
    */
-  async create(options: { password?: string, include?: string[], automatic?: boolean } = {}): Promise<{ ok: boolean, file?: BackupFile, error?: string }> {
+  async create(options: { password?: string, include?: string[], exclude?: string[], automatic?: boolean } = {}): Promise<{ ok: boolean, file?: BackupFile, error?: string }> {
     const config = this.options.getConfig()
     if (!config.enabled)
       return { ok: false, error: 'backups are disabled' }
 
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
     // Omitted means everything; an id that names nothing is ignored, as on the restore side.
+    const selects = selectionOf(options)
+    // The narrow-only `wanted` set is still needed for the secrets narrowing below, which asks which
+    // *fields* were named rather than whether an id is in scope.
     const wanted = options.include === undefined ? null : new Set(options.include)
-    const capturesGlobal = (id: string): boolean => wanted === null || wanted.has(id)
+    const capturesGlobal = (id: string): boolean => selects(id)
     // A workspace id alone means every leaf of that workspace.
-    const capturesWorkspace = (id: string, suffix: string): boolean =>
-      wanted === null || wanted.has(`workspace:${id}`) || wanted.has(`workspace:${id}:${suffix}`)
+    const capturesWorkspace = (id: string, suffix: string): boolean => selects(`workspace:${id}:${suffix}`)
     /**
      * The secrets of one scope the request asked for; `null` means "every one of them".
      * `workspaceId` is how a bare `workspace:<id>` selection covers all of its leaves.
@@ -589,12 +626,19 @@ export class BackupService {
     const selectedSecretFields = (entryId: string, path: string, scope: SecretScope, workspaceId?: string): string[] | null => {
       const present = presentSecretKeys(parseSecrets(readText(path) ?? ''))
       const parts = secretParts(scope, present)
-      const coversEntry = wanted === null
-        || wanted.has(entryId)
-        || (workspaceId !== undefined && wanted.has(`workspace:${workspaceId}`))
-      const picked = parts.filter(part => coversEntry
-        || wanted.has(`${entryId}:${part.key}`)
-        || part.fields.some(field => wanted.has(`${entryId}:${field}`)))
+      // Per-field, and `selects` is the wrong question here: `--include global:secrets:password` names
+      // one field, so a whole-entry `selects(entryId)` would pull in every sibling. What decides a
+      // field is its own ids — the group and each of its fields — minus any exclusion above them.
+      const picked = parts.filter((part) => {
+        if (selects.isExcluded(entryId) || selects.isExcluded(`${entryId}:${part.key}`))
+          return false
+        const wantedField = wanted === null
+          || wanted.has(entryId)
+          || (workspaceId !== undefined && wanted.has(`workspace:${workspaceId}`))
+          || wanted.has(`${entryId}:${part.key}`)
+          || part.fields.some(field => wanted.has(`${entryId}:${field}`))
+        return wantedField
+      })
       return picked.length === parts.length ? null : picked.flatMap(part => part.fields)
     }
 
@@ -642,15 +686,18 @@ export class BackupService {
        * True when the request touches a secrets entry at all: the entry itself, one of its
        * leaves, or — for a workspace — the workspace id, which names every leaf it has.
        */
-      const capturesSecrets = (entryId: string, workspaceId?: string): boolean =>
-        wanted === null
-        || wanted.has(entryId)
-        || (workspaceId !== undefined && wanted.has(`workspace:${workspaceId}`))
-        || [...wanted].some(id => id.startsWith(`${entryId}:`))
+      // Through `selects`, like every other capture: a third copy of "is this selected" is how
+      // `--exclude` came to leave the secrets in the archive it was asked to leave them out of.
+      // Upwards as well as down: `--include global:secrets:password` names a leaf, and the file that
+      // holds it still has to be captured — the narrowing above then keeps the sibling out.
+      const touchesSecrets = (entryId: string, workspaceId?: string): boolean =>
+        selects(entryId)
+        || (wanted !== null && [...wanted].some(id => id.startsWith(`${entryId}:`)))
+        || (workspaceId !== undefined && selects(`workspace:${workspaceId}:secrets`))
 
       if (capturesGlobal('global:settings'))
         copy('global/settings.json', sources.globalSettingsPath)
-      if (capturesSecrets('global:secrets'))
+      if (touchesSecrets('global:secrets'))
         copySecrets('global/secrets.json', sources.globalSecretsPath, 'global:secrets', 'global')
       if (capturesGlobal('global:tls'))
         copy('global/tls', sources.tlsDir)
@@ -700,7 +747,7 @@ export class BackupService {
           copy(`${root}/settings.json`, workspace.settingsPath)
         if (capturesWorkspace(workspace.id, 'servers'))
           copy(`${root}/servers.config.json`, workspace.serversPath)
-        if (capturesSecrets(`workspace:${workspace.id}:secrets`, workspace.id))
+        if (touchesSecrets(`workspace:${workspace.id}:secrets`, workspace.id))
           copySecrets(`${root}/secrets.json`, workspace.secretsPath, `workspace:${workspace.id}:secrets`, 'workspace', workspace.id)
 
         for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
@@ -868,7 +915,7 @@ export class BackupService {
       }
 
       const sources = this.options.getSources()
-      const selectedIds = options.include === undefined ? null : new Set(options.include)
+      const selects = selectionOf(options)
       const actions = new Map<string, () => void>()
 
       const addItem = (item: Omit<RestoreItem, 'selected'>, apply: (() => void) | null, aliases: string[] = []): void => {
@@ -886,9 +933,11 @@ export class BackupService {
           })
           return
         }
-        const selected = selectedIds === null
-          || selectedIds.has(item.id)
-          || aliases.some(alias => selectedIds.has(alias))
+        // An alias is a coarse id (`workspace:<id>` for every leaf), so any of them selecting the
+        // item counts too.
+        // An exclusion beats an alias: `--exclude global:secrets` must not be undone by the item's
+        // own short alias (`secrets`) selecting it back in.
+        const selected = selects.isExcluded(item.id) ? false : selects(item.id) || aliases.some(alias => selects(alias))
         plan.items.push({ ...item, selected })
         if (selected) {
           actions.set(item.id, apply)
@@ -1193,7 +1242,7 @@ export class BackupService {
         // Recorded at *plan* time, not inside the apply closure: a dry run has to report the
         // same list, otherwise the person cannot see what to stop before applying.
         const ownerId = target.origin.split(':')[0] ?? ''
-        const covered = selectedIds === null || selectedIds.has(base.id) || aliases.includes(base.id)
+        const covered = !selects.isExcluded(base.id) && (selects(base.id) || aliases.some(alias => selects(alias)))
         if (covered && runningOwners.has(`${target.workspace}:${ownerId}`))
           plan.replacedUnderRunning.push({ workspaceId: target.workspace, serverId: ownerId, path: target.path })
 

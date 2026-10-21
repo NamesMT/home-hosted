@@ -111,6 +111,18 @@ names it and stops. A dry run takes none, because it writes nothing.
 $ home-hosted backup create --include workspace:default:servers,global:settings
 ```
 
+`--exclude` is the other direction, and the usual one: naming the one thing to leave out beats listing
+everything else. It applies after `--include`, and an excluded id covers what is under it.
+
+```console
+$ home-hosted backup create --all --exclude global:secrets --confirm
+```
+
+That is the command to reach for. `global:secrets` is the panel's password hash and API token hash, so
+leaving it out keeps the archive from carrying the machine's credentials and keeps a restore from
+replacing the target panel's with the source's. A per-field form works too —
+`--exclude global:secrets:password` keeps the token and drops only the password.
+
 `--all` is the only way to say "everything" — giving **neither** flag is refused, not assumed, so the
 destructive default cannot be reached by silence:
 
@@ -118,11 +130,13 @@ destructive default cannot be reached by silence:
 $ home-hosted backup create --confirm
 error name what to act on — pass --include <ids> or --all
 
-available:
+available (or narrow it):
   global:settings
   global:secrets
+  global:tls
   workspace:default
-  workspace:default:data:/srv/blog/dump
+
+--exclude <ids> leaves those out: --all --exclude global:secrets
 ```
 
 An empty `--include` is refused too, rather than treated as "nothing selected" — a script passing an
@@ -191,27 +205,39 @@ $ home-hosted start blog-db
 started blog-db
 
 $ docker exec hh-demo-blog mongosh --quiet --eval 'db.getSiblingDB("blog").posts.countDocuments()'
-0
-
-$ docker exec hh-demo-blog mongosh --quiet --eval 'db.getSiblingDB("blog").posts.countDocuments()'
 3
 ```
 
-Nothing in that transcript applies the dump by hand: `start` ran the entry's `load` hook, which is
-what replays it. The hook waits for the port to answer first, so `mongorestore` finds a live server.
+Nothing applies the dump by hand: `start` ran the entry's `load` hook, which replays it. The hook
+runs in the background once the port answers, so `start` returns before it finishes — the read above
+is simply taken after it has. A fresh container holds `0` documents, and this number is what the dump
+put there.
 
 Three documents, on a host that started with nothing.
+
+> [!WARNING]
+> `global:secrets` holds the **panel password hash and API token hash**. A backup that carries it
+> carries the machine's credentials, and a restore that applies it **replaces** the target panel's
+> password and token with the old machine's. Leave it out unless that is what you want:
+>
+> ```sh
+> home-hosted backup create --all --exclude global:secrets --confirm
+> home-hosted backup restore <name> --all --exclude global:secrets --confirm
+> ```
+>
+> That is the recommended default for a shared or moved archive. After restoring one that did carry
+> it, rotate with `home-hosted set-token --generate` and `set-password`.
 
 ## What is recovered, and what is not
 
 | | |
 | --- | --- |
 | ✅ **Recovered** | Every workspace and its label. Every entry, with its command, args, env, port and policies. Workspace settings: notifications, DDNS, log retention, server defaults. Panel settings: listener, TLS policy, host vitals, backup schedule, proxy routes. Secrets, if you kept them ticked. Declared data paths, including the database dump. |
-| ⚠️ **Recovered, then you must act** | The **password hash and API token hash** travel in `global/secrets.json`, so the restored host has the old machine's credentials. Anyone holding that token still has access. Rotate with `home-hosted set-token --generate`, or exclude those secrets and set them fresh. |
+| ✅ **Recovered** | Secrets, if you kept them selected. |
 | ✅ **Recovered, and the database loads itself** | With `dump`/`load` hooks on the entry, the backup runs the engine's own dump and the restore replays it. The load runs on the entry's **next start**, because `mongorestore` needs a server that is answering. Without hooks, the panel restores files only and applying the dump is your step. |
 | ❌ **Not recovered** | `HHOSTED_DDNS_SECRET`, the key DDNS credentials are sealed under. It is never archived, so a restored host cannot decrypt them until you set it again. |
 | ❌ **Not recovered** | Anything not in a `backupPaths` directory or the panel's own state: files your entries wrote elsewhere, host packages, `/etc` changes, a reverse proxy outside the panel, cron jobs, the docker images themselves. |
-| ❌ **Not recovered** | Your UI, if it was not the stock one. `$HHOSTED_HOME/.ui` is never archived, so the restored panel serves the stock UI until you install yours again. |
+| ❌ **Not recovered** | `$HHOSTED_HOME/.ui` is not archived, so the panel keeps whatever UI it already has on that host. It is not replaced by the UI of the panel that took the backup. |
 
 ## Re-running it
 

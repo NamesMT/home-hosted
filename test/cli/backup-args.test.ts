@@ -64,6 +64,21 @@ describe('backup flag guards', () => {
     expect(none.output).toContain('name what to act on')
   })
 
+  it('refuses an empty --exclude rather than excluding nothing', () => {
+    // An unset `$LIST` in a script must not silently leave the secrets in the archive.
+    const none = run(['backup', 'create', '--all', '--exclude', ''])
+    expect(none.status).toBe(1)
+    expect(none.output).toContain('--exclude is empty')
+  })
+
+  it('lists what could be backed up when neither flag is given', () => {
+    // A refusal that names no ids reads as "there is nothing to back up".
+    const none = run(['backup', 'create'])
+    expect(none.status).toBe(1)
+    expect(none.output).toContain('name what to act on')
+    expect(none.output).toContain('--exclude')
+  })
+
   it('refuses restore with no archive name', () => {
     const missing = run(['backup', 'restore'])
     expect(missing.status).toBe(1)

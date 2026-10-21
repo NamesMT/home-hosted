@@ -5,7 +5,8 @@
 # Two hosts, one after the other, in throwaway directories:
 #
 #   1. host A — a panel with one entry (a MongoDB container) and some data in it
-#   2. take a backup: `home-hosted backup create --all` (plans first, then `--confirm` applies)
+#   2. take a backup: `home-hosted backup create --all --exclude global:secrets`
+#      (plans first, then `--confirm` applies)
 #   3. host B — a *blank* home, nothing configured
 #   4. restore into it: `home-hosted backup restore <name> --all --confirm`
 #   5. start the entry on host B and read the database back
@@ -99,8 +100,8 @@ note "seeded 3 documents into blog.posts"
 say "Taking a backup"
 
 # The plan first: what the archive would capture, written nothing.
-HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all
-HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all --confirm
+HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all --exclude global:secrets
+HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all --exclude global:secrets --confirm
 ARCHIVE="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup list --json | node -e '
   let raw = ""
   process.stdin.on("data", chunk => raw += chunk)
@@ -156,12 +157,12 @@ curl -fsS -o /dev/null -X POST \
   "http://127.0.0.1:$PANEL_B/api/backups/restore?confirm=true"
 note "uploaded and restored onto the blank host"
 
-# The archive carried host A's `global/secrets.json`, so host B now has host A's password hash and
-# API token hash — the archive is the whole machine's identity, not just its entries. The README
-# warns about exactly this. A real move should either accept that or rotate afterwards; this demo
-# rotates, because a token that travelled in an archive is a token in a file.
-TOKEN_B="$(HHOSTED_HOME="$HOST_B" "${CLI[@]}" set-token --generate | grep -oE 'hh_[A-Za-z0-9_-]+' | head -1)"
-note "rotated host B's API token (the archive had brought host A's)"
+# `--exclude global:secrets` is why host B keeps its own password and token: the archive never
+# carried them. Without it the restore would have replaced host B's credentials with host A's, and
+# anyone holding that old token would still have access — so this demo takes the safe route and the
+# docs recommend it. Host B's token is untouched, and stays the one minted above.
+TOKEN_B="$SETUP_TOKEN"
+note "host B keeps its own credentials: the archive excluded global:secrets"
 
 say "What host B now has"
 HHOSTED_HOME="$HOST_B" "${CLI[@]}" status
