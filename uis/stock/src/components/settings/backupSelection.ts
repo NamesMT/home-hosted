@@ -1,4 +1,5 @@
 import type { BackupEntry } from '@shared/contracts'
+import { scopeOf } from '@shared/backup-scope'
 import { t } from '@/i18n'
 import { panelNote, panelText } from '@/lib/panel-text'
 
@@ -120,32 +121,24 @@ export function selectAll(entries: EntryChoice[], selected: boolean): void {
 /**
  * The `include` list for the create request.
  *
- * `undefined` means "everything is selected", so the request stays unqualified —
- * and it is only ever returned for a non-empty tree, because an empty list must
- * never be read as "capture the whole panel". `[]` therefore means the caller
- * picked nothing, which is a state the dialog disables Create for; the API
- * client rejects it rather than silently widening the request. An entry whose
- * leaves are all picked is sent as its own id; a partly picked one sends only its
- * picked leaf ids.
+ * `undefined` means "everything is selected", so the request stays unqualified, and it is only ever
+ * returned for a non-empty tree, because an empty list must never be read as "capture the whole
+ * panel". `[]` therefore means the caller picked nothing, which is a state the dialog disables
+ * Create for; the API client rejects it rather than silently widening the request.
  */
 export function includeIds(entries: EntryChoice[]): string[] | undefined {
-  const included = entries.filter(entry => effectiveSelected(entry))
-  if (entries.length > 0 && included.length === entries.length && included.every(entry => entry.leaves.length === 0 || allLeavesSelected(entry)))
+  // The collapse rule lives in `@shared/backup-scope` now: the schedule's scope editor writes the
+  // same ids down, and a second copy of "a wholly picked entry travels as its own id" is how the
+  // dialog and the schedule would come to disagree about what a tick means.
+  const outcome = scopeOf(entries, 'only')
+  if (outcome.kind === 'everything')
     return undefined
-
-  const ids: string[] = []
-  for (const entry of included) {
-    if (entry.leaves.length === 0 || allLeavesSelected(entry))
-      ids.push(entry.id)
-    else
-      ids.push(...entry.leaves.filter(leaf => leaf.selected).map(leaf => leaf.id))
-  }
-  return ids
+  return outcome.kind === 'nothing' ? [] : outcome.scope.ids
 }
 
 /** True when the request would capture the whole tree, i.e. `includeIds` returns `undefined`. */
 export function capturesEverything(entries: EntryChoice[]): boolean {
-  return includeIds(entries) === undefined
+  return scopeOf(entries, 'only').kind === 'everything'
 }
 
 /** How many top-level entries and leaves the request would capture; an entry with no leaves counts as one. */

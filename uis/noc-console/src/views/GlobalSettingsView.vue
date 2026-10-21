@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import type { AuthStatus, BackupsView, ControlView, SettingsPatch } from '@shared/contracts'
+import type { AuthStatus, BackupScope, BackupsView, ControlView, SettingsPatch } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView } from '@/lib/api'
+import { sameScope } from '@shared/backup-scope'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import BackupDialog from '@/components/BackupDialog.vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import RestoreDialog from '@/components/RestoreDialog.vue'
+import ScheduleScope from '@/components/ScheduleScope.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
 import { changesOpen } from '@/composables/useUi'
@@ -59,6 +61,8 @@ const form = reactive({
     scheduleEnabled: false,
     scheduleHours: 24,
     scheduleKeep: 7,
+    // `null` is the whole default scope — what an untouched schedule has always captured.
+    scheduleScope: null as BackupScope | null,
   },
   auth: {
     enabled: false,
@@ -156,9 +160,23 @@ function fillBackups(): boolean {
     // Rounded for display only; the patch leaves `intervalMs` out unless the field was edited.
     scheduleHours: Math.max(1, Math.round((configured.backups.schedule?.intervalMs ?? 0) / 3_600_000) || 1),
     scheduleKeep: configured.backups.schedule?.keep ?? 7,
+    scheduleScope: configured.backups.schedule?.scope ?? null,
   })
   return true
 }
+
+/** The scope dialog: opened from the backups block, written into the form on apply. */
+const scopeOpen = ref(false)
+
+/** What the saved scope is, in one line, before the dialog is opened. */
+const scopeSummary = computed(() => {
+  const scope = form.backups.scheduleScope
+  if (scope === null)
+    return 'everything (the default scope)'
+  return scope.mode === 'only'
+    ? `only ${scope.ids.length} selected item${scope.ids.length === 1 ? '' : 's'}`
+    : `everything except ${scope.ids.length} item${scope.ids.length === 1 ? '' : 's'}`
+})
 
 const FILLERS: Record<FormBlock, () => boolean> = {
   control: fillControl,
@@ -320,13 +338,19 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
     const scheduleBaseline = {
       intervalMs: configured.backups.schedule?.intervalMs ?? 0,
       keep: configured.backups.schedule?.keep ?? 7,
+      scope: configured.backups.schedule?.scope ?? null,
     }
-    const nextSchedule: Record<string, number> = {}
+    const nextSchedule: Record<string, unknown> = {}
     const nextInterval = form.backups.scheduleEnabled ? form.backups.scheduleHours * 3_600_000 : 0
     if (nextInterval !== scheduleBaseline.intervalMs || form.backups.scheduleEnabled !== (scheduleBaseline.intervalMs > 0))
       nextSchedule.intervalMs = nextInterval
     if (form.backups.scheduleKeep !== scheduleBaseline.keep)
       nextSchedule.keep = form.backups.scheduleKeep
+    // Compared by value and by content: an untouched dialog must not rewrite the stored scope, and
+    // an id order the panel chose is not a change. `null` is how "unchoose" is spelled — leaving the
+    // key out would mean "keep whatever is stored".
+    if (!sameScope(form.backups.scheduleScope, scheduleBaseline.scope))
+      nextSchedule.scope = form.backups.scheduleScope
 
     const backupsPatch = diffFields(
       configured.backups as unknown as Patch,
@@ -372,7 +396,12 @@ const currentSnapshot = computed<Patch>(() => {
     host: configured === null ? {} : { ...configured.host, diskPaths: configured.host.diskPaths },
     backups: configured === null
       ? {}
-      : { enabled: configured.backups.enabled, keep: configured.backups.keep, includePaths: configured.backups.includePaths },
+      : {
+          enabled: configured.backups.enabled,
+          keep: configured.backups.keep,
+          includePaths: configured.backups.includePaths,
+          schedule: configured.backups.schedule ?? {},
+        },
   }
 })
 
@@ -981,6 +1010,18 @@ async function revertUi(): Promise<void> {
                   <span class="field__label">keep automatic</span>
                   <input v-model.number="form.backups.scheduleKeep" inputmode="numeric">
                 </label>
+                <div class="field grid__full">
+                  <span class="field__label">what an automatic backup contains</span>
+                  <div class="actions actions--start">
+                    <span class="mono faint">{{ scopeSummary }}</span>
+                    <button type="button" class="btn btn--xs" :disabled="backupsView === null" @click="scopeOpen = true">
+                      choose…
+                    </button>
+                  </div>
+                  <span class="field__hint">
+                    Leave it alone for everything — which is also what covers a workspace added later.
+                  </span>
+                </div>
               </template>
               <label class="field grid__full">
                 <span class="field__label">extra paths (comma separated)</span>
@@ -1316,6 +1357,12 @@ async function revertUi(): Promise<void> {
     :initial="restoreSource"
     @close="restoreOpen = false"
     @done="onRestoreDone"
+  />
+  <ScheduleScope
+    v-model:scope="form.backups.scheduleScope"
+    :open="scopeOpen"
+    :state="backupsView"
+    @close="scopeOpen = false"
   />
 </template>
 

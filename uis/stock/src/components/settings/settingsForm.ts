@@ -1,6 +1,7 @@
 import type {
   AuthStatus,
   BackupScheduleConfig,
+  BackupScope,
   BackupsView,
   ControlView,
   DestinationStatusView,
@@ -15,6 +16,7 @@ import type {
 } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
+import { sameScope } from '@shared/backup-scope'
 import { countLeaves, diffFields } from '@shared/patch-diff'
 import { computed } from 'vue'
 import { t } from '@/i18n'
@@ -75,6 +77,13 @@ export interface BackupsForm {
   /** The gap between automatic archives, in hours — the page asks in hours, the file stores ms. */
   scheduleHours: number
   scheduleKeep: number
+  /**
+   * What an automatic backup captures; `null` is the whole default scope.
+   *
+   * Held as the wire shape rather than a tree: the tree is a draft inside the scope dialog, and a
+   * second copy of it here would be a second thing to keep in step with the saved config.
+   */
+  scheduleScope: BackupScope | null
 }
 
 export interface GlobalSettingsForm {
@@ -191,7 +200,7 @@ export function createGlobalForm(): GlobalSettingsForm {
       loadPerCpu: 2,
       tempCelsius: 85,
     },
-    backups: { enabled: true, keep: 5, includePaths: '', scheduleEnabled: false, scheduleHours: 24, scheduleKeep: 7 },
+    backups: { enabled: true, keep: 5, includePaths: '', scheduleEnabled: false, scheduleHours: 24, scheduleKeep: 7, scheduleScope: null },
   }
 }
 
@@ -295,6 +304,8 @@ export function backupsBaseline(policy: Pick<BackupsView, 'enabled' | 'keep' | '
     // so a 90-minute interval set through the API is not rewritten to 2 hours by an unrelated save.
     scheduleHours: Math.max(1, Math.round(schedule.intervalMs / HOUR_MS) || 1),
     scheduleKeep: schedule.keep,
+    // An older panel sends no `scope`, and that means the full default — not "nothing".
+    scheduleScope: schedule.scope ?? null,
   }
 }
 
@@ -310,11 +321,15 @@ export function backupsPatch(
   form: BackupsForm,
 ): Patch {
   const baseline = backupsBaseline(current)
-  const schedule: Record<string, number> = {}
+  const schedule: Record<string, unknown> = {}
   if (form.scheduleEnabled !== baseline.scheduleEnabled || form.scheduleHours !== baseline.scheduleHours)
     schedule.intervalMs = form.scheduleEnabled ? form.scheduleHours * HOUR_MS : 0
   if (form.scheduleKeep !== baseline.scheduleKeep)
     schedule.keep = form.scheduleKeep
+  // `null` clears it back to the whole default scope, which is the only spelling for "unchoose";
+  // leaving the key out would mean "keep whatever is stored".
+  if (!sameScope(form.scheduleScope, baseline.scheduleScope))
+    schedule.scope = form.scheduleScope
 
   return diffFields({
     enabled: current.enabled,

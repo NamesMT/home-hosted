@@ -1,4 +1,5 @@
 import type { BackupsView } from '@shared/contracts'
+import { scopeOf } from '@shared/backup-scope'
 
 /** One thing a backup can capture, as the dialog offers it. */
 export interface CaptureItem {
@@ -56,6 +57,10 @@ export function captureItems(view: BackupsView | null): CaptureItem[] {
 
 /** `undefined` when everything is selected, so the request stays unqualified. */
 export function includeIds(choices: CaptureChoice[]): string[] | undefined {
-  const selected = choices.filter(choice => choice.selected)
-  return selected.length === choices.length ? undefined : selected.map(choice => choice.id)
+  // noc-console's list is flat, so every choice carries no sub-leaves; the shared rule then reduces
+  // to "all ticked means unqualified, otherwise the ticked ids".
+  const outcome = scopeOf(choices.map(choice => ({ id: choice.id, selected: choice.selected, leaves: [] })), 'only')
+  if (outcome.kind === 'everything')
+    return undefined
+  return outcome.kind === 'nothing' ? [] : outcome.scope.ids
 }
