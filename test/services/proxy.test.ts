@@ -1719,14 +1719,38 @@ describe('the applied record and the ports it claims', () => {
     })
   }
 
-  it('records the ports the document binds, not the configured pair', async () => {
-    const { service, options } = await harness()
-    vi.spyOn(service, 'config', 'get').mockReturnValue(plainOnly())
-    vi.spyOn(service, 'installed').mockReturnValue(true)
-    // `start()` reaches the record after the engine answers; stop before the spawn and drive the
-    // same helper it does, which is the line that was wrong.
-    const rendered = (service as unknown as { render: () => Record<string, unknown> }).render()
-    ;(service as unknown as { recordApplied: (r: Record<string, unknown>) => void }).recordApplied(rendered)
+  /**
+   * Drives the real `start()`, not the helper — the defect was the **call site**, and a test that
+   * calls `recordApplied()` itself passes whether or not `start()` still calls it.
+   */
+  spawnsStubEngine('records through start() the ports the document binds, not the configured pair', async () => {
+    const { service, settings, options } = await harness()
+    writeStubEngine(service.enginePath, ['http.handlers.reverse_proxy'])
+    stubPortPreflight()
+    // The preflight is not what this is about, and a real one would depend on these ports.
+    settings.updateProxy({
+      enabled: true,
+      httpPort: 18080,
+      httpsPort: 18443,
+      routes: [{ id: 'plain', host: 'a.example.com', tls: 'off', target: 'external', url: 'http://127.0.0.1:3000' }],
+    })
+    // `start()` polls readiness and posts to the admin endpoint; both would need a real engine.
+    options.waitReady = async () => true
+    const admin = http.createServer((request, response) => {
+      request.resume()
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end('{}')
+    })
+    await new Promise<void>(resolve => admin.listen(0, '127.0.0.1', resolve))
+    options.chooseAdmin = async () => ({ kind: 'tcp', host: '127.0.0.1', port: (admin.address() as AddressInfo).port, origin: 'http://127.0.0.1' })
+
+    try {
+      await service.start()
+    }
+    finally {
+      service.dispose()
+      await new Promise<void>(resolve => admin.close(() => resolve()))
+    }
 
     const record = JSON.parse(fs.readFileSync(path.join(options.stateDir, 'applied.json'), 'utf8')) as { httpPort: number | null, httpsPort: number | null }
     expect(record.httpPort, 'the HTTP port is bound').toBe(18080)
