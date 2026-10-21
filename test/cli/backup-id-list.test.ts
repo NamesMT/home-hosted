@@ -1,10 +1,8 @@
-import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import process from 'node:process'
-import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
+import { runCli } from '../support/run-cli'
 
 /**
  * The refusal with neither flag must list what could be acted on — **including the leaves**.
@@ -14,10 +12,6 @@ import { describe, expect, it } from 'vitest'
  * directly, with no panel, so they cover the path that had no panel; the panel path is exercised by
  * the same helper reading the same nested shape.
  */
-
-const run = promisify(execFile)
-const CLI = path.join(process.cwd(), 'src', 'cli.ts')
-const TSX = path.join(process.cwd(), 'node_modules', '.bin', 'tsx')
 
 function makeHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-ids-'))
@@ -37,18 +31,17 @@ function makeHome(): string {
 }
 
 describe('the no-flag refusal lists real ids', () => {
-  it('names the leaves, not only the coarse entry ids', async () => {
+  it('names the leaves, not only the coarse entry ids', () => {
     const home = makeHome()
     try {
-      const failure = await run(TSX, [CLI, '--home', home, 'backup', 'create'], { encoding: 'utf8' })
-        .then(() => null, (error: { stdout?: string, stderr?: string }) => `${error.stdout ?? ''}${error.stderr ?? ''}`)
-      expect(failure).not.toBeNull()
+      const failure = runCli(['backup', 'create'], { home })
+      expect(failure.status).toBe(1)
 
       // The coarse ids are still there, and so is every leaf under them.
-      expect(failure).toContain('workspace:default')
-      expect(failure).toContain('workspace:default:servers')
-      expect(failure).toContain('workspace:default:data:')
-      expect(failure, 'a person needs to see that one secret can be left out alone').toContain('global:secrets')
+      expect(failure.output).toContain('workspace:default')
+      expect(failure.output).toContain('workspace:default:servers')
+      expect(failure.output).toContain('workspace:default:data:')
+      expect(failure.output, 'a person needs to see that one secret can be left out alone').toContain('global:secrets')
     }
     finally {
       fs.rmSync(home, { recursive: true, force: true })

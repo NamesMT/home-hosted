@@ -9,6 +9,12 @@ line in `AGENTS.md` instead.
 
 ## Process and platform
 
+- **A test spawns the CLI through `process.execPath`, never `node_modules/.bin/tsx`.** That file is a
+  `#!/bin/sh` shim; Windows has `tsx.cmd`/`tsx.ps1` there instead, so `execFile` on the POSIX path
+  starts nothing and the child's streams come back empty. Nothing throws: the assertion fails as
+  `expected '' to match …`, naming the output rather than the launcher, and only on the Windows
+  runner. `test/support/run-cli.ts` is the one launcher and `test/cli/cli-launcher.test.ts` pins its
+  argv — the old form passed every test on Linux.
 - **`run.json` is the daemon's identity and `down`'s credential.** Keep `runtimeSchema` in sync with
   the `Runtime` written in `src/index.ts`. It lives at `.hh/run.json`.
 - **A test or script that reads a file as text must not assume the line ending.** A Windows checkout
