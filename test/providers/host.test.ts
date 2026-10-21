@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { availableMemoryBytes, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, usedPercent } from '#src/providers/host'
+import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, usedPercent } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -355,5 +355,68 @@ describe('isSwapCacheFresh', () => {
       }
     }
     expect(reads).toBe(60)
+  })
+})
+
+/**
+ * Host CPU utilisation, which the panel did not report at all.
+ *
+ * It only showed `loadAvg`, which is a **count of runnable tasks**: `1.00` is one core's worth, so
+ * on 24 cores it reads `0.04` while the box is at 4%. The global page drew that number in a dial
+ * beside the memory percentage, so a person saw "0.06" where every other tile was a percentage and
+ * concluded the host was idle — while the per-server figures (which legitimately sum to 400% on
+ * four busy cores) showed work.
+ */
+describe('host cpu utilisation', () => {
+  it('is the busy share of the whole machine, not of one core', () => {
+    // Four cores, all busy for a second of wall time: 4 cores x 1000ms busy of 4000ms total.
+    expect(cpuUsedPercent({ busyMs: 0, totalMs: 0 }, { busyMs: 4000, totalMs: 4000 })).toBe(100)
+    expect(cpuUsedPercent({ busyMs: 0, totalMs: 0 }, { busyMs: 1000, totalMs: 4000 })).toBe(25)
+    expect(cpuUsedPercent({ busyMs: 0, totalMs: 0 }, { busyMs: 0, totalMs: 4000 })).toBe(0)
+  })
+
+  it('never reports more than the machine has, however the counters add up', () => {
+    expect(cpuUsedPercent({ busyMs: 100, totalMs: 100 }, { busyMs: 900, totalMs: 400 })).toBe(100)
+  })
+
+  it('is honest about a window it cannot measure', () => {
+    // No elapsed time: a second sample taken in the same millisecond has no window to divide by.
+    expect(cpuUsedPercent({ busyMs: 5, totalMs: 5 }, { busyMs: 5, totalMs: 5 })).toBeNull()
+    // Counters went backwards (a suspended host, a resync): the delta is not a measurement.
+    expect(cpuUsedPercent({ busyMs: 500, totalMs: 900 }, { busyMs: 100, totalMs: 950 })).toBeNull()
+  })
+
+  it('sums every core, so a busy machine reads busy', () => {
+    const oneCore = (busy: number, idle: number) => ({
+      times: { user: busy, nice: 0, sys: 0, idle, irq: 0 },
+    })
+    // Two cores: one fully busy, one fully idle.
+    const snapshot = cpuTimesSnapshot([oneCore(1000, 0), oneCore(0, 1000)] as never)
+    expect(snapshot.busyMs).toBe(1000)
+    expect(snapshot.totalMs).toBe(2000)
+    expect(cpuUsedPercent({ busyMs: 0, totalMs: 0 }, snapshot)).toBe(50)
+  })
+
+  it('reports null before a first sample, and a percentage after one', async () => {
+    // The module keeps the previous snapshot, so this asserts the *contract*, not a fixed number:
+    // whatever the interval, the answer is either null (no window yet) or a real percentage.
+    const first = await sampleHost(config({ diskPaths: [] }), t => t)
+    const firstReading = first.cpuUsedPercent
+    expect(firstReading === null || firstReading === undefined || (firstReading >= 0 && firstReading <= 100)).toBe(true)
+
+    // The second sample needs a *window* to divide by: two reads inside the same millisecond give
+    // `totalMs` a delta of 0, for which `null` is the correct answer (not a flake to paper over).
+    // `os.cpus()` timestamps are whole milliseconds, so a short wait makes the window real.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const second = await sampleHost(config({ diskPaths: [] }), t => t)
+    const secondReading = second.cpuUsedPercent
+    expect(secondReading).not.toBeUndefined()
+    expect(secondReading).not.toBeNull()
+    expect(secondReading!).toBeGreaterThanOrEqual(0)
+    expect(secondReading!).toBeLessThanOrEqual(100)
+  })
+
+  it('offers no utilisation in the empty view', () => {
+    expect(emptyHostView(config({})).cpuUsedPercent).toBeNull()
   })
 })
