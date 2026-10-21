@@ -1,6 +1,40 @@
 # Changelog
 
 
+## v0.9.6
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.5...v0.9.6)
+
+### 🚀 Enhancements
+
+- **cli:** Backup plans first, and an empty --include is refused ([c7e3f65](https://github.com/NamesMT/home-hosted/commit/c7e3f65))
+- **cli:** Backup works while the panel is stopped ([bf8d15f](https://github.com/NamesMT/home-hosted/commit/bf8d15f))
+
+### 🩹 Fixes
+
+- The shorthand scripts chained a command that does not exist ([7bd5306](https://github.com/NamesMT/home-hosted/commit/7bd5306))
+- **cli:** A backup scope is required, not assumed ([20eb0bd](https://github.com/NamesMT/home-hosted/commit/20eb0bd))
+- **cli:** The offline path diverged from the panel, and the lock was stealable ([044b3fd](https://github.com/NamesMT/home-hosted/commit/044b3fd))
+- **backups:** One restore lock, taken where every caller passes ([b5b5ce2](https://github.com/NamesMT/home-hosted/commit/b5b5ce2))
+
+### 📖 Documentation
+
+- Say what the offline path cannot know ([528b7b9](https://github.com/NamesMT/home-hosted/commit/528b7b9))
+- The restore lock is the service's, so the panel's restore has it too ([fc3e1e5](https://github.com/NamesMT/home-hosted/commit/fc3e1e5))
+
+### 🏡 Chore
+
+- Dev scripts keep state in the repo, and `cli` runs anything ([6ac4eb5](https://github.com/NamesMT/home-hosted/commit/6ac4eb5))
+- Drop an export nothing calls ([c4bc1d5](https://github.com/NamesMT/home-hosted/commit/c4bc1d5))
+
+### ✅ Tests
+
+- **lock:** Assert the rule, not the platform ([c476ca0](https://github.com/NamesMT/home-hosted/commit/c476ca0))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.9.5
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.4...v0.9.5)
