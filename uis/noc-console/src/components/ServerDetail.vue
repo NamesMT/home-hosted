@@ -72,11 +72,13 @@ const bindOptions = computed(() => {
 const cpuPercent = computed(() => props.server.resources?.cpuPercent ?? null)
 const rssBytes = computed(() => props.server.resources?.rssBytes ?? null)
 
+/** As in `ServerList`: CPU counts cores, so the bands scale with this machine's capacity. */
 function cpuColor(): string {
   const value = cpuPercent.value ?? 0
-  if (value >= 80)
+  const capacity = Math.max(100, (control.host.value?.cpus ?? 1) * 100)
+  if (value >= capacity * 0.8)
     return 'var(--danger)'
-  if (value >= 40)
+  if (value >= capacity * 0.4)
     return 'var(--warn)'
   return 'var(--accent)'
 }

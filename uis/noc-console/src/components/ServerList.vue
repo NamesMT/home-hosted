@@ -59,11 +59,17 @@ function healthLed(health: HealthState): string {
   }[health]
 }
 
+/**
+ * CPU is summed over the entry's process tree, so it counts *cores*: 400% is four cores busy, not
+ * an error. These bands are a share of this machine, so they scale with its core count — at a
+ * fixed 80/40 a busy worker on a 24-core host was painted red for using a sixth of the box.
+ */
 function cpuColor(server: ServerView): string {
   const value = server.resources?.cpuPercent ?? 0
-  if (value >= 80)
+  const capacity = Math.max(100, (control.host.value?.cpus ?? 1) * 100)
+  if (value >= capacity * 0.8)
     return 'var(--danger)'
-  if (value >= 40)
+  if (value >= capacity * 0.4)
     return 'var(--warn)'
   return 'var(--accent)'
 }

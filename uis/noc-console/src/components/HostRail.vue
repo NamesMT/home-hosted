@@ -25,7 +25,17 @@ function barClass(tone: 'ok' | 'warn' | 'danger'): string {
 }
 
 const loadRatio = computed(() => loadPerCpu(view.value?.loadAvg ?? [], view.value?.cpus ?? 1))
-const loadTone = computed(() => (loadRatio.value >= 1 ? 'danger' : loadRatio.value >= 0.7 ? 'warn' : 'ok'))
+/**
+ * Load is a count of runnable tasks, not a percentage: `1.00` is one core's worth. The rail used to
+ * turn red at `1`, which on a 24-core box is 4% and completely normal.
+ */
+const loadTone = computed(() => (loadRatio.value >= 2 ? 'danger' : loadRatio.value >= 1.4 ? 'warn' : 'ok'))
+/** The CPU bar shows the real utilisation, so the rail's numbers share one unit. */
+const cpuUsed = computed(() => view.value?.cpuUsedPercent ?? null)
+const cpuTone = computed(() => {
+  const value = cpuUsed.value ?? 0
+  return value >= 90 ? 'danger' : value >= 70 ? 'warn' : 'ok'
+})
 const memTone = computed(() => band(view.value?.memoryUsedPercent ?? 0, 70, 90))
 const swapTone = computed(() => band(view.value?.swapUsedPercent ?? 0, 50, 80))
 const tempTone = computed(() => band(view.value?.tempCelsius ?? 0, 70, 85))
@@ -43,11 +53,19 @@ function shortPath(path: string): string {
 <template>
   <header class="rail">
     <template v-if="enabled">
-      <div class="rail__cell" title="1-minute load average per cpu">
+      <div class="rail__cell" title="share of this machine's cpu in use over the last interval">
+        <span class="rail__label">cpu</span>
+        <span class="rail__value">{{ cpuUsed === null ? '—' : `${cpuUsed.toFixed(0)}%` }}</span>
+        <span class="rail__bar" :class="barClass(cpuTone)">
+          <i :style="{ width: `${clamp(cpuUsed ?? 0, 0, 100)}%` }" />
+        </span>
+      </div>
+
+      <div class="rail__cell" title="1-minute load average per cpu — a count, not a percentage">
         <span class="rail__label">load <span class="faint">/{{ view?.cpus }}c</span></span>
         <span class="rail__value">{{ loadRatio.toFixed(2) }}</span>
         <span class="rail__bar" :class="barClass(loadTone)">
-          <i :style="{ width: `${clamp(loadRatio * 100, 0, 100)}%` }" />
+          <i :style="{ width: `${clamp(loadRatio * 50, 0, 100)}%` }" />
         </span>
       </div>
 

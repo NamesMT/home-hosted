@@ -6,9 +6,16 @@ import { t } from '@/i18n'
 
 const props = defineProps<{ host: HostView | null }>()
 
-/** Full-scale for the dials: the alert thresholds the settings page defaults to. */
-const LOAD_FULL = 2
+/** Full-scale for the temperature dial: the alert threshold the settings page defaults to. */
 const TEMP_FULL = 85
+
+/**
+ * A dial only tells the truth for a share of something. Load is a *count* of runnable tasks —
+ * `1.00` means "one core's worth" — so it stays a number, and the dial is the real CPU percentage
+ * instead. The old load dial sat near empty on a busy 24-core box, which read as "the panel says
+ * 0% while my server says 400%".
+ */
+const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
 
 const loadPerCpu = computed(() => {
   const host = props.host
@@ -17,7 +24,6 @@ const loadPerCpu = computed(() => {
   return (host.loadAvg[0] ?? 0) / Math.max(1, host.cpus)
 })
 
-const loadDial = computed(() => (loadPerCpu.value === null ? null : (loadPerCpu.value / LOAD_FULL) * 100))
 const loadDisplay = computed(() => (loadPerCpu.value === null ? '—' : loadPerCpu.value.toFixed(2)))
 
 const diskUsed = computed(() => {
@@ -46,11 +52,17 @@ const tempDisplay = computed(() => {
     </div>
 
     <div v-if="props.host?.enabled" class="grid grid-cols-2 gap-x-1 gap-y-2">
-      <Gauge :value="loadDial" :label="t('host.loadPerCpu')" :display="loadDisplay" :size="58" :warn-at="70" :danger-at="100" />
+      <Gauge :value="cpuUsed" :label="t('host.cpuUsage')" :size="58" :warn-at="80" :danger-at="95" />
       <Gauge :value="props.host?.memoryUsedPercent ?? null" :label="t('common.memory')" :size="58" />
       <Gauge :value="diskUsed" :label="t('common.disk')" :size="58" />
       <Gauge :value="tempDial" :label="t('host.cpuTemp')" :display="tempDisplay" :size="58" />
     </div>
+
+    <!-- Load is a count, so it is a number: `1.00` is one core's worth of runnable work. -->
+    <p v-if="props.host?.enabled" class="mt-2 flex items-baseline justify-between border-t border-line-soft pt-2 text-2xs">
+      <span class="text-faint" :title="t('host.loadHint')">{{ t('host.loadPerCpu') }}</span>
+      <span class="font-mono tabular-nums text-ink">{{ loadDisplay }}</span>
+    </p>
 
     <p v-else class="py-3 text-center text-2xs text-faint">
       Sampling is disabled in Settings.

@@ -76,7 +76,17 @@ vi.mock('@/composables/useWorkspaces', () => ({
   }),
 }))
 vi.mock('@/composables/useControlPlane', () => ({
-  useControlPlane: () => ({ appState: ref(null), workspaces: computed(() => []), now: ref(1) }),
+  /**
+   * `host` is part of this composable's real surface, and the page reads it for the CPU chart's
+   * ceiling. A stub that omits it throws on a `.value` of undefined — which is a broken fixture,
+   * not a broken page, so it is declared here rather than guarded in the component.
+   */
+  useControlPlane: () => ({
+    appState: ref(null),
+    workspaces: computed(() => []),
+    host: computed(() => null),
+    now: ref(1),
+  }),
   useServerLogs: () => ({ lines: () => [], version: ref(0) }),
 }))
 
