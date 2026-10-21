@@ -1,6 +1,29 @@
 # Changelog
 
 
+## v0.9.7
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.6...v0.9.7)
+
+### 🚀 Enhancements
+
+- **backups:** Let an entry dump itself before a backup, and load after a restore ([1a3ae88](https://github.com/NamesMT/home-hosted/commit/1a3ae88))
+- **cli:** ⚠️  Drop `--config`, so a workspace's servers file has one home ([9cc8e03](https://github.com/NamesMT/home-hosted/commit/9cc8e03))
+- Dump/load hooks get a UI, and the load moves to the entry's start ([b110f2a](https://github.com/NamesMT/home-hosted/commit/b110f2a))
+- **release:** Let a breaking change ride a patch, when asked for by name ([be7a3d4](https://github.com/NamesMT/home-hosted/commit/be7a3d4))
+
+### 🩹 Fixes
+
+- **backups:** The staged load was recorded where nothing would read it ([89ba86a](https://github.com/NamesMT/home-hosted/commit/89ba86a))
+
+#### ⚠️ Breaking Changes
+
+- **cli:** ⚠️  Drop `--config`, so a workspace's servers file has one home ([9cc8e03](https://github.com/NamesMT/home-hosted/commit/9cc8e03))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.9.6
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.5...v0.9.6)
