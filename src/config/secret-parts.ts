@@ -10,7 +10,8 @@ export interface SecretPart {
   scope: SecretScope
 }
 
-const KNOWN: Record<SecretScope, string[]> = {
+/** Every secret this release knows about, set or not — the view lists the slots so a person sees one. */
+export const KNOWN_SECRET_KEYS: Record<SecretScope, string[]> = {
   global: ['password', 'apiToken'],
   workspace: ['telegram', 'ddns'],
 }
@@ -37,7 +38,7 @@ const EXTRA_FIELDS: Record<string, string[]> = { ddns: ['ddns', 'ddnsKdf'] }
  */
 export function secretParts(scope: SecretScope, present: string[]): SecretPart[] {
   const keys = new Set(present)
-  const known = KNOWN[scope]
+  const known = KNOWN_SECRET_KEYS[scope]
   const parts = known
     .filter(key => keys.has(key))
     .map(key => ({ key, fields: EXTRA_FIELDS[key] ?? [key], scope }))

@@ -3,7 +3,7 @@ import type { requestControl, Runtime } from '#src/helpers/daemon'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { createOfflineBackup } from '#src/cli/backup-offline'
-import { bold, dim, fail, green, invocation, prompt } from '#src/cli/io'
+import { bold, dim, fail, green, invocation, paint, prompt } from '#src/cli/io'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -47,7 +47,63 @@ interface PlanItem {
   note?: string | null
   /** The plan lists everything; this says whether the request selected it. */
   selected?: boolean
-  items?: Array<{ id: string, label?: string }>
+  items?: Array<{ id: string, label?: string, note?: string | null }>
+}
+
+/** One row of a plan: an id, and what the panel says about it. */
+interface PlanRow {
+  id: string
+  note?: string | null
+}
+
+/**
+ * Render plan ids as the tree they already are.
+ *
+ * Every id is a colon-separated path, so the hierarchy is in the data and the renderer's only job is
+ * to show it: one row per prefix, each one level deeper than its parent. Depth is whatever the id
+ * says, not a fixed number of columns — `workspace:default:secrets:telegram` sits three deep, and a
+ * renderer that assumed two printed it beside its own parent.
+ *
+ * Both directions print through this, and so does the "what could I act on" list, so the three read
+ * alike. A row's note is the panel's own wording, passed through untouched.
+ */
+function printPlanTree(rows: PlanRow[]): void {
+  const known = new Set(rows.map(row => row.id))
+  // Every prefix of every id, so a parent that is not itself a row still gets a line to hang under.
+  const nodes = new Map<string, { note: string | null, children: Set<string> }>()
+  const ensure = (id: string): { note: string | null, children: Set<string> } => {
+    const existing = nodes.get(id)
+    if (existing !== undefined)
+      return existing
+    const created = { note: null, children: new Set<string>() }
+    nodes.set(id, created)
+    return created
+  }
+  for (const row of rows) {
+    const segments = row.id.split(':')
+    // `workspace:<id>:data:/a/b` carries a path in its last segment; it is a leaf, not a branch.
+    for (let depth = 1; depth <= segments.length; depth++) {
+      const id = segments.slice(0, depth).join(':')
+      const node = ensure(id)
+      if (depth > 1)
+        ensure(segments.slice(0, depth - 1).join(':')).children.add(id)
+      if (depth === segments.length && known.has(row.id))
+        node.note = row.note ?? null
+    }
+  }
+
+  const roots = [...nodes.keys()].filter(id => !id.includes(':'))
+  const write = (id: string, depth: number): void => {
+    const node = nodes.get(id)
+    if (node === undefined)
+      return
+    const padding = '  '.repeat(depth)
+    process.stdout.write(`${padding}${depth === 1 ? '' : '- '}${id}${node.note === null ? '' : `  ${dim(`(${node.note})`)}`}\n`)
+    for (const child of node.children)
+      write(child, depth + 1)
+  }
+  for (const root of roots)
+    write(root, 1)
 }
 
 function human(bytes: number): string {
@@ -139,6 +195,14 @@ function parseScope(all: boolean, raw: string | undefined): Scope | null {
  * `kind` is deliberately not part of this: it is the panel's label for a row, not an id, and every id
  * the plan prints is already prefixed with it (`global:settings`, `workspace:default:servers`).
  */
+/** Flatten a nested plan into the rows the tree renders. */
+function flattenRows(rows: PlanItem[]): PlanRow[] {
+  return rows.flatMap(row => [
+    { id: row.id, note: row.note ?? null },
+    ...(row.items ?? []).map(leaf => ({ id: leaf.id, note: leaf.note ?? null })),
+  ])
+}
+
 function filterEntries<T extends { id: string, items?: Array<{ id: string }> }>(entries: T[], scope: Scope, exclude: string[] | undefined): T[] {
   const unwanted = exclude ?? []
   const excluded = (id: string): boolean => unwanted.some(entry => id === entry || id.startsWith(`${entry}:`))
@@ -188,11 +252,16 @@ function parseExclude(raw: string | undefined): string[] | undefined {
  * "home-hosted is not running". So the list is best-effort, and a failure to produce it is silent.
  */
 async function refuseWithoutScope(action: 'create' | 'restore', suffix: string): Promise<never> {
-  const ids = await availableIdsFor(action, suffix).catch(() => [] as string[])
-  const listed = ids.length === 0
-    ? ''
-    : `\n\navailable (or narrow it):\n${ids.map(id => `  ${id}`).join('\n')}\n\n--exclude <ids> leaves those out: --all --exclude global:secrets`
-  fail(`name what to act on — pass --include <ids> or --all${listed}`)
+  const rows = await availableRows(action, suffix).catch(() => [] as PlanItem[])
+  if (rows.length === 0)
+    fail('name what to act on — pass --include <ids> or --all')
+  // The same tree the plan uses, so all three outputs read alike: a flat list here was the one place
+  // the scopes and the nesting disappeared.
+  process.stderr.write(`${paint('31', 'error')} name what to act on — pass --include <ids> or --all\n\n`)
+  process.stderr.write('available (or narrow it):\n')
+  printPlanTree(flattenRows(rows))
+  process.stderr.write('\n--exclude <ids> leaves those out: --all --exclude global:secrets\n')
+  process.exit(1)
 }
 
 /**
@@ -201,14 +270,23 @@ async function refuseWithoutScope(action: 'create' | 'restore', suffix: string):
  * The refusal has to name real ids whether or not a panel is up — an empty list is the one answer
  * worse than no list, because it reads as "there is nothing to back up".
  */
-async function availableIdsFromDisk(): Promise<string[]> {
+async function availableRowsFromDisk(action: 'create' | 'restore', suffix: string): Promise<PlanItem[]> {
   try {
     const { service } = await offlineBackup()
     await service.warm()
-    const view = service.view()
-    // Leaves too, for both actions: an entry id is a coarse alias, and a person deciding what to
-    // back up needs to see that `global:secrets` can be left out on its own.
-    return view.entries.flatMap(entry => [entry.id, ...entry.items.map(item => item.id)])
+    if (action === 'create')
+      return service.view().entries as unknown as PlanItem[]
+    // A restore lists what the **archive** holds, not what this host declares. Reading the create
+    // view here named every slot on the machine — including ones the archive never carried — and
+    // marked them "(not set)", which is not a thing a restore can be missing.
+    const name = new URLSearchParams(suffix.startsWith('?') ? suffix.slice(1) : suffix).get('name')
+    if (name === null || name.length === 0)
+      return []
+    const archive = service.resolve(name)
+    if (archive === null)
+      return []
+    const plan = await service.restore(archive, { confirm: false })
+    return (plan.items ?? []).filter(item => item.selected !== false)
   }
   catch {
     return []
@@ -222,25 +300,21 @@ async function availableIdsFromDisk(): Promise<string[]> {
  * panel, so the list in a refusal is the real one rather than a hardcoded guess. A panel that cannot
  * be reached yields no ids — the refusal still fires, it just cannot enumerate.
  */
-async function availableIdsFor(action: 'create' | 'restore', suffix: string): Promise<string[]> {
+async function availableRows(action: 'create' | 'restore', suffix: string): Promise<PlanItem[]> {
   // Read the record directly rather than through `livePanel()`: a hint must not `fail()` the process
   // when the panel is down, and the caller turns an empty list into "nothing to list".
   const daemon = await import('#src/helpers/daemon')
   const runtime = daemon.readRuntime()
   if (runtime === null || !await daemon.runtimeIsAlive(runtime))
-    return await availableIdsFromDisk()
+    return await availableRowsFromDisk(action, suffix)
   const path = action === 'create' ? '/_hh/backups' : '/_hh/backups/restore'
   const answer = await daemon.requestControl(runtime, `${path}${suffix}`, 120000)
   if (answer === null || answer.status !== 200)
     return []
   const body = answer.body as { entries?: PlanItem[], items?: PlanItem[] } | null
-  // Leaves as well as entries, for both actions, and both sides: the panel carries them nested under
-  // `items`, so reading only the top level listed the coarse ids and hid what could be left out.
-  const plan = action === 'create' ? body?.entries : body?.items
-  return (plan ?? []).flatMap(item => [
-    item.id,
-    ...(item.items ?? []).map(leaf => leaf.id),
-  ]).filter((id): id is string => typeof id === 'string')
+  // The rows themselves, not just their ids: a refusal that lists what could be acted on should say
+  // the same things the plan does, `(not set)` included.
+  return action === 'create' ? (body?.entries ?? []) : (body?.items ?? [])
 }
 
 /** `?a=b`, or `''`. */
@@ -365,11 +439,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
       return
     }
     process.stdout.write(`${bold('Plan')} — what a backup would capture; nothing has been written yet\n`)
-    for (const entry of wanted) {
-      process.stdout.write(`  ${entry.id}${entry.note == null ? '' : `  ${dim(`(${entry.note})`)}`}\n`)
-      for (const item of entry.items ?? [])
-        process.stdout.write(`    ${dim('-')} ${item.id}\n`)
-    }
+    printPlanTree(flattenRows(wanted))
     if (wanted.length === 0) {
       process.stdout.write('  (nothing matched — check --include, or what the entries declare)\n')
       return
@@ -474,8 +544,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
 
   if (!options.json) {
     process.stdout.write(`${bold('Plan')} for ${options.name} — nothing has been written yet\n`)
-    for (const item of items)
-      process.stdout.write(`  ${item.id ?? item.label ?? ''}\n`)
+    printPlanTree(items.map(item => ({ id: item.id, note: item.note ?? null })))
     for (const warning of plan?.warnings ?? [])
       process.stdout.write(`  ${dim('!')} ${warning}\n`)
     if (items.length === 0) {

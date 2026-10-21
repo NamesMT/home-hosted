@@ -9,7 +9,7 @@ import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings } from '#src/config/parse'
-import { mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts } from '#src/config/secret-parts'
+import { KNOWN_SECRET_KEYS, mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts } from '#src/config/secret-parts'
 import { workspacesFileSchema } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
@@ -1444,19 +1444,37 @@ export class BackupService {
    */
   private secretItems(scope: SecretScope, entryId: string, path: string): BackupEntry['items'] {
     const present = presentSecretKeys(parseSecrets(readText(path) ?? ''))
-    if (present.length === 0)
-      return []
-    return secretParts(scope, present).map(part => ({
-      id: `${entryId}:${part.key}`,
-      label: SECRET_LABELS[part.key]?.en ?? part.key,
-      // A known secret gets a translated label and a hint saying what restoring it does;
-      // an unknown one reads as its own key, which is still better than hiding it.
-      ...(SECRET_LABELS[part.key] === undefined ? {} : { labelKey: SECRET_LABELS[part.key]!.key }),
-      kind: 'secrets' as const,
-      secret: part.key,
-      included: true,
-      note: null,
-    }))
+    const parts = secretParts(scope, present)
+    // Every slot this release knows is listed, set or not: "API token" is a feature the panel has
+    // whether or not one is minted, and hiding the row made its absence look like a missing feature
+    // rather than an unset value. An unknown key in the file is listed too, as its own name.
+    const known = KNOWN_SECRET_KEYS[scope]
+    const missing = known.filter(key => !parts.some(part => part.key === key))
+    return [
+      ...parts.map(part => ({
+        id: `${entryId}:${part.key}`,
+        label: SECRET_LABELS[part.key]?.en ?? part.key,
+        // A known secret gets a translated label and a hint saying what restoring it does;
+        // an unknown one reads as its own key, which is still better than hiding it.
+        ...(SECRET_LABELS[part.key] === undefined ? {} : { labelKey: SECRET_LABELS[part.key]!.key }),
+        kind: 'secrets' as const,
+        secret: part.key,
+        included: true,
+        note: null,
+      })),
+      ...missing.map(key => ({
+        id: `${entryId}:${key}`,
+        label: SECRET_LABELS[key]?.en ?? key,
+        ...(SECRET_LABELS[key] === undefined ? {} : { labelKey: SECRET_LABELS[key]!.key }),
+        kind: 'secrets' as const,
+        secret: key,
+        included: false,
+        // The same wording and the same key as a missing file: both mean "this release knows about
+        // it and there is nothing here yet". A second phrase for the same idea was the inconsistency.
+        note: 'not set',
+        noteKey: 'settings.backup.noteMissing',
+      })),
+    ]
   }
 
   private workspaceItems(workspace: BackupWorkspaceSource, includePaths: string[]): BackupEntry['items'] {
@@ -1581,7 +1599,7 @@ export class BackupService {
   }
 
   private missingNote(target: string): string | null {
-    return fs.existsSync(target) ? null : 'does not exist yet'
+    return fs.existsSync(target) ? null : 'not set'
   }
 
   /** Copies one source into the staging tree; false when there was nothing there. */

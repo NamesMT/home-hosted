@@ -34,9 +34,9 @@ describe('panelText', () => {
   })
 
   it('renders a note in the reader’s language, and keeps "no note" as null', async () => {
-    const missing = { note: 'does not exist yet', noteKey: 'settings.backup.noteMissing' }
+    const missing = { note: 'not set', noteKey: 'settings.backup.noteMissing' }
     await setLocale('vi')
-    expect(panelNote(missing)).toBe('chưa tồn tại')
+    expect(panelNote(missing)).toBe('chưa đặt')
     expect(panelNote({ note: null })).toBeNull()
   })
 

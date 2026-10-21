@@ -282,7 +282,16 @@ describe('backup service', () => {
       'workspace:default',
     ])
     expect(view.entries.slice(0, 3).map(entry => entry.kind)).toEqual(['settings', 'secrets', 'tls'])
-    expect(view.entries.slice(0, 3).every(entry => entry.items.length === 0)).toBe(true)
+    // `global:secrets` always lists the slots this release knows, set or not, so a person can see
+    // that an API token is a thing the panel has and is simply not set here. The other two carry no
+    // leaves: a settings file and a TLS pair are one item each.
+    expect(view.entries[0]!.items).toEqual([])
+    expect(view.entries[2]!.items).toEqual([])
+    expect(view.entries[1]!.items.map(item => item.id)).toEqual([
+      'global:secrets:password',
+      'global:secrets:apiToken',
+    ])
+    expect(view.entries[1]!.items.every(item => item.included === false)).toBe(true)
 
     const workspace = view.entries.find(entry => entry.id === 'workspace:default')!
     expect(workspace).toMatchObject({ kind: 'workspace', workspaceId: 'default' })
@@ -290,9 +299,14 @@ describe('backup service', () => {
       'workspace:default:settings',
       'workspace:default:servers',
       'workspace:default:secrets',
+      // The known slots, listed whether or not they hold a value.
+      'workspace:default:secrets:telegram',
+      'workspace:default:secrets:ddns',
       `workspace:default:data:${fixture.dataDir}`,
     ])
-    expect(workspace.items.filter(item => item.kind !== 'data').every(item => item.included)).toBe(true)
+    // The unset slots are not included; everything else here is.
+    expect(workspace.items.filter(item => item.kind !== 'data' && item.secret === undefined).every(item => item.included)).toBe(true)
+    expect(workspace.items.filter(item => item.secret !== undefined).every(item => item.included === false)).toBe(true)
   })
 
   it('lists a global include path as a data leaf of every workspace', async () => {
