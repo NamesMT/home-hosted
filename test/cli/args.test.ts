@@ -125,7 +125,7 @@ describe('resolveInvocation', () => {
     // `ui-switch --asset help` used to print the usage and install nothing.
     expect(resolveInvocation(['ui-switch', '--asset', 'help'], commands)).toEqual({ kind: 'command', argv: ['ui-switch', '--asset', 'help'] })
     expect(resolveInvocation(['ui-switch', '--tag', 'version'], commands)).toEqual({ kind: 'command', argv: ['ui-switch', '--tag', 'version'] })
-    expect(resolveInvocation(['up', '--config', 'help'], commands)).toEqual({ kind: 'command', argv: ['up', '--config', 'help'] })
+    expect(resolveInvocation(['up', '--port', 'help'], commands)).toEqual({ kind: 'command', argv: ['up', '--port', 'help'] })
   })
 })
 
@@ -138,7 +138,6 @@ describe('buildDaemonArgv', () => {
 
   it('forwards every flag the daemon needs', () => {
     expect(buildDaemonArgv({
-      config: '/state/servers.config.json',
       port: 4321,
       host: 'lan',
       autostart: false,
@@ -148,8 +147,6 @@ describe('buildDaemonArgv', () => {
     })).toEqual([
       'up',
       '--foreground',
-      '--config',
-      '/state/servers.config.json',
       '--port',
       '4321',
       '--host',

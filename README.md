@@ -375,7 +375,7 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 `home-hosted <command> --help` prints what that command takes.
 
 ```text
-up                -c/--config -p/--port --host --open --no-autostart --foreground --print-config
+up                -p/--port --host --open --no-autostart --foreground --print-config
 
 down              (no flags)
 status            --json
@@ -386,7 +386,7 @@ restart           [<id>] [-w/--workspace <id>]  (no id: the panel; with one: tha
 init              --dir --name --pm --no-install -y/--yes
 set-password      --clear
 set-token         --generate --clear
-migrate           --config --dry-run -y/--yes
+migrate           --dry-run -y/--yes
 ui-switch         --repo --tag --asset --file --list --token -y/--yes
 ui-update         --check --tag --asset --old --repo --token -y/--yes
 ui-revert         (no flags)
@@ -397,8 +397,7 @@ env vars          HHOSTED_PASSWORD, HHOSTED_MIGRATE=allow, HHOSTED_TOKEN, GITHUB
 
 `up` and `restart` share the same flags: bare `restart` is `down`, then `up` with exactly what it was
 given. Given a server id — `restart web` — it restarts only that entry, and the panel keeps running.
-`-c/--config` is the **default workspace's** servers file (`<state>/.hh/default/servers.config.json`),
-for a launcher that pins one; a workspace picked in the UI keeps its own. `start`/`stop` omit
+A workspace's entries always come from its own `servers.config.json`. `start`/`stop` omit
 `--workspace` to act in the panel's default workspace.
 
 A misspelled command or option names the one you meant — `home-hosted restar` answers

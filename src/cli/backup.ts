@@ -87,11 +87,9 @@ async function usesPanel(): Promise<boolean> {
 /**
  * The offline service.
  *
- * `--config` is an `up`-only flag: it is not written to settings, and `run.json`'s `configPath` is the
- * state directory, not a servers file. So an offline run cannot know about one, and reads the default
- * workspace's `servers.config.json` — the same file the panel reads when started without `--config`.
- * A `--config` project has to start the panel first, which is the honest limit rather than a silent
- * difference between the two paths.
+ * It reads the same files the panel does — every workspace's `settings.json` and
+ * `servers.config.json` under the state root — so an archive taken with the panel down holds what a
+ * running one would have captured.
  */
 async function offlineBackup(): Promise<OfflineBackup> {
   return createOfflineBackup()

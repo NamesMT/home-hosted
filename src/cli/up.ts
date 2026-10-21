@@ -16,7 +16,6 @@ import { versionMismatchNote } from '#src/helpers/version'
 const DEFAULT_PORT = 3999
 
 export const upArgs = {
-  config: { type: 'string', alias: 'c', description: 'the default workspace\'s servers config (default: <state>/.hh/default/servers.config.json)' },
   port: { type: 'string', alias: 'p', description: `control panel port (default: ${DEFAULT_PORT})` },
   host: { type: 'string', description: 'local | lan | an ipv4 address (default: local)' },
   autostart: { type: 'boolean', default: true, negativeDescription: 'do not start the entries marked autostart' },
@@ -26,7 +25,6 @@ export const upArgs = {
 } as const
 
 interface RawUpArgs {
-  config?: string
   port?: string
   host?: string
   autostart?: boolean
@@ -49,7 +47,6 @@ export function toUpFlags(args: RawUpArgs): UpFlags {
   }
 
   return {
-    config: args.config,
     port,
     host: args.host,
     autostart: args.autostart !== false,
@@ -67,7 +64,6 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
     // graph at all, and loading it costs ~1s of the parent's ~2.5s before the child even spawns.
     const { runControlPlane } = await import('#src/index')
     await runControlPlane({
-      configPath: flags.config,
       port: flags.port,
       host: flags.host,
       autostart: flags.autostart,

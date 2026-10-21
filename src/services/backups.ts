@@ -319,10 +319,10 @@ export function buildBackupSources(input: {
     registryPath: input.registryPath,
     includePaths: [...input.includePaths],
     ...(input.runningServers === undefined ? {} : { runningServers: input.runningServers }),
-    // Paths are **inputs**, not re-derived here: the panel resolves the default workspace's servers
-    // file through `defaultServersPath` (the `--config` flag), and a helper that assumes the default
-    // location archives a different file than the one the panel is running. Passing them through is
-    // what makes this a mapper rather than a second source of truth.
+    // Paths are **inputs**, not re-derived here: the panel answers with the paths its supervisor
+    // actually reads, and a helper that assumes the default locations could archive a different file
+    // than the one that is running. Passing them through is what makes this a mapper rather than a
+    // second source of truth.
     workspaces: input.workspaces.map(workspace => ({
       id: workspace.id,
       label: workspace.label,

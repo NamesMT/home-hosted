@@ -63,9 +63,9 @@ describe('the offline backup service', () => {
   /**
    * The archive's **contents**, not just that a file appeared.
    *
-   * Nothing asserted this, which is how an offline archive came to carry an empty `servers.config.json`
-   * for a `--config` project: the data was captured while the entry declaring it was not, and a restore
-   * would have written data nobody owns.
+   * Nothing asserted this, which is how an offline archive came to carry an empty `servers.config.json`:
+   * the data was captured while the entry declaring it was not, and a restore would have written data
+   * nobody owns.
    */
   it('archives the workspace config the panel would read, byte for byte', async () => {
     const home = makeHome([{ id: 'web', command: 'node', port: 8080 }])

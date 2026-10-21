@@ -98,10 +98,6 @@ Plan — what a backup would capture; nothing has been written yet
 Take this backup? [y/N]
 ```
 
-One limit: a project started with `up --config <file>` reads that file only while the panel runs. The
-flag is not written to any record, so an offline `backup` reads the default workspace's
-`servers.config.json` and would miss it — start the panel first for that shape.
-
 A restore writes a **lock** (`<state>/.hh/restore.lock`), taken by the service itself — so the panel's
 own restore and this one exclude each other, and neither two shells nor a shell and the page can write
 the same host at once. A lock left by a process that died is taken over; one held by a live process

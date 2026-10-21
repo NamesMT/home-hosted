@@ -68,7 +68,7 @@ describe('cli smoke', () => {
     for (const command of ['up', 'down', 'restart', 'status', 'logs', 'start', 'stop', 'set-password', 'set-token', 'migrate', 'init', 'ui-switch', 'ui-revert'])
       expect(help.stdout, command).toContain(command)
 
-    for (const flag of ['--config', '--port', '--host', '--open', '--no-autostart', '--foreground', '--print-config', '--home', '--project'])
+    for (const flag of ['--port', '--host', '--open', '--no-autostart', '--foreground', '--print-config', '--home', '--project'])
       expect(help.stdout, flag).toContain(flag)
 
     expect(help.stdout).toContain('Options for up/restart')
@@ -104,8 +104,10 @@ describe('cli smoke', () => {
     const up = runCli(['up', '--help'])
     expect(up.status).toBe(0)
     expect(up.stdout).toContain('home-hosted up [options]')
-    expect(up.stdout).toContain('--config')
+    expect(up.stdout).toContain('--port')
     expect(up.stdout).toContain('--foreground')
+    // `--config` is gone: `up` reads the default workspace's own servers file, always.
+    expect(up.stdout).not.toContain('--config')
     // A command with options must not leak another command's option-only text.
     expect(up.stdout).not.toContain('--pm')
     expect(up.stdout).not.toContain('--generate')
@@ -144,7 +146,18 @@ describe('cli smoke', () => {
     expect(down.status).toBe(0)
     expect(down.stdout).toContain('home-hosted down')
     expect(down.stdout).toContain('no options')
-    expect(down.stdout).not.toContain('--config')
+    // `--port` is `up`'s, so seeing it here would mean another command's section leaked.
+    expect(down.stdout).not.toContain('--port')
+  })
+
+  it('refuses a flag the command no longer takes, rather than ignoring it', () => {
+    // `--config` used to pin the default workspace's servers file for one process. It is gone:
+    // a value that silently did nothing would leave a launcher supervising the wrong entries.
+    for (const argv of [['up', '--config', 'pinned.json'], ['up', '-c', 'pinned.json'], ['migrate', '-c', 'pinned.json']]) {
+      const result = runCli(argv)
+      expect(result.status, argv.join(' ')).toBe(1)
+      expect(result.stderr, argv.join(' ')).toContain('Unknown option')
+    }
   })
 
   it('an unknown command exits 1 with the usage and the old wording', () => {

@@ -99,10 +99,8 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
   const ids = workspaces.map(workspace => workspace.id)
 
   // Each workspace's servers are read from its config, which is the only thing the source builder
-  // needs beyond the id — no supervisor, no runtime.
-  // The default workspace's servers file. A `--config` override is an `up`-only flag with no record
-  // on disk, so it cannot be honoured here; the doc says so rather than the two paths diverging
-  // silently.
+  // needs beyond the id — no supervisor, no runtime. The paths are the ones the panel's own stores
+  // read, so a stopped panel cannot archive a different file than a running one.
   const loaded = workspaces.map((workspace) => {
     const dir = path.join(hhDir, workspace.id)
     const settingsPath = path.join(dir, 'settings.json')

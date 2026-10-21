@@ -63,8 +63,6 @@ function packageVersion(): string {
 }
 
 export interface ControlPlaneOptions {
-  /** `--config`, or the default workspace's `servers.config.json`. */
-  configPath?: string
   /** One-off overrides, persisted only after every guard below passes. */
   port?: number
   host?: string
@@ -201,7 +199,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     logger.warn(trustWarning)
 
   if (options.printConfig) {
-    printEffectiveConfig(settings, registry, options)
+    printEffectiveConfig(settings, registry)
     return
   }
 
@@ -299,7 +297,6 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     control: () => controlServer.endpoint,
     proxy: () => proxy,
     autostart: options.autostart,
-    ...(options.configPath === undefined ? {} : { defaultServersPath: options.configPath }),
   })
 
   // A workspace's files are configs like any other, so a bad one refuses the
@@ -436,7 +433,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
 }
 
 /** `--print-config`: the global settings and every workspace, without starting anything. */
-function printEffectiveConfig(settings: GlobalSettingsStore, registry: WorkspaceRegistry, options: ControlPlaneOptions): void {
+function printEffectiveConfig(settings: GlobalSettingsStore, registry: WorkspaceRegistry): void {
   const workspaces = registry.all().map((workspace) => {
     const dir = path.join(hhDir, workspace.id)
     const read = (name: string): unknown => {
@@ -447,17 +444,7 @@ function printEffectiveConfig(settings: GlobalSettingsStore, registry: Workspace
         return null
       }
     }
-    const serversFile = workspace.id === registry.defaultId && options.configPath !== undefined
-      ? options.configPath
-      : path.join(dir, 'servers.config.json')
-    let servers: unknown = null
-    try {
-      servers = JSON.parse(fs.readFileSync(serversFile, 'utf8'))
-    }
-    catch {
-      servers = null
-    }
-    return { id: workspace.id, label: workspace.label, settings: read('settings.json'), servers }
+    return { id: workspace.id, label: workspace.label, settings: read('settings.json'), servers: read('servers.config.json') }
   })
 
   process.stdout.write(`${JSON.stringify({ settings: settings.rawConfig, workspaces }, null, 2)}\n`)

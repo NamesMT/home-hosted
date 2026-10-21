@@ -209,7 +209,6 @@ export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined)
 }
 
 export interface UpFlags {
-  config?: string
   port?: number
   host?: string
   autostart: boolean
@@ -225,8 +224,6 @@ export interface UpFlags {
  */
 export function buildDaemonArgv(flags: UpFlags): string[] {
   const args: string[] = ['up', '--foreground']
-  if (flags.config !== undefined)
-    args.push('--config', flags.config)
   if (flags.port !== undefined)
     args.push('--port', String(flags.port))
   if (flags.host !== undefined)

@@ -24,7 +24,6 @@ import { isRecord } from '#src/shared/shape'
  */
 
 export const migrateArgs = {
-  config: { type: 'string', alias: 'c', description: 'the default workspace\'s servers config (default: <state>/.hh/default/servers.config.json)' },
   dryRun: { type: 'boolean', description: 'print what would change, write nothing' },
   yes: { type: 'boolean', alias: 'y', description: 'apply without asking (or set HHOSTED_MIGRATE=allow)' },
 } as const
@@ -36,7 +35,7 @@ interface Target {
 }
 
 /** Every file a migration may have to stamp, and how this release reads it. */
-function targets(configOverride?: string): Target[] {
+function targets(): Target[] {
   const list: Target[] = [
     {
       file: globalSettingsPath,
@@ -57,7 +56,7 @@ function targets(configOverride?: string): Target[] {
       validate: raw => parseWorkspaceSettings(raw).errors[0] ?? null,
     })
     list.push({
-      file: workspace.id === registry.defaultId && configOverride !== undefined ? configOverride : workspaceServersPath(workspace.id),
+      file: workspaceServersPath(workspace.id),
       label: `workspace ${workspace.id} servers`,
       validate: (raw) => {
         // The defaults live in the workspace settings; an absent one reads as schema defaults.
@@ -81,8 +80,8 @@ function targets(configOverride?: string): Target[] {
   return list
 }
 
-export async function runMigrate(config: string | undefined, dryRun: boolean, yes: boolean): Promise<void> {
-  const files = targets(config)
+export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
+  const files = targets()
   const existing = files.filter(target => fs.existsSync(target.file))
   if (existing.length === 0)
     fail(`no home-hosted state to migrate — nothing at ${globalSettingsPath} or any workspace`)
@@ -183,6 +182,6 @@ export const migrateCommand = defineCommand({
   meta: { name: 'migrate' },
   args: migrateArgs,
   run: async ({ args }) => {
-    await runMigrate(args.config, args.dryRun === true, args.yes === true)
+    await runMigrate(args.dryRun === true, args.yes === true)
   },
 })

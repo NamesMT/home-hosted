@@ -87,7 +87,6 @@ const OPTION_WIDTH = 21
 const UP_SECTION: OptionSection = {
   heading: 'Options for up/restart',
   lines: [
-    ['-c, --config <file>', 'default workspace servers config (default: <state>/.hh/default/servers.config.json)'],
     ['-p, --port <port>', 'control panel port (default: 3999)'],
     ['--host <bind>', 'local | lan | an ipv4 address (default: local)'],
     ['--open', 'open the panel in a browser once it is up'],
@@ -165,7 +164,6 @@ const SET_TOKEN_SECTION: OptionSection = {
 const MIGRATE_SECTION: OptionSection = {
   heading: 'Options for migrate',
   lines: [
-    ['-c, --config <file>', 'one config file to migrate (default: every file this state root owns)'],
     ['--dry-run', 'print what would change, write nothing'],
     ['-y, --yes', 'apply without asking (or set HHOSTED_MIGRATE=allow)'],
   ],

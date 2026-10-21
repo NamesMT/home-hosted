@@ -69,7 +69,6 @@ async function makeHarness(options: {
   /** A real proxy service, so the frame carries one. */
   withProxy?: boolean
   autostart?: boolean
-  defaultServersPath?: string
 } = {}): Promise<Harness> {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-panel-'))
   dirs.push(dir)
@@ -167,7 +166,6 @@ async function makeHarness(options: {
     control: () => control,
     proxy: () => proxyService,
     autostart: options.autostart ?? false,
-    ...(options.defaultServersPath === undefined ? {} : { defaultServersPath: options.defaultServersPath }),
   })
   panelRef = panel
 
@@ -802,21 +800,18 @@ describe('panelService', () => {
     }
   })
 
-  it('honours defaultServersPath for the default workspace only', async () => {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-panel-cfg-'))
-    dirs.push(dir)
-    const pinned = path.join(dir, 'pinned.json')
-    fs.writeFileSync(pinned, JSON.stringify({ servers: [] }, null, 2))
-
+  it('gives every workspace its own servers file under the state root', async () => {
     const { panel, dispose } = await makeHarness({
       workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],
-      defaultServersPath: pinned,
     })
 
     try {
-      // `--config` pins the default workspace's file; another workspace keeps its own.
-      expect(panel.requireWorkspace('default').store.path).toBe(pinned)
-      expect(panel.requireWorkspace('staging').store.path).not.toBe(pinned)
+      // One file per workspace, always at its own path: `up` takes no override, so the file the
+      // panel supervises is the file a hand edit, a restore and an offline backup all read.
+      const { workspaceServersPath } = await import('#src/helpers/paths')
+      for (const id of ['default', 'staging'])
+        expect(panel.requireWorkspace(id).store.path).toBe(workspaceServersPath(id))
+      expect(panel.requireWorkspace('default').store.path).not.toBe(panel.requireWorkspace('staging').store.path)
     }
     finally {
       await dispose()

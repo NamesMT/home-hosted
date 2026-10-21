@@ -76,8 +76,6 @@ export interface PanelServiceOptions {
   proxy: () => ProxyService | null
   /** `--no-autostart` still means "start nothing on your own", reloads included. */
   autostart: boolean
-  /** `--config`: the default workspace's servers file, for a launcher that pins one. */
-  defaultServersPath?: string
 }
 
 const TICK_MS = 1000
@@ -237,8 +235,7 @@ export class PanelService {
       workspaces: this.workspaces().map(runtime => ({
         id: runtime.id,
         label: runtime.label,
-        // The runtime's own paths, not the defaults: `--config` gives the default workspace a
-        // different servers file, and it is the one this panel is supervising.
+        // The runtime's own paths, never ones re-derived from the module constants.
         settingsPath: runtime.store.settingsPath,
         serversPath: runtime.store.path,
         secretsPath: runtime.secrets.path,
@@ -385,13 +382,7 @@ export class PanelService {
     const id = workspace.id
     fs.mkdirSync(workspaceDir(id), { recursive: true })
 
-    const store = new WorkspaceStore(
-      id,
-      workspaceSettingsPath(id),
-      id === this.options.registry.defaultId && this.options.defaultServersPath !== undefined
-        ? this.options.defaultServersPath
-        : workspaceServersPath(id),
-    )
+    const store = new WorkspaceStore(id, workspaceSettingsPath(id), workspaceServersPath(id))
     store.load()
     store.writeJsonSchema()
 
