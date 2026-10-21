@@ -54,10 +54,11 @@ Where knowledge lives, and when to reach for each:
 (`Ignored build scripts: …`). Keep the file's own comments explaining why each entry is there.
 
 ```sh
-pnpm run up|down|restart|status    # detached; `down` asks /_hh/shutdown and signals only a pid whose
-                                   # identity it confirmed; `restart <id>` restarts one server, panel up
+pnpm run cli <command>             # any command, against state in .dev-state/ — never ~/.home-hosted
+pnpm run cli backup list           # e.g. `pnpm run cli <anything the CLI takes>`
+pnpm run up|down|restart|status    # shorthand for the four most-used; detached, and `down` asks
+                                   # /_hh/shutdown and signals only a pid whose identity it confirmed
 pnpm run start                     # up --foreground (systemd, docker, a foreground shell)
-pnpm exec tsx src/cli.ts logs      # the panel's own console output (--lines, --follow, --json)
 pnpm dev                           # tsx-watch panel :6000 + the stock UI's Vite :6001, state in .dev-state/
 pnpm dev --ui noc-console          # the same, for another UI; --port/--ui-port override
 pnpm dev --home /tmp/hh-dev        # state elsewhere; HHOSTED_HOME is IGNORED here, and the real
@@ -71,9 +72,9 @@ pnpm exec vitest run               # `pnpm test` is vitest in watch mode
 pnpm run check                     # ← THE GATE: quickcheck + vitest run --coverage. Run before every
                                    #   push — CI's `test.yml` is `pnpm test --coverage`, so an area floor
                                    #   failing there fails the push while `quickcheck` stays green.
-pnpm run set-password              # non-interactive through HHOSTED_PASSWORD
-pnpm run set-token                 # --generate prints a new API token once
-pnpm run migrate                   # bring the config up to this release's schema
+pnpm run cli set-password          # non-interactive through HHOSTED_PASSWORD
+pnpm run cli set-token --generate  # print a new API token once
+pnpm run cli migrate               # bring the config up to this release's schema
 pnpm exec tsx src/cli.ts init      # scaffold a project (interactive; --yes for defaults)
 pnpm run media                     # regenerate docs/media; needs `pnpm exec playwright install chromium`
                                    #   once (browser only; `gif` alone does not)

@@ -168,6 +168,10 @@ Worked example, with per-server data inside the project:
 
 <sub>Call them as `pnpm run up` — `pnpm up` is pnpm's own update, not your script.</sub>
 
+<sub>Working **on** this repo? Its own scripts keep state in `.dev-state/`, so trying a change cannot
+touch an installed panel: `pnpm run up|down|status|restart` are shorthand, and `pnpm run cli <command>`
+runs anything else the CLI takes — `pnpm run cli backup list`.</sub>
+
 > [!TIP]
 > Recommended to give a project its own panel port (`control.port`, e.g. `4399`), to avoid port conflict
 > with other projects.
