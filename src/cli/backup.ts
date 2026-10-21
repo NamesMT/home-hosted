@@ -1,12 +1,9 @@
 import type { OfflineBackup } from '#src/cli/backup-offline'
 import type { requestControl, Runtime } from '#src/helpers/daemon'
-import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { createOfflineBackup } from '#src/cli/backup-offline'
 import { bold, dim, fail, green, invocation, prompt } from '#src/cli/io'
-import { hhDir } from '#src/helpers/paths'
-import { acquireRestoreLock } from '#src/helpers/restore-lock'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -402,12 +399,9 @@ export async function runBackupRestore(options: { name: string, password?: strin
   if (!options.confirm && !await consent(`Restore these ${items.length} item(s) over this host?`))
     return
 
-  // One restore at a time: two interleaved writes replace each other's files. The lock covers both
-  // paths, so an offline restore also excludes the panel's own.
-  const lock = acquireRestoreLock(hhDir)
-  if ('heldBy' in lock)
-    fail(`another restore is running (pid ${lock.heldBy.pid}, since ${new Date(lock.heldBy.startedAt).toISOString()}) — wait for it, or remove ${path.join(hhDir, 'restore.lock')} if it is stale`)
-  try {
+  // No lock here: `BackupService.restore` takes it on apply, so this path and the panel's both get
+  // it from one place. A second guard here would be the third implementation of the same rule.
+  {
     const applied = await (async (): Promise<PlanItem[]> => {
       if (service !== null) {
         const archive = service.resolve(options.name)!
@@ -442,9 +436,6 @@ export async function runBackupRestore(options: { name: string, password?: strin
       process.stdout.write(`  ${dim('!')} ${warning}\n`)
     if (service !== null)
       process.stdout.write(dim(`the panel is not running, so nothing was reloaded — the next \`${invocation()} up\` reads what was restored\n`))
-  }
-  finally {
-    lock.release()
   }
 }
 

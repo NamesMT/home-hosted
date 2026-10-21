@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
+import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings } from '#src/config/parse'
@@ -14,6 +15,7 @@ import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
 import { logger } from '#src/helpers/logger'
 import { projectDir, resolveUserPath } from '#src/helpers/paths'
+import { acquireRestoreLock } from '#src/helpers/restore-lock'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
@@ -697,6 +699,27 @@ export class BackupService {
    * archive's manifest alone.
    */
   async restore(archivePath: string, options: RestoreOptions): Promise<RestorePlan> {
+    // An **apply** takes the lock here, so every caller has it: the panel's route, its local control
+    // channel, and the CLI working with no panel at all. A dry run writes nothing and needs none.
+    // Holding it any higher up was three separate guards, and one of them was always going to be
+    // forgotten — which is exactly what happened to the panel's own route.
+    const lock = options.confirm ? acquireRestoreLock(this.options.dataRoot) : null
+    if (lock !== null && 'heldBy' in lock) {
+      throw new DetailedError(
+        `another restore is running (pid ${lock.heldBy.pid}, since ${new Date(lock.heldBy.startedAt).toISOString()}) — wait for it, or remove ${path.join(this.options.dataRoot, 'restore.lock')} if it is stale`,
+        { statusCode: 409, code: 'RESTORE_IN_PROGRESS' },
+      )
+    }
+    try {
+      return await this.applyRestore(archivePath, options)
+    }
+    finally {
+      if (lock !== null && !('heldBy' in lock))
+        lock.release()
+    }
+  }
+
+  private async applyRestore(archivePath: string, options: RestoreOptions): Promise<RestorePlan> {
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
     // The two structured lists are optional on the wire (a new UI reads an older panel), but this
     // side always fills them, so it builds them as required.
