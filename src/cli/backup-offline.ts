@@ -124,14 +124,3 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
 
   return { service, workspaceIds: ids, runningNow: () => runningFromDisk(ids) }
 }
-
-/** True when a panel is answering, which decides whether the CLI talks to it or works alone. */
-export async function panelIsUp(): Promise<boolean> {
-  const daemon = await import('#src/helpers/daemon')
-  const runtime = daemon.readRuntime()
-  if (runtime === null)
-    return false
-  if (!await daemon.runtimeIsAlive(runtime))
-    return false
-  return (await daemon.probeRuntime(runtime)).reachable
-}
