@@ -1702,3 +1702,55 @@ describe('retrying a certificate on the only route', () => {
     expect(load, 'nothing may be posted before the refusal').not.toHaveBeenCalled()
   })
 })
+
+/**
+ * `applied.json` may now record `null` for a port the rendered document did not bind — that is what
+ * makes the preflight's witness honest. Both write sites and the URL the page advertises have to
+ * agree with it, or the record says one thing and the panel another.
+ */
+describe('the applied record and the ports it claims', () => {
+  /** A `tls: 'off'`-only table: the render binds the HTTP port and no HTTPS listener. */
+  function plainOnly() {
+    return config({
+      enabled: true,
+      httpPort: 18080,
+      httpsPort: 18443,
+      routes: [{ id: 'plain', host: 'a.example.com', tls: 'off', target: 'external', url: 'http://127.0.0.1:3000', enabled: true }],
+    })
+  }
+
+  it('records the ports the document binds, not the configured pair', async () => {
+    const { service, options } = await harness()
+    vi.spyOn(service, 'config', 'get').mockReturnValue(plainOnly())
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    // `start()` reaches the record after the engine answers; stop before the spawn and drive the
+    // same helper it does, which is the line that was wrong.
+    const rendered = (service as unknown as { render: () => Record<string, unknown> }).render()
+    ;(service as unknown as { recordApplied: (r: Record<string, unknown>) => void }).recordApplied(rendered)
+
+    const record = JSON.parse(fs.readFileSync(path.join(options.stateDir, 'applied.json'), 'utf8')) as { httpPort: number | null, httpsPort: number | null }
+    expect(record.httpPort, 'the HTTP port is bound').toBe(18080)
+    expect(record.httpsPort, 'a tls:off-only table binds no HTTPS listener').toBeNull()
+  })
+
+  it('advertises no URL for a port the record says is unbound', async () => {
+    const { service, options } = await harness()
+    vi.spyOn(service, 'config', 'get').mockReturnValue(plainOnly())
+    fs.mkdirSync(options.stateDir, { recursive: true })
+    fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: 18080, httpsPort: null, at: Date.now() }))
+
+    const urls = service.status().urls
+    expect(urls).toContain('http://127.0.0.1:18080')
+    expect(urls, 'nothing listens on the HTTPS port, so a link there refuses').not.toContain('https://127.0.0.1:18443')
+  })
+
+  it('still falls back to the configured ports when there is no record at all', async () => {
+    const { service, options } = await harness()
+    vi.spyOn(service, 'config', 'get').mockReturnValue(plainOnly())
+    fs.rmSync(path.join(options.stateDir, 'applied.json'), { force: true })
+
+    // No record means the engine has not said; the configured pair is the honest guess.
+    expect(service.status().urls).toContain('http://127.0.0.1:18080')
+    expect(service.status().urls).toContain('https://127.0.0.1:18443')
+  })
+})

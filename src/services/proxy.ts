@@ -879,14 +879,25 @@ export class ProxyService {
     if (!config.enabled)
       return base
 
-    // The ports the engine bound, not the ones the settings now ask for: a reload
-    // the engine rejected leaves it serving on what it already had.
+    // The ports the engine bound, not the ones the settings now ask for: a reload the engine
+    // rejected leaves it serving on what it already had.
+    //
+    // Three states, and `??` conflated two of them: no record at all (fall back to what is
+    // configured, the engine has not said), and a record whose port is `null` — "the document did
+    // not bind it", which must advertise **no** URL rather than the configured one. The page links
+    // these, so a substituted port is a link that refuses.
     const applied = this.readApplied()
-    const httpPort = applied?.httpPort ?? config.httpPort
-    const httpsPort = applied?.httpsPort ?? config.httpsPort
-    // 127.0.0.1 rather than `localhost`: the engine listens on IPv4, and a resolver
-    // that answers ::1 first makes a working engine look dead.
-    const urls = [`http://127.0.0.1:${httpPort}`, `https://127.0.0.1:${httpsPort}`]
+    const boundPortsNow = (port: number | null | undefined, configured: number): number | null =>
+      port === undefined ? configured : port
+    // 127.0.0.1 rather than `localhost`: the engine listens on IPv4, and a resolver that answers
+    // ::1 first makes a working engine look dead.
+    const urls: string[] = []
+    const httpPort = boundPortsNow(applied === null ? undefined : applied.httpPort, config.httpPort)
+    if (httpPort !== null)
+      urls.push(`http://127.0.0.1:${httpPort}`)
+    const httpsPort = boundPortsNow(applied === null ? undefined : applied.httpsPort, config.httpsPort)
+    if (httpsPort !== null)
+      urls.push(`https://127.0.0.1:${httpsPort}`)
     const certExpiryDays = this.certificateExpiryDays()
     if (!this.installed())
       return { ...base, state: 'stopped', urls, certExpiryDays, lastError: 'the proxy engine is not installed' }
@@ -1033,10 +1044,7 @@ export class ProxyService {
     // Only now is this the configuration: the file the engine boots from must never
     // hold a revision it refused.
     this.rememberConfig(text)
-    // What the document actually listens on, not what was configured: a down upstream or a
-    // `tls: 'off'`-only table means some configured port is not bound.
-    const bound = boundPorts(rendered)
-    this.rememberApplied(bound.includes(this.config.httpPort) ? this.config.httpPort : null, bound.includes(this.config.httpsPort) ? this.config.httpsPort : null)
+    this.recordApplied(rendered)
     // The reload is also what makes the engine forget a name it no longer serves, so
     // this is the moment its stored certificate for that name is safe to drop.
     const swept = this.sweepUnroutedCertificates()
@@ -1131,6 +1139,23 @@ export class ProxyService {
     catch {
       return null
     }
+  }
+
+  /**
+   * Records what the engine is now bound to, derived from the document it was given.
+   *
+   * One implementation for both write sites (`apply()` and `start()`): a `tls: 'off'`-only table
+   * binds no HTTPS listener, and a table with nothing servable binds neither, so a configured port
+   * the document did not bind is recorded as `null` rather than claimed. The preflight reads this
+   * record as its witness, so a wrong number here admits a stranger standing on that port.
+   */
+  private recordApplied(rendered: Record<string, unknown>): void {
+    const bound = boundPorts(rendered)
+    const config = this.config
+    this.rememberApplied(
+      bound.includes(config.httpPort) ? config.httpPort : null,
+      bound.includes(config.httpsPort) ? config.httpsPort : null,
+    )
   }
 
   private rememberApplied(httpPort: number | null, httpsPort: number | null): void {
@@ -1691,7 +1716,7 @@ export class ProxyService {
       this.lastError = failure
       throw new DetailedError(failure, { statusCode: 502, code: 'ENGINE_NOT_READY' })
     }
-    this.rememberApplied(config.httpPort, config.httpsPort)
+    this.recordApplied(rendered)
     this.lastError = null
     logger.info(`proxy:    ${this.engine.info.label} serving on :${this.config.httpPort} and :${this.config.httpsPort}`)
     this.options.onStateChange()
