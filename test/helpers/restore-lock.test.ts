@@ -100,21 +100,32 @@ describe('the restore lock', () => {
     }
   })
 
-  it('does not trust a recycled pid whose birth time differs', async () => {
+  /**
+   * A pid the OS recycled must not be mistaken for the holder.
+   *
+   * The record carries the holder's own birth time, so a pid whose birth differs is a different
+   * process however alive it is. Only Linux reports a birth time; elsewhere the check cannot run, so
+   * this asserts the platform's honest answer rather than pretending everyone can.
+   */
+  it('does not trust a recycled pid whose birth time differs', () => {
     const dir = makeDir()
-    // A live child, but the record claims it started hours earlier: the pid was recycled.
     const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', detached: true })
     child.unref()
     const pid = child.pid!
     try {
-      fs.writeFileSync(path.join(dir, 'restore.lock'), `${JSON.stringify({ pid, startedAt: Date.now() - 3_600_000, action: 'restore' })}\n`)
+      const realBirth = processBirthSync(pid)
+      if (realBirth === null) {
+        // No birth time on this platform: the cautious answer keeps the lock for a live pid.
+        fs.writeFileSync(path.join(dir, 'restore.lock'), `${JSON.stringify({ pid, startedAt: Date.now(), action: 'restore', birthAt: null })}\n`)
+        const kept = acquireRestoreLock(dir)
+        expect('heldBy' in kept, 'without a birth time a live pid is taken as a live holder').toBe(true)
+        return
+      }
+      // The record claims a birth hours earlier in the same second-long window it would expect:
+      // same pid, different process.
+      fs.writeFileSync(path.join(dir, 'restore.lock'), `${JSON.stringify({ pid, startedAt: Date.now(), action: 'restore', birthAt: realBirth - 3_600_000 })}\n`)
       const taken = acquireRestoreLock(dir)
-      // Linux only answers a birth time; elsewhere the cautious answer keeps the lock, which is
-      // why this asserts per platform rather than always taking over.
-      if (process.platform === 'linux')
-        expect('heldBy' in taken, 'a recycled pid is not the holder').toBe(false)
-      else
-        expect('heldBy' in taken).toBe(true)
+      expect('heldBy' in taken, 'a recycled pid is not the holder').toBe(false)
       if (!('heldBy' in taken))
         taken.release()
     }
