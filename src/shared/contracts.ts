@@ -1377,17 +1377,25 @@ export const hostDiskSchema = type({
 })
 
 export const hostViewSchema = type({
-  enabled: 'boolean',
-  cpus: 'number',
-  loadAvg: type('number[]'),
-  uptimeMs: 'number',
-  memoryUsedPercent: 'number',
-  swapUsedPercent: 'number',
-  tempCelsius: 'number | null',
-  disks: hostDiskSchema.array(),
+  'enabled': 'boolean',
+  'cpus': 'number',
+  'loadAvg': type('number[]'),
+  /**
+   * Share of this machine's CPU capacity in use over the last sampling interval, 0–100.
+   *
+   * Optional: an older panel sends no such field, and a required one rejects the whole frame and
+   * blanks the UI that panel is serving. `null` on the first sample, which has no window to
+   * measure yet — a number there would be invented.
+   */
+  'cpuUsedPercent?': 'number | null',
+  'uptimeMs': 'number',
+  'memoryUsedPercent': 'number',
+  'swapUsedPercent': 'number',
+  'tempCelsius': 'number | null',
+  'disks': hostDiskSchema.array(),
   /** Human readable threshold breaches, for the banner and notifications. */
-  alerts: type('string[]'),
-  sampledAt: 'number | null',
+  'alerts': type('string[]'),
+  'sampledAt': 'number | null',
 })
 export type HostView = typeof hostViewSchema.infer
 

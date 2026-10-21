@@ -11,24 +11,30 @@ const host = computed(() => control.host.value)
 const disks = computed(() => host.value?.disks ?? [])
 const alerts = computed(() => host.value?.alerts ?? [])
 const load = computed(() => (host.value ? loadPerCpu(host.value.loadAvg, host.value.cpus) : null))
+/** The real percentage. Load is a count of runnable tasks, so it is never shown as one. */
+const cpuUsed = computed(() => host.value?.cpuUsedPercent ?? null)
 
 const SERIES = 60
+const cpuSeries = ref<number[]>([])
 const loadSeries = ref<number[]>([])
 const memSeries = ref<number[]>([])
+
+/** One entry per host sample, so a chart's x-axis is the sampling interval, not the render rate. */
+function pushCapped(series: number[], value: number | null | undefined): void {
+  if (value === null || value === undefined || !Number.isFinite(value))
+    return
+  series.push(value)
+  if (series.length > SERIES)
+    series.shift()
+}
 
 watch(() => host.value?.sampledAt, () => {
   const view = host.value
   if (!view)
     return
-  const next = view.loadAvg[0]
-  if (next !== undefined) {
-    loadSeries.value.push(next)
-    if (loadSeries.value.length > SERIES)
-      loadSeries.value.shift()
-  }
-  memSeries.value.push(view.memoryUsedPercent)
-  if (memSeries.value.length > SERIES)
-    memSeries.value.shift()
+  pushCapped(cpuSeries.value, view.cpuUsedPercent)
+  pushCapped(loadSeries.value, view.loadAvg[0])
+  pushCapped(memSeries.value, view.memoryUsedPercent)
 }, { immediate: true })
 
 function diskTone(percent: number): 'ok' | 'warn' | 'danger' {
@@ -39,11 +45,16 @@ function diskTone(percent: number): 'ok' | 'warn' | 'danger' {
   return 'ok'
 }
 
+/**
+ * Load is a *count* of runnable tasks, not a share: `1.00` is one core's worth, and on a 24-core
+ * host that is nothing. The old bands painted that red. The bands now follow the configured alert
+ * threshold (default 2/cpu), which is the number the panel itself notifies on.
+ */
 const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
   const value = load.value ?? 0
-  if (value >= 1)
+  if (value >= 2)
     return 'danger'
-  if (value >= 0.7)
+  if (value >= 1.4)
     return 'warn'
   return 'accent'
 })
@@ -69,6 +80,15 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
     </p>
 
     <div class="metrics">
+      <div class="metric">
+        <div class="metric__k">
+          cpu
+        </div>
+        <div class="metric__v">
+          {{ cpuUsed === null ? '—' : `${cpuUsed.toFixed(0)}%` }}
+        </div>
+        <Sparkline :values="cpuSeries" color="var(--accent)" :width="120" :height="20" :max="100" />
+      </div>
       <div class="metric">
         <div class="metric__k">
           load 1m

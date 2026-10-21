@@ -87,6 +87,9 @@ const cpuValues = computed(() => series.value.cpu)
 const rssValues = computed(() => series.value.rss)
 const probeValues = computed(() => series.value.probe)
 
+/** As in `ServerCard`: CPU sums the tree across cores, so the ceiling is the whole machine. */
+const cpuCeiling = computed(() => Math.max(100, (control.host.value?.cpus ?? 1) * 100))
+
 const uptime = computed(() => {
   const value = server.value
   if (!value || value.startedAt === null || value.status !== 'running')
@@ -353,7 +356,7 @@ const SECTIONS = [
         </p>
       </template>
       <div class="grid gap-4 sm:grid-cols-3">
-        <MetricSpark :label="t('common.cpu')" :values="cpuValues" :format="formatCpuPercent" :max="100" color-class="text-cpu" :height="40" />
+        <MetricSpark :label="t('common.cpu')" :values="cpuValues" :format="formatCpuPercent" :max="cpuCeiling" color-class="text-cpu" :height="40" />
         <MetricSpark :label="t('views.serverDetail.memoryRss')" :values="rssValues" :format="formatBytesShort" color-class="text-mem" :height="40" />
         <MetricSpark :label="t('views.serverDetail.healthProbe')" :values="probeValues" :format="v => (v === null ? '—' : `${v} ms`)" color-class="text-probe" :height="40" />
       </div>

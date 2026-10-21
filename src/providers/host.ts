@@ -105,6 +105,60 @@ export async function readSwapUsedPercent(): Promise<number> {
 }
 
 /**
+ * Cumulative CPU time across every core, split into the two halves a utilisation reading needs.
+ *
+ * `os.cpus()` is the only CPU source common to Linux, macOS and Windows, and each entry is a
+ * cumulative* counter since boot — so a percentage is the delta between two snapshots, never a
+ * single read. One core busy for the whole window is 100%; all 8 cores busy is 800%, which is why
+ * the per-core figure and the machine-wide figure are not interchangeable.
+ */
+export interface CpuTimes {
+  /** Milliseconds of CPU time spent doing anything but idling, every core summed. */
+  busyMs: number
+  /** Milliseconds of CPU time across every core, idle included. */
+  totalMs: number
+}
+
+export function cpuTimesSnapshot(cpus = os.cpus()): CpuTimes {
+  let busyMs = 0
+  let totalMs = 0
+  for (const cpu of cpus) {
+    const times = cpu.times
+    const idle = times.idle
+    // `irq`/`nice` are absent on some platforms' `os.cpus()`; an absent field is zero.
+    const busy = times.user + (times.nice ?? 0) + times.sys + (times.irq ?? 0)
+    busyMs += busy
+    totalMs += busy + idle
+  }
+  return { busyMs, totalMs }
+}
+
+/**
+ * Share of the machine's CPU capacity in use between two snapshots, 0–100.
+ *
+ * `null` when the window is empty or the counters went backwards (a suspended host, a clock
+ * resync), because "no reading" is honest while a fabricated 0 reads as "idle". Pure, so the
+ * arithmetic is testable against snapshots a runner can construct rather than only the one its
+ * own scheduler happens to produce.
+ */
+export function cpuUsedPercent(previous: CpuTimes, next: CpuTimes): number | null {
+  const totalDelta = next.totalMs - previous.totalMs
+  const busyDelta = next.busyMs - previous.busyMs
+  if (!(totalDelta > 0) || busyDelta < 0)
+    return null
+  return Math.max(0, Math.min(100, (busyDelta / totalDelta) * 100))
+}
+
+/**
+ * The last snapshot, kept only long enough to difference against the next.
+ *
+ * Module state, like `swapCache`, because `sampleHost` is the one host sampler and the *interval*
+ * between two calls is what makes the reading mean anything. The first call has no baseline and
+ * answers `null` rather than inventing a number.
+ */
+let previousCpuTimes: CpuTimes | null = null
+
+/**
  * Memory used, as a percentage of what the machine actually has.
  *
  * The definition matters more than the arithmetic, and it differs per platform:
@@ -302,6 +356,11 @@ export async function sampleHost(config: HostConfig, resolvePath: (target: strin
   const cpus = os.cpus().length || 1
   const loadAvg = os.loadavg()
   const memory = memoryInfo()
+  // The deltas are taken at the *start*, so the window covers the whole sample rather than
+  // whichever part of it the disk stats and swap spawn happened to leave over.
+  const cpuTimes = cpuTimesSnapshot()
+  const cpuUsedPercentNow = previousCpuTimes === null ? null : cpuUsedPercent(previousCpuTimes, cpuTimes)
+  previousCpuTimes = cpuTimes
   // `os.loadavg()` is always zero on Windows, so per-cpu load would alert forever.
   if (process.platform === 'win32')
     loadAvg.fill(0)
@@ -338,6 +397,7 @@ export async function sampleHost(config: HostConfig, resolvePath: (target: strin
     enabled: config.enabled,
     cpus,
     loadAvg: [...loadAvg],
+    cpuUsedPercent: cpuUsedPercentNow,
     uptimeMs: os.uptime() * 1000,
     memoryUsedPercent: memory.memoryUsedPercent,
     swapUsedPercent: memory.swapUsedPercent,
@@ -353,6 +413,7 @@ export function emptyHostView(config: HostConfig): HostView {
     enabled: config.enabled,
     cpus: os.cpus().length || 1,
     loadAvg: [0, 0, 0],
+    cpuUsedPercent: null,
     uptimeMs: os.uptime() * 1000,
     memoryUsedPercent: 0,
     swapUsedPercent: 0,

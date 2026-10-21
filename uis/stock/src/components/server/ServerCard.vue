@@ -86,6 +86,16 @@ const cpuValues = computed(() => props.series?.cpu ?? [])
 const rssValues = computed(() => props.series?.rss ?? [])
 const probeValues = computed(() => props.series?.probe ?? [])
 
+/**
+ * The chart's ceiling: the whole machine, not one core.
+ *
+ * `cpuPercent` sums the entry's process tree, so four busy cores is `400` — a real reading, not an
+ * error. With a fixed `100` those points were clipped to the top edge and every multi-core server
+ * looked pinned at 100%. Scaling to `cpus * 100` also answers the question a person actually has:
+ * how much of *this box* is that one server using.
+ */
+const cpuCeiling = computed(() => Math.max(100, (control.host.value?.cpus ?? 1) * 100))
+
 /** The three most recent events, newest first. */
 const recentEvents = computed(() => [...props.server.history.events].slice(-3).reverse())
 
@@ -246,7 +256,7 @@ function openDetail(): void {
           :label="t('common.cpu')"
           :values="cpuValues"
           :format="formatCpuPercent"
-          :max="100"
+          :max="cpuCeiling"
           :empty-hint="isRunning ? undefined : t('metric.notRunning')"
           color-class="text-cpu"
         />

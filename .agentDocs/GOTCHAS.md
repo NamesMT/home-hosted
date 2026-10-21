@@ -98,6 +98,27 @@ line in `AGENTS.md` instead.
   daemon child inherits `process.execArgv` — under tsx it re-compiles that graph, under the built CLI
   it does not. A "slow" startup is the graph, not a loop.
 
+## Metrics
+
+- **Three different "CPU" numbers, and none of them is interchangeable.** `loadAvg` is a **count
+  of runnable (and D-state) tasks**, so `1.00` is one core's worth and `0.06` on a 24-core box is
+  ~4% busy; `os.cpus()` deltas give the **share of the whole machine** (0–100); a server's
+  `cpuPercent` is summed over its **process tree**, so 400% is four cores and entirely normal. The
+  global page drew the load count in a dial beside the memory percentage, so the host read `0.06`
+  while the per-server figures read `400%` and the two looked like a contradiction. The dial is now
+  CPU utilisation (`cpuUsedPercent`), load is a labelled number with its per-cpu value, and the
+  per-server charts scale to `cpus × 100` rather than clipping at 100.
+- **A process tree's CPU cannot be differenced as two sums.** The tree is not a fixed set of pids:
+  a wrapper respawns its worker, so "sum the cumulative seconds over whatever is in the tree now"
+  is not comparable with the previous sum. Measured against a wrapper respawning a 1.5 s worker,
+  **two samples in three were discarded** because the child's exit made the sum drop and the
+  negative delta was thrown away — the gaps a user sees on a live server. The baseline is now the
+  **whole process table**, and `treeCpuUsedSeconds` sums only pids present in the new scan
+  (`test/providers/proc.test.ts` pins the arithmetic directly; a live scan cannot).
+- **A number the UI shows must be comparable with the numbers beside it.** A percentage tile next
+  to a count tile is a bug even when both are correct, because a person reads the shape, not the
+  label.
+
 ## Config
 
 - **Check the order, not just the presence, of a size limit.** `Content-Length` is a header a

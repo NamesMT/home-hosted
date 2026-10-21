@@ -20,7 +20,16 @@ const loadPerCpu = computed(() => {
   return (host.loadAvg[0] ?? 0) / Math.max(1, host.cpus)
 })
 
+/**
+ * Load is a **count of runnable tasks**, not a percentage, so it is shown as a number and never
+ * as a dial: `1.00` means "one core's worth of work waiting", and on 24 cores that is 4% busy.
+ * Rendering it in a dial next to the memory percentage read as "0% CPU" while the machine was
+ * actually working — which is the confusion this panel used to cause.
+ */
 const loadLoads = computed(() => props.host?.loadAvg.map(value => value.toFixed(2)).join('  ') ?? '—')
+
+/** The real percentage: share of the machine's total CPU capacity used since the last sample. */
+const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
 </script>
 
 <template>
@@ -34,12 +43,11 @@ const loadLoads = computed(() => props.host?.loadAvg.map(value => value.toFixed(
   <div v-else class="space-y-4">
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
       <Gauge
-        :value="loadPerCpu === null ? null : (loadPerCpu / 2) * 100"
-        :label="t('host.loadPerCpu')"
-        :display="loadPerCpu === null ? '—' : loadPerCpu.toFixed(2)"
+        :value="cpuUsed"
+        :label="t('host.cpuUsage')"
         :size="72"
-        :warn-at="70"
-        :danger-at="100"
+        :warn-at="80"
+        :danger-at="95"
       />
       <Gauge :value="props.host.memoryUsedPercent" :label="t('common.memory')" :size="72" />
       <Gauge :value="props.host.swapUsedPercent" :label="t('host.swap')" :size="72" :warn-at="50" />
@@ -61,11 +69,14 @@ const loadLoads = computed(() => props.host?.loadAvg.map(value => value.toFixed(
         </dd>
       </div>
       <div>
-        <dt class="text-2xs text-faint">
+        <dt class="text-2xs text-faint" :title="t('host.loadHint')">
           {{ t('host.loadAverage') }}
         </dt>
         <dd class="font-mono text-xs tabular-nums text-ink">
           {{ loadLoads }}
+        </dd>
+        <dd class="font-mono text-2xs tabular-nums text-faint">
+          {{ loadPerCpu === null ? '—' : `${loadPerCpu.toFixed(2)} ${t('host.perCpu')}` }}
         </dd>
       </div>
       <div>

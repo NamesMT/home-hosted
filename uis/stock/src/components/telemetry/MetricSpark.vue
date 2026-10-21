@@ -9,6 +9,11 @@ const props = withDefaults(defineProps<{
   label: string
   values: (number | null)[]
   format: (value: number | null) => string
+  /**
+   * Fixed ceiling. For CPU, pass the machine's capacity (`cpus * 100`), not `100`: a server's
+   * figure is summed over its process tree, so a multi-core workload legitimately reads 400%.
+   * A ceiling of 100 clipped the line flat at the top and made such a server look pinned.
+   */
   max?: number | null
   /** Tailwind text colour class; the sparkline inherits `currentColor`. */
   colorClass?: string
