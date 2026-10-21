@@ -28,6 +28,11 @@ on:
         description: Version to release, without a leading v (e.g. 0.3.0)
         required: true
         type: string
+      allow-breaking-patch:
+        description: Ship a breaking change as a patch. Below 1.0 the minor is normally the breaking channel, so this has to be asked for.
+        required: false
+        type: boolean
+        default: false
       dry-run:
         description: Stop before pushing, releasing and publishing
         required: false
@@ -88,8 +93,12 @@ jobs:
       - name: Use a recent npm (trusted publishing needs >= 11.5.1)
         run: npm install -g npm@latest
 
+      # `ALLOW_BREAKING_PATCH=1` is a manual dispatch input, so shipping a breaking change as a patch
+      # is always a recorded decision rather than a default.
       - name: Check the requested version
         run: node scripts/check-release-version.mjs "$VERSION"
+        env:
+          HHOSTED_ALLOW_BREAKING_PATCH: ${{ inputs['allow-breaking-patch'] && '1' || '' }}
 
       - name: Install
         run: pnpm install --frozen-lockfile

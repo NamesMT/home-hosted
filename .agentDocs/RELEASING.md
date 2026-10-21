@@ -58,6 +58,11 @@ minor means someone has to read the release notes and act. A `feat:` commit does
 what the user has to do about it. Never edit `package.json` by hand; changelogen bumps inside the
 workflow. `scripts/check-release-version.mjs` refuses a patch while a breaking commit is pending.
 
+**The one exception, asked for by name.** When the removal is real but narrow — nothing published
+depends on the old shape, and leaving the fix unshipped costs more than the version number is worth —
+dispatch with `allow-breaking-patch: true`. It prints the breaking subjects either way, so the choice
+stays visible in the run log rather than looking like a slip.
+
 ## What the package ships
 
 `pnpm pack` runs `prepack` (a full build) and ships the `files` list in `package.json`: `bin/`,

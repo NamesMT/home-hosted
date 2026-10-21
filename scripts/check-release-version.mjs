@@ -78,12 +78,27 @@ const [currentMajor, currentMinor] = current.split('-')[0].split('.').map(Number
 const breaking = breakingCommits()
 const isPatch = requestedMajor === currentMajor && requestedMinor === currentMinor
 
+/**
+ * The exception, and it has to be asked for by name.
+ *
+ * A breaking change sometimes has to ride a patch: the removal is real but narrow, nothing published
+ * depends on the old shape, and leaving the fix unshipped costs more than the version number is
+ * worth. That is a decision, not a slip, so it needs `HHOSTED_ALLOW_BREAKING_PATCH=1` and the reason
+ * below is printed either way — a silent patch that hides a `!` is how a breaking change becomes a
+ * surprise.
+ */
 if (isPatch && breaking.length > 0) {
-  console.error(`[release] "${requested}" is a patch, but ${breaking.length} breaking commit(s) are pending:`)
+  const allowed = process.env.HHOSTED_ALLOW_BREAKING_PATCH === '1'
+  const log = allowed ? console.warn : console.error
+  log(`[release] "${requested}" is a patch, but ${breaking.length} breaking commit(s) are pending:`)
   for (const subject of breaking)
-    console.error(`[release]   ${subject}`)
-  console.error('[release] below 1.0 the minor is the breaking channel — dispatch a 0.Y.0 release instead')
-  process.exit(1)
+    log(`[release]   ${subject}`)
+  if (!allowed) {
+    log('[release] below 1.0 the minor is the breaking channel — dispatch a 0.Y.0 release instead')
+    log('[release] to ship it as a patch anyway, set HHOSTED_ALLOW_BREAKING_PATCH=1')
+    process.exit(1)
+  }
+  log('[release] HHOSTED_ALLOW_BREAKING_PATCH=1 — publishing a breaking change as a patch, deliberately')
 }
 
 if (!isPatch && requestedMajor === 0 && breaking.length === 0) {
