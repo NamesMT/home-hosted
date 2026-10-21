@@ -378,6 +378,42 @@ describe('metrics', () => {
   })
 })
 
+/**
+ * Backups over the local channel: an operator — or a cron job — needs to take, list and restore an
+ * archive without a browser session. These call the same `BackupService` the `/api/backups` routes
+ * do, so the archive shape and the allowlist have one implementation.
+ */
+describe('/_hh/backups', () => {
+  const token = { 'x-home-hosted-token': 'runtime-token' }
+
+  it('refuses a missing token, like every other local route', async () => {
+    const created = await fixture()
+    expect((await created.app.request('/_hh/backups')).status).toBe(403)
+  })
+
+  it('refuses a caller that is not on this machine', async () => {
+    const created = await fixture({ ip: '10.0.0.5' })
+    const response = await created.app.request('/_hh/backups', { headers: token })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'NOT_LOOPBACK' })
+  })
+
+  it('lists the archives for a local caller', async () => {
+    const created = await fixture()
+    const response = await created.app.request('/_hh/backups', { headers: token })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ files: expect.any(Array) })
+  })
+
+  it('refuses a restore whose name is not a plain archive in the backup directory', async () => {
+    const created = await fixture()
+    // `resolve` is the allowlist: a path traversal never reaches the filesystem.
+    const response = await created.app.request('/_hh/backups/restore?name=../../etc/passwd', { method: 'POST', headers: token })
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({ code: 'BACKUP_NOT_FOUND' })
+  })
+})
+
 describe('/_hh/shutdown', () => {
   it('refuses a missing or wrong token', async () => {
     const created = await fixture()

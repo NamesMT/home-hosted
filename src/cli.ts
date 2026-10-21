@@ -42,6 +42,7 @@ const SYNOPSIS: Record<string, string> = {
   'restart': 'home-hosted restart [<id>] [options]',
   'status': 'home-hosted status [--json]',
   'logs': 'home-hosted logs [--lines <n>] [--follow] [--json]',
+  'backup': 'home-hosted backup [list|create|restore] [options]',
   'start': 'home-hosted start <id> [--workspace <id>]',
   'stop': 'home-hosted stop <id> [--workspace <id>]',
   'set-password': 'home-hosted set-password',
@@ -59,6 +60,7 @@ const SUMMARIES: Record<string, string> = {
   'restart': 'down then up — or one server, given an id',
   'status': 'is it running, where, and how to reach it',
   'logs': 'show the panel\'s own console output',
+  'backup': 'list, create or restore a backup archive',
   'start': 'start one server, leaving the panel up',
   'stop': 'stop one server, leaving the panel up',
   'set-password': 'set the panel password without the API',
@@ -108,6 +110,18 @@ const LOGS_SECTION: OptionSection = {
     ['--lines <n>', 'how many lines to show (default 50, `all` for everything)'],
     ['--follow', 'keep printing as the panel writes (like tail -f)'],
     ['--json', 'print machine-readable JSON (one object per line with --follow)'],
+  ],
+}
+
+const BACKUP_SECTION: OptionSection = {
+  heading: 'Arguments for backup',
+  lines: [
+    ['list | create | restore', 'what to do (default: list)'],
+    ['<name>', 'the archive, for restore — `backup list` shows them'],
+    ['--password <text>', 'encrypt a new archive, or unlock one on restore'],
+    ['--include <ids>', 'comma-separated item ids to capture, or to restore'],
+    ['--confirm', 'apply a restore instead of only planning it'],
+    ['--json', 'machine-readable output (list)'],
   ],
 }
 
@@ -290,6 +304,7 @@ const UP_COMMANDS = new Set(['up', 'restart'])
 const SECTIONS: Record<string, OptionSection> = {
   'status': STATUS_SECTION,
   'logs': LOGS_SECTION,
+  'backup': BACKUP_SECTION,
   'restart': RESTART_SECTION,
   'start': SERVER_SECTION,
   'stop': SERVER_SECTION,
@@ -348,6 +363,7 @@ const COMMANDS = {
   'ui-switch': () => import('#src/cli/ui-switch').then(module => module.uiSwitchCommand),
   'ui-update': () => import('#src/cli/ui-update').then(module => module.uiUpdateCommand),
   'ui-revert': () => import('#src/cli/ui-revert').then(module => module.uiRevertCommand),
+  'backup': () => import('#src/cli/backup').then(module => module.backupCommand),
 } satisfies SubCommandsDef
 
 const rootCommand = defineCommand({

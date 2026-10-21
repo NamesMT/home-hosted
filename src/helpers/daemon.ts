@@ -147,8 +147,8 @@ export interface ControlAnswer {
  * The wait is generous on purpose: a start may have to run a bootstrap, which has a
  * 120s default timeout of its own. Past this it is a wedged panel, not a slow one.
  */
-export async function requestControl(runtime: Runtime, path: string, timeoutMs = 150000): Promise<ControlAnswer | null> {
-  const answer = await localCall(runtime, path, 'POST', runtime.token, timeoutMs)
+export async function requestControl(runtime: Runtime, path: string, timeoutMs = 150000, method: 'GET' | 'POST' = 'POST'): Promise<ControlAnswer | null> {
+  const answer = await localCall(runtime, path, method, runtime.token, timeoutMs)
   if (answer === null)
     return null
 
