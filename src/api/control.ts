@@ -143,9 +143,11 @@ export function createControlRoute(deps: AppDeps) {
           // The service's own selection rule, so the plan cannot disagree with what an apply writes —
           // that divergence is exactly how `--exclude` would work on backup and do nothing in a plan.
           const selects = selectionOf({ include, exclude })
-          const entries = view.entries.filter(entry =>
-            selects(entry.id)
-            || (entry.workspaceId !== undefined && selects(`workspace:${entry.workspaceId}`)))
+          // Leaves are filtered as well as entries: a plan naming a leaf the apply will leave out is
+          // a plan for a different backup.
+          const entries = view.entries
+            .filter(entry => selects(entry.id) || (entry.workspaceId !== undefined && selects(`workspace:${entry.workspaceId}`)))
+            .map(entry => ({ ...entry, items: entry.items.filter(item => selects(item.id)) }))
           return c.json({ apply: false, entries, includePaths: view.includePaths })
         }
         const result = await deps.backups.create({ password, include, exclude })

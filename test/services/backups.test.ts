@@ -1025,6 +1025,22 @@ describe('excluding a selection', () => {
     expect(archived.apiToken).toBe('TOKEN')
   })
 
+  /**
+   * The plan must describe the archive that will actually be written.
+   *
+   * Listing `workspace:default:servers` while the apply leaves it out is a plan for a different
+   * backup — the person reads it, says yes, and gets something else.
+   */
+  it('leaves an excluded leaf out of the archive and the view agrees', async () => {
+    const fixture = await makeFixture()
+    const created = await fixture.service.create({ exclude: ['workspace:default:servers'] })
+    expect(created.ok, created.error).toBe(true)
+
+    const names = (await listZip(path.join(fixture.dataRoot, '.backups', created.file!.name))).map(entry => entry.name)
+    expect(names).not.toContain('workspaces/default/servers.config.json')
+    expect(names, 'its siblings are still captured').toContain('workspaces/default/settings.json')
+  })
+
   it('does not restore an item the exclusion drops', async () => {
     const fixture = await makeFixture({ globalSecrets: '{ "password": "HASH", "apiToken": "TOKEN" }\n' })
     const created = await fixture.service.create({})

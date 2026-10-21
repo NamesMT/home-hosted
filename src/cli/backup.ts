@@ -139,11 +139,17 @@ function parseScope(all: boolean, raw: string | undefined): Scope | null {
  * `kind` is deliberately not part of this: it is the panel's label for a row, not an id, and every id
  * the plan prints is already prefixed with it (`global:settings`, `workspace:default:servers`).
  */
-function filterEntries<T extends { id: string }>(entries: T[], scope: Scope, exclude: string[] | undefined): T[] {
+function filterEntries<T extends { id: string, items?: Array<{ id: string }> }>(entries: T[], scope: Scope, exclude: string[] | undefined): T[] {
   const unwanted = exclude ?? []
   const excluded = (id: string): boolean => unwanted.some(entry => id === entry || id.startsWith(`${entry}:`))
   const named = (id: string): boolean => scope.kind === 'all' || scope.ids.some(entry => id === entry || id.startsWith(`${entry}:`))
-  return entries.filter(entry => named(entry.id) && !excluded(entry.id))
+  // The leaves are filtered too: a plan that lists `workspace:default:servers` while the archive
+  // leaves it out is a plan that describes a different backup from the one it is planning.
+  return entries
+    .filter(entry => named(entry.id) && !excluded(entry.id))
+    .map(entry => (entry.items === undefined
+      ? entry
+      : { ...entry, items: entry.items.filter(leaf => named(leaf.id) && !excluded(leaf.id)) }))
 }
 
 /** `--exclude` parsed. An empty value is a mistake, not "exclude nothing". */
