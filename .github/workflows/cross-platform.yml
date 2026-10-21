@@ -60,18 +60,26 @@ jobs:
         # `matrix` is not available to a job-level `if` (GitHub rejects the workflow at
         # parse time), so the `os` filter has to be applied per step. On workflow_call
         # there are no inputs at all, and an empty input means "run everything".
+        #
+        # Every step below carries the same condition, and that is the point: with the filter on
+        # `Checkout` alone, `os=windows` still ran macOS's `Setup pnpm` in a workspace nothing had
+        # checked out, so it failed with `No pnpm version is specified` — an infrastructure-looking
+        # error that a re-run reproduces, on the platform the dispatch asked to skip.
         if: ${{ github.event.inputs.os == null || github.event.inputs.os == '' || github.event.inputs.os == 'all' || matrix.label == github.event.inputs.os }}
 
       - name: Setup pnpm
+        if: ${{ github.event.inputs.os == null || github.event.inputs.os == '' || github.event.inputs.os == 'all' || matrix.label == github.event.inputs.os }}
         uses: pnpm/action-setup@v6
 
       - name: Setup Node
+        if: ${{ github.event.inputs.os == null || github.event.inputs.os == '' || github.event.inputs.os == 'all' || matrix.label == github.event.inputs.os }}
         uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
 
       - name: Install
+        if: ${{ github.event.inputs.os == null || github.event.inputs.os == '' || github.event.inputs.os == 'all' || matrix.label == github.event.inputs.os }}
         run: pnpm install --frozen-lockfile
 
       # No --coverage on purpose. The thresholds are calibrated on Linux, where the
@@ -82,5 +90,6 @@ jobs:
       # so a hung suite is reported *as* the suite, with the annotation on the step that
       # hung, rather than as an opaque job timeout.
       - name: Test
+        if: ${{ github.event.inputs.os == null || github.event.inputs.os == '' || github.event.inputs.os == 'all' || matrix.label == github.event.inputs.os }}
         timeout-minutes: 10
         run: pnpm exec vitest run
