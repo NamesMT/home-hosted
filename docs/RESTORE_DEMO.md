@@ -57,6 +57,35 @@ $ home-hosted backup list
 lists what could be picked. `--confirm` skips the prompt, which is what a cron job wants. `--json` prints the same plan as JSON
 and never applies, so a script or an agent can read it and decide.
 
+### Working while the panel is stopped
+
+`backup` does not need the panel. It drives the same service either way, so a stopped panel is fine —
+which is the point, since stopping the services is what someone does before a careful backup or a
+migration:
+
+```console
+$ home-hosted down
+$ home-hosted backup create --all --confirm
+backup created backup-2026-10-21-06-55-40-147.zip (3 KB)
+```
+
+A **persistent** entry keeps running when the panel stops, so "panel off" is not "services off". Those
+are named before the backup is taken, and it proceeds anyway — refusing would block the migration this
+exists for:
+
+```console
+$ home-hosted backup create --all
+Plan — what a backup would capture; nothing has been written yet
+...
+! 1 entry is still running (gitea) — its data may be captured mid-write
+
+Take this backup? [y/N]
+```
+
+A restore writes a **lock** (`<state>/.hh/restore.lock`) that the panel's own restore also takes, so
+two of them cannot write the same host at once. A lock left by a process that died is taken over; one
+held by a live process names it and stops.
+
 ### Narrowing what an archive carries
 
 `--include` takes the ids from the plan, comma-separated:

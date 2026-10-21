@@ -1,7 +1,7 @@
 import type { GlobalSettingsStore } from '#src/config/settings'
 import type { WorkspaceRegistry } from '#src/config/workspaces'
 import type { AuthService } from '#src/services/auth'
-import type { BackupService, BackupSources, BackupWorkspaceSource } from '#src/services/backups'
+import type { BackupService, BackupSources } from '#src/services/backups'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { EventHub } from '#src/services/events'
 import type { HostMonitor } from '#src/services/host-monitor'
@@ -29,6 +29,7 @@ import {
 } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { ddnsProvider } from '#src/providers/ddns'
+import { buildBackupSources } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
 import { DdnsService } from '#src/services/ddns'
 import { HistoryStore } from '#src/services/history'
@@ -221,7 +222,7 @@ export class PanelService {
 
   /** The sources a backup archive is built from and restored into. */
   backupSources(): BackupSources {
-    return {
+    return buildBackupSources({
       globalSettingsPath: this.options.settings.path,
       globalSecretsPath: this.options.secrets.path,
       tlsDir: this.options.tls.directory,
@@ -233,15 +234,12 @@ export class PanelService {
           .filter(view => view.status === 'running')
           .map(view => ({ workspaceId: runtime.id, serverId: view.id })),
       ),
-      workspaces: this.workspaces().map<BackupWorkspaceSource>(runtime => ({
+      workspaces: this.workspaces().map(runtime => ({
         id: runtime.id,
         label: runtime.label,
-        settingsPath: runtime.store.settingsPath,
-        serversPath: runtime.store.path,
-        secretsPath: runtime.secrets.path,
         servers: runtime.store.servers,
       })),
-    }
+    })
   }
 
   create(input: { id?: string, label?: string }): WorkspaceView {

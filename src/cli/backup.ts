@@ -1,7 +1,11 @@
 import type { requestControl, Runtime } from '#src/helpers/daemon'
+import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
+import { createOfflineBackup } from '#src/cli/backup-offline'
 import { bold, dim, fail, green, invocation, prompt } from '#src/cli/io'
+import { hhDir } from '#src/helpers/paths'
+import { acquireRestoreLock } from '#src/helpers/restore-lock'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -21,7 +25,8 @@ interface BackupFileView {
   name: string
   sizeBytes: number
   createdAt: number | null
-  automatic: boolean
+  /** Only the panel's view carries it; the service's own list does not. */
+  automatic?: boolean
 }
 
 interface CreatedBody {
@@ -48,15 +53,29 @@ function human(bytes: number): string {
 }
 
 /** The running panel's record, or a message saying what to do instead. */
-async function livePanel(): Promise<Runtime & { request: typeof requestControl }> {
+async function livePanel(): Promise<(Runtime & { request: typeof requestControl }) | null> {
   const daemon = await import('#src/helpers/daemon')
   const runtime = daemon.readRuntime()
   if (runtime === null || !await daemon.runtimeIsAlive(runtime)) {
     if (runtime !== null && await daemon.runtimeIsGone(runtime))
       daemon.clearRuntime()
-    fail(`home-hosted is not running — start it with \`${invocation()} up\`, then run this again`)
+    return null
   }
   return Object.assign(runtime, { request: daemon.requestControl })
+}
+
+/**
+ * Whether to talk to a panel or work on the files directly.
+ *
+ * Both paths run the same service, so the only question is who owns the state: a live panel is the
+ * authority on what is running, and a stopped one has no opinion to disagree with.
+ */
+async function usesPanel(): Promise<boolean> {
+  const daemon = await import('#src/helpers/daemon')
+  const runtime = daemon.readRuntime()
+  if (runtime === null || !await daemon.runtimeIsAlive(runtime))
+    return false
+  return (await daemon.probeRuntime(runtime)).reachable
 }
 
 /** Turn a non-200 control answer into the panel's own message, or the status. */
@@ -162,82 +181,139 @@ async function consent(question: string): Promise<boolean> {
   return false
 }
 
+/**
+ * Run against the panel when one is up, and against the files when it is not.
+ *
+ * Both run the same `BackupService`, so the archive cannot differ; only the authority on what is
+ * running changes. A stopped panel is exactly when someone wants to back up or restore — the services
+ * are down because they stopped them on purpose.
+ */
 export async function runBackupList(json: boolean): Promise<void> {
-  const runtime = await livePanel()
-  const answer = await runtime.request(runtime, '/_hh/backups', 30000, 'GET')
-  if (answer === null)
-    fail(`the control panel is not answering on ${runtime.probeUrl}`)
-  if (answer.status !== 200)
-    refusal(answer)
+  if (await usesPanel()) {
+    const runtime = await livePanel()
+    if (runtime !== null) {
+      const answer = await runtime.request(runtime, '/_hh/backups', 30000, 'GET')
+      if (answer === null)
+        fail(`the control panel is not answering on ${runtime.probeUrl}`)
+      if (answer.status !== 200)
+        refusal(answer)
+      printList(answer.body as { files?: BackupFileView[], dir?: string } | null, json)
+      return
+    }
+  }
+  const { service } = createOfflineBackup()
+  await service.warm()
+  printList(service.view(), json)
+}
 
-  const view = answer.body as { files?: BackupFileView[], dir?: string } | null
+function printList(view: { files?: BackupFileView[], dir?: string } | null, json: boolean): void {
   const files = view?.files ?? []
   if (json) {
     process.stdout.write(`${JSON.stringify(view, null, 2)}\n`)
     return
   }
   if (files.length === 0) {
-    process.stdout.write(`no backups yet — \`${invocation()} backup create\` takes one\n`)
+    process.stdout.write(`no backups yet — \`${invocation()} backup create --all\` takes one\n`)
     return
   }
   const noun = files.length === 1 ? 'archive' : 'archives'
   process.stdout.write(`${bold(String(files.length))} ${noun}${view?.dir === undefined ? '' : ` in ${dim(view.dir)}`}\n`)
   for (const file of files) {
-    const when = file.createdAt === null ? '' : new Date(file.createdAt).toISOString().replace('T', ' ').slice(0, 16)
+    const when = file.createdAt == null ? '' : new Date(file.createdAt).toISOString().replace('T', ' ').slice(0, 16)
     process.stdout.write(`  ${file.name.padEnd(36)} ${human(file.sizeBytes).padStart(8)}  ${dim(when)}${file.automatic ? dim(' auto') : ''}\n`)
   }
 }
 
+/**
+ * Name the entries still running, without blocking.
+ *
+ * A **persistent** entry keeps running while the panel is stopped, so "panel off" is not "services
+ * off" — and its data being captured mid-write is worth knowing before it is relied on. Warned rather
+ * than refused: the user may know, and the panel's own backup has always proceeded here.
+ */
+function warnRunning(entries: Array<{ workspaceId?: string, serverId?: string, id?: string }>): void {
+  if (entries.length === 0)
+    return
+  const named = entries.map(entry => entry.serverId ?? entry.id ?? '').filter(name => name.length > 0)
+  const isOne = named.length === 1
+  process.stdout.write(`${dim(`! ${named.length} entr${isOne ? 'y is' : 'ies are'} still running (${named.join(', ')}) — its data may be captured mid-write`)}\n`)
+}
+
 export async function runBackupCreate(options: { password?: string, scope: Scope, confirm: boolean, json: boolean }): Promise<void> {
-  const runtime = await livePanel()
-  const query = new URLSearchParams()
-  if (options.password !== undefined && options.password.length > 0)
-    query.set('password', options.password)
   const scope = options.scope
-  if (scope.kind === 'include')
-    query.set('include', scope.ids.join(','))
-  const suffix = suffixOf(query)
+  const online = await usesPanel()
+
+  // The plan: what this archive would capture, from the same source either way.
+  const entries = await (async (): Promise<PlanItem[]> => {
+    if (online) {
+      const runtime = await livePanel()
+      if (runtime !== null) {
+        const answer = await runtime.request(runtime, '/_hh/backups', 120000)
+        if (answer === null)
+          fail(`the control panel is not answering on ${runtime.probeUrl}`)
+        if (answer.status !== 200)
+          refusal(answer)
+        return (answer.body as { entries?: PlanItem[] } | null)?.entries ?? []
+      }
+    }
+    const { service } = createOfflineBackup()
+    await service.warm()
+    return service.view().entries as unknown as PlanItem[]
+  })()
+
+  const wanted = scope.kind === 'all'
+    ? entries
+    : entries.filter(entry => scope.ids.some(id => entry.id === id || id.startsWith(`${entry.id}:`)))
 
   if (!options.confirm) {
-    // The plan: what this archive would capture, from the same view the page renders. The route
-    // answers it and writes nothing, so this is always safe to call.
-    const planned = await runtime.request(runtime, `/_hh/backups${suffix}`, 120000)
-    if (planned === null)
-      fail(`the control panel is not answering on ${runtime.probeUrl}`)
-    if (planned.status !== 200)
-      refusal(planned)
-    const plan = planned.body as { entries?: PlanItem[] } | null
-    const entries = plan?.entries ?? []
-
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ action: 'create', apply: false, entries }, null, 2)}\n`)
+      process.stdout.write(`${JSON.stringify({ action: 'create', apply: false, entries: wanted }, null, 2)}\n`)
       return
     }
     process.stdout.write(`${bold('Plan')} — what a backup would capture; nothing has been written yet\n`)
-    for (const entry of entries) {
+    for (const entry of wanted) {
       process.stdout.write(`  ${String(entry.kind ?? 'entry').padEnd(10)} ${entry.id}${entry.note == null ? '' : `  ${dim(`(${entry.note})`)}`}\n`)
       for (const item of entry.items ?? [])
         process.stdout.write(`    ${dim('-')} ${item.id}\n`)
     }
-    if (entries.length === 0) {
+    if (wanted.length === 0) {
       process.stdout.write('  (nothing matched — check --include, or what the entries declare)\n')
       return
     }
+    warnRunning(runningEntries())
     if (!await consent('Take this backup?'))
       return
   }
 
-  // Generous: a large declared data directory is streamed to disk, not buffered in memory.
-  const answer = await runtime.request(runtime, `/_hh/backups${withParam(suffix, 'confirm', 'true')}`, 600000)
-  if (answer === null)
-    fail(`the control panel is not answering on ${runtime.probeUrl}`)
-  if (answer.status !== 200)
-    refusal(answer)
+  const include = scope.kind === 'include' ? scope.ids : undefined
+  const created = await (async (): Promise<CreatedBody | null> => {
+    if (online) {
+      const runtime = await livePanel()
+      if (runtime !== null) {
+        const query = new URLSearchParams()
+        if (options.password !== undefined && options.password.length > 0)
+          query.set('password', options.password)
+        if (include !== undefined)
+          query.set('include', include.join(','))
+        const answer = await runtime.request(runtime, `/_hh/backups${withParam(suffixOf(query), 'confirm', 'true')}`, 600000)
+        if (answer === null)
+          fail(`the control panel is not answering on ${runtime.probeUrl}`)
+        if (answer.status !== 200)
+          refusal(answer)
+        return answer.body as CreatedBody | null
+      }
+    }
+    const { service } = createOfflineBackup()
+    await service.warm()
+    const result = await service.create({ password: options.password, include })
+    if (!result.ok)
+      fail(result.error ?? 'the backup failed')
+    return { file: result.file }
+  })()
 
-  const body = answer.body as CreatedBody | null
-  const file = body?.file
+  const file = created?.file
   if (file === undefined)
-    fail('the panel reported success but named no archive')
+    fail('the backup reported success but named no archive')
   if (options.json) {
     process.stdout.write(`${JSON.stringify({ action: 'create', apply: true, file }, null, 2)}\n`)
     return
@@ -245,23 +321,49 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
   process.stdout.write(`${green('backup created')} ${file.name} ${dim(`(${human(file.sizeBytes)})`)}\n`)
 }
 
+/**
+ * The entries running right now.
+ *
+ * Read from the state files in **both** cases: the panel's own backup view has no per-entry running
+ * flag to read, and the state files are the same witness the panel's supervisor would give — a
+ * persistent entry keeps its nanny alive and rewrites that file whether or not the panel is up.
+ */
+function runningEntries(): Array<{ workspaceId: string, serverId: string }> {
+  return createOfflineBackup().runningNow()
+}
+
 export async function runBackupRestore(options: { name: string, password?: string, scope: Scope, confirm: boolean, json: boolean }): Promise<void> {
-  const runtime = await livePanel()
-  const base = new URLSearchParams({ name: options.name })
-  if (options.password !== undefined && options.password.length > 0)
-    base.set('password', options.password)
   const scope = options.scope
-  if (scope.kind === 'include')
-    base.set('include', scope.ids.join(','))
-  const suffix = suffixOf(base)
+  const online = await usesPanel()
+
+  const service = online ? null : createOfflineBackup().service
+  if (service !== null)
+    await service.warm()
 
   // The plan is free and always shown: it is the only way to see what a restore would overwrite.
-  const planned = await runtime.request(runtime, `/_hh/backups/restore${suffix}`, 120000)
-  if (planned === null)
-    fail(`the control panel is not answering at ${runtime.probeUrl}`)
-  if (planned.status !== 200)
-    refusal(planned)
-  const plan = planned.body as { items?: PlanItem[], warnings?: string[] } | null
+  const plan = await (async (): Promise<{ items?: PlanItem[], warnings?: string[] } | null> => {
+    if (service !== null) {
+      const archive = service.resolve(options.name)
+      if (archive === null)
+        fail(`no backup named "${options.name}" — \`${invocation()} backup list\` shows them`)
+      return await service.restore(archive, { confirm: false, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined })
+    }
+    const runtime = await livePanel()
+    if (runtime === null)
+      fail(`the control panel is not answering — try again once it is up`)
+    const base = new URLSearchParams({ name: options.name })
+    if (options.password !== undefined && options.password.length > 0)
+      base.set('password', options.password)
+    if (scope.kind === 'include')
+      base.set('include', scope.ids.join(','))
+    const answer = await runtime.request(runtime, `/_hh/backups/restore${suffixOf(base)}`, 120000)
+    if (answer === null)
+      fail(`the control panel is not answering at ${runtime.probeUrl}`)
+    if (answer.status !== 200)
+      refusal(answer)
+    return answer.body as { items?: PlanItem[], warnings?: string[] } | null
+  })()
+
   // Every item the archive knows, with `selected` on each — `--include` narrows the selection, not
   // the list. Reading the list as the selection reported the whole archive either way.
   const items = (plan?.items ?? []).filter(item => item.selected !== false)
@@ -286,22 +388,50 @@ export async function runBackupRestore(options: { name: string, password?: strin
   if (!options.confirm && !await consent(`Restore these ${items.length} item(s) over this host?`))
     return
 
-  const answer = await runtime.request(runtime, `/_hh/backups/restore${withParam(suffix, 'confirm', 'true')}`, 600000)
-  if (answer === null)
-    fail(`the control panel is not answering at ${runtime.probeUrl}`)
-  if (answer.status !== 200)
-    refusal(answer)
+  // One restore at a time: two interleaved writes replace each other's files. The lock covers both
+  // paths, so an offline restore also excludes the panel's own.
+  const lock = acquireRestoreLock(hhDir)
+  if ('heldBy' in lock)
+    fail(`another restore is running (pid ${lock.heldBy.pid}, since ${new Date(lock.heldBy.startedAt).toISOString()}) — wait for it, or remove ${path.join(hhDir, 'restore.lock')} if it is stale`)
+  try {
+    const applied = await (async (): Promise<PlanItem[]> => {
+      if (service !== null) {
+        const archive = service.resolve(options.name)!
+        const result = await service.restore(archive, { confirm: true, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined })
+        // An offline restore leaves the panel to pick the files up on its next start, so say so when
+        // the workspace list changed under it.
+        return (result.items ?? []).filter(item => item.selected !== false)
+      }
+      const runtime = await livePanel()
+      if (runtime === null)
+        fail('the control panel stopped answering — nothing further was written')
+      const base = new URLSearchParams({ name: options.name })
+      if (options.password !== undefined && options.password.length > 0)
+        base.set('password', options.password)
+      if (scope.kind === 'include')
+        base.set('include', scope.ids.join(','))
+      const answer = await runtime.request(runtime, `/_hh/backups/restore${withParam(suffixOf(base), 'confirm', 'true')}`, 600000)
+      if (answer === null)
+        fail(`the control panel is not answering at ${runtime.probeUrl}`)
+      if (answer.status !== 200)
+        refusal(answer)
+      const result = answer.body as { items?: PlanItem[] } | null
+      return (result?.items ?? plan?.items ?? []).filter(item => item.selected !== false)
+    })()
 
-  const result = answer.body as { items?: PlanItem[], warnings?: string[] } | null
-  // Same shape as the plan: filter to what was selected, or the count reports the whole archive.
-  const applied = (result?.items ?? plan?.items ?? []).filter(item => item.selected !== false)
-  if (options.json) {
-    process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: options.name, items: applied, warnings: result?.warnings ?? [] }, null, 2)}\n`)
-    return
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: options.name, items: applied, warnings: plan?.warnings ?? [] }, null, 2)}\n`)
+      return
+    }
+    process.stdout.write(`${green('restored')} ${applied.length} ${applied.length === 1 ? 'item' : 'items'} from ${options.name}\n`)
+    for (const warning of plan?.warnings ?? [])
+      process.stdout.write(`  ${dim('!')} ${warning}\n`)
+    if (service !== null)
+      process.stdout.write(dim(`the panel is not running, so nothing was reloaded — the next \`${invocation()} up\` reads what was restored\n`))
   }
-  process.stdout.write(`${green('restored')} ${applied.length} ${applied.length === 1 ? 'item' : 'items'} from ${options.name}\n`)
-  for (const warning of result?.warnings ?? [])
-    process.stdout.write(`  ${dim('!')} ${warning}\n`)
+  finally {
+    lock.release()
+  }
 }
 
 export const backupCommand = defineCommand({

@@ -13,7 +13,7 @@ import { workspacesFileSchema } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
 import { logger } from '#src/helpers/logger'
-import { projectDir, resolveUserPath } from '#src/helpers/paths'
+import { projectDir, resolveUserPath, workspaceSecretsPath, workspaceServersPath, workspaceSettingsPath } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
@@ -254,6 +254,53 @@ export interface BackupSources {
    * Optional so a test or an embedded caller can leave it out.
    */
   runningServers?: () => Array<{ workspaceId: string, serverId: string }>
+}
+
+/** A workspace as the source builder needs it: identity plus its already-loaded server list. */
+export interface BackupWorkspaceInput {
+  id: string
+  label: string
+  servers: ServerConfig[]
+}
+
+/**
+ * What a backup captures, from a workspace list and the panel-wide paths.
+ *
+ * The **one** implementation, called by the running panel and by the CLI when no panel is up. A
+ * second copy is how an offline backup would quietly capture something different from an online one
+ * — and the archive is the thing people restore from, so a silent difference is the worst kind.
+ *
+ * `runningServers` stays a callback rather than a list: the panel answers it from live supervisor
+ * views, and an offline caller answers it from the nanny state on disk. It is optional because a
+ * caller that cannot know leaves it out; the warning it feeds is then simply absent.
+ */
+export function buildBackupSources(input: {
+  globalSettingsPath: string
+  globalSecretsPath: string
+  tlsDir: string
+  registryPath: string
+  includePaths: string[]
+  workspaces: BackupWorkspaceInput[]
+  runningServers?: () => Array<{ workspaceId: string, serverId: string }>
+}): BackupSources {
+  return {
+    globalSettingsPath: input.globalSettingsPath,
+    globalSecretsPath: input.globalSecretsPath,
+    tlsDir: input.tlsDir,
+    registryPath: input.registryPath,
+    includePaths: [...input.includePaths],
+    ...(input.runningServers === undefined ? {} : { runningServers: input.runningServers }),
+    // The same helpers `panel.createRuntime` uses, so an offline source list cannot resolve a
+    // different file than the running one.
+    workspaces: input.workspaces.map(workspace => ({
+      id: workspace.id,
+      label: workspace.label,
+      settingsPath: workspaceSettingsPath(workspace.id),
+      serversPath: workspaceServersPath(workspace.id),
+      secretsPath: workspaceSecretsPath(workspace.id),
+      servers: workspace.servers,
+    })),
+  }
 }
 
 export interface BackupManifest {
