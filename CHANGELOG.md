@@ -1,6 +1,29 @@
 # Changelog
 
 
+## v0.9.5
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.4...v0.9.5)
+
+### 🚀 Enhancements
+
+- **cli:** Backup list, create and restore ([b4585f4](https://github.com/NamesMT/home-hosted/commit/b4585f4))
+
+### 🩹 Fixes
+
+- **ports:** Probe before saying nothing is listening ([79d6c6c](https://github.com/NamesMT/home-hosted/commit/79d6c6c))
+- **proxy:** One derivation for the applied record, and no URL for an unbound port ([1ab4407](https://github.com/NamesMT/home-hosted/commit/1ab4407))
+- **proxy:** A revert left the applied record describing the revision it left ([75c77b0](https://github.com/NamesMT/home-hosted/commit/75c77b0))
+
+### ✅ Tests
+
+- **proxy:** Drive start() through its call site, not the helper ([132943c](https://github.com/NamesMT/home-hosted/commit/132943c))
+- **supervisor:** Seed the give-up flag instead of racing for it ([67c9964](https://github.com/NamesMT/home-hosted/commit/67c9964))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.9.4
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.2...v0.9.4)
