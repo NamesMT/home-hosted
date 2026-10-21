@@ -13,7 +13,7 @@ import { workspacesFileSchema } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { expandEnv } from '#src/helpers/env-file'
 import { logger } from '#src/helpers/logger'
-import { projectDir, resolveUserPath, workspaceSecretsPath, workspaceServersPath, workspaceSettingsPath } from '#src/helpers/paths'
+import { projectDir, resolveUserPath } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
@@ -256,10 +256,13 @@ export interface BackupSources {
   runningServers?: () => Array<{ workspaceId: string, serverId: string }>
 }
 
-/** A workspace as the source builder needs it: identity plus its already-loaded server list. */
+/** A workspace as the source builder needs it: identity, its file locations, its loaded servers. */
 export interface BackupWorkspaceInput {
   id: string
   label: string
+  settingsPath: string
+  serversPath: string
+  secretsPath: string
   servers: ServerConfig[]
 }
 
@@ -290,14 +293,16 @@ export function buildBackupSources(input: {
     registryPath: input.registryPath,
     includePaths: [...input.includePaths],
     ...(input.runningServers === undefined ? {} : { runningServers: input.runningServers }),
-    // The same helpers `panel.createRuntime` uses, so an offline source list cannot resolve a
-    // different file than the running one.
+    // Paths are **inputs**, not re-derived here: the panel resolves the default workspace's servers
+    // file through `defaultServersPath` (the `--config` flag), and a helper that assumes the default
+    // location archives a different file than the one the panel is running. Passing them through is
+    // what makes this a mapper rather than a second source of truth.
     workspaces: input.workspaces.map(workspace => ({
       id: workspace.id,
       label: workspace.label,
-      settingsPath: workspaceSettingsPath(workspace.id),
-      serversPath: workspaceServersPath(workspace.id),
-      secretsPath: workspaceSecretsPath(workspace.id),
+      settingsPath: workspace.settingsPath,
+      serversPath: workspace.serversPath,
+      secretsPath: workspace.secretsPath,
       servers: workspace.servers,
     })),
   }

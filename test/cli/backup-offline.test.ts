@@ -60,6 +60,33 @@ describe('the offline backup service', () => {
     expect(listing.map(file => file.name)).toContain(created.file!.name)
   })
 
+  /**
+   * The archive's **contents**, not just that a file appeared.
+   *
+   * Nothing asserted this, which is how an offline archive came to carry an empty `servers.config.json`
+   * for a `--config` project: the data was captured while the entry declaring it was not, and a restore
+   * would have written data nobody owns.
+   */
+  it('archives the workspace config the panel would read, byte for byte', async () => {
+    const home = makeHome([{ id: 'web', command: 'node', port: 8080 }])
+    const hh = path.join(home, '.hh')
+    const { service } = createOfflineBackup({ hhDir: hh, settingsPath: path.join(hh, 'settings.json') })
+    await service.warm()
+
+    const created = await service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    // Read the archive back with the same tool the service uses.
+    const { listZip, extractZip } = await import('#src/providers/archive')
+    const archive = path.join(hh, '.backups', created.file!.name)
+    expect((await listZip(archive)).map(entry => entry.name)).toContain('workspaces/default/servers.config.json')
+
+    const out = path.join(home, 'unpacked')
+    await extractZip(archive, out, { names: ['workspaces/default/servers.config.json'] })
+    const archived = JSON.parse(fs.readFileSync(path.join(out, 'workspaces/default/servers.config.json'), 'utf8')) as { servers?: Array<{ id: string }> }
+    expect(archived.servers?.map(server => server.id), 'the entry must be in the archive, not just its data').toEqual(['web'])
+  })
+
   it('reports a persistent entry that is still running, from its state file', async () => {
     const home = makeHome()
     const hh = path.join(home, '.hh')

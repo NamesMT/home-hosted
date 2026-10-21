@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { acquireRestoreLock } from '#src/helpers/restore-lock'
+import { acquireRestoreLock, processBirthSync } from '#src/helpers/restore-lock'
 
 /**
  * Two restores writing the same host interleave and replace each other's files, and nothing stopped
@@ -52,6 +52,39 @@ describe('the restore lock', () => {
     expect('heldBy' in again).toBe(false)
     if (!('heldBy' in again))
       again.release()
+  })
+
+  /**
+   * A lock taken a while ago by a process that is *still* holding it must stay held.
+   *
+   * `startedAt` is when the lock was taken; the holder's own birth necessarily precedes it. The first
+   * version compared the two as "close together", so a lock older than five seconds looked recycled
+   * and a second restore stole it — two restores on one host, which is the defect this exists for.
+   * The holder here is a real child process, and its record is older than that tolerance.
+   */
+  it('keeps the lock for a live holder whose record is older than the birth tolerance', async () => {
+    const dir = makeDir()
+    const child = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore', detached: true })
+    child.unref()
+    const pid = child.pid!
+    try {
+      // Older than the 5s tolerance the first version used, younger than the 30-minute stale window.
+      // `birthAt` is what the child actually is, which is what a real holder records.
+      fs.writeFileSync(path.join(dir, 'restore.lock'), `${JSON.stringify({ pid, startedAt: Date.now() - 10_000, action: 'restore', birthAt: processBirthSync(pid) })}\n`)
+      const second = acquireRestoreLock(dir)
+      const held = 'heldBy' in second
+      // Linux can compare birth times, so a live holder keeps it. Elsewhere the birth is unknown and
+      // the cautious answer is the same; either way this must not be taken over.
+      expect(held, 'a live holder keeps its lock however long it has been holding it').toBe(true)
+      if (!held)
+        second.release()
+    }
+    finally {
+      try {
+        process.kill(pid, 'SIGKILL')
+      }
+      catch {}
+    }
   })
 
   it('takes over a lock whose holder is gone', () => {

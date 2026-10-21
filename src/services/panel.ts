@@ -237,6 +237,11 @@ export class PanelService {
       workspaces: this.workspaces().map(runtime => ({
         id: runtime.id,
         label: runtime.label,
+        // The runtime's own paths, not the defaults: `--config` gives the default workspace a
+        // different servers file, and it is the one this panel is supervising.
+        settingsPath: runtime.store.settingsPath,
+        serversPath: runtime.store.path,
+        secretsPath: runtime.secrets.path,
         servers: runtime.store.servers,
       })),
     })

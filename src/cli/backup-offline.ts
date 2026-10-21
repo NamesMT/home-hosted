@@ -10,8 +10,6 @@ import {
   hhDir as defaultHhDir,
   tlsDir as defaultTlsDir,
   workspacesPath as defaultWorkspacesPath,
-  workspaceDir,
-  workspaceSettingsPath,
 } from '#src/helpers/paths'
 import { readNannyState } from '#src/providers/nanny'
 import { buildBackupSources, BackupService as Service } from '#src/services/backups'
@@ -35,13 +33,20 @@ function workspaceIds(registry: WorkspaceRegistry): Array<{ id: string, label: s
   return registry.all().map(workspace => ({ id: workspace.id, label: workspace.label }))
 }
 
-/** Entries whose nanny is alive right now, read from the state files they rewrite. */
-function runningFromDisk(ids: string[]): Array<{ workspaceId: string, serverId: string }> {
+/**
+ * Entries whose nanny is alive right now, read from the state files they rewrite.
+ *
+ * Every path comes from `hhDir`, never from the module-level helpers: those resolve from this
+ * process's own `HHOSTED_HOME`, so a caller passing `--home` elsewhere would read a different host's
+ * state — which is exactly how a test came to depend on the developer's real `~/.home-hosted`.
+ */
+function runningFromDisk(hhDir: string, ids: string[]): Array<{ workspaceId: string, serverId: string }> {
   const running: Array<{ workspaceId: string, serverId: string }> = []
   for (const workspaceId of ids) {
+    const stateDir = path.join(hhDir, workspaceId, '.state')
     let names: string[]
     try {
-      names = fs.readdirSync(path.join(workspaceDir(workspaceId), '.state'))
+      names = fs.readdirSync(stateDir)
     }
     catch {
       continue
@@ -53,7 +58,7 @@ function runningFromDisk(ids: string[]): Array<{ workspaceId: string, serverId: 
       const serverId = name.replace(/\.run\.json$|\.json$/, '')
       if (serverId.length === 0)
         continue
-      const state = readNannyState(path.join(workspaceDir(workspaceId), '.state', name))
+      const state = readNannyState(path.join(stateDir, name))
       if (state === null)
         continue
       // The heartbeat is the panel's own liveness rule, so this agrees with what the UI would say.
@@ -99,28 +104,41 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
   // on disk, so it cannot be honoured here; the doc says so rather than the two paths diverging
   // silently.
   const loaded = workspaces.map((workspace) => {
-    const store = new WorkspaceStore(
-      workspace.id,
-      workspaceSettingsPath(workspace.id),
-      path.join(workspaceDir(workspace.id), 'servers.config.json'),
-    )
+    const dir = path.join(hhDir, workspace.id)
+    const settingsPath = path.join(dir, 'settings.json')
+    const serversPath = path.join(dir, 'servers.config.json')
+    const secretsPath = path.join(dir, '.secrets.json')
+    const store = new WorkspaceStore(workspace.id, settingsPath, serversPath)
     store.load()
-    return { id: workspace.id, label: workspace.label, servers: store.servers }
+    return { id: workspace.id, label: workspace.label, settingsPath, serversPath, secretsPath, servers: store.servers }
   })
 
   const service = new Service({
     dataRoot: hhDir,
     getConfig: () => settings.backups,
+    /**
+     * Register a workspace the archive brought.
+     *
+     * A panel-only hook in the running case, because the panel creates the runtime itself. With no
+     * panel there is nobody to do it, so the registry is written here — otherwise a restored
+     * workspace's files land on disk unreachable, and the next `up` never looks at them.
+     */
+    ensureWorkspace: (input) => {
+      if (registry.has(input.id))
+        return
+      // `create` writes the registry file itself; there is no separate save.
+      registry.create(input)
+    },
     getSources: () => buildBackupSources({
       globalSettingsPath: settings.path,
       globalSecretsPath: path.join(hhDir, path.basename(defaultGlobalSecretsPath)),
       tlsDir: path.join(hhDir, path.basename(defaultTlsDir)),
       registryPath,
       includePaths: settings.backups.includePaths,
-      runningServers: () => runningFromDisk(ids),
+      runningServers: () => runningFromDisk(hhDir, ids),
       workspaces: loaded,
     }),
   })
 
-  return { service, workspaceIds: ids, runningNow: () => runningFromDisk(ids) }
+  return { service, workspaceIds: ids, runningNow: () => runningFromDisk(hhDir, ids) }
 }
