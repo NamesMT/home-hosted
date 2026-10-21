@@ -285,7 +285,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned. `stop-all`/`down` stop dependents before their dependencies; stopping one server names the dependents it leaves running. [SERVERS.md](./docs/SERVERS.md#field-reference) |
 | 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, filter to one stream, download, one click to clear. |
 | 📈 **Resources** | CPU and RSS of the whole process tree, with an optional memory ceiling that triggers a restart. |
-| 🌡️ **Host vitals** | Load, memory, swap, disk and CPU temperature, with thresholds that notify once and again on recovery. |
+| 🌡️ **Host vitals** | CPU usage, memory, swap, disk and CPU temperature, plus the load average as a per-cpu count, with thresholds that notify once and again on recovery. |
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
 | 🔔 **Notifications** | One list of **destinations** — Telegram chats and webhooks (ntfy, Discord, Slack, your own endpoint) — on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes. The event toggles and throttle are set once, and each destination may inherit them or carry its own. [Setup here](./docs/NOTIFICATIONS.md). |
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
