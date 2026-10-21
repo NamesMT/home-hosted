@@ -137,7 +137,7 @@ naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fall
 | `POST /api/servers/:id/clear-logs` | forget the buffered lines; the file on disk is cleared separately through `DELETE /api/logs/:id` |
 | `GET` / `POST /api/servers`, `PATCH` / `DELETE /api/servers/:id` | the entries themselves, in one workspace |
 | `GET /api/logs`, `/api/logs/:id?tail=&search=`, `/api/logs/:id/download?file=` | persisted logs, for one workspace |
-| `GET` / `PATCH /api/settings` | the panel-wide settings (`control.label`, host thresholds, backups, UI) |
+| `GET` / `PATCH /api/settings` | the panel-wide settings (`control.label`, host thresholds, backups, UI). `backups.schedule.scope` is what an automatic archive captures — `{ mode: 'only', ids }` or `{ mode: 'except', ids }`; **absent means the whole default scope**, so read a missing one as everything and send `null` to clear it |
 | `GET` / `PATCH /api/settings/workspace` | one workspace's settings: server defaults, log retention, notifications |
 | `POST` / `DELETE /api/settings/ui` | install or revert a UI — what Global settings calls |
 | `POST` / `DELETE /api/settings/tls` | upload or clear a PEM pair |
