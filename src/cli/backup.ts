@@ -1,3 +1,4 @@
+import type { OfflineBackup } from '#src/cli/backup-offline'
 import type { requestControl, Runtime } from '#src/helpers/daemon'
 import path from 'node:path'
 import process from 'node:process'
@@ -76,6 +77,19 @@ async function usesPanel(): Promise<boolean> {
   if (runtime === null || !await daemon.runtimeIsAlive(runtime))
     return false
   return (await daemon.probeRuntime(runtime)).reachable
+}
+
+/**
+ * The offline service.
+ *
+ * `--config` is an `up`-only flag: it is not written to settings, and `run.json`'s `configPath` is the
+ * state directory, not a servers file. So an offline run cannot know about one, and reads the default
+ * workspace's `servers.config.json` — the same file the panel reads when started without `--config`.
+ * A `--config` project has to start the panel first, which is the honest limit rather than a silent
+ * difference between the two paths.
+ */
+async function offlineBackup(): Promise<OfflineBackup> {
+  return createOfflineBackup()
 }
 
 /** Turn a non-200 control answer into the panel's own message, or the status. */
@@ -201,7 +215,7 @@ export async function runBackupList(json: boolean): Promise<void> {
       return
     }
   }
-  const { service } = createOfflineBackup()
+  const { service } = await offlineBackup()
   await service.warm()
   printList(service.view(), json)
 }
@@ -256,7 +270,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
         return (answer.body as { entries?: PlanItem[] } | null)?.entries ?? []
       }
     }
-    const { service } = createOfflineBackup()
+    const { service } = await offlineBackup()
     await service.warm()
     return service.view().entries as unknown as PlanItem[]
   })()
@@ -280,7 +294,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
       process.stdout.write('  (nothing matched — check --include, or what the entries declare)\n')
       return
     }
-    warnRunning(runningEntries())
+    warnRunning(await runningEntries())
     if (!await consent('Take this backup?'))
       return
   }
@@ -303,7 +317,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
         return answer.body as CreatedBody | null
       }
     }
-    const { service } = createOfflineBackup()
+    const { service } = await offlineBackup()
     await service.warm()
     const result = await service.create({ password: options.password, include })
     if (!result.ok)
@@ -328,15 +342,15 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
  * flag to read, and the state files are the same witness the panel's supervisor would give — a
  * persistent entry keeps its nanny alive and rewrites that file whether or not the panel is up.
  */
-function runningEntries(): Array<{ workspaceId: string, serverId: string }> {
-  return createOfflineBackup().runningNow()
+async function runningEntries(): Promise<Array<{ workspaceId: string, serverId: string }>> {
+  return (await offlineBackup()).runningNow()
 }
 
 export async function runBackupRestore(options: { name: string, password?: string, scope: Scope, confirm: boolean, json: boolean }): Promise<void> {
   const scope = options.scope
   const online = await usesPanel()
 
-  const service = online ? null : createOfflineBackup().service
+  const service = online ? null : (await offlineBackup()).service
   if (service !== null)
     await service.warm()
 

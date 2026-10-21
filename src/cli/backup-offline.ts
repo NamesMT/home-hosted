@@ -95,6 +95,9 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
 
   // Each workspace's servers are read from its config, which is the only thing the source builder
   // needs beyond the id — no supervisor, no runtime.
+  // The default workspace's servers file. A `--config` override is an `up`-only flag with no record
+  // on disk, so it cannot be honoured here; the doc says so rather than the two paths diverging
+  // silently.
   const loaded = workspaces.map((workspace) => {
     const store = new WorkspaceStore(
       workspace.id,
