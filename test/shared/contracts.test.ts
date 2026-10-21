@@ -8,6 +8,8 @@ import {
   authSchema,
   backupCreateSchema,
   backupEntrySchema,
+  backupScheduleSchema,
+  backupsViewSchema,
   bootstrapOrNullSchema,
   ddnsConfigSchema,
   ddnsDomainSchema,
@@ -169,6 +171,29 @@ describe('patch surface', () => {
     expect(serverPatchSchema({ restart: { maxRetries: 1, typo: 2 } } as unknown) instanceof type.errors).toBe(true)
     expect(serverCreateSchema({ id: 'a', command: 'node', autostartt: true } as unknown) instanceof type.errors).toBe(true)
     expect(unwrap(serverPatchSchema({ restart: { maxRetries: 1 } }))).toEqual({ restart: { maxRetries: 1 } })
+  })
+
+  /**
+   * The schedule's scope: what an automatic backup contains, in the CLI's own vocabulary.
+   *
+   * Every existing `settings.json` carries a schedule with no `scope`, and that has to keep meaning
+   * the full default — so the field is optional and has **no** default. Filling one in would rewrite
+   * every home on its first save, and a default of "nothing" would stop their backups silently.
+   */
+  it('keeps the schedule scope optional, bounded, and free of defaults', () => {
+    const schedule = unwrap(backupScheduleSchema({}))
+    expect('scope' in schedule, 'an untouched config must not grow a scope').toBe(false)
+    // The two existing members keep their defaults, so an old file reads exactly as it did.
+    expect(schedule).toMatchObject({ intervalMs: 0, keep: 7 })
+
+    expect(unwrap(backupScheduleSchema({ scope: { mode: 'only', ids: ['global:settings'] } })).scope)
+      .toEqual({ mode: 'only', ids: ['global:settings'] })
+
+    // An empty list is refused: it is the one value a reader could take as "nothing" or "everything".
+    expect(backupScheduleSchema({ scope: { mode: 'only', ids: [] } }) instanceof type.errors).toBe(true)
+    expect(backupScheduleSchema({ scope: { mode: 'only', ids: [''] } }) instanceof type.errors).toBe(true)
+    expect(backupScheduleSchema({ scope: { mode: 'maybe', ids: ['a'] } }) instanceof type.errors).toBe(true)
+    expect(backupScheduleSchema({ scope: { mode: 'only', ids: ['a'], typo: 1 } }) instanceof type.errors).toBe(true)
   })
 
   it('mirrors dataEnvs and the backup payloads', () => {
@@ -339,6 +364,27 @@ describe('view contracts', () => {
       ...frame,
       backups: { ...(frame.backups as Record<string, unknown>), schedule: { intervalMs: 86_400_000, keep: 7 }, lastAutomaticAt: null },
     }) instanceof type.errors, 'a newer frame is still accepted').toBe(false)
+  })
+
+  /**
+   * A newer panel's schedule scope reaches an older client, at **both** levels of the schedule.
+   *
+   * `backupsViewSchema` is a response schema, so it must not reject. That rule is applied to the
+   * outer object by `onUndeclaredKey('ignore')` — which does not reach `schedule.scope`, one level
+   * down. A client that rejected there would drop the whole frame the moment a panel learned to
+   * write a scope, and the backups page would blank.
+   */
+  it('carries a schedule scope, and accepts fields it does not know at either level', () => {
+    const backups = { enabled: true, dir: '/repo/.backups', keep: 5, includePaths: [], entries: [], files: [] }
+    const scoped = { ...backups, schedule: { intervalMs: 86_400_000, keep: 7, scope: { mode: 'except', ids: ['global:secrets'] } } }
+    expect(backupsViewSchema(scoped) instanceof type.errors, 'a scope is readable').toBe(false)
+
+    // A field added by a later release, beside the scope and inside it.
+    expect(backupsViewSchema({
+      ...scoped,
+      futureTopLevel: 1,
+      schedule: { ...scoped.schedule, futureMember: 2, scope: { ...scoped.schedule.scope, futureScopeMember: 3 } },
+    }) instanceof type.errors, 'an unknown field at either level must not blank the page').toBe(false)
   })
 })
 
