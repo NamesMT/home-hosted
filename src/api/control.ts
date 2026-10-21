@@ -145,8 +145,12 @@ export function createControlRoute(deps: AppDeps) {
           const selects = selectionOf({ include, exclude })
           // Leaves are filtered as well as entries: a plan naming a leaf the apply will leave out is
           // a plan for a different backup.
+          // A leaf selection keeps its parent entry in the plan: `--include workspace:default:servers`
+          // captures that one file, and a plan showing nothing for it describes no backup at all.
+          const namesLeafOf = (id: string): boolean =>
+            include !== undefined && include.some(entry => entry.startsWith(`${id}:`))
           const entries = view.entries
-            .filter(entry => selects(entry.id) || (entry.workspaceId !== undefined && selects(`workspace:${entry.workspaceId}`)))
+            .filter(entry => selects(entry.id) || namesLeafOf(entry.id))
             .map(entry => ({ ...entry, items: entry.items.filter(item => selects(item.id)) }))
           return c.json({ apply: false, entries, includePaths: view.includePaths })
         }

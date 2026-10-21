@@ -1072,6 +1072,22 @@ describe('excluding a selection', () => {
   })
 })
 
+describe('a leaf selection keeps its parent in view', () => {
+  /**
+   * `--include workspace:default:servers` captures that one file, so the plan has to show the entry
+   * it lives in. Asking only downwards printed "nothing matched" for a backup that would be taken.
+   */
+  it('captures the named leaf and not its siblings', async () => {
+    const fixture = await makeFixture()
+    const created = await fixture.service.create({ include: ['workspace:default:servers'] })
+    expect(created.ok, created.error).toBe(true)
+
+    const names = (await listZip(path.join(fixture.dataRoot, '.backups', created.file!.name))).map(entry => entry.name)
+    expect(names).toContain('workspaces/default/servers.config.json')
+    expect(names, 'a sibling was not named').not.toContain('workspaces/default/settings.json')
+  })
+})
+
 describe('a dump follows the selection', () => {
   /**
    * An excluded entry's dump must not run.

@@ -142,7 +142,10 @@ function parseScope(all: boolean, raw: string | undefined): Scope | null {
 function filterEntries<T extends { id: string, items?: Array<{ id: string }> }>(entries: T[], scope: Scope, exclude: string[] | undefined): T[] {
   const unwanted = exclude ?? []
   const excluded = (id: string): boolean => unwanted.some(entry => id === entry || id.startsWith(`${entry}:`))
-  const named = (id: string): boolean => scope.kind === 'all' || scope.ids.some(entry => id === entry || id.startsWith(`${entry}:`))
+  // Upwards too: naming a leaf (`workspace:default:servers`) has to keep its parent entry in the
+  // plan, or the leaf's own file is captured and the plan says "nothing matched".
+  const named = (id: string): boolean => scope.kind === 'all'
+    || scope.ids.some(entry => id === entry || id.startsWith(`${entry}:`) || entry.startsWith(`${id}:`))
   // The leaves are filtered too: a plan that lists `workspace:default:servers` while the archive
   // leaves it out is a plan that describes a different backup from the one it is planning.
   return entries
@@ -231,8 +234,13 @@ async function availableIdsFor(action: 'create' | 'restore', suffix: string): Pr
   if (answer === null || answer.status !== 200)
     return []
   const body = answer.body as { entries?: PlanItem[], items?: PlanItem[] } | null
+  // Leaves as well as entries, for both actions, and both sides: the panel carries them nested under
+  // `items`, so reading only the top level listed the coarse ids and hid what could be left out.
   const plan = action === 'create' ? body?.entries : body?.items
-  return (plan ?? []).map(item => item.id).filter((id): id is string => typeof id === 'string')
+  return (plan ?? []).flatMap(item => [
+    item.id,
+    ...(item.items ?? []).map(leaf => leaf.id),
+  ]).filter((id): id is string => typeof id === 'string')
 }
 
 /** `?a=b`, or `''`. */
