@@ -34,7 +34,7 @@ that is what the archive carries.
 yet:
 
 ```console
-$ home-hosted backup create
+$ home-hosted backup create --all
 Plan — what a backup would capture; nothing has been written yet
   settings   global:settings
   secrets    global:secrets
@@ -53,7 +53,8 @@ $ home-hosted backup list
   backup-2026-10-21-04-15-49-881.zip       4 KB  2026-10-21 04:15
 ```
 
-`--confirm` skips the prompt, which is what a cron job wants. `--json` prints the same plan as JSON
+`--all` is required: a scope is never assumed, so `backup create` with neither flag refuses and
+lists what could be picked. `--confirm` skips the prompt, which is what a cron job wants. `--json` prints the same plan as JSON
 and never applies, so a script or an agent can read it and decide.
 
 ### Narrowing what an archive carries
@@ -64,8 +65,21 @@ and never applies, so a script or an agent can read it and decide.
 $ home-hosted backup create --include workspace:default:servers,global:settings
 ```
 
-`--all` is the only way to say "everything", and it is the default when neither flag is given. An
-empty `--include` is **refused** rather than treated as "nothing selected" — a script passing an
+`--all` is the only way to say "everything" — giving **neither** flag is refused, not assumed, so the
+destructive default cannot be reached by silence:
+
+```console
+$ home-hosted backup create --confirm
+error name what to act on — pass --include <ids> or --all
+
+available:
+  global:settings
+  global:secrets
+  workspace:default
+  workspace:default:data:/srv/blog/dump
+```
+
+An empty `--include` is refused too, rather than treated as "nothing selected" — a script passing an
 unset `$LIST` gets an error instead of quietly backing up (or restoring) the whole machine:
 
 ```console

@@ -34,6 +34,8 @@ interface PlanItem {
   kind?: string
   label?: string
   note?: string | null
+  /** The plan lists everything; this says whether the request selected it. */
+  selected?: boolean
   items?: Array<{ id: string, label?: string }>
 }
 
@@ -66,19 +68,68 @@ function refusal(answer: { status: number, body: unknown }): never {
 }
 
 /**
- * `--include` parsed, or `undefined` when the flag was not given at all.
+ * What a `create`/`restore` should act on: `'all'`, or an explicit list of ids.
  *
- * An empty value is **refused**, not dropped. `--include ""` used to parse to `[]`, which the
- * request then omitted — so "act on nothing" silently became "act on everything", over live data.
- * `--all` is the only way to mean everything, and it says so out loud.
+ * There is no "neither flag" case. Reading it as "everything" made the destructive path the default —
+ * `backup create --confirm` would archive the whole machine, and a restore would write the whole
+ * archive, without anyone naming what they meant. A scope is now required, so silence is refused
+ * rather than guessed.
  */
-function parseInclude(raw: string | undefined): string[] | undefined {
+type Scope = { kind: 'all' } | { kind: 'include', ids: string[] }
+
+/**
+ * The flag combination, as far as it can be judged without asking the panel.
+ *
+ * `null` means "neither flag", which only the caller can resolve — it lists the available ids, and
+ * that needs a panel. Every other case is decided here, before any lookup, so a typo is refused
+ * whether or not anything is running.
+ */
+function parseScope(all: boolean, raw: string | undefined): Scope | null {
+  if (all && raw !== undefined)
+    fail('--include and --all are exclusive — pass one or the other')
+  if (all)
+    return { kind: 'all' }
   if (raw === undefined)
-    return undefined
-  const parts = raw.split(',').map(part => part.trim()).filter(part => part.length > 0)
-  if (parts.length === 0)
+    return null
+  const ids = raw.split(',').map(part => part.trim()).filter(part => part.length > 0)
+  if (ids.length === 0)
     fail('--include is empty — name the ids to act on, or pass --all for everything')
-  return parts
+  return { kind: 'include', ids }
+}
+
+/**
+ * Neither flag given. Refused outright — the ids are a *bonus*, not the reason.
+ *
+ * The refusal must not depend on a panel being up: a mistyped command deserves the flag error, not
+ * "home-hosted is not running". So the list is best-effort, and a failure to produce it is silent.
+ */
+async function refuseWithoutScope(action: 'create' | 'restore', suffix: string): Promise<never> {
+  const ids = await availableIdsFor(action, suffix).catch(() => [] as string[])
+  const listed = ids.length === 0 ? '' : `\n\navailable:\n${ids.map(id => `  ${id}`).join('\n')}`
+  fail(`name what to act on — pass --include <ids> or --all${listed}`)
+}
+
+/**
+ * The ids this action could be scoped to.
+ *
+ * `create` asks what the entries declare; `restore` asks what the archive holds. Both come from the
+ * panel, so the list in a refusal is the real one rather than a hardcoded guess. A panel that cannot
+ * be reached yields no ids — the refusal still fires, it just cannot enumerate.
+ */
+async function availableIdsFor(action: 'create' | 'restore', suffix: string): Promise<string[]> {
+  // Read the record directly rather than through `livePanel()`: a hint must not `fail()` the process
+  // when the panel is down, and the caller turns an empty list into "nothing to list".
+  const daemon = await import('#src/helpers/daemon')
+  const runtime = daemon.readRuntime()
+  if (runtime === null)
+    return []
+  const path = action === 'create' ? '/_hh/backups' : '/_hh/backups/restore'
+  const answer = await daemon.requestControl(runtime, `${path}${suffix}`, 120000)
+  if (answer === null || answer.status !== 200)
+    return []
+  const body = answer.body as { entries?: PlanItem[], items?: PlanItem[] } | null
+  const plan = action === 'create' ? body?.entries : body?.items
+  return (plan ?? []).map(item => item.id).filter((id): id is string => typeof id === 'string')
 }
 
 /** `?a=b`, or `''`. */
@@ -137,13 +188,14 @@ export async function runBackupList(json: boolean): Promise<void> {
   }
 }
 
-export async function runBackupCreate(options: { password?: string, include?: string[], confirm: boolean, json: boolean }): Promise<void> {
+export async function runBackupCreate(options: { password?: string, scope: Scope, confirm: boolean, json: boolean }): Promise<void> {
   const runtime = await livePanel()
   const query = new URLSearchParams()
   if (options.password !== undefined && options.password.length > 0)
     query.set('password', options.password)
-  if (options.include !== undefined && options.include.length > 0)
-    query.set('include', options.include.join(','))
+  const scope = options.scope
+  if (scope.kind === 'include')
+    query.set('include', scope.ids.join(','))
   const suffix = suffixOf(query)
 
   if (!options.confirm) {
@@ -193,13 +245,14 @@ export async function runBackupCreate(options: { password?: string, include?: st
   process.stdout.write(`${green('backup created')} ${file.name} ${dim(`(${human(file.sizeBytes)})`)}\n`)
 }
 
-export async function runBackupRestore(options: { name: string, password?: string, include?: string[], confirm: boolean, json: boolean }): Promise<void> {
+export async function runBackupRestore(options: { name: string, password?: string, scope: Scope, confirm: boolean, json: boolean }): Promise<void> {
   const runtime = await livePanel()
   const base = new URLSearchParams({ name: options.name })
   if (options.password !== undefined && options.password.length > 0)
     base.set('password', options.password)
-  if (options.include !== undefined && options.include.length > 0)
-    base.set('include', options.include.join(','))
+  const scope = options.scope
+  if (scope.kind === 'include')
+    base.set('include', scope.ids.join(','))
   const suffix = suffixOf(base)
 
   // The plan is free and always shown: it is the only way to see what a restore would overwrite.
@@ -209,7 +262,9 @@ export async function runBackupRestore(options: { name: string, password?: strin
   if (planned.status !== 200)
     refusal(planned)
   const plan = planned.body as { items?: PlanItem[], warnings?: string[] } | null
-  const items = plan?.items ?? []
+  // Every item the archive knows, with `selected` on each — `--include` narrows the selection, not
+  // the list. Reading the list as the selection reported the whole archive either way.
+  const items = (plan?.items ?? []).filter(item => item.selected !== false)
 
   if (options.json && !options.confirm) {
     process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: options.name, items, warnings: plan?.warnings ?? [] }, null, 2)}\n`)
@@ -238,7 +293,8 @@ export async function runBackupRestore(options: { name: string, password?: strin
     refusal(answer)
 
   const result = answer.body as { items?: PlanItem[], warnings?: string[] } | null
-  const applied = result?.items ?? items
+  // Same shape as the plan: filter to what was selected, or the count reports the whole archive.
+  const applied = (result?.items ?? plan?.items ?? []).filter(item => item.selected !== false)
   if (options.json) {
     process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: options.name, items: applied, warnings: result?.warnings ?? [] }, null, 2)}\n`)
     return
@@ -263,20 +319,33 @@ export const backupCommand = defineCommand({
   },
   async run({ args }) {
     try {
-      const include = parseInclude(args.include)
-      if (include !== undefined && args.all === true)
-        fail('--include and --all are exclusive — pass one or the other')
       const action = args.action === undefined || args.action.length === 0 ? 'list' : args.action
+      // Validated up front, before any panel lookup: a bad flag combination is refused whether or
+      // not anything is running, which is also what makes it testable without a panel.
+      const parsed = action === 'create' || action === 'restore' ? parseScope(args.all === true, args.include) : null
       if (action === 'list') {
         await runBackupList(args.json === true)
       }
       else if (action === 'create') {
-        await runBackupCreate({ password: args.password, include, confirm: args.confirm === true, json: args.json === true })
+        const scope = parsed ?? await refuseWithoutScope('create', '')
+        await runBackupCreate({
+          password: args.password,
+          scope,
+          confirm: args.confirm === true,
+          json: args.json === true,
+        })
       }
       else if (action === 'restore') {
         if (args.target === undefined || args.target.length === 0)
           fail('restore needs the archive name — `backup list` shows them')
-        await runBackupRestore({ name: args.target, password: args.password, include, confirm: args.confirm === true, json: args.json === true })
+        const scope = parsed ?? await refuseWithoutScope('restore', `?name=${encodeURIComponent(args.target)}`)
+        await runBackupRestore({
+          name: args.target,
+          password: args.password,
+          scope,
+          confirm: args.confirm === true,
+          json: args.json === true,
+        })
       }
       else {
         fail(`unknown action "${action}" — use list, create or restore`)

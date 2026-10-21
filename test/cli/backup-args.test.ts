@@ -49,6 +49,21 @@ describe('backup flag guards', () => {
     expect(both.output).toContain('exclusive')
   })
 
+  it('refuses create with neither --include nor --all', () => {
+    // "Neither flag" used to mean everything, so `create --confirm` archived the whole machine
+    // without anyone naming what they meant. It now refuses and lists what could be picked.
+    const none = run(['backup', 'create', '--confirm'])
+    expect(none.status).toBe(1)
+    expect(none.output).toContain('name what to act on')
+    expect(none.output).toContain('--all')
+  })
+
+  it('refuses restore with neither --include nor --all', () => {
+    const none = run(['backup', 'restore', 'anything.zip', '--confirm'])
+    expect(none.status).toBe(1)
+    expect(none.output).toContain('name what to act on')
+  })
+
   it('refuses restore with no archive name', () => {
     const missing = run(['backup', 'restore'])
     expect(missing.status).toBe(1)

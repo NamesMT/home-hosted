@@ -5,9 +5,9 @@
 # Two hosts, one after the other, in throwaway directories:
 #
 #   1. host A — a panel with one entry (a MongoDB container) and some data in it
-#   2. take a backup: `home-hosted backup create` (it plans first, then `--confirm` applies)
+#   2. take a backup: `home-hosted backup create --all` (plans first, then `--confirm` applies)
 #   3. host B — a *blank* home, nothing configured
-#   4. restore into it: `home-hosted backup restore <name> --confirm`
+#   4. restore into it: `home-hosted backup restore <name> --all --confirm`
 #   5. start the entry on host B and read the database back
 #
 # Every step is a real command against a real panel and a real container. Nothing is faked, and the
@@ -92,8 +92,8 @@ note "declared the entry: docker run mongo:7, backupPaths = $DATA/dump"
 say "Taking a backup"
 
 # The plan first: what the archive would capture, written nothing.
-HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create
-HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --confirm
+HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all
+HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all --confirm
 ARCHIVE="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup list --json | node -e '
   let raw = ""
   process.stdin.on("data", chunk => raw += chunk)
@@ -139,7 +139,7 @@ cp "$HOST_A/.hh/.backups/$ARCHIVE" "$WORK/$ARCHIVE"
 say "Planning the restore (nothing is written yet)"
 mkdir -p "$HOST_B/.hh/.backups"
 cp "$WORK/$ARCHIVE" "$HOST_B/.hh/.backups/$ARCHIVE"
-HHOSTED_HOME="$HOST_B" "${CLI[@]}" backup restore "$ARCHIVE"
+HHOSTED_HOME="$HOST_B" "${CLI[@]}" backup restore "$ARCHIVE" --all
 rm -f "$HOST_B/.hh/.backups/$ARCHIVE"
 curl -fsS -o /dev/null -X POST \
   -H "Authorization: Bearer $SETUP_TOKEN" \
