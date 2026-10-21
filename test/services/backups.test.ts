@@ -1,5 +1,5 @@
 import type { BackupSources } from '#src/services/backups'
-import type { BackupsConfig } from '#src/shared/contracts'
+import type { BackupsConfig, BackupScope } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -94,7 +94,7 @@ async function makeFixture(
   options: {
     keep?: number
     /** The scheduled half; `intervalMs: 0` (the schema default) keeps it off. */
-    schedule?: { intervalMs: number, keep: number }
+    schedule?: { intervalMs: number, keep: number, scope?: BackupScope }
     enabled?: boolean
     /** Paths the workspace's server declares as `dataEnvs`; defaults to the data directory. */
     dataPaths?: string[]
@@ -1883,5 +1883,79 @@ describe('the backup schedule', () => {
     // The manual one that a person takes is not what "last automatic" reports.
     await fixture.service.create()
     expect(fixture.service.view().lastAutomaticAt).toBe(after.lastAutomaticAt)
+  })
+
+  /**
+   * The names in the one archive the pass wrote.
+   *
+   * Waiting for `list()` is not enough: the destination file appears while `createZip` is still
+   * writing it, and reading it there throws `NotReadableError` under load. Waiting for a readable
+   * zip is waiting for the pass to finish.
+   */
+  async function scheduledNames(fixture: Awaited<ReturnType<typeof makeFixture>>): Promise<string[]> {
+    let names: string[] = []
+    await vi.waitFor(async () => {
+      const files = fixture.service.list()
+      expect(files).toHaveLength(1)
+      names = (await listZip(path.join(fixture.service.directory, files[0]!.name))).map(entry => entry.name)
+      expect(names.length).toBeGreaterThan(0)
+    }, { timeout: 15_000 })
+    return names
+  }
+
+  /**
+   * What an automatic archive contains, now that it can be chosen.
+   *
+   * The gap this closes: `runScheduledPass` called `create({ automatic: true })` with no selection
+   * at all, so a schedule always took the full default scope and there was no way to say otherwise.
+   */
+  it('captures only what the configured `only` scope names', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7, scope: { mode: 'only', ids: ['workspace:default:servers'] } } })
+    fixture.service.tick(Date.now())
+    const names = await scheduledNames(fixture)
+    expect(names).toContain('workspaces/default/servers.config.json')
+    expect(names).not.toContain('workspaces/default/settings.json')
+    expect(names).not.toContain('workspaces/default/secrets.json')
+    expect(names, 'the global slices were not named').not.toContain('global/settings.json')
+    expect(names.some(entry => entry.startsWith('data/')), 'nor was the declared data path').toBe(false)
+  })
+
+  it('leaves out what the configured `except` scope names', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7, scope: { mode: 'except', ids: ['global:secrets'] } } })
+    fixture.service.tick(Date.now())
+    const names = await scheduledNames(fixture)
+    expect(names, 'everything else is still captured').toContain('global/settings.json')
+    expect(names).toContain('workspaces/default/servers.config.json')
+    expect(names, 'the excluded entry is not').not.toContain('global/secrets.json')
+  })
+
+  /**
+   * The compatibility rule, and the one that must never be broken by a migration:
+   *
+   * a schedule written before the field existed carries no `scope`, and it has to keep meaning the
+   * full default — not "nothing", and not "only the ids it happened to know at the time". A
+   * narrowing migration would silently start dropping workspaces out of someone's backups.
+   */
+  it('keeps the full default scope for a schedule that carries none', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7 } })
+    // The parsed config is the one the service reads, so this is the whole path a saved file takes.
+    expect(fixture.config.schedule.scope, 'the schema adds no scope').toBeUndefined()
+
+    fixture.service.tick(Date.now())
+    const names = await scheduledNames(fixture)
+    expect(names).toContain('global/settings.json')
+    expect(names).toContain('global/secrets.json')
+    expect(names).toContain('workspaces/default/settings.json')
+    expect(names).toContain('workspaces/default/servers.config.json')
+    expect(names, 'and the declared data path').toContain(`data/${slugifyPath(fixture.dataDir)}/db.sqlite`)
+  })
+
+  /** A schedule reading a hand-edited scope that now names nothing refuses loudly rather than writing an empty archive. */
+  it('reports a scope that no longer selects anything instead of writing an empty archive', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7, scope: { mode: 'only', ids: ['workspace:ghost'] } } })
+    fixture.service.tick(Date.now())
+    await vi.waitFor(() => expect(fixture.service.view().scheduleError).toBeDefined(), { timeout: 15_000 })
+    expect(fixture.service.view().scheduleError?.message).toContain('nothing was selected')
+    expect(fixture.service.list(), 'nothing was written').toHaveLength(0)
   })
 })

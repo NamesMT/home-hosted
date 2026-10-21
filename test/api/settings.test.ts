@@ -75,6 +75,39 @@ describe('global settings route', () => {
     expect(fs.readFileSync(created.settings.path, 'utf8')).toBe(before)
   })
 
+  /**
+   * A schedule scope may only name what this panel can capture, and the refusal has to happen
+   * where a person is present.
+   *
+   * The opposite mistake is worse than a typo: an unknown `except` id leaves in the archive exactly
+   * what was meant to be dropped, and nobody is watching the pass that writes it.
+   */
+  it('refuses a schedule scope that names nothing this panel captures', async () => {
+    const created = await app()
+    const before = fs.readFileSync(created.settings.path, 'utf8')
+
+    const good = await patch(created, { backups: { schedule: { scope: { mode: 'except', ids: ['global:secrets', 'workspace:default'] } } } })
+    expect(good.status).toBe(200)
+    expect(created.settings.backups.schedule.scope).toEqual({ mode: 'except', ids: ['global:secrets', 'workspace:default'] })
+
+    const after = fs.readFileSync(created.settings.path, 'utf8')
+    const bad = await patch(created, { backups: { schedule: { scope: { mode: 'except', ids: ['global:secret'] } } } })
+    expect(bad.status).toBe(400)
+    expect((await bad.json() as { message: string }).message).toContain('global:secret')
+    expect(fs.readFileSync(created.settings.path, 'utf8'), 'nothing was written').toBe(after)
+    expect(before, 'and the first save had something to change').not.toBe(after)
+  })
+
+  it('clears the scope with an explicit null, back to the whole default', async () => {
+    const created = await app()
+    expect((await patch(created, { backups: { schedule: { scope: { mode: 'only', ids: ['global:settings'] } } } })).status).toBe(200)
+    expect(created.settings.backups.schedule.scope).toEqual({ mode: 'only', ids: ['global:settings'] })
+
+    // `null` is the only spelling for "unchoose": an omitted key means "leave it as it is".
+    expect((await patch(created, { backups: { schedule: { scope: null } } })).status).toBe(200)
+    expect(created.settings.backups.schedule.scope, 'the key is gone, not stored as null').toBeUndefined()
+  })
+
   it('answers the shapes the OpenAPI document describes', async () => {
     const created = await app()
 

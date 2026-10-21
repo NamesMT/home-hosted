@@ -11,8 +11,8 @@ import { secretEqual } from '#src/helpers/secret-compare'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
-import { selectionOf } from '#src/services/backups'
 import { buildBackupsView } from '#src/services/state'
+import { selectionOf } from '#src/shared/backup-scope'
 import { backupCreatedResponseSchema, backupsViewSchema, okResponseSchema, restorePlanSchema } from '#src/shared/contracts'
 
 /**

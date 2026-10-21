@@ -21,6 +21,7 @@ import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
 import { serverTemplateVars } from '#src/services/supervisor'
+import { scopeSelection, selectionOf } from '#src/shared/backup-scope'
 import { workspaceIdSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
 import { isGeneratedPath } from '#src/shared/generated'
@@ -334,32 +335,6 @@ export function buildBackupSources(input: {
       servers: workspace.servers,
     })),
   }
-}
-
-/**
- * What a selection asks for, from `include` and `exclude` together.
- *
- * One implementation for `create` and `restore`: two copies of "does this id count as selected" is
- * how a `--exclude` that works on backup silently does nothing on restore. `include` omitted means
- * everything; `exclude` is applied after it, and an id under an excluded entry is excluded too.
- */
-export function selectionOf(options: { include?: string[], exclude?: string[] }): ((id: string) => boolean) & { isExcluded: (id: string) => boolean } {
-  const wanted = options.include === undefined ? null : new Set(options.include)
-  const unwanted = new Set(options.exclude ?? [])
-  // `global:secrets:password` is under `global:secrets`, and `workspace:x:servers` under
-  // `workspace:x`, so an exclusion covers the leaves beneath it as well as the exact id.
-  const isExcluded = (id: string): boolean =>
-    unwanted.has(id) || [...unwanted].some(entry => id.startsWith(`${entry}:`))
-  const selects = ((id: string): boolean => {
-    if (isExcluded(id))
-      return false
-    // Downwards only: naming `a` selects `a:b`, because a coarse id means every leaf under it.
-    // It is **not** symmetric — naming `a:b` must not select `a`, or a whole-entry item would
-    // replace a file the person asked to touch only one field of.
-    return wanted === null || wanted.has(id) || [...wanted].some(entry => id.startsWith(`${entry}:`))
-  }) as ((id: string) => boolean) & { isExcluded: (id: string) => boolean }
-  selects.isExcluded = isExcluded
-  return selects
 }
 
 export interface BackupManifest {
@@ -1669,7 +1644,15 @@ export class BackupService {
 
     this.running = true
     this.lastAttemptAt = now
-    void this.create({ automatic: true })
+    // The configured scope, in the same `include`/`exclude` spelling a person types: an omitted
+    // scope is the full default this pass has always taken, so an older config captures exactly
+    // what it captured before.
+    //
+    // An id that no longer names anything (a workspace deleted since it was written) contributes
+    // nothing, which is what it means in both modes. A `only` scope that has consequently lost
+    // everything still meets `create`'s "nothing was selected" refusal, so a schedule that stopped
+    // capturing says so on the page instead of writing archive after empty archive.
+    void this.create({ automatic: true, ...scopeSelection(config.schedule.scope) })
       .then((result) => {
         // Remembered, not just logged: the page has nowhere else to show this, and a schedule
         // failing silently is indistinguishable from one that has not come due.

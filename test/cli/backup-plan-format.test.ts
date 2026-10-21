@@ -65,3 +65,24 @@ describe('the plan tree', () => {
     expect(out).toMatch(/^ {6}- workspace:default:servers$/m)
   }, 60_000)
 })
+
+/**
+ * An id that names nothing is refused, on both flags and through the same rule the settings page
+ * applies to an automatic backup's scope.
+ *
+ * The dangerous direction is `--exclude`: a typo excludes nothing and says nothing, so the archive
+ * carries exactly what the person believed they had dropped.
+ */
+describe('a mistyped id', () => {
+  it('is refused on --include and on --exclude, naming the id', async () => {
+    const home = makeHome()
+
+    const excluded = await cli(home, ['backup', 'create', '--all', '--exclude', 'global:secret'])
+    expect(excluded).toContain('global:secret')
+    expect(excluded).toContain('not in this plan')
+
+    const included = await cli(home, ['backup', 'create', '--include', 'workspace:ghost'])
+    expect(included).toContain('workspace:ghost')
+    expect(included).toContain('not in this plan')
+  }, 60_000)
+})

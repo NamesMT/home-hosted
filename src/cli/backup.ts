@@ -4,6 +4,7 @@ import process from 'node:process'
 import { defineCommand } from 'citty'
 import { createOfflineBackup } from '#src/cli/backup-offline'
 import { bold, dim, fail, green, invocation, paint, prompt } from '#src/cli/io'
+import { unknownBackupIds } from '#src/shared/backup-scope'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -226,11 +227,12 @@ function filterEntries<T extends { id: string, items?: Array<{ id: string }> }>(
  * simply does not carry something — and wrong for a typo: `--exclude global:secret` excludes nothing
  * and says nothing, so the archive carries the credentials the person believed they had dropped.
  */
-function assertKnown(ids: string[] | undefined, available: string[], flag: string): void {
+function assertKnown(ids: string[] | undefined, entries: PlanItem[], flag: string): void {
   if (ids === undefined)
     return
-  const known = (id: string): boolean => available.some(candidate => candidate === id || candidate.startsWith(`${id}:`))
-  const unknown = ids.filter(id => !known(id))
+  // The same rule the settings page applies to a schedule scope, so a typo is refused wherever it
+  // is typed rather than only in the dialog.
+  const unknown = unknownBackupIds(ids, entries)
   if (unknown.length > 0)
     fail(`${flag} names ${unknown.map(id => `"${id}"`).join(', ')}, which ${unknown.length === 1 ? 'is' : 'are'} not in this plan — \`backup create\` with no flags lists the ids`)
 }
@@ -429,8 +431,8 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
 
   // Checked against the plan the user is looking at, so a typo is refused instead of quietly
   // excluding nothing.
-  assertKnown(options.exclude, entries.flatMap(entry => [entry.id, ...(entry.items ?? []).map(item => item.id)]), '--exclude')
-  assertKnown(scope.kind === 'include' ? scope.ids : undefined, entries.flatMap(entry => [entry.id, ...(entry.items ?? []).map(item => item.id)]), '--include')
+  assertKnown(options.exclude, entries, '--exclude')
+  assertKnown(scope.kind === 'include' ? scope.ids : undefined, entries, '--include')
   const wanted = filterEntries(entries, scope, options.exclude)
 
   if (!options.confirm) {
