@@ -107,6 +107,8 @@ async function makeFixture(
     globalSecrets?: string
     workspaceSecrets?: string
     onRestored?: () => void
+    /** Extra fields on the fixture's one server, e.g. `dump`/`load` hooks. */
+    serverFields?: Record<string, unknown>
   } = {},
 ): Promise<Fixture> {
   const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-backup-'))
@@ -149,6 +151,7 @@ async function makeFixture(
     id: 'app',
     dataEnvs,
     ...(options.ignoreGenerated === undefined ? {} : { backupIgnoreGenerated: options.ignoreGenerated }),
+    ...options.serverFields,
   })]
   fs.writeFileSync(serversPath, `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers }, null, 2)}\n`)
 
@@ -983,6 +986,82 @@ describe('backup service', () => {
  * matched the unknown workspace's directory by origin against `default`'s declaration,
  * writing it over `default`'s database.
  */
+let hookScratch: string | null = null
+function fixtureRootForHooks(): string {
+  hookScratch ??= fs.mkdtempSync(path.join(os.tmpdir(), 'hh-hook-out-'))
+  dirs.push(hookScratch)
+  return hookScratch
+}
+
+describe('backup hooks', () => {
+  /**
+   * A `dump` hook is what makes a database archive consistent, so a failure must refuse the backup
+   * rather than leave an archive that looks complete: the data directory beside a failed dump is the
+   * live one, captured while the engine was writing.
+   */
+  it('refuses the backup when a dump hook fails, and leaves no archive', async () => {
+    const fixture = await makeFixture({
+      serverFields: { dump: { command: process.execPath, args: ['-e', 'process.exit(4)'] } },
+    })
+
+    const created = await fixture.service.create({})
+    expect(created.ok).toBe(false)
+    expect(created.error).toContain('dump hook')
+    expect(fixture.service.list()).toEqual([])
+  })
+
+  it('archives what the dump hook wrote', async () => {
+    const fixture = await makeFixture({
+      serverFields: {
+        dump: {
+          command: process.execPath,
+          args: ['-e', 'require("node:fs").writeFileSync(process.argv[1] + "/db.archive", "FROM-DUMP")', '{dumpDir}'],
+        },
+      },
+    })
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    const { listZip, extractZip } = await import('#src/providers/archive')
+    const archive = path.join(fixture.dataRoot, '.backups', created.file!.name)
+    const names = (await listZip(archive)).map(entry => entry.name)
+    expect(names).toContain('dumps/default/app/db.archive')
+
+    const out = path.join(fixture.root, 'unpacked')
+    await extractZip(archive, out, { names: ['dumps/default/app/db.archive'] })
+    expect(fs.readFileSync(path.join(out, 'dumps/default/app/db.archive'), 'utf8')).toBe('FROM-DUMP')
+  })
+
+  it('runs the load hook on restore, reading the dump the archive carried', async () => {
+    const seen = path.join(fixtureRootForHooks(), 'load-output.txt')
+    const fixture = await makeFixture({
+      serverFields: {
+        dump: {
+          command: process.execPath,
+          args: ['-e', 'require("node:fs").writeFileSync(process.argv[1] + "/db.archive", "FROM-DUMP")', '{dumpDir}'],
+        },
+        load: {
+          command: process.execPath,
+          args: ['-e', `require("node:fs").writeFileSync(${JSON.stringify(seen)}, require("node:fs").readFileSync(process.argv[1] + "/db.archive", "utf8"))`, '{dumpDir}'],
+        },
+      },
+    })
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    const archive = path.join(fixture.dataRoot, '.backups', created.file!.name)
+    const plan = await fixture.service.restore(archive, { confirm: true })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    // The dump is a plan item, so `--all` reports it and the selection can name it.
+    expect(plan.items.map(item => item.id)).toContain('workspace:default:dump:app')
+    expect(plan.hooks?.map(hook => `${hook.action}:${hook.serverId}`)).toContain('load:app')
+    expect(fs.readFileSync(seen, 'utf8')).toBe('FROM-DUMP')
+  })
+})
+
 describe('restoring workspaces the host does not have', () => {
   it('creates a workspace the archive names, with its label', async () => {
     const fixture = await makeFixture()

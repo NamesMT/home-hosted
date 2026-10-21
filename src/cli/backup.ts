@@ -32,6 +32,14 @@ interface CreatedBody {
 }
 
 /** One thing a backup would capture, or a restore would write. */
+interface PlanHook {
+  serverId: string
+  workspaceId: string
+  action: 'dump' | 'load'
+  ok: boolean
+  output?: string
+}
+
 interface PlanItem {
   id: string
   kind?: string
@@ -352,7 +360,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
     await service.warm()
 
   // The plan is free and always shown: it is the only way to see what a restore would overwrite.
-  const plan = await (async (): Promise<{ items?: PlanItem[], warnings?: string[] } | null> => {
+  const plan = await (async (): Promise<{ items?: PlanItem[], warnings?: string[], hooks?: PlanHook[] } | null> => {
     if (service !== null) {
       const archive = service.resolve(options.name)
       if (archive === null)
@@ -372,7 +380,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
       fail(`the control panel is not answering at ${runtime.probeUrl}`)
     if (answer.status !== 200)
       refusal(answer)
-    return answer.body as { items?: PlanItem[], warnings?: string[] } | null
+    return answer.body as { items?: PlanItem[], warnings?: string[], hooks?: PlanHook[] } | null
   })()
 
   // Every item the archive knows, with `selected` on each — `--include` narrows the selection, not
@@ -402,13 +410,16 @@ export async function runBackupRestore(options: { name: string, password?: strin
   // No lock here: `BackupService.restore` takes it on apply, so this path and the panel's both get
   // it from one place. A second guard here would be the third implementation of the same rule.
   {
-    const applied = await (async (): Promise<PlanItem[]> => {
+    const outcome = await (async (): Promise<{ items: PlanItem[], hooks: PlanHook[] }> => {
       if (service !== null) {
         const archive = service.resolve(options.name)!
         const result = await service.restore(archive, { confirm: true, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined })
         // An offline restore leaves the panel to pick the files up on its next start, so say so when
         // the workspace list changed under it.
-        return (result.items ?? []).filter(item => item.selected !== false)
+        return {
+          items: (result.items ?? []).filter(item => item.selected !== false),
+          hooks: (result.hooks ?? []).filter(hook => hook.action === 'load'),
+        }
       }
       const runtime = await livePanel()
       if (runtime === null)
@@ -423,15 +434,21 @@ export async function runBackupRestore(options: { name: string, password?: strin
         fail(`the control panel is not answering at ${runtime.probeUrl}`)
       if (answer.status !== 200)
         refusal(answer)
-      const result = answer.body as { items?: PlanItem[] } | null
-      return (result?.items ?? plan?.items ?? []).filter(item => item.selected !== false)
+      const result = answer.body as { items?: PlanItem[], hooks?: PlanHook[] } | null
+      return {
+        items: (result?.items ?? plan?.items ?? []).filter(item => item.selected !== false),
+        hooks: (result?.hooks ?? plan?.hooks ?? []).filter(hook => hook.action === 'load'),
+      }
     })()
+    const applied = outcome.items
 
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: options.name, items: applied, warnings: plan?.warnings ?? [] }, null, 2)}\n`)
+      process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: options.name, items: applied, hooks: outcome.hooks, warnings: plan?.warnings ?? [] }, null, 2)}\n`)
       return
     }
     process.stdout.write(`${green('restored')} ${applied.length} ${applied.length === 1 ? 'item' : 'items'} from ${options.name}\n`)
+    for (const hook of outcome.hooks)
+      process.stdout.write(`  ${dim(`load ${hook.serverId}: ran`)}${hook.output === undefined ? '' : ` ${dim(`(${hook.output.split('\n').slice(-1)[0]})`)}`}\n`)
     for (const warning of plan?.warnings ?? [])
       process.stdout.write(`  ${dim('!')} ${warning}\n`)
     if (service !== null)

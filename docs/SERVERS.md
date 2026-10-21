@@ -94,6 +94,43 @@ environment (including `envFile`). Every supervised process also gets `HHOSTED_S
 `dataEnvs` is the one that pays for itself twice: the value is exported to the process *and* the path
 is picked up by Backups, so a data directory is declared once.
 
+### Dumping a database for backups
+
+Copying a database's data directory while it runs gives a torn copy. For anything with a real engine,
+declare `dump` and `load` so the backup is taken by the engine itself:
+
+```json
+{
+  "id": "blog-db",
+  "command": "docker",
+  "args": ["compose", "up", "mongo"],
+  "dump": { "command": "mongodump", "args": ["--db=blog", "--archive={dumpDir}/db.archive"] },
+  "load": { "command": "mongorestore", "args": ["--archive={dumpDir}/db.archive", "--drop"] }
+}
+```
+
+`{dumpDir}` is a directory the panel creates and the archive carries. Both hooks see the same path,
+so `dump` writes there and `load` reads from there. Same shape as `bootstrap`: one program plus args,
+never a shell string.
+
+- **A failed `dump` refuses the backup.** An archive that looks complete is worse than no archive.
+- `load` runs after the files are restored, and its entry's data directory is restored first.
+- Both have `timeoutMs`, default 10 minutes, and `env`.
+
+Verified pairs, one per engine:
+
+| engine | `dump` | `load` |
+| --- | --- | --- |
+| MongoDB | `mongodump --db=DB --archive={dumpDir}/db.archive` | `mongorestore --archive={dumpDir}/db.archive --drop` |
+| PostgreSQL | `pg_dump -Fc -d DB -f {dumpDir}/db.dump` | `pg_restore -d DB --clean --if-exists {dumpDir}/db.dump` |
+| MySQL | `mysqldump --single-transaction --result-file={dumpDir}/db.sql DB` | no file flag, so `command: "bash"`, `args: ["-c", "mysql DB < {dumpDir}/db.sql"]` |
+| Redis | `redis-cli --rdb {dumpDir}/dump.rdb` | `command: "cp"`, `args: ["{dumpDir}/dump.rdb", "<dir>/dump.rdb"]`, with Redis stopped |
+| SQLite | `sqlite3 {dbPath} ".backup '{dumpDir}/db.sqlite'"` | `cp {dumpDir}/db.sqlite {dbPath}` |
+
+Redis and SQLite prefer a file copy over a hook when the server is stopped anyway, which is what a
+migration looks like. The hooks earn their place for a database you cannot stop, or whose dump needs a
+login you keep in `env`.
+
 ### The "open server" link
 
 An entry with a `port` gets a link in the UI, and **it follows the hostname you are reading the panel

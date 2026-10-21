@@ -57,6 +57,22 @@ $ home-hosted backup list
 lists what could be picked. `--confirm` skips the prompt, which is what a cron job wants. `--json` prints the same plan as JSON
 and never applies, so a script or an agent can read it and decide.
 
+### Databases dump themselves
+
+A database file copied while the engine runs is a torn copy. Declare `dump` and `load` on the entry
+and the backup runs `mongodump` for you, into a `{dumpDir}` the archive carries; the restore runs
+`mongorestore` from the same place. A failed dump **refuses the backup**, so an archive is never
+half-done. See the engine table in [SERVERS.md](./SERVERS.md).
+
+```console
+$ home-hosted backup create --all --confirm
+backup created backup-2026-10-21-06-55-40-147.zip (3 KB)
+
+$ home-hosted backup restore backup-2026-10-21-06-55-40-147.zip --all --confirm
+restored 3 items from backup-2026-10-21-06-55-40-147.zip
+  load blog-db: ran
+```
+
 ### Working while the panel is stopped
 
 `backup` does not need the panel. It drives the same service either way, so a stopped panel is fine —

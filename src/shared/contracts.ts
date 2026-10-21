@@ -127,6 +127,27 @@ export const bootstrapSchema = type({
 export const bootstrapOrNullSchema = bootstrapSchema.or(type('null'))
 
 /**
+ * A command run around a backup, for engines that need one to produce a consistent copy.
+ *
+ * `mongodump` is the reason this exists: copying `dbPath` while the server writes gives a torn copy,
+ * and a dump taken by the engine is the only supported way. Same shape as `bootstrap` — one program
+ * and its args, never a command line — and the same rule that the panel never guesses what an engine
+ * needs.
+ *
+ * `{dumpDir}` is created before `dump` runs and captured by the archive; on restore the same
+ * directory is filled again before `load` runs, so the two hooks see the same path.
+ */
+export const backupHookSchema = type({
+  command: 'string',
+  args: type('string[]').default(() => []),
+  env: type('Record<string, string>').default(() => ({})),
+  timeoutMs: 'number >= 1000 = 600000',
+}).onUndeclaredKey('reject')
+export const backupHookOrNullSchema = backupHookSchema.or(type('null'))
+
+export type BackupHookConfig = typeof backupHookSchema.infer
+
+/**
  * A label that may be written as `null`, which means "no label" — the same spelling `port` and
  * `bootstrap` already accept in a file.
  *
@@ -159,6 +180,16 @@ export const serverSchema = type({
    */
   dataEnvs: type('Record<string, string>').default(() => ({})),
   bootstrap: bootstrapOrNullSchema.optional(),
+  /**
+   * Run before this entry's data is captured, writing into `{dumpDir}`.
+   *
+   * For a database: `mongodump --archive={dumpDir}/db.archive`. A failed dump **refuses the backup**
+   * rather than archiving a stale directory next to it — the whole point is that the dump is the
+   * authoritative copy.
+   */
+  dump: backupHookOrNullSchema.optional(),
+  /** Run after this entry's data is restored, reading from `{dumpDir}`. Its server is stopped first. */
+  load: backupHookOrNullSchema.optional(),
   port: portSchema.optional(),
   bind: bindSchema.default(() => 'local' as const),
   onPortConflict: onPortConflictDefaultSchema,
@@ -749,6 +780,8 @@ const editableFields = {
   env: 'Record<string, string>?',
   dataEnvs: 'Record<string, string>?',
   bootstrap: bootstrapOrNullSchema.optional(),
+  dump: backupHookOrNullSchema.optional(),
+  load: backupHookOrNullSchema.optional(),
   port: portSchema.optional(),
   bind: bindSchema.optional(),
   onPortConflict: onPortConflictSchema.optional(),
@@ -1475,6 +1508,19 @@ export const restorePlanSchema = type({
     'schema?': 'number',
   }),
   'items': restoreItemSchema.array(),
+  /**
+   * One row per backup hook that ran, so a person can see which entries brought their own dump.
+   *
+   * Optional, like every new response field: an older panel never sends it and an older UI never
+   * reads it. `output` is a bounded tail, not a log — enough to see what `mongorestore` said.
+   */
+  'hooks?': type({
+    'serverId': 'string',
+    'workspaceId': 'string',
+    'action': '"dump" | "load"',
+    'ok': 'boolean',
+    'output?': 'string',
+  }).array(),
   'applied': type('string[]'),
   /**
    * The ids `applied` names, so a UI resolves each through `items` and renders its own label.

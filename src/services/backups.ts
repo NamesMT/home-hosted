@@ -19,6 +19,7 @@ import { acquireRestoreLock } from '#src/helpers/restore-lock'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
+import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
 import { serverTemplateVars } from '#src/services/supervisor'
 import { workspaceIdSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
@@ -31,7 +32,7 @@ const MANIFEST = 'manifest.json'
  * named as the live file is, so the two are recognisably the same document.
  */
 const REGISTRY = 'workspaces.json'
-const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data'])
+const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data', 'dumps'])
 /** Every archive this service writes is a zip, encrypted or not. */
 const SUFFIX = '.zip'
 /**
@@ -59,6 +60,29 @@ const SECRET_LABELS: Record<string, { en: string, key: string }> = {
  * is made of allowed characters, so segments are checked explicitly and any
  * entry that could resolve outside the staging directory aborts the restore.
  */
+/**
+ * The servers an archive carries for one workspace, from its staged config.
+ *
+ * A restore reads this rather than `getSources()` because the live config is the *old* one at this
+ * point: the files have just been overwritten, and the hooks to run belong to the machine being
+ * cloned. A config that will not parse yields no servers, so the caller reports a missing hook
+ * rather than throwing.
+ */
+function readArchivedServers(staging: string, workspaceId: string, defaults: Record<string, unknown> = {}): ServerConfig[] {
+  const text = readText(path.join(staging, 'workspaces', workspaceId, 'servers.config.json'))
+  if (text === null)
+    return []
+  try {
+    // `parseServersFile`, not `JSON.parse`: a raw config carries no `bind`, `restart` or `health`,
+    // and the template vars read `bind` — parsing by hand threw for every entry, which is why the
+    // load hook silently never ran.
+    return parseServersFile(JSON.parse(text), defaults).servers
+  }
+  catch {
+    return []
+  }
+}
+
 export function isSafeArchiveEntry(entry: string): boolean {
   if (entry.startsWith('/') || entry.includes('\0'))
     return false
@@ -325,6 +349,8 @@ export interface BackupManifest {
   schema?: number
   /** `origin` and `workspace` are what let a restore land under *this* machine's paths. */
   data: Array<{ slug: string, path: string, origin?: string, workspace?: string }>
+  /** Entries whose `dump` hook ran, and whose dump is under `dumps/<workspace>/<server>/`. */
+  dumps?: Array<{ workspaceId: string, serverId: string }>
 }
 
 export interface RestoreOptions {
@@ -631,6 +657,38 @@ export class BackupService {
       // is still "nothing was selected", which the check below refuses.
       this.copyInto(staging, `global/${REGISTRY}`, sources.registryPath)
 
+      /**
+       * The dump phase: give every entry with a `dump` hook the chance to produce a consistent copy.
+       *
+       * Before anything is copied, because the dump is the authoritative artifact — the raw data
+       * directory beside it is a convenience, and a dump that failed must not leave an archive that
+       * looks complete. The output lands in `dumps/<workspace>/<server>/`, which the restore side
+       * fills again at the same path, so `{dumpDir}` means the same thing in both directions.
+       */
+      const dumped: Array<{ workspaceId: string, serverId: string }> = []
+      for (const workspace of sources.workspaces) {
+        for (const server of workspace.servers) {
+          const hook = server.dump
+          if (hook === undefined || hook === null)
+            continue
+          // The dump belongs to the entry, so the selection that names the entry is what includes it.
+          // A bare workspace id covers every entry it has, the same as for its other leaves.
+          if (wanted !== null
+            && !wanted.has(`workspace:${workspace.id}`)
+            && !wanted.has(`workspace:${workspace.id}:dump:${server.id}`)) {
+            continue
+          }
+          const relative = path.join('dumps', workspace.id, server.id)
+          const dumpDir = path.join(staging, relative)
+          const result = await runBackupHook(hook, server, dumpDir)
+          if (!result.ok) {
+            fs.rmSync(staging, { recursive: true, force: true })
+            return { ok: false, error: hookFailure('dump', server, result) }
+          }
+          dumped.push({ workspaceId: workspace.id, serverId: server.id })
+        }
+      }
+
       const data: BackupManifest['data'] = []
       for (const workspace of sources.workspaces) {
         const root = `workspaces/${workspace.id}`
@@ -664,7 +722,17 @@ export class BackupService {
         return { ok: false, error: 'nothing was selected to back up' }
       }
 
-      const manifest: BackupManifest = { version: 1, createdAt, hostname: os.hostname(), writtenBy: appVersion(), schema: CONFIG_SCHEMA, data }
+      const manifest: BackupManifest = {
+        version: 1,
+        createdAt,
+        hostname: os.hostname(),
+        writtenBy: appVersion(),
+        schema: CONFIG_SCHEMA,
+        data,
+        // Which entries brought a dump, so a restore can tell "this archive has no dump for it" from
+        // "this archive was taken before the hook existed".
+        ...(dumped.length === 0 ? {} : { dumps: dumped }),
+      }
       fs.writeFileSync(path.join(staging, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`)
 
       await createZip(staging, destination, password === null ? {} : { password })
@@ -1061,6 +1129,26 @@ export class BackupService {
         (sources.runningServers?.() ?? []).map(entry => `${entry.workspaceId}:${entry.serverId}`),
       )
 
+      // A dump is a restorable item in its own right: it is the thing the engine reads, and leaving
+      // it out of the plan meant `--all` reported nothing to restore and the load hook never ran.
+      for (const dump of manifest.dumps ?? []) {
+        const from = path.join(staging, 'dumps', dump.workspaceId, dump.serverId)
+        if (!fs.existsSync(from))
+          continue
+        const id = `workspace:${dump.workspaceId}:dump:${dump.serverId}`
+        addItem({
+          id,
+          label: `dump:${dump.serverId}`,
+          kind: 'data',
+          restorable: true,
+          workspaceId: dump.workspaceId,
+          note: null,
+        }, () => {
+          // Nothing is written over this host's files: the dump is replayed by the entry's `load`
+          // hook, which runs after everything landed. The item exists so the selection can name it.
+        })
+      }
+
       const archivedEntries = Array.isArray(manifest.data) ? manifest.data.filter(isRecord) : []
       for (const entry of archivedEntries) {
         const archivedPath = typeof entry.path === 'string' ? entry.path : ''
@@ -1153,6 +1241,48 @@ export class BackupService {
           continue
         this.options.ensureWorkspace?.({ id: workspace.id, label: workspace.label })
         plan.createdWorkspaces.push(workspace.id)
+      }
+
+      /**
+       * The load phase: let each restored entry put its own dump back.
+       *
+       * After the files landed and before the panel reloads, so the engine reads a config this
+       * release has just written rather than the one it replaced. Only the entries the archive
+       * actually brought a dump for — an archive taken before the hook existed has none, and running
+       * `mongorestore` on a directory that is not there fails the whole restore for no reason.
+       */
+      const archivedDumps = manifest.dumps ?? []
+      for (const entry of archivedDumps) {
+        if (!plan.appliedIds.some(id => id.startsWith(`workspace:${entry.workspaceId}:`)))
+          continue
+        // The **archive's** config, not the live one: `sources` was read before the restore wrote
+        // anything, so it still describes the host as it was. The hooks being restored are the
+        // archive's, which is the whole point of a migration onto a blank machine.
+        const archivedServers = readArchivedServers(staging, entry.workspaceId)
+        const server = archivedServers.find(candidate => candidate.id === entry.serverId)
+        // The entry survives the restore (its config came from the archive) but may have no `load`
+        // hook: the dump is still restored as a file, and saying so is better than silence.
+        if (server?.load === undefined || server.load === null) {
+          plan.skipped.push(`the dump for "${entry.serverId}" was restored but this entry has no load hook`)
+          continue
+        }
+        const dumpDir = path.join(staging, 'dumps', entry.workspaceId, entry.serverId)
+        if (!fs.existsSync(dumpDir)) {
+          plan.skipped.push(`the dump for "${entry.serverId}" is missing from the archive`)
+          continue
+        }
+        const result = await runBackupHook(server.load, server, dumpDir)
+        plan.hooks = [...(plan.hooks ?? []), {
+          serverId: entry.serverId,
+          workspaceId: entry.workspaceId,
+          action: 'load',
+          ok: result.ok,
+          ...(result.output.trim().length === 0 ? {} : { output: result.output.trim() }),
+        }]
+        if (!result.ok) {
+          plan.error = hookFailure('load', server, result)
+          return plan
+        }
       }
 
       if (this.options.onRestored !== undefined && [...actions.keys()].some(id => RELOADABLE.test(id))) {
