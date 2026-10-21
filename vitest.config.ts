@@ -47,6 +47,20 @@ export default defineConfig({
     // The supervisor suite drives real child processes and port probes.
     testTimeout: 30000,
     hookTimeout: 30000,
+    /*
+     * A git worktree nested inside the repository is a second copy of every test file.
+     *
+     * Agent worktrees live under `.agents/worktrees/<branch>/`, so running the suite from the
+     * main checkout discovered 679 files instead of 170 — each duplicate binding the same fixed
+     * ports (6500, 6100+) as its original, so tests failed on `control port 6500 is already in
+     * use` and named a port rather than the duplicate that caused it. `exclude` replaces the
+     * defaults, so they are spread back in first.
+     */
+    exclude: [
+      ...configDefaults.exclude,
+      '**/.agents/**',
+      '**/.dev-state/**',
+    ],
     coverage: {
       // A floor, not a target: it fails the run when a change quietly drops a whole
       // area (a route factory, a provider) out of the suite.

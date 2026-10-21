@@ -8,6 +8,9 @@ node_modules
 coverage/
 lib-cov/
 
+# agent git worktrees: a second checkout of this repo, never part of the build
+.agents/
+
 # dev/builds/outputs
 .output/
 .out/
