@@ -1031,6 +1031,22 @@ describe('excluding a selection', () => {
    * Listing `workspace:default:servers` while the apply leaves it out is a plan for a different
    * backup — the person reads it, says yes, and gets something else.
    */
+  /**
+   * Excluding everything must refuse, not write a manifest-only archive.
+   *
+   * `--all --exclude <every id>` produced a 631-byte zip holding just the registry: it reads as a
+   * backup, restores nothing, and occupies a retention slot.
+   */
+  it('refuses when the exclusion leaves nothing to capture', async () => {
+    const fixture = await makeFixture()
+    const result = await fixture.service.create({
+      exclude: ['global:settings', 'global:secrets', 'global:tls', 'workspace:default'],
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('nothing was selected')
+    expect(fixture.service.list()).toEqual([])
+  })
+
   it('leaves an excluded leaf out of the archive and the view agrees', async () => {
     const fixture = await makeFixture()
     const created = await fixture.service.create({ exclude: ['workspace:default:servers'] })
@@ -1053,6 +1069,69 @@ describe('excluding a selection', () => {
     expect(plan.error, plan.error).toBeUndefined()
 
     expect(fs.readFileSync(fixture.globalSecretsPath, 'utf8'), 'the local secret must be untouched').toContain('LOCAL')
+  })
+})
+
+describe('a dump follows the selection', () => {
+  /**
+   * An excluded entry's dump must not run.
+   *
+   * `--exclude workspace:default` still executed that workspace's `dump` program and archived the
+   * result — the last copy of the selection rule that ignored `exclude`, and the one with a side
+   * effect outside the archive.
+   */
+  it('does not run the dump of an excluded entry', async () => {
+    const marker = path.join(fixtureRootForHooks(), 'dump-ran.txt')
+    const fixture = await makeFixture({
+      serverFields: {
+        dump: {
+          command: process.execPath,
+          args: ['-e', `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran")`],
+        },
+      },
+    })
+
+    // Global leaves are still captured, so this succeeds — the point is the hook itself.
+    const created = await fixture.service.create({ exclude: ['workspace:default'] })
+    expect(created.ok, created.error).toBe(true)
+    expect(fs.existsSync(marker), 'an excluded dump must not execute').toBe(false)
+  })
+
+  it('does not archive the dump of an excluded entry', async () => {
+    const fixture = await makeFixture({
+      serverFields: {
+        dump: {
+          command: process.execPath,
+          args: ['-e', 'require("node:fs").writeFileSync(process.argv[1] + "/db.archive", "D")', '{dumpDir}'],
+        },
+      },
+    })
+
+    const created = await fixture.service.create({ exclude: ['workspace:default:dump:app'], include: ['workspace:default:settings'] })
+    expect(created.ok, created.error).toBe(true)
+    const names = (await listZip(path.join(fixture.dataRoot, '.backups', created.file!.name))).map(entry => entry.name)
+    expect(names.some(name => name.startsWith('dumps/')), 'the excluded dump must not be archived').toBe(false)
+  })
+})
+
+describe('excluding one field of a secret', () => {
+  /**
+   * The whole-entry item writes the file outright, so it has to merge when a field inside it was
+   * excluded — otherwise `--exclude global:secrets:password` replaced the very field it excluded.
+   */
+  it('keeps the excluded field and restores the rest', async () => {
+    const fixture = await makeFixture({ globalSecrets: '{ "password": { "algo": "scrypt", "hash": "ARCHIVE" }, "apiToken": { "algo": "sha256", "hash": "ARCHIVETOK" } }\n' })
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    fs.writeFileSync(fixture.globalSecretsPath, '{ "password": { "algo": "scrypt", "hash": "LOCAL" }, "apiToken": { "algo": "sha256", "hash": "LOCALTOK" } }\n', { mode: 0o600 })
+    const archive = path.join(fixture.dataRoot, '.backups', created.file!.name)
+    const plan = await fixture.service.restore(archive, { confirm: true, exclude: ['global:secrets:password'] })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    const after = JSON.parse(fs.readFileSync(fixture.globalSecretsPath, 'utf8')) as Record<string, { hash: string }>
+    expect(after.password?.hash, 'the excluded field must keep this host value').toBe('LOCAL')
+    expect(after.apiToken?.hash, 'the rest is restored').toBe('ARCHIVETOK')
   })
 })
 

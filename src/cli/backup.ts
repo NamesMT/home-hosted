@@ -152,6 +152,22 @@ function filterEntries<T extends { id: string, items?: Array<{ id: string }> }>(
       : { ...entry, items: entry.items.filter(leaf => named(leaf.id) && !excluded(leaf.id)) }))
 }
 
+/**
+ * Refuse an id the plan does not have.
+ *
+ * An id that matches nothing is silently ignored by the service, which is right for an archive that
+ * simply does not carry something — and wrong for a typo: `--exclude global:secret` excludes nothing
+ * and says nothing, so the archive carries the credentials the person believed they had dropped.
+ */
+function assertKnown(ids: string[] | undefined, available: string[], flag: string): void {
+  if (ids === undefined)
+    return
+  const known = (id: string): boolean => available.some(candidate => candidate === id || candidate.startsWith(`${id}:`))
+  const unknown = ids.filter(id => !known(id))
+  if (unknown.length > 0)
+    fail(`${flag} names ${unknown.map(id => `"${id}"`).join(', ')}, which ${unknown.length === 1 ? 'is' : 'are'} not in this plan — \`backup create\` with no flags lists the ids`)
+}
+
 /** `--exclude` parsed. An empty value is a mistake, not "exclude nothing". */
 function parseExclude(raw: string | undefined): string[] | undefined {
   if (raw === undefined)
@@ -182,14 +198,14 @@ async function refuseWithoutScope(action: 'create' | 'restore', suffix: string):
  * The refusal has to name real ids whether or not a panel is up — an empty list is the one answer
  * worse than no list, because it reads as "there is nothing to back up".
  */
-async function availableIdsFromDisk(action: 'create' | 'restore'): Promise<string[]> {
+async function availableIdsFromDisk(): Promise<string[]> {
   try {
     const { service } = await offlineBackup()
     await service.warm()
     const view = service.view()
-    return action === 'create'
-      ? view.entries.map(entry => entry.id)
-      : view.entries.flatMap(entry => [entry.id, ...entry.items.map(item => item.id)])
+    // Leaves too, for both actions: an entry id is a coarse alias, and a person deciding what to
+    // back up needs to see that `global:secrets` can be left out on its own.
+    return view.entries.flatMap(entry => [entry.id, ...entry.items.map(item => item.id)])
   }
   catch {
     return []
@@ -209,7 +225,7 @@ async function availableIdsFor(action: 'create' | 'restore', suffix: string): Pr
   const daemon = await import('#src/helpers/daemon')
   const runtime = daemon.readRuntime()
   if (runtime === null || !await daemon.runtimeIsAlive(runtime))
-    return await availableIdsFromDisk(action)
+    return await availableIdsFromDisk()
   const path = action === 'create' ? '/_hh/backups' : '/_hh/backups/restore'
   const answer = await daemon.requestControl(runtime, `${path}${suffix}`, 120000)
   if (answer === null || answer.status !== 200)
@@ -329,6 +345,10 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
     return service.view().entries as unknown as PlanItem[]
   })()
 
+  // Checked against the plan the user is looking at, so a typo is refused instead of quietly
+  // excluding nothing.
+  assertKnown(options.exclude, entries.flatMap(entry => [entry.id, ...(entry.items ?? []).map(item => item.id)]), '--exclude')
+  assertKnown(scope.kind === 'include' ? scope.ids : undefined, entries.flatMap(entry => [entry.id, ...(entry.items ?? []).map(item => item.id)]), '--include')
   const wanted = filterEntries(entries, scope, options.exclude)
 
   if (!options.confirm) {

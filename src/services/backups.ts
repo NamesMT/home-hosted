@@ -722,11 +722,11 @@ export class BackupService {
           const hook = server.dump
           if (hook === undefined || hook === null)
             continue
-          // The dump belongs to the entry, so the selection that names the entry is what includes it.
-          // A bare workspace id covers every entry it has, the same as for its other leaves.
-          if (wanted !== null
-            && !wanted.has(`workspace:${workspace.id}`)
-            && !wanted.has(`workspace:${workspace.id}:dump:${server.id}`)) {
+          // The dump belongs to the entry, so the selection that names the entry includes it and an
+          // exclusion that names the entry — or its dump — leaves it out. This was the last copy of
+          // the selection rule that did not consult `exclude`, so `--exclude workspace:default` still
+          // *ran* that workspace's dump program and archived the result.
+          if (!selects(`workspace:${workspace.id}:dump:${server.id}`)) {
             continue
           }
           const relative = path.join('dumps', workspace.id, server.id)
@@ -767,8 +767,10 @@ export class BackupService {
         }
       }
 
-      // A selection that captured nothing would only produce a manifest.
-      if (wanted !== null && captured === 0) {
+      // A selection that captured nothing would only produce a manifest — and an exclusion is a
+      // selection too: `--all --exclude <everything>` wrote a 631-byte archive holding nothing but
+      // the registry, which reads as a backup and restores nothing.
+      if ((wanted !== null || (options.exclude?.length ?? 0) > 0) && captured === 0) {
         fs.rmSync(staging, { recursive: true, force: true })
         return { ok: false, error: 'nothing was selected to back up' }
       }
@@ -937,7 +939,10 @@ export class BackupService {
         // item counts too.
         // An exclusion beats an alias: `--exclude global:secrets` must not be undone by the item's
         // own short alias (`secrets`) selecting it back in.
-        const selected = selects.isExcluded(item.id) ? false : selects(item.id) || aliases.some(alias => selects(alias))
+        // An alias works for both directions, because the item already carries them and the person
+        // who typed `--exclude config` meant this row.
+        const excluded = selects.isExcluded(item.id) || aliases.some(alias => selects.isExcluded(alias))
+        const selected = !excluded && (selects(item.id) || aliases.some(alias => selects(alias)))
         plan.items.push({ ...item, selected })
         if (selected) {
           actions.set(item.id, apply)
@@ -968,9 +973,29 @@ export class BackupService {
 
       const globalSecrets = readText(path.join(staging, 'global', 'secrets.json'))
       if (globalSecrets !== null) {
-        addItem({ id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null }, () => {
-          writeFileAtomic(sources.globalSecretsPath, globalSecrets, { mode: 0o600 })
-        }, ['secrets'])
+        // The whole-entry item writes the file outright, which is only right when nothing inside it
+        // was excluded. With a leaf excluded (`--exclude global:secrets:password`) it merges instead,
+        // so the excluded field keeps the value this host already had rather than being replaced by
+        // the archive's — the per-field items below exist to be the precise form, and this one must
+        // not undo them.
+        const globalSecretKeys = presentSecretKeys(parseSecrets(globalSecrets))
+        const everyGlobalSecretWanted = secretParts('global', globalSecretKeys)
+          .every(part => !selects.isExcluded(`global:secrets:${part.key}`)
+            && !part.fields.some(field => selects.isExcluded(`global:secrets:${field}`)))
+        addItem(
+          { id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null },
+          everyGlobalSecretWanted
+            ? () => writeFileAtomic(sources.globalSecretsPath, globalSecrets, { mode: 0o600 })
+            : () => {
+                // Only the fields this host may take: the exclusion decides, not the item.
+                const take = secretParts('global', globalSecretKeys)
+                  .filter(part => !selects.isExcluded(`global:secrets:${part.key}`)
+                    && !part.fields.some(field => selects.isExcluded(`global:secrets:${field}`)))
+                  .flatMap(part => part.fields)
+                mergeIntoFile(sources.globalSecretsPath, globalSecrets, take)
+              },
+          ['secrets'],
+        )
         // One item per secret the archive carries, so the password can come back without
         // the API token. Applying one merges by field: writing the whole archived file
         // would reinstate every secret in it, which is exactly what the person unpicked.
