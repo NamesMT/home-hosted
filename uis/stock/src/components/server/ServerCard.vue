@@ -203,12 +203,18 @@ function openDetail(): void {
           >
             {{ label }}
           </RouterLink>
+          <!--
+            A 14 px glyph is a 14 px target, and it sits 8 px from the title link that
+            opens the detail page: on a phone the two are one thumb-width apart, so the
+            tap that misses "open the page" lands on "leave the panel". The icon keeps
+            its size; the box around it grows to the 24 px the other icon controls use.
+          -->
           <a
             v-if="serverUrl"
             :href="serverUrl"
             target="_blank"
             rel="noreferrer"
-            class="shrink-0 text-faint transition-colors duration-150 hover:text-accent"
+            class="-my-1 grid size-6 shrink-0 place-items-center rounded-control text-faint transition-colors duration-150 hover:bg-hover hover:text-accent"
             :title="serverUrl"
             :aria-label="t('serverCard.open', { url: serverUrl })"
           >

@@ -198,7 +198,7 @@ const streamOptions = computed(() => [
           <button
             v-if="query.length > 0"
             type="button"
-            class="grid size-5 place-items-center rounded text-faint hover:text-ink"
+            class="grid size-6 place-items-center rounded text-faint hover:text-ink"
             :aria-label="t('logs.clearSearch')"
             @click="query = ''"
           >
@@ -207,7 +207,7 @@ const streamOptions = computed(() => [
           <button
             v-if="matches.length > 0"
             type="button"
-            class="grid size-5 place-items-center rounded text-faint hover:text-ink"
+            class="grid size-6 place-items-center rounded text-faint hover:text-ink"
             :aria-label="t('logs.prevMatch')"
             @click="stepMatch(-1)"
           >
@@ -216,7 +216,7 @@ const streamOptions = computed(() => [
           <button
             v-if="matches.length > 0"
             type="button"
-            class="grid size-5 place-items-center rounded text-faint hover:text-ink"
+            class="grid size-6 place-items-center rounded text-faint hover:text-ink"
             :aria-label="t('logs.nextMatch')"
             @click="stepMatch(1)"
           >

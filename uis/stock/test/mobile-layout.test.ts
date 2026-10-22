@@ -134,4 +134,39 @@ describe('the layout survives a phone', () => {
     }
     expect(offenders).toEqual([])
   })
+
+  /**
+   * A link or button whose only content is an icon has no text to make it big, so its target is
+   * whatever box the class list gives it. Every other icon control in the UI is a `size-6`/`size-7`
+   * grid or an `AppButton`; the one that was not — the card's "open in a new tab" glyph — was a
+   * 14 px target eight pixels from the title link that opens the detail page.
+   *
+   * 24 px is the floor: below it a thumb misses often enough that the neighbour wins, and a
+   * mis-tap that leaves the panel is the expensive kind.
+   */
+  it('gives an icon-only control a target of at least 24px', () => {
+    const SIZES = { 'size-4': 16, 'size-5': 20, 'size-6': 24, 'size-7': 28, 'size-8': 32, 'size-9': 36 }
+    const offenders: string[] = []
+    for (const file of templateFiles()) {
+      const template = templateOf(fs.readFileSync(file, 'utf8'))
+      for (const element of literalClasses(template)) {
+        // The element's tag must close with an `svg` and hold nothing else.
+        const close = template.indexOf(`</${element.tag}>`, template.indexOf(element.classes.join(' ')))
+        const opening = template.lastIndexOf('<', template.indexOf(element.classes.join(' ')))
+        if (close === -1 || opening === -1)
+          continue
+        const body = template.slice(opening, close)
+        const iconOnly = /<svg[\s>]|<[A-Z]\w*/.test(body) && !body.replace(/<[^>]*>|\s/g, '').includes('{{')
+        if (!iconOnly)
+          continue
+        const named = element.classes.map(name => SIZES[name as keyof typeof SIZES]).filter(value => value !== undefined)
+        // No size class at all is fine when the icon is padded into a box by `grid place-items-center`;
+        // what is not fine is a size that measures the *glyph*, under the floor.
+        const biggest = named.length > 0 ? Math.max(...named) : null
+        if (biggest !== null && biggest < 24)
+          offenders.push(`${path.relative(srcDir, file)}: <${element.tag}> is icon-only in a ${biggest}px box`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
 })
