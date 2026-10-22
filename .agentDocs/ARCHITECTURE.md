@@ -166,6 +166,15 @@ fold back itself — it writes flat strings — so `build-locales.mjs` does. The
 therefore *generated*, and neither the sheets nor the JSON is a build input a `ui.json` bump should
 chase: a wording change ships a different UI, so it bumps like any other source edit.
 
+**A sheet cannot catch copy that never reached it, so a template scan does.** `i18n-catalog.test.ts`
+reads the sheets; `uis/stock/test/untranslated-copy.test.ts` reads the `.vue` templates and fails on a
+literal word in text or in an accessible name. The gap it closes is asymmetric: a *missing* sheet row
+is a visible empty cell — and at runtime the key name rendered back — while a string typed straight
+into a template renders perfectly and stays English forever. The workspace switcher shipped that way,
+twelve strings including the "delete this workspace" confirmation, and no test could see it because
+no test mounted the component. A `<code>` span is exempt: it holds a token the reader types
+(`home-hosted set-token --generate`, `dependsOn`), which translating would break.
+
 ## How to test
 
 A component worth guarding mounts under `// @vitest-environment happy-dom`; the suite resolves `@/…`
