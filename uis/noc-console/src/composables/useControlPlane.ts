@@ -3,6 +3,7 @@ import type { ActionResult, BackupsView } from '@/lib/api'
 import type { ServerRef } from '@/lib/servers'
 import { sseMessageSchema } from '@shared/contracts'
 import { errorMessage } from '@shared/error-message'
+import { liveReadings } from '@shared/server-readings'
 import { type } from 'arktype'
 import { computed, reactive, readonly, ref } from 'vue'
 import { useSession } from '@/composables/useSession'
@@ -57,10 +58,14 @@ function sampleServer(server: ServerView): void {
   if (lastSample.get(key) === at)
     return
   lastSample.set(key, at)
+  // One process's readings: absent, not a stale number and not a zero. A newer UI can meet an older
+  // panel that kept them across an adopted entry's stop, and a zero is the value that looks like a
+  // measured idle process rather than a stopped one.
+  const live = liveReadings(server)
   const ring = seriesFor(key)
-  pushCapped(ring.cpu, server.resources?.cpuPercent ?? 0)
-  pushCapped(ring.rss, server.resources?.rssBytes ?? 0)
-  pushCapped(ring.probe, server.responseMs ?? 0)
+  pushCapped(ring.cpu, live.cpuPercent ?? 0)
+  pushCapped(ring.rss, live.rssBytes ?? 0)
+  pushCapped(ring.probe, live.responseMs ?? 0)
 }
 
 function appendLines(key: string, lines: LogLine[]): void {

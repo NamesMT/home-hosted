@@ -63,8 +63,12 @@ describe('the telemetry ring buffer', () => {
     expect(series.ts).toEqual([1])
     expect(series.cpu).toEqual([null])
     expect(series.rss).toEqual([null])
-    // A probe reading is kept even with no resources: it is the readiness latency.
-    expect(series.probe).toEqual([5])
+    // The probe reading goes the same way as the other two. This case used to assert `[5]`, on the
+    // stated reason that a probe reading is "the readiness latency" — but `awaitReadiness` never
+    // writes `responseMs` (only `probeEntry` does, `src/services/supervisor.ts`), so a stopped entry
+    // has a probe value only when it is **stale**: the last successful probe of the process that
+    // ended. Kept, it drew a live-looking latency on the chart of a server that is not running.
+    expect(series.probe).toEqual([null])
   })
 })
 

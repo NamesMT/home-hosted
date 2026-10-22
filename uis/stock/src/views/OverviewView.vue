@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Activity, CircleAlert, Play, Plus, Server as ServerIcon, Square, Timer } from '@lucide/vue'
+import { liveReadings } from '@shared/server-readings'
 import { computed, ref } from 'vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
 import AddServerDialog from '@/components/server/AddServerDialog.vue'
@@ -40,7 +41,7 @@ const attention = computed(() => servers.value.filter(server =>
 const totalRss = computed(() => {
   let total = 0
   for (const server of running.value) {
-    const rss = server.resources?.rssBytes
+    const rss = liveReadings(server).rssBytes
     if (typeof rss === 'number')
       total += rss
   }
@@ -61,7 +62,7 @@ const peakRss = computed(() => {
 const liveCpu = computed(() => {
   let total = 0
   for (const server of running.value)
-    total += server.resources?.cpuPercent ?? 0
+    total += liveReadings(server).cpuPercent ?? 0
   return total
 })
 

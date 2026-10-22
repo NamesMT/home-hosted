@@ -140,6 +140,17 @@ workspace config guard, so a busy default port turns config tests red for the wr
   and a scan fails a direct assignment. **A client cannot assume the server got there** — a newer
   UI is served against an older panel, so a UI rendering a *duration* gates it on the verdict it
   prints beside it, not on whether the timestamp is present.
+- **A measurement belongs to the process that produced it, and goes when that process does.**
+  `pid`, `responseMs` and `resources` are one run's numbers; a path that detaches the pid and keeps
+  them reports a stopped entry with a live CPU, RSS and probe (`Probe 2 Ms / RSS 64.2 MB / Procs 1`
+  beside `Stopped`, and `hh_server_cpu_percent` in the scrape). The two **exit** paths cleared them
+  and the explicit stop did not — and an **adopted** successor has no exit event at all, because the
+  panel is not its parent, so one helper (`endProcessReadings`) owns all four and a scan fails a
+  clear outside it. The rule is general: ask which **lifecycle** clears a field, not which function
+  happened to. `portState` is the deliberate exception — a port's occupancy outlives its process.
+  The client half is the same predicate as the paragraph above: both UIs read a reading through
+  `liveReadings` (`src/shared/server-readings.ts`), never off the frame, and never `?? 0` (a zero
+  is the value that looks like a measured idle process).
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { liveReadings } from '@shared/server-readings'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import HealthChip from '@/components/HealthChip.vue'
@@ -124,11 +125,11 @@ function openServer(workspaceId: string, serverId: string): void {
               <td>
                 <span class="row" style="gap: 0.35rem">
                   <Sparkline :values="control.seriesOf(group.id, server.id).cpu" color="var(--accent)" :width="54" :height="13" />
-                  <span class="num mono">{{ (server.resources?.cpuPercent ?? 0).toFixed(0) }}%</span>
+                  <span class="num mono">{{ (liveReadings(server).cpuPercent ?? 0).toFixed(0) }}%</span>
                 </span>
               </td>
               <td class="num">
-                {{ briefBytes(server.resources?.rssBytes ?? null) }}
+                {{ briefBytes(liveReadings(server).rssBytes) }}
               </td>
               <td class="num">
                 <HealthChip :health="server.health" />

@@ -68,3 +68,33 @@ describe('the card’s unhealthy duration', () => {
     expect(text, 'a card that says nothing is probed must not count a probe failure').not.toContain('Unhealthy for')
   })
 })
+
+/**
+ * The card's per-process readings follow the same rule as the duration.
+ *
+ * `Probe`, `RSS` and `Procs` are the numbers of the process that is running. The panel now drops
+ * them when one ends, but a newer UI is served against an older panel — and a panel before this
+ * release kept them across an **adopted** entry's stop, so the card read `Probe 2 Ms / RSS 64.2 MB
+ * / Procs 1` beside its own `Stopped` pill. Measured on the built panel.
+ */
+describe('the card’s live readings', () => {
+  const stale = {
+    status: 'stopped' as const,
+    responseMs: 2,
+    resources: { cpuPercent: 0.2, rssBytes: 64_241_664, processes: 1, sampledAt: 1000 },
+  }
+
+  it('shows the numbers of a running process', () => {
+    const text = render({ status: 'running', responseMs: 2, resources: stale.resources })
+    expect(text, 'a running entry must state its probe latency').toContain('2 ms')
+    expect(text, 'and its RSS').toContain('64.2 MB')
+  })
+
+  it('drops the numbers once the process is gone', () => {
+    const text = render(stale)
+    expect(text, 'a stopped entry must not print a probe latency').not.toContain('2 ms')
+    expect(text, 'a stopped entry must not print an RSS reading').not.toContain('64.2 MB')
+    // `Processes` is the row this would otherwise fill with the dead process's count.
+    expect(text, 'a stopped entry must not print a live process count').not.toMatch(/Processes\s+1/)
+  })
+})

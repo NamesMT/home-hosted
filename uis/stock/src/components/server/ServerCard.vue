@@ -14,6 +14,7 @@ import {
   Trash2,
   TriangleAlert,
 } from '@lucide/vue'
+import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
@@ -115,15 +116,20 @@ const PORT_STATE_LABEL_KEY: Record<string, string> = {
 
 const meta = computed(() => {
   const server = props.server
+  // The probe latency and the CPU/RSS sample are one process's numbers. They are read through the
+  // shared predicate because a newer UI is served against an older panel, and a panel before this
+  // release kept them across an adopted entry's stop — so the card would print `Probe 2 Ms`,
+  // `RSS 64.2 MB`, `Procs 1` beside its own `Stopped` pill.
+  const live = liveReadings(server)
   const rows: Array<{ key: string, label: string, value: string, title?: string }> = [
     { key: 'pid', label: t('serverCard.pid'), value: server.pid === null ? '—' : String(server.pid) },
     { key: 'uptime', label: t('common.uptime'), value: uptime.value },
     { key: 'restarts', label: t('serverCard.restarts'), value: `${server.restarts}/${server.maxRetries}` },
     { key: 'port', label: t('common.port'), value: t(PORT_STATE_LABEL_KEY[server.portState] ?? 'common.unknown') },
     { key: 'uptime24', label: t('serverCard.uptime24h'), value: formatRatio(server.history.uptimeRatio) },
-    { key: 'probe', label: t('serverCard.probe'), value: server.responseMs === null ? '—' : `${server.responseMs} ms` },
-    { key: 'rss', label: t('serverCard.rss'), value: formatBytesShort(server.resources?.rssBytes ?? null) },
-    { key: 'procs', label: t('serverCard.procs'), value: server.resources ? String(server.resources.processes) : '—' },
+    { key: 'probe', label: t('serverCard.probe'), value: live.responseMs === null ? '—' : `${live.responseMs} ms` },
+    { key: 'rss', label: t('serverCard.rss'), value: formatBytesShort(live.rssBytes) },
+    { key: 'procs', label: t('serverCard.procs'), value: live.processes === null ? '—' : String(live.processes) },
   ]
   if (server.history.crashes > 0)
     rows.splice(5, 0, { key: 'crashes', label: t('serverCard.crashes24h'), value: String(server.history.crashes) })

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Bind, LogLine, ServerStatus, ServerView } from '@shared/contracts'
 import { parseBind } from '@shared/contracts'
+import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { computed, onScopeDispose, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -69,8 +70,17 @@ const bindOptions = computed(() => {
   return options
 })
 
-const cpuPercent = computed(() => props.server.resources?.cpuPercent ?? null)
-const rssBytes = computed(() => props.server.resources?.rssBytes ?? null)
+/**
+ * The readings of the process that is running *now*.
+ *
+ * A probe latency and a CPU/RSS sample describe one run, so a stopped entry has none. Read through
+ * the shared predicate rather than the fields directly: a newer UI can meet an older panel that
+ * kept them across an adopted entry's stop, which showed a live-looking CPU beside `Stopped`.
+ */
+const readings = computed(() => liveReadings(props.server))
+const cpuPercent = computed(() => readings.value.cpuPercent)
+const rssBytes = computed(() => readings.value.rssBytes)
+const responseMs = computed(() => readings.value.responseMs)
 
 /** As in `ServerList`: CPU counts cores, so the bands scale with this machine's capacity. */
 function cpuColor(): string {
@@ -84,7 +94,7 @@ function cpuColor(): string {
 }
 
 function probeColor(): string {
-  const value = props.server.responseMs ?? 0
+  const value = responseMs.value ?? 0
   if (value >= 1000)
     return 'var(--danger)'
   if (value >= 300)
@@ -284,8 +294,8 @@ function ledClass(status: ServerStatus): string {
         <div class="metric__k">
           probe
         </div>
-        <div class="metric__v" :class="toneClass(server.responseMs, 300, 1000)">
-          {{ formatMs(server.responseMs) }}
+        <div class="metric__v" :class="toneClass(responseMs, 300, 1000)">
+          {{ formatMs(responseMs) }}
         </div>
         <Sparkline :values="series.probe" :color="probeColor()" :width="92" :height="16" />
       </div>
@@ -312,7 +322,7 @@ function ledClass(status: ServerStatus): string {
           procs
         </div>
         <div class="metric__v metric__v--dim">
-          {{ server.resources?.processes ?? '—' }}
+          {{ readings.processes ?? '—' }}
         </div>
       </div>
       <div class="metric">

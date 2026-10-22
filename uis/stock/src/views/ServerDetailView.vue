@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ServerView } from '@shared/contracts'
 import { Code2, ExternalLink, MoreHorizontal, Pencil, Play, RotateCw, Square, Trash2 } from '@lucide/vue'
+import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref, watch } from 'vue'
@@ -110,15 +111,19 @@ const stats = computed(() => {
   const value = server.value
   if (!value)
     return []
+  // The same gate the card uses: a probe latency and a CPU/RSS sample describe one process, and a
+  // newer UI can meet an older panel that kept them across an adopted entry's stop. Read through
+  // the shared predicate so the two surfaces cannot drift.
+  const live = liveReadings(value)
   const rows = [
     { key: 'pid', label: t('views.serverDetail.pid'), value: value.pid === null ? '—' : String(value.pid) },
     { key: 'uptime', label: t('common.uptime'), value: uptime.value },
     { key: 'status', label: t('common.status'), value: t(STATUS_META[value.status].labelKey) },
     { key: 'health', label: t('views.serverDetail.health'), value: t(HEALTH_META[value.health].labelKey) },
     { key: 'port', label: t('views.serverDetail.portState'), value: t(PORT_STATE_LABEL_KEY[value.portState] ?? 'common.unknown') },
-    { key: 'probe', label: t('views.serverDetail.lastProbe'), value: value.responseMs === null ? '—' : `${value.responseMs} ms` },
-    { key: 'rss', label: 'RSS', value: formatBytesShort(value.resources?.rssBytes ?? null) },
-    { key: 'procs', label: t('views.serverDetail.processes'), value: value.resources ? String(value.resources.processes) : '—' },
+    { key: 'probe', label: t('views.serverDetail.lastProbe'), value: live.responseMs === null ? '—' : `${live.responseMs} ms` },
+    { key: 'rss', label: 'RSS', value: formatBytesShort(live.rssBytes) },
+    { key: 'procs', label: t('views.serverDetail.processes'), value: live.processes === null ? '—' : String(live.processes) },
     { key: 'restarts', label: t('views.serverDetail.restarts'), value: `${value.restarts}/${value.maxRetries}` },
     { key: 'up24', label: t('views.serverDetail.uptime24'), value: formatRatio(value.history.uptimeRatio) },
     { key: 'crashes', label: t('views.serverDetail.crashes24'), value: String(value.history.crashes) },

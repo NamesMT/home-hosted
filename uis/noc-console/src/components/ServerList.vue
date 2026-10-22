@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { HealthState, ServerStatus, ServerView } from '@shared/contracts'
+import { liveReadings } from '@shared/server-readings'
 import Sparkline from '@/components/Sparkline.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
@@ -23,13 +24,17 @@ const emit = defineEmits<{
 const control = useControlPlane()
 const { selectedId, filter } = useUi()
 
+// The probe latency and the CPU/RSS sample are one process's numbers, so a stopped entry has none
+// — not a stale one from the process that just ended. Read through the shared predicate: a newer
+// UI can meet an older panel that kept them across an adopted entry's stop.
 function cpuText(server: ServerView): string {
-  const value = server.resources?.cpuPercent
-  return value === null || value === undefined ? '—' : `${value.toFixed(0)}%`
+  const value = liveReadings(server).cpuPercent
+  return value === null ? '—' : `${value.toFixed(0)}%`
 }
 
 function probeText(server: ServerView): string {
-  return server.responseMs === null ? '—' : `${server.responseMs}ms`
+  const value = liveReadings(server).responseMs
+  return value === null ? '—' : `${value}ms`
 }
 
 function uptimeText(server: ServerView): string {
@@ -65,7 +70,7 @@ function healthLed(health: HealthState): string {
  * fixed 80/40 a busy worker on a 24-core host was painted red for using a sixth of the box.
  */
 function cpuColor(server: ServerView): string {
-  const value = server.resources?.cpuPercent ?? 0
+  const value = liveReadings(server).cpuPercent ?? 0
   const capacity = Math.max(100, (control.host.value?.cpus ?? 1) * 100)
   if (value >= capacity * 0.8)
     return 'var(--danger)'
@@ -158,10 +163,10 @@ function cpuColor(server: ServerView): string {
             <td>
               <span class="row" style="gap: 0.35rem">
                 <Sparkline :values="control.seriesOf(workspaceId, server.id).rss" color="var(--accent)" :width="54" :height="13" />
-                <span class="num mono">{{ briefBytes(server.resources?.rssBytes ?? null) }}</span>
+                <span class="num mono">{{ briefBytes(liveReadings(server).rssBytes) }}</span>
               </span>
             </td>
-            <td class="num" :class="{ warn: (server.responseMs ?? 0) >= 1000 }">
+            <td class="num" :class="{ warn: (liveReadings(server).responseMs ?? 0) >= 1000 }">
               {{ probeText(server) }}
             </td>
             <td class="num">

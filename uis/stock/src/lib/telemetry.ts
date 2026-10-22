@@ -1,4 +1,5 @@
 import type { ServerView } from '@shared/contracts'
+import { liveReadings } from '@shared/server-readings'
 import { reactive } from 'vue'
 
 /**
@@ -42,20 +43,23 @@ export function recordSample(series: ServerSeries, server: ServerView, now: numb
   const sampledAt = server.resources?.sampledAt ?? 0
   const lastTs = series.ts[series.ts.length - 1] ?? 0
   const fresh = sampledAt !== series.lastSampledAt || now - lastTs >= MIN_GAP_MS
+  // The readings of a process that is not running are absent, not stale: a newer UI can meet an
+  // older panel that kept them across a stop, and a chart is the surface where a stale number looks
+  // most like a live one.
+  const live = liveReadings(server)
 
   if (!fresh) {
     // A newer probe reading on an unchanged sample still belongs on the tip.
     if (series.probe.length > 0)
-      series.probe[series.probe.length - 1] = server.responseMs
+      series.probe[series.probe.length - 1] = live.responseMs
     return
   }
 
   series.lastSampledAt = sampledAt
   series.ts.push(now)
-  const live = server.status === 'running'
-  series.cpu.push(live ? server.resources?.cpuPercent ?? null : null)
-  series.rss.push(live ? server.resources?.rssBytes ?? null : null)
-  series.probe.push(server.responseMs)
+  series.cpu.push(live.cpuPercent)
+  series.rss.push(live.rssBytes)
+  series.probe.push(live.responseMs)
   trim(series)
 }
 
