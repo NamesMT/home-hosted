@@ -241,6 +241,53 @@ describe('the sheets', () => {
     expect(offenders).toEqual([])
   })
 
+  /**
+   * A count interpolated into a sentence that then spells out an English unit.
+   *
+   * This is not a translation rule, it is a **formatting** rule with a translation side effect: the
+   * caller had to convert the value into whole days (or hours) before `t()` could take it, so a
+   * setting that does not divide evenly lost its meaning on the way in. `login.sessionNote` read
+   * "Sessions stay signed in for {days} days", the login page passed
+   * `Math.round(sessionTtlMs / 86_400_000)`, and any lifetime under twelve hours — including the
+   * 60 s a person sets while trying the panel out — rendered **"0 days"** on the one screen that
+   * tells them whether it is safe to stay signed in. A lifetime of exactly one day read "1 days".
+   *
+   * A span goes through `formatDuration` (localized, its own unit, both halves of a mixed value),
+   * and the sheet carries the unit for the reader's language rather than the sentence assuming one.
+   * `{count} days` is therefore allowed only where the count *is* a count of days — a certificate
+   * with 30 days left — and flagged where it is a duration being rounded in the caller.
+   */
+  it('does not spell out a unit beside a count that a duration formatter already renders', () => {
+    /** `{x} day(s)` / `{x} hour(s)` / `{x} minute(s)` — a time unit written into the sentence. */
+    const spelledOut = /\{\w+\}\s*(?:days?|hours?|minutes?|seconds?|weeks?)\b/i
+    /**
+     * The values that are genuinely a **count of days** rather than a span: how long a certificate
+     * has left, and the settings page's own day field. Everything else must use a `{duration}`.
+     */
+    const countOfDays = new Set([
+      'days.remaining[one]',
+      'days.remaining[other]',
+      'settings.tls.days',
+      'proxy.engine.expiresSoon',
+      'proxy.certificate.daysLeft',
+      // A retry delay the proxy itself reports in whole minutes.
+      'proxy.retry.inMinutes[one]',
+      'proxy.retry.inMinutes[other]',
+      'proxy.retry.inHours[one]',
+      'proxy.retry.inHours[other]',
+    ])
+
+    const offenders: string[] = []
+    for (const row of readSheet()) {
+      const key = String(row.KEY ?? '')
+      const english = String(row.en ?? '')
+      if (!spelledOut.test(english) || countOfDays.has(key))
+        continue
+      offenders.push(`${key} [${row.__sheet}]: ${english}`)
+    }
+    expect(offenders).toEqual([])
+  })
+
   it('fills every message, or provides the `other` its runtime falls back to', () => {
     // A blank plural cell means "this language has no such category" — Spanish `many` is only
     // reachable at a million, and reads fine from `other`. Blank is therefore only safe when

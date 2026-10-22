@@ -79,7 +79,7 @@ describe('reactivity', () => {
     for (const locale of LOCALES.map(entry => entry.code)) {
       await setLocale(locale)
       for (const text of [
-        t('login.sessionNote', { days: 7 }),
+        t('login.sessionNote', { duration: '7d' }),
         t('theme.label', { theme: 'x' }),
         tc('servers.total', 3),
         tc('palette.results', 4),

@@ -22,9 +22,9 @@ describe('transText', () => {
   afterEach(() => __resetLocaleForTests())
 
   it('fills a placeholder from a param when no slot is given', () => {
-    const html = render({ k: 'login.sessionNote', params: { days: 7 } }).html()
-    expect(html).toContain('7 days')
-    expect(html).not.toContain('{days}')
+    const html = render({ k: 'login.sessionNote', params: { duration: '7d' } }).html()
+    expect(html).toContain('7d')
+    expect(html).not.toContain('{duration}')
   })
 
   it('renders markup from a slot', () => {
@@ -47,8 +47,8 @@ describe('transText', () => {
 
   it('renders a placeholder in the reader’s language', async () => {
     await setLocale('ru')
-    const html = render({ k: 'login.sessionNote', params: { days: 30 } }).html()
-    expect(html).toContain('30')
+    const html = render({ k: 'login.sessionNote', params: { duration: '30d' } }).html()
+    expect(html).toContain('30d')
     expect(html).not.toMatch(/\{\w+\}/)
   })
 })

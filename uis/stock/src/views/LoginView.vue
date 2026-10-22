@@ -10,6 +10,7 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
 import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
+import { formatDuration } from '@/lib/format'
 import { inputClass, labelClass } from '@/lib/ui'
 
 const route = useRoute()
@@ -26,6 +27,17 @@ const authOff = computed(() => session.value !== null && !session.value.authRequ
 const usingDefault = computed(() => session.value?.usingDefaultPassword === true && session.value.defaultPassword !== null)
 const exposed = computed(() => control.control.value?.auth.exposed === true)
 const panelUrl = computed(() => control.control.value?.url ?? '—')
+
+/**
+ * How long a sign-in survives an idle gap, as a person reads it.
+ *
+ * It was `Math.round(ttl / 86_400_000)` rendered into "{days} days", so any lifetime under
+ * 12 hours showed **"0 days"** and exactly one day showed "1 days" — on the login page, which
+ * is the one screen a person reads before deciding whether the panel is safe to leave open.
+ * `formatDuration` is the localised formatter the rest of the UI already uses for spans, and it
+ * carries the unit itself, so the sentence needs no plural handling.
+ */
+const sessionDuration = computed(() => formatDuration(session.value?.sessionTtlMs ?? 0))
 
 const headline = computed(() => {
   if (firstRun.value)
@@ -180,7 +192,7 @@ onMounted(async () => {
           <div v-else class="flex items-start gap-2 rounded-control border border-line-soft bg-panel-2 px-2.5 py-2">
             <ShieldCheck class="mt-0.5 size-3.5 shrink-0 text-ok" />
             <p class="text-2xs leading-4 text-muted">
-              {{ t('login.sessionNote', { days: Math.round((session?.sessionTtlMs ?? 0) / 86_400_000) }) }}
+              {{ t('login.sessionNote', { duration: sessionDuration }) }}
             </p>
           </div>
         </div>
