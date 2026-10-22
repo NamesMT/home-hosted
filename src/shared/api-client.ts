@@ -93,6 +93,43 @@ export function backupDownloadUrl(name: string): string {
   return `/api/backups/${encodeURIComponent(name)}/download`
 }
 
+/** What a create may carry: a password, and a selection in either direction. */
+export interface CreateBackupOptions {
+  password?: string
+  /** Leaf ids to capture; omitted means everything. */
+  include?: string[]
+  /** Leaf ids to leave out, applied after `include`. */
+  exclude?: string[]
+}
+
+/**
+ * The create request body, with an explicitly empty list refused rather than dropped.
+ *
+ * Omitting `include` means "capture everything" to the server, so a selection of nothing that
+ * quietly became no key widened a request into a full archive — and the same for `exclude`, where
+ * an empty list left in the archive exactly what was meant to be dropped. Both are mistakes the
+ * caller must see, so this is the one place they are turned into an error.
+ */
+export function createBackupBody(options: CreateBackupOptions = {}): Record<string, unknown> {
+  const body: Record<string, unknown> = {}
+  if (options.password !== undefined && options.password.length > 0)
+    body.password = options.password
+  for (const key of ['include', 'exclude'] as const) {
+    const ids = options[key]
+    if (ids === undefined)
+      continue
+    if (ids.length === 0)
+      throw new Error(`nothing is ${key === 'include' ? 'selected' : 'excluded'}: omit \`${key}\` or name at least one item`)
+    body[key] = ids
+  }
+  return body
+}
+
+/** The caller re-reads `/api/state` afterwards, which carries the fresh list. */
+export function createBackup(options: CreateBackupOptions = {}): Promise<unknown> {
+  return request('/api/backups', { method: 'POST', body: JSON.stringify(createBackupBody(options)) })
+}
+
 export function clearPassword(): Promise<unknown> {
   return request('/api/auth/password', { method: 'DELETE' })
 }

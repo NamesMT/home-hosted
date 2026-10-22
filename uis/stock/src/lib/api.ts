@@ -43,6 +43,7 @@ export {
   backupDownloadUrl,
   clearPassword,
   clearProxyCertificate,
+  createBackup,
   deleteBackup,
   fetchProxy,
   fetchSession,
@@ -233,24 +234,6 @@ export function logDownloadUrl(workspace: string, id: string, file: string): str
 /** Backups are panel-wide: every workspace is a selectable entry in the archive. */
 export function fetchBackups(): Promise<BackupsView> {
   return request<BackupsView>('/api/backups')
-}
-
-/**
- * The caller re-reads `/api/state` afterwards, which carries the fresh list.
- * An explicitly empty `include` is refused rather than dropped: omitting the key
- * means "capture everything" to the server, so silently widening a selection of
- * nothing into a full archive is the one outcome that must never happen.
- */
-export function createBackup(password?: string, include?: string[]): Promise<unknown> {
-  if (include !== undefined && include.length === 0)
-    throw new Error('nothing is selected: omit `include` to capture everything, or select at least one item')
-
-  const body: Record<string, unknown> = {}
-  if (password !== undefined && password.length > 0)
-    body.password = password
-  if (include !== undefined)
-    body.include = include
-  return request('/api/backups', { method: 'POST', body: JSON.stringify(body) })
 }
 
 export async function restoreUploadedBackup(file: File, confirm: boolean, options: RestoreOptions = {}): Promise<RestorePlan> {

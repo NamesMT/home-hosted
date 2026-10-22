@@ -201,7 +201,7 @@ describe('backup selection', () => {
   it('refuses to send an empty selection instead of widening it to everything', () => {
     // The dialog's own guard blocks this today, but no caller may turn "capture
     // nothing" into "capture everything" by omitting the key.
-    expect(() => createBackup('', [])).toThrow('nothing is selected')
+    expect(() => createBackup({ include: [] })).toThrow('nothing is selected')
   })
 
   it('counts the entries and the leaves the request would capture', () => {

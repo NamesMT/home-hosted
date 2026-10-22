@@ -84,7 +84,7 @@ describe('backupDialog', () => {
     expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(4)
     await create(wrapper)
 
-    expect(spy).toHaveBeenCalledWith('', undefined)
+    expect(spy).toHaveBeenCalledWith({ password: '', include: undefined })
   })
 
   it('sends what is left ticked as the selection', async () => {
@@ -95,7 +95,7 @@ describe('backupDialog', () => {
     await checkbox(wrapper, 1).setValue(false)
     await create(wrapper)
 
-    expect(spy).toHaveBeenCalledWith('', ['global:settings', 'global:tls', 'workspace:default'])
+    expect(spy).toHaveBeenCalledWith({ password: '', include: ['global:settings', 'global:tls', 'workspace:default'] })
   })
 
   it('sends only the leaves that stayed ticked in a workspace sub-dialog', async () => {
@@ -119,7 +119,7 @@ describe('backupDialog', () => {
     await create(wrapper)
 
     // The workspace is captured in part, so its picked leaves travel by id.
-    expect(spy).toHaveBeenCalledWith('', ['global:settings', 'global:secrets', 'global:tls', 'workspace:default:settings', 'data:/srv/app/data'])
+    expect(spy).toHaveBeenCalledWith({ password: '', include: ['global:settings', 'global:secrets', 'global:tls', 'workspace:default:settings', 'data:/srv/app/data'] })
   })
 
   it('offers a sub-dialog for the global secrets entry, not only for a workspace', async () => {
@@ -159,6 +159,6 @@ describe('backupDialog', () => {
     await create(wrapper)
 
     // Only the secret that stayed ticked travels by id.
-    expect(spy).toHaveBeenCalledWith('', ['global:settings', 'global:secrets:password'])
+    expect(spy).toHaveBeenCalledWith({ password: '', include: ['global:settings', 'global:secrets:password'] })
   })
 })

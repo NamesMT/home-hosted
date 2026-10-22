@@ -574,12 +574,34 @@ export const ddnsPatchSchema = type({
 export type DdnsPatch = typeof ddnsPatchSchema.infer
 
 /** Tar archives of config, secrets, TLS and declared data paths. */
-/** The scheduled half: an interval and a retention of its own. */
+/**
+ * What an automatic backup captures, in the vocabulary the manual dialog and the CLI already use.
+ *
+ * `only` is `--include`, `except` is `--all --exclude`, and both name the same ids: a coarse id
+ * (`workspace:default`) covers every leaf under it. Omitted means the full default scope, which is
+ * what a schedule written before this field existed must keep meaning.
+ *
+ * An empty `ids` is refused rather than read as either "nothing" or "everything": those are the two
+ * readings a person cannot tell apart from the file, and one of them captures nothing at all.
+ */
+export const backupScopeSchema = type({
+  mode: '"only" | "except"',
+  ids: type('string >= 1').array().atLeastLength(1),
+}).onUndeclaredKey('reject')
+export type BackupScope = typeof backupScopeSchema.infer
+
+/** The scheduled half: an interval, a retention of its own, and what it captures. */
 export const backupScheduleSchema = type({
   /** 0 turns the schedule off; otherwise the gap between automatic archives. */
   intervalMs: 'number.integer >= 0 = 0',
   /** How many automatic archives to keep. Manual ones are never pruned by it. */
   keep: 'number.integer >= 1 = 7',
+  /**
+   * Absent means the whole default scope — every workspace and `includePaths`. Deliberately not
+   * defaulted to an explicit value: a reader cannot tell an untouched file from one that chose
+   * "everything", and a default here would rewrite every existing schedule on its first save.
+   */
+  scope: backupScopeSchema.optional(),
 }).onUndeclaredKey('reject')
 export type BackupScheduleConfig = typeof backupScheduleSchema.infer
 
@@ -733,6 +755,11 @@ const hostPatchSchema = type({
 const backupSchedulePatchSchema = type({
   intervalMs: 'number.integer >= 0?',
   keep: 'number.integer >= 1?',
+  /**
+   * No defaults, like every patch: `null` clears it back to the full default scope, which is the
+   * only way to spell "forget the choice I made" — an omitted key means "leave it as it is".
+   */
+  scope: backupScopeSchema.or(type('null')).optional(),
 }).onUndeclaredKey('reject')
 
 const backupsPatchSchema = type({
@@ -1453,6 +1480,15 @@ export const backupEntrySchema = type({
 })
 export type BackupEntry = typeof backupEntrySchema.infer
 
+/**
+ * The schedule as a *response* carries it: undeclared keys are accepted, at both levels.
+ *
+ * A response schema may not reject (a newer panel may add a field an older client still reads), and
+ * `scope` is one level deep — so the outer `.onUndeclaredKey` on the config schema is not enough:
+ * a frame carrying `schedule.scope` rejected outright while this was the config shape.
+ */
+export const backupScheduleViewSchema = backupScheduleSchema.onDeepUndeclaredKey('ignore')
+
 export const backupsViewSchema = type({
   'enabled': 'boolean',
   'dir': 'string',
@@ -1464,7 +1500,7 @@ export const backupsViewSchema = type({
    * and a required field would blank the settings page for that panel. The page reads it as
    * "off, keep 7" when absent — the schema defaults — so nothing changes for it.
    */
-  'schedule?': backupScheduleSchema,
+  'schedule?': backupScheduleViewSchema,
   /** When the last automatic archive was written; null until one has run. Optional for the same reason. */
   'lastAutomaticAt?': 'number | null',
   /**
@@ -1591,6 +1627,14 @@ export const backupCreateSchema = type({
   password: passwordValueSchema.optional(),
   /** Leaf ids to capture (`global:settings`, `workspace:<id>:servers`, `data:<path>`, ...); omitted means everything. */
   include: type('string[] >= 1').optional(),
+  /**
+   * Leaf ids to leave out, applied after `include` — the CLI's `--exclude`, and the one thing to
+   * name when the archive should carry everything but the credentials.
+   *
+   * Empty is refused for the same reason `include` refuses it: an empty list reads as "nothing" to
+   * a person and as "everything" to a reader, so it must not be sent at all.
+   */
+  exclude: type('string[] >= 1').optional(),
 }).onUndeclaredKey('reject')
 export type BackupCreate = typeof backupCreateSchema.infer
 

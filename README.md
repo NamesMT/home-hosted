@@ -518,6 +518,22 @@ stores `intervalMs` — with a retention of its own (`Keep automatic`). The two 
 room for its own. Both land in the same directory, and an automatic archive is named `auto-…` so you
 can tell them apart — a name you drop in by hand with that prefix is treated as one, so do not use it.
 
+**What an automatic backup contains** is yours to choose: *What an automatic backup contains →
+Choose…* offers the same two-level list as *Create backup…*, and writes the result into the schedule
+as `scope`. Two modes, the same two the CLI has:
+
+- **Only these** — the archive carries only what you tick. The command-line spelling is
+  `--include <ids>`.
+- **Everything except** — the archive carries everything but what you tick, *including workspaces you
+  add later*. The command-line spelling is `--all --exclude <ids>`.
+
+Leave it at **Everything** (no `scope` in the file) and the schedule keeps taking the whole default
+scope — every workspace plus `includePaths` — which is exactly what a schedule written before this
+existed means. That is also the only setting that follows a workspace you add tomorrow; a stored list
+of ids does not, because it names today's ids. Ticking everything in the dialog is therefore saved as
+no scope at all, not as the list it currently amounts to. An empty selection is refused: it cannot be
+told apart from "everything" in the file, and it would capture nothing.
+
 <details>
 <summary><b>🔑 Restoring a secret</b></summary>
 

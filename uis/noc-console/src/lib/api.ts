@@ -48,6 +48,7 @@ export {
   backupDownloadUrl,
   clearPassword,
   clearProxyCertificate,
+  createBackup,
   deleteBackup,
   fetchProxy,
   fetchSession,
@@ -267,19 +268,6 @@ export async function fetchBackups(): Promise<BackupsView> {
   if (parsed instanceof type.errors)
     throw new Error(`backups contract mismatch: ${parsed.summary}`)
   return parsed as BackupsView
-}
-
-/**
- * Backups are global: an archive holds the panel's own files plus one entry per
- * workspace, and `include` carries **leaf** ids (`workspace:<id>:servers`, …).
- */
-export function createBackup(password?: string, include?: string[]): Promise<unknown> {
-  const body: Record<string, unknown> = {}
-  if (password !== undefined && password.length > 0)
-    body.password = password
-  if (include !== undefined && include.length > 0)
-    body.include = include
-  return request('/api/backups', { method: 'POST', body: JSON.stringify(body) })
 }
 
 export async function restoreUploadedBackup(file: File, confirm: boolean, options: RestoreOptions = {}): Promise<RestorePlan> {

@@ -12,6 +12,11 @@ either is a last resort, and never an accidental one.
 - **A config written by an older release has to load in a newer one.** That direction is the
   priority: add fields with defaults, never repurpose or remove one, and treat every existing key as
   permanent.
+- **A new field is optional, but has no default, when "absent" must not be a value.** The schedule's
+  `scope` is the case: absent means the whole default capture, and filling a default in would rewrite
+  every existing config on its first save while reading "narrowed to these ids". Absent has to stay
+  distinguishable from chosen, so the field is `optional()` and both UIs read missing as the full
+  scope. Use a default everywhere else.
 - **An unrecognized key is read, reported and left on disk** instead of failing anything — it is the
   normal way a config from a *newer* release looks. Anything that is not merely unrecognized (a wrong
   value, a duplicate id, an unreadable file) stops the panel instead of being papered over.

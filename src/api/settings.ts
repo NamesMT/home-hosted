@@ -17,6 +17,7 @@ import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { buildControlView } from '#src/services/state'
+import { unknownBackupIds } from '#src/shared/backup-scope'
 import {
   settingsPatchSchema,
   settingsSavedSchema,
@@ -105,6 +106,24 @@ export function createSettingsRoute(deps: AppDeps) {
       )
       if (proxyExposure !== null)
         throw new DetailedError(proxyExposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })
+
+      // A schedule scope may only name something this panel can capture.
+      //
+      // Checked here, where a person is present to be told, rather than at pass time: a scope id
+      // outlives the thing it names (a workspace can be deleted), and that must not make the panel
+      // refuse a config it wrote itself. What it *must* not do is accept a typo on the way in — an
+      // unknown `only` id narrows the archive and an unknown `except` id widens it back over what
+      // was meant to be left out, and nobody is watching the pass that does it.
+      const scope = patch.backups?.schedule?.scope
+      if (scope !== undefined && scope !== null) {
+        const unknown = unknownBackupIds(scope.ids, deps.backups.view().entries)
+        if (unknown.length > 0) {
+          throw new DetailedError(
+            `the automatic backup scope names ${unknown.map(id => `"${id}"`).join(', ')}, which this panel cannot capture`,
+            { statusCode: 400, code: 'INVALID_SETTINGS' },
+          )
+        }
+      }
 
       const previous = { trustProxy: current.auth.trustProxy, tlsEnabled: current.tls.enabled }
       try {

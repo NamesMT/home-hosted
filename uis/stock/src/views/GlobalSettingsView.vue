@@ -108,7 +108,9 @@ const currentSnapshot = computed<Record<string, unknown>>(() => {
   return {
     control: view === null ? {} : { ...listenerBaseline(view), auth: authBaseline(view.auth) },
     host: host ?? {},
-    backups: backups === null ? {} : { enabled: backups.enabled, keep: backups.keep, includePaths: backups.includePaths },
+    backups: backups === null
+      ? {}
+      : { enabled: backups.enabled, keep: backups.keep, includePaths: backups.includePaths, schedule: backups.schedule ?? {} },
   }
 })
 

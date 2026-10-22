@@ -49,7 +49,11 @@ export function createBackupsRoute(deps: AppDeps) {
       validate('json', backupCreateSchema),
       async (c) => {
         const body: BackupCreate = c.req.valid('json')
-        const result = await deps.backups.create({ password: body.password, include: body.include })
+        // `include` and `exclude` together are allowed, and mean what the CLI means by them: the
+        // exclusion applies after the selection. The pair stays coherent because `create` reads
+        // both through one `selectionOf`, and a scope that leaves nothing refuses there rather
+        // than writing an empty archive.
+        const result = await deps.backups.create({ password: body.password, include: body.include, exclude: body.exclude })
         if (!result.ok)
           throw backupFailed(result.error)
         return c.json({ file: result.file, files: deps.backups.list() })

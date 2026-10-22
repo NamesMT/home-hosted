@@ -1,4 +1,4 @@
-import type { BackupsView } from '@shared/contracts'
+import type { BackupScope, BackupsView } from '@shared/contracts'
 import { describe, expect, it } from 'vitest'
 import { backupsBaseline, backupsPatch } from '../src/components/settings/settingsForm'
 
@@ -9,7 +9,7 @@ import { backupsBaseline, backupsPatch } from '../src/components/settings/settin
  * rounded view. Two rules follow, and both are pinned here: an untouched field must not be sent
  * at all, and a panel that predates the schedule (sends none) must read as "off".
  */
-function view(schedule?: { intervalMs: number, keep: number }): BackupsView {
+function view(schedule?: { intervalMs: number, keep: number, scope?: BackupScope }): BackupsView {
   return ({
     enabled: true,
     dir: '/srv/.backups',
@@ -44,6 +44,39 @@ describe('the backup schedule form', () => {
     const patch = backupsPatch(policy, { ...baseline, scheduleKeep: 3 })
     expect(patch).toEqual({ schedule: { keep: 3 } })
     expect(JSON.stringify(patch), 'the interval is left alone').not.toContain('intervalMs')
+  })
+
+  /**
+   * The scope field, and the two ways it can corrupt a config.
+   *
+   * An untouched dialog must not send the scope at all: the patch merges by key, so sending what the
+   * panel already holds is harmless — but re-sending a *rebuilt* object on every save is how a page
+   * starts rewriting a config nobody edited. And `null` has to travel as `null`, because omitting
+   * the key means "leave it stored" — that is the only way to go back to the whole default scope.
+   */
+  it('sends the scope only when the dialog changed it, and null clears it', () => {
+    const off = view({ intervalMs: 3_600_000, keep: 7 })
+    const baseline = backupsBaseline(off)
+    expect(baseline.scheduleScope, 'a schedule with no scope is the whole default').toBeNull()
+    expect(backupsPatch(off, baseline)).toEqual({})
+
+    // The same ids in another order is not an edit: the panel chooses the order it writes them in.
+    const custom = view({ intervalMs: 3_600_000, keep: 7, scope: { mode: 'except', ids: ['a', 'b'] } })
+    const customBaseline = backupsBaseline(custom)
+    expect(backupsPatch(custom, { ...customBaseline, scheduleScope: { mode: 'except', ids: ['b', 'a'] } })).toEqual({})
+
+    // A narrowed schedule sends the narrowed scope.
+    expect(backupsPatch(custom, { ...customBaseline, scheduleScope: { mode: 'only', ids: ['global:settings'] } }))
+      .toEqual({ schedule: { scope: { mode: 'only', ids: ['global:settings'] } } })
+    // And clearing it travels as `null`, not as an absent key.
+    expect(backupsPatch(custom, { ...customBaseline, scheduleScope: null })).toEqual({ schedule: { scope: null } })
+  })
+
+  it('keeps a scope an older panel never sent out of the patch', () => {
+    // A panel that predates the field reports no `scope`; the form must not invent one.
+    const older = view({ intervalMs: 3_600_000, keep: 7 })
+    expect(backupsBaseline(older).scheduleScope).toBeNull()
+    expect(backupsPatch(older, backupsBaseline(older))).toEqual({})
   })
 
   it('sends the interval when, and only when, it was edited', () => {

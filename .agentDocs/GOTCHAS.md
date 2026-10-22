@@ -298,6 +298,12 @@ line in `AGENTS.md` instead.
   a UI must clear are `'type | null?'`.
 - `ServerView.config.port` is normalized to `number | null`; the hand-narrowed types in
   `contracts.ts` are deliberate.
+- **`onUndeclaredKey('ignore')` does not reach a nested group.** Giving a *response* schema an ignore
+  variant has to be `onDeepUndeclaredKey('ignore')`: the outer call only tolerates unknowns at its own
+  level, while the child still `.reject`s its own extras. `backupScheduleViewSchema` exists for this —
+  `backupsViewSchema` carrying the config `backupScheduleSchema` rejected a frame whose
+  `schedule.scope` a newer panel had added, blanking the backups page. Any response schema with a
+  nested strict group needs the deep variant, and a test that puts an unknown key at *both* levels.
 - **A list paired with the structure that reads it must be checked with a *mutation*, not a reading.**
   `parseGrouped` reports a key absent from `keys` as "unrecognized — this release ignores it" while the
   loop below still parses that group, so one missing entry yields a config that works and a warning

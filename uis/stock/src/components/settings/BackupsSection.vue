@@ -8,6 +8,7 @@ import BackupDialog from '@/components/settings/BackupDialog.vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import RestoreDialog from '@/components/settings/RestoreDialog.vue'
+import ScheduleScope from '@/components/settings/ScheduleScope.vue'
 import { numberModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
@@ -148,6 +149,8 @@ async function removeBackup(name: string): Promise<void> {
         <p v-if="scheduleError !== null" class="text-2xs text-danger sm:col-span-2" role="status">
           {{ t('settings.backups.scheduleFailed', { when: formatDateTime(scheduleError.at), message: scheduleError.message }) }}
         </p>
+        <!-- What an automatic archive contains. It used to be the full default scope, always. -->
+        <ScheduleScope v-model:scope="form.scheduleScope" :state="props.state" />
       </template>
       <TextField
         v-model="form.includePaths"
