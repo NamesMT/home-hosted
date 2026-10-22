@@ -22,7 +22,9 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
  */
 describe('the supervisor writes health through one helper', () => {
   const source = fs.readFileSync(path.join(root, 'src/services/supervisor.ts'), 'utf8')
-  const lines = source.split('\n')
+  // Split on either ending: a Windows checkout writes CRLF, and a `line === '  }'` comparison
+  // against a line that still carries `\r` silently finds no method body at all.
+  const lines = source.split(/\r?\n/)
 
   /** The lines of one method body, from its signature to the closing brace at method indentation. */
   function methodBody(name: string): string[] {

@@ -2384,8 +2384,8 @@ describe('an exit clears the health streak of the process it ends', () => {
     const harness = await makeSupervisor([{
       id: 'sickly',
       command: process.execPath,
-      // Serves 500s, then exits on its own: unhealthy first, then simply gone.
-      args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1");setTimeout(()=>process.exit(7),1200)'],
+      // Accepts TCP and answers 500, so it goes unhealthy and stays up until the test ends it.
+      args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1")'],
       env: { PORT: '{port}' },
       port,
       health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 0, startTimeoutMs: 5000 },
@@ -2397,6 +2397,14 @@ describe('an exit clears the health streak of the process it ends', () => {
     await waitFor(() => view(harness.supervisor, 'sickly').unhealthySince !== null, 20000)
     // Asserted, not assumed: a fixture that never went unhealthy cannot prove the clearing.
     expect(view(harness.supervisor, 'sickly').health).toBe('unhealthy')
+
+    // The exit is driven from here rather than by a timer inside the child: a fixed delay races the
+    // first probe, and on a slower platform (measured on Windows) the child was gone before it was
+    // ever recorded unhealthy, so the precondition never held and the case failed for the wrong
+    // reason. Killing a process this panel spawned is the same `handleExit` path.
+    const pid = view(harness.supervisor, 'sickly').pid
+    expect(pid, 'the fixture must be running for its exit to be driven').not.toBeNull()
+    process.kill(pid!, 'SIGTERM')
 
     await waitForStatus(harness.supervisor, 'sickly', 'crashed')
     const crashed = view(harness.supervisor, 'sickly')
