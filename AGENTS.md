@@ -111,6 +111,10 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).
+- **A metric with no reading is absent, never zero.** A scrape has no page to qualify a number, so an
+  alerted-on gauge published as `0` from an unsampled view is indistinguishable from a healthy one
+  and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
+  suffix `_total` a value that a user action resets.
 - **Conventional commits** — changelogen derives the changelog and `scripts/check-release-version.mjs`
   the version bump. Below 1.0 the **minor is the breaking channel**: a fix is a patch, a minor means
   someone has to read the release notes and act — ask what the user has to do, not whether the commit

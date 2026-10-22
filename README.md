@@ -244,9 +244,20 @@ default workspace.
 | `GET`/`POST /api/backups`, restore | archives; a create or restore body selects with `include` and/or `exclude` | ❌ |
 | `GET`/`PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `PUT`/`DELETE /api/proxy/certificates/:id` | the reverse proxy: its engine, its route table, and its uploaded certificates | ❌ |
 | `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) | ❌ |
-| `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) | ❌ |
+| `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) — scrape it with a bearer token | ❌ |
 
 ✅ takes `?workspace=<id>`; ❌ is panel-wide. Omitting `?workspace` means `default` workspace is used.
+
+**Scraping it.** Point your scraper at `/api/metrics` with the token from `home-hosted set-token
+--generate` as `Authorization: Bearer …`, because it lives under `/api` like every other route.
+`hh_host_cpu_used_percent` is the machine's own CPU share (0–100) — the figure to alert on.
+`hh_host_load1_per_cpu` beside it is a **count of runnable tasks per core**, not a percentage:
+`1.0` means one core's worth of work waiting, so it is fine on a busy box and not comparable with the
+percentage above. A host gauge appears only once the host has been sampled, so a series that is
+*absent* means "no reading", never "zero": do not let a dashboard fill that in. `hh_server_restarts_total`
+counts the retry attempts spent on a server's **current** crash sequence and drops back to `0` when
+someone starts it, so it is a state, not a counter to `rate()` — `hh_server_crashes_24h` is the one
+that only grows within its window.
 
 `GET /openapi/spec.json` describes all of it, `/openapi/ui` is the browsable version, and every error
 comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on. The

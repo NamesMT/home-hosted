@@ -118,6 +118,20 @@ line in `AGENTS.md` instead.
 - **A number the UI shows must be comparable with the numbers beside it.** A percentage tile next
   to a count tile is a bug even when both are correct, because a person reads the shape, not the
   label.
+- **A scrape is a reader with no page to qualify it, so an absent series is the only honest "no
+  reading".** `HostMonitor` starts from `emptyHostView()`, which answers `sampledAt: null` and every
+  value `0`; `/api/metrics` published those zeros, so a fresh panel — or one with host vitals
+  switched off — served `hh_host_memory_used_percent 0` and `hh_host_load1_per_cpu 0.000`. A
+  homelab alert rule (`memory > 90`) cannot tell that from a healthy idle box, and it stays silent
+  for ever. The host gauges are now published only once `sampledAt !== null`, which is the rule the
+  per-server ones already followed. The same round found the scrape had never published
+  `cpuUsedPercent` at all, so the **only** host CPU figure a dashboard could reach was the load
+  count — a different unit, which the UI section above had already fixed for the page.
+- **A `_total` that can go down is not a counter.** `hh_server_restarts_total` is the retry budget
+  spent on a server's *current* crash sequence, and a start someone asked for resets it to `0`
+  (measured: `2` → `0` on a manual start), so `rate()` sees a counter reset every time an operator
+  touches the entry. Its HELP text claimed "since the control plane started", which was never true.
+  Pinned by the label the README now gives: `hh_server_crashes_24h` is the monotonic one.
 
 ## Config
 

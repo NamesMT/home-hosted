@@ -356,6 +356,57 @@ describe('metrics', () => {
   })
 
   /**
+   * A host gauge the panel has never measured must not be published as a reading.
+   *
+   * `HostMonitor` starts from `emptyHostView()`, which reports `sampledAt: null` and every value
+   * at zero, and a panel whose host vitals are switched off keeps that shape forever. A scrape of
+   * it answered `hh_host_memory_used_percent 0` and `hh_host_load1_per_cpu 0.000` — on a real
+   * fresh panel (6604, `host.enabled: false` from boot) measured exactly that. A dashboard reads
+   * a present zero as a healthy reading, so an alert on `> 90` stays silent and the graph says the
+   * box is idle. The per-server gauges already answer "no reading means no series"; the host ones
+   * did not.
+   */
+  it('publishes no host gauge before the host has been sampled', async () => {
+    const created = await fixture()
+    const empty = created.panel.getState().host
+    expect(empty.sampledAt, 'the fixture starts unsampled, like a booting panel').toBeNull()
+
+    const text = await (await created.app.request('/api/metrics')).text()
+    for (const name of ['hh_host_cpu_used_percent', 'hh_host_memory_used_percent', 'hh_host_swap_used_percent', 'hh_host_load1_per_cpu', 'hh_host_disk_used_percent'])
+      expect(text, name).not.toContain(name)
+  })
+
+  /**
+   * The host's own CPU share, which is the number a homelab dashboard actually wants.
+   *
+   * The state has carried `host.cpuUsedPercent` since 0.9.8, but `/api/metrics` never published
+   * it — so the only host CPU figure a scraper could reach was `hh_host_load1_per_cpu`, a **count
+   * of runnable tasks**, and a rule written as "CPU above 90%" against it reads 0.05 on an idle
+   * 24-core box. Measured on a real panel: `hh_host_cpu_used_percent` was absent from the scrape
+   * while `/api/state` reported `cpuUsedPercent: 5.38`.
+   */
+  it('publishes the host CPU share, and omits it on a sample with no window yet', async () => {
+    const created = await fixture()
+    const view = created.panel.getState().host
+    const sampled = { ...view, sampledAt: 1, cpus: 8, cpuUsedPercent: 12.5, memoryUsedPercent: 60, swapUsedPercent: 5, loadAvg: [4, 3, 2] }
+    vi.spyOn(created.panel, 'getState').mockReturnValue({ ...created.panel.getState(), host: sampled })
+
+    const text = await (await created.app.request('/api/metrics')).text()
+    expect(text).toContain('hh_host_cpu_used_percent 12.50')
+    // The load count is not a percentage, so the per-cpu figure stays its own series.
+    expect(text).toContain('hh_host_load1_per_cpu 0.500')
+
+    // The very first sample has no interval to difference, so it answers `null` — and a null is
+    // "no reading", never a zero that reads as idle.
+    const first = { ...sampled, cpuUsedPercent: null }
+    vi.spyOn(created.panel, 'getState').mockReturnValue({ ...created.panel.getState(), host: first })
+    const fresh = await (await created.app.request('/api/metrics')).text()
+    expect(fresh).not.toContain('hh_host_cpu_used_percent')
+    // The rest of the sample is real, so it is still published.
+    expect(fresh).toContain('hh_host_memory_used_percent 60.00')
+  })
+
+  /**
    * A label value has to be escaped for the exposition format, where only `\\`, `"` and
    * `\n` are special. `diskPaths` is user config, and a Windows path is the reachable
    * case: `C:\Users\me` emitted `\U`, not a valid escape, so a scraper rejected the whole
@@ -366,7 +417,7 @@ describe('metrics', () => {
     // The host view's disk paths come from the resolved config, so drive the route the
     // way a real Windows panel would report it.
     const view = created.panel.getState().host
-    const patched = { ...view, disks: [{ path: 'C:\\Users\\me', totalBytes: 100, freeBytes: 50, usedPercent: 50 }] }
+    const patched = { ...view, sampledAt: 1, disks: [{ path: 'C:\\Users\\me', totalBytes: 100, freeBytes: 50, usedPercent: 50 }] }
     vi.spyOn(created.panel, 'getState').mockReturnValue({ ...created.panel.getState(), host: patched })
 
     const text = await (await created.app.request('/api/metrics')).text()

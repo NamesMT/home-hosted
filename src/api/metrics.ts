@@ -50,8 +50,15 @@ export function createMetricsRoute(deps: AppDeps) {
       const up = servers.map(server => `hh_server_up{${labels(server)}} ${server.status === 'running' ? 1 : 0}`)
       metric('hh_server_up', 'Server process is running', up)
 
+      /*
+       * `restarts` is the retry budget spent on the **current** crash sequence, which a start
+       * someone asked for resets to zero (`Supervisor.start()`); the old help said "since the
+       * control plane started", which was never true. The `_total` suffix still invites `rate()`,
+       * which a resettable value cannot answer faithfully — see the PROPOSED note in the round-6
+       * findings: renaming it is a breaking change to a dashboard, so it is the human's call.
+       */
       const restarts = servers.map(server => `hh_server_restarts_total{${labels(server)}} ${server.restarts}`)
-      metric('hh_server_restarts_total', 'Restarts since the control plane started', restarts)
+      metric('hh_server_restarts_total', 'Restart attempts spent on the current crash sequence, reset by a start someone asked for', restarts)
 
       const crashes = servers.map(server => `hh_server_crashes_24h{${labels(server)}} ${server.history.crashes}`)
       metric('hh_server_crashes_24h', 'Crashes in the last 24 hours', crashes)
@@ -76,14 +83,37 @@ export function createMetricsRoute(deps: AppDeps) {
         .map(server => `hh_server_cpu_percent{${labels(server)}} ${server.resources!.cpuPercent}`)
       metric('hh_server_cpu_percent', 'CPU percent of the server process tree', cpu)
 
-      const disks = host.disks.map(disk => `hh_host_disk_used_percent{mount="${labelValue(disk.path)}"} ${disk.usedPercent.toFixed(2)}`)
-      metric('hh_host_disk_used_percent', 'Disk usage percent per configured path', disks)
+      /*
+       * Every host gauge exists only once the host has actually been sampled.
+       *
+       * `emptyHostView()` is what `HostMonitor` starts from, and it answers `sampledAt: null` with
+       * every value at zero. Emitting those published `hh_host_memory_used_percent 0` on a fresh
+       * panel — or on one whose sampling is switched off — which is the one reading a homelab
+       * dashboard must not invent: a memory or disk alert rule (`> 90`) stays quiet while the
+       * series looks healthy and present, and `hh_host_load1_per_cpu 0.000` says "idle". The
+       * per-server gauges above already follow this rule ("no reading means no series at all"), so
+       * the host ones do too. `enabled: false` is not enough on its own — a panel switched off
+       * *after* sampling keeps its last view, which is stale, not empty.
+       */
+      if (host.sampledAt !== null) {
+        const disks = host.disks.map(disk => `hh_host_disk_used_percent{mount="${labelValue(disk.path)}"} ${disk.usedPercent.toFixed(2)}`)
+        metric('hh_host_disk_used_percent', 'Disk usage percent per configured path', disks)
 
-      metric('hh_host_memory_used_percent', 'Memory usage percent', [`hh_host_memory_used_percent ${host.memoryUsedPercent.toFixed(2)}`])
-      metric('hh_host_swap_used_percent', 'Swap usage percent', [`hh_host_swap_used_percent ${host.swapUsedPercent.toFixed(2)}`])
-      metric('hh_host_load1_per_cpu', '1 minute load average per cpu', [
-        `hh_host_load1_per_cpu ${((host.loadAvg[0] ?? 0) / Math.max(1, host.cpus)).toFixed(3)}`,
-      ])
+        /*
+         * `cpuUsedPercent` is optional on the wire and `null` on the first sample, which has no
+         * window to measure. `loadAvg` is a **count of runnable tasks**, not a share, so it is a
+         * different unit from this one and neither substitutes for the other — a dashboard that
+         * wants host CPU was reaching for `hh_host_load1_per_cpu` and reading it as a percentage.
+         */
+        metric('hh_host_cpu_used_percent', 'Share of this machine\'s CPU capacity in use, 0-100', host.cpuUsedPercent == null
+          ? []
+          : [`hh_host_cpu_used_percent ${host.cpuUsedPercent.toFixed(2)}`])
+        metric('hh_host_memory_used_percent', 'Memory usage percent', [`hh_host_memory_used_percent ${host.memoryUsedPercent.toFixed(2)}`])
+        metric('hh_host_swap_used_percent', 'Swap usage percent', [`hh_host_swap_used_percent ${host.swapUsedPercent.toFixed(2)}`])
+        metric('hh_host_load1_per_cpu', '1 minute load average per cpu', [
+          `hh_host_load1_per_cpu ${((host.loadAvg[0] ?? 0) / Math.max(1, host.cpus)).toFixed(3)}`,
+        ])
+      }
 
       return c.text(`${lines.join('\n')}\n`, 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' })
     })
