@@ -1,6 +1,40 @@
 # Changelog
 
 
+## v0.9.10
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.9...v0.9.10)
+
+### 🩹 Fixes
+
+- **cli:** A refused restore exits non-zero instead of "restored 0 items" ([dfc2cf4](https://github.com/NamesMT/home-hosted/commit/dfc2cf4))
+- **servers:** A missing working directory no longer reads as a missing program ([97db044](https://github.com/NamesMT/home-hosted/commit/97db044))
+- **config:** A hand-written servers file says run migrate, not "reinstall" ([5e92629](https://github.com/NamesMT/home-hosted/commit/5e92629))
+- **stock:** A stopped entry's detail page says "not running", not "collecting…" ([b14dc3f](https://github.com/NamesMT/home-hosted/commit/b14dc3f))
+- **stock:** A disabled server says why its buttons do nothing ([0144643](https://github.com/NamesMT/home-hosted/commit/0144643))
+- **dev:** Proxy /healthz and /openapi, which the UI contract promises same-origin ([c276986](https://github.com/NamesMT/home-hosted/commit/c276986))
+- **config:** Read a hand-edited file with the BOM Windows editors write ([ea194b1](https://github.com/NamesMT/home-hosted/commit/ea194b1))
+- **servers:** A Windows entry resolves to a shim, never the POSIX script beside it ([d37f62f](https://github.com/NamesMT/home-hosted/commit/d37f62f))
+- **init:** Quote the cd it prints, so a path with a space in it works ([1dee25d](https://github.com/NamesMT/home-hosted/commit/1dee25d))
+- **servers:** A pasted command line names the field to split, not a missing program ([75b7ba7](https://github.com/NamesMT/home-hosted/commit/75b7ba7))
+- **ui:** A refused start shows the panel's sentence, not "request failed with 409" ([c1bd1cb](https://github.com/NamesMT/home-hosted/commit/c1bd1cb))
+- **test:** A Windows dependency fixture must look like one npm writes ([270e447](https://github.com/NamesMT/home-hosted/commit/270e447))
+
+### 📖 Documentation
+
+- **backups:** What a restore does when it cannot do what you asked ([3412c28](https://github.com/NamesMT/home-hosted/commit/3412c28))
+- **deploy:** A systemd unit needs WorkingDirectory, or relative paths resolve to / ([0ea4965](https://github.com/NamesMT/home-hosted/commit/0ea4965))
+- **agents:** Name the cause the fix follows, not the code path's ([ef4db1c](https://github.com/NamesMT/home-hosted/commit/ef4db1c))
+- **agents:** A card and its detail page answer the same question ([b2d965a](https://github.com/NamesMT/home-hosted/commit/b2d965a))
+- **agents:** Decide a cross-platform fact in one helper, not at the call site ([d5d3533](https://github.com/NamesMT/home-hosted/commit/d5d3533))
+- **servers:** Command is a program, not a command line ([f864c97](https://github.com/NamesMT/home-hosted/commit/f864c97))
+- **agents:** A docstring naming a misreading is a claim to test; one reader per envelope ([88495b9](https://github.com/NamesMT/home-hosted/commit/88495b9))
+- **gotchas:** The three causes of one ENOENT, and the two API error envelopes ([2428b14](https://github.com/NamesMT/home-hosted/commit/2428b14))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.9.9
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.8...v0.9.9)
