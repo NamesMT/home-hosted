@@ -207,7 +207,13 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   through the engine's admin API (atomic, never hand-edited), it runs under the same nanny a
   `persistent: true` entry uses, and its admin endpoint stays panel-side.
 - **Cross-platform is a hard requirement.** Linux/macOS/Windows: `/proc` vs `ps` vs Win32_Process,
-  process groups vs `taskkill /T`, graceful fallbacks, no shell utilities assumed.
+  process groups vs `taskkill /T`, graceful fallbacks, no shell utilities assumed. Three Windows
+  behaviours no other runner here can exercise, so each is decided in **one shared helper** rather
+  than at the call site: a state file hand-edited in a Windows editor carries a byte-order mark or is
+  UTF-16, so it is read through `readStateFile` (`src/helpers/config-text.ts`) and never
+  `readFileSync(file, 'utf8')`; a bare command found in `node_modules/.bin` must resolve to a shim
+  Windows can start, never the `#!/bin/sh` script written beside it (`resolveCommand`); and text
+  printed **for a person to paste** is quoted for the shell it targets (`cdCommand`).
 - **Writes are atomic** (`writeFileAtomic`) and validated before commit.
 
 ## How to work here

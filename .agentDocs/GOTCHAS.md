@@ -22,6 +22,19 @@ line in `AGENTS.md` instead.
   picked up the *next* one's contents — `global group 'defaults'` failing against the global keys list.
   Linux CI passed; only the platform gate caught it. Normalize (`replaceAll('\r\n', '\n')`) **and throw
   when the boundary is missing**, because silent bleed is the failure mode.
+- **A Windows editor writes a byte-order mark, and `JSON.parse` refuses it.** PowerShell 5.1's
+  `Set-Content -Encoding UTF8` and Notepad's "UTF-8 with BOM" prepend `EF BB BF`; `Out-File` and `>`
+  write **UTF-16LE** with `FF FE`. Every file this panel invites a person to hand-edit is JSON, so a
+  correct edit read as *"cannot parse … Unexpected token '\uFEFF'"* — an error naming a character the
+  person cannot see, recreated by the editor on the next save. Read a state file through
+  `readStateFile` (`helpers/config-text.ts`), never `readFileSync(file, 'utf8')`: a `'utf8'` read has
+  already destroyed the bytes that tell UTF-16 from UTF-8. A new hand-editable JSON file goes through
+  it too — the decoder is one function, not a per-file fix.
+- **`node_modules/.bin` holds a POSIX script *and* the Windows shims under the same stem.** `foo`,
+  `foo.cmd` and `foo.ps1` are all written for one dependency; `foo` is a `#!/bin/sh` script Node cannot
+  start on Windows. `resolveCommand` therefore searches the extensioned shims **first** and never falls
+  back to the bare name — the old `[command, ...shims]` order resolved to the shell script and the
+  entry failed with the `ENOENT` that reads as a missing program.
 - **A file capability makes a process non-dumpable, so attribution tools see nothing.** An engine
   told to `setcap cap_net_bind_service` (what `docs/REVERSE_PROXY.md` instructs to bind :80) has
   `/proc/<pid>/environ` and `/proc/<pid>/fd` owned by root, so `lsof`/`fuser` return an empty list

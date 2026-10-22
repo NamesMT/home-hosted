@@ -773,6 +773,11 @@ expose them to an unprivileged process. Adopting a self-restarted process works 
 its argv instead of the environment marker; a launcher whose real process is a `.cmd` shim is the one
 case it cannot see through, and `kill` is the answer there.
 
+A config edited in Notepad or PowerShell is read as it is: the byte-order mark Notepad's "UTF-8 with
+BOM" adds, and the UTF-16 that `>` and `Out-File` write, are both understood. A `command` naming a
+project dependency resolves to the `.cmd`/`.exe` shim under `node_modules/.bin` rather than the
+`#!/bin/sh` script beside it.
+
 </details>
 
 ---
