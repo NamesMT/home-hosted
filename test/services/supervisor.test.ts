@@ -2313,3 +2313,58 @@ describe('an entry the panel stopped', () => {
     expect(view(other.supervisor, 'fine').stoppedByPanel).toBeUndefined()
   }, 60000)
 })
+
+/**
+ * A stopped entry is not being probed, so it must not claim to be unhealthy — nor for how long.
+ *
+ * `stopEntry` cleared `health` and the failure count but left `unhealthySince` behind, so a server
+ * stopped *because* it was unhealthy kept a growing duration beside a `Stopped` pill and a
+ * `Not Probed` health row. Measured on the built panel: `status=stopped health=unknown
+ * unhealthySince=<set>`, and the detail page read "Unhealthy for 1m 55s" until the timestamp was
+ * fixed. The duration is the part that misleads: it keeps counting while nothing measures.
+ */
+describe('an explicit stop clears the health sequence it ends', () => {
+  it('forgets when the entry became unhealthy', async () => {
+    const port = await freePort()
+    const harness = await makeSupervisor([{
+      id: 'sickly',
+      command: process.execPath,
+      // Accepts TCP and answers 500 to every request: running, and never healthy.
+      args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+      env: { PORT: '{port}' },
+      port,
+      health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 0, startTimeoutMs: 5000 },
+    }])
+
+    const res = await harness.supervisor.start('sickly')
+    expect(res.ok, `the fixture must actually start: ${res.error ?? ''}`).toBe(true)
+    await waitFor(() => view(harness.supervisor, 'sickly').health === 'unhealthy', 20000)
+    // The precondition, asserted rather than assumed: a fixture that never went unhealthy would
+    // make the assertion below pass on a timestamp that was never set.
+    expect(view(harness.supervisor, 'sickly').unhealthySince, 'the fixture never became unhealthy').not.toBeNull()
+
+    await harness.supervisor.stop('sickly')
+
+    const stopped = view(harness.supervisor, 'sickly')
+    expect(stopped.status).toBe('stopped')
+    expect(stopped.health).toBe('unknown')
+    expect(stopped.unhealthySince, 'a stopped entry still claims how long it has been unhealthy').toBeNull()
+  }, 60000)
+
+  it('says "disabled" rather than "unknown" when the probe is switched off', async () => {
+    const port = await freePort()
+    const harness = await makeSupervisor([{
+      id: 'unprobed',
+      command: process.execPath,
+      args: ['-e', 'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")'],
+      env: { PORT: '{port}' },
+      port,
+      health: { enabled: false },
+    }])
+
+    const res = await harness.supervisor.start('unprobed')
+    expect(res.ok, `the fixture must actually start: ${res.error ?? ''}`).toBe(true)
+    await harness.supervisor.stop('unprobed')
+    expect(view(harness.supervisor, 'unprobed').health).toBe('disabled')
+  }, 60000)
+})

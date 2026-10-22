@@ -970,6 +970,18 @@ export class Supervisor {
     entry.pid = null
     entry.adopted = false
     entry.nannyExit = null
+    // A stopped entry is not being probed, so its health returns to the "unknown" it starts with —
+    // and so must the moment it *became* unhealthy. The timestamp was left behind, so a stopped
+    // card and detail page read "Unhealthy for 1m 55s" beside a `Stopped` pill and `Not Probed`, a
+    // duration that kept growing while nothing was measured, on the one screen a person opens
+    // after stopping something precisely because it was unhappy. A survivor keeps its `conflict`
+    // outcome above, so this does not erase the reason a stop refuses to claim success.
+    entry.healthFailures = 0
+    entry.unhealthySince = null
+    if (!entry.config.health.enabled)
+      entry.health = 'disabled'
+    else if (survivor === null)
+      entry.health = 'unknown'
     // A recorded child that is gone must not be chased by a later boot; one that outlived
     // the stop is kept, so the next start still refuses to duplicate it.
     if (entry.lastChild !== null && !isProcessAlive(entry.lastChild.pid)) {
