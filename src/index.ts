@@ -113,14 +113,22 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // A settings file this release cannot read is refused rather than run with
   // defaults: for `control` that would mean a different port, bind and auth policy
   // than the file asked for.
-  if (settings.configError !== null) {
-    logger.error(`refusing to start: ${settings.configError}`)
-    logger.info(`fix ${settings.path}, or install the release that wrote it`)
-    process.exit(1)
-  }
+  //
+  // A *pending migration* reaches this error too — `readStamp` refuses a file whose
+  // schema still has steps to run — so the migration gets its own advice **first**.
+  // Printing "fix … or install the release that wrote it" for a file that only needs
+  // `migrate` sent the person to the wrong tool, and the branch below could never run
+  // because this one had already answered (`pendingMigrations` is non-empty exactly
+  // when `configError` says so). The two cases are disjoint: a file from a newer
+  // release has `tooNew` and no steps, so it still gets "install that release".
   if (settings.pendingMigrations.length > 0) {
     logger.error(`refusing to start: ${settings.path} needs ${settings.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
     logger.info('run `home-hosted migrate` to see and apply them')
+    process.exit(1)
+  }
+  if (settings.configError !== null) {
+    logger.error(`refusing to start: ${settings.configError}`)
+    logger.info(`fix ${settings.path}, or install the release that wrote it`)
     process.exit(1)
   }
 
@@ -306,6 +314,14 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // leaves no trace of a panel that pretends to supervise nothing.
   for (const workspace of panel.workspaces()) {
     const store = workspace.store
+    // Same ordering as the global settings above, and for the same reason: a pending
+    // migration is reported through `configError`, so the generic message answered first
+    // and told the person to edit or reinstall a file that only needed `migrate`.
+    if (store.pendingMigrations.length > 0) {
+      logger.error(`refusing to start: workspace "${workspace.id}" needs ${store.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
+      logger.info('run `home-hosted migrate` to see and apply them')
+      process.exit(1)
+    }
     if (store.configError !== null) {
       logger.error(`refusing to start: workspace "${workspace.id}": ${store.configError}`)
       logger.info(`fix ${store.path} and ${store.settingsPath}, or install the release that wrote them`)
@@ -316,11 +332,6 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     if (workspace.secrets.configError !== null) {
       logger.error(`refusing to start: workspace "${workspace.id}": ${workspace.secrets.configError}`)
       logger.info('fix or restore the file, or move it aside to start fresh — starting fresh discards it')
-      process.exit(1)
-    }
-    if (store.pendingMigrations.length > 0) {
-      logger.error(`refusing to start: workspace "${workspace.id}" needs ${store.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
-      logger.info('run `home-hosted migrate` to see and apply them')
       process.exit(1)
     }
   }

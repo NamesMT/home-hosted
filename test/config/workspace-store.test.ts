@@ -738,3 +738,88 @@ describe('logs, notifications and dependencies', () => {
     expect(self.store.configWarnings.join('\n')).toContain('depends on itself')
   })
 })
+
+/**
+ * The two files a workspace owns are stamped **independently**, and the migrations that have to
+ * run belong to the older of the pair.
+ *
+ * `docs/SERVERS.md` invites a person to write `servers.config.json` by hand. A hand-written file
+ * carries no `meta`, so it reads as the pre-stamp schema — beside a `settings.json` the panel just
+ * wrote at the current one. `configSchemaVersion` answers `max()` (the shape this release
+ * understands of the pair), and `pendingMigrations` used it, so the pair reported **no** pending
+ * migration while `configError` was refusing the servers file for needing exactly one. The startup
+ * branch that says `run migrate` was therefore unreachable, and the person was told to "fix … or
+ * install the release that wrote it" — neither of which is the fix.
+ */
+describe('a workspace whose two files are at different schemas', () => {
+  async function mixed(settingsSchema: number, serversSchema: number | null): Promise<TempStore> {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-mixed-'))
+    dirs.push(dir)
+    const settingsFile = path.join(dir, 'settings.json')
+    const serversFile = path.join(dir, 'servers.config.json')
+    await fs.promises.writeFile(settingsFile, JSON.stringify({ meta: { writtenBy: 'test', schema: settingsSchema }, defaults: {} }, null, 2))
+    // `null` writes no stamp at all, which is what a hand-edited file looks like.
+    await fs.promises.writeFile(serversFile, JSON.stringify(serversSchema === null
+      ? { servers: [{ id: 'app', command: 'node' }] }
+      : { meta: { writtenBy: 'test', schema: serversSchema }, servers: [{ id: 'app', command: 'node' }] }, null, 2))
+    return { store: new WorkspaceStore('default', settingsFile, serversFile), dir, settingsFile, serversFile }
+  }
+
+  /** `load()` is what reads and applies the two files; `mixed` only writes them. */
+  async function mixedLoaded(settingsSchema: number, serversSchema: number | null): Promise<TempStore> {
+    const created = await mixed(settingsSchema, serversSchema)
+    created.store.load()
+    return created
+  }
+
+  it('reports the migration the older file needs, not zero', async () => {
+    // Current settings, hand-written (unstamped) servers — the documented way to add a server.
+    const { store } = await mixedLoaded(CONFIG_SCHEMA, null)
+
+    // Both halves are true at once, and only this pairing lets the startup guard act on it:
+    // the reader refuses, and the migration list is what the guard checks.
+    expect(store.configError).toContain('needs 1 migration')
+    expect(store.pendingMigrations.length, 'the branch that says `run migrate` must be reachable').toBeGreaterThan(0)
+  })
+
+  it('reports it when the older file is on the settings side instead', async () => {
+    // The mirror image: a stale settings file beside a current servers config. `max()` hid this
+    // one for the same reason.
+    const { store } = await mixedLoaded(CONFIG_SCHEMA - 1, CONFIG_SCHEMA)
+
+    expect(store.configError).toContain('needs 1 migration')
+    expect(store.pendingMigrations.length).toBeGreaterThan(0)
+  })
+
+  it('still reports nothing to do when both files are current', async () => {
+    // The guard must not invent work for the ordinary case.
+    const { store } = await mixedLoaded(CONFIG_SCHEMA, CONFIG_SCHEMA)
+
+    expect(store.configError).toBeNull()
+    expect(store.pendingMigrations).toEqual([])
+    expect(store.configSchemaVersion).toBe(CONFIG_SCHEMA)
+  })
+
+  /**
+   * A file that is not JSON has no schema to migrate.
+   *
+   * The startup guard prints `pendingMigrations` as "run migrate", and `migrate` refuses a file it
+   * cannot read. So a broken file must not reach that list — the person would run the one command
+   * that is guaranteed not to help. Caught by the existing startup-guard test, which asserted the
+   * `cannot parse` wording and got "needs 1 migration(s)" instead.
+   */
+  it('does not claim a migration for a file that cannot be parsed', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-broken-'))
+    dirs.push(dir)
+    const settingsFile = path.join(dir, 'settings.json')
+    const serversFile = path.join(dir, 'servers.config.json')
+    await fs.promises.writeFile(settingsFile, json({ defaults: {} }))
+    await fs.promises.writeFile(serversFile, '{ nope')
+
+    const store = new WorkspaceStore('default', settingsFile, serversFile)
+    store.load()
+
+    expect(store.configError).toContain('cannot parse')
+    expect(store.pendingMigrations, '`migrate` cannot lift a file it cannot read').toEqual([])
+  })
+})

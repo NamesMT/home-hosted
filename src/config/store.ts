@@ -150,8 +150,27 @@ export class WorkspaceStore {
     return Math.max(this.settingsSchemaVersion, this.serversSchemaVersion)
   }
 
+  /**
+   * The steps a workspace's files need, counting **both** sides.
+   *
+   * The two files are stamped independently — a person may hand-write `servers.config.json`
+   * (which is unstamped, and so reads as schema 1) beside a `settings.json` the panel wrote at
+   * the current schema. `configSchemaVersion` answers `max()` because that is the shape *this
+   * release* understands of the pair, but the migrations that have to run belong to the **older**
+   * file: `planConfigMigrations` is monotonic, so the lower version is the one with steps.
+   * Reading `max()` here reported *no* pending migration while the reader was refusing the file
+   * for needing one, which left the startup branch that says `run migrate` unreachable and sent
+   * the person to "fix or install" instead.
+   *
+   * A file that cannot be **parsed** is not a migration candidate, though: a schema number can only
+   * be read from a file that is JSON, and `migrate` refuses one it cannot read rather than lifting
+   * it. The startup guard prints this list as "run migrate", so a broken file must not appear
+   * here — it belongs in `configError`'s "fix …" advice alone.
+   */
   get pendingMigrations(): ConfigMigration[] {
-    return planConfigMigrations(this.configSchemaVersion).steps
+    if (this.settingsParseError !== null || this.serversParseError !== null)
+      return []
+    return planConfigMigrations(Math.min(this.settingsSchemaVersion, this.serversSchemaVersion)).steps
   }
 
   onChange(listener: () => void): () => void {
