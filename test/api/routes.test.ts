@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { missingServer } from '#src/helpers/action-result'
 import { logger } from '#src/helpers/logger'
 import { listZip } from '#src/providers/archive'
@@ -675,6 +675,33 @@ describe('notifications route', () => {
     const chats = await request(created.app, '/api/notifications/destinations/tg/detect-chats', 'POST', {})
     expect(chats.status).toBe(200)
     expect(await chats.json()).toEqual({ chats: [{ id: 42, title: 'Group' }] })
+  })
+
+  /**
+   * One route serves both kinds, and its failure code named only one of them.
+   *
+   * Measured on a real panel with a webhook destination whose receiver was down:
+   * `{"message":"fetch failed","code":"TELEGRAM_SEND_FAILED"}` — a client branching on the code
+   * (to say "check your bot token" or "check your URL") was told the wrong thing, and the
+   * draft* route `/api/notifications/test-webhook` answers `WEBHOOK_SEND_FAILED` for the same
+   * failure, so the panel had two names for one event.
+   */
+  it('names the transport that failed, not always Telegram', async () => {
+    const created = await fixture()
+    // The destination list is the only place the route can learn the kind.
+    const hook = { id: 'hook', kind: 'webhook', url: 'http://127.0.0.1:9/x', enabled: true }
+    vi.spyOn(created.notifications, 'destinations').mockReturnValue([hook as never])
+    created.notifications.sendTest = async () => ({ ok: false, error: 'fetch failed' })
+
+    const webhook = await request(created.app, '/api/notifications/destinations/hook/test', 'POST', {})
+    expect(webhook.status).toBe(400)
+    expect(await webhook.json()).toMatchObject({ code: 'WEBHOOK_SEND_FAILED', message: 'fetch failed' })
+
+    // A Telegram destination keeps its own code, and so does a send that succeeds.
+    const tg = { ...hook, id: 'tg', kind: 'telegram' }
+    vi.spyOn(created.notifications, 'destinations').mockReturnValue([tg as never])
+    const telegram = await request(created.app, '/api/notifications/destinations/tg/test', 'POST', {})
+    expect(await telegram.json()).toMatchObject({ code: 'TELEGRAM_SEND_FAILED' })
   })
 })
 

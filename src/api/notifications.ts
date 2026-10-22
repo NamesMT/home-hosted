@@ -73,9 +73,24 @@ export function createNotificationsRoute(deps: AppDeps) {
       validate('json', notificationActionSchema),
       async (c) => {
         const runtime = runtimeFor(c.req.valid('query').workspace)
-        const result = await runtime.notifications.sendTest(c.req.valid('param').id, c.req.valid('json'))
-        if (!result.ok)
-          throw new DetailedError(result.error ?? 'the test message failed', { statusCode: 400, code: 'TELEGRAM_SEND_FAILED' })
+        const id = c.req.valid('param').id
+        /*
+         * The code names the *transport*, because one route serves both kinds and a client
+         * branching on it was told `TELEGRAM_SEND_FAILED` for a webhook. Measured on a webhook
+         * destination whose receiver was down: `{"message":"fetch failed","code":"TELEGRAM_SEND_FAILED"}`.
+         * `test-webhook` (the draft route) already answers `WEBHOOK_SEND_FAILED`, so the same
+         * failure had two names depending on which one the page called. An id that does not exist
+         * keeps the Telegram wording, which is what `sendTest` itself answers ("no such
+         * destination") — there is no kind to read.
+         */
+        const kind = runtime.notifications.destinations().find(destination => destination.id === id)?.kind
+        const result = await runtime.notifications.sendTest(id, c.req.valid('json'))
+        if (!result.ok) {
+          throw new DetailedError(result.error ?? 'the test message failed', {
+            statusCode: 400,
+            code: kind === 'webhook' ? 'WEBHOOK_SEND_FAILED' : 'TELEGRAM_SEND_FAILED',
+          })
+        }
         return c.json(result)
       },
     )
