@@ -104,6 +104,7 @@ async function onOpenChange(value: boolean): Promise<void> {
                 :class="cn(
                   'flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition-colors duration-100',
                   workspace.id === selectedId ? 'bg-accent-soft text-ink' : 'text-muted hover:bg-hover',
+                  focusRing,
                 )"
                 @click="choose(workspace.id)"
               >
@@ -124,7 +125,7 @@ async function onOpenChange(value: boolean): Promise<void> {
 
           <button
             type="button"
-            class="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-xs text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink"
+            :class="cn('flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-xs text-muted transition-colors duration-100 hover:bg-hover hover:text-ink', focusRing)"
             @click="startCreate"
           >
             <Plus class="size-3.5" />
@@ -134,7 +135,7 @@ async function onOpenChange(value: boolean): Promise<void> {
           <template v-if="selected">
             <button
               type="button"
-              class="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-xs text-muted outline-none transition-colors duration-100 hover:bg-hover hover:text-ink"
+              :class="cn('flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-xs text-muted transition-colors duration-100 hover:bg-hover hover:text-ink', focusRing)"
               @click="startRename"
             >
               <Pencil class="size-3.5" />
@@ -142,7 +143,7 @@ async function onOpenChange(value: boolean): Promise<void> {
             </button>
             <button
               type="button"
-              class="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-xs text-danger outline-none transition-colors duration-100 hover:bg-danger-soft"
+              :class="cn('flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-xs text-danger transition-colors duration-100 hover:bg-danger-soft', focusRing)"
               @click="askRemove"
             >
               <Trash2 class="size-3.5" />

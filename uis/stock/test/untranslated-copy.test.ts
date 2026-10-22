@@ -177,3 +177,33 @@ describe('the workspace surface speaks the reader’s language', () => {
     expect(Object.keys(expected('x'))).toHaveLength(9)
   })
 })
+
+/**
+ * A `<button>` that removes the focus ring without putting anything back.
+ *
+ * `outline-none` is the usual tidy-up, and on a mouse-only page it is invisible. With the keyboard
+ * the focused row of the workspace switcher was indistinguishable from the others — the popover
+ * opened, Tab moved through five rows, and nothing on screen said which one Enter would fire. The
+ * `AppButton`s beside it were fine, because they read `focusRing`; the plain `<button>`s had been
+ * written by hand and never got it.
+ *
+ * A `data-[highlighted]:` style is an exemption and not a loophole: a reka-ui listbox item is
+ * highlighted by the library as the arrow keys move, which is the indicator.
+ */
+describe('a keyboard user can see where they are', () => {
+  it('replaces outline-none on a button with a visible focus style', () => {
+    const offenders: string[] = []
+    for (const file of templateFiles()) {
+      const source = fs.readFileSync(file, 'utf8')
+      for (const match of source.matchAll(/<button\b([\s\S]*?)>/g)) {
+        const attrs = match[1]!
+        if (!attrs.includes('outline-none'))
+          continue
+        if (attrs.includes('focusRing') || attrs.includes('focus-visible:') || attrs.includes('data-[highlighted]:'))
+          continue
+        offenders.push(path.relative(srcDir, file))
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+})
