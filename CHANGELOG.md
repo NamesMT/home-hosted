@@ -1,6 +1,45 @@
 # Changelog
 
 
+## v0.9.8
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.7...v0.9.8)
+
+### 🚀 Enhancements
+
+- **cli:** --exclude, and a plan that says what a row is ([da08671](https://github.com/NamesMT/home-hosted/commit/da08671))
+- **host:** Report cpu utilisation, not only the load average ([037e19a](https://github.com/NamesMT/home-hosted/commit/037e19a))
+- **backups:** An automatic archive can carry a chosen scope ([776730b](https://github.com/NamesMT/home-hosted/commit/776730b))
+- **backups:** A scheduled pass reads the scope, and a typo is refused on write ([cbf2233](https://github.com/NamesMT/home-hosted/commit/cbf2233))
+- **uis:** Choose what an automatic backup contains ([47564fc](https://github.com/NamesMT/home-hosted/commit/47564fc))
+- **backups:** An HTTP create can say what to leave out ([8d9aa31](https://github.com/NamesMT/home-hosted/commit/8d9aa31))
+
+### 🩹 Fixes
+
+- **cli:** The plan listed a leaf the archive left out ([933043a](https://github.com/NamesMT/home-hosted/commit/933043a))
+- **backups:** An exclusion now holds on every path, and a typo is refused ([ce50ff4](https://github.com/NamesMT/home-hosted/commit/ce50ff4))
+- **cli:** The id list had two implementations, and only one of them grew leaves ([ab7cb8c](https://github.com/NamesMT/home-hosted/commit/ab7cb8c))
+- **cli:** One plan renderer, one note vocabulary, and a restore that lists its archive ([74c3a5c](https://github.com/NamesMT/home-hosted/commit/74c3a5c))
+- **test:** Spawn the CLI through node, so Windows can run it ([4d80a5b](https://github.com/NamesMT/home-hosted/commit/4d80a5b))
+- **test:** A nested worktree is not a second test suite ([9f65cee](https://github.com/NamesMT/home-hosted/commit/9f65cee))
+- **proc:** A tree's CPU is an interval per pid, not a difference of two sums ([d681e11](https://github.com/NamesMT/home-hosted/commit/d681e11))
+- **uis:** Show CPU as a percentage, and keep load a count ([584ee71](https://github.com/NamesMT/home-hosted/commit/584ee71))
+- **ci:** Gate every cross-platform step on the dispatched platform ([c08eb01](https://github.com/NamesMT/home-hosted/commit/c08eb01))
+- **noc-console:** An unrelated save no longer rewrites the backup interval ([611874e](https://github.com/NamesMT/home-hosted/commit/611874e))
+
+### 📖 Documentation
+
+- **host:** Record the three CPU units, and the tree-sum trap ([f41bc20](https://github.com/NamesMT/home-hosted/commit/f41bc20))
+- **backups:** What an automatic backup contains, and the two traps behind it ([f1cf37c](https://github.com/NamesMT/home-hosted/commit/f1cf37c))
+
+### ✅ Tests
+
+- **noc-console:** Pin the scope summary and the schedule patch ([a771843](https://github.com/NamesMT/home-hosted/commit/a771843))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.9.7
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.6...v0.9.7)
