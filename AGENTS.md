@@ -117,11 +117,20 @@ workspace config guard, so a busy default port turns config tests red for the wr
   suffix `_total` a value that a user action resets.
 - **Name the cause the fix follows, not the one the code path suggests.** Node reports a missing
   working directory and a missing program with the same `ENOENT`, so `describeSpawnError` checks the
-  resolved `cwd` before it blames the command — otherwise a deploy under systemd reads "`node` is not
-  installed" while `node` is fine and only the launch directory is wrong. The same rule decides which
-  advice a refused start prints: a config that needs `migrate` must say so rather than "install the
-  release", and a file that cannot be parsed must not claim a migration `migrate` cannot perform.
-  Ask what the person will *do* with the sentence before choosing it.
+  resolved `cwd` **and** whether the field holds a whole command line before it blames the command —
+  otherwise a deploy under systemd reads "`node` is not installed" while `node` is fine and only the
+  launch directory is wrong, and a pasted `node server.js` reads the same way while `node` is
+  installed. The same rule decides which advice a refused start prints: a config that needs `migrate`
+  must say so rather than "install the release", and a file that cannot be parsed must not claim a
+  migration `migrate` cannot perform. Ask what the person will *do* with the sentence before choosing
+  it — and when a function's own docstring names the misreading it exists to prevent, that is a claim
+  to test, not a description of the code.
+- **One envelope per reader.** This API answers `{ message, code, detail }` for a thrown error and
+  `{ ok: false, error }` for a refused lifecycle action. A client that reads one field shows
+  `request failed with 409` for the other, losing the only sentence that explains the refusal while
+  the card beside it prints that sentence in full. Read both in **one** helper
+  (`failureMessage`, `src/shared/api-client.ts`) and scan for the hand-rolled fallback — a unit test
+  cannot see a call site that has not been written yet.
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"
