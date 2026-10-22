@@ -115,6 +115,13 @@ workspace config guard, so a busy default port turns config tests red for the wr
   alerted-on gauge published as `0` from an unsampled view is indistinguishable from a healthy one
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
   suffix `_total` a value that a user action resets.
+- **Name the cause the fix follows, not the one the code path suggests.** Node reports a missing
+  working directory and a missing program with the same `ENOENT`, so `describeSpawnError` checks the
+  resolved `cwd` before it blames the command — otherwise a deploy under systemd reads "`node` is not
+  installed" while `node` is fine and only the launch directory is wrong. The same rule decides which
+  advice a refused start prints: a config that needs `migrate` must say so rather than "install the
+  release", and a file that cannot be parsed must not claim a migration `migrate` cannot perform.
+  Ask what the person will *do* with the sentence before choosing it.
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank
