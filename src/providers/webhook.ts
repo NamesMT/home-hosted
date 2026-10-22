@@ -71,14 +71,16 @@ export function webhookPayload(event: NotificationEventBody, now = Date.now()): 
  *
  * `vars` expands `${ENV}` in the values, so a credential does not have to be written into the
  * config file. A name the panel's environment does not define is left as written, the same rule
- * `expandEnv` follows everywhere else.
+ * `expandEnv` follows everywhere else — and `unexpanded` names those, because a leftover `${…}`
+ * is not a credential.
  */
 export function parseHeaders(
   text: string,
   vars: Record<string, string | undefined> = process.env,
-): { headers: Record<string, string>, errors: string[] } {
+): { headers: Record<string, string>, errors: string[], unexpanded: string[] } {
   const headers: Record<string, string> = {}
   const errors: string[] = []
+  const unexpanded: string[] = []
   for (const line of text.split('\n')) {
     const trimmed = line.trim()
     if (trimmed.length === 0 || trimmed.startsWith('#'))
@@ -88,9 +90,13 @@ export function parseHeaders(
       errors.push(`"${trimmed}" is not a "Name: value" header`)
       continue
     }
-    headers[trimmed.slice(0, at).trim()] = expandEnv(trimmed.slice(at + 1).trim(), vars)
+    const name = trimmed.slice(0, at).trim()
+    const value = expandEnv(trimmed.slice(at + 1).trim(), vars)
+    if (value.includes('${'))
+      unexpanded.push(name)
+    headers[name] = value
   }
-  return { headers, errors }
+  return { headers, errors, unexpanded }
 }
 
 /** Why a target cannot be sent to, or null when it can. Also used to validate a save. */
@@ -111,8 +117,15 @@ export function targetProblem(target: Pick<WebhookTarget, 'url' | 'headers'>, op
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
     return `the URL must be http or https, not ${parsed.protocol}`
 
-  const { errors } = parseHeaders(target.headers)
-  return errors.length > 0 ? errors.join('; ') : null
+  // A leftover `${NAME}` in a *header* is reported for the same reason the URL one is: the send
+  // either succeeds with a literal `${NAME}` as the credential (a 401 the row blames on the
+  // receiver) or 200s because the receiver ignored a header it could not use. The URL's check was
+  // the only one, so an unset variable in `Authorization` failed silently.
+  const { errors, unexpanded } = parseHeaders(target.headers)
+  const problems = [...errors, ...(unexpanded.length > 0
+    ? [`the ${unexpanded.map(name => `"${name}"`).join(', ')} header still holds an unexpanded placeholder — an environment variable in it is not set`]
+    : [])]
+  return problems.length > 0 ? problems.join('; ') : null
 }
 
 export async function sendWebhook(

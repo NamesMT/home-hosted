@@ -421,6 +421,32 @@ describe('the webhook transport', () => {
     expect(calls, 'nothing was attempted').toHaveLength(0)
   })
 
+  /**
+   * A header placeholder is the *same* trap as a URL one, and it had no check at all.
+   *
+   * `expandEnv` leaves an unknown `${NAME}` as written, so an unset variable in `Authorization`
+   * went out literally: measured against a local receiver, a real crash alert arrived with
+   * `authorization: Bearer ${HH_NOT_SET}` and the panel recorded the send as delivered (the
+   * receiver answered 200 and ignored a header it could not use). The URL was checked; the
+   * headers were not.
+   */
+  it('names an unexpanded header placeholder instead of sending it literally', async () => {
+    const open = '$'
+    const { calls, impl } = recordingFetch()
+    const result = await sendWebhook(
+      { url: 'https://hooks.example.com/x', method: 'POST', format: 'json', headers: `Authorization: Bearer ${open}{HH_NOT_SET_ANYWHERE}` },
+      event,
+      impl,
+    )
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('Authorization')
+    expect(result.error).toContain('unexpanded placeholder')
+    expect(calls, 'nothing was attempted').toHaveLength(0)
+    // A save is refused too, so the mistake is caught before an alert is already missing.
+    expect(targetProblem({ url: 'https://hooks.example.com/x', headers: `Authorization: Bearer ${open}{HH_NOT_SET_ANYWHERE}` }))
+      .toContain('unexpanded placeholder')
+  })
+
   it('refuses a URL that is not http(s), and an unusable header line', async () => {
     const { calls, impl } = recordingFetch()
     for (const url of ['file:///tmp/x', 'javascript:alert(1)', 'not a url']) {
