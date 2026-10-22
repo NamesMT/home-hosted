@@ -17,6 +17,7 @@ import {
   defaultsPatch,
   destinationBaseline,
   destinationsPatch,
+  filledDestinations,
   isBlockEdited,
   logsPatch,
   policyBaseline,
@@ -66,6 +67,9 @@ const notificationDefaults = computed(() => workspace.notifications.value?.defau
 const destinationStatuses = computed(() => workspace.notifications.value?.destinations ?? [])
 const logsDir = computed(() => workspace.logsDir.value)
 
+/** What each block held when it was last filled, so an edit is not overwritten. */
+const snapshots: FormSnapshots = {}
+
 /** Only fields that differ from what the workspace currently holds. */
 const patch = computed<WorkspaceSettingsPatch>(() => {
   const out: WorkspaceSettingsPatch = {}
@@ -90,7 +94,9 @@ const patch = computed<WorkspaceSettingsPatch>(() => {
     if (diff !== null)
       Object.assign(notifications, diff)
   }
-  const list = destinationsPatch(destinationStatuses.value, form.destinations)
+  // The destination list is **replaced**, so what decides "send it" is what this block was
+  // filled with — never live state, which moves whenever another client saves.
+  const list = destinationsPatch(destinationStatuses.value, form.destinations, filledDestinations(snapshots.notifications))
   if (list !== null)
     Object.assign(notifications, list)
   if (Object.keys(notifications).length > 0)
@@ -117,10 +123,7 @@ const defaultsDirty = computed(() => defaultsView.value !== null && Object.keys(
 const logsDirty = computed(() => logsConfig.value !== null && Object.keys(logsPatch(logsConfig.value, form.logs)).length > 0)
 const notificationsDirty = computed(() => notificationDefaults.value !== null
   && (policyPatch(notificationDefaults.value, form.policy) !== null
-    || destinationsPatch(destinationStatuses.value, form.destinations) !== null))
-
-/** What each block held when it was last filled, so an edit is not overwritten. */
-const snapshots: FormSnapshots = {}
+    || destinationsPatch(destinationStatuses.value, form.destinations, filledDestinations(snapshots.notifications)) !== null))
 
 /**
  * Fills each block from the workspace's own slice of the state frame, unless the

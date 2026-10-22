@@ -1,7 +1,7 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { serverSchema } from '#src/shared/contracts'
-import { countLeaves, describeChanges, diffFields, diffServerConfig, flattenLeaves } from '#src/shared/patch-diff'
+import { countLeaves, describeChanges, diffFields, diffServerConfig, flattenLeaves, mergeReplacedList } from '#src/shared/patch-diff'
 
 function config(overrides: Record<string, unknown> = {}) {
   const parsed = serverSchema({ id: 'web', command: 'node', port: 4000, ...overrides })
@@ -183,5 +183,57 @@ describe('nested group comparison', () => {
   it('keeps a top-level null as the explicit clear it is', () => {
     expect(diffFields({ bootstrap: { command: 'x' } }, { bootstrap: null })).toEqual({ bootstrap: null })
     expect(diffFields({ bootstrap: null }, { bootstrap: null })).toEqual({})
+  })
+})
+
+/**
+ * A list a patch **replaces** is all-or-nothing on the wire: what a save sends becomes the whole
+ * list. So "did this form change it?" must be answered against the list the form was *filled with*,
+ * never against live state — live state moving is what another client's save looks like.
+ *
+ * Measured on the built panel, two clients on one workspace settings page: with the page open on
+ * `alpha`, a second client added `beta`, and saving an unrelated policy toggle on the first page
+ * removed `beta` from `settings.json`. `destinations` and `routes` are both replaced lists.
+ */
+describe('mergeReplacedList — a replaced list survives a concurrent save', () => {
+  const key = (entry: { id: string }): string => entry.id
+
+  it('sends nothing when the form never touched the list', () => {
+    const filled = [{ id: 'alpha' }]
+    expect(mergeReplacedList({ filled, draft: [{ id: 'alpha' }], live: [{ id: 'alpha' }, { id: 'beta' }], key }))
+      .toBeNull()
+  })
+
+  it('keeps an entry that arrived while the form was open', () => {
+    // The form added nothing and removed nothing; it must not erase `beta`.
+    expect(mergeReplacedList({
+      filled: [{ id: 'alpha' }],
+      draft: [{ id: 'alpha' }, { id: 'gamma' }],
+      live: [{ id: 'alpha' }, { id: 'beta' }],
+      key,
+    })).toEqual([{ id: 'alpha' }, { id: 'gamma' }, { id: 'beta' }])
+  })
+
+  it('honours a removal the form made, and still keeps a concurrent addition', () => {
+    expect(mergeReplacedList({
+      filled: [{ id: 'alpha' }, { id: 'beta' }],
+      draft: [{ id: 'beta' }],
+      live: [{ id: 'alpha' }, { id: 'beta' }, { id: 'gamma' }],
+      key,
+    })).toEqual([{ id: 'beta' }, { id: 'gamma' }])
+  })
+
+  it('does not resurrect an entry the form removed and another client also removed', () => {
+    expect(mergeReplacedList({
+      filled: [{ id: 'alpha' }, { id: 'beta' }],
+      draft: [{ id: 'alpha' }],
+      live: [{ id: 'alpha' }],
+      key,
+    })).toEqual([{ id: 'alpha' }])
+  })
+
+  it('never sends a list the form was not filled with', () => {
+    // A block that was never filled holds `[]`; sending that replaces the list with nothing.
+    expect(mergeReplacedList({ filled: undefined, draft: [], live: [{ id: 'alpha' }], key })).toBeNull()
   })
 })

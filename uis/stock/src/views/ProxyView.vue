@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ProxyView } from '@shared/contracts'
+import type { ProxyRoute, ProxyView } from '@shared/contracts'
 import type { ListenerDraft, ProxyAction, ProxyWorkspace, RouteDraft } from '@/lib/proxy'
 import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -60,11 +60,11 @@ const workspaces = computed<ProxyWorkspace[]>(() => control.workspaces.value.map
 })))
 
 const emailHost = computed(() => (requiresEmail(form.value, routes.value) ? firstPublicHost(routes.value) : null))
-const routesChanged = computed(() => config.value !== null && routesPatch(config.value.routes, routes.value) !== null)
+const routesChanged = computed(() => config.value !== null && routesPatch(config.value.routes, routes.value, filledRoutes()) !== null)
 const changedCount = computed(() => {
   if (config.value === null)
     return 0
-  const patch = proxyPatch(config.value, form.value, routes.value)
+  const patch = proxyPatch(config.value, form.value, routes.value, filledRoutes())
   if (patch === null)
     return 0
   const listenerKeys = Object.keys(patch).filter(key => key !== 'routes').length
@@ -81,6 +81,18 @@ const liveProblems = computed(() => (view.value?.routes ?? []).filter(entry => e
 const blockedReasons = computed(() => (routesChanged.value ? [] : liveProblems.value.map(entry => entry.message ?? t('proxy.routes.cannotRoute', { host: entry.route.host }))))
 
 const snapshots: { listener?: unknown, routes?: unknown } = {}
+/**
+ * The route table this page was **filled with**.
+ *
+ * A replaced list is all-or-nothing on the wire, so the patch is a three-way merge against this:
+ * without it, saving a listener field sends the route drafts alone and deletes a route another
+ * client added while this page was open.
+ */
+let filledRouteTable: ProxyRoute[] | undefined
+
+function filledRoutes(): ProxyRoute[] | undefined {
+  return filledRouteTable
+}
 
 function syncFromLive(): void {
   const current = config.value
@@ -96,6 +108,7 @@ function syncFromLive(): void {
   if (!isBlockEdited(snapshots.routes, wire)) {
     routes.value = cloneRoutes(current.routes)
     snapshots.routes = toProxyRoutes(routes.value)
+    filledRouteTable = current.routes.map(route => ({ ...route }))
   }
 }
 
@@ -156,7 +169,7 @@ const saveMessage = ref<string | null>(null)
 
 async function save(): Promise<void> {
   const current = config.value
-  const patch = current === null ? null : proxyPatch(current, form.value, routes.value)
+  const patch = current === null ? null : proxyPatch(current, form.value, routes.value, filledRoutes())
   if (patch === null || saving.value || blockedReasons.value.length > 0)
     return
 

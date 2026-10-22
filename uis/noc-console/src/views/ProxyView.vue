@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ProxyCertificateView, ProxyView } from '@shared/contracts'
+import type { ProxyCertificateView, ProxyRoute, ProxyView } from '@shared/contracts'
 import type { ListenerDraft, ProxyAction, ProxyWorkspace, RouteDraft } from '@/lib/proxy'
 import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, ref, watch } from 'vue'
@@ -84,8 +84,8 @@ const workspaces = computed<ProxyWorkspace[]>(() => control.workspaces.value.map
 })))
 
 const emailHost = computed(() => (requiresEmail(form.value, routes.value) ? firstPublicHost(routes.value) : null))
-const routesChanged = computed(() => config.value !== null && routesPatch(config.value.routes, routes.value) !== null)
-const changed = computed(() => (config.value === null ? 0 : changedKeys(config.value, form.value, routes.value)))
+const routesChanged = computed(() => config.value !== null && routesPatch(config.value.routes, routes.value, filledRoutes()) !== null)
+const changed = computed(() => (config.value === null ? 0 : changedKeys(config.value, form.value, routes.value, filledRoutes())))
 
 /**
  * A route in error blocks every save, because the panel validates the whole config
@@ -99,6 +99,18 @@ const blocked = computed(() => {
 })
 
 const snapshots: { listener?: unknown, routes?: unknown } = {}
+/**
+ * The route table this page was **filled with**.
+ *
+ * `routes` is a list a patch replaces, so the patch is a three-way merge against this: otherwise
+ * saving a listener field sends the drafts alone and deletes a route another client added while
+ * this page was open.
+ */
+let filledRouteTable: ProxyRoute[] | undefined
+
+function filledRoutes(): ProxyRoute[] | undefined {
+  return filledRouteTable
+}
 
 /** The console's copy of the per-block guard: JSON compare, keyed per block. */
 function blockEdited(snapshot: unknown, current: unknown): boolean {
@@ -118,6 +130,7 @@ function syncFromLive(): void {
   if (!blockEdited(snapshots.routes, toProxyRoutes(routes.value))) {
     routes.value = cloneRoutes(current.routes)
     snapshots.routes = toProxyRoutes(routes.value)
+    filledRouteTable = current.routes.map(route => ({ ...route }))
   }
 }
 
@@ -190,7 +203,7 @@ async function act(action: ProxyAction): Promise<void> {
 
 async function save(): Promise<void> {
   const current = config.value
-  const patch = current === null ? null : proxyPatch(current, form.value, routes.value)
+  const patch = current === null ? null : proxyPatch(current, form.value, routes.value, filledRoutes())
   if (patch === null || saving.value || blocked.value.length > 0)
     return
 

@@ -140,6 +140,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   explanation on the way in. When you give a surface an empty state, a reason or a qualifier, grep
   for the other surface that renders the same field and land it there too — and prefer a shared
   component or a scan test over two call sites remembering in parallel.
+- **A replaced list is sent only when *this form* changed it, and merged against what it was
+  filled with.** `destinations` and `routes` are lists a patch replaces, so a save writes the
+  sender's whole view — including entries it never saw. Deciding that against live state makes
+  another client's save look like this form's own edit: measured with two tabs on one workspace
+  settings page, a destination added in one tab was removed from `settings.json` by the other
+  saving an unrelated toggle. Keep the baseline the block was filled with and compare the draft to
+  *that* (`mergeReplacedList`); a list that was never filled must not travel, because `[]` on a
+  replaced list means "delete every entry".
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank

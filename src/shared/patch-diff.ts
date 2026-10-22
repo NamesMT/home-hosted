@@ -68,6 +68,64 @@ export function diffFields(current: Patch, next: Patch, nested: readonly string[
 }
 
 /**
+ * Has a **replaced** list been touched by this form?
+ *
+ * A list a patch replaces (`destinations`, `routes`) is all-or-nothing on the wire:
+ * sending it writes the sender's whole view, including the entries it has never
+ * seen. So the comparison that decides "send it" must be against the list this form
+ * was **filled with**, never against live state — live state moving is precisely
+ * what another client's save looks like, and a form that treats that as its own
+ * edit deletes whatever arrived while it was open. Measured: with the workspace
+ * settings page open on `alpha`, a second client added `beta`; saving an unrelated
+ * policy toggle on the first page removed `beta` from disk.
+ *
+ * `filled` absent means the block was never filled, and a list that was never
+ * filled must not travel either: it is `[]`, and `[]` on a replaced list is
+ * "delete every entry".
+ */
+export function replacedListEdited(filled: readonly unknown[] | undefined, next: readonly unknown[]): boolean {
+  if (filled === undefined)
+    return false
+  return !same(filled, next)
+}
+
+/** The wire form of a replaced list, each entry compared by value. */
+export function replacedListPatch<T>(filled: readonly unknown[] | undefined, next: readonly T[]): T[] | null {
+  return replacedListEdited(filled, next) ? [...next] : null
+}
+
+export interface ReplacedListMerge<T> {
+  /** The list this form was filled with; absent means it was never filled. */
+  filled: readonly T[] | undefined
+  /** What the form holds now. */
+  draft: readonly T[]
+  /** What the panel holds now, which another client may have changed. */
+  live: readonly T[]
+  /** One entry's identity; entries sharing a key are the same entry. */
+  key: (entry: T) => string
+}
+
+/**
+ * The list to send for a replaced list, or `null` when this form changed nothing.
+ *
+ * The form's own edits win, an entry it **removed** stays removed, and an entry that
+ * appeared while it was open is kept. That last half is the point: a replaced list is
+ * all-or-nothing, so sending only the draft writes "the list I saw when I opened this
+ * page" and silently deletes a concurrent addition. A three-way merge — what I filled,
+ * what I hold, what is there now — keeps both.
+ */
+export function mergeReplacedList<T>({ filled, draft, live, key }: ReplacedListMerge<T>): T[] | null {
+  if (filled === undefined || same(filled, draft))
+    return null
+
+  const filledKeys = new Set(filled.map(key))
+  // Entries live holds that this form has never seen — added by another client while it was open.
+  // They are appended, not merged into, so the form's own order and edits are untouched.
+  const arrived = live.filter(entry => !filledKeys.has(key(entry)) && !draft.some(held => key(held) === key(entry)))
+  return [...draft, ...arrived]
+}
+
+/**
  * Edits to one server entry.
  *
  * Comparing against the *effective* config (defaults already merged) means an

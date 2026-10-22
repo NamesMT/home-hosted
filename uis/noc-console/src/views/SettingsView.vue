@@ -3,7 +3,7 @@ import type { DdnsConfig, DestinationStatusView, LogsConfig, ServerDefaults, Wor
 import type { Patch } from '@shared/patch-diff'
 import type { DraftConfig } from '@/lib/ddns'
 import { errorMessage } from '@shared/error-message'
-import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
+import { countLeaves, describeChanges, diffFields, mergeReplacedList } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import DdnsPanel from '@/components/DdnsPanel.vue'
@@ -283,6 +283,19 @@ function isBlockEdited(block: FormBlock): boolean {
   return snapshot !== undefined && JSON.stringify(snapshot) !== JSON.stringify(blockSnapshot(block))
 }
 
+/**
+ * The destination list this block was filled with, or `undefined` when it never was.
+ *
+ * A replaced list is all-or-nothing on the wire, so what decides "send it" is this baseline — the
+ * only record of which entries the form has seen, and so of which absences are its deletions.
+ */
+function filledDestinations(snapshot: unknown): DestinationDraft[] | undefined {
+  if (snapshot === null || typeof snapshot !== 'object')
+    return undefined
+  const destinations = (snapshot as { destinations?: unknown }).destinations
+  return Array.isArray(destinations) ? (destinations as DestinationDraft[]) : undefined
+}
+
 function remember(block: FormBlock): void {
   snapshots[block] = blockSnapshot(block)
 }
@@ -356,17 +369,22 @@ function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
     // An inheriting destination sends no policy columns: they would be ignored anyway, and writing
     // them would make the config say something the page does not mean.
     const notificationsPatch = diffFields(
-      {
-        defaults: policyConfig(configured.notifications.defaults ?? form.notifications.policy),
-        // Through the form mapper first, so both sides of the diff are the same type.
-        destinations: (configured.notifications.destinations ?? []).map(destinationConfig).map(destinationWire),
-      } as unknown as Patch,
-      {
-        defaults: { ...form.notifications.policy },
-        destinations: form.notifications.destinations.map(destinationWire),
-      } as unknown as Patch,
+      { defaults: policyConfig(configured.notifications.defaults ?? form.notifications.policy) } as unknown as Patch,
+      { defaults: { ...form.notifications.policy } } as unknown as Patch,
       ['defaults'],
     )
+    // The list is all-or-nothing on the wire, so it travels only when *this form* changed it, and
+    // merged against what it was filled with — sending the draft alone deletes a destination another
+    // client added while the page was open.
+    const filled = filledDestinations(snapshots.notifications)
+    const destinations = mergeReplacedList({
+      filled,
+      draft: form.notifications.destinations,
+      live: (configured.notifications.destinations ?? []).map(destinationConfig),
+      key: entry => entry.id,
+    })
+    if (destinations !== null)
+      notificationsPatch.destinations = destinations.map(destinationWire)
     if (Object.keys(notificationsPatch).length > 0)
       patch.notifications = notificationsPatch as WorkspaceSettingsPatch['notifications']
   }

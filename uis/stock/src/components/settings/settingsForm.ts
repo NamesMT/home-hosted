@@ -17,7 +17,7 @@ import type {
 import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
 import { sameScope } from '@shared/backup-scope'
-import { countLeaves, diffFields } from '@shared/patch-diff'
+import { countLeaves, diffFields, mergeReplacedList } from '@shared/patch-diff'
 import { computed } from 'vue'
 import { t } from '@/i18n'
 import { waitForEndpoint } from '@/lib/endpoint'
@@ -417,27 +417,37 @@ export function policyPatch(current: NotificationDefaults, form: PolicyForm): Pa
   return Object.keys(diff).length === 0 ? null : diff
 }
 
+/** One destination as the API takes it: an inheriting one sends no policy columns. */
+function destinationWire(form: DestinationForm): Record<string, unknown> {
+  return {
+    kind: form.kind,
+    id: form.id,
+    enabled: form.enabled,
+    useOwnSettings: form.useOwnSettings,
+    ...(form.kind === 'telegram' ? { chatId: form.chatId } : { url: form.url, method: form.method, format: form.format, headers: form.headers }),
+    ...(form.useOwnSettings ? form.policy : {}),
+  }
+}
+
 /**
  * The whole destination list, because the API **replaces** it — a merge cannot express removing
- * one. A destination that inherits sends no policy columns: they would be ignored, and writing them
- * would make the config say something the page does not mean.
+ * one. That makes the decision to send it a three-way one: `filled` is what this form was filled
+ * with, `forms` what it holds, `current` what the panel holds now. Comparing the draft against
+ * live* state instead made another client's save look like this form's own edit, and saving an
+ * unrelated field then rewrote the list without the entry that had just been added.
  */
-export function destinationsPatch(current: DestinationStatusView[], forms: DestinationForm[]): Patch | null {
-  const before = new Map(current.map(status => [status.id, destinationBaseline(status)]))
-  const changed = forms.some(form => JSON.stringify(before.get(form.id)) !== JSON.stringify(form))
-  if (!changed && forms.length === current.length)
-    return null
-
-  return {
-    destinations: forms.map(form => ({
-      kind: form.kind,
-      id: form.id,
-      enabled: form.enabled,
-      useOwnSettings: form.useOwnSettings,
-      ...(form.kind === 'telegram' ? { chatId: form.chatId } : { url: form.url, method: form.method, format: form.format, headers: form.headers }),
-      ...(form.useOwnSettings ? form.policy : {}),
-    })),
-  }
+export function destinationsPatch(
+  current: DestinationStatusView[],
+  forms: DestinationForm[],
+  filled?: DestinationForm[],
+): Patch | null {
+  const merged = mergeReplacedList({
+    filled,
+    draft: forms,
+    live: current.map(destinationBaseline),
+    key: destination => destination.id,
+  })
+  return merged === null ? null : { destinations: merged.map(destinationWire) }
 }
 
 /**
@@ -525,6 +535,20 @@ export function workspaceBlockSnapshot(form: WorkspaceSettingsForm, block: Works
       destinations: form.destinations.map(destination => ({ ...destination, policy: { ...destination.policy } })),
     }
   }
+}
+
+/**
+ * The destination list this block was filled with, or `undefined` when it never was.
+ *
+ * The replaced-list merge needs the baseline, not live state: it is the only record of
+ * which entries this form has actually seen, and therefore of which absences are this
+ * form's deletions rather than another client's additions.
+ */
+export function filledDestinations(snapshot: unknown): DestinationForm[] | undefined {
+  if (snapshot === undefined || snapshot === null || typeof snapshot !== 'object')
+    return undefined
+  const destinations = (snapshot as { destinations?: unknown }).destinations
+  return Array.isArray(destinations) ? (destinations as DestinationForm[]) : undefined
 }
 
 /**

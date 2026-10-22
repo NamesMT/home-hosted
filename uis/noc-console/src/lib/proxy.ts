@@ -146,8 +146,8 @@ export function applyRouteDraft(routes: readonly RouteDraft[], edited: RouteDraf
   return routes.map(route => (route.id === edited.id ? next : route))
 }
 
-export function changedKeys(current: ProxyConfig, listener: ListenerDraft, drafts: readonly RouteDraft[]): number {
-  const patch = proxyPatch(current, listener, drafts)
+export function changedKeys(current: ProxyConfig, listener: ListenerDraft, drafts: readonly RouteDraft[], filledRoutes?: readonly ProxyRoute[]): number {
+  const patch = proxyPatch(current, listener, drafts, filledRoutes)
   if (patch === null)
     return 0
   const listenerKeys = Object.keys(patch).filter(key => key !== 'routes').length

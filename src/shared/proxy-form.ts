@@ -1,6 +1,7 @@
 import type { ProxyCertificateView, ProxyConfig, ProxyPatch, ProxyRoute, ProxyRoutePatch } from './contracts'
 import { type } from 'arktype'
 import { proxyRouteSchema } from './contracts'
+import { mergeReplacedList } from './patch-diff'
 
 /**
  * The reverse-proxy form, shared by both UIs: the route draft the table edits, the patch a save
@@ -212,9 +213,14 @@ export function parseResolvers(value: string): string[] {
 }
 
 /** The whole patch a save sends, or `null` when nothing changed. */
-export function proxyPatch(current: ProxyConfig, listener: ListenerDraft, drafts: readonly RouteDraft[]): ProxyPatch | null {
+export function proxyPatch(
+  current: ProxyConfig,
+  listener: ListenerDraft,
+  drafts: readonly RouteDraft[],
+  filledRoutes?: readonly ProxyRoute[],
+): ProxyPatch | null {
   const patch: ProxyPatch = listenerPatch(current, listener)
-  const routes = routesPatch(current.routes, drafts)
+  const routes = routesPatch(current.routes, drafts, filledRoutes)
   if (routes !== null)
     patch.routes = routes
   return Object.keys(patch).length === 0 ? null : patch
@@ -263,9 +269,27 @@ export function routesEqual(current: readonly ProxyRoute[], drafts: readonly Rou
   return current.every((route, index) => sameWire(route, drafts[index]!))
 }
 
-/** Only the keys that differ; `null` means the route table is unchanged. */
-export function routesPatch(current: readonly ProxyRoute[], drafts: readonly RouteDraft[]): ProxyRoutePatch[] | null {
-  return routesEqual(current, drafts) ? null : toProxyRoutes(drafts)
+/**
+ * The route table to send, or `null` when unchanged.
+ *
+ * `filled` is the table this form was filled with. With it the patch is a three-way merge, so a
+ * route another client added while the page was open survives a save from this one; without it the
+ * draft's whole view is sent, which is only safe when the caller knows it holds the current table.
+ */
+export function routesPatch(
+  current: readonly ProxyRoute[],
+  drafts: readonly RouteDraft[],
+  filled?: readonly ProxyRoute[],
+): ProxyRoutePatch[] | null {
+  if (filled === undefined)
+    return routesEqual(current, drafts) ? null : toProxyRoutes(drafts)
+  const merged = mergeReplacedList({
+    filled: filled.map(toRouteWire),
+    draft: toProxyRoutes(drafts),
+    live: current.map(toRouteWire),
+    key: route => route.id,
+  })
+  return merged
 }
 
 export function sameWire(a: ProxyRoute, b: ProxyRoute): boolean {
