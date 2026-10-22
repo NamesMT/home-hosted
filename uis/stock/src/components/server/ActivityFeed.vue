@@ -4,6 +4,7 @@ import type { HistoryType } from '@/lib/status'
 import { CircleAlert, CircleCheck, Play, RotateCw, Square, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import { useWorkspaces } from '@/composables/useWorkspaces'
 import { t } from '@/i18n'
 import { cn } from '@/lib/cn'
 import { formatAgo, formatDuration } from '@/lib/format'
@@ -15,9 +16,19 @@ const props = withDefaults(defineProps<{
   now: number
   limit?: number
   serverId?: string
+  /**
+   * Prefix each row with its workspace, for a feed that spans several.
+   *
+   * The label alone does not identify a server: ids and labels repeat across workspaces, so the
+   * Global Overview rendered two identical `crashy` rows — one per workspace — and a person reading
+   * the feed could not tell which entry had crashed, or which page a row would open. A feed scoped
+   * to one workspace (the Overview, a detail page) leaves this off: there, the prefix is noise.
+   */
+  qualify?: boolean
 }>(), {
   limit: 12,
   serverId: undefined,
+  qualify: false,
 })
 
 const ICONS = {
@@ -33,6 +44,15 @@ interface Row extends HistoryEvent {
   label: string
   /** The workspace the event's server belongs to; a detail page lives under it. */
   workspaceId: string
+  /** The workspace's human name, shown before the server when the feed spans several. */
+  workspaceLabel: string
+}
+
+const workspaces = useWorkspaces()
+
+/** The workspace's own name, falling back to its id for a frame that carries no label. */
+function workspaceLabel(id: string): string {
+  return workspaces.workspaces.value.find(workspace => workspace.id === id)?.label ?? id
 }
 
 const rows = computed<Row[]>(() => {
@@ -40,9 +60,10 @@ const rows = computed<Row[]>(() => {
   for (const server of props.servers) {
     if (props.serverId !== undefined && server.id !== props.serverId)
       continue
+    const workspaceId = server.workspaceId ?? ''
     for (const event of server.history.events)
       // The frame carries each server's workspace, so a row links to the page that exists.
-      out.push({ ...event, label: server.config.label ?? server.id, workspaceId: server.workspaceId ?? '' })
+      out.push({ ...event, label: server.config.label ?? server.id, workspaceId, workspaceLabel: workspaceLabel(workspaceId) })
   }
   return out.sort((a, b) => b.ts - a.ts).slice(0, props.limit)
 })
@@ -70,8 +91,8 @@ const rows = computed<Row[]>(() => {
       <div class="min-w-0 flex-1">
         <p class="flex items-baseline gap-1.5">
           <span class="truncate text-xs font-medium text-ink">{{ t(HISTORY_TYPE_LABEL_KEY[row.type as HistoryType]) }}</span>
-          <RouterLink :to="workspacePath(row.workspaceId, 'servers', row.serverId)" class="truncate text-2xs text-muted hover:text-accent">
-            {{ row.label }}
+          <RouterLink :to="workspacePath(row.workspaceId, 'servers', row.serverId)" class="truncate text-2xs text-muted hover:text-accent" :title="props.qualify ? `${row.workspaceLabel}/${row.label}` : row.label">
+            <span v-if="props.qualify" class="text-faint">{{ row.workspaceLabel }}/</span>{{ row.label }}
           </RouterLink>
         </p>
         <p class="mt-0.5 truncate font-mono text-2xs text-faint" :title="row.detail">

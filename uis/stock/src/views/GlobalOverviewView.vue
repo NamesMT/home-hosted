@@ -162,7 +162,7 @@ onMounted(async () => {
             {{ t('views.overview.recentActivity') }}
           </h2>
         </template>
-        <ActivityFeed :servers="all" :now="control.now.value" :limit="12" />
+        <ActivityFeed :servers="all" :now="control.now.value" :limit="12" qualify />
       </Panel>
     </div>
 
