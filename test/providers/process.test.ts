@@ -18,6 +18,18 @@ afterAll(() => {
   for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true })
 })
 
+/**
+ * A `node_modules/.bin` directory holding exactly the named files.
+ *
+ * `asNpmWould` writes what `npm`/`pnpm` actually install for a dependency, which differs by
+ * platform: the bare name on POSIX, and the bare `#!/bin/sh` shim **plus** `mytool.cmd` on Windows.
+ * The cross-platform cases need that, because `resolveCommand` correctly refuses the extension-less
+ * shim on Windows and an npm-shaped directory is the only one that resolves there.
+ *
+ * The Windows-specific cases below must *not* use it: several of them exist precisely to describe a
+ * directory that lacks the `.cmd` (`never resolves to the extension-less POSIX script`) or holds
+ * one shim kind alone, so they write their exact layout with the plain form.
+ */
 function binDirWith(...commands: string[]): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-bin-'))
   dirs.push(root)
@@ -27,6 +39,15 @@ function binDirWith(...commands: string[]): string {
   return root
 }
 
+/** `binDirWith`, holding what npm installs for each bare name on *this* platform. */
+function npmBinDirWith(...commands: string[]): string {
+  return binDirWith(...commands.flatMap((command) => {
+    if (process.platform !== 'win32' || path.extname(command) !== '')
+      return [command]
+    return [command, `${command}.cmd`]
+  }))
+}
+
 describe('resolveCommand', () => {
   it('leaves a path alone, so an absolute or relative command is not searched', () => {
     expect(resolveCommand('/usr/bin/node')).toBe('/usr/bin/node')
@@ -34,18 +55,23 @@ describe('resolveCommand', () => {
     expect(resolveCommand('bin\\thing.exe')).toBe('bin\\thing.exe')
   })
 
+  /** The file a resolved dependency actually starts: the bare shim on POSIX, the `.cmd` on Windows. */
+  function resolvedName(): string {
+    return process.platform === 'win32' ? 'mytool.cmd' : 'mytool'
+  }
+
   it('finds a project dependency in node_modules/.bin', () => {
-    const project = binDirWith('mytool')
-    expect(resolveCommand('mytool', project)).toBe(path.join(project, 'node_modules', '.bin', 'mytool'))
+    const project = npmBinDirWith('mytool')
+    expect(resolveCommand('mytool', project)).toBe(path.join(project, 'node_modules', '.bin', resolvedName()))
   })
 
   it('searches the entry directory before the project, in the order given', () => {
     // Both have it: the first search dir must win, which is what makes an entry's own install take
     // precedence over the project's copy.
-    const entry = binDirWith('mytool')
-    const project = binDirWith('mytool')
-    expect(resolveCommand('mytool', entry, project)).toBe(path.join(entry, 'node_modules', '.bin', 'mytool'))
-    expect(resolveCommand('mytool', project, entry)).toBe(path.join(project, 'node_modules', '.bin', 'mytool'))
+    const entry = npmBinDirWith('mytool')
+    const project = npmBinDirWith('mytool')
+    expect(resolveCommand('mytool', entry, project)).toBe(path.join(entry, 'node_modules', '.bin', resolvedName()))
+    expect(resolveCommand('mytool', project, entry)).toBe(path.join(project, 'node_modules', '.bin', resolvedName()))
   })
 
   it('returns the command unchanged when nothing has it, so PATH still decides', () => {
