@@ -1627,6 +1627,14 @@ export const backupCreateSchema = type({
   password: passwordValueSchema.optional(),
   /** Leaf ids to capture (`global:settings`, `workspace:<id>:servers`, `data:<path>`, ...); omitted means everything. */
   include: type('string[] >= 1').optional(),
+  /**
+   * Leaf ids to leave out, applied after `include` — the CLI's `--exclude`, and the one thing to
+   * name when the archive should carry everything but the credentials.
+   *
+   * Empty is refused for the same reason `include` refuses it: an empty list reads as "nothing" to
+   * a person and as "everything" to a reader, so it must not be sent at all.
+   */
+  exclude: type('string[] >= 1').optional(),
 }).onUndeclaredKey('reject')
 export type BackupCreate = typeof backupCreateSchema.infer
 

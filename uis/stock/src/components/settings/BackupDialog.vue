@@ -50,7 +50,7 @@ async function submit(): Promise<void> {
   busy.value = true
   error.value = null
   try {
-    await api.createBackup(password.value, includeIds(choices.value))
+    await api.createBackup({ password: password.value, include: includeIds(choices.value) })
     open.value = false
     emit('created', t('settings.backup.created'))
   }

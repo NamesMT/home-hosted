@@ -204,6 +204,17 @@ describe('patch surface', () => {
     expect(backupCreateSchema({ include: ['config', 'data:/srv/a'] }) instanceof type.errors).toBe(false)
     expect(backupCreateSchema({ include: [] }) instanceof type.errors).toBe(true)
     expect(backupCreateSchema({ include: 'config' } as unknown) instanceof type.errors).toBe(true)
+
+    // `exclude` is the CLI's `--exclude`, over HTTP: everything but the named ids.
+    expect(backupCreateSchema({ exclude: ['global:secrets'] }) instanceof type.errors).toBe(false)
+    // Empty is refused here too — it reads as "nothing" to a person and as "everything" to the
+    // service, and a script's unset `$LIST` must not silently leave the credentials in.
+    expect(backupCreateSchema({ exclude: [] }) instanceof type.errors).toBe(true)
+    expect(backupCreateSchema({ exclude: 'global:secrets' } as unknown) instanceof type.errors).toBe(true)
+    // Both together are allowed: the exclusion applies after the selection, as on the CLI.
+    expect(backupCreateSchema({ include: ['workspace:default'], exclude: ['workspace:default:secrets'] }) instanceof type.errors).toBe(false)
+    // An undeclared key is still refused, so a typo cannot be read as a selection.
+    expect(backupCreateSchema({ excludes: ['global:secrets'] } as unknown) instanceof type.errors).toBe(true)
   })
 
   it('requires id and command to create', () => {

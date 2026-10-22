@@ -9,6 +9,7 @@ import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { missingServer } from '#src/helpers/action-result'
 import { logger } from '#src/helpers/logger'
+import { listZip } from '#src/providers/archive'
 import { hasOpenssl } from '../support/capabilities'
 import { makeFixture, makeView } from './fixture'
 
@@ -929,6 +930,44 @@ describe('backups route: archives', () => {
     const selected = await request(created.app, '/api/backups', 'POST', { include: ['config', 'data:/srv/a'] })
     expect(selected.status).toBe(200)
     expect(seen.at(-1)).toMatchObject({ include: ['config', 'data:/srv/a'] })
+  })
+
+  /**
+   * `exclude` used to stop at the CLI: `create()` took it and the HTTP schema did not declare it,
+   * so a scripted caller or either UI could only ever say "these items", never "everything except".
+   *
+   * Asserted on the bytes rather than on the argument: the request produces a real archive, and the
+   * file the exclusion names must not be in it while its siblings still are. A stubbed `create`
+   * would pass even if the route passed the ids in the wrong field.
+   */
+  it('leaves an excluded item out of the archive a POST creates', async () => {
+    const created = await fixture()
+
+    const response = await request(created.app, '/api/backups', 'POST', { exclude: ['workspace:default:servers'] })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { file: { name: string } }
+
+    const names = (await listZip(path.join(created.backups.directory, body.file.name))).map(entry => entry.name)
+    expect(names, 'the excluded file must not be in the archive').not.toContain('workspaces/default/servers.config.json')
+    expect(names, 'its siblings are still captured').toContain('workspaces/default/settings.json')
+    expect(names).toContain('global/settings.json')
+  })
+
+  it('applies an exclusion after an include, the way the CLI does', async () => {
+    // The pair is allowed and unambiguous: `create` reads both through one `selectionOf`. Sending
+    // `include` and having `exclude` silently ignored is the failure this pins.
+    const created = await fixture()
+
+    const response = await request(created.app, '/api/backups', 'POST', {
+      include: ['global:settings', 'global:secrets'],
+      exclude: ['global:secrets'],
+    })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { file: { name: string } }
+
+    const names = (await listZip(path.join(created.backups.directory, body.file.name))).map(entry => entry.name)
+    expect(names).toContain('global/settings.json')
+    expect(names, 'the exclusion applies after the include').not.toContain('global/secrets.json')
   })
 
   /**

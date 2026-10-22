@@ -4,6 +4,8 @@ import {
   backupDownloadUrl,
   clearPassword,
   clearProxyCertificate,
+  createBackup,
+  createBackupBody,
   ddnsView,
   deleteBackup,
   fetchProxy,
@@ -247,6 +249,22 @@ describe('auth and backups', () => {
     expect(restoreBody({})).toEqual({})
     expect(restoreBody({ password: '' })).toEqual({})
     expect(restoreBody({ password: 'p', include: ['a'] })).toEqual({ password: 'p', include: ['a'] })
+  })
+
+  it('sends a create selection in either direction, and refuses an empty one', async () => {
+    const mock = stub({ file: { name: 'x.zip' } })
+    await createBackup({ exclude: ['global:secrets'] })
+    expect(lastCall(mock)[0]).toBe('/api/backups')
+    expect(lastCall(mock)[1]?.method).toBe('POST')
+    expect(JSON.parse(String(lastCall(mock)[1]?.body))).toEqual({ exclude: ['global:secrets'] })
+
+    // Both at once is what the CLI means by `--include … --exclude …`: the exclusion applies after.
+    expect(createBackupBody({ password: '', include: ['a'], exclude: ['a:b'] })).toEqual({ include: ['a'], exclude: ['a:b'] })
+
+    // An empty list must never travel: omitting `include` means "everything" to the server and an
+    // empty `exclude` would leave in exactly what was meant to be dropped.
+    expect(() => createBackupBody({ include: [] })).toThrow('nothing is selected')
+    expect(() => createBackupBody({ exclude: [] })).toThrow('nothing is excluded')
   })
 
   it('clears the password with DELETE', async () => {
