@@ -449,11 +449,14 @@ Everything binds `127.0.0.1` until you say otherwise.
 
 - **A password is required to expose the panel.** Replace the default, then bind to `lan` — in the
   UI, in the config, or with `--host lan`. The same guard applies in all three places.
-- **Sessions** live in memory only; the cookie is `HttpOnly` and `SameSite=Strict`, and the login
-  route locks out repeated failures per IP — see the `trustProxy` note below for when that is advisory.
+- **Sessions** live in memory only; the cookie is `HttpOnly` and `SameSite=Strict`, and it is an
+  **idle** timeout — every request slides both the session and the cookie, so a panel in regular use
+  stays signed in and one left alone for the configured lifetime does not. The login route locks out
+  repeated failures per IP — see the `trustProxy` note below for when that is advisory.
 - **API tokens** for scripts and agents: `home-hosted set-token --generate` prints one once, and a
   request proves itself with `Authorization: Bearer …` — the same access as a signed-in browser,
-  stored as a SHA-256 hash, revoked with `set-token --clear`.
+  stored as a SHA-256 hash, revoked with `set-token --clear`. Changing the panel password does
+  **not** revoke a token, so rotate it with `set-token --generate` if one may have leaked.
 - **Port conflicts** are named — `port 4010 is already in use (pid 4242)` — and can be resolved from
   a confirmation popover on that banner or card. The process is looked up again at that moment,
   never taken from the message, and anything the panel supervises is refused, not killed. A server
