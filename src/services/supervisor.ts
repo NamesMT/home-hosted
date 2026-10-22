@@ -459,8 +459,7 @@ export class Supervisor {
       // manual stop cut short would credit a recovery that never happened.
       if (entry.actor !== 'policy')
         entry.pendingRestart = null
-      entry.healthFailures = 0
-      entry.unhealthySince = null
+      this.resetHealth(entry)
       // A start someone asked for ends the previous crash sequence, so the reset has
       // to reach disk too — otherwise the next panel boot resurrects the old budget.
       this.persistEntryState(entry)
@@ -475,7 +474,7 @@ export class Supervisor {
 
       entry.lastError = null
       entry.status = 'starting'
-      entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
+      this.resetHealth(entry)
       this.publishServer(entry)
 
       // A persistent entry whose nanny is still alive is reattached, not restarted:
@@ -970,18 +969,12 @@ export class Supervisor {
     entry.pid = null
     entry.adopted = false
     entry.nannyExit = null
-    // A stopped entry is not being probed, so its health returns to the "unknown" it starts with —
-    // and so must the moment it *became* unhealthy. The timestamp was left behind, so a stopped
-    // card and detail page read "Unhealthy for 1m 55s" beside a `Stopped` pill and `Not Probed`, a
-    // duration that kept growing while nothing was measured, on the one screen a person opens
-    // after stopping something precisely because it was unhappy. A survivor keeps its `conflict`
-    // outcome above, so this does not erase the reason a stop refuses to claim success.
-    entry.healthFailures = 0
-    entry.unhealthySince = null
-    if (!entry.config.health.enabled)
-      entry.health = 'disabled'
-    else if (survivor === null)
-      entry.health = 'unknown'
+    // A stopped entry is not being probed, so the streak that described the run goes with it; the
+    // verdict resets too unless a survivor still holds the port, which keeps its `conflict`
+    // outcome above rather than erasing the reason the stop refused to claim success.
+    this.endHealthStreak(entry)
+    if (survivor === null || !entry.config.health.enabled)
+      this.resetHealth(entry)
     // A recorded child that is gone must not be chased by a later boot; one that outlived
     // the stop is kept, so the next start still refuses to duplicate it.
     if (entry.lastChild !== null && !isProcessAlive(entry.lastChild.pid)) {
@@ -996,6 +989,40 @@ export class Supervisor {
     return survivor === null
       ? { ok: true }
       : { ok: false, error: entry.lastError! }
+  }
+
+  /**
+   * The health state, together with the streak that produced it.
+   *
+   * `healthFailures` and `unhealthySince` describe one **process's** run: the failures since it
+   * began, and the moment that streak turned unhealthy. They move with `health` for one reason —
+   * a caller that set one and forgot the other left a duration counting up while nothing was
+   * measured. Measured on the built panel: an entry that crashed while unhealthy reported
+   * `status=crashed health=unknown` beside `Unhealthy for 3m 17s` and a `Not Probed` row, the
+   * identical shape an explicit stop had before round 13 fixed that one path. Anything other
+   * than `unhealthy` therefore ends the streak.
+   */
+  private setHealth(entry: Entry, health: HealthState): void {
+    entry.health = health
+    if (health !== 'unhealthy')
+      this.endHealthStreak(entry)
+  }
+
+  /**
+   * Forgets the streak without deciding the verdict.
+   *
+   * A refused stop is the one place the two differ: the process survived, so its `conflict`
+   * outcome stays, while the duration that described the run cannot keep counting from a probe
+   * that is no longer taken.
+   */
+  private endHealthStreak(entry: Entry): void {
+    entry.healthFailures = 0
+    entry.unhealthySince = null
+  }
+
+  /** The health of an entry nothing is probing: `disabled` with the probe off, else `unknown`. */
+  private resetHealth(entry: Entry): void {
+    this.setHealth(entry, entry.config.health.enabled ? 'unknown' : 'disabled')
   }
 
   private createEntry(config: ServerConfig): Entry {
@@ -1312,7 +1339,7 @@ export class Supervisor {
     entry.pid = pid
     entry.child = null
     entry.status = 'running'
-    entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
+    this.resetHealth(entry)
     entry.startedAt = Date.now()
     entry.lastError = null
     // The history comes first, and logging last, so the buffer stays in order: an
@@ -1407,7 +1434,7 @@ export class Supervisor {
     entry.resources = null
     entry.responseMs = null
     // The same reset as a child we spawned: health is about a process, and this one is gone.
-    entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
+    this.resetHealth(entry)
     entry.exitCode = null
     entry.exitSignal = null
     if (!entry.removed) {
@@ -1676,8 +1703,7 @@ export class Supervisor {
     entry.exitSignal = null
     entry.nannyExit = null
     entry.lastProbeAt = 0
-    entry.healthFailures = 0
-    entry.unhealthySince = null
+    this.resetHealth(entry)
     this.publishServer(entry)
 
     child.once('error', (error) => {
@@ -1770,7 +1796,7 @@ export class Supervisor {
       entry.pid = state.nannyPid
       entry.startedAt = state.startedAt
       entry.status = 'running'
-      entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
+      this.resetHealth(entry)
       entry.portState = entry.config.port === null ? 'unknown' : 'in-use'
       entry.lastError = null
       entry.nannyExit = null
@@ -1864,7 +1890,7 @@ export class Supervisor {
       if (entry.child !== child || entry.status !== 'starting')
         return
       entry.status = 'running'
-      entry.health = health.enabled ? 'unknown' : 'disabled'
+      this.setHealth(entry, health.enabled ? 'unknown' : 'disabled')
       this.log(entry, 'system', 'running (no port configured; readiness assumed on spawn)')
       this.settleRestart(entry, 'it spawned and is running')
       this.publishServer(entry)
@@ -1882,7 +1908,7 @@ export class Supervisor {
         // that `healthy` made `dependsOn` release a dependent against a dependency that could not
         // serve, which is the ordering it exists to prevent. In http mode the first real probe
         // decides, so this leaves `unknown` and `probeEntry` reports what it finds.
-        entry.health = !health.enabled ? 'disabled' : health.mode === 'http' ? 'unknown' : 'healthy'
+        this.setHealth(entry, !health.enabled ? 'disabled' : health.mode === 'http' ? 'unknown' : 'healthy')
         entry.status = 'running'
         entry.lastProbeAt = 0
         this.log(entry, 'system', `accepting connections on port ${port}`)
@@ -1899,7 +1925,7 @@ export class Supervisor {
 
     if (entry.child === child && entry.status === 'starting') {
       entry.status = 'running'
-      entry.health = 'unhealthy'
+      this.setHealth(entry, 'unhealthy')
       entry.unhealthySince = Date.now()
       this.log(entry, 'system', `no connection on port ${port} after ${health.startTimeoutMs}ms — supervising anyway`)
       this.publishServer(entry)
@@ -1926,7 +1952,7 @@ export class Supervisor {
     // Health describes a *process*. Left alone it outlives the process and lies: a dead entry
     // whose port a stranger still holds kept the last `healthy` verdict, so a crashed server read
     // as green while nothing of its own was running. Reset with the measurements beside it.
-    entry.health = entry.config.health.enabled ? 'unknown' : 'disabled'
+    this.resetHealth(entry)
     entry.exitCode = code
     entry.exitSignal = signal
 
@@ -2118,9 +2144,7 @@ export class Supervisor {
         // A restart that did *not* recover never reaches this branch, and its `crash` (or
         // the next `unhealthy`) is the answer instead.
         this.settleRestart(entry, `${probe.detail} (${probe.ms}ms)`)
-        entry.health = 'healthy'
-        entry.healthFailures = 0
-        entry.unhealthySince = null
+        this.setHealth(entry, 'healthy')
         // The budget refills on the same rule the crash counter uses: `restart.resetAfterMs` of
         // *uptime*, not one healthy probe. Resetting on the probe made the budget a per-life cap
         // of one — a server answering 500 after a single good response was force-restarted
@@ -2141,7 +2165,7 @@ export class Supervisor {
           this.options.history.record(entry.config.id, { type: 'unhealthy', detail: probe.detail })
           this.notify(entry, 'unhealthy', probe.detail)
         }
-        entry.health = 'unhealthy'
+        this.setHealth(entry, 'unhealthy')
       }
     }
     finally {

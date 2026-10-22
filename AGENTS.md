@@ -131,6 +131,15 @@ workspace config guard, so a busy default port turns config tests red for the wr
   the card beside it prints that sentence in full. Read both in **one** helper
   (`failureMessage`, `src/shared/api-client.ts`) and scan for the hand-rolled fallback — a unit test
   cannot see a call site that has not been written yet.
+- **A state and the streak behind it are written together.** `health`, `healthFailures` and
+  `unhealthySince` describe one process's run, so a path that resets one and leaves the others
+  reports a duration that keeps counting while nothing is measured — measured as `status=crashed
+  health=unknown` beside `Unhealthy for 3m 17s` and a `Not Probed` row, on the card and the page.
+  The explicit stop had that shape and was fixed alone once; the exit paths behind it were the same
+  defect. One helper decides the trio (`setHealth`/`resetHealth` in `src/services/supervisor.ts`)
+  and a scan fails a direct assignment. **A client cannot assume the server got there** — a newer
+  UI is served against an older panel, so a UI rendering a *duration* gates it on the verdict it
+  prints beside it, not on whether the timestamp is present.
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"

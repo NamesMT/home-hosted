@@ -2368,3 +2368,39 @@ describe('an explicit stop clears the health sequence it ends', () => {
     expect(view(harness.supervisor, 'unprobed').health).toBe('disabled')
   }, 60000)
 })
+
+/**
+ * A health streak belongs to one process, so an exit must end it — not only an explicit stop.
+ *
+ * Round 13 fixed the stop path; the exit paths reset `health` and kept `unhealthySince`, so an
+ * entry that crashed *while* unhealthy reported `status=crashed health=unknown` beside a growing
+ * `Unhealthy for 3m 17s` and a `Not Probed` row. Measured on the built panel with a service that
+ * answered 500 and then exited: the duration kept counting while nothing was measured, on the card
+ * whose own health row said nothing was being probed. Both surfaces render it from this one field.
+ */
+describe('an exit clears the health streak of the process it ends', () => {
+  it('forgets when the entry became unhealthy when the process exits', async () => {
+    const port = await freePort()
+    const harness = await makeSupervisor([{
+      id: 'sickly',
+      command: process.execPath,
+      // Serves 500s, then exits on its own: unhealthy first, then simply gone.
+      args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1");setTimeout(()=>process.exit(7),1200)'],
+      env: { PORT: '{port}' },
+      port,
+      health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 0, startTimeoutMs: 5000 },
+      restart: { enabled: false, maxRetries: 0, baseDelayMs: 50, factor: 1, maxDelayMs: 50, resetAfterMs: 600000 },
+    }])
+
+    const res = await harness.supervisor.start('sickly')
+    expect(res.ok, `the fixture must actually start: ${res.error ?? ''}`).toBe(true)
+    await waitFor(() => view(harness.supervisor, 'sickly').unhealthySince !== null, 20000)
+    // Asserted, not assumed: a fixture that never went unhealthy cannot prove the clearing.
+    expect(view(harness.supervisor, 'sickly').health).toBe('unhealthy')
+
+    await waitForStatus(harness.supervisor, 'sickly', 'crashed')
+    const crashed = view(harness.supervisor, 'sickly')
+    expect(crashed.health, 'a crashed entry is not being probed').toBe('unknown')
+    expect(crashed.unhealthySince, 'a crashed entry still claims how long it has been unhealthy').toBeNull()
+  }, 60000)
+})
