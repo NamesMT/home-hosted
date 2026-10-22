@@ -106,11 +106,14 @@ const DEFAULT_KEEP = 7
  */
 export function schedulePatch(stored: BackupScheduleConfig | undefined, form: BackupScheduleForm): Record<string, unknown> {
   const intervalMs = stored?.intervalMs ?? 0
+  const hoursOnScreen = Math.max(1, Math.round(intervalMs / 3_600_000) || 1)
   const patch: Record<string, unknown> = {}
-  // `0` is how the file spells "off", and the switch and the hour count are one field.
-  const nextInterval = form.enabled ? form.hours * 3_600_000 : 0
-  if (nextInterval !== intervalMs || form.enabled !== (intervalMs > 0))
-    patch.intervalMs = nextInterval
+  // Compared as the *form* sees it, never the rounded hours against the real milliseconds: a
+  // 90-minute interval displays as "2 h", so comparing the two rewrote it to 2 hours on a save that
+  // only changed the retention. `0` is the file's spelling for "off", and the switch and the hour
+  // count are one field — which is why the enabled flag is compared too.
+  if (form.enabled !== (intervalMs > 0) || form.hours !== hoursOnScreen)
+    patch.intervalMs = form.enabled ? form.hours * 3_600_000 : 0
   if (form.keep !== (stored?.keep ?? DEFAULT_KEEP))
     patch.keep = form.keep
   // The order the panel wrote the ids in is not part of what a scope means.

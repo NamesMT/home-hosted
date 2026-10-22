@@ -74,6 +74,13 @@ describe('the schedule in a settings patch', () => {
     expect(schedulePatch(stored({ scope }), { enabled: true, hours: 1, keep: 7, scope: { mode: 'except', ids: ['b', 'a'] } })).toEqual({})
   })
 
+  it('does not rewrite a non-whole-hour interval on an unrelated save', () => {
+    // 90 minutes displays as "2 h", so comparing the rounded hours against the real milliseconds
+    // sent it back as 2 hours on a save that only changed the retention.
+    const policy = stored({ intervalMs: 5_400_000 })
+    expect(schedulePatch(policy, { enabled: true, hours: 2, keep: 3, scope: null })).toEqual({ keep: 3 })
+  })
+
   it('sends the interval when, and only when, it was edited', () => {
     const policy = stored({ intervalMs: 5_400_000 })
     expect(schedulePatch(policy, { enabled: true, hours: 6, keep: 7, scope: null })).toEqual({ intervalMs: 21_600_000 })
