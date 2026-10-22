@@ -31,6 +31,14 @@ export interface SessionRecord {
    * last visit, not after login. There is deliberately no absolute cap; the login page says so.
    */
   expiresAt: number
+  /**
+   * The deadline the browser's cookie was last told about.
+   *
+   * `expiresAt` slides on every request, but a cookie is only re-sent when something sets it — so
+   * without this the browser deleted the cookie `sessionTtlMs` after *login* while the server kept
+   * a perfectly good session, and a panel in constant use still signed its owner out.
+   */
+  cookieExpiresAt: number
   lastSeenAt: number
   ip: string | null
 }
@@ -201,6 +209,43 @@ export class AuthService {
     return session
   }
 
+  /**
+   * How far the session deadline may slide past the deadline the browser was last told about before
+   * the cookie is re-sent.
+   *
+   * The cookie is only re-issued when it has fallen this far behind, so a panel in constant use keeps
+   * a live cookie without a `Set-Cookie` on every request — an SSE stream opens one connection and
+   * holds it. Quarter of the idle window, floored at 30 s so a short TTL still refreshes usefully and
+   * capped at an hour so a week-long one costs at most one header an hour.
+   */
+  private cookieRefreshThresholdMs(): number {
+    const ttl = this.getConfig().sessionTtlMs
+    return Math.max(30_000, Math.min(ttl / 4, 3_600_000))
+  }
+
+  /**
+   * The `Max-Age` to send, when this request should slide the *cookie* forward too; otherwise null.
+   *
+   * `validate()` slides `expiresAt` on every request, which makes the lifetime an idle timeout — but
+   * a browser drops a cookie at the `Max-Age` it was issued with, and nothing was re-issuing it. So
+   * the server kept a session a week after login while the browser had thrown its half away: a panel
+   * used every ten seconds was still signed out at the configured lifetime, which is the opposite of
+   * what the login page promises. Marking the deadline actually sent makes the two agree, and only
+   * when it has moved enough to matter.
+   */
+  refreshCookie(session: SessionRecord): number | null {
+    const now = Date.now()
+    if (session.expiresAt - session.cookieExpiresAt < this.cookieRefreshThresholdMs())
+      return null
+    session.cookieExpiresAt = session.expiresAt
+    return Math.max(0, session.expiresAt - now)
+  }
+
+  /** The cookie policy the guard and the login route must agree on. */
+  get cookieSecureMode(): AuthConfig['cookieSecure'] {
+    return this.getConfig().cookieSecure
+  }
+
   verifyCurrentPassword(password: string): boolean {
     const record = this.secrets.password
     if (record === null)
@@ -250,10 +295,13 @@ export class AuthService {
     }
 
     const token = crypto.randomBytes(32).toString('base64url')
+    const expiresAt = now + config.sessionTtlMs
     this.sessions.set(token, {
       token,
       passwordRevision: this.secrets.passwordUpdatedAt,
-      expiresAt: now + config.sessionTtlMs,
+      expiresAt,
+      // The login response sets this same deadline, so the browser is already in step.
+      cookieExpiresAt: expiresAt,
       lastSeenAt: now,
       ip,
     })

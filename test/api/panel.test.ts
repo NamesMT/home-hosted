@@ -936,6 +936,77 @@ describe('auth: cookies and first-time setup', () => {
     expect(never.headers.get('set-cookie')).not.toMatch(/;\s*Secure/i)
   })
 
+  /**
+   * The session is an **idle** timeout — `validate()` slides `expiresAt` on every request — and the
+   * login page says so ("each request extends that window"). The cookie did not: `Max-Age` was the
+   * configured lifetime stamped once at login, so the browser deleted it a week after signing in
+   * however busy the panel had been, and the person was signed out mid-use while the server still
+   * held a perfectly good session. Measured against a real panel with `sessionTtlMs: 60000`: a
+   * request every 10 s answered 200 through t=+60 s and 401 at t=+70 s.
+   *
+   * The guard therefore re-issues the cookie whenever the deadline it would hand out has moved by
+   * more than a minute, which keeps the browser's copy in step without a `Set-Cookie` on every
+   * request (an SSE stream opens one and holds it).
+   */
+  it('re-issues the session cookie as the sliding deadline moves, so a busy panel stays signed in', async () => {
+    vi.useFakeTimers()
+    try {
+      const created = await fixture({ password: 'correct horse' })
+      created.settings.updateControl({ auth: { sessionTtlMs: 120_000 } })
+
+      const cookie = await signIn(created, 'correct horse')
+
+      // A request a third of the lifetime later: the deadline slid, so the browser must be told.
+      vi.advanceTimersByTime(40_000)
+      const refreshed = await created.app.request('/api/state', { headers: { cookie } })
+      expect(refreshed.status).toBe(200)
+      const setCookie = refreshed.headers.get('set-cookie')
+      expect(setCookie, 'a used session must tell the browser its new deadline').not.toBeNull()
+      expect(setCookie!).toContain('hh_session=')
+      // The full 120 s of idle allowance again, not the 80 s left on the original cookie.
+      expect(setCookie!).toMatch(/Max-Age=11\d|Max-Age=120/)
+
+      // Moments later it must NOT be re-sent: one `Set-Cookie` per request is noise.
+      vi.advanceTimersByTime(5_000)
+      const quiet = await created.app.request('/api/state', { headers: { cookie } })
+      expect(quiet.status).toBe(200)
+      expect(quiet.headers.get('set-cookie')).toBeNull()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * The guard now sets this cookie too, so the one thing that must never happen is it re-arming a
+   * cookie that logout just cleared — that would make signing out silently fail.
+   */
+  it('does not re-issue the cookie on the logout that clears it', async () => {
+    vi.useFakeTimers()
+    try {
+      const created = await fixture({ password: 'correct horse' })
+      created.settings.updateControl({ auth: { sessionTtlMs: 120_000 } })
+      const cookie = await signIn(created, 'correct horse')
+
+      // Far enough that the guard would refresh on any *other* route.
+      vi.advanceTimersByTime(60_000)
+      const response = await created.app.request('/api/auth/logout', { method: 'POST', headers: { cookie } })
+
+      expect(response.status).toBe(200)
+      const setCookie = response.headers.get('set-cookie')
+      expect(setCookie).toContain('hh_session=')
+      // Exactly one cookie, and it is the clearing one.
+      expect(setCookie!.toLowerCase()).toContain('max-age=0')
+      expect(setCookie).not.toMatch(/Max-Age=[1-9]/)
+
+      // And the credential really is gone.
+      expect((await created.app.request('/api/state', { headers: { cookie } })).status).toBe(401)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('arms authentication when the first password is set on this machine', async () => {
     const created = await fixture()
     expect(created.auth.isArmed()).toBe(false)

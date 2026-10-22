@@ -41,3 +41,19 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
     parts.push('Secure')
   return parts.join('; ')
 }
+
+/**
+ * Whether this response's cookie may carry `Secure`, from the configured policy and the protocol the
+ * request actually arrived on.
+ *
+ * One home, because two responses now set the session cookie — the login route and the guard that
+ * slides an active session forward. `auto` is the proxy case: behind TLS the panel sees `https:` only
+ * because srvx rewrote it from `x-forwarded-proto` (see `.agentDocs/GOTCHAS.md`).
+ */
+export function secureCookieFor(mode: 'auto' | 'always' | 'never', protocol: string): boolean {
+  if (mode === 'always')
+    return true
+  if (mode === 'never')
+    return false
+  return protocol === 'https:'
+}

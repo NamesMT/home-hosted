@@ -3,7 +3,7 @@ import type { AppDeps } from '#src/app'
 import type { LoginRequest, PasswordRequest } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
-import { serializeCookie } from '#src/helpers/cookies'
+import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
@@ -14,12 +14,7 @@ import { loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchem
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
 function secureCookie(c: Context, deps: AppDeps): boolean {
-  const mode = deps.panel.settings.control.auth.cookieSecure
-  if (mode === 'always')
-    return true
-  if (mode === 'never')
-    return false
-  return new URL(c.req.url).protocol === 'https:'
+  return secureCookieFor(deps.auth.cookieSecureMode, new URL(c.req.url).protocol)
 }
 
 export function createAuthRoute(deps: AppDeps) {

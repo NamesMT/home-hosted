@@ -2,6 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono'
 import type { AuthIdentity, AuthService } from '#src/services/auth'
 import type { HistoryActor } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
+import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 import { bearerToken, SESSION_COOKIE } from '#src/services/auth'
 
@@ -72,6 +73,22 @@ export function createAuthGuard(deps: AuthGuardDeps): MiddlewareHandler {
             if (deps.auth.apiTokenSet)
               c.header('WWW-Authenticate', 'Bearer realm="home-hosted"')
             throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
+          }
+          /**
+           * An active session slides forward, so the browser's copy of the deadline has to slide with
+           * it — otherwise it is dropped at the lifetime measured from *login*, whatever the person
+           * did in between, and the panel signs its owner out mid-use.
+           */
+          if (identity.method === 'cookie' && identity.session !== null) {
+            const maxAgeMs = deps.auth.refreshCookie(identity.session)
+            if (maxAgeMs !== null) {
+              c.header('Set-Cookie', serializeCookie(SESSION_COOKIE, identity.session.token, {
+                maxAgeMs,
+                secure: secureCookieFor(deps.auth.cookieSecureMode, new URL(c.req.url).protocol),
+                sameSite: 'Strict',
+                httpOnly: true,
+              }))
+            }
           }
         }
         else if (deps.auth.isEnabled()) {
