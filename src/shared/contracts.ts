@@ -1643,6 +1643,18 @@ export const restoreRequestSchema = type({
   password: passwordValueSchema.optional(),
   /** Item ids to restore; omitted means every restorable item. */
   include: type('string[]').optional(),
+  /**
+   * Item ids to leave out, applied after `include` — the CLI's `--exclude` on the same command.
+   *
+   * `BackupService.restore()` has always taken it and the local channel has always sent it, but this
+   * schema declared only `name`/`password`/`include` **and rejects undeclared keys**, so the same
+   * request over `/api` answered `exclude must be removed`: a script or either UI could only say
+   * "these items", never "everything except these", on the one path that overwrites a live host.
+   *
+   * Empty is refused for the same reason it is on a create — it reads as "nothing" to a person and
+   * as "everything" to the reader, so it must not be sent at all.
+   */
+  exclude: type('string[] >= 1').optional(),
 }).onUndeclaredKey('reject')
 export type RestoreRequest = typeof restoreRequestSchema.infer
 

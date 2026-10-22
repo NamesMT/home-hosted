@@ -37,6 +37,7 @@ import {
   restartSchema,
   restoreItemSchema,
   restorePlanSchema,
+  restoreRequestSchema,
   restoreSkipSchema,
   serverCreateSchema,
   serverPatchSchema,
@@ -215,6 +216,23 @@ describe('patch surface', () => {
     expect(backupCreateSchema({ include: ['workspace:default'], exclude: ['workspace:default:secrets'] }) instanceof type.errors).toBe(false)
     // An undeclared key is still refused, so a typo cannot be read as a selection.
     expect(backupCreateSchema({ excludes: ['global:secrets'] } as unknown) instanceof type.errors).toBe(true)
+  })
+
+  /**
+   * The restore body mirrors the create body's selection, because the CLI's `--exclude` pairs with
+   * `backup restore` too — `backup restore <name> --all --exclude global:secrets` is the command the
+   * docs recommend for an archive that moves between machines.
+   */
+  it('mirrors the restore payload, including the exclusion', () => {
+    expect(restoreRequestSchema({}) instanceof type.errors).toBe(false)
+    expect(restoreRequestSchema({ name: 'x.zip' }) instanceof type.errors).toBe(false)
+    expect(restoreRequestSchema({ name: 'x.zip', include: ['global:settings'] }) instanceof type.errors).toBe(false)
+    expect(restoreRequestSchema({ name: 'x.zip', exclude: ['global:secrets'] }) instanceof type.errors).toBe(false)
+    // Both together are allowed and mean what the flags mean: the exclusion applies after.
+    expect(restoreRequestSchema({ name: 'x.zip', include: ['workspace:default'], exclude: ['workspace:default:secrets'] }) instanceof type.errors).toBe(false)
+    // Empty is refused for the same reason it is on a create.
+    expect(restoreRequestSchema({ name: 'x.zip', exclude: [] }) instanceof type.errors).toBe(true)
+    expect(restoreRequestSchema({ name: 'x.zip', excludes: ['global:secrets'] } as unknown) instanceof type.errors).toBe(true)
   })
 
   it('requires id and command to create', () => {

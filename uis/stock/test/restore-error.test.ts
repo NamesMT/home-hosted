@@ -46,4 +46,45 @@ describe('restore failures', () => {
     // reads the envelope; an empty body leaves its own status line.
     await expect(restoreStoredBackup('x.zip', true)).rejects.toThrow(/request failed with 500/)
   })
+
+  /**
+   * An upload carries both directions of the selection, the way a stored restore does.
+   *
+   * The two upload helpers were byte-identical copies in each UI and each carried only `include`,
+   * so a restore from a file could tick items but never say "everything except the credentials" —
+   * the shape the docs recommend for an archive that moves between machines. Asserted on the
+   * `FormData` the request really sends, since a multipart body is where a dropped field hides.
+   */
+  it('sends both selection directions on an uploaded restore', async () => {
+    let sent: FormData | null = null
+    vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+      sent = init.body as FormData
+      return new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+
+    await restoreUploadedBackup(new File(['x'], 'a.zip'), true, {
+      include: ['workspace:default'],
+      exclude: ['workspace:default:secrets'],
+    })
+
+    expect(sent).not.toBeNull()
+    expect(sent!.get('exclude')).toBe('["workspace:default:secrets"]')
+    expect(sent!.get('include')).toBe('["workspace:default"]')
+    // The file itself still travels, and `password` stays a plain string.
+    expect(sent!.get('file')).toBeInstanceOf(File)
+  })
+
+  /** An empty list is a mistake the caller must see, not a key silently dropped. */
+  it('refuses an empty selection before sending anything', async () => {
+    const calls: string[] = []
+    vi.stubGlobal('fetch', async (url: string) => {
+      calls.push(url)
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+
+    await expect(restoreUploadedBackup(new File(['x'], 'a.zip'), true, { exclude: [] }))
+      .rejects
+      .toThrow('nothing is excluded')
+    expect(calls, 'nothing may be sent for a selection that names nothing').toEqual([])
+  })
 })

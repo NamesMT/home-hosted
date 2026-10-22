@@ -35,6 +35,8 @@ export interface RestoreOptions {
   password?: string
   /** Leaf/entry item ids to restore; omitted means every restorable item. */
   include?: string[]
+  /** Leaf/entry item ids to leave out, applied after `include` — the CLI's `--exclude`. */
+  exclude?: string[]
 }
 
 /**
@@ -103,17 +105,17 @@ export interface CreateBackupOptions {
 }
 
 /**
- * The create request body, with an explicitly empty list refused rather than dropped.
+ * The `include`/`exclude` pair as a request body, with an explicitly empty list refused rather than
+ * dropped.
  *
- * Omitting `include` means "capture everything" to the server, so a selection of nothing that
- * quietly became no key widened a request into a full archive — and the same for `exclude`, where
- * an empty list left in the archive exactly what was meant to be dropped. Both are mistakes the
- * caller must see, so this is the one place they are turned into an error.
+ * Omitting `include` means "act on everything" to the server, so a selection of nothing that quietly
+ * became no key widened a request into a full archive — and the same for `exclude`, where an empty
+ * list left in exactly what was meant to be dropped. Both are mistakes the caller must see, so this
+ * is the one place they are turned into an error. Create and restore share it: the CLI refuses the
+ * same two shapes, and an empty list is not "no selection" on either verb.
  */
-export function createBackupBody(options: CreateBackupOptions = {}): Record<string, unknown> {
+function selectionBody(options: { include?: string[], exclude?: string[] }): Record<string, unknown> {
   const body: Record<string, unknown> = {}
-  if (options.password !== undefined && options.password.length > 0)
-    body.password = options.password
   for (const key of ['include', 'exclude'] as const) {
     const ids = options[key]
     if (ids === undefined)
@@ -122,6 +124,14 @@ export function createBackupBody(options: CreateBackupOptions = {}): Record<stri
       throw new Error(`nothing is ${key === 'include' ? 'selected' : 'excluded'}: omit \`${key}\` or name at least one item`)
     body[key] = ids
   }
+  return body
+}
+
+/** The create request body: a password, then the selection in either direction. */
+export function createBackupBody(options: CreateBackupOptions = {}): Record<string, unknown> {
+  const body = selectionBody(options)
+  if (options.password !== undefined && options.password.length > 0)
+    body.password = options.password
   return body
 }
 
@@ -176,12 +186,16 @@ export async function patchProxy(patch: ProxyPatch): Promise<ProxyView> {
   return proxyView(await request<unknown>('/api/proxy', { method: 'PATCH', body: JSON.stringify(parsed) }))
 }
 
+/**
+ * The restore request body — the same pair the CLI's `backup restore … --exclude …` sends.
+ *
+ * It went through its own copy that carried only `password` and `include`, so a UI could tick items
+ * but never say "everything except these": the one shape the docs recommend for a shared archive.
+ */
 export function restoreBody(options: RestoreOptions): Record<string, unknown> {
-  const body: Record<string, unknown> = {}
+  const body = selectionBody(options)
   if (options.password !== undefined && options.password.length > 0)
     body.password = options.password
-  if (options.include !== undefined)
-    body.include = options.include
   return body
 }
 
@@ -190,6 +204,31 @@ export function restoreStoredBackup(name: string, confirm: boolean, options: Res
     method: 'POST',
     body: JSON.stringify({ name, ...restoreBody(options) }),
   })
+}
+
+/**
+ * A restore from a file the person picked, which cannot travel as JSON.
+ *
+ * A multipart body can only carry strings, so each selection is JSON — the server parses both
+ * fields the same way. This was a byte-identical copy in each UI's `lib/api.ts` (and each had its
+ * own `RestoreOptions` beside it), so the pair could only ever be extended in one of them: exactly
+ * what happened when `exclude` arrived on the create side.
+ */
+export async function restoreUploadedBackup(file: File, confirm: boolean, options: RestoreOptions = {}): Promise<RestorePlan> {
+  const form = new FormData()
+  form.append('file', file)
+  for (const [key, value] of Object.entries(restoreBody(options))) {
+    form.append(key, key === 'password' ? String(value) : JSON.stringify(value))
+  }
+
+  const response = await fetch(`/api/backups/restore?confirm=${confirm}`, { method: 'POST', body: form })
+  const payload = await response.json().catch(() => null) as (RestorePlan & { message?: string }) | null
+  if (!response.ok)
+    // The API's one error envelope is `{ message, code, detail }`; reading `error` showed every
+    // failure here as "restore failed with 400". `error` stays as a fallback because a successful
+    // `RestorePlan` carries its own refusal reason there.
+    throw new Error(payload?.message ?? payload?.error ?? `restore failed with ${response.status}`)
+  return payload as RestorePlan
 }
 
 export async function retryProxyCertificate(id: string): Promise<ProxyView> {

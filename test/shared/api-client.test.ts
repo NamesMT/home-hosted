@@ -17,6 +17,7 @@ import {
   patchProxy,
   proxyAction,
   restoreBody,
+  restoreStoredBackup,
   retryProxyCertificate,
   revertProxy,
   revertUi,
@@ -249,6 +250,26 @@ describe('auth and backups', () => {
     expect(restoreBody({})).toEqual({})
     expect(restoreBody({ password: '' })).toEqual({})
     expect(restoreBody({ password: 'p', include: ['a'] })).toEqual({ password: 'p', include: ['a'] })
+  })
+
+  /**
+   * A restore may say what to leave out, the way the CLI's `--exclude` does.
+   *
+   * `restoreBody` had its own copy of the selection builder that carried only `password` and
+   * `include`, so a UI could tick items but never express "everything except the credentials" —
+   * the one shape the docs recommend for an archive that moves between machines. The server's
+   * schema refused the key it never sent, so the two halves were wrong together.
+   */
+  it('sends a restore selection in either direction, and refuses an empty one', async () => {
+    expect(restoreBody({ exclude: ['global:secrets'] })).toEqual({ exclude: ['global:secrets'] })
+    expect(restoreBody({ include: ['workspace:default'], exclude: ['workspace:default:secrets'] }))
+      .toEqual({ include: ['workspace:default'], exclude: ['workspace:default:secrets'] })
+    expect(() => restoreBody({ include: [] })).toThrow('nothing is selected')
+    expect(() => restoreBody({ exclude: [] })).toThrow('nothing is excluded')
+
+    const mock = stub({ items: [] })
+    await restoreStoredBackup('x.zip', true, { exclude: ['global:secrets'] })
+    expect(JSON.parse(String(lastCall(mock)[1]?.body))).toEqual({ name: 'x.zip', exclude: ['global:secrets'] })
   })
 
   it('sends a create selection in either direction, and refuses an empty one', async () => {

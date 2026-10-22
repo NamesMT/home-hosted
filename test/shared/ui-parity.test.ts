@@ -66,6 +66,29 @@ describe('the UIs share one proxy form', () => {
 })
 
 /**
+ * The restore-from-a-file helper is one implementation, not one per UI.
+ *
+ * `restoreUploadedBackup` and `RestoreOptions` were byte-identical copies in both `lib/api.ts`
+ * files, so the day `exclude` was added to a create the restore side kept only `include` — and a
+ * restore from a file could tick items but never say "everything except the credentials". The
+ * copies are gone; this keeps the next one from being written.
+ */
+describe('the UIs share one restore-from-file helper', () => {
+  it('keeps the upload helper and its options in the shared client', () => {
+    const shared = fs.readFileSync(path.join(root, 'src', 'shared', 'api-client.ts'), 'utf8')
+    expect(shared).toContain('export async function restoreUploadedBackup')
+    expect(shared).toContain('export interface RestoreOptions')
+
+    for (const ui of ['stock', 'noc-console']) {
+      const source = fs.readFileSync(path.join(root, 'uis', ui, 'src', 'lib', 'api.ts'), 'utf8')
+      expect(source, `${ui} must not re-declare restoreUploadedBackup`).not.toMatch(/^export async function restoreUploadedBackup/m)
+      expect(source, `${ui} must not re-declare RestoreOptions`).not.toMatch(/^export interface RestoreOptions/m)
+      expect(source, `${ui} should re-export the shared upload helper`).toContain('restoreUploadedBackup')
+    }
+  })
+})
+
+/**
  * One plain-object predicate for every untyped boundary.
  *
  * It had **eight** private copies — five in `src/` and three in the UIs — and two of them accepted

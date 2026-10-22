@@ -241,7 +241,7 @@ default workspace.
 | `PUT`/`DELETE /api/notifications/destinations/:id/token`, `POST /api/notifications/destinations/:id/{test,detect-chats}`, `POST /api/notifications/test-webhook` | one destination's bot credential, and a test send | ✅ |
 | `GET`/`PATCH /api/settings/workspace` | server defaults, logs, notifications | ✅ |
 | `GET`/`PATCH /api/settings` | panel-wide: listener, authentication, TLS, host vitals, backups | ❌ |
-| `GET`/`POST /api/backups`, restore | archives | ❌ |
+| `GET`/`POST /api/backups`, restore | archives; a create or restore body selects with `include` and/or `exclude` | ❌ |
 | `GET`/`PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `PUT`/`DELETE /api/proxy/certificates/:id` | the reverse proxy: its engine, its route table, and its uploaded certificates | ❌ |
 | `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) | ❌ |
 | `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) | ❌ |

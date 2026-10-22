@@ -109,7 +109,14 @@ export function createBackupsRoute(deps: AppDeps) {
     /**
      * Restore from a stored backup (`{ "name": "..." }`) or an uploaded one.
      * Without `confirm` it answers with the plan and changes nothing; `password`
-     * unlocks a protected archive and `include` selects the items to apply.
+     * unlocks a protected archive, and `include`/`exclude` select the items to apply.
+     *
+     * The body is declared so a generated client can send one: this is the only `/api` write route
+     * that reads a JSON body, and it was the only one the document gave no `requestBody` — so
+     * `openapi-typescript` and Scalar's "try it" produced a restore call with nowhere to put
+     * `name`, while the README tells an agent this document *is* the API it may call. An upload is
+     * `multipart/form-data` with the same fields as JSON strings, which is why the schema is named
+     * but not required.
      */
     .post('/backups/restore', describeRoute({
       tags: ['backups'],
@@ -164,20 +171,26 @@ export function createBackupsRoute(deps: AppDeps) {
           // the clear, and sits here until the request finishes.
           fs.writeFileSync(uploadedTo, Buffer.from(await file.arrayBuffer()), { mode: 0o600 })
           archive = uploadedTo
-          // A multipart body can only carry strings, so the selection is JSON.
-          const rawInclude = typeof body.include === 'string' && body.include.length > 0 ? body.include : null
-          let include: unknown
-          if (rawInclude !== null) {
+          // A multipart body can only carry strings, so each selection is JSON. Both directions are
+          // read the same way: `include` and `exclude` are one idea (`selectionOf`) and a body that
+          // could carry only one of them made "everything except these" inexpressible on an upload.
+          const jsonField = (key: 'include' | 'exclude'): unknown => {
+            const raw = typeof body[key] === 'string' && body[key].length > 0 ? body[key] : null
+            if (raw === null)
+              return undefined
             try {
-              include = JSON.parse(rawInclude)
+              return JSON.parse(raw)
             }
             catch {
-              throw new DetailedError('`include` must be a JSON array of item ids', { statusCode: 400, code: 'INVALID_INCLUDE' })
+              throw new DetailedError(`\`${key}\` must be a JSON array of item ids`, { statusCode: 400, code: key === 'include' ? 'INVALID_INCLUDE' : 'INVALID_EXCLUDE' })
             }
           }
+          const include = jsonField('include')
+          const exclude = jsonField('exclude')
           request = parseOrThrow<RestoreRequest>(restoreRequestSchema, {
             ...(typeof body.password === 'string' ? { password: body.password } : {}),
-            ...(rawInclude === null ? {} : { include }),
+            ...(include === undefined ? {} : { include }),
+            ...(exclude === undefined ? {} : { exclude }),
           }, 'body')
         }
         else {
@@ -193,6 +206,9 @@ export function createBackupsRoute(deps: AppDeps) {
           confirm,
           password: request.password,
           include: request.include,
+          // The exclusion is what makes "everything but the credentials" expressible over HTTP, the
+          // same pair the CLI and the docs recommend: leave the password and token hashes behind.
+          exclude: request.exclude,
         })
         // A wrong or missing password is a prompt, not a failure.
         if (plan.needsPassword)

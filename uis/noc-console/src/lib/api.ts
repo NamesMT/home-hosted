@@ -58,6 +58,7 @@ export {
   logout,
   patchProxy,
   restoreStoredBackup,
+  restoreUploadedBackup,
   retryProxyCertificate,
   revertProxy,
   revertUi,
@@ -75,6 +76,8 @@ export type {
   RestorePlan,
   SettingsView,
 }
+// The restore options are the shared type, not a per-UI copy — see `restoreUploadedBackup`.
+export type { RestoreOptions } from '@shared/api-client'
 
 /**
  * The installed UI's identity. The contract keeps every field optional (a
@@ -111,12 +114,6 @@ export interface BackupPathEntry {
   origin: string
   included: boolean
   note: string | null
-}
-
-export interface RestoreOptions {
-  password?: string
-  /** Item ids to restore; omitted means every restorable item. */
-  include?: string[]
 }
 
 export interface SettingsSaveResult extends SettingsView {
@@ -268,22 +265,6 @@ export async function fetchBackups(): Promise<BackupsView> {
   if (parsed instanceof type.errors)
     throw new Error(`backups contract mismatch: ${parsed.summary}`)
   return parsed as BackupsView
-}
-
-export async function restoreUploadedBackup(file: File, confirm: boolean, options: RestoreOptions = {}): Promise<RestorePlan> {
-  const form = new FormData()
-  form.append('file', file)
-  // Multipart fields are strings, so the selection travels as JSON.
-  if (options.password !== undefined && options.password.length > 0)
-    form.append('password', options.password)
-  if (options.include !== undefined)
-    form.append('include', JSON.stringify(options.include))
-
-  const response = await fetch(`/api/backups/restore?confirm=${confirm}`, { method: 'POST', body: form })
-  const payload = await response.json().catch(() => null) as (RestorePlan & { message?: string }) | null
-  if (!response.ok)
-    throw new Error(payload?.message ?? payload?.error ?? `restore failed with ${response.status}`)
-  return payload as RestorePlan
 }
 
 /**

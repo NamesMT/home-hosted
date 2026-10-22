@@ -562,6 +562,61 @@ describe('backups route', () => {
     expect(failed.status).toBe(400)
     expect(await failed.json()).toMatchObject({ code: 'RESTORE_FAILED' })
   })
+
+  /**
+   * `exclude` on a restore, not only on a create.
+   *
+   * `BackupService.restore()` takes `exclude`, the CLI sends it over the local channel, and the docs
+   * recommend the pair (`backup restore <name> --all --exclude global:secrets`) — but `restoreRequestSchema`
+   * declared only `name`/`password`/`include` **and rejects undeclared keys**, so the same request over
+   * `/api` answered `body: exclude must be removed`. A script or either UI could therefore only say
+   * "these items", never "everything except these", on the one path that overwrites a live host.
+   */
+  it('carries an exclude through a restore the way the CLI does', async () => {
+    const created = await fixture()
+    const seen: unknown[] = []
+    created.backups.resolve = () => '/tmp/whatever.zip'
+    created.backups.restore = async (_archive, options) => {
+      seen.push(options)
+      return plan({ applied: ['config'] })
+    }
+
+    const response = await request(created.app, '/api/backups/restore', 'POST', {
+      name: 'x.zip',
+      include: ['workspace:default'],
+      exclude: ['workspace:default:secrets'],
+    })
+    expect(response.status).toBe(200)
+    // The service sees both, so the exclusion applies after the selection, as on the CLI.
+    expect(seen[0]).toMatchObject({ include: ['workspace:default'], exclude: ['workspace:default:secrets'] })
+  })
+
+  /** An empty list is refused here too: it reads as "nothing" to a person and "everything" to the reader. */
+  it('refuses an empty restore exclude rather than reading it as no exclusion', async () => {
+    const created = await fixture()
+    const response = await request(created.app, '/api/backups/restore', 'POST', { name: 'x.zip', exclude: [] })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  /** An uploaded archive carries its selection as JSON strings, so `exclude` travels the same way. */
+  it('carries an exclude through an uploaded restore', async () => {
+    const created = await fixture()
+    const zip = await makeZip(path.join(created.dir, 'upload.zip'), { 'manifest.json': '{}' })
+    const seen: unknown[] = []
+    created.backups.restore = async (_archive, options) => {
+      seen.push(options)
+      return plan({ applied: ['config'] })
+    }
+
+    const form = new FormData()
+    form.append('file', new File([fs.readFileSync(zip)], 'b.zip', { type: 'application/zip' }))
+    form.append('exclude', JSON.stringify(['global:secrets']))
+
+    const response = await created.app.request('/api/backups/restore', { method: 'POST', body: form })
+    expect(response.status).toBe(200)
+    expect(seen[0]).toMatchObject({ exclude: ['global:secrets'] })
+  })
 })
 
 describe('notifications route', () => {

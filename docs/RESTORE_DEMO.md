@@ -112,7 +112,9 @@ $ home-hosted backup create --include workspace:default:servers,global:settings
 ```
 
 `--exclude` is the other direction, and the usual one: naming the one thing to leave out beats listing
-everything else. It applies after `--include`, and an excluded id covers what is under it.
+everything else. It applies after `--include`, and an excluded id covers what is under it. Both verbs
+take it — `create` and `restore` — and so does the HTTP body (`{ include, exclude }`), so a script, a
+UI and a shell can say the same thing.
 
 ```console
 $ home-hosted backup create --all --exclude global:secrets --confirm

@@ -6,7 +6,6 @@ import type {
   FreePortResult,
   LogHistoryView,
   LogServerView,
-  RestorePlan,
   ServerCreate,
   ServerPatch,
   ServerView,
@@ -53,6 +52,7 @@ export {
   logout,
   patchProxy,
   restoreStoredBackup,
+  restoreUploadedBackup,
   retryProxyCertificate,
   revertProxy,
   revertUi,
@@ -63,6 +63,9 @@ export {
   uploadUi,
 } from '@shared/api-client'
 
+// The restore options are a shared type, not a per-UI copy: the two copies diverged the moment
+// `exclude` was added on the create side and not here.
+export type { RestoreOptions } from '@shared/api-client'
 export type { BackupFile, BackupsView, ProxyView, RestoreItem, RestorePlan, SettingsView, UiStatus, WorkspaceSettingsView, WorkspaceView } from '@shared/contracts'
 
 /**
@@ -89,12 +92,6 @@ export interface LogQuery {
   tail?: number
   search?: string
   stream?: string
-}
-
-export interface RestoreOptions {
-  password?: string
-  /** Leaf/entry item ids to restore; omitted means every restorable item. */
-  include?: string[]
 }
 
 export interface WorkspaceRemoved {
@@ -234,26 +231,6 @@ export function logDownloadUrl(workspace: string, id: string, file: string): str
 /** Backups are panel-wide: every workspace is a selectable entry in the archive. */
 export function fetchBackups(): Promise<BackupsView> {
   return request<BackupsView>('/api/backups')
-}
-
-export async function restoreUploadedBackup(file: File, confirm: boolean, options: RestoreOptions = {}): Promise<RestorePlan> {
-  const form = new FormData()
-  form.append('file', file)
-  // Multipart fields are strings, so the selection travels as JSON.
-  if (options.password !== undefined && options.password.length > 0)
-    form.append('password', options.password)
-  if (options.include !== undefined)
-    form.append('include', JSON.stringify(options.include))
-
-  const response = await fetch(`/api/backups/restore?confirm=${confirm}`, { method: 'POST', body: form })
-  const payload = await response.json().catch(() => null) as (RestorePlan & { message?: string }) | null
-  if (!response.ok) {
-    // The API's one error envelope is `{ message, code, detail }`; reading `error`
-    // showed every failure here as "restore failed with 400". `error` stays as a
-    // fallback because a successful `RestorePlan` carries its own refusal reason there.
-    throw new Error(payload?.message ?? payload?.error ?? `restore failed with ${response.status}`)
-  }
-  return payload as RestorePlan
 }
 
 /**
