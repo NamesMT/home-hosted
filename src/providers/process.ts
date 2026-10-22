@@ -55,6 +55,50 @@ export function resolveCommand(command: string, ...searchDirs: string[]): string
   return command
 }
 
+/**
+ * Does this program exist where `spawn` would look it up, and where?
+ *
+ * Used only to tell a **pasted command line** apart from a missing program: `spawn` answers both
+ * with the same `ENOENT`, and the two have opposite fixes. `null` means it was not found anywhere
+ * this process would search.
+ *
+ * A bare name is searched on `PATH` (plus `.exe`/`.cmd`/`.bat` on Windows, because that is what
+ * the OS appends); anything with a separator is a path and is stat'd as written.
+ */
+export function findProgram(command: string, cwd: string = projectDir): string | null {
+  const isPath = command.includes('/') || command.includes('\\')
+  if (isPath) {
+    const resolved = path.resolve(cwd, command)
+    return isExecutable(resolved) ? resolved : null
+  }
+
+  const extensions = process.platform === 'win32' ? ['', ...WINDOWS_SHIM_EXTENSIONS] : ['']
+  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(dir => dir.length > 0)
+  for (const dir of dirs) {
+    for (const extension of extensions) {
+      const candidate = path.join(dir, `${command}${extension}`)
+      if (isExecutable(candidate))
+        return candidate
+    }
+  }
+  return null
+}
+
+/** A file this user may run. A directory named like a program is not one. */
+function isExecutable(file: string): boolean {
+  try {
+    if (!fs.statSync(file).isFile())
+      return false
+    if (process.platform === 'win32')
+      return true
+    fs.accessSync(file, fs.constants.X_OK)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 /** Relative entry paths belong to the project that launched the panel. */
 export function resolveCwd(cwd: string, base: string = projectDir): string {
   return path.resolve(base, cwd)

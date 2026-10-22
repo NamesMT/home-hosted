@@ -9,6 +9,7 @@ import { NANNY_COMMAND } from '#src/helpers/runtime'
 import { processArgv } from '#src/providers/identity'
 import { isProcessAlive } from '#src/providers/port'
 import { processCarriesServerId } from '#src/providers/proc'
+import { findProgram } from '#src/providers/process'
 import { nannySpecSchema, nannyStateSchema } from '#src/shared/contracts'
 
 /**
@@ -182,6 +183,9 @@ export function describeSpawnError(error: NodeJS.ErrnoException, command: string
     return missingDir
 
   if (error.code === 'ENOENT') {
+    const pasted = describePastedCommandLine(command, cwd)
+    if (pasted !== null)
+      return pasted
     return command.includes('/') || command.includes('\\')
       // A path was given, so the path is what is missing — the file, or a directory on the way.
       ? `\`${command}\` does not exist — check the path, and any directory on the way to it`
@@ -192,6 +196,28 @@ export function describeSpawnError(error: NodeJS.ErrnoException, command: string
   if (error.code === 'EACCES')
     return `\`${command}\` exists but is not executable — check its permissions (chmod +x)`
   return `${error.message} (while running \`${command}\`)`
+}
+
+/**
+ * The first mistake the Add-server form invites: a whole command line typed into `Command`.
+ *
+ * `Command` is spawned **without a shell** and `Arguments` is a separate field, so `node server.js`
+ * names a program called `node server.js`. The fix is to split it — and the sentence has to say so,
+ * because the alternative reading ("node is not installed") is what sends someone to `which node`
+ * while `node` is right there.
+ *
+ * Only claimed when the evidence is unambiguous: the field has whitespace, and the program it opens
+ * with **does** resolve. So a genuinely missing program keeps the message about PATH, and a path with
+ * a space in it is never split (it has no bare first word that resolves). See `findProgram`.
+ */
+function describePastedCommandLine(command: string, cwd?: string): string | null {
+  const words = command.trim().split(/\s+/)
+  if (words.length < 2)
+    return null
+  const program = words[0]!
+  if (findProgram(program, cwd) === null)
+    return null
+  return `\`${command}\` is a whole command line, but \`Command\` is spawned without a shell — this release looks for a program named \`${command}\`. Put \`${program}\` in \`Command\` and the rest in \`Arguments\`, one argument per line`
 }
 
 /** Why a working directory cannot be used, in one sentence, or null when it can. */

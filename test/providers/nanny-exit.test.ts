@@ -127,4 +127,55 @@ describe('describeSpawnError', () => {
       expect(message).toContain('not executable')
     })
   })
+
+  /**
+   * The mistake the docstring above has always named, and that the code could not actually tell
+   * apart from a missing program.
+   *
+   * `Command` is spawned without a shell and `Arguments` is its own field, so a pasted
+   * `node server.js` asks for a *program* with a space in its name. Measured on a real panel
+   * (`FIXTURE` in the round-11 notes): the card read "`node server.js` was not found — is it
+   * installed, and is it on PATH", which is the one reading that sends someone to `which node`
+   * while `node` is installed and working.
+   *
+   * The distinction is only claimed when the program it opens with resolves — otherwise the
+   * honest "not found" message must survive, because that is a real, different problem.
+   */
+  describe('a whole command line pasted into Command', () => {
+    const enoentFor = (command: string): NodeJS.ErrnoException =>
+      Object.assign(new Error(`spawn ${command} ENOENT`), { code: 'ENOENT' }) as NodeJS.ErrnoException
+
+    it('names the field to split instead of blaming the program', () => {
+      // `node` is on PATH wherever this suite runs, so the two halves are genuinely distinguishable.
+      const message = describeSpawnError(enoentFor('node server.js'), 'node server.js')
+      expect(message).toContain('command line')
+      expect(message).toContain('Arguments')
+      // The wrong diagnosis is what costs the time; it must not appear at all.
+      expect(message).not.toContain('is it installed')
+      expect(message).not.toContain('PATH')
+    })
+
+    it('keeps a missing program reading as a missing program', () => {
+      // The first word does not resolve, so this really is "not installed" — and the fix is
+      // installing it, not splitting the line.
+      const message = describeSpawnError(enoentFor('definitely-not-a-real-program --flag'), 'definitely-not-a-real-program --flag')
+      expect(message).toContain('not found')
+      expect(message).toContain('PATH')
+      expect(message).not.toContain('command line')
+    })
+
+    it('never splits a path that legitimately holds a space', () => {
+      // A real path with a space in it has no bare, resolvable first word — so the path message wins.
+      const pathCommand = '/opt/my app/server'
+      const message = describeSpawnError(enoentFor(pathCommand), pathCommand)
+      expect(message).toContain('does not exist')
+      expect(message).not.toContain('command line')
+    })
+
+    it('does not claim it for a single word', () => {
+      const message = describeSpawnError(enoentFor('node'), 'node')
+      expect(message).toContain('not found')
+      expect(message).not.toContain('command line')
+    })
+  })
 })
