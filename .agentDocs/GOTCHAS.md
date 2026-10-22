@@ -67,6 +67,17 @@ line in `AGENTS.md` instead.
   the port it thought it had chosen. The layout it writes now is `.hh/settings.json` (panel-wide),
   `.hh/default/settings.json` and `.hh/default/servers.config.json`.
 
+- **Three causes share one `ENOENT`: a missing directory, a missing program, and a field holding a
+  whole command line.** `spawn` resolves `cwd` before it looks for the program, so both of the first
+  two fail identically; and `command` is spawned with no shell, so `"node server.js"` asks for a
+  program with a space in its name and fails the same way. `describeSpawnError` decides in that order
+  — directory, then a command line whose **first word resolves** (`findProgram`), then the program —
+  and the third test is deliberately conditional: a first word that does not resolve keeps the honest
+  "not found on PATH" message, because guessing there would send someone to split a line when the real
+  problem is that `java` is not installed. `describeSpawnError`'s docstring described the pasted-line
+  case for a release while the code could not detect it; the docstring was right and the branch was
+  missing.
+
 ## Supervision
 
 - **`Supervisor.start()` sets `starting` synchronously before its first await**, and `stop()` sets
@@ -210,6 +221,13 @@ line in `AGENTS.md` instead.
 - **A plural rule is per language, not per message.** The i18n library's built-in rule indexes forms
   by count, which is an English shape: Russian's `21` and `5` then read the same form. `plural.ts`
   resolves the CLDR category through `Intl.PluralRules` instead.
+- **A lifecycle refusal is not the `DetailedError` envelope.** The API answers two shapes and both
+  are real: a thrown `DetailedError` is `{ message, code, detail }`, while `start`/`stop`/`restart`/
+  `free-port` answer `{ ok: false, error }` with a 409 (`actionAnswer`/`statusForAction`). Both UIs'
+  action helpers read only `message`, so "port 3000 is already in use (pid …)" showed as
+  `request failed with 409` in the toast while the card beside it printed the sentence in full. The
+  CLI read `error` first and had always been right. One reader (`failureMessage`) plus a source scan,
+  because a unit test cannot see a call site nobody has written yet.
 - **A lazily-loaded catalog must never block the mount.** It is a network fetch, and a rejection that
   skipped the mount is a blank page with no way back. English is bundled, so `main.ts` mounts in
   `finally` and the worst case is an English panel.
