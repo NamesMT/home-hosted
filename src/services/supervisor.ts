@@ -1512,7 +1512,7 @@ export class Supervisor {
     child.stdout?.on('data', chunk => stdout.push('stdout', chunk))
     child.stderr?.on('data', chunk => stderr.push('stderr', chunk))
 
-    this.attachChild(entry, child, `${command} ${args.join(' ')}`.trim(), () => {
+    this.attachChild(entry, child, `${command} ${args.join(' ')}`.trim(), cwd, () => {
       stdout.flush('stdout')
       stderr.flush('stderr')
     })
@@ -1574,7 +1574,7 @@ export class Supervisor {
     // Outliving this panel is the point, so the loop must not be held open by it.
     child.unref()
 
-    this.attachChild(entry, child, `nanny → ${command} ${args.join(' ')}`.trim())
+    this.attachChild(entry, child, `nanny → ${command} ${args.join(' ')}`.trim(), cwd)
     this.followPersistent(entry)
     return { ok: true }
   }
@@ -1587,8 +1587,14 @@ export class Supervisor {
     return { ok: false, error: message }
   }
 
-  /** The bookkeeping every spawn shares, plus the exit events that end it. */
-  private attachChild(entry: Entry, child: ChildProcess, detail: string, flush?: () => void): void {
+  /**
+   * The bookkeeping every spawn shares, plus the exit events that end it.
+   *
+   * `cwd` is the directory the child was spawned in. A spawn that fails with `ENOENT` may have
+   * failed because the *working directory* is missing rather than the program — `spawn` resolves
+   * one before it looks for the other — so `describeSpawnError` needs it to name the real cause.
+   */
+  private attachChild(entry: Entry, child: ChildProcess, detail: string, cwd: string, flush?: () => void): void {
     entry.child = child
     entry.pid = child.pid ?? null
     entry.startedAt = Date.now()
@@ -1613,7 +1619,7 @@ export class Supervisor {
       // `spawn java -jar x ENOENT` is raw errno text, and the UI printed it verbatim with no way
       // to learn what it meant. Naming the program and what to check is the whole difference
       // between "the product is broken" and "Java is not installed".
-      entry.lastError = describeSpawnError(error as NodeJS.ErrnoException, entry.config.command)
+      entry.lastError = describeSpawnError(error as NodeJS.ErrnoException, entry.config.command, cwd)
       this.log(entry, 'system', `process error: ${entry.lastError}`)
       flush?.()
       this.handleExit(entry, child, null, null)

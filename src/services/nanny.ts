@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import type { LogStream, NannyExit, NannySpec, NannyState } from '#src/shared/contracts'
 import process from 'node:process'
-import { describeNannyExit, NANNY_HEARTBEAT_MS, nannyLogFile, writeNannyState } from '#src/providers/nanny'
+import { describeNannyExit, describeSpawnError, NANNY_HEARTBEAT_MS, nannyLogFile, writeNannyState } from '#src/providers/nanny'
 import { spawnManaged, terminate } from '#src/providers/process'
 import { LineSplitter } from '#src/services/log-buffer'
 import { LogFiles } from '#src/services/log-files'
@@ -122,7 +122,9 @@ export async function runNanny(spec: NannySpec, statePath: string): Promise<void
     child.once('exit', (code, signal) => finish(code, signal, Date.now() - startedAt))
     child.once('error', (error: Error) => {
       // A command that cannot even be spawned: the panel reports it as "did not start".
-      finish(null, null, 0, `persistent: could not start the entry: ${error.message}`)
+      // Through the same formatter the panel uses, so a missing working directory is named
+      // here too — this nanny is the only spawner a persistent entry has.
+      finish(null, null, 0, `persistent: could not start the entry: ${describeSpawnError(error as NodeJS.ErrnoException, spec.command, spec.cwd)}`)
     })
   })
 

@@ -1,3 +1,5 @@
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { describeNannyExit, describeSpawnError } from '#src/providers/nanny'
 
@@ -77,5 +79,52 @@ describe('describeSpawnError', () => {
     const message = describeSpawnError(other as NodeJS.ErrnoException, 'node')
     expect(message).toContain('EMFILE')
     expect(message).toContain('node')
+  })
+
+  /**
+   * The third cause of `ENOENT`, and the one a deployment hits.
+   *
+   * `spawn` resolves `cwd` *before* it looks for the program, so an entry whose working directory
+   * does not exist under the launch directory fails with exactly the errno a missing program does.
+   * Measured on a real panel started from `/` with `cwd: "./apps/web"`: the log read "`node` was
+   * not found — is it installed, and is it on PATH" while `node` was installed and only the
+   * relative path was wrong. Naming the program there sends the person to the wrong fix.
+   */
+  describe('a spawn failure whose real cause is the working directory', () => {
+    const enoent = () => Object.assign(new Error('spawn node ENOENT'), { code: 'ENOENT' }) as NodeJS.ErrnoException
+
+    it('names the missing directory instead of the program', () => {
+      const message = describeSpawnError(enoent(), 'node', '/tmp/hh-no-such-dir-here/apps/web')
+      expect(message).toContain('/tmp/hh-no-such-dir-here/apps/web')
+      expect(message).toContain('does not exist')
+      // The wrong diagnosis is what cost the time; it must not appear at all.
+      expect(message).not.toContain('PATH')
+      expect(message).not.toContain('is it installed')
+    })
+
+    it('says where a relative path came from, because that is the fix', () => {
+      const message = describeSpawnError(enoent(), 'node', '/tmp/hh-no-such-dir-here/apps/web')
+      // A unit file with no `WorkingDirectory=` or a container started from `/` is the usual cause.
+      expect(message).toMatch(/started from/)
+    })
+
+    it('names a path that exists but is not a directory', () => {
+      const message = describeSpawnError(enoent(), 'node', fileURLToPath(import.meta.url))
+      expect(message).toContain('is not a directory')
+    })
+
+    it('still blames the program when the directory is fine', () => {
+      // The guard must not swallow the case it already handled correctly.
+      const message = describeSpawnError(enoent(), 'node', process.cwd())
+      expect(message).toContain('not found')
+      expect(message).toContain('PATH')
+    })
+
+    it('leaves a non-ENOENT failure alone, whatever the directory', () => {
+      // A missing directory cannot explain EACCES, and rewriting it would hide a permission problem.
+      const denied = Object.assign(new Error('spawn ./run.sh EACCES'), { code: 'EACCES' }) as NodeJS.ErrnoException
+      const message = describeSpawnError(denied, './run.sh', '/tmp/hh-no-such-dir-here')
+      expect(message).toContain('not executable')
+    })
   })
 })

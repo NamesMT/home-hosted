@@ -168,8 +168,19 @@ function exitCodeHint(code: number | null): string | null {
  *
  * `command` is the configured program, so the two cases can be told apart: if a bare name has no
  * path separator, the shell would have searched `PATH` and this one did not.
+ *
+ * A **missing working directory** is the third cause of the same errno, and it is the one a
+ * deployment hits: `spawn` resolves `cwd` before it looks for the program, so an entry whose `cwd`
+ * does not exist *under this launch directory* fails exactly like an uninstalled program. That read
+ * sent a person to `which node` while `node` was fine and only the relative path was wrong (a unit
+ * file with no `WorkingDirectory=`, a container started from `/`). `cwd` is therefore checked first:
+ * if it is not an existing directory, nothing else about the spawn could have worked.
  */
-export function describeSpawnError(error: NodeJS.ErrnoException, command: string): string {
+export function describeSpawnError(error: NodeJS.ErrnoException, command: string, cwd?: string): string {
+  const missingDir = cwd === undefined ? null : describeMissingDir(cwd)
+  if (missingDir !== null && (error.code === 'ENOENT' || error.code === 'ENOTDIR'))
+    return missingDir
+
   if (error.code === 'ENOENT') {
     return command.includes('/') || command.includes('\\')
       // A path was given, so the path is what is missing — the file, or a directory on the way.
@@ -181,6 +192,21 @@ export function describeSpawnError(error: NodeJS.ErrnoException, command: string
   if (error.code === 'EACCES')
     return `\`${command}\` exists but is not executable — check its permissions (chmod +x)`
   return `${error.message} (while running \`${command}\`)`
+}
+
+/** Why a working directory cannot be used, in one sentence, or null when it can. */
+function describeMissingDir(cwd: string): string | null {
+  try {
+    if (fs.statSync(cwd).isDirectory())
+      return null
+    return `the working directory \`${cwd}\` is not a directory — a relative \`cwd\` resolves against the directory the panel was started from`
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return `the working directory \`${cwd}\` does not exist — a relative \`cwd\` resolves against the directory the panel was started from, so a service started from elsewhere (systemd, docker, a login shell) looks in a different place`
+    }
+    return `the working directory \`${cwd}\` cannot be read — check its permissions`
+  }
 }
 
 /** `SIGKILL` for 9, or null when the number names nothing. */
