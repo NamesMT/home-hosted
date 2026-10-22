@@ -355,10 +355,37 @@ const SECTIONS = [
           {{ t('views.serverDetail.telemetryNote') }}
         </p>
       </template>
+      <!--
+        The same rule the card states: "collecting…" is a promise that data is on its way, and on a
+        stopped or disabled entry nothing is. The detail page read that default for every metric, so
+        the one page a person opens to ask *why* it is down answered "collecting…" forever.
+      -->
       <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <MetricSpark :label="t('common.cpu')" :values="cpuValues" :format="formatCpuPercent" :max="cpuCeiling" color-class="text-cpu" :height="40" />
-        <MetricSpark :label="t('views.serverDetail.memoryRss')" :values="rssValues" :format="formatBytesShort" color-class="text-mem" :height="40" />
-        <MetricSpark :label="t('views.serverDetail.healthProbe')" :values="probeValues" :format="v => (v === null ? '—' : `${v} ms`)" color-class="text-probe" :height="40" />
+        <MetricSpark
+          :label="t('common.cpu')"
+          :values="cpuValues"
+          :format="formatCpuPercent"
+          :max="cpuCeiling"
+          color-class="text-cpu"
+          :height="40"
+          :empty-hint="isRunning ? undefined : t('metric.notRunning')"
+        />
+        <MetricSpark
+          :label="t('views.serverDetail.memoryRss')"
+          :values="rssValues"
+          :format="formatBytesShort"
+          color-class="text-mem"
+          :height="40"
+          :empty-hint="isRunning ? undefined : t('metric.notRunning')"
+        />
+        <MetricSpark
+          :label="t('views.serverDetail.healthProbe')"
+          :values="probeValues"
+          :format="v => (v === null ? '—' : `${v} ms`)"
+          color-class="text-probe"
+          :height="40"
+          :empty-hint="t('serverCard.notProbed')"
+        />
       </div>
     </Panel>
 
