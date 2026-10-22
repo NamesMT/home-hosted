@@ -16,8 +16,20 @@ export interface SpawnSpec {
   env: Record<string, string>
 }
 
-/** Windows resolves a project-local bin to one of these shims, not the bare name. */
-const WINDOWS_SHIM_EXTENSIONS = ['.cmd', '.exe', '.bat', '.ps1']
+/**
+ * The files `npm`/`pnpm` write into `node_modules/.bin` on Windows, in the order Node can
+ * actually start them.
+ *
+ * All of `foo`, `foo.cmd` and `foo.ps1` exist there — the extension-less one is a `#!/bin/sh`
+ * script, which is the POSIX shim, not a program Windows can spawn. Preferring it (the order
+ * `[command, ...shims]` gave) resolved to a file whose first line is `#!/bin/sh`: Node has no
+ * shell to hand it to, so the entry started nothing. `spawn` reports that as `ENOENT` and the
+ * panel used to blame the missing program.
+ *
+ * `.exe` leads because it needs no shell; `.cmd`/`.bat` follow and go through `needsShell()`.
+ * `.ps1` is last: it is a PowerShell script, which `cmd.exe` does not run on its own.
+ */
+const WINDOWS_SHIM_EXTENSIONS = ['.exe', '.cmd', '.bat', '.ps1']
 
 /**
  * Resolves a bare command through the entry's own directory and the project's
@@ -29,7 +41,7 @@ export function resolveCommand(command: string, ...searchDirs: string[]): string
     return command
 
   const candidates = process.platform === 'win32' && path.extname(command) === ''
-    ? [command, ...WINDOWS_SHIM_EXTENSIONS.map(extension => `${command}${extension}`)]
+    ? WINDOWS_SHIM_EXTENSIONS.map(extension => `${command}${extension}`)
     : [command]
 
   for (const dir of searchDirs) {

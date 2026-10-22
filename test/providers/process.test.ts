@@ -1,7 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { resolveCommand, resolveCwd } from '#src/providers/process'
 
 /**
@@ -17,11 +18,12 @@ afterAll(() => {
   for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true })
 })
 
-function binDirWith(command: string): string {
+function binDirWith(...commands: string[]): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-bin-'))
   dirs.push(root)
   fs.mkdirSync(path.join(root, 'node_modules', '.bin'), { recursive: true })
-  fs.writeFileSync(path.join(root, 'node_modules', '.bin', command), '')
+  for (const command of commands)
+    fs.writeFileSync(path.join(root, 'node_modules', '.bin', command), '')
   return root
 }
 
@@ -48,6 +50,65 @@ describe('resolveCommand', () => {
 
   it('returns the command unchanged when nothing has it, so PATH still decides', () => {
     expect(resolveCommand('definitely-not-installed-xyz', binDirWith('other'))).toBe('definitely-not-installed-xyz')
+  })
+})
+
+/**
+ * What `npm`/`pnpm` leave in `node_modules/.bin` on Windows, and which of it Node can start.
+ *
+ * All three names exist for one dependency: `mytool` is a `#!/bin/sh` script (the POSIX shim),
+ * `mytool.cmd` is the Windows entry point and `mytool.ps1` a PowerShell variant. Resolving to the
+ * extension-less file is resolving to a script with no interpreter — `spawn` answers `ENOENT`, and
+ * the panel reported that as a missing program rather than as its own wrong pick.
+ *
+ * `process.platform` is read at call time and is overridable, so the Win32 branch is exercised on
+ * this Linux runner instead of waiting for the cross-platform CI job — the branch is a search
+ * order, which is exactly what a runner of the other OS never executes. The entry name is the
+ * one npm itself writes, so the fixture is what a real `pnpm install` produces.
+ */
+describe('resolveCommand on Windows', () => {
+  const saved = process.platform
+
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: saved, configurable: true })
+  })
+
+  function asWindows(): void {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+  }
+
+  it('prefers the .cmd over the POSIX script npm also writes under the bare name', () => {
+    asWindows()
+    const project = binDirWith('mytool', 'mytool.cmd')
+    expect(resolveCommand('mytool', project)).toBe(path.join(project, 'node_modules', '.bin', 'mytool.cmd'))
+  })
+
+  it('prefers a native .exe over every script shim', () => {
+    asWindows()
+    const project = binDirWith('mytool', 'mytool.cmd', 'mytool.exe')
+    expect(resolveCommand('mytool', project)).toBe(path.join(project, 'node_modules', '.bin', 'mytool.exe'))
+  })
+
+  it('falls through to .bat when that is the only Windows executable present', () => {
+    asWindows()
+    const project = binDirWith('mytool', 'mytool.bat')
+    expect(resolveCommand('mytool', project)).toBe(path.join(project, 'node_modules', '.bin', 'mytool.bat'))
+  })
+
+  it('never resolves to the extension-less POSIX script, even as a last resort', () => {
+    asWindows()
+    // Only the sh script exists: the honest answer is the bare name, so PATH decides, rather
+    // than a path Node is guaranteed to fail on.
+    const project = binDirWith('mytool')
+    expect(resolveCommand('mytool', project)).toBe('mytool')
+  })
+
+  it('searches an explicitly named shim literally, without trying other extensions', () => {
+    asWindows()
+    const project = binDirWith('mytool.cmd', 'mytool.exe')
+    // The person named `.cmd`, so that is the file looked up — no extension shopping on top of
+    // an explicit choice.
+    expect(resolveCommand('mytool.cmd', project)).toBe(path.join(project, 'node_modules', '.bin', 'mytool.cmd'))
   })
 })
 
