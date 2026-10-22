@@ -1,6 +1,38 @@
 # Changelog
 
 
+## v0.9.9
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.8...v0.9.9)
+
+### 🩹 Fixes
+
+- **backups:** A restore can say what to leave out, over HTTP too ([69dbdcc](https://github.com/NamesMT/home-hosted/commit/69dbdcc))
+- **openapi:** The restore route declares the body it reads ([093d588](https://github.com/NamesMT/home-hosted/commit/093d588))
+- **ui:** The workspace switcher speaks the reader's language ([03a952c](https://github.com/NamesMT/home-hosted/commit/03a952c))
+- **ui:** The workspace menu shows where the keyboard is ([b3edee6](https://github.com/NamesMT/home-hosted/commit/b3edee6))
+- **ui:** The panel fits a phone ([d99cce8](https://github.com/NamesMT/home-hosted/commit/d99cce8))
+- **ui:** Give the small icon controls a thumb-sized target ([55a632e](https://github.com/NamesMT/home-hosted/commit/55a632e))
+- **auth:** A panel in constant use no longer signs its owner out ([1795ab9](https://github.com/NamesMT/home-hosted/commit/1795ab9))
+- **ui:** The login page says how long a sign-in really lasts ([975706a](https://github.com/NamesMT/home-hosted/commit/975706a))
+- **metrics:** Publish the host CPU share, and no reading where there is none ([4407c2f](https://github.com/NamesMT/home-hosted/commit/4407c2f))
+- **notifications:** An unset header placeholder is reported, not sent ([0531bfa](https://github.com/NamesMT/home-hosted/commit/0531bfa))
+- **notifications:** Name the transport that failed, not always Telegram ([c58f301](https://github.com/NamesMT/home-hosted/commit/c58f301))
+
+### 📖 Documentation
+
+- What a session and a token actually guarantee ([f97c261](https://github.com/NamesMT/home-hosted/commit/f97c261))
+- **metrics:** Point the restarts note at the README, not a gitignored ledger ([985d2c3](https://github.com/NamesMT/home-hosted/commit/985d2c3))
+
+### ✅ Tests
+
+- **ui:** Fail on copy that never reached the catalog ([e14c31b](https://github.com/NamesMT/home-hosted/commit/e14c31b))
+- **ui:** Fail on the two layout shapes that broke the narrow layout ([9352d26](https://github.com/NamesMT/home-hosted/commit/9352d26))
+
+### ❤️ Contributors
+
+- NamesMT
+
 ## v0.9.8
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.7...v0.9.8)
