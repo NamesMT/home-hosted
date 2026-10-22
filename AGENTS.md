@@ -122,6 +122,15 @@ workspace config guard, so a busy default port turns config tests red for the wr
   advice a refused start prints: a config that needs `migrate` must say so rather than "install the
   release", and a file that cannot be parsed must not claim a migration `migrate` cannot perform.
   Ask what the person will *do* with the sentence before choosing it.
+- **A list card and its detail page answer the same question; fix both.** The card is a summary of a
+  page someone opens *precisely because the summary was not enough* — so a fact the card states and
+  the page omits is worse than either alone. A stopped entry's card learned to say "not running"
+  where the chart's default promised "collecting…", and the detail page kept the promise on all
+  three of its charts, on the one screen a confused person reaches. A disabled entry's card showed a
+  `disabled` chip; its detail page greyed out Start and Restart and said nothing, losing the only
+  explanation on the way in. When you give a surface an empty state, a reason or a qualifier, grep
+  for the other surface that renders the same field and land it there too — and prefer a shared
+  component or a scan test over two call sites remembering in parallel.
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank
