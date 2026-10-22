@@ -126,7 +126,10 @@ const stats = computed(() => {
   ]
   if (value.nextRetryAt !== null)
     rows.push({ key: 'retry', label: t('views.serverDetail.nextAttempt'), value: relativeFrom(value.nextRetryAt, now.value) })
-  if (value.unhealthySince !== null)
+  // Gated on the verdict, not just the timestamp: an older panel left the timestamp behind when a
+  // process exited, and a duration beside `Health: Not Probed` is the contradiction this row exists
+  // to avoid. A newer UI is served against an older panel, so the UI cannot assume the fix.
+  if (value.health === 'unhealthy' && value.unhealthySince !== null)
     rows.push({ key: 'unhealthy', label: t('views.serverDetail.unhealthyFor'), value: formatDuration(now.value - value.unhealthySince) })
   return rows
 })

@@ -78,7 +78,14 @@ const uptime = computed(() => (props.server.startedAt === null || !isRunning.val
 
 const retryIn = computed(() => (props.server.nextRetryAt === null ? null : relativeFrom(props.server.nextRetryAt, props.now)))
 
-const unhealthyFor = computed(() => (props.server.unhealthySince === null
+/**
+ * The duration only means something while the probe is failing.
+ *
+ * A newer UI is served against an older panel (the upgrade rule), and a panel before this release
+ * left the timestamp behind when a process exited — so the card would print "Unhealthy for 3m 17s"
+ * beside its own `Health probe not probed`. The verdict is the gate; the timestamp is the duration.
+ */
+const unhealthyFor = computed(() => (props.server.health !== 'unhealthy' || props.server.unhealthySince === null
   ? null
   : formatDuration(props.now - props.server.unhealthySince)))
 
