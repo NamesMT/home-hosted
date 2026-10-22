@@ -2,7 +2,6 @@
 import type { AuthStatus, BackupScope, BackupsView, ControlView, SettingsPatch } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView } from '@/lib/api'
-import { sameScope } from '@shared/backup-scope'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -14,6 +13,7 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
 import { changesOpen } from '@/composables/useUi'
 import * as api from '@/lib/api'
+import { describeScope, schedulePatch } from '@/lib/backupSelection'
 import { waitForEndpoint } from '@/lib/endpoint'
 import { formatBytes, formatDateTime } from '@/lib/format'
 import { repairNumbers } from '@/lib/forms'
@@ -168,15 +168,8 @@ function fillBackups(): boolean {
 /** The scope dialog: opened from the backups block, written into the form on apply. */
 const scopeOpen = ref(false)
 
-/** What the saved scope is, in one line, before the dialog is opened. */
-const scopeSummary = computed(() => {
-  const scope = form.backups.scheduleScope
-  if (scope === null)
-    return 'everything (the default scope)'
-  return scope.mode === 'only'
-    ? `only ${scope.ids.length} selected item${scope.ids.length === 1 ? '' : 's'}`
-    : `everything except ${scope.ids.length} item${scope.ids.length === 1 ? '' : 's'}`
-})
+/** What the saved scope is, in one line — the wording lives beside the capture rules. */
+const scopeSummary = computed(() => describeScope(form.backups.scheduleScope))
 
 const FILLERS: Record<FormBlock, () => boolean> = {
   control: fillControl,
@@ -328,29 +321,15 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
     if (Object.keys(hostPatch).length > 0)
       patch.host = hostPatch as SettingsPatch['host']
 
-    /**
-     * Only the members that actually changed.
-     *
-     * The hours field is a rounded view of `intervalMs`, so sending it unconditionally would
-     * rewrite a 90-minute interval to 2 hours on an unrelated save. `0` is how the file spells
-     * "off", and the switch and the hour count are one field.
-     */
-    const scheduleBaseline = {
-      intervalMs: configured.backups.schedule?.intervalMs ?? 0,
-      keep: configured.backups.schedule?.keep ?? 7,
-      scope: configured.backups.schedule?.scope ?? null,
-    }
-    const nextSchedule: Record<string, unknown> = {}
-    const nextInterval = form.backups.scheduleEnabled ? form.backups.scheduleHours * 3_600_000 : 0
-    if (nextInterval !== scheduleBaseline.intervalMs || form.backups.scheduleEnabled !== (scheduleBaseline.intervalMs > 0))
-      nextSchedule.intervalMs = nextInterval
-    if (form.backups.scheduleKeep !== scheduleBaseline.keep)
-      nextSchedule.keep = form.backups.scheduleKeep
-    // Compared by value and by content: an untouched dialog must not rewrite the stored scope, and
-    // an id order the panel chose is not a change. `null` is how "unchoose" is spelled — leaving the
-    // key out would mean "keep whatever is stored".
-    if (!sameScope(form.backups.scheduleScope, scheduleBaseline.scope))
-      nextSchedule.scope = form.backups.scheduleScope
+    // Only the members that actually changed: the hours field is a rounded view of `intervalMs`,
+    // and a scope the dialog did not touch must not be re-sent. Both rules live beside the capture
+    // ones, where they are tested without mounting this view.
+    const nextSchedule = schedulePatch(configured.backups.schedule, {
+      enabled: form.backups.scheduleEnabled,
+      hours: form.backups.scheduleHours,
+      keep: form.backups.scheduleKeep,
+      scope: form.backups.scheduleScope,
+    })
 
     const backupsPatch = diffFields(
       configured.backups as unknown as Patch,

@@ -1,5 +1,5 @@
-import type { BackupsView } from '@shared/contracts'
-import { scopeOf } from '@shared/backup-scope'
+import type { BackupScheduleConfig, BackupScope, BackupsView } from '@shared/contracts'
+import { sameScope, scopeOf } from '@shared/backup-scope'
 
 /** One thing a backup can capture, as the dialog offers it. */
 export interface CaptureItem {
@@ -63,4 +63,58 @@ export function includeIds(choices: CaptureChoice[]): string[] | undefined {
   if (outcome.kind === 'everything')
     return undefined
   return outcome.kind === 'nothing' ? [] : outcome.scope.ids
+}
+
+/**
+ * What a saved scope is, in one line, before the scope dialog is opened.
+ *
+ * The one place the choice is visible on the page — a blank or wrong line hides that a scheduled
+ * backup is narrower than "everything", and the next Save keeps it that way.
+ */
+export function describeScope(scope: BackupScope | null): string {
+  if (scope === null)
+    return 'everything (the default scope)'
+  const count = scope.ids.length
+  const items = `${count} item${count === 1 ? '' : 's'}`
+  return scope.mode === 'only' ? `only ${items} selected` : `everything except ${items}`
+}
+
+/** The schedule fields as the page edits them: hours on screen, milliseconds in the file. */
+export interface BackupScheduleForm {
+  enabled: boolean
+  hours: number
+  keep: number
+  scope: BackupScope | null
+}
+
+/** The schema's own default retention, for a panel that predates the schedule and sends none. */
+const DEFAULT_KEEP = 7
+
+/**
+ * The `schedule` group of an automatic-backup patch: only the members that actually changed.
+ *
+ * `stored` and `form` are different types on purpose — swapping them does not compile, and both are
+ * plain data, so the rule is testable without mounting the view.
+ *
+ * Three failures this rules out, all silent on screen:
+ *  - the rounded hours field riding along on an unrelated save, turning a 90-minute interval the
+ *    API set into 2 hours;
+ *  - an untouched dialog re-sending the scope, because the patch merges by key and a rebuilt object
+ *    is how a page starts rewriting a config nobody edited;
+ *  - a cleared scope travelling as an absent key, which the panel reads as "keep whatever is
+ *    stored" — `null` is the only spelling for "back to everything".
+ */
+export function schedulePatch(stored: BackupScheduleConfig | undefined, form: BackupScheduleForm): Record<string, unknown> {
+  const intervalMs = stored?.intervalMs ?? 0
+  const patch: Record<string, unknown> = {}
+  // `0` is how the file spells "off", and the switch and the hour count are one field.
+  const nextInterval = form.enabled ? form.hours * 3_600_000 : 0
+  if (nextInterval !== intervalMs || form.enabled !== (intervalMs > 0))
+    patch.intervalMs = nextInterval
+  if (form.keep !== (stored?.keep ?? DEFAULT_KEEP))
+    patch.keep = form.keep
+  // The order the panel wrote the ids in is not part of what a scope means.
+  if (!sameScope(form.scope, stored?.scope))
+    patch.scope = form.scope
+  return patch
 }
