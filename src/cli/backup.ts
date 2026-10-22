@@ -58,6 +58,28 @@ interface PlanRow {
 }
 
 /**
+ * What a restore plan says beyond its items.
+ *
+ * `error` is not a warning: the service fills it when it refused to write *anything* — a file that
+ * is not a zip, an archive from a newer config schema, a password that is missing or wrong — and the
+ * plan is then empty. Filtering that plan to `items` and printing "restored 0 items" made every one
+ * of those read as a tidy no-op, on the one command a person runs on a blank host with no other way
+ * to check. `skipped` is the same list the UI draws, so a restore that dropped a piece says which.
+ */
+interface RestoreOutcome {
+  items?: PlanItem[]
+  skipped?: string[]
+  /** Set by the service when nothing was applied. */
+  error?: string
+  /** Set instead of `error` when the archive needs a password that was absent or wrong. */
+  needsPassword?: boolean
+  hooks?: PlanHook[]
+  restartRequired?: boolean
+  createdWorkspaces?: string[]
+  replacedUnderRunning?: Array<{ workspaceId: string, serverId: string, path: string }>
+}
+
+/**
  * Render plan ids as the tree they already are.
  *
  * Every id is a colon-separated path, so the hierarchy is in the data and the renderer's only job is
@@ -226,15 +248,23 @@ function filterEntries<T extends { id: string, items?: Array<{ id: string }> }>(
  * An id that matches nothing is silently ignored by the service, which is right for an archive that
  * simply does not carry something — and wrong for a typo: `--exclude global:secret` excludes nothing
  * and says nothing, so the archive carries the credentials the person believed they had dropped.
+ *
+ * `action` decides the hint, because the two directions list their ids from different places: a
+ * create plan lists what this host declares, a restore plan lists what the archive holds — and the
+ * command that prints that one is a restore, not a create.
  */
-function assertKnown(ids: string[] | undefined, entries: PlanItem[], flag: string): void {
+function assertKnown(ids: string[] | undefined, entries: PlanItem[], flag: string, action: 'create' | 'restore'): void {
   if (ids === undefined)
     return
   // The same rule the settings page applies to a schedule scope, so a typo is refused wherever it
   // is typed rather than only in the dialog.
   const unknown = unknownBackupIds(ids, entries)
-  if (unknown.length > 0)
-    fail(`${flag} names ${unknown.map(id => `"${id}"`).join(', ')}, which ${unknown.length === 1 ? 'is' : 'are'} not in this plan — \`backup create\` with no flags lists the ids`)
+  if (unknown.length > 0) {
+    const hint = action === 'create'
+      ? `\`backup create\` with no flags lists the ids`
+      : `\`backup restore <name>\` with no --include/--exclude lists the ids the archive holds`
+    fail(`${flag} names ${unknown.map(id => `"${id}"`).join(', ')}, which ${unknown.length === 1 ? 'is' : 'are'} not in this plan — ${hint}`)
+  }
 }
 
 /** `--exclude` parsed. An empty value is a mistake, not "exclude nothing". */
@@ -431,8 +461,8 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
 
   // Checked against the plan the user is looking at, so a typo is refused instead of quietly
   // excluding nothing.
-  assertKnown(options.exclude, entries, '--exclude')
-  assertKnown(scope.kind === 'include' ? scope.ids : undefined, entries, '--include')
+  assertKnown(options.exclude, entries, '--exclude', 'create')
+  assertKnown(scope.kind === 'include' ? scope.ids : undefined, entries, '--include', 'create')
   const wanted = filterEntries(entries, scope, options.exclude)
 
   if (!options.confirm) {
@@ -501,6 +531,39 @@ async function runningEntries(): Promise<Array<{ workspaceId: string, serverId: 
   return (await offlineBackup()).runningNow()
 }
 
+/**
+ * Why a restore plan is not something to apply, or `null`.
+ *
+ * The service answers a plan for every archive, including ones it refuses to read: `error` carries
+ * the refusal and `items` is empty. A caller that reads only `items` sees a tidy empty restore — and
+ * on a blank host, `restored 0 items` printed with exit 0 is the worst possible answer, because
+ * nothing distinguishes "this archive was empty" from "this archive could not be opened".
+ *
+ * `needsPassword` is its own case: it is the one refusal the person can fix from the same command.
+ */
+function planRefusal(plan: RestoreOutcome | null): string | null {
+  if (plan === null)
+    return null
+  if (plan.needsPassword === true) {
+    const reason = plan.error ?? 'this backup is password-protected'
+    return `${reason} — add \`--password <text>\` to unlock it`
+  }
+  if (plan.error !== undefined && plan.error.length > 0)
+    return plan.error
+  return null
+}
+
+/**
+ * The plan's refusals and per-item skips, as lines a person can act on.
+ *
+ * `skipped` is the same list the UI draws, and it is the only thing that says a piece of an
+ * otherwise successful restore was left behind — an unreadable `servers.config.json`, a data path
+ * whose declaration changed. Printing only the applied count reported such a restore as complete.
+ */
+function restoreNotes(plan: RestoreOutcome | null): string[] {
+  return plan?.skipped ?? []
+}
+
 export async function runBackupRestore(options: { name: string, password?: string, scope: Scope, exclude?: string[], confirm: boolean, json: boolean }): Promise<void> {
   const scope = options.scope
   const online = await usesPanel()
@@ -510,45 +573,68 @@ export async function runBackupRestore(options: { name: string, password?: strin
     await service.warm()
 
   // The plan is free and always shown: it is the only way to see what a restore would overwrite.
-  const plan = await (async (): Promise<{ items?: PlanItem[], warnings?: string[], hooks?: PlanHook[] } | null> => {
+  const plan = await (async (): Promise<RestoreOutcome | null> => {
     if (service !== null) {
       const archive = service.resolve(options.name)
+      // The name is an *allowlist entry*, not a path: `resolve` refuses anything that is not a plain
+      // archive name, so `backup restore /tmp/from-s3.zip` cannot be reached by naming the file.
+      // Say both halves — which directory the name must be in, and that a path is not a name — or
+      // the person on a blank host, holding the one archive, is told to run a command that lists
+      // nothing and to try a name they have never seen.
       if (archive === null)
-        fail(`no backup named "${options.name}" — \`${invocation()} backup list\` shows them`)
+        fail(`no backup named "${options.name}" in ${service.directory} — a restore takes the archive's file name, not a path; copy it there first (\`${invocation()} backup list\` shows what is there)`)
       return await service.restore(archive, { confirm: false, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined, exclude: options.exclude })
     }
     const runtime = await livePanel()
     if (runtime === null)
       fail(`the control panel is not answering — try again once it is up`)
-    const base = new URLSearchParams({ name: options.name })
-    if (options.password !== undefined && options.password.length > 0)
-      base.set('password', options.password)
-    if (scope.kind === 'include')
-      base.set('include', scope.ids.join(','))
-    if (options.exclude !== undefined)
-      base.set('exclude', options.exclude.join(','))
+    const base = restoreQuery(options, scope)
     const answer = await runtime.request(runtime, `/_hh/backups/restore${suffixOf(base)}`, 120000)
     if (answer === null)
       fail(`the control panel is not answering at ${runtime.probeUrl}`)
     if (answer.status !== 200)
       refusal(answer)
-    return answer.body as { items?: PlanItem[], warnings?: string[], hooks?: PlanHook[] } | null
+    return answer.body as RestoreOutcome | null
   })()
+
+  // Refused before anything is printed as if it could be applied. A `--json` caller gets the plan
+  // (with the reason in it) *and* a non-zero exit, so a script can branch on either.
+  const refused = planRefusal(plan)
+  if (refused !== null) {
+    if (options.json)
+      process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: options.name, error: refused }, null, 2)}\n`)
+    fail(refused)
+  }
 
   // Every item the archive knows, with `selected` on each — `--include` narrows the selection, not
   // the list. Reading the list as the selection reported the whole archive either way.
   const items = (plan?.items ?? []).filter(item => item.selected !== false)
+  // The same typo rule `create` applies, on this direction too: an id the archive does not carry is
+  // a mistake, and `--exclude globalsecrets` excludes nothing while the archive still holds exactly
+  // the credentials the person believed they had dropped.
+  const archiveItems = plan?.items ?? []
+  if (options.exclude !== undefined)
+    assertKnown(options.exclude, archiveItems, '--exclude', 'restore')
+  if (scope.kind === 'include')
+    assertKnown(scope.ids, archiveItems, '--include', 'restore')
 
   if (options.json && !options.confirm) {
-    process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: options.name, items, warnings: plan?.warnings ?? [] }, null, 2)}\n`)
+    process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: options.name, items, skipped: restoreNotes(plan) }, null, 2)}\n`)
     return
   }
 
   if (!options.json) {
-    process.stdout.write(`${bold('Plan')} for ${options.name} — nothing has been written yet\n`)
+    // With `--confirm` the same run goes on to apply, so the header must not claim nothing was
+    // written — and the plan's skips are not reprinted below, where the applied result says them
+    // again with the same words.
+    process.stdout.write(options.confirm
+      ? `${bold('Plan')} for ${options.name} — applying it now\n`
+      : `${bold('Plan')} for ${options.name} — nothing has been written yet\n`)
     printPlanTree(items.map(item => ({ id: item.id, note: item.note ?? null })))
-    for (const warning of plan?.warnings ?? [])
-      process.stdout.write(`  ${dim('!')} ${warning}\n`)
+    if (!options.confirm) {
+      for (const note of restoreNotes(plan))
+        process.stdout.write(`  ${dim('!')} ${note}\n`)
+    }
     if (items.length === 0) {
       process.stdout.write('  (nothing to restore — check --include, or what this host declares)\n')
       return
@@ -561,54 +647,92 @@ export async function runBackupRestore(options: { name: string, password?: strin
   // No lock here: `BackupService.restore` takes it on apply, so this path and the panel's both get
   // it from one place. A second guard here would be the third implementation of the same rule.
   {
-    const outcome = await (async (): Promise<{ items: PlanItem[], hooks: PlanHook[] }> => {
+    const outcome = await (async (): Promise<RestoreOutcome> => {
       if (service !== null) {
         const archive = service.resolve(options.name)!
         const result = await service.restore(archive, { confirm: true, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined, exclude: options.exclude })
-        // An offline restore leaves the panel to pick the files up on its next start, so say so when
-        // the workspace list changed under it.
-        return {
-          items: (result.items ?? []).filter(item => item.selected !== false),
-          hooks: (result.hooks ?? []).filter(hook => hook.action === 'load'),
-        }
+        return { ...result, items: (result.items ?? []).filter(item => item.selected !== false) }
       }
       const runtime = await livePanel()
       if (runtime === null)
         fail('the control panel stopped answering — nothing further was written')
-      const base = new URLSearchParams({ name: options.name })
-      if (options.password !== undefined && options.password.length > 0)
-        base.set('password', options.password)
-      if (scope.kind === 'include')
-        base.set('include', scope.ids.join(','))
-      if (options.exclude !== undefined)
-        base.set('exclude', options.exclude.join(','))
+      const base = restoreQuery(options, scope)
       const answer = await runtime.request(runtime, `/_hh/backups/restore${withParam(suffixOf(base), 'confirm', 'true')}`, 600000)
       if (answer === null)
         fail(`the control panel is not answering at ${runtime.probeUrl}`)
       if (answer.status !== 200)
         refusal(answer)
-      const result = answer.body as { items?: PlanItem[], hooks?: PlanHook[] } | null
+      const result = answer.body as RestoreOutcome | null
       return {
+        ...result,
         items: (result?.items ?? plan?.items ?? []).filter(item => item.selected !== false),
-        hooks: (result?.hooks ?? plan?.hooks ?? []).filter(hook => hook.action === 'load'),
+        ...(result?.hooks === undefined && plan?.hooks !== undefined ? { hooks: plan.hooks } : {}),
       }
     })()
-    const applied = outcome.items
+
+    // The apply can refuse too, and it is the run that actually matters: a wrong password against an
+    // encrypted archive reaches here, and a failure part-way names what already landed.
+    const applyRefused = planRefusal(outcome)
+    if (applyRefused !== null) {
+      if (options.json)
+        process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: options.name, error: applyRefused }, null, 2)}\n`)
+      fail(applyRefused)
+    }
+
+    const applied = (outcome.items ?? []).filter(item => item.selected !== false)
+    const hooks = (outcome.hooks ?? []).filter(hook => hook.action === 'load')
+    const notes = restoreNotes(plan)
 
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: options.name, items: applied, hooks: outcome.hooks, warnings: plan?.warnings ?? [] }, null, 2)}\n`)
+      process.stdout.write(`${JSON.stringify({
+        action: 'restore',
+        apply: true,
+        name: options.name,
+        items: applied,
+        hooks,
+        skipped: notes,
+        ...(outcome.restartRequired === true ? { restartRequired: true } : {}),
+        ...((outcome.createdWorkspaces ?? []).length === 0 ? {} : { createdWorkspaces: outcome.createdWorkspaces }),
+        ...((outcome.replacedUnderRunning ?? []).length === 0 ? {} : { replacedUnderRunning: outcome.replacedUnderRunning }),
+      }, null, 2)}\n`)
       return
     }
-    process.stdout.write(`${green('restored')} ${applied.length} ${applied.length === 1 ? 'item' : 'items'} from ${options.name}\n`)
-    for (const hook of outcome.hooks)
+    if (applied.length === 0)
+      process.stdout.write(`${green('restored')} nothing — the archive carried no item this host can take\n`)
+    else
+      process.stdout.write(`${green('restored')} ${applied.length} ${applied.length === 1 ? 'item' : 'items'} from ${options.name}\n`)
+    for (const hook of hooks)
       // "staged", not "ran": the hook runs on the entry's next start, and saying it already ran
       // would leave a person waiting for data that has not been loaded yet.
       process.stdout.write(`  ${dim(`load ${hook.serverId}: ${hook.output ?? 'staged'}`)}\n`)
-    for (const warning of plan?.warnings ?? [])
-      process.stdout.write(`  ${dim('!')} ${warning}\n`)
+    for (const note of notes)
+      process.stdout.write(`  ${dim('!')} ${note}\n`)
+    // The listener moved, so the panel that is up is not the one the archive described. Said here
+    // because the CLI is where a restore from another host is run, and nothing else mentions it.
+    if (outcome.restartRequired === true)
+      process.stdout.write(`  ${dim(`! the panel's listener changed — restart it so it binds where the archive says (\`${invocation()} restart\`)`)}\n`)
+    if ((outcome.createdWorkspaces ?? []).length > 0)
+      process.stdout.write(`  ${dim(`! created ${outcome.createdWorkspaces!.join(', ')}, which this host did not have`)}\n`)
     if (service !== null)
       process.stdout.write(dim(`the panel is not running, so nothing was reloaded — the next \`${invocation()} up\` reads what was restored\n`))
   }
+}
+
+/**
+ * The restore query both the plan and the apply send.
+ *
+ * One builder, because the two requests must agree: a password or a selection on the plan and not on
+ * the apply made the apply answer about different items than the person approved.
+ */
+function restoreQuery(options: { name: string, password?: string, exclude?: string[] }, scope: Scope): URLSearchParams {
+  const base = new URLSearchParams({ name: options.name })
+  if (options.password !== undefined && options.password.length > 0)
+    base.set('password', options.password)
+  if (scope.kind === 'include')
+    base.set('include', scope.ids.join(','))
+  if (options.exclude !== undefined)
+    base.set('exclude', options.exclude.join(','))
+  return base
 }
 
 export const backupCommand = defineCommand({
