@@ -23,7 +23,10 @@ Pick one in the header; the workspace's server defaults and log retention sit in
 ```
 
 Relative paths resolve against the directory you ran `home-hosted` from, so a project can keep its
-servers and its state together.
+servers and its state together. **A service manager starts you somewhere else:** systemd uses `/`
+unless the unit sets `WorkingDirectory=`, and `docker run` does too without `-w`. Every relative
+`cwd`, `{projectDir}` and `dataEnvs` then points under `/`, and the entry fails to start. Pin the
+base with `--project`, `$HHOSTED_PROJECT`, or the unit's `WorkingDirectory=`.
 
 ## Presets
 

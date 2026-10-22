@@ -190,6 +190,7 @@ home-hosted up --foreground     # stays in the foreground, logs to stderr
 Description=home-hosted
 [Service]
 User=$YOUR_USER
+WorkingDirectory=/srv/home-hosted
 ExecStart=/usr/local/bin/home-hosted up --foreground
 Environment=HHOSTED_HOME=/srv/home-hosted
 Restart=always
@@ -197,6 +198,13 @@ Restart=always
 WantedBy=multi-user.target
 ```
 > [!CAUTION]
+> **`WorkingDirectory` is not optional.** Relative entry paths — a server's `cwd`, a
+> `{projectDir}` placeholder, a relative `dataEnvs` — resolve against the directory the panel is
+> started from. systemd starts a unit in `/` unless told otherwise, so without it every relative
+> path in your `servers.config.json` points somewhere under `/` and the entries fail to start.
+> Docker does the same unless you pass `-w`. Set it to the directory holding the config you run
+> from, or pin it explicitly with `Environment=HHOSTED_PROJECT=/srv/home-hosted`.
+>
 > Note: change `$YOUR_USER` to your actual user account, or remove for `root`.
 > You could also change `/srv/home-hosted` to change where the data stores.
 
