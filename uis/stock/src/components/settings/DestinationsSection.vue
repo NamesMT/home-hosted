@@ -273,7 +273,7 @@ function tokenPlaceholder(form: DestinationForm): string {
 
       <!-- Telegram: the chat, and its own bot token. -->
       <template v-if="form.kind === 'telegram'">
-        <div class="grid gap-2 sm:grid-cols-2">
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <TextField
             v-model="form.chatId"
             :label="t('settings.destination.chatId')"
@@ -287,7 +287,7 @@ function tokenPlaceholder(form: DestinationForm): string {
           </div>
         </div>
 
-        <div class="grid gap-2 sm:grid-cols-2">
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <TextField
             v-model="tokenInputs[form.id]"
             :label="t('settings.destination.botToken')"
@@ -318,7 +318,7 @@ function tokenPlaceholder(form: DestinationForm): string {
 
       <!-- Webhook: URL, method, body format, headers. -->
       <template v-else>
-        <div class="grid gap-2 sm:grid-cols-3">
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <TextField v-model="form.url" class="sm:col-span-2" :label="t('settings.webhook.url')" :placeholder="t('settings.webhook.urlPlaceholder')" />
           <SelectField
             v-model="form.method"
@@ -364,7 +364,7 @@ function tokenPlaceholder(form: DestinationForm): string {
         :label="t('settings.destination.ownSettings')"
         :hint="t('settings.destination.ownSettingsHint')"
       />
-      <div v-if="form.useOwnSettings" class="grid gap-2 sm:grid-cols-3">
+      <div v-if="form.useOwnSettings" class="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <NotificationPolicyFields v-model="form.policy" />
       </div>
 

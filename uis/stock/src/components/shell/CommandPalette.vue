@@ -365,7 +365,10 @@ onScopeDispose(() => window.removeEventListener('keydown', onGlobalKey))
             >
               <component :is="command.icon" class="size-4 shrink-0" :class="flat[activeIndex]?.id === command.id ? 'text-accent' : 'text-faint'" />
               <span class="min-w-0 flex-1 truncate text-sm">{{ command.title }}</span>
-              <span v-if="command.detail" class="shrink-0 font-mono text-2xs text-faint">{{ command.detail }}</span>
+              <!-- `shrink-0` here held the detail at its full width, so a long server id
+                   squeezed the row's own title to zero and pushed the chevron off the
+                   dialog. Cap it and let it ellipsize: the title names the action. -->
+              <span v-if="command.detail" class="min-w-0 max-w-[45%] shrink truncate font-mono text-2xs text-faint">{{ command.detail }}</span>
               <ChevronRight class="size-3.5 shrink-0 text-faint opacity-0 transition-opacity duration-100" :class="{ 'opacity-100': flat[activeIndex]?.id === command.id }" />
             </button>
           </template>

@@ -355,7 +355,7 @@ const SECTIONS = [
           {{ t('views.serverDetail.telemetryNote') }}
         </p>
       </template>
-      <div class="grid gap-4 sm:grid-cols-3">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <MetricSpark :label="t('common.cpu')" :values="cpuValues" :format="formatCpuPercent" :max="cpuCeiling" color-class="text-cpu" :height="40" />
         <MetricSpark :label="t('views.serverDetail.memoryRss')" :values="rssValues" :format="formatBytesShort" color-class="text-mem" :height="40" />
         <MetricSpark :label="t('views.serverDetail.healthProbe')" :values="probeValues" :format="v => (v === null ? '—' : `${v} ms`)" color-class="text-probe" :height="40" />
@@ -448,7 +448,7 @@ const SECTIONS = [
       </Panel>
     </div>
 
-    <div v-else class="grid gap-4 lg:grid-cols-3">
+    <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Panel class="lg:col-span-2">
         <template #header>
           <h2 class="text-sm font-semibold text-ink">

@@ -104,12 +104,12 @@ function submit(): void {
     :description="t('proxy.certificateDialog.description')"
   >
     <form class="space-y-3" @submit.prevent="submit">
-      <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <TextField v-model="label" :label="t('proxy.certificateDialog.label')" :placeholder="t('proxy.certificateDialog.labelPlaceholder')" :error="errors.label" />
         <TextField :model-value="id" :label="t('proxy.certificateDialog.id')" :hint="t('proxy.certificateDialog.idHint')" :error="errors.id" @update:model-value="typedId" />
       </div>
 
-      <div class="grid gap-3 sm:grid-cols-2">
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div class="flex min-w-0 flex-col gap-1">
           <label :class="labelClass" for="proxy-cert-file">{{ t('proxy.certificateDialog.certFile') }}</label>
           <input id="proxy-cert-file" type="file" accept=".pem,.crt,.cer,text/plain" :class="fileInput" @change="readFileInto($event, 'cert')">

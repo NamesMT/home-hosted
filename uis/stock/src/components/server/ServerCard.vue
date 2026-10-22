@@ -323,7 +323,10 @@ function openDetail(): void {
       </div>
     </dl>
 
-    <div class="mt-auto flex items-center gap-1.5 border-t border-line-soft px-4 py-2.5">
+    <!-- Four labelled buttons plus the overflow menu do not fit a 320 px phone on one
+         row: unwrapped they held the card open wider than the screen and pushed the `…`
+         menu off the right edge. Wrapping keeps every action reachable. -->
+    <div class="mt-auto flex flex-wrap items-center gap-1.5 border-t border-line-soft px-4 py-2.5">
       <AppButton
         variant="primary"
         size="xs"

@@ -373,7 +373,7 @@ defineExpose({ reload: load })
           {{ t('settings.ddns.noAccounts') }}
         </p>
 
-        <div class="mt-3 grid gap-2 border-t border-line-soft pt-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <div class="mt-3 grid grid-cols-1 gap-2 border-t border-line-soft pt-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <SelectField v-model="newAccount.provider" :label="t('settings.ddns.provider')" :options="providerOptions" />
           <TextField v-model="newAccount.id" :label="t('settings.ddns.accountId')" :placeholder="t('settings.ddns.accountIdPlaceholder')" />
           <AppButton variant="secondary" :disabled="!canAddAccount" @click="addAccount">
@@ -458,7 +458,7 @@ defineExpose({ reload: load })
           {{ t('settings.ddns.noHostnames') }}
         </p>
 
-        <div class="mt-3 grid gap-2 border-t border-line-soft pt-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <div class="mt-3 grid grid-cols-1 gap-2 border-t border-line-soft pt-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
           <TextField v-model="newDomain.host" :label="t('common.hostname')" :placeholder="t('settings.ddns.hostnamePlaceholder')" />
           <SelectField v-model="newDomain.account" :label="t('settings.ddns.account')" :options="accountOptions" :disabled="accounts.length === 0" />
           <AppButton variant="secondary" :disabled="!canAddDomain" @click="addDomain">

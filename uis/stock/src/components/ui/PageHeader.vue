@@ -34,7 +34,13 @@ withDefaults(defineProps<{
         {{ $props.description }}
       </p>
     </div>
-    <div class="flex shrink-0 flex-wrap items-center gap-2">
+    <!--
+      `shrink-0` on a wrapping row made the row's min-content width the full width of
+      its buttons, so on a phone the header could not fit the screen and the last
+      action — the "more actions" menu — sat off the right edge. The row may shrink
+      and wrap instead; `sm:` keeps the desktop row on one line beside the title.
+    -->
+    <div class="flex min-w-0 flex-wrap items-center gap-2">
       <slot name="actions" />
     </div>
   </header>

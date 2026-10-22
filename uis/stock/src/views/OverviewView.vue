@@ -158,7 +158,7 @@ const uptime = computed(() => {
         </RouterLink>
       </div>
 
-      <div v-if="loading" class="grid gap-4 lg:grid-cols-2">
+      <div v-if="loading" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Skeleton v-for="index in 4" :key="index" class="h-64 w-full" rounded="rounded-panel" />
       </div>
 
@@ -177,7 +177,7 @@ const uptime = computed(() => {
         </template>
       </EmptyState>
 
-      <div v-else class="grid gap-4 lg:grid-cols-2">
+      <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ServerCard
           v-for="server in servers"
           :key="server.id"

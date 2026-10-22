@@ -139,7 +139,7 @@ const filterOptions = computed(() => FILTERS.map(option => ({
       </ul>
     </Notice>
 
-    <div v-if="loading" class="grid gap-4 lg:grid-cols-2">
+    <div v-if="loading" class="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Skeleton v-for="index in 4" :key="index" class="h-72 w-full" rounded="rounded-panel" />
     </div>
 
@@ -171,7 +171,7 @@ const filterOptions = computed(() => FILTERS.map(option => ({
       </template>
     </EmptyState>
 
-    <div v-else class="grid gap-4 lg:grid-cols-2">
+    <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <ServerCard
         v-for="server in visible"
         :key="server.id"

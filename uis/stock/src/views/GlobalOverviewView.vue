@@ -141,7 +141,7 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="grid gap-4 lg:grid-cols-3">
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <Panel class="lg:col-span-2">
         <template #header>
           <h2 class="flex items-center gap-1.5 text-sm font-semibold text-ink">
@@ -201,7 +201,7 @@ onMounted(async () => {
         </template>
       </EmptyState>
 
-      <div v-else class="grid gap-4 lg:grid-cols-2">
+      <div v-else class="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <ServerCard
           v-for="server in group.servers"
           :key="server.id"

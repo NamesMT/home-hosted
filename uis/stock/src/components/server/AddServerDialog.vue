@@ -167,7 +167,7 @@ async function submit(): Promise<void> {
           {{ t('presets.pickDescription') }}
         </p>
       </div>
-      <ul class="grid gap-2 sm:grid-cols-2">
+      <ul class="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <li v-for="preset in SERVER_PRESETS" :key="preset.id">
           <button
             type="button"
