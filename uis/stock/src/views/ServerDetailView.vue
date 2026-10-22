@@ -306,6 +306,17 @@ const SECTIONS = [
     </PageHeader>
 
     <div class="space-y-2">
+      <!--
+        A disabled entry greys out Start and Restart with no on-screen reason: the one control that
+        would explain it (Enable) is inside the `⋯` menu. `noc-console` already answered this in a
+        note; stock's detail page did not.
+      -->
+      <p
+        v-if="config && !config.enabled"
+        class="rounded-control border border-line bg-hover px-3 py-2 text-2xs leading-4 text-muted"
+      >
+        {{ t('views.serverDetail.disabledNote') }}
+      </p>
       <div
         v-if="server.lastError"
         class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-danger/25 bg-danger-soft px-3 py-2"

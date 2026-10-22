@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { computed, ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { t } from '../src/i18n'
 
 /**
  * The detail page's link must be reachable from where the viewer is.
@@ -96,6 +97,7 @@ function atPage(url: string): void {
 
 /** The header's external link: the only `target="_blank"` anchor on the page. */
 async function mountDetail() {
+  // `fixture` is hoisted, so a test can flip one field before the view reads it.
   const View = (await import('../src/views/ServerDetailView.vue')).default
   const router = createRouter({
     history: createMemoryHistory(),
@@ -137,5 +139,53 @@ describe('the stock detail page link', () => {
   it('keeps the LAN address when the viewer is on the machine', async () => {
     atPage('http://localhost:4999/')
     expect((await mountDetail()).attributes('href')).toBe('http://192.168.1.20:4991')
+  })
+})
+
+/**
+ * A disabled entry explained itself nowhere on this page.
+ *
+ * `printer` (disabled) rendered Start, Stop and Restart all disabled with no sentence saying
+ * why, while the only control that fixes it — Enable — lives inside the `⋯` menu. `noc-console`
+ * has answered this in a note since long before; stock's detail page never did. Mounted rather
+ * than scanned because the sentence is conditional on `config.enabled`, which a template scan
+ * cannot evaluate.
+ */
+describe('the stock detail page explains a disabled entry', () => {
+  afterEach(() => {
+    fixture.server.config.enabled = true
+  })
+
+  async function mountWith(enabled: boolean) {
+    fixture.server.config.enabled = enabled
+    const View = (await import('../src/views/ServerDetailView.vue')).default
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/:p(.*)', component: { template: '<div />' } }],
+    })
+    await router.push('/servers/gateway')
+    await router.isReady()
+    return mount(View, {
+      global: {
+        plugins: [router],
+        stubs: {
+          LogViewer: true,
+          ServerConfigEditor: true,
+          RouterLink: { template: '<a><slot /></a>' },
+          Tip: { template: '<span><slot /></span>' },
+        },
+      },
+    })
+  }
+
+  it('says why Start and Restart are refused, and where to change it', async () => {
+    const wrapper = await mountWith(false)
+    const note = wrapper.text()
+    expect(note).toContain(t('views.serverDetail.disabledNote'))
+  })
+
+  it('does not say it for a normal entry', async () => {
+    const wrapper = await mountWith(true)
+    expect(wrapper.text()).not.toContain(t('views.serverDetail.disabledNote'))
   })
 })
