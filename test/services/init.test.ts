@@ -3,9 +3,11 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appVersion } from '#src/helpers/version'
 import {
+  cdCommand,
   detectPackageManager,
   installArgs,
   isEmptyDir,
@@ -118,6 +120,58 @@ describe('scaffold contents', () => {
     expect(installArgs('npm')).toEqual(['install'])
     // `yarn` installs with no argument at all.
     expect(installArgs('yarn')).toEqual([])
+  })
+})
+
+/**
+ * `init` ends by printing the exact command that starts the project, and the directory is the
+ * person's to choose. A space in it is ordinary on every platform — `C:\Users\Ann Lee`,
+ * `/srv/my apps` — and unquoted, `cd my servers && npm run up` is answered `cd: too many
+ * arguments`: a failure in the one line the scaffold exists to hand over.
+ *
+ * Run through a real shell rather than compared against a string, because the quoting rule is a
+ * claim about `sh` and a literal expectation would happily encode a form the shell rejects — the
+ * escaped-quote case exists precisely because wrapping in `''` alone is not enough.
+ */
+describe('cdCommand', () => {
+  const savedPlatform = process.platform
+  afterEach(() => {
+    Object.defineProperty(process, 'platform', { value: savedPlatform, configurable: true })
+  })
+
+  /** The real interpreter the printed line will be pasted into. */
+  function posixShellAccepts(command: string): boolean {
+    try {
+      execFileSync('sh', ['-c', command], { stdio: 'ignore' })
+      return true
+    }
+    catch {
+      return false
+    }
+  }
+
+  it('quotes a directory with a space so a real shell runs it', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh cd-'))
+    dirs.push(dir)
+    const command = `${cdCommand(dir)}pwd`
+    expect(posixShellAccepts(command), `sh refused: ${command}`).toBe(true)
+
+    // The unquoted shape is the defect, and it must still be refused — otherwise the assertion
+    // above would pass on a shell that simply tolerates anything.
+    expect(posixShellAccepts(`cd ${dir} && pwd`)).toBe(false)
+  })
+
+  it('escapes a quote in the directory name instead of ending the string early', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh cd-'))
+    dirs.push(dir)
+    const quoted = path.join(dir, 'it\'s here')
+    fs.mkdirSync(quoted)
+    expect(posixShellAccepts(`${cdCommand(quoted)}pwd`), `sh refused: ${cdCommand(quoted)}`).toBe(true)
+  })
+
+  it('uses the double quotes cmd.exe understands on Windows, which has no single-quote quoting', () => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    expect(cdCommand('C:\\Users\\Ann Lee\\my servers')).toBe('cd "C:\\Users\\Ann Lee\\my servers" && ')
   })
 })
 

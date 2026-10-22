@@ -1,6 +1,7 @@
 import type { Stats } from 'node:fs'
 import fs from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import { appVersion } from '#src/helpers/version'
 
 export type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun'
@@ -131,6 +132,27 @@ export function detectPackageManager(exists: (command: string) => boolean): Pack
 /** How to run one of the project's scripts with a given package manager. */
 export function runCommand(pm: PackageManager, script: string): string {
   return pm === 'npm' ? `npm run ${script}` : `${pm} run ${script}`
+}
+
+/**
+ * The `cd` that reaches a scaffolded project, quoted for the shell it will be pasted into.
+ *
+ * The directory is the person's choice, and a space in it is ordinary — `C:\Users\Ann Lee`,
+ * `/srv/my apps`, and the default `./my-servers` all sit under one on some machine. Unquoted,
+ * the line `init` printed as its own "Next:" step was `cd my servers && npm run up`, which the
+ * shell answers `cd: too many arguments` — an error naming a command the person did not
+ * compose, on the one line the scaffold exists to hand them.
+ *
+ * POSIX gets single quotes, with an embedded quote closed and reopened (`'\''`), which is the
+ * one form that is safe inside a single-quoted string. Windows' `cmd.exe` has no single-quote
+ * quoting at all, so it gets double quotes: that is what it understands, and a path whose name
+ * contains a `"` is not representable there either way.
+ */
+export function cdCommand(where: string): string {
+  const quote = process.platform === 'win32'
+    ? `"${where}"`
+    : `'${where.replace(/'/g, `'\\''`)}'`
+  return `cd ${quote} && `
 }
 
 /** Install arguments for a scaffolded project (the manifest already lists the dependency). */

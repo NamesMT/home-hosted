@@ -3,7 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, confirm, dim, fail, green, paint, prompt } from '#src/cli/io'
-import { detectPackageManager, installArgs, PACKAGE_MANAGERS, runCommand, scaffold } from '#src/services/init'
+import { cdCommand, detectPackageManager, installArgs, PACKAGE_MANAGERS, runCommand, scaffold } from '#src/services/init'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -79,7 +79,7 @@ export async function runInit(options: { dir?: string, name?: string, pm?: strin
   // A path inside the working directory reads better relative; anything else absolute.
   const relative = path.relative(process.cwd(), target)
   const where = relative.length === 0 || relative.startsWith('..') ? target : relative
-  const cd = relative.length === 0 ? '' : `cd ${where} && `
+  const cd = relative.length === 0 ? '' : cdCommand(where)
   process.stdout.write(`\nNext:\n`)
   process.stdout.write(`  ${bold(`${cd}${runCommand(pm as never, 'up')}`)}     start the panel (default password \`hh\`)\n`)
   process.stdout.write(`  ${dim('then change that password under Settings → Authentication, and add your servers')}\n`)
