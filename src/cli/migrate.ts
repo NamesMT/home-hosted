@@ -7,6 +7,7 @@ import { applyConfigMigrations, planConfigMigrations, UNSTAMPED_SCHEMA } from '#
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { WorkspaceRegistry } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { readStateFile } from '#src/helpers/config-text'
 import { globalSettingsPath, workspaceServersPath, workspaceSettingsPath } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { errorMessage } from '#src/shared/error-message'
@@ -64,7 +65,7 @@ function targets(): Target[] {
         // pending migration means the reader would refuse it, and the defaults would be lost.
         let defaults: Record<string, unknown> = {}
         try {
-          const settingsRaw = JSON.parse(fs.readFileSync(workspaceSettingsPath(workspace.id), 'utf8')) as Record<string, unknown>
+          const settingsRaw = JSON.parse(readStateFile(workspaceSettingsPath(workspace.id))) as Record<string, unknown>
           const meta = typeof settingsRaw.meta === 'object' && settingsRaw.meta !== null ? settingsRaw.meta as { schema?: number } : {}
           const from = typeof meta.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
           const lifted = planConfigMigrations(from).steps.length > 0 ? applyConfigMigrations(settingsRaw, from).config : settingsRaw
@@ -92,7 +93,7 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
   for (const target of existing) {
     let raw: Record<string, unknown>
     try {
-      raw = JSON.parse(fs.readFileSync(target.file, 'utf8')) as Record<string, unknown>
+      raw = JSON.parse(readStateFile(target.file)) as Record<string, unknown>
     }
     catch (error) {
       fail(`cannot read ${target.file}: ${errorMessage(error)}`)

@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import process from 'node:process'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { readStateFile } from '#src/helpers/config-text'
 import { logger } from '#src/helpers/logger'
 import { errorMessage } from '#src/shared/error-message'
 import { isRecord } from '#src/shared/shape'
@@ -545,7 +546,7 @@ export class SecretsStore {
       return this.inScope(empty)
     let text: string
     try {
-      text = fs.readFileSync(this.file, 'utf8')
+      text = readStateFile(this.file)
     }
     catch (error) {
       // Present but unreadable is not absent: permissions or a directory, say.

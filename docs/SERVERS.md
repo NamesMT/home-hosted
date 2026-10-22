@@ -331,3 +331,8 @@ restart needed:
 
 A save from the panel's own UI is the panel's write: it replaces the file, so hand-edits made while
 it runs are lost by that next save. Edit, then let the panel read it back, before using the UI.
+
+Whatever encoding your editor puts on the file is fine. A UTF-8 **byte-order mark** (Notepad's
+"UTF-8 with BOM", PowerShell 5.1's `Set-Content -Encoding UTF8`) and the **UTF-16LE** that
+`Out-File` and `>` write on Windows are both read as the JSON they hold, so the panel only ever
+complains about the JSON itself.

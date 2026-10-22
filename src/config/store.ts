@@ -29,6 +29,7 @@ import {
 import { SEED_SERVERS_FILE, SEED_WORKSPACE_SETTINGS } from '#src/config/seed'
 import { ConfigError } from '#src/config/settings'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { readStateFile } from '#src/helpers/config-text'
 import { validateDdnsConfig } from '#src/providers/ddns'
 import { targetProblem } from '#src/providers/webhook'
 import { duplicateWebhookIds } from '#src/shared/contracts'
@@ -47,7 +48,10 @@ interface ReadResult {
 function readFile(file: string): ReadResult {
   let text: string
   try {
-    text = fs.readFileSync(file, 'utf8')
+    // Not `'utf8'`: a Windows editor saves these files with a BOM, and `JSON.parse` refuses
+    // the invisible character — reporting a file whose JSON is fine as "cannot parse"
+    // (`helpers/config-text.ts`).
+    text = readStateFile(file)
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT')

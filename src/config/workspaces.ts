@@ -1,8 +1,8 @@
 import type { Workspace } from '#src/shared/contracts'
-import fs from 'node:fs'
 import { type } from 'arktype'
 import { metaSchema } from '#src/config/schema'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { readStateFile } from '#src/helpers/config-text'
 import { DEFAULT_WORKSPACE_ID, workspacesPath } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { workspaceSchema } from '#src/shared/contracts'
@@ -97,7 +97,7 @@ export class WorkspaceRegistry {
   load(): void {
     let parsed: unknown
     try {
-      parsed = JSON.parse(fs.readFileSync(this.file, 'utf8'))
+      parsed = JSON.parse(readStateFile(this.file))
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

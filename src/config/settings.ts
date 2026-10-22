@@ -9,6 +9,7 @@ import { applyPatch, BACKUP_MERGE_KEYS, CONTROL_MERGE_KEYS, EMPTY_MERGE_KEYS, PR
 import { backupsSchema, controlSchema, globalSettingsSchema, hostSchema, proxyConfigSchema } from '#src/config/schema'
 import { SEED_GLOBAL_SETTINGS } from '#src/config/seed'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { readStateFile } from '#src/helpers/config-text'
 import { globalSettingsPath } from '#src/helpers/paths'
 
 export class ConfigError extends Error {
@@ -102,7 +103,7 @@ export class GlobalSettingsStore {
   reloadFromDisk(): { changed: boolean, applied: boolean, error: string | null } {
     let text: string
     try {
-      text = fs.readFileSync(this.file, 'utf8')
+      text = readStateFile(this.file)
     }
     catch {
       this.error = `${path.basename(this.file)} is gone`
@@ -136,7 +137,7 @@ export class GlobalSettingsStore {
     let text: string
     let parsed: unknown
     try {
-      text = fs.readFileSync(this.file, 'utf8')
+      text = readStateFile(this.file)
       parsed = JSON.parse(text)
     }
     catch (error) {
