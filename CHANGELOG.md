@@ -1,6 +1,26 @@
 # Changelog
 
 
+## v0.9.11
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.10...v0.9.11)
+
+### 🩹 Fixes
+
+- **supervisor:** A port held by another workspace is the panel's, not a stranger ([fa0aa91](https://github.com/NamesMT/home-hosted/commit/fa0aa91))
+- **ui:** A cross-workspace activity feed names the workspace ([17e1d84](https://github.com/NamesMT/home-hosted/commit/17e1d84))
+- **settings:** A replaced list survives a save from another client ([b95a326](https://github.com/NamesMT/home-hosted/commit/b95a326))
+- **supervisor:** A stopped entry no longer claims how long it was unhealthy ([7d0f295](https://github.com/NamesMT/home-hosted/commit/7d0f295))
+- **supervisor:** An exit ends the health streak of the process it ends ([14bf49e](https://github.com/NamesMT/home-hosted/commit/14bf49e))
+- **ui:** A duration is shown only while its verdict holds ([7b8670b](https://github.com/NamesMT/home-hosted/commit/7b8670b))
+- **test:** The health guards must run on more than the author's platform ([a4cb7df](https://github.com/NamesMT/home-hosted/commit/a4cb7df))
+- **supervisor:** A stopped adopted entry no longer reports a dead process's numbers ([8db511b](https://github.com/NamesMT/home-hosted/commit/8db511b))
+- **ui:** A reading is shown only while its process is running ([0f3e4ed](https://github.com/NamesMT/home-hosted/commit/0f3e4ed))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.9.10
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.9...v0.9.10)
