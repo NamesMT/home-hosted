@@ -84,6 +84,16 @@ export function createUiConfig(uiDir: string) {
       fs: { allow: [repoRoot] },
       proxy: {
         '/api': { target: devPanel, changeOrigin: false },
+        /*
+         * `/healthz` and `/openapi` are the panel's two unauthenticated, **non-`/api`** reads
+         * (`docs/UI_CREATION.md`), and a UI reaches them same-origin. Proxying only `/api` meant
+         * Vite answered `index.html` for both — so the stock UI's own panel-uptime tile read
+         * `—` on every dev machine, and a UI author following the contract got an HTML page
+         * where JSON was promised. Neither is visible from the panel's side, which is why it
+         * survived: the defect only exists in the dev server.
+         */
+        '/healthz': { target: devPanel, changeOrigin: false },
+        '/openapi': { target: devPanel, changeOrigin: false },
       },
     },
   }))
