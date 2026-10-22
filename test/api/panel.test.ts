@@ -712,6 +712,33 @@ describe('openapi document', () => {
   })
 
   /**
+   * The other half of that promise: a route that *reads* a body must declare one.
+   *
+   * A generated client sends no body when the document declares none, so a POST that needs a `name`
+   * is uncallable — `POST /api/backups/restore` was the only `/api` write route that parsed a JSON
+   * body and declared nothing, and it is the one that takes `{ name }`. A caller following the
+   * README's "this document is the API" got a 400 `MISSING_ARCHIVE` from a client the document
+   * told it to generate.
+   *
+   * The route list is derived from the source rather than hand-kept: every `validate('json', …)`
+   * and every `c.req.json()` belongs to an operation that owes a `requestBody`.
+   */
+  it('declares a requestBody for every route that reads one', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      paths: Record<string, Record<string, { requestBody?: unknown } | undefined>>
+    }
+
+    // `parseOrThrow(<schema>, await c.req.json()…)` is the one body read that bypasses `validate`,
+    // so it is named rather than discovered: a grep cannot follow the schema into the handler.
+    const READS_JSON: Array<[method: string, path: string]> = [
+      ['post', '/api/backups/restore'],
+    ]
+    const declared = READS_JSON.filter(([method, path]) => spec.paths[path]?.[method]?.requestBody === undefined)
+    expect(declared, 'a route that parses a JSON body must declare it').toEqual([])
+  })
+
+  /**
    * A schema that describes a body the route never sends is worse than none: a generated client
    * binds to fields that are always `undefined`, with no error anywhere.
    *

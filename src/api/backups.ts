@@ -7,7 +7,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
-import { describeRoute } from 'hono-openapi'
+import { describeRoute, resolver } from 'hono-openapi'
 import { bodyLimit } from 'hono/body-limit'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
@@ -121,6 +121,7 @@ export function createBackupsRoute(deps: AppDeps) {
     .post('/backups/restore', describeRoute({
       tags: ['backups'],
       summary: 'Plan or apply a restore from a stored or uploaded archive',
+      requestBody: { required: false, content: { 'application/json': { schema: resolver(restoreRequestSchema) } } },
       responses: { 200: { description: 'The plan', content: jsonBody(restorePlanSchema) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404], 413: ERROR_RESPONSES[413] },
     }),
     /**
