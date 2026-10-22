@@ -10,6 +10,7 @@ import TextField from '@/components/ui/TextField.vue'
 import TransText from '@/components/ui/TransText.vue'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
+import { formatDateTime } from '@/lib/format'
 
 const props = defineProps<{ ui: UiStatus | null, panelVersion: string | null, labelDirty: boolean }>()
 const emit = defineEmits<{ changed: [], resetLabel: [] }>()
@@ -39,7 +40,7 @@ const uploaded = computed(() => {
   const meta = props.ui?.meta
   if (meta == null)
     return null
-  const when = meta.uploadedAt === undefined ? null : new Date(meta.uploadedAt).toLocaleString()
+  const when = meta.uploadedAt === undefined ? null : formatDateTime(meta.uploadedAt)
   const count = t('settings.interface.fileCount', { count: meta.files ?? 0 })
   return `${count}${when === null ? '' : ` · ${when}`}`
 })

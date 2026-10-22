@@ -402,7 +402,7 @@ function openDetail(): void {
       <dl class="grid grid-cols-2 gap-2 text-xs">
         <div>
           <dt class="text-faint">
-            id
+            {{ t('serverCard.idField') }}
           </dt>
           <dd class="font-mono text-ink">
             {{ server.id }}

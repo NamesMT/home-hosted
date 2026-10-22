@@ -130,7 +130,7 @@ const filterOptions = computed(() => FILTERS.map(option => ({
       <ul class="mt-2 space-y-1">
         <li v-for="orphan in orphans" :key="orphan.serverId" class="flex flex-wrap items-center gap-2">
           <code class="rounded-control bg-black/10 px-1.5 py-0.5 font-mono text-2xs dark:bg-white/10">{{ orphan.serverId }}</code>
-          <span class="font-mono text-2xs text-muted">pid {{ orphan.pid }}</span>
+          <span class="font-mono text-2xs text-muted">{{ t('views.servers.orphanPid', { pid: orphan.pid }) }}</span>
           <span v-if="orphan.startedAt !== null" class="text-2xs text-faint">{{ t('views.servers.orphanStartedAt', { when: formatDateTime(orphan.startedAt) }) }}</span>
           <AppButton size="xs" variant="ghost" class="ml-auto" @click="control.stopOrphan(workspace.activeId.value, orphan.serverId)">
             {{ t('views.servers.stopOrphan') }}

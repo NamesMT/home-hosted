@@ -37,7 +37,7 @@ watch(open, (isOpen) => {
 async function submit(): Promise<void> {
   const value = label.value.trim()
   if (value.length === 0) {
-    error.value = 'A workspace needs a name.'
+    error.value = t('workspace.nameRequired')
     return
   }
   busy.value = true
@@ -65,7 +65,7 @@ async function submit(): Promise<void> {
       <TextField
         v-model="label"
         :label="t('common.name')"
-        placeholder="Home lab"
+        :placeholder="t('workspace.namePlaceholder')"
         :hint="mode === 'create' && derivedId.length > 0 ? t('workspace.nameHintId', { id: derivedId }) : t('workspace.nameHint')"
         wide
         @keydown.enter.prevent="submit"
@@ -78,7 +78,7 @@ async function submit(): Promise<void> {
 
     <template #footer>
       <AppButton variant="ghost" :disabled="busy" @click="open = false">
-        Cancel
+        {{ t('common.cancel') }}
       </AppButton>
       <AppButton variant="primary" :loading="busy" @click="submit">
         {{ action }}

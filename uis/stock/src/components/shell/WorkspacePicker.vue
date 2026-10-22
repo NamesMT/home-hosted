@@ -94,7 +94,7 @@ async function onOpenChange(value: boolean): Promise<void> {
       >
         <template v-if="!confirming">
           <p class="px-2 pb-1 pt-1.5 text-2xs font-medium text-faint">
-            Workspaces
+            {{ t('workspace.listHeading') }}
           </p>
 
           <ul v-if="workspaces.length > 0" class="max-h-64 overflow-y-auto">
@@ -117,7 +117,7 @@ async function onOpenChange(value: boolean): Promise<void> {
             </li>
           </ul>
           <p v-else class="px-2 py-2 text-xs text-muted">
-            The panel serves no workspace yet.
+            {{ t('workspace.emptyList') }}
           </p>
 
           <div class="my-1 h-px bg-line" />
@@ -128,7 +128,7 @@ async function onOpenChange(value: boolean): Promise<void> {
             @click="startCreate"
           >
             <Plus class="size-3.5" />
-            New workspace…
+            {{ t('workspace.newAction') }}
           </button>
 
           <template v-if="selected">
@@ -138,7 +138,7 @@ async function onOpenChange(value: boolean): Promise<void> {
               @click="startRename"
             >
               <Pencil class="size-3.5" />
-              Rename “{{ selected.label }}”…
+              {{ t('workspace.renameActionFor', { name: selected.label }) }}
             </button>
             <button
               type="button"
@@ -146,22 +146,21 @@ async function onOpenChange(value: boolean): Promise<void> {
               @click="askRemove"
             >
               <Trash2 class="size-3.5" />
-              Delete “{{ selected.label }}”…
+              {{ t('workspace.deleteActionFor', { name: selected.label }) }}
             </button>
           </template>
         </template>
 
         <template v-else>
           <p class="px-2 pt-1.5 text-xs font-semibold text-ink">
-            Delete “{{ selected?.label }}”?
+            {{ t('workspace.deleteTitle', { name: selected?.label ?? '' }) }}
           </p>
           <p class="mt-1 px-2 text-2xs leading-4 text-muted">
-            Its servers are stopped, and its config, settings, logs, secrets and nanny state are removed
-            from disk. A backup taken first is the only way back.
+            {{ t('workspace.deleteBody') }}
           </p>
           <div class="mt-2 flex justify-end gap-1.5 px-1 pb-1">
             <AppButton size="xs" variant="ghost" @click="cancelRemove">
-              Keep it
+              {{ t('common.keepIt') }}
             </AppButton>
             <AppButton size="xs" variant="danger" @click="confirmRemove">
               <Trash2 class="size-3" />{{ t('workspace.delete') }}

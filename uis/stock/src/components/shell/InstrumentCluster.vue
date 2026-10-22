@@ -40,7 +40,7 @@ const tempDial = computed(() => {
 
 const tempDisplay = computed(() => {
   const temp = props.host?.tempCelsius ?? null
-  return temp === null ? 'n/a' : `${Math.round(temp)}°`
+  return temp === null ? t('common.notAvailable') : `${Math.round(temp)}°`
 })
 </script>
 
@@ -48,7 +48,7 @@ const tempDisplay = computed(() => {
   <div class="rounded-panel border border-line bg-panel-2/70 p-3">
     <div class="mb-2 flex items-center justify-between">
       <span class="text-2xs font-medium text-faint">{{ t('nav.hostVitals') }}</span>
-      <span v-if="props.host?.enabled === false" class="text-2xs text-faint">off</span>
+      <span v-if="props.host?.enabled === false" class="text-2xs text-faint">{{ t('host.statusOff') }}</span>
     </div>
 
     <div v-if="props.host?.enabled" class="grid grid-cols-2 gap-x-1 gap-y-2">
@@ -65,7 +65,7 @@ const tempDisplay = computed(() => {
     </p>
 
     <p v-else class="py-3 text-center text-2xs text-faint">
-      Sampling is disabled in Settings.
+      {{ t('host.samplingOffCompact') }}
     </p>
 
     <div v-if="props.host && props.host.alerts.length > 0" class="mt-2 flex items-start gap-1.5 rounded-control bg-danger-soft px-2 py-1.5">

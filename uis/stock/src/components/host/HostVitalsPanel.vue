@@ -54,7 +54,7 @@ const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
       <Gauge
         :value="props.host.tempCelsius === null ? null : (props.host.tempCelsius / 85) * 100"
         :label="t('host.cpuTemp')"
-        :display="props.host.tempCelsius === null ? 'n/a' : `${Math.round(props.host.tempCelsius)}°C`"
+        :display="props.host.tempCelsius === null ? t('common.notAvailable') : `${Math.round(props.host.tempCelsius)}°C`"
         :size="72"
       />
     </div>
