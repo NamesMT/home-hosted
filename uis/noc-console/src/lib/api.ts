@@ -22,6 +22,7 @@ import type {
 // (not only re-exported) because this file's workspace-scoped wrappers call them.
 import {
   ddnsView,
+  failureMessage,
   request,
 } from '@shared/api-client'
 import {
@@ -336,7 +337,9 @@ export async function serverAction(id: string, action: 'start' | 'stop' | 'resta
   })
   const payload = await response.json().catch(() => null) as (ActionResult & { message?: string }) | null
   if (!response.ok)
-    throw new Error(payload?.message ?? `request failed with ${response.status}`)
+    // A lifecycle refusal answers `{ ok: false, error }`, not the `{ message }` envelope — read both,
+    // or "port 3000 is already in use" reaches the toast as "request failed with 409".
+    throw new Error(failureMessage(payload, response.status))
   return payload ?? { ok: true }
 }
 

@@ -8,6 +8,7 @@ import {
   createBackupBody,
   ddnsView,
   deleteBackup,
+  failureMessage,
   fetchProxy,
   fetchSession,
   fetchSettings,
@@ -128,6 +129,38 @@ describe('request', () => {
   it('throws AuthRequiredError for the 401 the SPA routes on', async () => {
     stub({ message: 'authentication required', code: 'AUTH_REQUIRED', detail: null }, 401)
     await expect(fetchSession()).rejects.toBeInstanceOf(AuthRequiredError)
+  })
+})
+
+/**
+ * The two envelopes this API really uses, and the sentence a person sees from each.
+ *
+ * A thrown `DetailedError` answers `{ message, code, detail }`; a **lifecycle refusal** answers
+ * `{ ok: false, error }` with a 409. Both UIs read only `message` for start/stop/restart, so a
+ * refused start reached the toast as `request failed with 409` — measured in Chromium on a real
+ * panel whose port was held: the card explained `port 3000 is already in use (pid 2409394)` while
+ * the toast beside it said nothing at all. The CLI has always read `error` first, so the two
+ * transports disagreed about the same refusal.
+ */
+describe('failureMessage', () => {
+  it('prefers the thrown-error envelope', () => {
+    expect(failureMessage({ message: 'body: port must be 1..65535', code: 'INVALID_INPUT', detail: null }, 400))
+      .toBe('body: port must be 1..65535')
+  })
+
+  it('reads the lifecycle envelope, which carries `error` and no `message`', () => {
+    // The exact body a refused start answers with.
+    expect(failureMessage({ ok: false, error: 'port 3000 is already in use (pid 2409394)', code: 'ACTION_FAILED' }, 409))
+      .toBe('port 3000 is already in use (pid 2409394)')
+    expect(failureMessage({ ok: false, error: 'server "web" is disabled', code: 'ACTION_FAILED' }, 409))
+      .toBe('server "web" is disabled')
+  })
+
+  it('falls back to the status when there is no sentence to show', () => {
+    expect(failureMessage(null, 502)).toBe('request failed with 502')
+    expect(failureMessage({}, 409)).toBe('request failed with 409')
+    // A non-string `error` is still better than nothing, but an empty one is not a message.
+    expect(failureMessage({ error: '' }, 409)).toBe('request failed with 409')
   })
 })
 

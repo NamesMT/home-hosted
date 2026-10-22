@@ -57,15 +57,33 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     if (response.status === 401 && isRecord(payload) && payload.code === 'AUTH_REQUIRED')
       throw new AuthRequiredError()
-    const message = isRecord(payload) && typeof payload.message === 'string'
-      ? payload.message
-      : isRecord(payload) && 'error' in payload
-        ? String(payload.error)
-        : `request failed with ${response.status}`
-    throw new Error(message)
+    throw new Error(failureMessage(payload, response.status))
   }
 
   return payload as T
+}
+
+/**
+ * The sentence a failed request should show, from either error envelope this API uses.
+ *
+ * There are two, and they are both real: a thrown `DetailedError` answers `{ message, code, detail }`,
+ * while a **lifecycle refusal** answers `{ ok: false, error }` — "port 3000 is already in use", "server
+ * \"web\" is disabled". Reading only `message` threw the second away and showed
+ * `request failed with 409`, which is the one message that tells a person nothing about a start that
+ * refused. The CLI has always read `error` first (`src/cli/server.ts`), so the two transports disagreed
+ * about the same refusal — the class this module exists to prevent.
+ */
+export function failureMessage(payload: unknown, status: number): string {
+  if (isRecord(payload)) {
+    if (typeof payload.message === 'string' && payload.message.length > 0)
+      return payload.message
+    if (typeof payload.error === 'string' && payload.error.length > 0)
+      return payload.error
+    // A non-string `error` (an array of validation issues, say) is still better than a bare status.
+    if (payload.error !== undefined && payload.error !== null && String(payload.error).length > 0)
+      return String(payload.error)
+  }
+  return `request failed with ${status}`
 }
 
 /** Validated at the boundary: contract drift fails loudly here, not in the UI. */

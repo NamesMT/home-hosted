@@ -21,6 +21,7 @@ import type {
 // re-export does not bring a name into this module's scope.
 import {
   ddnsView,
+  failureMessage,
   request,
 } from '@shared/api-client'
 import {
@@ -318,7 +319,9 @@ export async function serverAction(workspace: string, id: string, action: 'start
   const response = await rpc.api.servers[':id'][action].$post(rpcArgs(workspace, id))
   const payload = await response.json().catch(() => null) as (ActionResult & { message?: string }) | null
   if (!response.ok)
-    throw new Error(payload?.message ?? `request failed with ${response.status}`)
+    // A lifecycle refusal answers `{ ok: false, error }`, not the `{ message }` envelope — read both,
+    // or "port 3000 is already in use" reaches the toast as "request failed with 409".
+    throw new Error(failureMessage(payload, response.status))
   return payload ?? { ok: true }
 }
 
@@ -339,7 +342,7 @@ export async function freePort(workspace: string, id: string): Promise<FreePortR
   const response = await rpc.api.servers[':id']['free-port'].$post(rpcArgs(workspace, id))
   const payload = await response.json().catch(() => null) as (FreePortResult & { message?: string }) | null
   if (!response.ok)
-    throw new Error(payload?.message ?? `request failed with ${response.status}`)
+    throw new Error(failureMessage(payload, response.status))
   return payload ?? { ok: true, port: null, terminated: [], forced: [], skipped: [], free: false }
 }
 
