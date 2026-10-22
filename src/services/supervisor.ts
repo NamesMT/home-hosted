@@ -966,8 +966,11 @@ export class Supervisor {
 
     entry.stopping = false
     entry.child = null
-    entry.pid = null
-    entry.adopted = false
+    // The pid, the probe latency and the sampled resources are one process's numbers; a stop ends
+    // that process, so they go with it. An *adopted* entry reaches this line and nowhere else that
+    // clears them — it has no exit event of its own — so this is the only path that would keep a
+    // stopped successor reporting a live CPU, RSS and probe, on the card, the page and the scrape.
+    this.endProcessReadings(entry)
     entry.nannyExit = null
     // A stopped entry is not being probed, so the streak that described the run goes with it; the
     // verdict resets too unless a survivor still holds the port, which keeps its `conflict`
@@ -1023,6 +1026,27 @@ export class Supervisor {
   /** The health of an entry nothing is probing: `disabled` with the probe off, else `unknown`. */
   private resetHealth(entry: Entry): void {
     this.setHealth(entry, entry.config.health.enabled ? 'unknown' : 'disabled')
+  }
+
+  /**
+   * The measurements one process produced, dropped when that process is gone.
+   *
+   * `pid`, `responseMs` and `resources` describe *one* run: the probe's last latency and the
+   * sampler's last reading are that process's numbers, and nothing measured them again just
+   * because the pid left. Both exit paths cleared them; an adopted entry has no exit event of its
+   * own, so a stopped successor kept a live-looking CPU, RSS and probe beside `Status Stopped /
+   * Health Not Probed` — and the sampler never corrects them, because it only visits entries with
+   * a pid. The same numbers reached `/api/metrics`, where a stopped server published a real
+   * `hh_server_cpu_percent` and `hh_server_rss_bytes`.
+   *
+   * `adopted` goes with them: it says *this pid* is a successor we took over, and there is no pid
+   * left to say it of.
+   */
+  private endProcessReadings(entry: Entry): void {
+    entry.pid = null
+    entry.adopted = false
+    entry.responseMs = null
+    entry.resources = null
   }
 
   private createEntry(config: ServerConfig): Entry {
@@ -1426,13 +1450,10 @@ export class Supervisor {
     const ranForMs = entry.nannyExit?.runtimeMs ?? (entry.startedAt === null ? 0 : Date.now() - entry.startedAt)
     const detail = entry.nannyExit === null ? 'adopted process exited' : describeNannyExit(entry.nannyExit)
     entry.nannyExit = null
-    entry.adopted = false
-    entry.pid = null
     // Known gone, so the durable record goes with it: a pid kept past its process is a
     // later boot adopting whatever unrelated process inherited the number.
     this.forgetRecordedChild(entry, adoptedPid)
-    entry.resources = null
-    entry.responseMs = null
+    this.endProcessReadings(entry)
     // The same reset as a child we spawned: health is about a process, and this one is gone.
     this.resetHealth(entry)
     entry.exitCode = null
@@ -1945,10 +1966,7 @@ export class Supervisor {
     entry.nannyExit = null
 
     entry.child = null
-    entry.pid = null
-    entry.adopted = false
-    entry.resources = null
-    entry.responseMs = null
+    this.endProcessReadings(entry)
     // Health describes a *process*. Left alone it outlives the process and lies: a dead entry
     // whose port a stranger still holds kept the last `healthy` verdict, so a crashed server read
     // as green while nothing of its own was running. Reset with the measurements beside it.

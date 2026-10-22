@@ -26,12 +26,25 @@ describe('the supervisor writes health through one helper', () => {
   // against a line that still carries `\r` silently finds no method body at all.
   const lines = source.split(/\r?\n/)
 
-  /** The lines of one method body, from its signature to the closing brace at method indentation. */
-  function methodBody(name: string): string[] {
+  /**
+   * The line range of one method body, from its signature to the closing brace at method indent.
+   *
+   * A **range**, not the lines, because two methods can contain byte-identical lines: the clears
+   * `endProcessReadings` performs and the ones a bad call site would perform are the same text, so
+   * deciding ownership with `.includes(line)` attributed the broken call site to the helper and the
+   * scan passed against the defect (learned by breaking it).
+   */
+  function methodRange(name: string): { start: number, end: number } {
     const start = lines.findIndex(line => /^ {2}(?:private |async )*[\w$]+\(/.test(line) && line.includes(` ${name}(`))
     expect(start, `${name} must exist for this scan to guard anything`).toBeGreaterThan(-1)
     const end = lines.findIndex((line, index) => index > start && line === '  }')
     expect(end, `${name} must have a body`).toBeGreaterThan(start)
+    return { start, end }
+  }
+
+  /** The lines of one method body. */
+  function methodBody(name: string): string[] {
+    const { start, end } = methodRange(name)
     return lines.slice(start, end + 1)
   }
 
@@ -56,5 +69,36 @@ describe('the supervisor writes health through one helper', () => {
         offenders.push(`line ${index + 1} (${owner ?? 'unknown method'}): ${line.trim()}`)
     }
     expect(offenders, 'a health streak written without going through the helper').toEqual([])
+  })
+
+  /**
+   * The *measurements* a process produced are the same kind of fact as its health.
+   *
+   * `pid`, `responseMs` and `resources` describe one run. The two exit paths dropped them; an
+   * adopted entry has no exit event, so an explicit stop was the one path that detached the pid
+   * and kept the numbers — measured as a stopped entry showing `Probe 2 Ms`, `RSS 64.2 MB`,
+   * `Procs 1` beside `Status Stopped / Health Not Probed`, and publishing a real
+   * `hh_server_cpu_percent` in the scrape. A third path added later would make the same mistake,
+   * so this pins the rule rather than the three call sites.
+   */
+  it('drops a process’s measurements only in endProcessReadings', () => {
+    const helper = methodBody('endProcessReadings').join('\n')
+    for (const field of ['pid', 'responseMs', 'resources', 'adopted'])
+      expect(helper, `endProcessReadings must clear ${field}`).toMatch(new RegExp(`^ {4}entry\\.${field} = `, 'm'))
+
+    // Ownership is decided by **which method the line is in**, by line index. Comparing the text
+    // passes against both the helper and a broken call site, because the lines are identical.
+    // *Clearing* one of these is the rule. `entry.pid = child.pid` (a spawn) and `entry.pid = pid`
+    // (an adoption) legitimately set the field, and `responseMs = probe.ms` is the measurement
+    // itself — the failure mode is the `null`, on a path that forgot the process was gone.
+    const helperRange = methodRange('endProcessReadings')
+    const offenders: string[] = []
+    for (const [index, line] of lines.entries()) {
+      if (!/^ {4}entry\.(?:pid|adopted|responseMs|resources) = (?:null|false)$/.test(line))
+        continue
+      if (index < helperRange.start || index > helperRange.end)
+        offenders.push(`line ${index + 1}: ${line.trim()}`)
+    }
+    expect(offenders, 'a reading cleared outside the helper is the defect this rule exists for').toEqual([])
   })
 })

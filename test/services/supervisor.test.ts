@@ -820,6 +820,58 @@ describe('supervisor', () => {
     expect(stopped.pid).toBeNull()
   })
 
+  /**
+   * A stopped entry must not keep the measurements of the process it stopped.
+   *
+   * `responseMs` and `resources` belong to one run. A child we spawned has an exit event, and
+   * both exit paths clear them; an **adopted** successor has no exit event — the stop is the only
+   * path that ends it — so the numbers outlived the process. Measured on the built panel with a
+   * real adopted successor: `stopped` + `health=unknown` beside `Probe 2 Ms`, `RSS 64.2 MB`,
+   * `Procs 1`, and `/api/metrics` still publishing `hh_server_cpu_percent` for it.
+   */
+  it('drops the measurements of an adopted successor when it is stopped', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'follow' })])
+
+    const successor = spawn(process.execPath, httpServerConfig(port).args as string[], {
+      env: { ...process.env, PORT: String(port), HHOSTED_SERVER_ID: 'web' },
+      stdio: 'ignore',
+    })
+    const successorPid = successor.pid
+    if (successorPid === undefined)
+      throw new Error('no successor pid')
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    await supervisor.start('web')
+    // The precondition, asserted so a fixture that never sampled cannot pass vacuously: the panel
+    // has to have a real reading before the stop is asked to forget one.
+    await waitFor(() => {
+      const live = view(supervisor, 'web')
+      return live.resources !== null && live.responseMs !== null ? live : undefined
+    }, 15000)
+    const live = view(supervisor, 'web')
+    expect(live.adopted).toBe(true)
+    expect(live.responseMs, 'the probe must have reported a latency before the stop').not.toBeNull()
+
+    await supervisor.stop('web')
+    await waitFor(() => !isAlive(successorPid))
+
+    const stopped = view(supervisor, 'web')
+    expect(stopped.status).toBe('stopped')
+    expect(stopped.pid).toBeNull()
+    expect(stopped.responseMs, 'a stopped entry must not keep the probe latency of the process it stopped').toBeNull()
+    expect(stopped.resources, 'a stopped entry must not keep the CPU and RSS of the process it stopped').toBeNull()
+  })
+
   // macOS cannot answer this one: its argv reading goes through `ps -o command=`, which
   // joins the arguments with spaces and quotes none of them, so this entry's `-e` script
   // (which contains spaces) cannot be told from several arguments. That case blocks by
