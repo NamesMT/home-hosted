@@ -53,9 +53,9 @@ export function createMetricsRoute(deps: AppDeps) {
       /*
        * `restarts` is the retry budget spent on the **current** crash sequence, which a start
        * someone asked for resets to zero (`Supervisor.start()`); the old help said "since the
-       * control plane started", which was never true. The `_total` suffix still invites `rate()`,
-       * which a resettable value cannot answer faithfully — see the PROPOSED note in the round-6
-       * findings: renaming it is a breaking change to a dashboard, so it is the human's call.
+       * control plane started", which was never true. The `_total` suffix therefore still invites
+       * `rate()`, and a value a user resets cannot answer that faithfully — `hh_server_crashes_24h`
+       * is the monotonic one (README, "Scraping it").
        */
       const restarts = servers.map(server => `hh_server_restarts_total{${labels(server)}} ${server.restarts}`)
       metric('hh_server_restarts_total', 'Restart attempts spent on the current crash sequence, reset by a start someone asked for', restarts)
