@@ -225,6 +225,19 @@ set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a super
 or "kill" to stop whatever holds the port
 ```
 
+**A holder that belongs to another workspace is never adopted or killed.** A server id is only unique
+inside its workspace, but the process is the panel's, so the panel checks every workspace before it
+treats a listener as a stranger. The refusal names the workspace and entry to go and stop, because that
+server is not on the page you are looking at:
+
+```text
+port 7021 is held by pid 2505354, which this panel supervises on media-box/photos —
+stop that server instead
+```
+
+The same rule reaches `free-port` and `stop.killPortHolders`: a port is never freed from under another
+workspace's entry.
+
 ### An entry with no port that outlived the panel
 
 A port is what makes the checks above possible, so an entry with **no port** has none of them. A

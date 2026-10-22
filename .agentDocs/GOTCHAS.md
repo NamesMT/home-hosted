@@ -102,6 +102,19 @@ line in `AGENTS.md` instead.
   shim or a macOS argument containing a space; those block, and `kill` is the answer. The argv comes
   from the supervisor's single `resolveSpawn()` — **keep it to one resolver**, because a second one
   that expands or filters args differently re-opens these cases.
+- **The marker carries no workspace, so identity is *not* the whole of ownership.** `HHOSTED_SERVER_ID`
+  is the bare id, and the argv fallback compares image and arguments — both of which are identical for
+  a service copied into a second workspace. Neither answers "is this pid this *panel's*?", and
+  `Supervisor` is per-workspace: `supervisedPids()` used to walk only its own entries, so a sibling
+  workspace's server was a stranger to every consumer of the split. Measured with two workspaces and
+  one shared port: `free-port` on `staging` terminated `default`'s pid and answered
+  `{ok: true, terminated: [<default's pid>], free: true}` while that entry restarted under a new pid,
+  and `onPortConflict: follow` adopted the sibling's process, so both workspaces reported the same pid
+  as running and stopping either left the other claiming it. **A panel-wide question needs a
+  panel-wide answer**: the panel injects `siblingServers`, its roots join the tree walk, and the
+  refusal names the owning `workspace/server` — a bare "stop that server instead" points at a page
+  this workspace does not have. Any future per-workspace service that decides "is this ours?" has the
+  same shape.
 - **A persistent entry's three lifetimes are pinned deliberately.** The nanny **exits with its
   child** — an inherited pipe would keep it alive and the panel would report a healthy entry whose
   server is a detached stranger. A stop reaches the child **by pid from the state file**, because

@@ -63,6 +63,20 @@ export interface SupervisorOptions {
   onStateChange: () => void
   /** Where a persistent entry's nanny keeps its state; injected for the same reason. */
   nannyDir: string
+  /**
+   * The *other* workspaces' running servers, so a port held across the panel is recognized as ours.
+   *
+   * A server id is only unique inside its workspace, and so is this supervisor's view of what the
+   * panel owns: `supervisedPids()` walks its own entries, which made a sibling workspace's server
+   * the stranger a `free-port`, a `reclaim` or `stop.killPortHolders` may signal. The panel injects
+   * its own answer because it is the only thing that can see every workspace; a supervisor built
+   * alone (a unit harness) simply has no siblings to report.
+   *
+   * The pair travels with the pid because the refusal it produces has to say **where** the holder
+   * lives: "stop that server instead" is a dead end when that server is on another workspace's
+   * page and the person is looking at this one.
+   */
+  siblingServers?: () => Promise<SiblingServer[]>
 }
 
 /** Uptime/crash counters are reported over this window. */
@@ -72,6 +86,13 @@ const HISTORY_CACHE_MS = 5000
 export interface StartResult {
   ok: boolean
   error?: string
+}
+
+/** One running server in another workspace: the identity a cross-workspace refusal has to name. */
+export interface SiblingServer {
+  pid: number
+  workspaceId: string
+  serverId: string
 }
 
 /** What the port preflight found: nothing in the way, our own successor, or a blocker. */
@@ -606,7 +627,7 @@ export class Supervisor {
     if (entry.starting || entry.stopping)
       return { ...empty, port, error: `server "${id}" is busy — try again in a moment` }
 
-    const { ours, foreign } = await this.portHolders(port)
+    const { ours, foreign, siblings } = await this.portHolders(port)
     const holders = [...ours, ...foreign]
 
     if (holders.length === 0) {
@@ -650,8 +671,7 @@ export class Supervisor {
       return { ...empty, port, error: `nothing is listening on port ${port} any more` }
     }
     if (foreign.length === 0) {
-      const reason = `port ${port} is held by pid ${ours.join(', ')}, which this panel supervises — stop that server instead`
-      return { ...empty, port, error: reason, skipped: ours }
+      return { ...empty, port, error: this.heldByOurs(port, ours, siblings), skipped: ours }
     }
 
     this.log(entry, 'system', `freeing port ${port}: asking pid ${foreign.join(', ')} to stop`)
@@ -686,13 +706,29 @@ export class Supervisor {
    * is a config mistake, not a stray process. That also keeps a stale `(pid 1234)`
    * in an old banner from killing a recycled pid.
    */
-  private async portHolders(port: number): Promise<{ ours: number[], foreign: number[] }> {
-    const supervised = await this.supervisedPids()
+  private async portHolders(port: number): Promise<{ ours: number[], foreign: number[], siblings: SiblingServer[] }> {
+    const { pids: supervised, siblings } = await this.supervisedPids()
     const holders = await listPortHolders(port)
     return {
       ours: holders.filter(pid => supervised.has(pid)),
       foreign: holders.filter(pid => !supervised.has(pid)),
+      siblings,
     }
+  }
+
+  /**
+   * The sentence a refused port prints: names the holder, and where it lives when that is another
+   * workspace, because "stop that server instead" is not actionable from a page that cannot show it.
+   *
+   * A sibling whose pid is one we refused is matched by pid, the one fact both sides agree on — a
+   * same-named entry in this workspace would have been a different pid.
+   */
+  private heldByOurs(port: number, ours: number[], siblings: SiblingServer[]): string {
+    const owners = siblings.filter(sibling => ours.includes(sibling.pid))
+    const place = owners.length === 0
+      ? ''
+      : ` on ${[...new Set(owners.map(owner => `${owner.workspaceId}/${owner.serverId}`))].join(', ')}`
+    return `port ${port} is held by pid ${ours.join(', ')}, which this panel supervises${place} — stop that server instead`
   }
 
   /**
@@ -708,7 +744,7 @@ export class Supervisor {
    * server owns, or anything the panel happened to spawn would be unkillable and
    * unattributable.
    */
-  private async supervisedPids(): Promise<Set<number>> {
+  private async supervisedPids(): Promise<{ pids: Set<number>, siblings: SiblingServer[] }> {
     const roots: number[] = []
     for (const entry of this.entries.values()) {
       if (entry.pid !== null)
@@ -717,9 +753,18 @@ export class Supervisor {
         roots.push(entry.child.pid)
     }
 
+    // A sibling workspace's server is this panel's too, and this supervisor cannot see it. Without
+    // these it reads as a stranger: `free-port` terminated the sibling's pid and answered
+    // `{ok: true, free: true}` while that workspace's entry kept serving under a restarted pid
+    // (measured), and `follow` adopted it, so both workspaces claimed one process and stopping
+    // either left the other claiming it. Its roots join *ours* before the tree walk, so a sibling
+    // wrapper's or nanny's descendants are covered by the same rule rather than by a second one.
+    const siblings = [...await this.options.siblingServers?.() ?? []]
+    roots.push(...siblings.map(sibling => sibling.pid))
+
     const pids = await processTreePids(roots)
     pids.add(process.pid)
-    return pids
+    return { pids, siblings }
   }
 
   /** The port's own answer, with the same short recheck the preflight uses. */
@@ -896,7 +941,7 @@ export class Supervisor {
     if (stop.killPortHolders && port !== null) {
       // Only a stranger: a port held by a server this panel supervises is a config
       // mistake, not a leftover, and is never killed from here.
-      const leftover = await killPortHolders(port, await this.supervisedPids())
+      const leftover = await killPortHolders(port, (await this.supervisedPids()).pids)
       if (leftover.length > 0)
         this.log(entry, 'system', `port ${port} was still held by pid ${leftover.join(', ')} — killed`)
     }
@@ -1130,7 +1175,7 @@ export class Supervisor {
 
     // One split serves every policy: the supervised half is never a target, and the
     // foreign half is where our own detached successor hides.
-    const { ours, foreign } = await this.portHolders(port)
+    const { ours, foreign, siblings } = await this.portHolders(port)
     const holders = [...ours, ...foreign]
     const own = await this.ownPortHolder(entry, foreign)
     // An empty pid list is not nothing: a docker-published port is bound by a root-owned proxy
@@ -1146,7 +1191,7 @@ export class Supervisor {
     if (entry.config.onPortConflict === 'kill') {
       if (ours.length > 0) {
         entry.status = 'conflict'
-        entry.lastError = `port ${port} is held by pid ${ours.join(', ')}, which this panel supervises — stop that server instead`
+        entry.lastError = this.heldByOurs(port, ours, siblings)
         this.log(entry, 'system', `${entry.lastError} — not starting (onPortConflict: kill)`)
         this.publishServer(entry)
         return { kind: 'blocked', error: entry.lastError }
@@ -1184,22 +1229,30 @@ export class Supervisor {
       return await this.stopPortHolders(entry, [own], port, 'replacing', freeOnAll)
     }
 
+    /* A holder this *panel* supervises is never a target and is not a stranger either: it is a
+     * configuration conflict the person can resolve, but only if the sentence says which workspace
+     * it is in — this page cannot show another workspace's server, and "already in use (pid 1234)"
+     * is a dead end from here. That case gets its own sentence rather than a suffix on the generic
+     * one, which would name the same port twice. */
     const hint = own !== null
       ? ` — pid ${own} is a detached restart of this entry: set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a supervised process, or "kill" to stop whatever holds the port`
       : docker === null
         ? ''
         : ` — it is published by a docker container, which \`kill\` stops through docker; \`block\` and \`warn\` leave it alone`
+    const blockedError = ours.length > 0
+      ? this.heldByOurs(port, ours, siblings)
+      : `port ${port} is already in use${suffix}${hint}`
 
     // `follow` and `reclaim` refine `block`: never a stranger's port.
     if (entry.config.onPortConflict !== 'warn') {
       entry.status = 'conflict'
-      entry.lastError = `port ${port} is already in use${suffix}${hint}`
+      entry.lastError = blockedError
       this.log(entry, 'system', `${entry.lastError} — not starting (onPortConflict: ${entry.config.onPortConflict})`)
       this.publishServer(entry)
       return { kind: 'blocked', error: entry.lastError }
     }
 
-    this.log(entry, 'system', `warning: port ${port} is already in use${suffix}${hint} — starting anyway`)
+    this.log(entry, 'system', `warning: ${blockedError} — starting anyway`)
     return { kind: 'free' }
   }
 

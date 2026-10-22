@@ -204,6 +204,22 @@ export class PanelService {
     return this.workspaces().flatMap(runtime => runtime.supervisor.views())
   }
 
+  /**
+   * The running servers of every workspace *except* `except`, so one supervisor can recognize a
+   * sibling workspace's process as one the panel owns rather than a stranger to signal — and can
+   * name it when it refuses.
+   *
+   * Read from the live views rather than from nanny state: an adopted entry has no child record,
+   * and a persistent one's pid is the nanny's, whose tree the supervisor walks itself.
+   */
+  siblingServers(except: string): Array<{ pid: number, workspaceId: string, serverId: string }> {
+    return this.workspaces()
+      .filter(runtime => runtime.id !== except)
+      .flatMap(runtime => runtime.supervisor.views()
+        .filter(view => view.pid !== null)
+        .map(view => ({ pid: view.pid!, workspaceId: runtime.id, serverId: view.id })))
+  }
+
   getState(): AppState {
     const proxy = this.options.proxy()
     return {
@@ -435,6 +451,9 @@ export class PanelService {
       notifications,
       onStateChange: () => this.scheduleState(),
       nannyDir: workspaceStateDir(id),
+      // Lazily, so a workspace created later is still part of the answer: the runtimes map is read
+      // at call time, never captured when this supervisor was built.
+      siblingServers: async () => this.siblingServers(id),
     })
 
     const runtime: WorkspaceRuntime = {

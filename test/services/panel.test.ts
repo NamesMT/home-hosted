@@ -1,10 +1,12 @@
 import type { NotificationEvent } from '#src/services/notifications'
 import type { AppState, WorkspaceView } from '#src/shared/contracts'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
+import { isPortFree } from '#src/providers/port'
 
 /**
  * The real `PanelService`, not a stand-in.
@@ -60,6 +62,105 @@ async function waitFor<T>(probe: () => T | undefined | false, timeoutMs = 10000)
     if (Date.now() > deadline)
       throw new Error('waitFor timed out')
     await new Promise(resolve => setTimeout(resolve, 25))
+  }
+}
+
+/**
+ * A port nothing is listening on. Binding `0` asks the OS, then the listener closes, so the number is
+ * free by the time a case uses it; the poll absorbs the few milliseconds a just-closed socket can
+ * still answer in.
+ */
+async function freePortNumber(): Promise<number> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const port = await new Promise<number>((resolve, reject) => {
+      const server = net.createServer()
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address()
+        const bound = typeof address === 'object' && address !== null ? address.port : 0
+        server.close(() => resolve(bound))
+      })
+    })
+    for (let probe = 0; probe < 20; probe++) {
+      if (await isPortFree(port))
+        return port
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+  }
+  throw new Error('could not allocate a free port')
+}
+
+/** Whether anything accepts a connection there, which is what a port being held means. */
+async function portAcceptsOn(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port })
+    socket.setTimeout(500)
+    socket.once('connect', () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once('timeout', () => {
+      socket.destroy()
+      resolve(false)
+    })
+    socket.once('error', () => {
+      socket.destroy()
+      resolve(false)
+    })
+  })
+}
+
+/**
+ * Two real workspaces, one port: `default/owner` is up on it and `staging/borrower` wants it.
+ *
+ * The two entries deliberately differ in **id**, so the fixture never leans on the same-id
+ * collision: it is the pid that crosses the boundary, which is the thing under test. Every other
+ * line is what a person hand-writing the same service in two workspaces would produce.
+ */
+async function twoWorkspacePortFixture(options: { policy: 'block' | 'follow' }): Promise<{
+  panel: Harness['panel']
+  owner: import('#src/services/supervisor').Supervisor
+  borrower: import('#src/services/supervisor').Supervisor
+  ownerPid: number
+  port: number
+  dispose: () => Promise<void>
+}> {
+  const port = await freePortNumber()
+  const shared = {
+    command: process.execPath,
+    args: ['-e', 'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")'],
+    env: { PORT: '{port}' },
+    port,
+    health: { intervalMs: 500, timeoutMs: 500, unhealthyThreshold: 2, forceRestartAfterMs: 0, startTimeoutMs: 8000 },
+    restart: { maxRetries: 3, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+  }
+  const harness = await makeHarness({
+    workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],
+    servers: [{ ...shared, id: 'owner' }],
+  })
+  try {
+    const staging = harness.panel.requireWorkspace('staging')
+    fs.writeFileSync(staging.store.path, JSON.stringify({
+      $schema: './servers.config.schema.json',
+      meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
+      servers: [{ ...shared, id: 'borrower', onPortConflict: options.policy }],
+    }, null, 2))
+    staging.store.reloadFromDisk()
+
+    const owner = harness.panel.requireWorkspace('default').supervisor
+    const borrower = staging.supervisor
+
+    await owner.start('owner')
+    await waitFor(() => owner.views().find(view => view.id === 'owner')?.status === 'running')
+    const ownerPid = owner.views().find(view => view.id === 'owner')!.pid!
+    if (!(ownerPid > 0))
+      throw new Error('the owner never started, so there is no port holder to test with')
+
+    return { ...harness, owner, borrower, ownerPid, port }
+  }
+  catch (error) {
+    await harness.dispose()
+    throw error
   }
 }
 
@@ -377,6 +478,54 @@ describe('panelService', () => {
       expect(panel.findServer('staging', 'shared')).toBeNull()
       expect(panel.findServer('ghost', 'shared')).toBeNull()
       expect(panel.findServer('default', 'ghost')).toBeNull()
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  /**
+   * A port held by another workspace's server is this panel's server, not a stranger to free.
+   *
+   * `Supervisor.supervisedPids()` only walks its own entries, so a sibling workspace's pid looked
+   * foreign to every consumer of the split. Measured on a real panel with two workspaces, a
+   * `free-port` on `staging` terminated `default`'s server on the shared port and answered
+   * `{"ok":true,"terminated":[<default's pid>],"free":true}` while that workspace's entry restarted
+   * under a new pid; `follow` then adopted the sibling's process, so both workspaces reported the
+   * same pid as running and stopping one left the other claiming it. One guard, because both halves
+   * are the same split — the two assertions are kept apart so a fix to one cannot hide the other.
+   */
+  it('never frees a port held by another workspace', async () => {
+    const { owner, borrower, ownerPid, port, dispose } = await twoWorkspacePortFixture({ policy: 'block' })
+
+    try {
+      const freed = await borrower.freePort('borrower')
+      expect(freed.ok, 'freeing a sibling workspace\'s port is a refusal, not a success').toBe(false)
+      expect(freed.terminated).toEqual([])
+      expect(freed.error).toContain('which this panel supervises')
+      // And it says *where* to go: the holder is on a page this workspace's UI cannot show.
+      expect(freed.error).toContain('default/owner')
+
+      // The owner is untouched: still the same process, still serving.
+      const ownerView = owner.views().find(view => view.id === 'owner')!
+      expect(ownerView.status).toBe('running')
+      expect(ownerView.pid).toBe(ownerPid)
+      expect(await portAcceptsOn(port), 'the sibling must still be serving its port').toBe(true)
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  it('never adopts another workspace\'s process, even under `follow`', async () => {
+    const { owner, borrower, ownerPid, dispose } = await twoWorkspacePortFixture({ policy: 'follow' })
+
+    try {
+      const started = await borrower.start('borrower')
+      expect(started.ok, 'a sibling workspace\'s process must not be adopted as this entry').toBe(false)
+      // And no second claim on the pid: the borrower stays down while the owner keeps it.
+      expect(borrower.views().find(view => view.id === 'borrower')!.pid).toBeNull()
+      expect(owner.views().find(view => view.id === 'owner')!.pid).toBe(ownerPid)
     }
     finally {
       await dispose()

@@ -192,6 +192,13 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   local command must not open an unauthenticated `/api` route.
 - **A server id is only unique inside its workspace.** Anything keyed by id alone — SSE, log buffers,
   series, route params — must key on `(workspaceId, serverId)`, or same-named servers mix frames.
+  **So must "what this panel owns."** A per-workspace service answering a panel-wide question — "is
+  this pid ours?" — asks its own workspace and silently gets the wrong answer for the others: a port
+  held by a sibling workspace's server read as a stranger, so `free-port` terminated it and `follow`
+  adopted it into the wrong workspace (two workspaces then claimed one pid). The panel is the only
+  thing that can see every workspace, so it injects the answer (`SupervisorOptions.siblingServers`)
+  and a lone supervisor has none. Such a refusal must also say **where** the holder lives: "stop that
+  server instead" is a dead end when that server is on a page this workspace cannot show.
 - **A workspace is the ownership boundary.** Servers, secrets, logs and nanny state belong to exactly
   one; only listener, auth, TLS, host vitals, backups, UI and `run.json` are panel-wide. Reach a
   per-workspace service through `PanelService.requireWorkspace(id)`, never a module global.
