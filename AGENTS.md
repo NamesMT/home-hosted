@@ -115,6 +115,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   alerted-on gauge published as `0` from an unsampled view is indistinguishable from a healthy one
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
   suffix `_total` a value that a user action resets.
+- **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
+  for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
+  empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank
+  host — the one situation where nobody can check the result — is indistinguishable from a restore
+  that worked. Read `error`/`needsPassword` before anything else, exit non-zero, and print `skipped`
+  when an apply leaves pieces behind (`src/cli/backup.ts`). The same shape is why a scoped id is
+  checked against the plan in **both** directions: `--exclude` with a typo excludes nothing, and an
+  archive restored that way carries exactly the credentials the person meant to drop.
 - **Conventional commits** — changelogen derives the changelog and `scripts/check-release-version.mjs`
   the version bump. Below 1.0 the **minor is the breaking channel**: a fix is a patch, a minor means
   someone has to read the release notes and act — ask what the user has to do, not whether the commit

@@ -175,30 +175,63 @@ construction.
 
 ## Restoring onto a blank host
 
-```console
-$ home-hosted backup restore backup-2026-10-21-04-15-49-881.zip
-Plan for backup-2026-10-21-04-15-49-881.zip — nothing has been written yet
-  settings   global:settings
-  secrets    global:secrets
-  secrets    global:secrets:password
-  secrets    global:secrets:apiToken
-  settings   workspace:default:settings
-  servers    workspace:default:servers
-  data       workspace:default:data:/srv/blog/dump
+`restore` takes the archive's **file name**, not a path: the name is the allowlist entry, which is
+what keeps a restore from being pointed at any file on the host. Copy the archive into the backups
+directory first — `home-hosted backup list` prints that directory, and the refusal names it too:
 
-apply it with `home-hosted backup restore backup-2026-10-21-04-15-49-881.zip --confirm`
+```console
+$ home-hosted backup restore /media/usb/backup-2026-10-21-04-15-49-881.zip --all --confirm
+error no backup named "/media/usb/backup-2026-10-21-04-15-49-881.zip" in /home/you/.home-hosted/.hh/.backups — a restore takes the archive's file name, not a path; copy it there first
+```
+
+```console
+$ home-hosted backup restore backup-2026-10-21-04-15-49-881.zip --all
+Plan for backup-2026-10-21-04-15-49-881.zip — nothing has been written yet
+  global
+    - global:settings
+    - global:secrets
+      - global:secrets:password
+      - global:secrets:apiToken
+  workspace
+    - workspace:default
+      - workspace:default:settings
+      - workspace:default:servers
+      - workspace:default:data
+        - workspace:default:data:/srv/blog/dump
+
+not applied — this session cannot ask. Re-run with `--confirm` to apply.
 ```
 
 The plan comes first, always. A restore writes over live data, so the default is to say what it
-*would* do.
+*would* do — and like `create`, it needs a scope: `--all`, or `--include <ids>`. Neither flag is
+refused, and that refusal lists the ids the archive actually holds.
 
 ```console
-$ home-hosted backup restore backup-2026-10-21-04-15-49-881.zip --confirm
+$ home-hosted backup restore backup-2026-10-21-04-15-49-881.zip --all --confirm
 restored 7 items from backup-2026-10-21-04-15-49-881.zip
 ```
 
 The workspace did not exist on this host. It was created, not skipped: an archive is a whole machine's
 setup, and refusing it because the id is new would make a blank-host restore impossible.
+
+### When a restore cannot do what you asked
+
+A restore that writes nothing **exits 1 and says why** — never *"restored 0 items"* with a success
+status. The same is true of a wrong or missing password on an encrypted archive, and of an archive
+from a newer config schema:
+
+```console
+$ home-hosted backup restore backup-2026-10-21-04-15-49-881.zip --all --confirm
+error this backup is password-protected — add `--password <text>` to unlock it
+
+$ home-hosted backup restore old.zip --all --confirm
+error written by home-hosted 0.8.0 (config schema 1); this release understands schema 2
+```
+
+A restore that applies **some** of an archive carries on and names every piece it had to leave
+behind, marked `!`, so a partial result never reads as a complete one. A mistyped `--include` or
+`--exclude` is refused before anything is written, naming the id — the dangerous direction being
+`--exclude`, where a typo would exclude nothing and apply the credentials you meant to drop.
 
 Then the entry starts, and the database is read back:
 
