@@ -44,11 +44,12 @@ state layout is there too.
   `secrets.ts`/`seed.ts` the secret scopes and seeds.
 - `src/providers/` — stateless leaves returning plain data: `process` (spawn, `terminate`,
   `terminatePid` for an adopted process), `port` (probe, holder lookup, `terminatePids`), `proc`
-  (sampler, `processCarriesServerId`, `processTreePids`), `identity` (which port holder is this
-  entry's own successor), `nanny` (a persistent entry's spec/state files and liveness rules),
-  `log-tail` (offset reader surviving rotation and truncation), `ddns/` (one provider per registrar),
-  `proxy/` (the engines this build can drive — the route model stays the panel's), health-check,
-  host, telegram, archive.
+  (sampler, `processCarriesServerId`, `processTreePids`), `docker` (a compose entry's containers:
+  detection from its argv, attribution by compose labels, one batched `docker stats` and its cache),
+  `identity` (which port holder is this entry's own successor), `nanny` (a persistent entry's
+  spec/state files and liveness rules), `log-tail` (offset reader surviving rotation and truncation),
+  `ddns/` (one provider per registrar), `proxy/` (the engines this build can drive — the route model
+  stays the panel's), health-check, host, telegram, archive.
 - `src/services/` — stateful orchestration: `panel` (one `WorkspaceRuntime` per workspace, workspace
   CRUD, the single aggregate state frame — every per-workspace service hangs off it), supervisor,
   control-server, config-watch, state, auth + exposure, dependencies, history, log-buffer/log-files,

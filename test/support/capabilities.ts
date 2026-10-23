@@ -77,6 +77,43 @@ export const hasOpensslExplicitDates = ((): boolean => {
 export const isPosix = process.platform !== 'win32'
 
 /**
+ * Whether a **usable docker daemon** answers here, decided at module load.
+ *
+ * `docker version --format {{.Server.Version}}` is the probe, not `docker --version`: the latter
+ * reports the installed *client* and succeeds with no daemon behind it, so a live test would report
+ * a pass on a machine where no container can run. The live tests skip with a stated reason instead,
+ * so a skipped run says exactly what it did not exercise.
+ */
+export const hasDocker = ((): boolean => {
+  try {
+    execFileSync('docker', ['version', '--format', '{{.Server.Version}}'], { stdio: 'ignore', timeout: 15_000 })
+    return true
+  }
+  catch {
+    return false
+  }
+})()
+
+/**
+ * Whether the image the live docker tests run is already on this machine.
+ *
+ * Checked rather than pulled: `docker compose up` would reach the network for a missing image, and
+ * a test that depends on a registry is a test that fails for a reason unrelated to the code. With
+ * this in the condition the suite skips and says so instead of pulling or timing out.
+ */
+export const hasDockerTestImage = ((): boolean => {
+  if (!hasDocker)
+    return false
+  try {
+    execFileSync('docker', ['image', 'inspect', 'alpine:3.20'], { stdio: 'ignore', timeout: 10_000 })
+    return true
+  }
+  catch {
+    return false
+  }
+})()
+
+/**
  * Parse a DDNS config the way the app does, throwing on a bad one.
  *
  * Two test files carried this identically, and it encodes the house ArkType idiom — `instanceof

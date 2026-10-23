@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import type { WorkspaceStore } from '#src/config/store'
 import type { TemplateVars } from '#src/helpers/template'
+import type { ComposeTarget } from '#src/providers/docker'
 import type { SpawnInfo } from '#src/providers/identity'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { EventHub } from '#src/services/events'
@@ -22,6 +23,7 @@ import { dataRoot, projectDir } from '#src/helpers/paths'
 import { nannyArgv } from '#src/helpers/runtime'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
+import { composeTarget, DockerMetrics } from '#src/providers/docker'
 import { clearEntryState, entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { probeHealth } from '#src/providers/health-check'
 import { identifyHolders } from '#src/providers/identity'
@@ -45,6 +47,18 @@ import { resolveCommand, resolveCwd, spawnManaged, terminate, terminatePid } fro
 import { dependenciesOf, dependentsOf, orderByDependencies } from '#src/services/dependencies'
 import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
 import { LogRelay } from '#src/services/log-relay'
+
+/**
+ * Everything a start needs, resolved once: the program, its expanded argv, the cwd and the env.
+ *
+ * `loggedArgs` is the argv *before* `${VAR}` expansion, so a secret in an argument never reaches the
+ * log; `args` is what is actually spawned. Docker detection reads the same object, so it cannot
+ * disagree with the process about what is running.
+ */
+interface ResolvedSpawn extends SpawnInfo {
+  env: Record<string, string>
+  loggedArgs: string[]
+}
 
 export interface SupervisorOptions {
   /** The workspace this supervisor supervises; every view is tagged with it. */
@@ -179,6 +193,13 @@ interface Entry {
   responseMs: number | null
   resources: ProcessResources | null
   resourcesSampledAt: number
+  /**
+   * The compose project this entry runs, when its own command says so — detected once, at start.
+   *
+   * `null` means "sample the process tree". Recomputing it per sample would re-stat the compose
+   * files every 5 s for an answer that cannot change while the entry runs.
+   */
+  compose: ComposeTarget | null
   historyCache: { revision: number, at: number, summary: ServerView['history'] } | null
 }
 
@@ -232,6 +253,8 @@ export function serverTemplateVars(config: ServerConfig): TemplateVars {
 
 export class Supervisor {
   private readonly sampler = new ProcessSampler()
+  /** Container readings for docker-backed entries, batched across the workspace. */
+  private readonly docker = new DockerMetrics()
   /**
    * Live output of persistent entries. A normal entry's logs arrive down the pipe the
    * panel owns; a persistent one's are written by its nanny, so they are read back.
@@ -472,6 +495,13 @@ export class Supervisor {
       if (entry.stopping || this.disposed)
         return { ok: false, error: `server "${id}" is stopping` }
 
+      // Decided before every branch that can leave the entry running — a spawn, an adoption, a
+      // nanny reattach. Detecting it only on the spawn path would leave an adopted compose stack
+      // measured as its wrapper, which is the defect this exists to remove. Resolved once here: it
+      // reads the env file and can log, so resolving it twice would double both.
+      const resolved = this.resolveSpawn(entry)
+      this.detectCompose(entry, resolved)
+
       entry.lastError = null
       entry.status = 'starting'
       this.resetHealth(entry)
@@ -508,7 +538,7 @@ export class Supervisor {
       if (conflict.kind === 'adopt')
         return this.adoptEntry(entry, conflict.pid, `a detached restart of this entry is already serving port ${entry.config.port}`)
 
-      const started = this.spawnEntry(entry)
+      const started = this.spawnEntry(entry, resolved)
       // A restore staged this entry's dump because it could not load it while stopped. Run it now,
       // in the background: `start` returns as soon as the process is spawned, and a `mongorestore`
       // that took ten seconds would otherwise make every start feel hung.
@@ -1093,6 +1123,7 @@ export class Supervisor {
       responseMs: null,
       resources: null,
       resourcesSampledAt: 0,
+      compose: null,
       historyCache: null,
     }
   }
@@ -1537,12 +1568,25 @@ export class Supervisor {
   }
 
   /**
+   * Whether this entry runs a compose stack, from what it would actually spawn.
+   *
+   * `command`/`args` are read through the same `resolveSpawn` the spawn itself uses, so the
+   * detection and the process cannot disagree about the argv. A `null` result is the common case:
+   * every entry that is not `docker compose` keeps the process-tree sample, including one whose
+   * shell happens to run docker — that is not detectable, and guessing would attribute a
+   * stranger's containers to this entry. See `src/providers/docker.ts` for the full limits.
+   */
+  private detectCompose(entry: Entry, resolved: ResolvedSpawn): void {
+    entry.compose = composeTarget({ command: resolved.command, args: resolved.args, cwd: resolved.cwd, env: resolved.env })
+  }
+
+  /**
    * Everything `spawn` needs for an entry: the resolved image, the expanded argv, the
    * cwd and the environment. The argv is also what the preflight recognizes the entry's
    * own detached successor by, so spawn and identification must never resolve it twice
    * with two different rules.
    */
-  private resolveSpawn(entry: Entry): SpawnInfo & { env: Record<string, string>, loggedArgs: string[] } {
+  private resolveSpawn(entry: Entry): ResolvedSpawn {
     const vars = this.buildVars(entry)
     const cwd = resolveCwd(entry.config.cwd)
     const command = resolveCommand(entry.config.command, cwd, projectDir)
@@ -1590,9 +1634,11 @@ export class Supervisor {
       this.log(entry, 'system', 'ignored an environment key containing a null byte')
     }
 
+    const args = expandEnvList(resolveTemplates(entry.config.args, vars), expansionVars)
+
     return {
       command,
-      args: expandEnvList(resolveTemplates(entry.config.args, vars), expansionVars),
+      args,
       env,
       cwd,
       // Logged *before* `${VAR}` expansion: an argument like `${API_TOKEN}` must not
@@ -1601,14 +1647,14 @@ export class Supervisor {
     }
   }
 
-  private spawnEntry(entry: Entry): StartResult {
+  private spawnEntry(entry: Entry, resolved: ResolvedSpawn): StartResult {
     // A persistent entry is not run by this process: it gets a nanny, whose whole
     // purpose is to keep the pipes alive when the panel is gone.
-    return entry.config.persistent ? this.spawnNanny(entry) : this.spawnDirect(entry)
+    return entry.config.persistent ? this.spawnNanny(entry, resolved) : this.spawnDirect(entry, resolved)
   }
 
-  private spawnDirect(entry: Entry): StartResult {
-    const { command, args, env, cwd, loggedArgs } = this.resolveSpawn(entry)
+  private spawnDirect(entry: Entry, resolved: ResolvedSpawn): StartResult {
+    const { command, args, env, cwd, loggedArgs } = resolved
 
     this.log(entry, 'system', `start: ${command} ${loggedArgs.join(' ')}`)
 
@@ -1638,8 +1684,8 @@ export class Supervisor {
    * event drives the normal lifecycle (backoff, history, notifications) — while the
    * real exit cause is read back from the state file the nanny leaves behind.
    */
-  private spawnNanny(entry: Entry): StartResult {
-    const { command, args, env, cwd, loggedArgs } = this.resolveSpawn(entry)
+  private spawnNanny(entry: Entry, resolved: ResolvedSpawn): StartResult {
+    const { command, args, env, cwd, loggedArgs } = resolved
 
     this.log(entry, 'system', `start (persistent): ${command} ${loggedArgs.join(' ')}`)
 
@@ -2107,7 +2153,15 @@ export class Supervisor {
     this.publishState()
   }
 
-  /** One scan of /proc covers every server; only live processes are sampled. */
+  /**
+   * One scan of /proc covers every server; only live processes are sampled.
+   *
+   * A docker-backed entry is measured through docker instead, and the two paths are exclusive: its
+   * containers are not descendants of the wrapper, so the tree sample would report the wrapper —
+   * `cpuPercent: 0` for a stack burning a core, and an RSS a memory ceiling can never trip. When
+   * docker has no reading for it (no running container, or docker unreachable) the tree sample is
+   * kept, because it is at least true of the process the panel did start.
+   */
   private async sampleResources(now: number): Promise<void> {
     const due = [...this.entries.values()].filter(entry =>
       entry.pid !== null
@@ -2117,9 +2171,20 @@ export class Supervisor {
       return
 
     for (const entry of due) entry.resourcesSampledAt = now
+
+    const composeTargets = due.flatMap(entry => entry.compose === null ? [] : [entry.compose])
+    // Asked once per *sample*, not once per entry: the class batches its containers into one
+    // `docker stats` call and reuses a reading for a few seconds.
+    const containerReadings = this.docker.readings(composeTargets, now)
+
     try {
       const samples = await this.sampler.sampleMany(due.map(entry => entry.pid!))
-      for (const entry of due) entry.resources = samples.get(entry.pid!) ?? null
+      for (const entry of due) {
+        const summed = entry.compose === null ? undefined : containerReadings.get(entry.compose.key)
+        entry.resources = summed === undefined
+          ? samples.get(entry.pid!) ?? null
+          : { cpuPercent: summed.cpuPercent, rssBytes: summed.rssBytes, processes: summed.processes, sampledAt: now }
+      }
     }
     catch {
       // Sampling is best effort; a missing /proc must not break supervision.
@@ -2191,13 +2256,22 @@ export class Supervisor {
     }
   }
 
+  /**
+   * The memory ceiling, on the numbers the entry's sample actually carries.
+   *
+   * For a docker-backed entry `resources` is the summed RSS of its containers, so this fires on
+   * their growth — the wrapper never grows, which is why the check could never fire for a leaking
+   * container before. The sentence names what was measured, because "process tree" would send
+   * someone to `ps` for a figure that lives in `docker stats`.
+   */
   private async enforceMemoryLimit(entry: Entry): Promise<boolean> {
     const limit = entry.config.resources.maxRssBytes
     const rss = entry.resources?.rssBytes ?? null
     if (limit <= 0 || rss === null || entry.child === null || entry.status !== 'running' || rss <= limit)
       return false
 
-    const detail = `process tree uses ${Math.round(rss / 1024 / 1024)}MB, over the ${Math.round(limit / 1024 / 1024)}MB limit`
+    const measured = entry.compose === null ? 'process tree' : 'containers'
+    const detail = `${measured} use ${Math.round(rss / 1024 / 1024)}MB, over the ${Math.round(limit / 1024 / 1024)}MB limit`
     this.log(entry, 'system', `${detail} — restarting`)
     this.options.history.record(entry.config.id, { type: 'forced-restart', detail })
     this.notify(entry, 'rss', detail)

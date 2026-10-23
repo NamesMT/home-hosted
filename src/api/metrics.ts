@@ -85,12 +85,12 @@ export function createMetricsRoute(deps: AppDeps) {
       const rss = servers
         .filter(server => server.resources?.rssBytes != null)
         .map(server => `hh_server_rss_bytes{${labels(server)}} ${server.resources!.rssBytes}`)
-      metric('hh_server_rss_bytes', 'RSS of the server process tree', rss)
+      metric('hh_server_rss_bytes', 'RSS of the server process tree, or the summed containers of a compose entry', rss)
 
       const cpu = servers
         .filter(server => server.resources?.cpuPercent != null)
         .map(server => `hh_server_cpu_percent{${labels(server)}} ${server.resources!.cpuPercent}`)
-      metric('hh_server_cpu_percent', 'CPU percent of the server process tree', cpu)
+      metric('hh_server_cpu_percent', 'CPU percent of the server process tree, or the summed containers of a compose entry', cpu)
 
       /*
        * Every host gauge exists only once the host has actually been sampled.

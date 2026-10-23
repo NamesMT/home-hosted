@@ -2492,3 +2492,158 @@ describe('an exit clears the health streak of the process it ends', () => {
     expect(crashed.unhealthySince, 'a crashed entry still claims how long it has been unhealthy').toBeNull()
   }, 60000)
 })
+
+/**
+ * A compose entry is measured through docker, not by walking its wrapper's process tree.
+ *
+ * The containers are not descendants of `docker compose up` — they live in another namespace — so
+ * the tree sample reported `cpuPercent: 0` for a stack burning a core, and an RSS a memory ceiling
+ * could never trip. These drive a **real** `docker` on `PATH`: one `#!/bin/sh` shim that dispatches
+ * on its first argument, answering `compose up` by staying alive (a real wrapper process to sample)
+ * and `ps`/`stats` with the exact shapes docker prints. A shim, so skipped on Windows; the live
+ * suite in `test/providers/docker.test.ts` drives a real daemon for what a shim cannot answer.
+ */
+describe('a docker-backed entry', () => {
+  const posixShim = it.runIf(process.platform !== 'win32')
+
+  /**
+   * A project directory plus a `docker` first on `PATH`.
+   *
+   * `rss` is each container's used memory in docker's own units. The shim runs `up` as a real
+   * process that stays up, so the entry has a wrapper to sample beside the containers.
+   */
+  async function withDockerShim(rss: string, body: (dir: string) => Promise<void>): Promise<void> {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-sup-docker-'))
+    // The project name is given on the argv, so the directory needs no legal basename.
+    const project = path.join(dir, 'blog')
+    await fs.promises.mkdir(project, { recursive: true })
+    await fs.promises.writeFile(path.join(project, 'compose.yaml'), 'services: {}\n')
+
+    const stats = [
+      JSON.stringify({ CPUPerc: '91.50%', ID: 'aaaa11112222', MemUsage: `${rss} / 1GiB`, Name: 'blog-web-1', PIDs: '1' }),
+      JSON.stringify({ CPUPerc: '1.00%', ID: 'bbbb33334444', MemUsage: '1MiB / 1GiB', Name: 'blog-db-1', PIDs: '2' }),
+    ].join('\n')
+    const ps = [
+      `aaaa11112222\tblog-web-1\tblog\t${path.join(project, 'compose.yaml')}`,
+      `bbbb33334444\tblog-db-1\tblog\t${path.join(project, 'compose.yaml')}`,
+    ].join('\n')
+    await fs.promises.writeFile(path.join(dir, 'ps.out'), ps)
+    await fs.promises.writeFile(path.join(dir, 'stats.out'), stats)
+
+    await fs.promises.writeFile(path.join(dir, 'docker'), `#!/bin/sh
+case "$1" in
+  ps) cat '${dir}/ps.out' ;;
+  stats) cat '${dir}/stats.out' ;;
+  compose) sleep 120 ;;
+esac
+exit 0
+`, { mode: 0o755 })
+
+    const original = process.env.PATH
+    process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
+    cleanups.push(async () => {
+      process.env.PATH = original
+      await fs.promises.rm(dir, { recursive: true, force: true })
+    })
+    await body(project)
+  }
+
+  /** A compose entry whose cwd holds the compose file, so detection finds it. */
+  function composeConfig(project: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: 'blog',
+      command: 'docker',
+      args: ['compose', '-p', 'blog', 'up'],
+      cwd: project,
+      port: null,
+      restart: { enabled: false },
+      ...overrides,
+    }
+  }
+
+  posixShim('reports the containers’ summed CPU and RSS, not the wrapper’s', async () => {
+    await withDockerShim('64MiB', async (project) => {
+      const { supervisor } = await makeSupervisor([composeConfig(project)])
+      await supervisor.start('blog')
+      await waitForStatus(supervisor, 'blog', 'running')
+
+      // 91.5% + 1.0% CPU and 64MiB + 1MiB RSS come from docker; the wrapper is a sleeping shell.
+      const sampled = await waitFor(() => {
+        const live = view(supervisor, 'blog')
+        return live.resources?.rssBytes === 65 * 1024 * 1024 ? live : undefined
+      }, 25000)
+      expect(sampled.resources!.cpuPercent, 'the busy container’s CPU, summed with the idle one').toBeCloseTo(92.5, 1)
+      expect(sampled.resources!.processes).toBe(3)
+
+      // The control: the wrapper's own tree is a shell, nowhere near the containers' sum. This is
+      // the figure the entry reported before the change.
+      const { ProcessSampler } = await import('#src/providers/proc')
+      const tree = await new ProcessSampler().sample(view(supervisor, 'blog').pid!)
+      expect(tree!.rssBytes, 'the wrapper is a different reading, which is why the tree sample was wrong').toBeLessThan(20 * 1024 * 1024)
+    })
+  }, 90000)
+
+  /**
+   * The point of the feature: a memory ceiling that fires on the containers.
+   *
+   * The wrapper is a shell sleeping for two minutes, so its tree is a few megabytes at most. The
+   * ceiling is set above that and well below the containers' 65 MB — the measurement that separates
+   * "fires on the stack" from "fires on the wrapper". Before this change this entry never restarted,
+   * which is the silent guard the decision was about.
+   */
+  posixShim('fires resources.maxRssBytes on the summed container RSS', async () => {
+    await withDockerShim('64MiB', async (project) => {
+      const harness = await makeSupervisor([composeConfig(project, {
+        // 8 MB: above this shell's own tree, far below the 65 MB the containers report.
+        resources: { maxRssBytes: 8 * 1024 * 1024 },
+      })])
+
+      const sent: string[] = []
+      const original = harness.notifications.notify.bind(harness.notifications)
+      vi.spyOn(harness.notifications, 'notify').mockImplementation((event) => {
+        sent.push(event.reason)
+        original(event)
+      })
+
+      await harness.supervisor.start('blog')
+      await waitForStatus(harness.supervisor, 'blog', 'running')
+
+      // The restart the ceiling triggers resets the entry, so the notification and its log line are
+      // the stable evidence that it fired. Asserted on the message text as well, because "rss"
+      // alone would not show *which* number was over the limit.
+      await waitFor(() => sent.includes('rss'), 40000)
+      const logged = harness.supervisor.logLines('blog').map(line => line.text).join('\n')
+      expect(logged, 'the message must name what was measured').toContain('containers use 65MB, over the 8MB limit')
+    })
+  }, 120000)
+
+  /**
+   * The other half of the rule: an entry that is not docker keeps the process-tree sample.
+   *
+   * A shell that happens to run docker is exactly the shape this cannot detect, and the honest
+   * answer there is the tree it spawned — never the containers of a project it cannot be shown to
+   * own.
+   */
+  posixShim('leaves a non-docker entry on the process-tree sample', async () => {
+    await withDockerShim('64MiB', async () => {
+      const { supervisor } = await makeSupervisor([{
+        id: 'wrapped',
+        command: process.execPath,
+        args: ['-e', 'setInterval(() => {}, 1000)'],
+        port: null,
+        restart: { enabled: false },
+      }])
+      await supervisor.start('wrapped')
+      await waitForStatus(supervisor, 'wrapped', 'running')
+
+      const sampled = await waitFor(() => {
+        const live = view(supervisor, 'wrapped')
+        return live.resources === null ? undefined : live
+      }, 25000)
+      // One node process, and the shim's 65 MiB / 91.5% never reach it.
+      expect(sampled.resources!.processes, 'a non-docker entry is still measured by its own tree').toBe(1)
+      expect(sampled.resources!.rssBytes).toBeLessThan(64 * 1024 * 1024)
+      expect(sampled.resources!.cpuPercent ?? 0, 'the container shim’s 91.5% must not leak in').toBeLessThan(50)
+    })
+  }, 90000)
+})
