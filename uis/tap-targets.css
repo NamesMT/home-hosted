@@ -1,0 +1,76 @@
+/*
+ * The tap-target floor both UIs adopt — imported by `uis/stock` and `uis/noc-console`.
+ *
+ * A 14–20 px glyph is not a target: a thumb lands on the neighbour, and beside a dense row of
+ * actions the neighbour is a different action. So a control is at least 24 px at normal density
+ * (the chrome stays dense) and at least 44 px under `@media (pointer: coarse)`, which is what a
+ * finger reports. Both are `min-*`, so only a box that is *too small* grows: the desktop layout
+ * is untouched and a touch device gets the real guideline.
+ *
+ * One file, keyed on the shapes both UIs already render, rather than a rule at each call site —
+ * thirty patched controls is thirty chances to miss the next one. Each exception says so where
+ * it is made: a tick and a switch keep their small visual box and the box *around* them takes
+ * the floor.
+ */
+
+:root {
+  --hh-tap: 24px;
+  --hh-tap-icon: 24px;
+}
+
+@media (pointer: coarse) {
+  :root {
+    --hh-tap: 44px;
+    --hh-tap-icon: 44px;
+  }
+}
+
+/* An icon is all there is, so both axes take the floor. `[role='switch']` is excluded: its
+   pill must stay a pill, and the rule further down gives it an invisible hit area instead. */
+button:not([role='switch']):has(> svg:only-child),
+a:has(> svg:only-child),
+.btn--icon {
+  min-width: var(--hh-tap-icon);
+  min-height: var(--hh-tap-icon);
+}
+
+/* Every control: the height floor. A non-replaced inline anchor ignores `min-height` by the
+   box model, which is what keeps "see `docs/`" a link inside a sentence rather than a 24 px
+   row — only the chrome boxes (`flex`/`grid`/`inline-block`) grow. */
+button:not([role='switch']),
+[role='button'],
+select,
+textarea,
+a,
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']) {
+  min-height: var(--hh-tap);
+}
+
+/* A tick is 13–14 px on purpose: a 44 px checkbox reads as a cartoon. Both UIs wrap it in a
+   `<label>`, and a label forwards the tap to the input inside it, so the label is the target. */
+label:has(> input[type='checkbox']) {
+  min-height: var(--hh-tap);
+}
+
+/* A switch keeps its 32×18 track for the same reason. The pseudo-element is the hit area —
+   24×24 at normal density, 44×44 under a coarse pointer — so the pill is unchanged. */
+[role='switch'] {
+  position: relative;
+}
+
+[role='switch']::before {
+  content: '';
+  position: absolute;
+  inset: calc((var(--hh-tap) - 18px) / -2) calc((var(--hh-tap-icon) - 32px) / -2);
+}
+
+/* A finger needs both axes, so on a touch device a box control is also at least as wide as it
+   is tall: `logs`, `s`, `x` and a `›` toggle are all narrower than 44 px. The same rule above
+   keeps an inline anchor in a sentence out of this. */
+@media (pointer: coarse) {
+  button,
+  [role='button'],
+  a {
+    min-width: var(--hh-tap);
+  }
+}
