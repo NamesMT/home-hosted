@@ -173,6 +173,11 @@ published port is the health probe.
 `docker compose up -d` is not an entry: it exits as soon as the containers start, so there is nothing
 left to supervise, and the entry backs off against the stack it just started. Drop the `-d`.
 
+**CPU and memory are measured on the `docker compose` process, not on its containers.** Containers
+run in their own namespace and are not descendants of that process, so an entry whose stack is busy
+can read near-idle, and `resources.maxRssBytes` watches the compose process rather than the stack —
+a limit there cannot fire for a leaking container.
+
 A published port belongs to a root-owned `docker-proxy`, so it has no pid this process may signal.
 The panel asks docker instead and names the container. Both ways of freeing a port — the **Free
 port** button (or `free-port`) and `onPortConflict: kill` — then stop that container through docker,
