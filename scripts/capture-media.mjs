@@ -43,6 +43,18 @@ const { applyPalette, GIFEncoder, quantize } = gifenc
 const { PNG } = pngjs
 
 const root = fileURLToPath(new URL('..', import.meta.url))
+
+/**
+ * The schema stamp every file the panel writes carries.
+ *
+ * Read from the source rather than hard-coded: a demo home with no stamp reads as schema 0, and the
+ * migration guard correctly refuses to start on it (`needs 1 migration(s)`), which is how this script
+ * broke — it wrote the configs before the stamp existed.
+ */
+const CONFIG_SCHEMA = Number(/export const CONFIG_SCHEMA = (\d+)/.exec(
+  fs.readFileSync(path.join(root, 'src/config/migrations.ts'), 'utf8'),
+)?.[1] ?? Number.NaN)
+const META = { writtenBy: 'capture-media', schema: CONFIG_SCHEMA }
 const mockupsDir = path.join(root, 'docs/mockups')
 const mediaDir = path.join(root, 'docs/media')
 const uisDir = path.join(root, 'uis')
@@ -167,15 +179,22 @@ async function makeHome(uiDist, label) {
   fs.mkdirSync(path.join(hh, 'default'), { recursive: true })
   fs.writeFileSync(
     path.join(hh, 'settings.json'),
-    `${JSON.stringify({ control: { port, host: 'local', auth: { enabled: false }, ...(label ? { label } : {}) } }, null, 2)}\n`,
+    `${JSON.stringify({
+      meta: META,
+      control: { port, host: 'local', auth: { enabled: false }, ...(label ? { label } : {}) },
+      // A demo page has seconds, not an interval, to look alive: the default 15 s sampling leaves
+      // the CPU dial showing "—" (its honest first-sample state) in every screenshot. 5000 is the
+      // schema's minimum.
+      host: { intervalMs: 5000, diskPaths: ['.'] },
+    }, null, 2)}\n`,
   )
   fs.writeFileSync(
     path.join(hh, 'default', 'settings.json'),
-    `${JSON.stringify({ defaults: { logBufferLines: 500 } }, null, 2)}\n`,
+    `${JSON.stringify({ meta: META, defaults: { logBufferLines: 500 } }, null, 2)}\n`,
   )
   fs.writeFileSync(
     path.join(hh, 'default', 'servers.config.json'),
-    `${JSON.stringify({ servers }, null, 2)}\n`,
+    `${JSON.stringify({ meta: META, servers }, null, 2)}\n`,
   )
   if (uiDist)
     fs.cpSync(uiDist, path.join(hh, '.ui'), { recursive: true })
@@ -267,7 +286,9 @@ async function captureUis(page) {
   for (const name of uis) {
     const dist = path.join(uisDir, name, 'dist')
     await withPanel(name, name === 'stock' ? null : dist, async (url) => {
-      await shoot(page, url, `ui-${name}`, { settle: 2600, expect: 'gateway' })
+      // Past the first host sample, so the CPU dial shows a percentage rather than its honest
+      // "—" first-sample state — an unlabelled dash is a worse front-page image than a number.
+      await shoot(page, url, `ui-${name}`, { settle: 6200, expect: 'gateway' })
       // The reverse proxy is panel-wide and one of the headline features, but it is not
       // the landing page — so the tour would never show it without its own pass.
       await shoot(page, `${url}proxy`, `ui-${name}-proxy`, { settle: 2200, expect: 'Reverse Proxy' })
