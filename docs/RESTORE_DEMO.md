@@ -175,13 +175,30 @@ construction.
 
 ## Restoring onto a blank host
 
-`restore` takes the archive's **file name**, not a path: the name is the allowlist entry, which is
-what keeps a restore from being pointed at any file on the host. Copy the archive into the backups
-directory first — `home-hosted backup list` prints that directory, and the refusal names it too:
+`restore` reads an archive **by name** from the backups directory, or **by path** with `--from`.
+The name is the default: it is an allowlist entry, so a typo cannot point a restore at an unrelated
+file. `--from` is for the blank host whose archive is on a USB stick — it names the one file to read,
+and it passes the very same gates the panel's upload route does (a zip, at least one entry, every
+entry inside the backup layout). Symlinks inside it are still never recreated, in either path.
+
+```console
+$ home-hosted backup restore --from /media/usb/backup-2026-10-21-04-15-49-881.zip --all --confirm
+restored 7 items from backup-2026-10-21-04-15-49-881.zip
+```
+
+A path and a name are refused together, because they name two different archives — copy the file in
+first if that is what you want:
+
+```console
+$ home-hosted backup restore backup-2026-10-21-04-15-49-881.zip --from /media/usb/other.zip --all
+error pass an archive name or --from <path>, not both — they name two different archives
+```
+
+A name that is not in the backups directory still says so, and now also says which flag takes a path:
 
 ```console
 $ home-hosted backup restore /media/usb/backup-2026-10-21-04-15-49-881.zip --all --confirm
-error no backup named "/media/usb/backup-2026-10-21-04-15-49-881.zip" in /home/you/.home-hosted/.hh/.backups — a restore takes the archive's file name, not a path; copy it there first
+error no backup named "/media/usb/..." in /home/you/.home-hosted/.hh/.backups — a restore takes the archive's file name, not a path; pass --from <path> to read the file where it is, or copy it into that directory
 ```
 
 ```console

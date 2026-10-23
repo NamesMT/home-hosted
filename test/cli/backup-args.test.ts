@@ -79,10 +79,31 @@ describe('backup flag guards', () => {
     expect(none.output).toContain('--exclude')
   })
 
-  it('refuses restore with no archive name', () => {
+  it('refuses restore with no archive, and names both ways to give one', () => {
     const missing = run(['backup', 'restore'])
     expect(missing.status).toBe(1)
-    expect(missing.output).toContain('needs the archive name')
+    expect(missing.output).toContain('needs an archive')
+    // A person on a blank host has no name to pass: the refusal must mention `--from`.
+    expect(missing.output).toContain('--from')
+  })
+
+  it('refuses an archive name together with --from', () => {
+    // Two different archives named at once: picking one silently is the wrong guess on the
+    // command that overwrites live data.
+    const both = run(['backup', 'restore', 'x.zip', '--from', '/tmp/x.zip'])
+    expect(both.status).toBe(1)
+    expect(both.output).toContain('not both')
+  })
+
+  it('refuses --from on an action that cannot read an archive', () => {
+    // A flag silently ignored is a flag the person believed worked.
+    const created = run(['backup', 'create', '--all', '--from', '/tmp/x.zip'])
+    expect(created.status).toBe(1)
+    expect(created.output).toContain('--from is for restore')
+
+    const listed = run(['backup', 'list', '--from', '/tmp/x.zip'])
+    expect(listed.status).toBe(1)
+    expect(listed.output).toContain('--from is for restore')
   })
 
   it('refuses an unknown action instead of guessing', () => {

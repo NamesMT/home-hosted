@@ -8,7 +8,7 @@
 #   2. take a backup: `home-hosted backup create --all --exclude global:secrets`
 #      (plans first, then `--confirm` applies)
 #   3. host B — a *blank* home, nothing configured
-#   4. restore into it: `home-hosted backup restore <name> --all --confirm`
+#   4. restore into it: `home-hosted backup restore --from <path> --all --confirm`
 #   5. start the entry on host B and read the database back
 #
 # Every step is a real command against a real panel and a real container. Nothing is faked, and the
@@ -146,11 +146,10 @@ note "panel on :$PANEL_B"
 cp "$HOST_A/.hh/.backups/$ARCHIVE" "$WORK/$ARCHIVE"
 
 # The plan first, always: a restore writes over live data, so the default is to say what it would do.
+# `--from` reads the archive where it lies, which on a blank host is all there is: nothing is copied
+# into a backups directory first.
 say "Planning the restore (nothing is written yet)"
-mkdir -p "$HOST_B/.hh/.backups"
-cp "$HOST_A/.hh/.backups/$ARCHIVE" "$HOST_B/.hh/.backups/$ARCHIVE"
-HHOSTED_HOME="$HOST_B" "${CLI[@]}" backup restore "$ARCHIVE" --all
-rm -f "$HOST_B/.hh/.backups/$ARCHIVE"
+HHOSTED_HOME="$HOST_B" "${CLI[@]}" backup restore --from "$WORK/$ARCHIVE" --all
 curl -fsS -o /dev/null -X POST \
   -H "Authorization: Bearer $SETUP_TOKEN" \
   -F "file=@$WORK/$ARCHIVE" \

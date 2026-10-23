@@ -1,4 +1,4 @@
-import type { AppState } from '#src/shared/contracts'
+import type { AppState, RestorePlan } from '#src/shared/contracts'
 import type { Fixture } from './fixture'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -438,6 +438,26 @@ describe('metrics', () => {
   })
 })
 
+/** A plan body the route can answer with; the fields a caller reads, filled. */
+function restorePlan(overrides: Partial<RestorePlan> = {}): RestorePlan {
+  return {
+    dryRun: true,
+    encrypted: false,
+    needsPassword: false,
+    items: [],
+    applied: [],
+    skipped: [],
+    restartRequired: false,
+    reloaded: false,
+    ...overrides,
+  }
+}
+
+/**
+ * Backups over the local channel: an operator — or a cron job — needs to take, list and restore an
+ * archive without a browser session. These call the same `BackupService` the `/api/backups` routes
+ * do, so the archive shape and the allowlist have one implementation.
+ */
 describe('/_hh/backups', () => {
   const token = { 'x-home-hosted-token': 'runtime-token' }
 
@@ -466,6 +486,42 @@ describe('/_hh/backups', () => {
     const response = await created.app.request('/_hh/backups/restore?name=../../etc/passwd', { method: 'POST', headers: token })
     expect(response.status).toBe(404)
     expect(await response.json()).toMatchObject({ code: 'BACKUP_NOT_FOUND' })
+  })
+
+  /**
+   * `from` is a path, and it replaces `name` rather than joining it.
+   *
+   * The CLI resolves the path against *its own* directory, so what arrives here is absolute; a
+   * relative one would be resolved against the panel's cwd, which is a different directory and
+   * therefore a different file than the one the person typed.
+   */
+  it('refuses a relative from, naming why', async () => {
+    const created = await fixture()
+    const response = await created.app.request('/_hh/backups/restore?from=some/archive.zip', { method: 'POST', headers: token })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'FROM_NOT_ABSOLUTE' })
+  })
+
+  it('refuses name and from together instead of choosing one', async () => {
+    const created = await fixture()
+    const response = await created.app.request(`/_hh/backups/restore?name=x.zip&from=${encodeURIComponent('/tmp/x.zip')}`, { method: 'POST', headers: token })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'NAME_AND_FROM' })
+  })
+
+  it('plans a restore from a path, through the same service a name goes through', async () => {
+    const created = await fixture()
+    const seen: string[] = []
+    created.backups.restore = async (archive) => {
+      seen.push(archive)
+      return restorePlan({ dryRun: true })
+    }
+
+    const archive = path.join(created.dir, 'elsewhere', 'carried.zip')
+    const response = await created.app.request(`/_hh/backups/restore?from=${encodeURIComponent(archive)}`, { method: 'POST', headers: token })
+    expect(response.status).toBe(200)
+    // The path itself, not a name resolved into the backups directory.
+    expect(seen).toEqual([archive])
   })
 })
 

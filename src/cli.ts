@@ -117,6 +117,7 @@ const BACKUP_SECTION: OptionSection = {
   lines: [
     ['list | create | restore', 'what to do (default: list)'],
     ['<name>', 'the archive, for restore — `backup list` shows them'],
+    ['--from <path>', 'restore from an archive file anywhere on this machine, instead of a name'],
     ['--include <ids>', 'comma-separated item ids to act on (required for create/restore)'],
     ['--all', 'act on everything; one of --include or --all is required'],
     ['--exclude <ids>', 'leave these out; --all --exclude global:secrets keeps the password and token out of the archive'],

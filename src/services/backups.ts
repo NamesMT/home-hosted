@@ -104,6 +104,50 @@ export function isSafeArchiveEntry(entry: string): boolean {
   return segments.every(segment => /^[\w.-]+$/.test(segment))
 }
 
+/**
+ * The gates an archive passes before anything plans a restore from it: it is a zip at all, and
+ * every entry in it is inside the layout this service writes.
+ *
+ * One function because there are two doors — an uploaded archive (`POST /api/backups/restore`,
+ * multipart) and `backup restore --from <path>` — and the entry allowlist is the boundary that
+ * stops a crafted archive writing outside the layout. A door that forgets one of these gates is
+ * the defect this exists to prevent.
+ *
+ * The archive's **location** is not part of this. A restore reads the file it is given and writes
+ * only to a fresh staging directory plus the paths the live config declares, so where the readable
+ * bytes came from cannot widen what a restore may write — an arbitrary path adds a read the caller
+ * already had, not a write target.
+ */
+export type ArchiveAdmission
+  = | { ok: true, entries: Awaited<ReturnType<typeof listZip>> }
+    | { ok: false, error: string }
+
+export async function admitArchive(archivePath: string): Promise<ArchiveAdmission> {
+  if (!isZipArchive(archivePath))
+    return { ok: false, error: 'the archive is not a home-hosted backup (a zip file was expected)' }
+
+  // The central directory is readable without a password, so a backup can be listed and its
+  // selection offered before the password is ever entered.
+  let entries: Awaited<ReturnType<typeof listZip>>
+  try {
+    entries = await listZip(archivePath)
+  }
+  catch (error) {
+    return { ok: false, error: `the archive could not be read: ${errorMessage(error)}` }
+  }
+
+  if (entries.length === 0)
+    return { ok: false, error: 'the archive is empty' }
+  if (entries.length > 100_000)
+    return { ok: false, error: 'the archive has too many entries' }
+
+  const invalid = entries.filter(entry => !isSafeArchiveEntry(entry.name))
+  if (invalid.length > 0)
+    return { ok: false, error: `the archive contains unexpected entries (e.g. ${invalid.slice(0, 3).map(entry => entry.name).join(', ')})` }
+
+  return { ok: true, entries }
+}
+
 /** True when `child` is `parent` itself or lives underneath it. */
 export function isInside(parent: string, child: string): boolean {
   if (parent === child)
@@ -834,35 +878,17 @@ export class BackupService {
       replacedUnderRunning: [],
     }
 
-    if (!isZipArchive(archivePath))
-      return { ...plan, error: 'the archive is not a home-hosted backup (a zip file was expected)' }
+    const admitted = await admitArchive(archivePath)
+    if (!admitted.ok)
+      return { ...plan, error: admitted.error }
+    const entries = admitted.entries
 
     const staging = path.join(this.resolveDir(), `.restore-${Date.now()}`)
 
     try {
-      // The central directory is readable without a password, so a backup can be
-      // listed and its selection offered before the password is ever entered.
-      let entries
-      try {
-        entries = await listZip(archivePath)
-      }
-      catch (error) {
-        return { ...plan, error: `the archive could not be read: ${errorMessage(error)}` }
-      }
-
       plan.encrypted = entries.some(entry => entry.encrypted)
       if (plan.encrypted && password === null)
         return { ...plan, needsPassword: true, error: 'this backup is password-protected' }
-
-      if (entries.length === 0)
-        return { ...plan, error: 'the archive is empty' }
-      if (entries.length > 100_000)
-        return { ...plan, error: 'the archive has too many entries' }
-
-      const invalid = entries.filter(entry => !isSafeArchiveEntry(entry.name))
-      if (invalid.length > 0) {
-        return { ...plan, error: `the archive contains unexpected entries (e.g. ${invalid.slice(0, 3).map(entry => entry.name).join(', ')})` }
-      }
 
       fs.mkdirSync(staging, { recursive: true })
       const extracted = await extractZip(archivePath, staging, {
