@@ -169,6 +169,19 @@ line in `AGENTS.md` instead.
   (measured: `2` → `0` on a manual start), so `rate()` sees a counter reset every time an operator
   touches the entry. Its HELP text claimed "since the control plane started", which was never true.
   Pinned by the label the README now gives: `hh_server_crashes_24h` is the monotonic one.
+- **A compose stack is not a process tree, so a memory ceiling on one watched nothing.** `docker
+  compose up` is a wrapper; the containers it starts are in another namespace, not among its
+  descendants. Measured: a stack whose container burned 99% CPU / 20.7 MB reported `cpuPercent: 0,
+  rssBytes: 68 MB` — the wrapper — so `resources.maxRssBytes` on such an entry could never fire for a
+  leaking container: a memory guard that silently does nothing. The sampler now asks `docker stats`
+  for the project's containers and sums them, attributed by compose's labels (`com.docker.compose.
+  project`, else `…project.config_files`) rather than by the whole machine. Three limits are
+  deliberate and stated in `src/providers/docker.ts`: a shell that runs docker is not detectable
+  (`command` must be docker itself); `docker run` has no project to attribute by; and when docker
+  cannot be asked the process-tree reading of the wrapper is kept, because no reading must never
+  become `0` — a zero is what an idle stack looks like. `docker stats --no-stream` costs ~2 s of
+  wall time per call (measured), so it is batched over all containers and cached for 10 s, the same
+  discipline `SWAP_CACHE_MS` applies to the host's swap read.
 
 ## Config
 

@@ -73,7 +73,7 @@ platform cannot confirm is exactly what the rest of this file refuses to signal 
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
 | `dependsOn` | ids that must be healthy first. `stop-all`/`down` stop dependents before their dependencies; stopping **one** server does not cascade — the log names any dependent it left running |
 | `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from |
-| `resources.maxRssBytes` | restart when the process tree grows past a limit |
+| `resources.maxRssBytes` | restart when the process tree — or, for a compose entry, the summed containers — grows past a limit |
 | `bootstrap` | one command to run once before the first start (migrations, warmups) |
 | `backupPaths`, `backupIgnoreGenerated` | extra paths this entry owns, included in backups; the flag (on by default) skips the known build and dependency directories inside them — `node_modules`, `dist`, `.next`, framework caches |
 
@@ -172,6 +172,17 @@ published port is the health probe.
 
 `docker compose up -d` is not an entry: it exits as soon as the containers start, so there is nothing
 left to supervise, and the entry backs off against the stack it just started. Drop the `-d`.
+
+**CPU and RSS are the containers', summed.** A compose entry is measured through `docker stats` over
+the project's own containers, so a busy stack reads busy and `resources.maxRssBytes` acts on the
+memory the containers actually use. Containers are attributed by compose's own labels — the project
+name, else the compose file the containers recorded — never by "every container on the machine".
+
+- This applies when `command` is `docker` (with `compose`) or `docker-compose`. An entry running a
+  shell that starts docker is not recognized, and keeps the process-tree reading of that shell.
+- When docker cannot be asked — the daemon is down, or nothing of the project is running — the entry
+  falls back to the process-tree reading of the wrapper it spawned. That is not the stack's figure,
+  and no number is invented: a stack with no reading shows as no reading, never `0`.
 
 A published port belongs to a root-owned `docker-proxy`, so it has no pid this process may signal.
 The panel asks docker instead and names the container. Both ways of freeing a port — the **Free
