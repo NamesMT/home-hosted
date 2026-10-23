@@ -12,7 +12,7 @@ import { projectDir } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import * as archive from '#src/providers/archive'
 import { createZip as createZipFile, extractZip, isZipArchive, listZip } from '#src/providers/archive'
-import { BackupService, isInside, isSafeArchiveEntry, resolveBackupPaths, slugifyPath } from '#src/services/backups'
+import { admitArchive, BackupService, isInside, isSafeArchiveEntry, resolveBackupPaths, slugifyPath } from '#src/services/backups'
 import { backupsSchema, serverSchema } from '#src/shared/contracts'
 
 // An absolute path in the platform's own syntax: these fixtures used POSIX `/srv/…`,
@@ -1533,6 +1533,76 @@ describe('restoring workspaces the host does not have', () => {
  * cannot catch it; backslash is a separator on Windows only, so it must be refused as a character
  * that is simply not allowed; and an archive written on one platform may be restored on another.
  */
+/**
+ * The gates an archive passes before a restore plans anything, reachable from *two* doors.
+ *
+ * `--from <path>` reads a file the caller names instead of a name inside the backups directory, and
+ * the whole safety argument for that is "the same gates run". They are one function
+ * (`admitArchive`) precisely so a second door cannot forget one: the upload route's checks and the
+ * CLI's path used to be two copies of the same four refusals.
+ */
+describe('archive admission', () => {
+  it('admits a zip laid out the way the service writes one', async () => {
+    const fixture = await makeFixture()
+    const archive = path.join(fixture.root, 'good.zip')
+    await makeZip(archive, {
+      'manifest.json': JSON.stringify({ version: 1, createdAt: Date.now(), data: [] }),
+      'global/settings.json': '{}\n',
+    })
+
+    const admitted = await admitArchive(archive)
+    expect(admitted.ok, admitted.ok ? '' : admitted.error).toBe(true)
+    if (admitted.ok)
+      expect(admitted.entries.map(entry => entry.name).sort()).toEqual(['global/settings.json', 'manifest.json'])
+  })
+
+  it('refuses a file that is not a zip, with the sentence both doors print', async () => {
+    const fixture = await makeFixture()
+    const junk = path.join(fixture.root, 'junk.zip')
+    fs.writeFileSync(junk, 'not a zip at all')
+
+    const admitted = await admitArchive(junk)
+    expect(admitted).toEqual({ ok: false, error: 'the archive is not a home-hosted backup (a zip file was expected)' })
+    // The restore route's answer is that same string — not a second wording for the same refusal.
+    expect((await fixture.service.restore(junk, { confirm: false })).error)
+      .toBe('the archive is not a home-hosted backup (a zip file was expected)')
+  })
+
+  it('refuses an archive that tries to write outside the layout, naming the entries', async () => {
+    const fixture = await makeFixture()
+    // A root the layout does not have. (`..` in a path is refused one layer earlier by zip.js
+    // itself, which is the case below; this one is the allowlist holding on its own.)
+    const escaping = path.join(fixture.root, 'escaping.zip')
+    await makeZip(escaping, {
+      'manifest.json': JSON.stringify({ version: 1, createdAt: Date.now(), data: [] }),
+      'payload/evil.txt': 'evil\n',
+    })
+
+    const admitted = await admitArchive(escaping)
+    expect(admitted.ok).toBe(false)
+    if (!admitted.ok) {
+      expect(admitted.error).toContain('unexpected entries')
+      // Named, so the person can see what the archive actually carries.
+      expect(admitted.error).toMatch(/evil\.txt/)
+    }
+    // `..` is refused a layer earlier, by the zip reader itself — either answer is a refusal, and
+    // both doors get whichever one runs.
+    const traversal = path.join(fixture.root, 'traversal.zip')
+    await makeZip(traversal, { 'global/../../evil.txt': 'evil\n' })
+    expect((await admitArchive(traversal)).ok).toBe(false)
+    // The tree the entry names is untouched: nothing was extracted to decide any of this.
+    expect(fs.existsSync(path.join(fixture.root, '..', 'evil.txt'))).toBe(false)
+  })
+
+  it('refuses an empty archive', async () => {
+    const fixture = await makeFixture()
+    const empty = path.join(fixture.root, 'empty.zip')
+    await makeZip(empty, {})
+
+    expect(await admitArchive(empty)).toEqual({ ok: false, error: 'the archive is empty' })
+  })
+})
+
 describe('archive entry allowlist', () => {
   it('accepts the layout the service itself writes', () => {
     for (const entry of ['global/settings.json', 'workspaces/a/servers.config.json', 'data/file.txt', 'manifest.json', 'global', './global/settings.json', 'global/settings.json/'])

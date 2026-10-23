@@ -160,7 +160,10 @@ by the pair, not by `serverId` alone. A `server` frame embeds that view; a `log`
 Anything calling the API from outside a browser — a script, a test, an agent, a native shell — can
 skip the login dance with an API token: `home-hosted set-token --generate` prints one once, and
 `Authorization: Bearer <token>` authenticates every `/api` request with the same authority as a
-signed-in session. The browser app you ship should still use the cookie.
+signed-in session. Two exceptions to expect: `DELETE /api/auth/password` refuses a token
+(`SESSION_REQUIRED`) because clearing the password is how auth is turned off, and a password change
+does not revoke a token, so a UI that offers rotation should say so. The browser app you ship should
+still use the cookie.
 
 Two settings worth reflecting: `control.label` is the panel's own name (the stock shell shows it),
 and `GET /api/settings` includes `ui` — which UI is being served, and its metadata.

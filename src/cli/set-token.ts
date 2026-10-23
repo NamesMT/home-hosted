@@ -66,7 +66,8 @@ export async function runSetToken(generate: boolean, clear: boolean): Promise<vo
 
   process.stdout.write(`Use it from a script or an agent:\n`)
   process.stdout.write(`  ${bold(`curl -H "Authorization: Bearer ${generate ? token : '<token>'}" ${base}/api/state`)}\n`)
-  process.stdout.write(`${dim('It needs no restart, outlives sessions, and holds the same access as a signed-in browser.')}\n`)
+  process.stdout.write(`${dim('It needs no restart and outlives sessions, and it holds the same access as a signed-in browser — except clearing the panel password, which a token may not do.')}\n`)
+  process.stdout.write(`${dim('Changing the password does NOT revoke it: `set-password` drops sessions and leaves the token working. Rotate with this command if it may have leaked.')}\n`)
   process.stdout.write(`${dim('Remove it any time with: home-hosted set-token --clear')}\n`)
   if (store.usingDefaultPassword)
     process.stdout.write(`${dim('The panel password is still the default — change it before the panel is reachable beyond loopback.')}\n`)

@@ -1,9 +1,12 @@
 import type { OfflineBackup } from '#src/cli/backup-offline'
 import type { requestControl, Runtime } from '#src/helpers/daemon'
+import fs from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { createOfflineBackup } from '#src/cli/backup-offline'
 import { bold, dim, fail, green, invocation, paint, prompt } from '#src/cli/io'
+import { resolveUserPath } from '#src/helpers/paths'
 import { unknownBackupIds } from '#src/shared/backup-scope'
 import { errorMessage } from '#src/shared/error-message'
 
@@ -192,6 +195,9 @@ function refusal(answer: { status: number, body: unknown }): never {
  */
 type Scope = { kind: 'all' } | { kind: 'include', ids: string[] }
 
+/** Where a restore reads its archive from: a name in the backups directory, or a path. */
+type RestoreSource = { kind: 'name', name: string } | { kind: 'from', path: string }
+
 /**
  * The flag combination, as far as it can be judged without asking the panel.
  *
@@ -311,10 +317,14 @@ async function availableRowsFromDisk(action: 'create' | 'restore', suffix: strin
     // A restore lists what the **archive** holds, not what this host declares. Reading the create
     // view here named every slot on the machine — including ones the archive never carried — and
     // marked them "(not set)", which is not a thing a restore can be missing.
-    const name = new URLSearchParams(suffix.startsWith('?') ? suffix.slice(1) : suffix).get('name')
-    if (name === null || name.length === 0)
-      return []
-    const archive = service.resolve(name)
+    // The same either/or the restore itself takes: a name resolved against the backups directory,
+    // or a path read where it is.
+    const query = new URLSearchParams(suffix.startsWith('?') ? suffix.slice(1) : suffix)
+    const from = query.get('from')
+    const name = query.get('name')
+    const archive = from !== null && from.length > 0
+      ? (fs.existsSync(from) && fs.statSync(from).isFile() ? from : null)
+      : (name === null || name.length === 0 ? null : service.resolve(name))
     if (archive === null)
       return []
     const plan = await service.restore(archive, { confirm: false })
@@ -564,9 +574,32 @@ function restoreNotes(plan: RestoreOutcome | null): string[] {
   return plan?.skipped ?? []
 }
 
-export async function runBackupRestore(options: { name: string, password?: string, scope: Scope, exclude?: string[], confirm: boolean, json: boolean }): Promise<void> {
+export async function runBackupRestore(options: { name?: string, from?: string, password?: string, scope: Scope, exclude?: string[], confirm: boolean, json: boolean }): Promise<void> {
   const scope = options.scope
   const online = await usesPanel()
+
+  /**
+   * What this restore reads from: an archive **name** in the backups directory, or a **path**.
+   *
+   * A name is an allowlist entry, which is why it is the default. `--from` is for the blank host
+   * where the archive is on a USB stick: it names the file to read, not a directory to write in.
+   * The two are refused together rather than one quietly winning — on the one command that
+   * overwrites live data, a guess about which archive was meant is the wrong default.
+   *
+   * The path is resolved against *this* process's directory; the panel would resolve a relative
+   * one against its own cwd, which is a different directory and so a different file.
+   */
+  const source: RestoreSource = options.from !== undefined
+    ? { kind: 'from', path: resolveUserPath(options.from) }
+    : { kind: 'name', name: options.name ?? '' }
+  /** What to call it in the plan and the result: the file it read, name or path. */
+  const label = source.kind === 'from' ? path.basename(source.path) : source.name
+
+  // Checked here for both paths: when the panel is up *it* reads the file, so letting it answer
+  // "not a home-hosted backup" for a path that simply is not there sends the person to inspect an
+  // archive's contents instead of their typo.
+  if (source.kind === 'from' && (!fs.existsSync(source.path) || !fs.statSync(source.path).isFile()))
+    fail(`no file at ${source.path} — \`--from\` takes the path to an archive on this machine`)
 
   const service = online ? null : (await offlineBackup()).service
   if (service !== null)
@@ -575,20 +608,24 @@ export async function runBackupRestore(options: { name: string, password?: strin
   // The plan is free and always shown: it is the only way to see what a restore would overwrite.
   const plan = await (async (): Promise<RestoreOutcome | null> => {
     if (service !== null) {
-      const archive = service.resolve(options.name)
+      // `--from` names a file, so there is no allowlist entry to resolve: the path is read, and
+      // everything that decides *where* it may write still comes from the live config.
+      if (source.kind === 'from')
+        return await service.restore(source.path, { confirm: false, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined, exclude: options.exclude })
+      const archive = service.resolve(source.name)
       // The name is an *allowlist entry*, not a path: `resolve` refuses anything that is not a plain
       // archive name, so `backup restore /tmp/from-s3.zip` cannot be reached by naming the file.
-      // Say both halves — which directory the name must be in, and that a path is not a name — or
-      // the person on a blank host, holding the one archive, is told to run a command that lists
-      // nothing and to try a name they have never seen.
+      // Say both halves — which directory the name must be in, and that a path is not a name — and
+      // point at `--from`, or the person on a blank host, holding the one archive, is told to run a
+      // command that lists nothing and to try a name they have never seen.
       if (archive === null)
-        fail(`no backup named "${options.name}" in ${service.directory} — a restore takes the archive's file name, not a path; copy it there first (\`${invocation()} backup list\` shows what is there)`)
+        fail(`no backup named "${source.name}" in ${service.directory} — a restore takes the archive's file name, not a path; pass --from <path> to read the file where it is, or copy it into that directory (\`${invocation()} backup list\` shows what is there)`)
       return await service.restore(archive, { confirm: false, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined, exclude: options.exclude })
     }
     const runtime = await livePanel()
     if (runtime === null)
       fail(`the control panel is not answering — try again once it is up`)
-    const base = restoreQuery(options, scope)
+    const base = restoreQuery(source, options, scope)
     const answer = await runtime.request(runtime, `/_hh/backups/restore${suffixOf(base)}`, 120000)
     if (answer === null)
       fail(`the control panel is not answering at ${runtime.probeUrl}`)
@@ -602,7 +639,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
   const refused = planRefusal(plan)
   if (refused !== null) {
     if (options.json)
-      process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: options.name, error: refused }, null, 2)}\n`)
+      process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: label, error: refused }, null, 2)}\n`)
     fail(refused)
   }
 
@@ -619,7 +656,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
     assertKnown(scope.ids, archiveItems, '--include', 'restore')
 
   if (options.json && !options.confirm) {
-    process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: options.name, items, skipped: restoreNotes(plan) }, null, 2)}\n`)
+    process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: label, items, skipped: restoreNotes(plan) }, null, 2)}\n`)
     return
   }
 
@@ -628,8 +665,8 @@ export async function runBackupRestore(options: { name: string, password?: strin
     // written — and the plan's skips are not reprinted below, where the applied result says them
     // again with the same words.
     process.stdout.write(options.confirm
-      ? `${bold('Plan')} for ${options.name} — applying it now\n`
-      : `${bold('Plan')} for ${options.name} — nothing has been written yet\n`)
+      ? `${bold('Plan')} for ${label} — applying it now\n`
+      : `${bold('Plan')} for ${label} — nothing has been written yet\n`)
     printPlanTree(items.map(item => ({ id: item.id, note: item.note ?? null })))
     if (!options.confirm) {
       for (const note of restoreNotes(plan))
@@ -649,14 +686,17 @@ export async function runBackupRestore(options: { name: string, password?: strin
   {
     const outcome = await (async (): Promise<RestoreOutcome> => {
       if (service !== null) {
-        const archive = service.resolve(options.name)!
+        // The plan above already proved this path (or name) reads, so it is reused rather than
+        // resolved twice — and a file that vanished between the two is the service's refusal to
+        // report, not a crash.
+        const archive = source.kind === 'from' ? source.path : service.resolve(source.name)!
         const result = await service.restore(archive, { confirm: true, password: options.password, include: scope.kind === 'include' ? scope.ids : undefined, exclude: options.exclude })
         return { ...result, items: (result.items ?? []).filter(item => item.selected !== false) }
       }
       const runtime = await livePanel()
       if (runtime === null)
         fail('the control panel stopped answering — nothing further was written')
-      const base = restoreQuery(options, scope)
+      const base = restoreQuery(source, options, scope)
       const answer = await runtime.request(runtime, `/_hh/backups/restore${withParam(suffixOf(base), 'confirm', 'true')}`, 600000)
       if (answer === null)
         fail(`the control panel is not answering at ${runtime.probeUrl}`)
@@ -675,7 +715,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
     const applyRefused = planRefusal(outcome)
     if (applyRefused !== null) {
       if (options.json)
-        process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: options.name, error: applyRefused }, null, 2)}\n`)
+        process.stdout.write(`${JSON.stringify({ action: 'restore', apply: true, name: label, error: applyRefused }, null, 2)}\n`)
       fail(applyRefused)
     }
 
@@ -687,7 +727,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
       process.stdout.write(`${JSON.stringify({
         action: 'restore',
         apply: true,
-        name: options.name,
+        name: label,
         items: applied,
         hooks,
         skipped: notes,
@@ -700,7 +740,7 @@ export async function runBackupRestore(options: { name: string, password?: strin
     if (applied.length === 0)
       process.stdout.write(`${green('restored')} nothing — the archive carried no item this host can take\n`)
     else
-      process.stdout.write(`${green('restored')} ${applied.length} ${applied.length === 1 ? 'item' : 'items'} from ${options.name}\n`)
+      process.stdout.write(`${green('restored')} ${applied.length} ${applied.length === 1 ? 'item' : 'items'} from ${label}\n`)
     for (const hook of hooks)
       // "staged", not "ran": the hook runs on the entry's next start, and saying it already ran
       // would leave a person waiting for data that has not been loaded yet.
@@ -724,8 +764,12 @@ export async function runBackupRestore(options: { name: string, password?: strin
  * One builder, because the two requests must agree: a password or a selection on the plan and not on
  * the apply made the apply answer about different items than the person approved.
  */
-function restoreQuery(options: { name: string, password?: string, exclude?: string[] }, scope: Scope): URLSearchParams {
-  const base = new URLSearchParams({ name: options.name })
+function restoreQuery(source: RestoreSource, options: { password?: string, exclude?: string[] }, scope: Scope): URLSearchParams {
+  // `from` is read by the panel, so it travels in place of `name`, never as well — the same
+  // either/or the CLI itself enforces on the flags.
+  const base = source.kind === 'from'
+    ? new URLSearchParams({ from: source.path })
+    : new URLSearchParams({ name: source.name })
   if (options.password !== undefined && options.password.length > 0)
     base.set('password', options.password)
   if (scope.kind === 'include')
@@ -742,6 +786,7 @@ export const backupCommand = defineCommand({
     // action and the second the archive — the order on the command line is the order here.
     action: { type: 'positional', description: 'list (default) | create | restore', required: false },
     target: { type: 'positional', description: 'the archive name, for restore', required: false },
+    from: { type: 'string', description: 'restore from this archive file anywhere on the machine, instead of a name in the backups directory' },
     password: { type: 'string', description: 'encrypt the archive, or unlock it on restore' },
     include: { type: 'string', description: 'comma-separated item ids to act on' },
     exclude: { type: 'string', description: 'comma-separated item ids to leave out, applied after --include' },
@@ -756,6 +801,10 @@ export const backupCommand = defineCommand({
       // not anything is running, which is also what makes it testable without a panel.
       const parsed = action === 'create' || action === 'restore' ? parseScope(args.all === true, args.include) : null
       const exclude = action === 'create' || action === 'restore' ? parseExclude(args.exclude) : undefined
+      // A flag this action cannot honour is refused, not ignored: `--from` names an archive to
+      // *read*, and `list`/`create` have nothing to read one for.
+      if (action !== 'restore' && args.from !== undefined && args.from.length > 0)
+        fail(`--from is for restore — \`${invocation()} backup ${action}\` takes none`)
       if (action === 'list') {
         await runBackupList(args.json === true)
       }
@@ -770,11 +819,23 @@ export const backupCommand = defineCommand({
         })
       }
       else if (action === 'restore') {
-        if (args.target === undefined || args.target.length === 0)
-          fail('restore needs the archive name — `backup list` shows them')
-        const scope = parsed ?? await refuseWithoutScope('restore', `?name=${encodeURIComponent(args.target)}`)
+        const from = args.from !== undefined && args.from.length > 0 ? args.from : undefined
+        const name = args.target !== undefined && args.target.length > 0 ? args.target : undefined
+        // Refused before anything is looked up, like every other flag combination here: on the one
+        // command that overwrites live data, choosing one of two named archives is a guess.
+        if (from !== undefined && name !== undefined)
+          fail('pass an archive name or --from <path>, not both — they name two different archives')
+        if (from === undefined && name === undefined)
+          fail('restore needs an archive — a name (`backup list` shows them), or --from <path> for a file anywhere on this machine')
+        // The refusal that lists the ids an archive holds needs the archive, so it is named the way
+        // this run names it: a path is read, a name is resolved against the backups directory.
+        const suffix = from !== undefined
+          ? `?from=${encodeURIComponent(resolveUserPath(from))}`
+          : `?name=${encodeURIComponent(name!)}`
+        const scope = parsed ?? await refuseWithoutScope('restore', suffix)
         await runBackupRestore({
-          name: args.target,
+          ...(name === undefined ? {} : { name }),
+          ...(from === undefined ? {} : { from }),
           password: args.password,
           scope,
           exclude,

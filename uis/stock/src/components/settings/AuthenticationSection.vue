@@ -139,6 +139,15 @@ async function clearPasswordValue(): Promise<void> {
           <code>home-hosted set-token --generate</code>
         </template>
       </TransText>
+      <!-- A token outlives a password change: `setPassword()` drops sessions and never clears the
+           token. The person rotating a password is exactly who needs to know that. -->
+      <p v-if="apiTokenSet" class="mt-1">
+        <TransText k="settings.auth.apiTokenRotation">
+          <template #command>
+            <code>home-hosted set-token --generate</code>
+          </template>
+        </TransText>
+      </p>
     </Notice>
     <Notice v-if="usingDefault" tone="warn" :title="t('settings.auth.defaultPasswordTitle')">
       <TransText k="settings.auth.defaultPasswordText">

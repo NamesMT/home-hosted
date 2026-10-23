@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import type { AppDeps } from '#src/app'
+import path from 'node:path'
 import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
 import { statusForAction } from '#src/helpers/action-result'
@@ -165,24 +166,46 @@ export function createControlRoute(deps: AppDeps) {
       '/backups/restore',
       describeRoute({
         tags: ['panel'],
-        summary: 'Plan or apply a restore from a stored archive (local token required)',
+        summary: 'Plan or apply a restore from a stored archive or a file on this machine (local token required)',
         responses: { 200: { description: 'The plan', content: jsonBody(restorePlanSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404] },
       }),
       async (c) => {
         assertLocalCall(c, 'restore a backup')
         const confirm = c.req.query('confirm') === 'true'
         const name = c.req.query('name')
-        if (name === undefined || name.length === 0)
-          throw new DetailedError('name is required', { statusCode: 400, code: 'MISSING_NAME' })
-        // `resolve` is the allowlist: it refuses anything that is not a plain archive name.
-        const archive = deps.backups.resolve(name)
-        if (archive === null)
-          throw new DetailedError(`no backup named "${name}"`, { statusCode: 404, code: 'BACKUP_NOT_FOUND' })
-        // `include` narrows the restore to the named items. Dropping it silently turned a subset
-        // restore into a full one, which writes more over live data than was asked for.
+        const from = c.req.query('from')
+        // `name` (an allowlist entry in the backups directory) or `from` (a file anywhere) — exactly
+        // one. Both name the same thing, so taking one silently would be a guess on the destructive
+        // path, and `--from` is additive: a caller still passing `name` keeps the behaviour it had.
+        //
+        // `from` is a new input class, so the question "can it escape the restore allowlist" is
+        // answered here: it changes only where the bytes are *read* from. A restore writes to a
+        // staging directory it creates, then only to the paths the live config declares, and every
+        // entry is checked by `admitArchive` — so an arbitrary path cannot reach a write target that
+        // a name-in-the-directory could not. Nor does it widen who may call: the local channel needs
+        // run.json's token and a loopback peer, which is the same user who could read that file
+        // without the panel at all.
+        if (from !== undefined && from.length > 0 && name !== undefined && name.length > 0)
+          throw new DetailedError('pass name or from, not both', { statusCode: 400, code: 'NAME_AND_FROM' })
+        if (from === undefined || from.length === 0) {
+          if (name === undefined || name.length === 0)
+            throw new DetailedError('name is required', { statusCode: 400, code: 'MISSING_NAME' })
+          // `resolve` is the allowlist: it refuses anything that is not a plain archive name.
+          const archive = deps.backups.resolve(name)
+          if (archive === null)
+            throw new DetailedError(`no backup named "${name}"`, { statusCode: 404, code: 'BACKUP_NOT_FOUND' })
+          const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
+          const exclude = c.req.query('exclude')?.split(',').filter(part => part.length > 0)
+          return c.json(await deps.backups.restore(archive, { confirm, password: c.req.query('password'), include, exclude }))
+        }
+
+        // Absolute only: this process's working directory is not the caller's, so a relative path
+        // would silently read a different file than the one the person typed.
+        if (!path.isAbsolute(from))
+          throw new DetailedError('from must be an absolute path — the panel would resolve a relative one against its own directory', { statusCode: 400, code: 'FROM_NOT_ABSOLUTE' })
         const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
         const exclude = c.req.query('exclude')?.split(',').filter(part => part.length > 0)
-        return c.json(await deps.backups.restore(archive, { confirm, password: c.req.query('password'), include, exclude }))
+        return c.json(await deps.backups.restore(from, { confirm, password: c.req.query('password'), include, exclude }))
       },
     )
 }

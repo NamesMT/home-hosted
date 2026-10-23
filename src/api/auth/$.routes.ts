@@ -131,12 +131,28 @@ export function createAuthRoute(deps: AppDeps) {
       '/auth/password',
       describeRoute({
         tags: ['auth'],
-        summary: 'Clear the password and turn authentication off',
-        responses: { 200: { description: 'Cleared', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401] },
+        summary: 'Clear the password and turn authentication off (signed-in session required)',
+        responses: { 200: { description: 'Cleared', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not clear the password' } },
       }),
       (c) => {
-        if (!requestIdentity(c, deps.auth).authenticated)
+        const identity = requestIdentity(c, deps.auth)
+        if (!identity.authenticated)
           throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
+
+        /**
+         * A **session**, not merely an identity, because clearing the password is the other way
+         * authentication goes away. A bearer token must not be able to do it: `POST` refuses to
+         * rewrite a password it already has without `currentPassword` (so a stolen token cannot
+         * arm the panel), and a token that could `DELETE` instead would reach the same end —
+         * `DELETE`, then `POST` a new password with none set, needing no current one. The refusal
+         * names the two real paths, both of which the person can follow.
+         */
+        if (identity.method !== 'cookie') {
+          throw new DetailedError('clearing the panel password needs a signed-in session, not an API token — sign in at the panel, or run `home-hosted set-password --clear` on the machine', {
+            statusCode: 403,
+            code: 'SESSION_REQUIRED',
+          })
+        }
 
         const exposure = checkExposure(deps.panel.settings.control, false)
         if (exposure.exposed) {

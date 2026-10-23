@@ -360,6 +360,32 @@ describe('api tokens', () => {
     expect(auth.authenticate({ cookieToken: null, bearerToken: 'not-the-token' }).authenticated).toBe(false)
   })
 
+  /**
+   * The sentence the docs and the settings page now both say, pinned where it can go stale:
+   * `setPassword()` drops every session and never calls `clearApiToken()`, so a token on a stolen
+   * laptop keeps working after "I changed the password". Rotation is `set-token --generate`.
+   */
+  it('keeps a token working across a password rotation, which is why rotating one is a separate act', async () => {
+    const { auth, secrets } = await makeAuth()
+    const token = generateApiToken()
+    secrets.setApiToken(token)
+    auth.setPassword('a-good-password')
+
+    const outcome = auth.login('a-good-password', null)
+    if (!outcome.ok)
+      throw new Error('login failed')
+
+    auth.setPassword('a-different-password')
+    // The session it was issued under is gone…
+    expect(auth.validate(outcome.token)).toBeNull()
+    // …and the token is untouched, so it still authenticates.
+    expect(auth.authenticate({ cookieToken: null, bearerToken: token })).toMatchObject({ authenticated: true, method: 'token' })
+
+    // Rotating is the act that retires it, which is what the docs tell a person to do.
+    secrets.clearApiToken()
+    expect(auth.authenticate({ cookieToken: null, bearerToken: token }).authenticated).toBe(false)
+  })
+
   it('prefers a live session when a request carries both credentials', async () => {
     const { auth, secrets } = await makeAuth()
     secrets.setApiToken(generateApiToken())
