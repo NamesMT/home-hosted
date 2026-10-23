@@ -185,9 +185,12 @@ name, else the compose file the containers recorded — never by "every containe
 
 A published port belongs to a root-owned `docker-proxy`, so it has no pid this process may signal.
 The panel asks docker instead and names the container. Both ways of freeing a port — the **Free
-port** button (or `free-port`) and `onPortConflict: kill` — then stop that container through docker,
-needing no privileges beyond the socket you already have. Under `block` the entry is reported and the
-message names the stack to stop.
+port** button and `onPortConflict: kill` — then stop that container through docker, needing no
+privileges beyond the socket you already have. Under `block` the entry is reported and the message
+names the stack to stop.
+
+There is no `free-port` command: the button calls `POST /api/servers/:id/free-port?workspace=<id>`,
+which is what a script should call too (with the API token). The CLI covers start, stop and restart.
 
 ### When a program restarts itself
 
