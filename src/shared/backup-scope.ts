@@ -42,6 +42,25 @@ export function selectionOf(options: { include?: readonly string[], exclude?: re
   return selects
 }
 
+/**
+ * Whether a restore selection would write the panel's own credential store.
+ *
+ * `global:secrets` holds the password hash and the API token hash, so a restore that carries it can
+ * replace the credentials of the panel doing the restoring. That is a legitimate move for the owner
+ * (a fresh host taking its own archive back) and a panel takeover for anyone holding only a token:
+ * measured, a token-only upload restore left the victim's password hash byte-identical to the
+ * attacker's, and the owner locked out.
+ *
+ * The predicate exists so the guard has one definition rather than a string literal at each call
+ * site. It answers *whether* the store is touched; who may touch it is the route's decision.
+ */
+export function selectionWritesCredentials(options: { include?: readonly string[], exclude?: readonly string[] }): boolean {
+  const selects = selectionOf(options)
+  // The entry itself, any field under it, and the alias older archives may carry — all one file.
+  return selects('global:secrets')
+    || ['password', 'apiToken', 'telegram', 'ddns'].some(key => selects(`global:secrets:${key}`))
+}
+
 /** One entry of the panel's two-level capture tree, with the person's ticks on it. */
 export interface ScopeChoice {
   id: string

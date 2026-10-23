@@ -7,6 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { generateApiToken, SecretsStore } from '#src/config/secrets'
 import { missingServer } from '#src/helpers/action-result'
 import { logger } from '#src/helpers/logger'
 import { listZip } from '#src/providers/archive'
@@ -30,6 +31,19 @@ async function fixture(options?: Parameters<typeof makeFixture>[0]): Promise<Fix
 afterEach(async () => {
   for (const created of fixtures.splice(0).reverse()) await created.cleanup()
 })
+
+function setApiToken(created: Fixture, token: string): void {
+  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setApiToken(token)
+}
+
+/** Signs in and returns the cookie header a browser would send back. */
+async function signIn(created: Fixture, password: string): Promise<string> {
+  const response = await request(created.app, '/api/auth/login', 'POST', { password })
+  expect(response.status).toBe(200)
+  const setCookie = response.headers.get('set-cookie')
+  expect(setCookie).toContain('hh_session=')
+  return setCookie!.split(';')[0]!
+}
 
 async function request(app: Fixture['app'], url: string, method = 'GET', body?: unknown): Promise<Response> {
   return await app.request(url, {
@@ -839,22 +853,65 @@ describe('settings route: listener and UI upload', () => {
    * settings write: a route added while auth was on would stay served, unauthenticated.
    */
   it('refuses to disable authentication while a proxy route serves the panel', async () => {
-    const created = await fixture()
+    // A password, so the second half can sign in: switching auth off now needs a session.
+    const created = await fixture({ password: 'correct horse' })
     created.settings.updateProxy({
       enabled: true,
       routes: [{ id: 'panel', host: 'panel.lan', target: 'panel', tls: 'auto' }],
     })
 
-    const response = await request(created.app, '/api/settings', 'PATCH', { control: { auth: { enabled: false } } })
+    const cookie = await signIn(created, 'correct horse')
+    const response = await created.app.request('/api/settings', {
+      method: 'PATCH',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ control: { auth: { enabled: false } } }),
+    })
     expect(response.status).toBe(400)
     expect(await response.json()).toMatchObject({ code: 'PROXY_EXPOSURE_BLOCKED' })
     // Refused before the change lands, so nothing was written.
     expect(created.settings.control.auth.enabled).toBe(true)
 
-    // A route that does not point at the panel is still fine to leave unauthenticated.
+    // A route that does not point at the panel is still fine to leave unauthenticated — from a
+    // signed-in browser. Switching auth off needs a session (see the case below), so this sign-in
+    // is what makes the pair of refusals distinguishable: the exposure guard, then the session bar.
     created.settings.updateProxy({ routes: [{ id: 'site', host: 'site.lan', target: 'external', url: 'http://10.0.0.5:8080' }] })
-    const allowed = await request(created.app, '/api/settings', 'PATCH', { control: { auth: { enabled: false } } })
+    const allowed = await created.app.request('/api/settings', {
+      method: 'PATCH',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ control: { auth: { enabled: false } } }),
+    })
     expect(allowed.status).toBe(200)
+  })
+
+  /**
+   * The third way a token could end up holding the panel, and the cheapest.
+   *
+   * Measured with nothing but a bearer token: `PATCH {"control":{"auth":{"enabled":false}}}`
+   * answered 200, and `/api/state` then answered with no credential at all — so "rotate the password
+   * to re-secure the panel" was false. Turning auth *on* stays open to a token; that only adds
+   * protection.
+   */
+  it('refuses a token-only attempt to switch authentication off, and allows one that turns it on', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+
+    const off = await created.app.request('/api/settings', {
+      method: 'PATCH',
+      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ control: { auth: { enabled: false } } }),
+    })
+    expect(off.status).toBe(403)
+    expect(await off.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
+    // Refused before the change lands.
+    expect(created.settings.control.auth.enabled).toBe(true)
+
+    const on = await created.app.request('/api/settings', {
+      method: 'PATCH',
+      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ control: { auth: { enabled: true } } }),
+    })
+    expect(on.status).toBe(200)
   })
 
   it('rejects a UI upload with no file field', async () => {

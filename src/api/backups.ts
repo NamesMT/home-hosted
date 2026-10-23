@@ -14,7 +14,9 @@ import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { parseOrThrow } from '#src/helpers/validate'
 import { validate } from '#src/helpers/validator'
+import { requestIdentity } from '#src/middleware/auth'
 import { buildBackupsView } from '#src/services/state'
+import { selectionWritesCredentials } from '#src/shared/backup-scope'
 import { backupCreatedResponseSchema, backupCreateSchema, backupFilesResponseSchema, backupsViewSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
 
 /** Uploads are buffered in memory by `parseBody`, so they get a hard ceiling. */
@@ -201,6 +203,19 @@ export function createBackupsRoute(deps: AppDeps) {
           archive = deps.backups.resolve(request.name)
           if (archive === null)
             throw new DetailedError('unknown backup', { statusCode: 404, code: 'UNKNOWN_BACKUP' })
+        }
+
+        // A restore that writes `global:secrets` replaces the password and token hashes of *this*
+        // panel, so it needs the same bar as clearing the password: a session, not a token. Measured
+        // before this guard, a token-only upload restore left the owner locked out with the
+        // attacker's hash in the file.
+        if (confirm && selectionWritesCredentials({ include: request.include, exclude: request.exclude })) {
+          if (requestIdentity(c, deps.auth).method !== 'cookie') {
+            throw new DetailedError('restoring the panel\'s own credentials needs a signed-in session, not an API token — sign in, or run this from the machine with `home-hosted backup restore`', {
+              statusCode: 403,
+              code: 'SESSION_REQUIRED',
+            })
+          }
         }
 
         const plan = await deps.backups.restore(archive, {

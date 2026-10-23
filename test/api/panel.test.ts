@@ -602,6 +602,85 @@ describe('/_hh/backups', () => {
   })
 })
 
+/**
+ * A restore that writes `global:secrets` replaces the password and token hashes of the panel doing
+ * the restoring, so a token-only caller could hand the panel to itself.
+ *
+ * Measured end to end before this guard: an attacker archived `global:secrets` from a throwaway
+ * home, uploaded it to the victim panel with nothing but the bearer token, and the victim's
+ * `.control-secrets.json` came back byte-identical to the attacker's — the owner locked out, the
+ * attacker holding the panel. It is the same end the `DELETE`-narrowing closed, reached through a
+ * second door, which is why the bar is the same: a session, not a token.
+ */
+/** Writes a real archive into the fixture's backup directory, and answers its name. */
+async function archiveName(created: Fixture): Promise<string> {
+  const result = await created.backups.create({})
+  if (!result.ok || result.file === undefined)
+    throw new Error(`the fixture could not write an archive: ${result.error ?? 'no file'}`)
+  return result.file.name
+}
+
+describe('/api/backups restore and the credential store', () => {
+  it('refuses a token-only restore that would write global:secrets', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+    const reached: unknown[] = []
+    created.backups.restore = async (_archive, options) => {
+      reached.push(options)
+      return restorePlan({ dryRun: false, applied: ['global:secrets'] })
+    }
+    const name = await archiveName(created)
+
+    // The token does authenticate, so this cannot pass for the wrong reason.
+    expect((await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
+
+    const response = await created.app.request('/api/backups/restore?confirm=true', {
+      method: 'POST',
+      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name, include: ['global:secrets'] }),
+    })
+    expect(response.status).toBe(403)
+    const body = await response.json() as { code: string, message: string }
+    expect(body.code).toBe('SESSION_REQUIRED')
+    // The message must name a path this person can actually take.
+    expect(body.message).toContain('session')
+    expect(body.message).toContain('home-hosted backup restore')
+    // Nothing was applied: the service was never reached.
+    expect(reached).toEqual([])
+  })
+
+  it('allows the same restore when the credentials are excluded, which is the documented move', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+    created.backups.restore = async () => restorePlan({ dryRun: false, applied: ['workspace:default'] })
+    const name = await archiveName(created)
+
+    const response = await created.app.request('/api/backups/restore?confirm=true', {
+      method: 'POST',
+      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ name, exclude: ['global:secrets'] }),
+    })
+    // The whole point of `--exclude global:secrets`: a token may restore everything else.
+    expect(response.status).toBe(200)
+  })
+
+  it('lets a signed-in browser restore the credentials', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const cookie = await signIn(created, 'correct horse')
+    created.backups.restore = async () => restorePlan({ dryRun: false, applied: ['global:secrets'] })
+    const name = await archiveName(created)
+
+    const response = await created.app.request('/api/backups/restore?confirm=true', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ name, include: ['global:secrets'] }),
+    })
+    expect(response.status).toBe(200)
+  })
+})
+
 describe('/_hh/shutdown', () => {
   it('refuses a missing or wrong token', async () => {
     const created = await fixture()

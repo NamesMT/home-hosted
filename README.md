@@ -228,10 +228,12 @@ curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/servers
 home-hosted status --json        # machine-readable: running, liveness, degraded, pid, url, paths
 ```
 
-A token has the same authority as a signed-in browser and outlives restarts, with one exception:
-it cannot clear the panel password. Tokens, their scope and rotation are under
-[Security](#-security). Workspace-scoped routes take `?workspace=<id>`; omitting it means the
-panel's default workspace.
+A token has the same authority as a signed-in browser and outlives restarts, with two exceptions:
+it may not clear the panel password, and it may not restore an archive that carries the panel's own
+credentials — both of which would end with the panel armed by whoever holds the token. Treat a token
+as a password: rotate it with `set-token --generate` if it may have leaked, and see
+[Security](#-security) for the rest. Workspace-scoped routes take `?workspace=<id>`; omitting it
+means the panel's default workspace.
 
 <details>
 <summary><b>🌐 The endpoints worth knowing</b></summary>
@@ -487,12 +489,14 @@ Everything binds `127.0.0.1` until you say otherwise.
   stays signed in and one left alone for the configured lifetime does not. The login route locks out
   repeated failures per IP — see the `trustProxy` note below for when that is advisory.
 - **API tokens** for scripts and agents: `home-hosted set-token --generate` prints one once, and a
-  request proves itself with `Authorization: Bearer …` — the same access as a signed-in browser
-  **except clearing the panel password**, which needs a session: otherwise a stolen token could
-  clear the password and set its own, the one thing `currentPassword` exists to prevent. Tokens are
-  stored as a SHA-256 hash and revoked with `set-token --clear`. Changing the panel password does
-  **not** revoke a token — `set-password` signs sessions out and leaves the token working — so
-  rotate it with `set-token --generate` if one may have leaked.
+  request proves itself with `Authorization: Bearer …`. A token is **equivalent to the password**,
+  not weaker: treat it that way. Two operations need a real session, because each would otherwise
+  let a stolen token end up holding the panel — clearing the password
+  (`DELETE /api/auth/password`), and restoring an archive that carries `global:secrets`. Both answer
+  403 `SESSION_REQUIRED`, and both name the path that does work (sign in, or run the CLI on the
+  machine). Tokens are stored as a SHA-256 hash and revoked with `set-token --clear`. Changing the
+  panel password does **not** revoke a token — `set-password` signs sessions out and leaves the token
+  working — so rotate it with `set-token --generate` if one may have leaked.
 - **A forgotten password is cleared from the machine**, not over the API: `home-hosted set-password
   --clear` writes the secrets file directly, so it needs no session. Signed in, the same thing is
   *Global settings → Authentication → Clear password*, which also switches authentication off.

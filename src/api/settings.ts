@@ -15,6 +15,7 @@ import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
+import { requestIdentity } from '#src/middleware/auth'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { buildControlView } from '#src/services/state'
 import { unknownBackupIds } from '#src/shared/backup-scope'
@@ -106,6 +107,22 @@ export function createSettingsRoute(deps: AppDeps) {
       )
       if (proxyExposure !== null)
         throw new DetailedError(proxyExposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })
+
+      /*
+       * Switching authentication off is the third way a token could end up holding the panel, after
+       * clearing the password and restoring `global:secrets` — and it is the cheapest. Measured with
+       * nothing but a bearer token: `PATCH {"control":{"auth":{"enabled":false}}}` answered 200, and
+       * `/api/state` then answered with no credential at all. So it takes the same bar as those two,
+       * which is what makes "rotate the password to re-secure the panel" true.
+       *
+       * Turning it *on* stays open to a token: that only adds protection.
+       */
+      if (patch.control?.auth?.enabled === false && requestIdentity(c, deps.auth).method !== 'cookie') {
+        throw new DetailedError('switching authentication off needs a signed-in session, not an API token — sign in, or run `home-hosted set-password --clear` on the machine', {
+          statusCode: 403,
+          code: 'SESSION_REQUIRED',
+        })
+      }
 
       // A schedule scope may only name something this panel can capture.
       //
