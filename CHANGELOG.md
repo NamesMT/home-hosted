@@ -1,6 +1,57 @@
 # Changelog
 
 
+## v0.10.0
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.11...v0.10.0)
+
+### 🚀 Enhancements
+
+- **settings:** Refuse a same-entry edit two clients both made ([a40d3bf](https://github.com/NamesMT/home-hosted/commit/a40d3bf))
+- **metrics:** ⚠️  No scrape series promises a counter it is not ([880a43a](https://github.com/NamesMT/home-hosted/commit/880a43a))
+- **backup:** `restore --from <path>`, validated through the same gates as an upload ([9d15886](https://github.com/NamesMT/home-hosted/commit/9d15886))
+- **metrics:** Sample a compose stack's containers, not its wrapper ([8cd08e0](https://github.com/NamesMT/home-hosted/commit/8cd08e0))
+- **supervisor:** Measure and cap a compose entry by its containers ([9061cbd](https://github.com/NamesMT/home-hosted/commit/9061cbd))
+- **ui:** Give every control a 24px target, and a real one on touch ([037a5a9](https://github.com/NamesMT/home-hosted/commit/037a5a9))
+- **noc-console:** A phone can browse and manage the panel ([3b943be](https://github.com/NamesMT/home-hosted/commit/3b943be))
+- **control:** Free a server's port over the local channel ([95e2dd6](https://github.com/NamesMT/home-hosted/commit/95e2dd6))
+- **cli:** `free-port`, and `start --free-port` ([16894ee](https://github.com/NamesMT/home-hosted/commit/16894ee))
+
+### 🩹 Fixes
+
+- **auth:** Clearing the password needs a session, not just a token ([0dba46b](https://github.com/NamesMT/home-hosted/commit/0dba46b))
+- **auth:** ⚠️  A token cannot end up holding the panel ([3424a00](https://github.com/NamesMT/home-hosted/commit/3424a00))
+- **docker:** The panel's environment is not the entry's, and no reading is no zero ([13bfd3e](https://github.com/NamesMT/home-hosted/commit/13bfd3e))
+- **cli:** A bad --from path is a file problem, not a scope problem ([09d9dce](https://github.com/NamesMT/home-hosted/commit/09d9dce))
+- **ui:** A file input is two targets, and the button was under the floor ([3c42c6b](https://github.com/NamesMT/home-hosted/commit/3c42c6b))
+- **release:** ⚠️  The migration reaches the release body, not just git ([9632e8a](https://github.com/NamesMT/home-hosted/commit/9632e8a))
+
+### 📖 Documentation
+
+- **servers:** A compose entry's cpu and rss are the compose process ([05bc725](https://github.com/NamesMT/home-hosted/commit/05bc725))
+- Say what a compose entry's CPU and RSS are now ([2df485c](https://github.com/NamesMT/home-hosted/commit/2df485c))
+- **ui:** A phone is a client, and a scan reads a rule, not a comment ([95f8e5e](https://github.com/NamesMT/home-hosted/commit/95f8e5e))
+- Cut what repeated a fact already stated elsewhere ([256feeb](https://github.com/NamesMT/home-hosted/commit/256feeb))
+- **media:** Regenerate the tour, and fix the script that could no longer run ([8d32819](https://github.com/NamesMT/home-hosted/commit/8d32819))
+- **readme:** Make Security readable, and say what actually bites ([7c38f1a](https://github.com/NamesMT/home-hosted/commit/7c38f1a))
+- **readme:** Make Backups skimmable, and tighten the two densest sections ([0c0f18c](https://github.com/NamesMT/home-hosted/commit/0c0f18c))
+- **servers:** There is no `free-port` command, and say what to call instead ([56b700e](https://github.com/NamesMT/home-hosted/commit/56b700e))
+- `free-port` exists now, in both the CLI table and the docker paragraph ([efd9571](https://github.com/NamesMT/home-hosted/commit/efd9571))
+
+### ✅ Tests
+
+- **settings:** Pin the same-destination clash at the save boundary ([ba4a9aa](https://github.com/NamesMT/home-hosted/commit/ba4a9aa))
+
+#### ⚠️ Breaking Changes
+
+- **metrics:** ⚠️  No scrape series promises a counter it is not ([880a43a](https://github.com/NamesMT/home-hosted/commit/880a43a))
+- **auth:** ⚠️  A token cannot end up holding the panel ([3424a00](https://github.com/NamesMT/home-hosted/commit/3424a00))
+- **release:** ⚠️  The migration reaches the release body, not just git ([9632e8a](https://github.com/NamesMT/home-hosted/commit/9632e8a))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.9.11
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.10...v0.9.11)
