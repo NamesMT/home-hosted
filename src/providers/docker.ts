@@ -10,40 +10,16 @@ const execFileAsync = promisify(execFile)
 /**
  * CPU and memory of a compose project's **containers**, which the process-tree sampler cannot see.
  *
- * A compose stack is not a process tree: `docker compose up` is a wrapper, and the containers it
- * starts live in a namespace of their own, not among its descendants. Measured: a stack whose
- * container burned 99% CPU / 20.7 MB reported `cpuPercent: 0, rssBytes: 68 MB` — the wrapper — so a
- * `resources.maxRssBytes` ceiling on such an entry watched a process that never grows and could
- * never fire for a leaking container. Docker itself answers the question through its CLI, and that
- * is the portable path: Docker Desktop on macOS/Windows runs containers in a VM, so `/proc` and
- * `/sys/fs/cgroup` are not there, while `docker stats` is.
+ * A compose stack is not a process tree: `docker compose up` is a wrapper, and its containers live
+ * in another namespace. A stack burning 99% CPU reported `cpuPercent: 0` — the wrapper — so
+ * `resources.maxRssBytes` could never fire for a leaking container.
  *
- * ### Detection: what this recognizes, and what it does not
+ * Detection is deliberately narrow: `command` must be `docker` (with `compose`) or `docker-compose`.
+ * A shell that runs docker, a `docker run`, or an `envFile`-only project name is not recognized and
+ * keeps the process-tree sample, because a wrong guess attributes a stranger's containers to an
+ * entry. Attribution is by compose's own labels, never "every container on this machine".
  *
- * An entry is docker-backed only when its **`command` is docker itself** — `docker` with `compose`
- * as the subcommand, or `docker-compose`. Everything else keeps the process-tree sample:
- *
- * - `command: bash, args: ["-c", "docker compose up"]` is **not** detected. Telling it apart means
- *   parsing a shell word line, and a wrong guess attributes a stranger's containers to an entry.
- * - `docker run` is **not** detected: it starts no compose project, so there is no honest key.
- * - A stack started by podman, a script or another user is not detected.
- * - A `COMPOSE_PROJECT_NAME` arriving only through the entry's `envFile` is not seen; the tracked
- *   `env` and this process's own environment are.
- *
- * ### Attribution: the entry's own containers, never the box's
- *
- * By docker's labels, never "every container on this machine":
- *
- * - An explicit project (`-p`/`--project-name`, or `COMPOSE_PROJECT_NAME`) is matched against
- *   `com.docker.compose.project`.
- * - Otherwise the entry's **compose file** is matched against
- *   `com.docker.compose.project.config_files` — the file compose recorded when it created the
- *   containers — so two projects in one directory are still told apart.
- * - Two projects sharing that file with no explicit name is ambiguous: none is returned, and the
- *   entry keeps the process-tree sample rather than reporting another stack's numbers as its own.
- *
- * A container that outlived the wrapper (an adopted or orphaned stack) is measured all the same,
- * which is the point: the containers are the stack.
+ * See `.agentDocs/GOTCHAS.md` ("Metrics") for the measured failure and the deliberate limits.
  */
 
 /** How long a completed reading is reused. */

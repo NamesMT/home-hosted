@@ -21,20 +21,16 @@ stamps both into the built copy, and a hand-maintained one is stale the moment t
 
 ## On a phone
 
-The layout keeps the console's density below `860px`; what it changes is what it spends the width on.
+Below `860px` the density stays; what changes is where the width goes.
 
-- **The nav fits.** Below `640px` the page labels plus the workspace switcher no longer fit one row,
-  so `global settings`, `workspace settings`, `reverse proxy`, `keyboard` and `sign out` move behind
-  `more`. Above `640px` they are ordinary rows of a wrapping nav — there is no hidden horizontal
-  scroll, because a row that scrolls with no signal reads as a clipped row.
-- **Tables scroll sideways, and say so.** The identity column and the action column are pinned, with
-  an edge shadow that appears only on the side that still has content. The stacked (phone) layout
-  drops the per-row `s x r e` buttons: the same four actions sit at full size in the detail pane one
-  tap below, and four 44 px targets is half the screen.
-- **The status line keeps its live state** — connection, workspace, running count, selection. The
-  `j k` / `s` / `x` shortcut hint is hidden unless the pointer can hover, because a phone has no
-  keyboard and a narrow desktop window does.
-- **The help overlay stays** behind the `?` row in `more`; it is a reference, not a control.
+- **The nav fits.** Under `640px` the secondary pages (`global settings`, workspace settings, reverse
+  proxy, keyboard, sign out) move behind `more`; above it they wrap as ordinary rows. Never a hidden
+  horizontal scroll — a row that scrolls with no signal reads as a clipped row.
+- **Tables scroll sideways, and say so.** Identity and action columns are pinned, with an edge shadow
+  on the side that still has content. The stacked layout drops the per-row `s x r e` buttons — the
+  same four actions are full size in the detail pane one tap below.
+- **The status line keeps its live state.** The `j k` / `s` / `x` hint is hidden unless the pointer
+  can hover.
 
 Every control is at least 24 px at normal density and 44 px under a coarse pointer
 (`../tap-targets.css`, shared with the stock UI).

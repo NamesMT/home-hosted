@@ -229,10 +229,9 @@ home-hosted status --json        # machine-readable: running, liveness, degraded
 ```
 
 A token has the same authority as a signed-in browser and outlives restarts, with one exception:
-clearing the panel password needs a session, so `DELETE /api/auth/password` refuses a token. It is
-revoked instantly by `set-token --clear`, and a password change does not revoke it — rotate it with
-`set-token --generate` if it may have leaked. Workspace-scoped routes take `?workspace=<id>`; omitting
-it means the panel's default workspace.
+it cannot clear the panel password. Tokens, their scope and rotation are under
+[Security](#-security). Workspace-scoped routes take `?workspace=<id>`; omitting it means the
+panel's default workspace.
 
 <details>
 <summary><b>🌐 The endpoints worth knowing</b></summary>

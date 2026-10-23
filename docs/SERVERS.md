@@ -178,11 +178,10 @@ the project's own containers, so a busy stack reads busy and `resources.maxRssBy
 memory the containers actually use. Containers are attributed by compose's own labels — the project
 name, else the compose file the containers recorded — never by "every container on the machine".
 
-- This applies when `command` is `docker` (with `compose`) or `docker-compose`. An entry running a
-  shell that starts docker is not recognized, and keeps the process-tree reading of that shell.
-- When docker cannot be asked — the daemon is down, or nothing of the project is running — the entry
-  falls back to the process-tree reading of the wrapper it spawned. That is not the stack's figure,
-  and no number is invented: a stack with no reading shows as no reading, never `0`.
+- Only when `command` **is** docker (with `compose`, or `docker-compose`). A shell that starts docker
+  keeps the process-tree reading of that shell.
+- When docker cannot be asked — daemon down, or nothing of the project running — the entry falls back
+  to the wrapper's reading. A stack with no reading shows as no reading, never `0`.
 
 A published port belongs to a root-owned `docker-proxy`, so it has no pid this process may signal.
 The panel asks docker instead and names the container. Both ways of freeing a port — the **Free
