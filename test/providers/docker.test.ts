@@ -472,3 +472,74 @@ describe('against a real docker daemon', () => {
     }
   }, 240_000)
 })
+
+/**
+ * The panel's own environment is not the entry's.
+ *
+ * The panel often runs under compose, and inheriting its `COMPOSE_PROJECT_NAME` made that one name
+ * every entry's project: measured with two entries, both reported the *same* `cpuPercent: 199.4,
+ * rssBytes: 183500800` — each summing both stacks — and a `resources.maxRssBytes` ceiling on one
+ * fired on the other's containers. That is the "attributes a stranger's containers" failure the
+ * module exists to avoid, arriving through the panel's own env.
+ */
+describe('composeTarget and the panel environment', () => {
+  const saved = process.env.COMPOSE_PROJECT_NAME
+  afterEach(() => {
+    if (saved === undefined)
+      delete process.env.COMPOSE_PROJECT_NAME
+    else
+      process.env.COMPOSE_PROJECT_NAME = saved
+  })
+
+  it('ignores COMPOSE_PROJECT_NAME inherited from the panel process', () => {
+    process.env.COMPOSE_PROJECT_NAME = 'shared-stack'
+    const target = composeTarget({ command: 'docker', args: ['compose', 'up'], cwd: '/srv/one' })
+    // The panel's own project name must not become this entry's key.
+    expect(target?.key ?? '').not.toContain('shared-stack')
+  })
+
+  it('still honours the entry\'s own COMPOSE_PROJECT_NAME', () => {
+    const target = composeTarget({
+      command: 'docker',
+      args: ['compose', 'up'],
+      cwd: '/srv/one',
+      env: { COMPOSE_PROJECT_NAME: 'entry-own' },
+    })
+    expect(target).toEqual(expect.objectContaining({ project: 'entry-own', key: 'project:entry-own' }))
+  })
+
+  it('still honours an explicit -p over any environment', () => {
+    process.env.COMPOSE_PROJECT_NAME = 'shared-stack'
+    const target = composeTarget({
+      command: 'docker',
+      args: ['compose', '-p', 'from-flag', 'up'],
+      cwd: '/srv/one',
+      env: { COMPOSE_PROJECT_NAME: 'entry-own' },
+    })
+    expect(target?.project).toBe('from-flag')
+  })
+})
+
+/**
+ * A restarting container must not publish as an idle one.
+ *
+ * `docker stats` prints `0.00% / 0B / 0 PIDs` for a container in `Restarting`, and every field
+ * parses, so the sampler accepted it: measured, a flapping compose entry served
+ * `hh_server_rss_bytes 0` and `hh_server_cpu_percent 0` steadily while the panel reported it
+ * `running` — the zero the repo forbids, and structurally unable to trip `maxRssBytes`.
+ * `PIDs 0` is the field that distinguishes "no processes" from "idle".
+ */
+describe('a container with no processes', () => {
+  it('reports no reading rather than a zero', () => {
+    const text = JSON.stringify({ ID: 'flap', CPUPerc: '0.00%', MemUsage: '0B / 1GiB', PIDs: '0' })
+    expect(parseDockerStats(text).size).toBe(0)
+  })
+
+  it('still reads a genuinely idle container that has a process', () => {
+    // Idle is not the same as absent: this one has a pid and a real memory figure.
+    const text = JSON.stringify({ ID: 'calm', CPUPerc: '0.00%', MemUsage: '12.5MiB / 1GiB', PIDs: '1' })
+    const reading = parseDockerStats(text).get('calm')
+    expect(reading).toEqual(expect.objectContaining({ cpuPercent: 0 }))
+    expect(reading?.rssBytes).toBeGreaterThan(0)
+  })
+})

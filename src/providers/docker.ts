@@ -15,9 +15,10 @@ const execFileAsync = promisify(execFile)
  * `resources.maxRssBytes` could never fire for a leaking container.
  *
  * Detection is deliberately narrow: `command` must be `docker` (with `compose`) or `docker-compose`.
- * A shell that runs docker, a `docker run`, or an `envFile`-only project name is not recognized and
- * keeps the process-tree sample, because a wrong guess attributes a stranger's containers to an
- * entry. Attribution is by compose's own labels, never "every container on this machine".
+ * A shell that runs docker and a `docker run` are not recognized and keep the process-tree sample,
+ * because a wrong guess attributes a stranger's containers to an entry. An entry's own `env` and
+ * `envFile` **are** read; the panel's own environment is not. Attribution is by compose's own
+ * labels, never "every container on this machine".
  *
  * See `.agentDocs/GOTCHAS.md` ("Metrics") for the measured failure and the deliberate limits.
  */
@@ -169,6 +170,17 @@ export function parseDockerStats(text: string): Map<string, Omit<ComposeReading,
     // One unreadable field makes the container unmeasured; a zero there would be invented.
     if (cpuPercent === null || rssBytes === null || !Number.isInteger(processes))
       continue
+    /*
+     * A container with no processes is not idle — it is not running this stack's work.
+     *
+     * `docker stats` prints `0.00% / 0B / 0 PIDs` for one in `Restarting`, and publishing that is
+     * the zero the repo forbids: measured, a flapping entry served `hh_server_rss_bytes 0` and
+     * `hh_server_cpu_percent 0`, steady while reported `running`, indistinguishable from a real
+     * idle reading and structurally unable to trip `resources.maxRssBytes`. `PIDs 0` is the one
+     * field that says so — a live container always has at least one.
+     */
+    if (processes === 0)
+      continue
     // Docker prints a rounded human size (`1.035MiB`), so the byte value is fractional; rounded to
     // a whole byte here, so every reading has the same unit whatever produced it.
     readings.set(parsed.ID, { cpuPercent, rssBytes: Math.round(rssBytes), processes })
@@ -306,9 +318,19 @@ export function composeTarget(input: {
     return null
 
   const head = parseComposeHead(composeArgs)
-  const env = { ...process.env, ...input.env }
+  /*
+   * The entry's own environment only — **not** `process.env`.
+   *
+   * The panel itself often runs under compose, and inheriting its `COMPOSE_PROJECT_NAME` made that
+   * one name every entry's project: measured with two entries and the panel's env carrying
+   * `COMPOSE_PROJECT_NAME=shared-stack`, both reported `cpuPercent: 199.4, rssBytes: 183500800` —
+   * each summing both stacks — and a memory ceiling on one fired on the other's containers. The
+   * panel's environment is not the entry's.
+   */
   const project = head.projectName
-    ?? (env.COMPOSE_PROJECT_NAME !== undefined && env.COMPOSE_PROJECT_NAME.length > 0 ? env.COMPOSE_PROJECT_NAME : null)
+    ?? (input.env?.COMPOSE_PROJECT_NAME !== undefined && input.env.COMPOSE_PROJECT_NAME.length > 0
+      ? input.env.COMPOSE_PROJECT_NAME
+      : null)
 
   const directory = head.projectDirectory === null ? input.cwd : path.resolve(input.cwd, head.projectDirectory)
   const configFiles = head.files.length > 0
