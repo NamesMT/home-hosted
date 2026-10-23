@@ -832,6 +832,14 @@ export const backupCommand = defineCommand({
         const suffix = from !== undefined
           ? `?from=${encodeURIComponent(resolveUserPath(from))}`
           : `?name=${encodeURIComponent(name!)}`
+        // A path is a *file* question before it is a scope question: with no `--all`/`--include`,
+        // `restore --from /media/usb` used to answer "name what to act on" to someone who had
+        // already named their archive, hiding the real problem (a directory, a typo). Check the
+        // path first, so the sentence names the thing that is actually wrong.
+        // A *file*, not merely something that exists: a directory is the case this is for, and
+        // `existsSync` alone says yes to it.
+        if (from !== undefined && parsed === null && !(fs.existsSync(resolveUserPath(from)) && fs.statSync(resolveUserPath(from)).isFile()))
+          fail(`no file at ${resolveUserPath(from)} — \`--from\` takes the path to an archive on this machine`)
         const scope = parsed ?? await refuseWithoutScope('restore', suffix)
         await runBackupRestore({
           ...(name === undefined ? {} : { name }),

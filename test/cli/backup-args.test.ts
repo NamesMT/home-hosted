@@ -106,6 +106,26 @@ describe('backup flag guards', () => {
     expect(listed.output).toContain('--from is for restore')
   })
 
+  /**
+   * A path is a *file* question before it is a scope question.
+   *
+   * `restore --from /media/usb` (no `--all`, no `--include`) answered "name what to act on" to
+   * someone who had already named their archive, hiding the real problem — a directory, or a typo.
+   * Measured: the good sentence existed only one flag away, so it read as a scope mistake.
+   */
+  it('names a missing or non-file --from path before complaining about the scope', () => {
+    const missing = run(['backup', 'restore', '--from', '/definitely/not/here.zip'])
+    expect(missing.status).toBe(1)
+    expect(missing.output).toContain('no file at /definitely/not/here.zip')
+    expect(missing.output).not.toContain('name what to act on')
+
+    // A directory is the case `existsSync` alone says yes to.
+    const dir = run(['backup', 'restore', '--from', home])
+    expect(dir.status).toBe(1)
+    expect(dir.output).toContain(`no file at ${home}`)
+    expect(dir.output).not.toContain('name what to act on')
+  })
+
   it('refuses an unknown action instead of guessing', () => {
     const unknown = run(['backup', 'destroy'])
     expect(unknown.status).toBe(1)
