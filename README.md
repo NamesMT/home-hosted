@@ -494,46 +494,77 @@ the move on its first run; 0.8.0 then starts against the result.
 
 ## 🔐 Security
 
-Everything binds `127.0.0.1` until you say otherwise.
+**Safe out of the box.** The panel answers on `127.0.0.1` only. It will not listen anywhere else —
+not while the password is still the default one, not without a password, not with authentication
+switched off — and a proxy route pointing back at the panel answers to the same rule. Nothing is
+exposed until you decide it should be.
 
-- **A password is required to expose the panel.** Replace the default, then bind to `lan` — in the
-  UI, in the config, or with `--host lan`. The same guard applies in all three places.
-- **Sessions** live in memory only; the cookie is `HttpOnly` and `SameSite=Strict`, and it is an
-  **idle** timeout — every request slides both the session and the cookie, so a panel in regular use
-  stays signed in and one left alone for the configured lifetime does not. The login route locks out
-  repeated failures per IP — see the `trustProxy` note below for when that is advisory.
-- **API tokens** for scripts and agents: `home-hosted set-token --generate` prints one once, and a
-  request proves itself with `Authorization: Bearer …`. A token is **equivalent to the password**,
-  not weaker: treat it that way. Two operations need a real session, because each would otherwise
-  let a stolen token end up holding the panel — clearing the password
-  (`DELETE /api/auth/password`), and restoring an archive that carries `global:secrets`. Both answer
-  403 `SESSION_REQUIRED`, and both name the path that does work (sign in, or run the CLI on the
-  machine). Tokens are stored as a SHA-256 hash and revoked with `set-token --clear`. Changing the
-  panel password does **not** revoke a token — `set-password` signs sessions out and leaves the token
-  working — so rotate it with `set-token --generate` if one may have leaked.
-- **A forgotten password is cleared from the machine**, not over the API: `home-hosted set-password
-  --clear` writes the secrets file directly, so it needs no session. Signed in, the same thing is
-  *Global settings → Authentication → Clear password*, which also switches authentication off.
-- **Port conflicts** are named — `port 4010 is already in use (pid 4242)` — and can be resolved from
-  a confirmation popover on that banner or card. The process is looked up again at that moment,
-  never taken from the message, and anything the panel supervises is refused, not killed. A server
-  that [restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced
-  with a supervised copy.
-- **Secrets never enter the config**: the password hash and API token hash live in the global
-  `.hh/.control-secrets.json`, each workspace's Telegram bot token and DDNS credentials in its own
-  `.hh/<workspace>/.secrets.json`, all mode `0600`; the TLS pair sits in `.hh/.tls/`. DDNS credentials
-  are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET` (default `hh` — set your own).
-- **Behind a proxy** pick how far to trust it, and let `cookieSecure: auto` add `Secure` on https — or
-  upload a PEM pair and let home-hosted terminate TLS itself.
-  - **`loopback`** trusts `x-forwarded-*` only when the request came from this machine. Right for a
-    proxy on the same host: the panel gets the real client address for its lockout and the logs, and
-    a forged header from anywhere else is ignored.
-  - **on** trusts the header from *any* peer. Only when the proxy is the only way in: the client
-    address then comes from the caller's own header, so the per-IP lockout counts per *forged*
-    address and stops throttling brute force. The panel warns at startup when that combination is
-    exposed.
-  - **off** ignores the header entirely. Use it when nothing sits in front, or when the proxy does not set
-    one.
+One setting only warns: turning on **trust a proxy from any peer** while the panel is also exposed
+weakens the login lockout, and the panel says so at startup rather than refusing, because a proxy on
+another machine is a legitimate setup.
+
+<details>
+<summary><b>🛡️ The three things you actually have to do</b></summary>
+
+1. **Set your own password before you expose it.** Change it, then bind to `lan` — in the UI, in the
+   config, or with `--host lan`. All three go through the same check.
+2. **Treat an API token like the password.** It works as you, it survives restarts, and changing the
+   password does *not* revoke it. If one may have leaked, rotate it: `set-token --generate`.
+3. **If you forget the password, clear it from the machine.** `home-hosted set-password --clear`
+   edits the secrets file directly, so it needs no login — that is the way back in. Signed in, the
+   same thing is *Global settings → Authentication → Clear password*.
+
+</details>
+
+<details>
+<summary><b>🔍 The details — sessions, tokens, secrets on disk, proxies</b></summary>
+
+**Sessions.** Kept in memory only, never on disk. The cookie is `HttpOnly` and `SameSite=Strict`, and
+it is an **idle** timeout: every request slides both the session and the cookie, so a panel in regular
+use stays signed in while one left alone signs out. Repeated login failures lock out per IP — see
+*behind a proxy* below for when that is advisory.
+
+**Tokens.** `home-hosted set-token --generate` prints one once and stores only its SHA-256 hash;
+`set-token --clear` revokes it. Three operations need a signed-in session rather than a token, because
+each would otherwise let a stolen token end up holding the panel:
+
+| Operation | Instead |
+| --- | --- |
+| clearing the password | sign in, or `set-password --clear` on the machine |
+| switching authentication off | sign in |
+| restoring an archive carrying `global:secrets` | `--exclude global:secrets`, or the CLI on the machine |
+
+All three answer `403 SESSION_REQUIRED`. Commands run on the machine use the local channel, so they
+need no session.
+
+**Where secrets live.** Never in a config file — every one of these is mode `0600`:
+
+| What | Where |
+| --- | --- |
+| panel password hash, API token hash | `.hh/.control-secrets.json` |
+| each workspace's notification tokens and DDNS credentials | `.hh/<workspace>/.secrets.json` |
+| TLS certificate and key | `.hh/.tls/` |
+
+DDNS credentials are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET` (default `hh` — set your
+own) because they are the one thing replayed to a third party.
+
+**Behind a proxy.** Choose how far to trust it; `cookieSecure: auto` adds `Secure` on https, or upload
+a PEM pair and let home-hosted terminate TLS itself.
+
+| Setting | Trusts `x-forwarded-*` from | Use when |
+| --- | --- | --- |
+| `loopback` | this machine only | a proxy on the same host — real client address in logs and lockout, forged headers ignored |
+| `on` | any peer | the proxy is the only way in. **The client address is then the caller's own header**, so the per-IP lockout counts per *forged* address and stops throttling brute force; the panel warns at startup if that panel is exposed |
+| `off` | nobody | nothing in front, or the proxy sets no header |
+
+**Port conflicts.** A busy port is named — `port 4010 is already in use (pid 4242)` — and can be
+resolved from a confirmation popover. The holder is looked up again at that moment, never taken from
+the message, and anything the panel supervises is refused rather than killed. A server that
+[restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced with
+a supervised copy.
+
+</details>
+
 
 ---
 
