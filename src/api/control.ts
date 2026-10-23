@@ -14,7 +14,7 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 import { buildBackupsView } from '#src/services/state'
 import { selectionOf } from '#src/shared/backup-scope'
-import { backupCreatedResponseSchema, backupsViewSchema, okResponseSchema, restorePlanSchema } from '#src/shared/contracts'
+import { backupCreatedResponseSchema, backupsViewSchema, freePortResultSchema, okResponseSchema, restorePlanSchema } from '#src/shared/contracts'
 
 /**
  * The local control channel used by `home-hosted down` and `home-hosted start|stop`.
@@ -100,6 +100,33 @@ export function createControlRoute(deps: AppDeps) {
         assertLocalCall(c, 'restart a server')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.restart(c.req.param('id'), { actor: 'user' })
+        return c.json(result, statusForAction(result))
+      },
+    )
+
+    // The UI has had a **Free port** button; the shell could not reach it. It is a destructive
+    // action (it signals processes the panel does not own), so it is a command of its own with the
+    // same refusals rather than a flag on `start` — `start --free-port` is the convenient spelling
+    // and adds nothing to the rules.
+    .post(
+      '/servers/:id/free-port',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Free one server\'s port, without a session (local token required)',
+        responses: {
+          200: { description: 'What was signalled', content: jsonBody(freePortResultSchema) },
+          403: { description: 'Bad token, or not a local caller' },
+          404: { description: 'No such server' },
+          409: { description: 'Nothing to free, or the holder is supervised by this panel' },
+        },
+      }),
+      validate('query', workspaceQuerySchema),
+      async (c) => {
+        assertLocalCall(c, 'free a server\'s port')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.freePort(c.req.param('id'))
+        // `ok: false` carries the sentence a person acts on, and the status says which kind of
+        // failure it was — the same pair the `/api` route answers, so the two cannot disagree.
         return c.json(result, statusForAction(result))
       },
     )

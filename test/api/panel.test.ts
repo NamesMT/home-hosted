@@ -724,6 +724,55 @@ describe('/_hh/shutdown', () => {
   })
 })
 
+/**
+ * The panel's **Free port** button has always been an `/api` route; a CLI-only user had no way to
+ * reach it, which is the one situation a headless operator hits. The local channel now carries it,
+ * so `free-port` needs run.json's token and nothing else.
+ */
+describe('/_hh/servers/:id/free-port', () => {
+  const local = { 'x-home-hosted-token': 'runtime-token' }
+
+  it('frees the port over the local channel, no session needed', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    created.supervisor.freePort = async () => ({
+      ok: true,
+      port: 4010,
+      terminated: [4242],
+      forced: [],
+      skipped: [],
+      free: true,
+    })
+
+    const response = await created.app.request('/_hh/servers/web/free-port', { method: 'POST', headers: local })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, port: 4010, terminated: [4242], free: true })
+  })
+
+  it('answers the refusal with its sentence and a status that says which kind it was', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    // A held port this panel supervises: refused, never signalled.
+    created.supervisor.freePort = async () => ({
+      ok: false,
+      port: 4010,
+      terminated: [],
+      forced: [],
+      skipped: [99],
+      free: false,
+      error: 'port 4010 is held by pid 99, which this panel supervises — stop that server instead',
+    })
+
+    const response = await created.app.request('/_hh/servers/web/free-port', { method: 'POST', headers: local })
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ ok: false, skipped: [99] })
+  })
+
+  it('refuses without the local token, like every other local route', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    const response = await created.app.request('/_hh/servers/web/free-port', { method: 'POST' })
+    expect(response.status).toBe(403)
+  })
+})
+
 describe('/_hh/servers/:id/start|stop|restart', () => {
   const local = { 'x-home-hosted-token': 'runtime-token' }
 
