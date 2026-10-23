@@ -17,7 +17,7 @@ import type {
 import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
 import { sameScope } from '@shared/backup-scope'
-import { countLeaves, diffFields, mergeReplacedList } from '@shared/patch-diff'
+import { countLeaves, diffFields, mergeReplacedList, replacedListConflicts } from '@shared/patch-diff'
 import { computed } from 'vue'
 import { t } from '@/i18n'
 import { waitForEndpoint } from '@/lib/endpoint'
@@ -448,6 +448,26 @@ export function destinationsPatch(
     key: destination => destination.id,
   })
   return merged === null ? null : { destinations: merged.map(destinationWire) }
+}
+
+/**
+ * The destinations both this form and another client changed.
+ *
+ * The merge keeps a concurrent addition but cannot keep a concurrent *edit* to one entry: both
+ * sides changed it from the same baseline, so one value must lose. Rather than choose silently, the
+ * save refuses and names the entry.
+ */
+export function destinationConflicts(
+  current: DestinationStatusView[],
+  forms: DestinationForm[],
+  filled?: DestinationForm[],
+): string[] {
+  return replacedListConflicts({
+    filled,
+    draft: forms,
+    live: current.map(destinationBaseline),
+    key: destination => destination.id,
+  })
 }
 
 /**

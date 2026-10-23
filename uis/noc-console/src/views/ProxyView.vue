@@ -24,6 +24,7 @@ import {
   retryInLabel,
   ROUTE_STATUS_META,
   routeCertificate,
+  routeConflicts,
   routesPatch,
   routeUrl,
   RUN_STATE_META,
@@ -206,6 +207,15 @@ async function save(): Promise<void> {
   const patch = current === null ? null : proxyPatch(current, form.value, routes.value, filledRoutes())
   if (patch === null || saving.value || blocked.value.length > 0)
     return
+
+  // The route table is replaced, so a route both clients edited cannot carry both values.
+  const clashes = current === null ? [] : routeConflicts(current.routes, routes.value, filledRoutes())
+  if (clashes.length > 0) {
+    saveMessage.value = null
+    saveError.value = `someone else changed ${clashes.join(', ')} — reload and reapply`
+    flash(saveError.value, 'error')
+    return
+  }
 
   saving.value = true
   saveError.value = null

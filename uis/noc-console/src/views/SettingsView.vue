@@ -3,7 +3,7 @@ import type { DdnsConfig, DestinationStatusView, LogsConfig, ServerDefaults, Wor
 import type { Patch } from '@shared/patch-diff'
 import type { DraftConfig } from '@/lib/ddns'
 import { errorMessage } from '@shared/error-message'
-import { countLeaves, describeChanges, diffFields, mergeReplacedList } from '@shared/patch-diff'
+import { countLeaves, describeChanges, diffFields, mergeReplacedList, replacedListConflicts } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import DdnsPanel from '@/components/DdnsPanel.vue'
@@ -436,6 +436,20 @@ function closeChanges(): void {
 }
 
 async function saveSettings(): Promise<void> {
+  // A destination both clients edited cannot carry both values through a replaced list; refusing
+  // beats choosing silently. Same rule as the stock page, over the same three values.
+  const clashes = replacedListConflicts({
+    filled: filledDestinations(snapshots.notifications),
+    draft: form.notifications.destinations,
+    live: (selected.value?.notifications.destinations ?? []).map(destinationConfig),
+    key: entry => entry.id,
+  })
+  if (clashes.length > 0) {
+    settingsMessage.value = null
+    settingsError.value = `someone else changed ${clashes.join(', ')} — reload and reapply`
+    return
+  }
+
   saving.value = true
   settingsError.value = null
   settingsMessage.value = null

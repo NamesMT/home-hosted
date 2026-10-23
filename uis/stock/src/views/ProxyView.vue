@@ -22,6 +22,7 @@ import {
   firstPublicHost,
   proxyPatch,
   requiresEmail,
+  routeConflicts,
   routesPatch,
   toProxyRoutes,
 } from '@/lib/proxy'
@@ -172,6 +173,14 @@ async function save(): Promise<void> {
   const patch = current === null ? null : proxyPatch(current, form.value, routes.value, filledRoutes())
   if (patch === null || saving.value || blockedReasons.value.length > 0)
     return
+
+  // The route table is replaced, so a route both clients edited cannot carry both values.
+  const clashes = current === null ? [] : routeConflicts(current.routes, routes.value, filledRoutes())
+  if (clashes.length > 0) {
+    saveMessage.value = null
+    saveError.value = t('proxy.view.concurrentEdit', { ids: clashes.join(', ') })
+    return
+  }
 
   saving.value = true
   saveError.value = null

@@ -106,6 +106,43 @@ export interface ReplacedListMerge<T> {
 }
 
 /**
+ * The entries two clients both changed while this form was open.
+ *
+ * A replaced list is merged three ways, which keeps a concurrent *addition*. It cannot keep a
+ * concurrent *edit*: both sides start from the same `filled` entry and both end with a different
+ * value, so whichever the merge prefers, the other is lost without a word. This names them so the
+ * save can refuse instead of choosing.
+ *
+ * The test is three-way and needs no revision field: this form changed the entry (`draft` differs
+ * from `filled`) **and** the panel changed it (`live` differs from `filled`). A change on one side
+ * only is ordinary — an edit here, or someone else's edit landing before this form saved — and is
+ * not a conflict. `filled` absent means the list was never filled, so nothing is comparable.
+ */
+export function replacedListConflicts<T>({ filled, draft, live, key }: ReplacedListMerge<T>): string[] {
+  if (filled === undefined)
+    return []
+
+  const liveByKey = new Map(live.map(entry => [key(entry), entry]))
+  const draftByKey = new Map(draft.map(entry => [key(entry), entry]))
+
+  const clashes: string[] = []
+  for (const base of filled) {
+    const id = key(base)
+    const held = draftByKey.get(id)
+    const now = liveByKey.get(id)
+    // Removed here: this form's own intent, and the merge keeps it removed.
+    if (held === undefined)
+      continue
+    // Gone elsewhere: nothing left to clash with.
+    if (now === undefined)
+      continue
+    if (!same(base, held) && !same(base, now))
+      clashes.push(id)
+  }
+  return clashes
+}
+
+/**
  * The list to send for a replaced list, or `null` when this form changed nothing.
  *
  * The form's own edits win, an entry it **removed** stays removed, and an entry that
@@ -113,6 +150,9 @@ export interface ReplacedListMerge<T> {
  * all-or-nothing, so sending only the draft writes "the list I saw when I opened this
  * page" and silently deletes a concurrent addition. A three-way merge — what I filled,
  * what I hold, what is there now — keeps both.
+ *
+ * A concurrent edit to the *same* entry is not reconcilable here; `replacedListConflicts` names it
+ * and the caller refuses the save.
  */
 export function mergeReplacedList<T>({ filled, draft, live, key }: ReplacedListMerge<T>): T[] | null {
   if (filled === undefined || same(filled, draft))

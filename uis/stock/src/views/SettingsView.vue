@@ -16,6 +16,7 @@ import {
   createWorkspaceForm,
   defaultsPatch,
   destinationBaseline,
+  destinationConflicts,
   destinationsPatch,
   filledDestinations,
   isBlockEdited,
@@ -181,6 +182,15 @@ async function save(): Promise<void> {
   const hasWorkspacePatch = Object.keys(pending).length > 0
   if ((!hasWorkspacePatch && ddns === null) || saving.value || workspace.activeId.value.length === 0)
     return
+
+  // A replaced list cannot carry both sides of a same-entry edit, and choosing silently loses one.
+  // Refusing is the honest answer, and the merge has the three values needed to tell.
+  const clashes = destinationConflicts(destinationStatuses.value, form.destinations, filledDestinations(snapshots.notifications))
+  if (clashes.length > 0) {
+    saveMessage.value = null
+    saveError.value = t('views.settings.concurrentEdit', { ids: clashes.join(', ') })
+    return
+  }
 
   saving.value = true
   saveError.value = null

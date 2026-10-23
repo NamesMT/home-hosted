@@ -1,7 +1,7 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { serverSchema } from '#src/shared/contracts'
-import { countLeaves, describeChanges, diffFields, diffServerConfig, flattenLeaves, mergeReplacedList } from '#src/shared/patch-diff'
+import { countLeaves, describeChanges, diffFields, diffServerConfig, flattenLeaves, mergeReplacedList, replacedListConflicts } from '#src/shared/patch-diff'
 
 function config(overrides: Record<string, unknown> = {}) {
   const parsed = serverSchema({ id: 'web', command: 'node', port: 4000, ...overrides })
@@ -235,5 +235,140 @@ describe('mergeReplacedList — a replaced list survives a concurrent save', () 
   it('never sends a list the form was not filled with', () => {
     // A block that was never filled holds `[]`; sending that replaces the list with nothing.
     expect(mergeReplacedList({ filled: undefined, draft: [], live: [{ id: 'alpha' }], key })).toBeNull()
+  })
+})
+
+/**
+ * The half a three-way merge cannot fix: two clients editing the *same* entry.
+ *
+ * The merge keeps a concurrent addition and honours a removal, but when both sides changed one
+ * entry from the same baseline, one value must lose — and it lost silently. Measured with two
+ * browser tabs on one workspace settings page: each tab edited the same destination, the later save
+ * won, and the earlier edit was gone with nothing said.
+ *
+ * The predicate names the clash so the save can refuse. Every case below is a *different answer* to
+ * "is this a conflict", which is what makes the three-way test worth having rather than a plain
+ * "does the draft differ from live".
+ */
+describe('replacedListConflicts — a same-entry clash is named, not silently resolved', () => {
+  const key = (entry: { id: string, label?: string }): string => entry.id
+
+  it('names an entry both sides changed from the same baseline', () => {
+    expect(replacedListConflicts({
+      filled: [{ id: 'alpha', label: 'A' }],
+      draft: [{ id: 'alpha', label: 'mine' }],
+      live: [{ id: 'alpha', label: 'theirs' }],
+      key,
+    })).toEqual(['alpha'])
+  })
+
+  it('says nothing when only this form changed the entry', () => {
+    // The ordinary edit: the panel still holds the baseline.
+    expect(replacedListConflicts({
+      filled: [{ id: 'alpha', label: 'A' }],
+      draft: [{ id: 'alpha', label: 'mine' }],
+      live: [{ id: 'alpha', label: 'A' }],
+      key,
+    })).toEqual([])
+  })
+
+  it('says nothing when only another client changed it', () => {
+    // Their save landed before this form was touched, so the form is simply stale — merging the
+    // form's unchanged entry is the right answer, not a refusal.
+    expect(replacedListConflicts({
+      filled: [{ id: 'alpha', label: 'A' }],
+      draft: [{ id: 'alpha', label: 'A' }],
+      live: [{ id: 'alpha', label: 'theirs' }],
+      key,
+    })).toEqual([])
+  })
+
+  it('does not call a concurrent removal or addition a conflict', () => {
+    // Removed here: this form's intent, and the merge keeps it removed.
+    expect(replacedListConflicts({
+      filled: [{ id: 'alpha' }, { id: 'beta' }],
+      draft: [{ id: 'beta' }],
+      live: [{ id: 'alpha' }, { id: 'beta' }],
+      key,
+    })).toEqual([])
+    // Removed elsewhere: nothing left to clash with.
+    expect(replacedListConflicts({
+      filled: [{ id: 'alpha' }, { id: 'beta' }],
+      draft: [{ id: 'alpha', label: 'mine' }, { id: 'beta' }],
+      live: [{ id: 'beta' }],
+      key,
+    })).toEqual([])
+    // Added elsewhere while this form edited the list: the merge keeps both.
+    expect(replacedListConflicts({
+      filled: [{ id: 'alpha' }],
+      draft: [{ id: 'alpha', label: 'mine' }],
+      live: [{ id: 'alpha' }, { id: 'gamma' }],
+      key,
+    })).toEqual([])
+  })
+
+  it('reports every clashing entry, not just the first', () => {
+    expect(replacedListConflicts({
+      filled: [{ id: 'alpha', label: 'A' }, { id: 'beta', label: 'B' }],
+      draft: [{ id: 'alpha', label: 'm1' }, { id: 'beta', label: 'm2' }],
+      live: [{ id: 'alpha', label: 't1' }, { id: 'beta', label: 't2' }],
+      key,
+    })).toEqual(['alpha', 'beta'])
+  })
+
+  it('never reports a conflict for a list the form was never filled with', () => {
+    expect(replacedListConflicts({ filled: undefined, draft: [], live: [{ id: 'alpha' }], key })).toEqual([])
+  })
+
+  it('treats an unset field as equal to one the panel omits', () => {
+    // `same()` normalizes away null/undefined members, so a form that carries `label: undefined`
+    // and a config that omits `label` are the same value — not a change on either side.
+    expect(replacedListConflicts({
+      filled: [{ id: 'alpha' }],
+      draft: [{ id: 'alpha', label: undefined }],
+      live: [{ id: 'alpha' }],
+      key,
+    })).toEqual([])
+  })
+})
+
+/**
+ * `routeConflicts` is the same rule over the proxy's route table.
+ *
+ * The proxy page replaces its routes the same way the destinations list is replaced, so it has the
+ * same unreconcilable case. This pins that it is the *shared* predicate and not a second rule that
+ * will drift: the cases mirror `replacedListConflicts` through the route shape.
+ */
+describe('routeConflicts', () => {
+  /** The route shape the proxy form edits; `key` is what the draft adds on top. */
+  const route = (id: string, host: string) => ({
+    id,
+    host,
+    enabled: true,
+    target: 'server' as const,
+    workspace: 'default',
+    server: 'web',
+    url: '',
+    path: '',
+    tls: 'auto' as const,
+    dnsAccount: '',
+  })
+  const draft = (id: string, host: string) => ({ ...route(id, host), key: id })
+
+  it('names a route both sides moved, through the wire form', async () => {
+    const { routeConflicts } = await import('#src/shared/proxy-form')
+    expect(routeConflicts([route('site', 'theirs.example.com')], [draft('site', 'mine.example.com')], [route('site', 'a.example.com')]))
+      .toEqual(['site'])
+  })
+
+  it('says nothing for a route only this form changed', async () => {
+    const { routeConflicts } = await import('#src/shared/proxy-form')
+    const base = [route('site', 'a.example.com')]
+    expect(routeConflicts(base, [draft('site', 'mine.example.com')], base)).toEqual([])
+  })
+
+  it('says nothing when the form was never filled, because nothing is comparable', async () => {
+    const { routeConflicts } = await import('#src/shared/proxy-form')
+    expect(routeConflicts([route('site', 'a.example.com')], [], undefined)).toEqual([])
   })
 })

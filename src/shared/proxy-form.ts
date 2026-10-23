@@ -1,7 +1,7 @@
 import type { ProxyCertificateView, ProxyConfig, ProxyPatch, ProxyRoute, ProxyRoutePatch } from './contracts'
 import { type } from 'arktype'
 import { proxyRouteSchema } from './contracts'
-import { mergeReplacedList } from './patch-diff'
+import { mergeReplacedList, replacedListConflicts } from './patch-diff'
 
 /**
  * The reverse-proxy form, shared by both UIs: the route draft the table edits, the patch a save
@@ -290,6 +290,27 @@ export function routesPatch(
     key: route => route.id,
   })
   return merged
+}
+
+/**
+ * The routes both this form and another client changed, so the save can refuse instead of choosing.
+ *
+ * Same rule as `destinationConflicts`: a three-way merge keeps a concurrent addition but cannot keep
+ * a concurrent edit to one route, because both sides moved it off the same baseline.
+ */
+export function routeConflicts(
+  current: readonly ProxyRoute[],
+  drafts: readonly RouteDraft[],
+  filled?: readonly ProxyRoute[],
+): string[] {
+  if (filled === undefined)
+    return []
+  return replacedListConflicts({
+    filled: filled.map(toRouteWire),
+    draft: toProxyRoutes(drafts),
+    live: current.map(toRouteWire),
+    key: route => route.id,
+  })
 }
 
 export function sameWire(a: ProxyRoute, b: ProxyRoute): boolean {
