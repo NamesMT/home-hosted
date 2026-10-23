@@ -114,7 +114,8 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A metric with no reading is absent, never zero.** A scrape has no page to qualify a number, so an
   alerted-on gauge published as `0` from an unsampled view is indistinguishable from a healthy one
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
-  suffix `_total` a value that a user action resets.
+  suffix `_total` a value that a user action resets — no series here is a counter, and
+  `test/api/panel.test.ts` enumerates the scrape and fails on a `_total` name or a `counter` type.
 - **Name the cause the fix follows, not the one the code path suggests.** Node reports a missing
   working directory and a missing program with the same `ENOENT`, so `describeSpawnError` checks the
   resolved `cwd` **and** whether the field holds a whole command line before it blames the command —

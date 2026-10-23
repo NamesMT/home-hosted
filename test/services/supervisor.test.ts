@@ -400,6 +400,34 @@ describe('supervisor', () => {
   })
 
   /**
+   * The crash budget is reset by a start someone asked for, which is why no series carrying it may
+   * be named `_total`.
+   *
+   * `hh_server_restarts_total` was published as a counter while this reset made it fall (`2` → `0`,
+   * measured), so `rate()` saw a phantom counter reset each time an operator touched the entry. The
+   * series is `hh_server_restarts` now; this pins the fact that forced the rename, at the level
+   * that owns the value, so a later "make it monotonic" cannot land without failing here.
+   */
+  it('resets the crash-sequence budget when a start someone asked for ends the sequence', async () => {
+    const { supervisor } = await makeSupervisor([{
+      id: 'boom',
+      command: process.execPath,
+      args: ['-e', 'process.exit(3)'],
+      restart: { maxRetries: 2, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+      health: { enabled: false },
+    }])
+
+    await supervisor.start('boom')
+    await waitFor(() => view(supervisor, 'boom').status === 'crashed')
+    expect(view(supervisor, 'boom').restarts, 'the crash sequence spent its budget').toBe(2)
+
+    // A click on Start, not a retry: `Supervisor.start()` resets the budget for an actor that is
+    // not the panel's own policy. It is a new sequence, so the value goes down.
+    await supervisor.start('boom', { actor: 'user' })
+    expect(view(supervisor, 'boom').restarts, 'a start someone asked for begins a new sequence').toBe(0)
+  })
+
+  /**
    * An argument that expands from the environment must not reach the log.
    *
    * `resolveSpawn` expands `args` for the child but keeps `loggedArgs` pre-expansion, and that is

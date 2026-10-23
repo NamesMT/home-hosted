@@ -42,6 +42,22 @@ either is a last resort, and never an accidental one.
   an older payload for a while, and a required field there rejects the whole frame. Request bodies and
   config keep their strict, defaulted shape.
 
+## The metrics scrape
+
+`/api/metrics` is a published surface nothing in this repo consumes, so a rename there has no
+compatible form: the old series simply stops existing. That makes it a **minor**, with the migration
+in the release notes and in `README.md`'s scrape section.
+
+- **A Prometheus series name is an API.** `_total` is Prometheus' word for monotonic, so a value a
+  manual action resets may never carry it — the name is a promise `rate()` acts on. Rename rather than
+  reinterpret: the scrape publishes `hh_server_restarts` and `hh_servers` now, and a dashboard or
+  alert on either old name goes quiet until it is updated.
+- **No series here is a counter.** Every value is a snapshot that a stop, a delete or a manual start
+  can lower, which is why every `# TYPE` is `gauge`; a scrape test enumerates the names and fails on a
+  `_total` or a `counter`.
+- **A reset a series cannot express belongs in its HELP.** A scrape has no page to explain itself, so
+  `hh_server_restarts`'s HELP says a start someone asked for resets it to `0`.
+
 ## Migrations
 
 - They **ship inside the package** (`src/config/migrations.ts`), are ordered, idempotent and
