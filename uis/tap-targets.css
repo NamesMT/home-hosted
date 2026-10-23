@@ -42,7 +42,15 @@ button:not([role='switch']),
 select,
 textarea,
 a,
-input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']) {
+input:not([type='checkbox']):not([type='radio']):not([type='range']) {
+  min-height: var(--hh-tap);
+}
+
+/* A file input renders a `::file-selector-button` that is the actual target, and at 19 px it was
+   the one control the floor missed (measured at 390 px: 366×19 in noc-console, 328×39.6 in stock).
+   Both parts take it, so the whole control is tappable rather than the strip beside it. */
+input[type='file'],
+input[type='file']::file-selector-button {
   min-height: var(--hh-tap);
 }
 

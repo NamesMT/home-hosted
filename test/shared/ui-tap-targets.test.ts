@@ -116,3 +116,22 @@ describe('every control has a thumb-sized target', () => {
     expect(css).toMatch(/\.btn--icon/)
   })
 })
+
+/**
+ * A file input is two targets, and the smaller one is the button.
+ *
+ * The floor's first version excluded `input[type='file']`, so the one control whose *button* is the
+ * only thing to tap was the only one under the bar — measured at 390 px with a coarse pointer:
+ * 366×19 in noc-console, 328×39.6 in stock. `::file-selector-button` cannot be measured by
+ * happy-dom, so it is pinned as the shape that produces the size.
+ */
+describe('the file input', () => {
+  const floor = read(floorPath)
+
+  it('is covered by the floor, and so is its selector button', () => {
+    expect(floor).toContain('input[type=\'file\']')
+    expect(floor).toContain('::file-selector-button')
+    // It must not be excluded from the generic rule any more — that exclusion is the defect.
+    expect(floor).not.toMatch(/input:not\(\[type='checkbox'\]\).*not\(\[type='file'\]\)/)
+  })
+})

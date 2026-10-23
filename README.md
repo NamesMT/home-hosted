@@ -459,9 +459,23 @@ or a config whose schema is newer than the running release stops `up` with the e
 than starting with defaults that quietly differ from your file. Fix the file, or install the release
 that wrote it.
 
-**A dashboard on `/api/metrics` is the one thing `migrate` cannot fix.** Two series were renamed in
-the release that made every metric honest about being a gauge — see *Scraping it* under the API
-section for the old names and the queries to change.
+### Two things `migrate` cannot fix
+
+`migrate` moves a config file. Two changes in this release are *outside* the config, so read these
+before upgrading — a stale one fails quietly, which is the worst way to fail.
+
+**A dashboard on `/api/metrics`.** Two series were renamed in the release that made every metric
+honest about being a gauge: `hh_server_restarts_total` is now `hh_server_restarts`, and
+`hh_servers_total` is now `hh_servers`. The old names are not published, so a query still on one
+shows *no data* rather than a stale number. Compare the gauge directly (`hh_server_restarts > 2`);
+do not wrap it in `rate()`/`increase()`, because a start you asked for resets it.
+
+**A script that holds only an API token.** Three operations now require a signed-in session, because
+each would otherwise let a stolen token end up holding the panel: clearing the password, switching
+authentication off, and restoring an archive that carries `global:secrets`. Each answers 403
+`SESSION_REQUIRED`. Scripts should either sign in first, pass `--exclude global:secrets` to a
+restore, or run the command on the machine (`home-hosted set-password --clear`,
+`home-hosted backup restore`, which both go through the local channel).
 
 ### Coming from 0.6.x
 
