@@ -340,11 +340,12 @@ describe('metrics', () => {
 
     const text = await response.text()
     expect(text).toContain('hh_control_up 1')
-    expect(text).toContain('hh_servers_total 2')
+    // A count of what is configured now, not a running total: `_total` is absent on purpose.
+    expect(text).toContain('hh_servers 2')
     // A server id repeats across workspaces, so every sample names both.
     expect(text).toContain('hh_server_up{server="web",workspace="default"} 1')
     expect(text).toContain('hh_server_up{server="idle",workspace="default"} 0')
-    expect(text).toContain('hh_server_restarts_total{server="web",workspace="default"} 2')
+    expect(text).toContain('hh_server_restarts{server="web",workspace="default"} 2')
     expect(text).toContain('hh_server_response_ms{server="web",workspace="default"} 12')
     expect(text).toContain('hh_server_rss_bytes{server="web",workspace="default"} 1024')
     expect(text).toContain('hh_server_cpu_percent{server="web",workspace="default"} 3.5')
@@ -353,6 +354,82 @@ describe('metrics', () => {
     expect(text).not.toContain('hh_server_response_ms{server="idle"')
     expect(text).not.toContain('hh_server_rss_bytes{server="idle"')
     expect(text).not.toContain('hh_server_uptime_ratio_24h')
+  })
+
+  /**
+   * A `_total` suffix is a promise, and this scrape keeps none of it.
+   *
+   * `hh_server_restarts_total` read as a counter — Prometheus' word for "monotonic since the
+   * process started" — while its value is the budget spent on the *current* crash sequence, which
+   * a start someone asked for resets to `0` (measured `2` → `0`). `rate()` over it therefore saw a
+   * phantom counter reset on every operator touch, and `increase()` answers a number that never
+   * happened. The rename fixed that instance; this is the class: the panel publishes snapshots,
+   * not counters, so **no** series name may end in `_total` and **no** `# TYPE` may say `counter`.
+   */
+  it('publishes no series whose name promises a monotonic counter', async () => {
+    const created = await fixture({
+      views: [makeView('web', {
+        status: 'running',
+        restarts: 2,
+        responseMs: 12,
+        resources: { rssBytes: 1024, cpuPercent: 3.5, processes: 1, sampledAt: 0 } as never,
+      })],
+    })
+    // Publish the host gauges too, so the whole scrape is on the wire, not only its per-server half.
+    const view = created.panel.getState().host
+    vi.spyOn(created.panel, 'getState').mockReturnValue({
+      ...created.panel.getState(),
+      host: { ...view, sampledAt: 1, cpus: 8, cpuUsedPercent: 5, memoryUsedPercent: 40, swapUsedPercent: 1, loadAvg: [1, 1, 1], disks: [{ path: '/', totalBytes: 100, freeBytes: 50, usedPercent: 50 }] },
+    })
+
+    const text = await (await created.app.request('/api/metrics')).text()
+    const names = [...text.matchAll(/^# (?:HELP|TYPE) (\w+)/gm)].map(match => match[1]!)
+    // Anti-vacuity: the scrape has to be the full one for "no counter" to mean anything.
+    expect(names.length, `scrape carried no series: ${text}`).toBeGreaterThan(10)
+
+    for (const name of names) {
+      expect(name, `${name} ends in _total, which promises a counter Prometheus can rate()`).not.toMatch(/_total$/)
+      expect(text, `${name} is declared a counter, but every value here is a snapshot`).not.toMatch(new RegExp(`^# TYPE ${name} counter$`, 'm'))
+    }
+    expect(text).toContain('# TYPE hh_server_restarts gauge')
+  })
+
+  /**
+   * The suffix cannot carry the reset, so the HELP has to.
+   *
+   * A dashboard author reads the scrape, not the README: the exposition format puts the contract
+   * beside the number, which is exactly where "a start someone asked for resets it to 0" has to be.
+   */
+  it('says in the HELP that a start someone asked for resets the restarts series', async () => {
+    const created = await fixture({ views: [makeView('web', { restarts: 2 })] })
+    const text = await (await created.app.request('/api/metrics')).text()
+
+    const help = text.split('\n').find(line => line.startsWith('# HELP hh_server_restarts '))
+    expect(help, 'the renamed series must be published with HELP text').toBeDefined()
+    expect(help).toContain('resets')
+    expect(help).toContain('0')
+    // The old name is gone from the scrape, not merely beside the new one.
+    expect(text).not.toContain('hh_server_restarts_total')
+  })
+
+  /**
+   * And here is the fact that makes a `_total` name impossible for it: a manual start moves the
+   * value backwards. The supervisor half is pinned where the reset happens
+   * (`test/services/supervisor.test.ts`); this half pins that the route publishes the value as it
+   * is — no clamping, no counter emulation in the scrape — so a later "make it monotonic here"
+   * fails as well.
+   */
+  it('publishes the restarts value as it is when a start someone asked for ends the sequence', async () => {
+    const created = await fixture({ views: [makeView('web', { restarts: 2 })] })
+    const before = await (await created.app.request('/api/metrics')).text()
+    expect(before).toContain('hh_server_restarts{server="web",workspace="default"} 2')
+
+    // What `Supervisor.start()` does for a start someone asked for: `entry.restarts = 0`.
+    const views = created.supervisor.views()
+    views.splice(0, views.length, makeView('web', { restarts: 0 }))
+
+    const after = await (await created.app.request('/api/metrics')).text()
+    expect(after).toContain('hh_server_restarts{server="web",workspace="default"} 0')
   })
 
   /**

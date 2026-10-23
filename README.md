@@ -262,10 +262,19 @@ default workspace.
 `hh_host_load1_per_cpu` beside it is a **count of runnable tasks per core**, not a percentage:
 `1.0` means one core's worth of work waiting, so it is fine on a busy box and not comparable with the
 percentage above. A host gauge appears only once the host has been sampled, so a series that is
-*absent* means "no reading", never "zero": do not let a dashboard fill that in. `hh_server_restarts_total`
+*absent* means "no reading", never "zero": do not let a dashboard fill that in. `hh_server_restarts`
 counts the retry attempts spent on a server's **current** crash sequence and drops back to `0` when
 someone starts it, so it is a state, not a counter to `rate()` — `hh_server_crashes_24h` is the one
-that only grows within its window.
+that only grows within its window. No series here is a Prometheus counter: every one is a snapshot a
+stop, a delete or a manual start can lower, so no name ends in `_total`.
+
+> **Upgrading from 0.9.x — a dashboard needs one edit.** The series formerly named
+> `hh_server_restarts_total` is now `hh_server_restarts` (a gauge, unchanged in meaning and labels).
+> It was never a valid counter: a start you asked for reset it to `0`, so `rate()` reported a phantom
+> counter reset. Replace every query on `hh_server_restarts_total` with `hh_server_restarts`, and use
+> the gauge directly (`hh_server_restarts > 2`) rather than `rate()`/`increase()`. The count series
+> `hh_servers_total` is now `hh_servers` for the same reason. Old dashboards will show *no data*
+> for those two series after the upgrade — the panel publishes neither old name.
 
 `GET /openapi/spec.json` describes all of it, `/openapi/ui` is the browsable version, and every error
 comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on. The
@@ -446,6 +455,10 @@ What it will not do is run a config it cannot read. A wrong value, a duplicate i
 or a config whose schema is newer than the running release stops `up` with the exact problem, rather
 than starting with defaults that quietly differ from your file. Fix the file, or install the release
 that wrote it.
+
+**A dashboard on `/api/metrics` is the one thing `migrate` cannot fix.** Two series were renamed in
+the release that made every metric honest about being a gauge — see *Scraping it* under the API
+section for the old names and the queries to change.
 
 ### Coming from 0.6.x
 

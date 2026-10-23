@@ -38,6 +38,11 @@ export function createMetricsRoute(deps: AppDeps) {
       const host = deps.panel.getState().host
       const lines: string[] = []
 
+      /*
+       * Nothing here is a counter: every value is a snapshot a stop, a delete or a manual start
+       * can lower. A name must therefore never end in `_total`, which is Prometheus' word for
+       * "monotonically increasing since the process started" — the scrape test fails on one.
+       */
       const metric = (name: string, help: string, samples: string[]): void => {
         if (samples.length === 0)
           return
@@ -45,20 +50,24 @@ export function createMetricsRoute(deps: AppDeps) {
       }
 
       metric('hh_control_up', 'Control plane is serving', ['hh_control_up 1'])
-      metric('hh_servers_total', 'Configured servers', [`hh_servers_total ${servers.length}`])
+      // Adding or removing an entry moves this either way, so it is a count of what is configured
+      // now — not a running total.
+      metric('hh_servers', 'Configured servers', [`hh_servers ${servers.length}`])
 
       const up = servers.map(server => `hh_server_up{${labels(server)}} ${server.status === 'running' ? 1 : 0}`)
       metric('hh_server_up', 'Server process is running', up)
 
       /*
        * `restarts` is the retry budget spent on the **current** crash sequence, which a start
-       * someone asked for resets to zero (`Supervisor.start()`); the old help said "since the
-       * control plane started", which was never true. The `_total` suffix therefore still invites
-       * `rate()`, and a value a user resets cannot answer that faithfully — `hh_server_crashes_24h`
-       * is the monotonic one (README, "Scraping it").
+       * someone asked for resets to zero (`Supervisor.start()`). It was published as
+       * `hh_server_restarts_total`; the `_total` suffix promises Prometheus' counter contract, and a
+       * value an operator can reset makes `rate()` see a phantom reset (measured `2` → `0`). The
+       * name carries no suffix now, and the HELP says the reset out loud so a dashboard author
+       * reading only the scrape knows why `rate()` is the wrong query. `hh_server_crashes_24h` is
+       * the series that only grows inside its window.
        */
-      const restarts = servers.map(server => `hh_server_restarts_total{${labels(server)}} ${server.restarts}`)
-      metric('hh_server_restarts_total', 'Restart attempts spent on the current crash sequence, reset by a start someone asked for', restarts)
+      const restarts = servers.map(server => `hh_server_restarts{${labels(server)}} ${server.restarts}`)
+      metric('hh_server_restarts', 'Restart attempts spent on the current crash sequence; a start someone asked for resets it to 0', restarts)
 
       const crashes = servers.map(server => `hh_server_crashes_24h{${labels(server)}} ${server.history.crashes}`)
       metric('hh_server_crashes_24h', 'Crashes in the last 24 hours', crashes)

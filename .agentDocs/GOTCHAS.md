@@ -164,11 +164,15 @@ line in `AGENTS.md` instead.
   per-server ones already followed. The same round found the scrape had never published
   `cpuUsedPercent` at all, so the **only** host CPU figure a dashboard could reach was the load
   count — a different unit, which the UI section above had already fixed for the page.
-- **A `_total` that can go down is not a counter.** `hh_server_restarts_total` is the retry budget
+- **A `_total` that can go down is not a counter.** `hh_server_restarts_total` was the retry budget
   spent on a server's *current* crash sequence, and a start someone asked for resets it to `0`
-  (measured: `2` → `0` on a manual start), so `rate()` sees a counter reset every time an operator
-  touches the entry. Its HELP text claimed "since the control plane started", which was never true.
-  Pinned by the label the README now gives: `hh_server_crashes_24h` is the monotonic one.
+  (measured: `2` → `0` on a manual start), so `rate()` saw a counter reset every time an operator
+  touched the entry; its HELP text had also claimed "since the control plane started", which was
+  never true. The name *was* the lie, so it went: the series is `hh_server_restarts` now, and the
+  HELP says a manual start resets it. The audit for the same defect found `hh_servers_total`, which
+  is the configured-entry **count** — adding or removing an entry moves it down — so it is
+  `hh_servers`. Nothing in `/api/metrics` is a counter: every value is a snapshot, which is why the
+  scrape test enumerates the names and fails any `_total` or `# TYPE … counter`.
 
 ## Config
 
