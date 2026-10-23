@@ -40,4 +40,31 @@ let end = lines.findIndex((line, index) => index > start && nextHeading.test(lin
 if (end === -1)
   end = lines.length
 
-process.stdout.write(`${lines.slice(start + 1, end).join('\n').trim()}\n`)
+const changelog = lines.slice(start + 1, end).join('\n').trim()
+
+/**
+ * The migration section for this version, when there is one.
+ *
+ * The CHANGELOG is derived from commit subjects, so it names *what changed* and never *what to do
+ * about it* — a `fix(auth):` line with no `!` does not even read as breaking, and a BREAKING CHANGE
+ * footer's prose stays in git. A release body is what most people read, so the migration is lifted
+ * from `.agentDocs/UPGRADING.md` and put above the commit list rather than left behind.
+ */
+function migrationSection(version) {
+  const upgrading = path.join(fileURLToPath(new URL('..', import.meta.url)), '.agentDocs', 'UPGRADING.md')
+  if (!fs.existsSync(upgrading))
+    return null
+  const source = fs.readFileSync(upgrading, 'utf8').split(/\r\n|\r|\n/)
+  const heading = new RegExp(`^##\\s+v?${version.replace(/\./g, '\\.')}\\s*$`)
+  const from = source.findIndex(line => heading.test(line))
+  if (from === -1)
+    return null
+  const to = source.findIndex((line, index) => index > from && /^##\s/.test(line))
+  const body = source.slice(from + 1, to === -1 ? source.length : to).join('\n').trim()
+  return body.length === 0 ? null : body
+}
+
+const migration = migrationSection(version)
+process.stdout.write(migration === null
+  ? `${changelog}\n`
+  : `## Upgrading\n\n${migration}\n\n---\n\n${changelog}\n`)

@@ -51,6 +51,17 @@ known majors from its own review and was patched as 0.9.1 ninety minutes later.
 So the pre-dispatch check is: read the review's findings list top to bottom and account for every
 line. "Addressed in a follow-up" is only true if the user chose the follow-up.
 
+## The migration reaches the release body, not just git
+
+`CHANGELOG.md` is derived from commit subjects, so it names *what changed* and never *what a person
+must do about it*. Two failures follow from relying on it: a `fix(auth):` commit with no `!` is not
+even listed as breaking, and a `BREAKING CHANGE:` footer's prose stays in git.
+
+So the migration lives in `.agentDocs/UPGRADING.md`, one `## <version>` section, and
+`scripts/release-notes.mjs` lifts that section above the commit list when building the release body.
+Write it when the release needs it and skip it when it does not — a version with no section ships
+the changelog alone.
+
 ## Which version to dispatch
 
 Below 1.0 the **minor is the breaking channel**: a fix or non-breaking feature is a **patch**, while a
