@@ -387,8 +387,9 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
 | `home-hosted restart` | `down`, then `up` — or `restart <id>` to restart one server, leaving the panel up |
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts). Edge cases are under [what `status` tells you](#-cli). |
-| `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`) |
+| `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`). `--free-port` frees the port first, then starts |
 | `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
+| `home-hosted free-port <id>` | ask whatever holds that server's port to stop — the panel's **Free port** button. Anything this panel supervises is refused, not signalled (`--workspace <id>`) |
 | `home-hosted restart <id>` | restart one server, nothing else (`--workspace <id>`) — the same as the panel's per-server Restart |
 | `home-hosted logs` | read the panel's own console output — the file `up` redirects it into (`--lines`, `--follow`, `--json`) |
 | `home-hosted backup` | list, create or restore an archive — **without the panel running** (`--password`, `--include`, `--exclude`). See [Backups](#-backups) and [RESTORE_DEMO.md](./docs/RESTORE_DEMO.md) |

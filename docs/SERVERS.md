@@ -189,8 +189,9 @@ port** button and `onPortConflict: kill` — then stop that container through do
 privileges beyond the socket you already have. Under `block` the entry is reported and the message
 names the stack to stop.
 
-There is no `free-port` command: the button calls `POST /api/servers/:id/free-port?workspace=<id>`,
-which is what a script should call too (with the API token). The CLI covers start, stop and restart.
+From a shell it is `home-hosted free-port <id>` (or `start <id> --free-port` to free and start in one
+go); a script driving the HTTP API calls `POST /api/servers/:id/free-port?workspace=<id>` with the
+API token, which is the route the button itself uses.
 
 ### When a program restarts itself
 
