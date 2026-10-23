@@ -1055,7 +1055,7 @@ async function revertUi(): Promise<void> {
               <table class="tbl">
                 <thead>
                   <tr>
-                    <th>
+                    <th class="tbl__keep">
                       archive
                     </th>
                     <th class="num">
@@ -1071,7 +1071,7 @@ async function revertUi(): Promise<void> {
                 </thead>
                 <tbody>
                   <tr v-for="file in backupFiles" :key="file.name">
-                    <td class="id">
+                    <td class="id tbl__keep">
                       {{ file.name }}
                       <span v-if="file.encrypted" class="chip chip--warn">encrypted</span>
                     </td>

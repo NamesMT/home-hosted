@@ -175,7 +175,9 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
         <table class="tbl">
           <thead>
             <tr>
-              <th>path</th>
+              <th class="tbl__keep">
+                path
+              </th>
               <th class="num">
                 total
               </th>
@@ -190,7 +192,7 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
           </thead>
           <tbody>
             <tr v-for="disk in disks" :key="disk.path">
-              <td class="id">
+              <td class="id tbl__keep">
                 {{ disk.path }}
               </td>
               <td class="num">

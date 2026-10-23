@@ -6,6 +6,9 @@
  * bottom. Graphite base, one instrument-cyan accent, IBM Plex for everything.
  */
 
+/* The shared tap-target floor: 24 px at normal density, 44 px under a coarse pointer. */
+@import '../../tap-targets.css';
+
 /* Self-hosted IBM Plex: no CDN, works offline over plain http. */
 @font-face {
   font-family: 'IBM Plex Sans';
@@ -114,6 +117,7 @@
   --fs-xs: 11px;
 
   --row: 30px;
+  --tbl-gutter: 14px;
   --rail-h: 46px;
   --status-h: 26px;
   --nav-w: 172px;
@@ -415,6 +419,11 @@ textarea {
   background: var(--panel);
 }
 
+.nav__item.nav__more {
+  /* Phone-only: above the breakpoint every page is already a row in this column. */
+  display: none;
+}
+
 .nav__key {
   margin-left: auto;
   font-family: var(--mono);
@@ -466,6 +475,9 @@ textarea {
   top: 0;
   z-index: 5;
   display: flex;
+  /* A header is chrome, not content: as a shrinkable flex child of `.view` it kept its 38 px
+     floor while its wrapped lines painted over the table below it. */
+  flex: none;
   align-items: center;
   gap: 0.6rem;
   padding: 0.4rem 0.75rem;
@@ -506,6 +518,7 @@ textarea {
 
 .pane__head {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 0.5rem;
   padding: 0.3rem 0.75rem;
@@ -742,7 +755,18 @@ textarea {
 }
 
 .status__hint {
+  /* The shortcut hint is for a keyboard, and a phone has none: `j k` / `s` / `x` take 588 px
+     of a 390 px status line and push the live segments — connection, workspace, running count,
+     selection — past the right edge. Gated on a hovering pointer rather than a width, because a
+     narrow desktop window still has a keyboard and a wide tablet still does not. */
+  display: none;
   color: var(--faint);
+}
+
+@media (hover: hover) {
+  .status__hint {
+    display: inline;
+  }
 }
 
 .status__hint kbd {
@@ -933,10 +957,10 @@ textarea {
   font-size: var(--fs-sm);
 }
 
+/* The 24 px / 44 px floor is `uis/tap-targets.css`; this class used to pin 22 px itself. */
 .btn--icon {
   padding: 0.05rem 0.35rem;
   font-family: var(--mono);
-  min-width: 22px;
   justify-content: center;
 }
 
@@ -1093,12 +1117,83 @@ input[type='file'] {
 }
 
 .tbl__gutter {
-  width: 14px;
+  width: var(--tbl-gutter);
   padding-right: 0 !important;
 }
 
 .tbl__actions {
   text-align: right;
+}
+
+/*
+ * A table wider than the viewport is scrollable, not broken — but a scroll with no signal is a
+ * clipped table to anyone who does not drag it, and dragging it loses the one column that says
+ * *which* row you are looking at. So at a narrow width:
+ *
+ *  - the identity cell (`.tbl__keep`) and the action cell (`.tbl__actions`) pin to the edges, so
+ *    the row's name and its start/stop/edit stay on screen however far the middle scrolls;
+ *  - a shadow appears at whichever edge still has content behind it (`background-attachment:
+ *    local` is what makes it appear and disappear with the scroll position, with no script).
+ *
+ * The pinned cells need an opaque background of their own: the row's hover/selected tint would
+ * otherwise show through from underneath, and content scrolling beneath them would print on top.
+ */
+.tblwrap {
+  background:
+    linear-gradient(to right, var(--ink) 40%, transparent) left center,
+    linear-gradient(to left, var(--ink) 40%, transparent) right center,
+    linear-gradient(to right, rgb(0 0 0 / 45%), transparent) left center,
+    linear-gradient(to left, rgb(0 0 0 / 45%), transparent) right center;
+  background-repeat: no-repeat;
+  background-size: 24px 100%, 24px 100%, 14px 100%, 14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+@media (width <= 860px) {
+  .tbl__keep,
+  .tbl__actions {
+    position: sticky;
+    z-index: 1;
+    background: var(--ink);
+  }
+
+  .tbl__keep {
+    left: 0;
+  }
+
+  /* A table with a leading LED gutter pins both: the id must clear the gutter, not cover it. */
+  .tbl__keep--after-gutter {
+    left: var(--tbl-gutter);
+  }
+
+  .tbl__actions {
+    right: 0;
+  }
+
+  .tbl thead .tbl__keep,
+  .tbl thead .tbl__actions {
+    z-index: 3;
+    background: var(--ink-2);
+  }
+
+  .tbl tr:hover > .tbl__keep,
+  .tbl tr:hover > .tbl__actions {
+    background: var(--panel);
+  }
+
+  .tbl tr.is-selected > .tbl__keep,
+  .tbl tr.is-selected > .tbl__actions {
+    background: var(--panel-2);
+  }
+
+  /* The pinned action cell needs a seam, or a scrolling column reads as part of it. */
+  .tbl__actions {
+    border-left: 1px solid var(--line-soft);
+  }
+
+  .tbl__keep {
+    box-shadow: 1px 0 0 var(--line-soft);
+  }
 }
 
 .tbl--sub th {
@@ -2173,6 +2268,30 @@ button.nav__item {
 
 /* ---- responsive ---------------------------------------------------------- */
 
+/*
+ * The nav's own tier: below 640 px the page labels plus the workspace trigger no longer fit one
+ * row, so the settings pages and the proxy go behind `more`. Split from the 860 px layout
+ * breakpoint because a 700 px window still fits them, and a nav that hides a page it has room
+ * for is a needless extra tap. Above this tier they are ordinary rows of the wrapping nav.
+ */
+@media (width <= 640px) {
+  .nav__item.nav__more {
+    display: flex;
+  }
+
+  .nav__item--secondary,
+  /* Sign out sits with them: it is a rare action, and a second nav row for one 57 px button
+     costs a phone more than one tap costs it. */
+  .nav__foot .row {
+    display: none;
+  }
+
+  .nav--more-open .nav__item--secondary,
+  .nav--more-open .nav__foot .row {
+    display: flex;
+  }
+}
+
 @media (width <= 860px) {
   .shell {
     grid-template-columns: 1fr;
@@ -2189,25 +2308,61 @@ button.nav__item {
     border-right: 0;
   }
 
+  /*
+   * The nav becomes a wrapping row of primary pages plus a `more` toggle, so nothing can sit
+   * past the right edge: when a row of labels does not fit, the last one wraps onto a second
+   * row instead of disappearing behind a scroll with no signal. The secondary pages are behind
+   * the toggle because `workspace settings` and `reverse proxy` are not what a phone is for —
+   * and because a hidden horizontal scroll was exactly the defect being fixed.
+   */
   .nav {
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
-    overflow-x: auto;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid var(--line);
     padding: 0.25rem;
     gap: 0.25rem;
   }
 
-  .nav__group,
-  .nav__foot {
+  .nav__group {
     display: none;
   }
 
-  .nav__item {
+  /*
+   * The footer holds sign out and the state path, and it was simply hidden at this width — so a
+   * phone had no way to sign out. It joins the wrapping row instead of becoming a second line:
+   * `display: contents` promotes its two children to nav items. The path is dropped because the
+   * rail already prints the panel's own URL a few pixels below it, so the only thing worth a
+   * tap is `sign out`.
+   */
+  .nav__foot {
+    order: 5;
+    display: contents;
+  }
+
+  .nav__foot > .truncate {
+    display: none;
+  }
+
+  /* `display: contents` promotes these children into the nav's flex row, so they need the
+     nav's `order` values too — otherwise sign out lands first, in the brand's place. */
+  .nav__foot .row {
+    order: 5;
+    flex-wrap: nowrap;
+  }
+
+  /* `button.nav__item` sets `width: 100%` for the desktop column (`0,1,1`), so the row's
+     `width: auto` has to match that specificity or the keyboard button alone takes a line. */
+  .nav__item,
+  button.nav__item {
+    order: 1;
+    flex: none;
+    width: auto;
     border-left: 0;
     border-bottom: 2px solid transparent;
-    padding: 0.3rem 0.6rem;
+    padding: 0.3rem 0.4rem;
   }
 
   .nav__item--active {
@@ -2221,9 +2376,29 @@ button.nav__item {
   }
 
   .ws__trigger {
-    flex: none;
+    order: 1;
+    flex: 0 1 auto;
     margin: 0;
-    max-width: 11rem;
+    max-width: 9rem;
+  }
+
+  /* `button.nav__item` gives every nav button `width: 100%` for the desktop column; this one is
+     a chip. */
+  .nav__item.nav__more {
+    order: 2;
+    width: auto;
+    margin-left: auto;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  /* Order only: whether these are shown is the 640 px tier's decision. Hiding them here as well
+     would make 641–860 px a range where the pages exist nowhere. */
+  .nav__item--secondary {
+    order: 3;
+    width: auto;
   }
 
   /* A dense header wraps on a phone so no control sits off the right edge. */
@@ -2252,6 +2427,12 @@ button.nav__item {
     row-gap: 0.25rem;
   }
 
+  /*
+   * The rail already wraps at this width; what it did not do is let its own items be narrower
+   * than their text. The panel URL is the one with no natural bound — an entry named after a
+   * hostname is wider than a phone — so it ellipsizes inside the row instead of pushing the
+   * row past the viewport.
+   */
   .rail {
     height: auto;
     flex-wrap: wrap;
@@ -2260,6 +2441,24 @@ button.nav__item {
 
   .rail__cell {
     height: var(--rail-h);
+    min-width: 0;
+  }
+
+  .rail__link {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rail__alerts {
+    max-width: 100%;
+  }
+
+  /* A 120 px chart in a ~100 px cell drew past both its cell and the page at 360 px. */
+  .metric .spark {
+    max-width: 100%;
   }
 
   .logpage {
@@ -2279,6 +2478,28 @@ button.nav__item {
     flex: 1 1 auto;
     border-left: 0;
     border-top: 1px solid var(--line);
+  }
+
+  /*
+   * Stacked, the list is a block in a scrolling page, so it must not nest a second vertical
+   * scroll of its own: two nested scrollers is how a 2-row window inside a 654 px page showed
+   * the list. The table keeps its horizontal scroll (that is the wide table) and the page owns
+   * the vertical one.
+   */
+  .split--stacked .split__half--list .tblwrap {
+    flex: none;
+    max-height: none;
+  }
+
+  /*
+   * The row's `s x r e` mnemonic buttons are the same four actions the detail pane below renders
+   * at full size — one tap away, because tapping the row selects it. Four 44 px targets is a
+   * 205 px pinned column, half a phone, and it squeezed the state column to 43 px of visible
+   * table. So the stacked layout drops the duplicate: the rule is about *this* layout, not about
+   * the servers table, which keeps the buttons in the split view and on a wide screen.
+   */
+  .split--stacked .tbl__actions {
+    display: none;
   }
 }
 

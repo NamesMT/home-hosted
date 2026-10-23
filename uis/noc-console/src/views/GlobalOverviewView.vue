@@ -76,7 +76,9 @@ function openServer(workspaceId: string, serverId: string): void {
         <table class="tbl">
           <thead>
             <tr>
-              <th>server</th>
+              <th class="tbl__keep">
+                server
+              </th>
               <th>status</th>
               <th class="num">
                 pid
@@ -106,7 +108,7 @@ function openServer(workspaceId: string, serverId: string): void {
               @click="openServer(group.id, server.id)"
               @keydown.enter="openServer(group.id, server.id)"
             >
-              <td class="id">
+              <td class="id tbl__keep">
                 {{ server.id }}
                 <span v-if="server.config.label" class="faint">{{ server.config.label }}</span>
               </td>

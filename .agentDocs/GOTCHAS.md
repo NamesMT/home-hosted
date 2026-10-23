@@ -261,6 +261,22 @@ line in `AGENTS.md` instead.
 - **A lazily-loaded catalog must never block the mount.** It is a network fetch, and a rejection that
   skipped the mount is a blank page with no way back. English is bundled, so `main.ts` mounts in
   `finally` and the worst case is an English panel.
+- **A row that scrolls with no signal is a clipped row, and a shrinkable flex child lies about its
+  height.** The noc-console had an `860px` breakpoint that reflowed correctly and was still unusable
+  at 390 px, for four reasons worth keeping apart. The nav and the status line both scrolled
+  horizontally with nothing to say so — `overflow-x: auto` answers "can this be reached", not "does a
+  person know to try"; the nav wraps now (a wrapped label is visible, a scrolled-past one is not) and
+  the shortcut hint is gated on `hover: hover` rather than width, because a narrow desktop window
+  still has a keyboard. A `.view__head` with `min-height: 38px` and no `flex: none` kept that 38 px
+  while its wrapped lines painted over the table below it: **chrome is not content, so it does not
+  shrink**. And a wide table scrolled away its two most important columns, so the identity and action
+  cells are `position: sticky` with an opaque background — `background-attachment: local, scroll`
+  draws the edge shadow only on the side that still has content, with no script.
+- **A guard can read the comment instead of the rule.** Two scans written this round passed their own
+  mutation because they searched the whole file: a `min-width: 22px` assertion matched nothing until
+  comments were stripped, and a `button.nav__item` selector assertion matched the selector named in
+  the explanatory comment above the rule. A source scan must match a parsed *selector list* or rule
+  body, and the mutation is what proves it does.
 
 ## Data
 

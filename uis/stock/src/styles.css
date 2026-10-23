@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* The shared tap-target floor: 24 px at normal density, 44 px under a coarse pointer. */
+@import '../../tap-targets.css';
+
 /* The repo's .gitignore excludes any path segment called `logs`, which would
    hide source files from automatic detection — register the SPA explicitly. */
 @source './**/*.{vue,ts,html}';
