@@ -1,6 +1,7 @@
 # noc-console
 
-An alternate UI for keyboard- and TUI-style operation, aimed at shortcuts wizards.
+An alternate UI for keyboard- and TUI-style operation, aimed at shortcuts wizards — and usable on a
+phone, which is the one place those shortcuts are not.
 
 Actions are single keys, the shell keeps a help overlay behind `?`, and navigation uses `g`-prefixed
 chords. Two groups sit in the rail: **global** (`g o` global overview, `g g` global settings) and the
@@ -17,6 +18,26 @@ re-install the matching build on an upgrade. `../../docs/media/tour.gif` shows b
 **Editing this UI means bumping that file**: raise `version` (patch for a fix, minor for a feature,
 major only for a rewrite or restyle). `tag` and `unix` are not in it on purpose — `build-uis.mjs`
 stamps both into the built copy, and a hand-maintained one is stale the moment the zip is cut.
+
+## On a phone
+
+The layout keeps the console's density below `860px`; what it changes is what it spends the width on.
+
+- **The nav fits.** Below `640px` the page labels plus the workspace switcher no longer fit one row,
+  so `global settings`, `workspace settings`, `reverse proxy`, `keyboard` and `sign out` move behind
+  `more`. Above `640px` they are ordinary rows of a wrapping nav — there is no hidden horizontal
+  scroll, because a row that scrolls with no signal reads as a clipped row.
+- **Tables scroll sideways, and say so.** The identity column and the action column are pinned, with
+  an edge shadow that appears only on the side that still has content. The stacked (phone) layout
+  drops the per-row `s x r e` buttons: the same four actions sit at full size in the detail pane one
+  tap below, and four 44 px targets is half the screen.
+- **The status line keeps its live state** — connection, workspace, running count, selection. The
+  `j k` / `s` / `x` shortcut hint is hidden unless the pointer can hover, because a phone has no
+  keyboard and a narrow desktop window does.
+- **The help overlay stays** behind the `?` row in `more`; it is a reference, not a control.
+
+Every control is at least 24 px at normal density and 44 px under a coarse pointer
+(`../tap-targets.css`, shared with the stock UI).
 
 ## Run it in development
 
@@ -37,7 +58,9 @@ pnpm exec vite --config uis/noc-console/vite.config.ts   # this UI
 - `node scripts/build-uis.mjs noc-console` builds into `uis/noc-console/dist`.
 - `node scripts/build-uis.mjs noc-console --zip` also writes `uis/dist/home-hosted-ui-noc-console.zip`.
 - `pnpm run build:uis` builds and zips every UI under `uis/`; the release attaches the zips.
-- `pnpm run quickcheck` is eslint, `tsc` and `vue-tsc`; `pnpm test` runs the vitest suite (this UI has no `test/` directory yet).
+- `pnpm run quickcheck` is eslint, `tsc` and `vue-tsc`; `pnpm test` runs the vitest suite, which
+  includes `test/mobile-layout.test.ts` — a source scan, because happy-dom has no layout engine and
+  a phone layout only breaks at a real viewport.
 
 ## Install it into a running panel
 

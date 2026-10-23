@@ -87,7 +87,9 @@ function cpuColor(server: ServerView): string {
         <thead>
           <tr>
             <th class="tbl__gutter" />
-            <th>id</th>
+            <th class="tbl__keep tbl__keep--after-gutter">
+              id
+            </th>
             <th>state</th>
             <th class="num">
               pid
@@ -126,7 +128,7 @@ function cpuColor(server: ServerView): string {
             <td class="tbl__gutter">
               <span class="led" :class="ledFor(server.status)" />
             </td>
-            <td>
+            <td class="tbl__keep tbl__keep--after-gutter">
               <span class="id">{{ server.id }}</span>
               <span v-if="server.config.label" class="dim"> {{ server.config.label }}</span>
             </td>

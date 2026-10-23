@@ -579,7 +579,9 @@ function removeCertificate(certificate: ProxyCertificateView): void {
               <table class="tbl">
                 <thead>
                   <tr>
-                    <th>host</th>
+                    <th class="tbl__keep">
+                      host
+                    </th>
                     <th>target</th>
                     <th>upstream</th>
                     <th>tls</th>
@@ -592,7 +594,7 @@ function removeCertificate(certificate: ProxyCertificateView): void {
                 </thead>
                 <tbody>
                   <tr v-for="row in rows" :key="row.route.key" :class="{ 'is-dim': !row.route.enabled }">
-                    <td>
+                    <td class="tbl__keep">
                       <a
                         v-if="row.url !== null && row.route.enabled"
                         :href="row.url"

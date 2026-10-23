@@ -499,7 +499,9 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
         <table class="tbl">
           <thead>
             <tr>
-              <th>hostname</th>
+              <th class="tbl__keep">
+                hostname
+              </th>
               <th>type</th>
               <th>state</th>
               <th>address</th>
@@ -508,7 +510,7 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
           </thead>
           <tbody>
             <tr v-for="record in status.records" :key="`${record.host}|${record.type}`">
-              <td class="id">
+              <td class="id tbl__keep">
                 {{ record.host }}
               </td>
               <td class="dim">

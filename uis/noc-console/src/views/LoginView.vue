@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
 
+const route = useRoute()
 const router = useRouter()
 const control = useControlPlane()
 const { session, error, login } = useSession()
@@ -24,7 +25,15 @@ async function submit(): Promise<void> {
     if (await login(password.value)) {
       password.value = ''
       await control.refresh()
-      await router.push({ name: 'servers' })
+      /*
+       * The guard sends an unauthenticated visitor here with `?next=<page>`, and every workspace
+       * page needs a `:workspaceId` — pushing `{ name: 'servers' }` made vue-router throw
+       * "Missing required param workspaceId", so the sign-in succeeded and left the person on
+       * the login screen. `/` is the panel-wide overview and the guard rewrites it to the
+       * workspace the frame names, so it is the only destination that needs no id.
+       */
+      const next = typeof route.query.next === 'string' ? route.query.next : '/'
+      await router.push(next)
     }
   }
   finally {

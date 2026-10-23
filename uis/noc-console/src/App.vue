@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { WorkspacePage } from '@/router'
-import { computed, onMounted, onScopeDispose, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onScopeDispose, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AddServerDialog from '@/components/AddServerDialog.vue'
 import HelpOverlay from '@/components/HelpOverlay.vue'
 import HostRail from '@/components/HostRail.vue'
@@ -15,6 +15,7 @@ import { useWorkspaces } from '@/composables/useWorkspaces'
 import { workspacePath } from '@/router'
 
 const router = useRouter()
+const route = useRoute()
 const control = useControlPlane()
 const workspace = useWorkspaces()
 const { session, logout } = useSession()
@@ -28,6 +29,16 @@ const connectionLabel = computed(() => ({
   open: 'live',
   closed: 'reconnecting',
 }[control.connection.value]))
+
+/**
+ * The phone nav's overflow: a page row cannot fit seven labels at 390 px, and a hidden
+ * horizontal scroll hid two of them with no signal. Closed on every navigation so the menu is
+ * never left covering the page it opened.
+ */
+const navMore = ref(false)
+watch(() => route.fullPath, () => {
+  navMore.value = false
+})
 
 const selected = computed(() => workspace.serverById(selectedId.value))
 const authenticated = computed(() => session.value?.authenticated === true)
@@ -199,7 +210,7 @@ onScopeDispose(() => {
 
     <HostRail />
 
-    <nav class="nav">
+    <nav class="nav" :class="{ 'nav--more-open': navMore }">
       <div class="nav__group">
         global
       </div>
@@ -207,7 +218,7 @@ onScopeDispose(() => {
         overview
         <span class="nav__key">g o</span>
       </RouterLink>
-      <RouterLink to="/global/settings" class="nav__item" active-class="nav__item--active">
+      <RouterLink to="/global/settings" class="nav__item nav__item--secondary" active-class="nav__item--active">
         global settings
         <span class="nav__key">g g</span>
       </RouterLink>
@@ -224,7 +235,7 @@ onScopeDispose(() => {
         logs
         <span class="nav__key">g l</span>
       </RouterLink>
-      <RouterLink :to="settingsPath" class="nav__item" active-class="nav__item--active">
+      <RouterLink :to="settingsPath" class="nav__item nav__item--secondary" active-class="nav__item--active">
         workspace settings
         <span class="nav__key">g t</span>
       </RouterLink>
@@ -232,14 +243,19 @@ onScopeDispose(() => {
       <div class="nav__group">
         others
       </div>
-      <RouterLink to="/proxy" class="nav__item" active-class="nav__item--active">
+      <RouterLink to="/proxy" class="nav__item nav__item--secondary" active-class="nav__item--active">
         reverse proxy
         <span class="nav__key">g p</span>
       </RouterLink>
 
-      <button type="button" class="nav__item" @click="helpOpen = true">
+      <button type="button" class="nav__item nav__item--secondary" @click="helpOpen = true">
         keyboard
         <span class="nav__key">?</span>
+      </button>
+
+      <button type="button" class="nav__item nav__more" :aria-expanded="navMore" @click="navMore = !navMore">
+        {{ navMore ? 'less' : 'more' }}
+        <span class="nav__key">{{ navMore ? '‹' : '›' }}</span>
       </button>
 
       <div class="nav__foot">
