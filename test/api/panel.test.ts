@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { generateApiToken, SecretsStore } from '#src/config/secrets'
 import { missingServer } from '#src/helpers/action-result'
 import { healthResponseSchema, serverSchema } from '#src/shared/contracts'
 import { makeFixture, makeView } from './fixture'
@@ -32,6 +33,14 @@ async function form(app: Fixture['app'], url: string, method: string, body: unkn
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+/**
+ * Writes the global API token the way `home-hosted set-token` does — another process, same state —
+ * so the panel has to pick it up from the file rather than from anything this fixture set up.
+ */
+function setApiToken(created: Fixture, token: string): void {
+  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setApiToken(token)
 }
 
 /** Signs in and returns the cookie header a browser would send back. */
@@ -429,11 +438,6 @@ describe('metrics', () => {
   })
 })
 
-/**
- * Backups over the local channel: an operator — or a cron job — needs to take, list and restore an
- * archive without a browser session. These call the same `BackupService` the `/api/backups` routes
- * do, so the archive shape and the allowlist have one implementation.
- */
 describe('/_hh/backups', () => {
   const token = { 'x-home-hosted-token': 'runtime-token' }
 
@@ -1078,6 +1082,75 @@ describe('auth: cookies and first-time setup', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
     expect(created.auth.passwordSet).toBe(false)
+  })
+
+  /**
+   * The measured escalation: `POST` demands `currentPassword` so a stolen token cannot rewrite the
+   * password, and `DELETE` demanded nothing but the token — so a token holder went
+   * `POST` (400 `CURRENT_PASSWORD_REQUIRED`) → `DELETE` (200, auth off) → `POST` (200, no password
+   * to prove) and left the panel armed with their own password.
+   *
+   * `DELETE` now demands a **session**. Both credentials resolve through the same
+   * `requestIdentity()`, so this is the guard's own notion of "a browser", not a second one.
+   */
+  it('refuses a token-only DELETE, and names the ways a person can still clear it', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+
+    // The token does authenticate — otherwise this would pass for the wrong reason.
+    expect((await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
+
+    const response = await created.app.request('/api/auth/password', { method: 'DELETE', headers: { authorization: `Bearer ${token}` } })
+    expect(response.status).toBe(403)
+    const body = await response.json() as { code: string, message: string }
+    expect(body.code).toBe('SESSION_REQUIRED')
+    // The message has to name the real path: sign in, or the CLI on this machine.
+    expect(body.message).toContain('session')
+    expect(body.message).toContain('home-hosted set-password')
+    // And nothing changed: the password and the auth switch are exactly as they were.
+    expect(created.auth.passwordSet).toBe(true)
+    expect(created.settings.control.auth.enabled).toBe(true)
+  })
+
+  it('still lets a signed-in browser clear the password, even with a token also set', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    setApiToken(created, generateApiToken())
+    const cookie = await signIn(created, 'correct horse')
+
+    const response = await created.app.request('/api/auth/password', { method: 'DELETE', headers: { cookie } })
+    expect(response.status).toBe(200)
+    expect(created.auth.passwordSet).toBe(false)
+  })
+
+  /**
+   * The loopback first-setup exemption is the documented escape hatch — "no password yet, set one
+   * from this machine" — and a `DELETE` that only ever happens with a password set never touches it.
+   * Pinned so a future stricter check cannot quietly lock someone out of their own host.
+   */
+  it('keeps the loopback first-setup exemption for POST with no password set', async () => {
+    const created = await fixture()
+    const response = await form(created.app, '/api/auth/password', 'POST', { newPassword: 'first password' })
+    expect(response.status).toBe(200)
+    expect(created.auth.passwordSet).toBe(true)
+  })
+
+  it('keeps both exposure guards on the session path too', async () => {
+    // The guard is unchanged: a session that would otherwise be allowed still cannot clear a
+    // password while the panel is exposed. (A token caller never reaches these — refused first.)
+    const exposed = await fixture({ password: 'correct horse' })
+    exposed.settings.updateControl({ host: 'lan', auth: { enabled: false } })
+    const cookie = await signIn(exposed, 'correct horse')
+    const bound = await exposed.app.request('/api/auth/password', { method: 'DELETE', headers: { cookie } })
+    expect(bound.status).toBe(400)
+    expect(await bound.json()).toMatchObject({ code: 'EXPOSED_WITHOUT_PASSWORD' })
+
+    const proxied = await fixture({ password: 'correct horse' })
+    proxied.settings.updateProxy({ enabled: true, routes: [{ id: 'panel', host: 'panel.lan', target: 'panel', tls: 'auto' }] })
+    const proxiedCookie = await signIn(proxied, 'correct horse')
+    const routed = await proxied.app.request('/api/auth/password', { method: 'DELETE', headers: { cookie: proxiedCookie } })
+    expect(routed.status).toBe(400)
+    expect(await routed.json()).toMatchObject({ code: 'PROXY_EXPOSURE_BLOCKED' })
   })
 })
 
