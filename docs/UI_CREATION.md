@@ -91,7 +91,15 @@ must never lock you out of your own machine.
    drive letters.
 7. **Offline and plain-http friendly.** Assume a LAN over `http://`: no `Secure`-only cookies, no
    hard-coded port, no https-only APIs.
-8. **Give each page its own path.** An SPA with canonical URLs is the best default: a path is what
+8. **A phone is a real client.** Someone checks a home server from the couch, and the panel is a
+   page they open on a phone as often as a desktop. Two things are cheap to get right and expensive
+   to add later: a control is at least **24 px** at normal density and **44 px** under
+   `@media (pointer: coarse)` (the shared rule both UIs use is `uis/tap-targets.css`), and a row of
+   controls or columns **fits the width or visibly scrolls** — a horizontal scroll with no signal
+   reads as a clipped row, so prefer wrapping or an overflow menu. A table wider than a phone should
+   pin its identity and action columns; `uis/noc-console/src/styles.css` is the worked example.
+   Keyboard hints belong behind `@media (hover: hover)`: a phone has no `j` or `s`.
+9. **Give each page its own path.** An SPA with canonical URLs is the best default: a path is what
    makes a page bookmarkable, shareable, and reachable with back/forward — and matching the stock
    paths keeps two UIs of the same panel feeling alike. Those are:
 
@@ -314,3 +322,4 @@ with an installed panel on the default 3999; override with `--port`/`--ui-port` 
 - [ ] assets self-hosted, no CDN
 - [ ] works over plain http on a LAN
 - [ ] `ui.json` with a name and version, so Global settings can tell you what is installed — plus `repo`/`asset` if you want `ui-update` to follow your releases
+- [ ] usable at 360–390 px: nothing clipped past the viewport without a visible scroll, controls ≥ 24 px (44 px on touch), no keyboard-only hint on a touch device

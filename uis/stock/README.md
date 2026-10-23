@@ -9,6 +9,15 @@ files; no build step runs on the server.
 This is one of the two UIs in the repo; `../noc-console` is the alternate, and
 `../../docs/media/tour.gif` shows both in context.
 
+## Touch targets
+
+Every control is at least 24 px at normal density and 44 px under `@media (pointer: coarse)`, so a
+phone gets the real guideline without the desktop chrome being restyled. The rule is one shared file
+— `../tap-targets.css`, imported by both UIs — rather than a size at each call site; a tick and a
+switch keep their small visual box and an invisible hit area (or their wrapping label) carries the
+floor. `test/shared/ui-tap-targets.test.ts` fails a UI that stops importing it, or a class that
+re-pins a control under it.
+
 ## Run it in development
 
 `pnpm dev` starts the panel (`tsx watch`, port 3999) and this UI's Vite dev server together.
