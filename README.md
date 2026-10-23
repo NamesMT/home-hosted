@@ -308,24 +308,24 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 
 | | |
 | --- | --- |
-| 🗂 **Workspaces** | One panel, many scopes: pick a workspace in the header and it owns its servers, secrets, logs and settings. Create, rename and delete them there. Panel-wide things — listener, auth, host vitals, backups, TLS, UI — stay in **Global settings**. |
+| 🗂 **Workspaces** | One panel, many scopes. A workspace owns its servers, secrets, logs and settings; listener, auth, backups, TLS and UI stay panel-wide in **Global settings**. |
 | 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. A process left behind by a renamed or removed entry is listed on **Servers** with a stop button, instead of running invisible. |
-| 📝 **Hand edits welcome** | Change a workspace's `servers.config.json` in an editor, a `git checkout` or a config tool: the panel notices within seconds, no restart. A file it cannot read is reported in the panel, and the running servers are left alone. |
+| 📝 **Hand edits welcome** | Edit `servers.config.json` in an editor or a `git checkout` — the panel notices in seconds, no restart. A file it cannot read is reported, and running servers are left alone. |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. The budget is remembered across a restart of the panel. |
-| 🩺 **Health that acts** | TCP or HTTP probes per server: warn on the card, force a restart after a timeout (bounded by the same retry budget as a crash, so a permanently sick entry stops instead of restarting forever), check ports before starting — and [follow or replace](./docs/SERVERS.md#when-a-program-restarts-itself) a program that restarts itself. |
+| 🩺 **Health that acts** | TCP or HTTP probes per server: warn, then force a restart — bounded by the same retry budget as a crash, so a sick entry stops instead of looping. Ports are checked before starting, and a program that [restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed or replaced. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned. `stop-all`/`down` stop dependents before their dependencies; stopping one server names the dependents it leaves running. [SERVERS.md](./docs/SERVERS.md#field-reference) |
 | 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, filter to one stream, download, one click to clear. |
-| 📈 **Resources** | CPU and RSS of the whole process tree — for a compose entry, the summed containers, so the ceiling measures the stack and not its wrapper — with an optional memory ceiling that triggers a restart. |
+| 📈 **Resources** | CPU and RSS per process tree — the summed containers for a compose entry — with an optional memory ceiling that restarts the entry. |
 | 🌡️ **Host vitals** | CPU usage, memory, swap, disk and CPU temperature, plus the load average as a per-cpu count, with thresholds that notify once and again on recovery. |
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
-| 🔔 **Notifications** | One list of **destinations** — Telegram chats and webhooks (ntfy, Discord, Slack, your own endpoint) — on crash, unhealthy, forced restart, recovery, host thresholds and DNS changes. The event toggles and throttle are set once, and each destination may inherit them or carry its own. [Setup here](./docs/NOTIFICATIONS.md). |
+| 🔔 **Notifications** | Telegram and webhooks (ntfy, Discord, Slack, anything) on crash, unhealthy, recovery, host thresholds and DNS changes. Toggles and throttle set once; each destination inherits or overrides. [Setup](./docs/NOTIFICATIONS.md). |
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
-| 🔀 **Reverse proxy** | One engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `media.example.com` → a service on another box, `panel.example.com` → the panel. Caddy, installed and supervised by the panel. [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
-| 💾 **Backups** | Global settings, TLS, workspaces, and inside each one its settings, servers, secrets and declared data — plain `.zip`, or AES-256 with a password. Each secret is picked separately, and a restore can be customized. |
+| 🔀 **Reverse proxy** | One Caddy engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `panel.example.com` → the panel itself. Installed and supervised by it. [Details](./docs/REVERSE_PROXY.md) |
+| 💾 **Backups** | One `.zip` of the panel and the workspaces you pick — plain or AES-256, picked per item, from the panel or the CLI. [Details](#-backups). |
 | 🌍 **Nine languages** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French, German — picked on the login page or in **Global settings → Language**, kept per browser. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
-| 🧩 **Bring any program** | A server is `command` + `args` + `env` + `cwd` — if it runs in a shell, it runs here. Presets fill the form in for common ones; nothing requires one. |
+| 🧩 **Bring any program** | A server is a `command`, its args and a working directory — plus optional `dataEnvs`, `dependsOn` and `dump`/`load` hooks. Presets fill the form; nothing requires one. [Fields](./docs/SERVERS.md) |
 | 🖥 **Cross-platform** | Linux, macOS and Windows: `/proc`, `ps` or Win32_Process, process groups or `taskkill /T`, no shell dependencies. |
 
 ---
@@ -386,12 +386,12 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted up` | start the panel detached, and keep it alive in the background |
 | `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
 | `home-hosted restart` | `down`, then `up` — or `restart <id>` to restart one server, leaving the panel up |
-| `home-hosted status` | pid, URL, health, uptime, state and log paths — the panel's console *and* the per-server directory, naming the `<id>.log` convention once logs exist (`--json` for scripts; stopped answers `{ running: false, initialised }`, where `initialised: false` means nothing was ever set up here, plus `liveness` — `gone`, or `recycled` when the OS has handed the recorded pid to another process and the record is stale) |
+| `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts). Edge cases are under [what `status` tells you](#-cli). |
 | `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`) |
 | `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
 | `home-hosted restart <id>` | restart one server, nothing else (`--workspace <id>`) — the same as the panel's per-server Restart |
 | `home-hosted logs` | read the panel's own console output — the file `up` redirects it into (`--lines`, `--follow`, `--json`) |
-| `home-hosted backup` | list, create or restore an archive without a browser, **and without the panel running** (`create --all --exclude global:secrets --confirm`, `restore <name> --all --confirm`, or `restore --from <path>` for an archive that is not in the backups directory; `--password`, `--include`, `--exclude`) — see [RESTORE_DEMO.md](./docs/RESTORE_DEMO.md), and `dump`/`load` hooks in [SERVERS.md](./docs/SERVERS.md) |
+| `home-hosted backup` | list, create or restore an archive — **without the panel running** (`--password`, `--include`, `--exclude`). See [Backups](#-backups) and [RESTORE_DEMO.md](./docs/RESTORE_DEMO.md) |
 | `home-hosted set-password` | set the panel password without opening a browser; a running panel picks it up at once and signs every existing session out |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
 | `home-hosted migrate` | bring every config up to the schema this release understands (`--dry-run`, `--yes`) |
@@ -487,6 +487,23 @@ run. 0.8.0 dropped that relocation.
 So a home that is still on the 0.6.x layout is not read: `up` stops and names the file it found,
 rather than starting against an empty state directory beside a config it never opened. 0.7.x does
 the move on its first run; 0.8.0 then starts against the result.
+
+</details>
+
+<details>
+<summary><b>🤔 What <code>status</code> tells you when things are not simple</b></summary>
+
+`home-hosted status` prints the panel's console path *and* the per-server log directory, naming the
+`<id>.log` convention once logs exist.
+
+`--json` is for scripts. A stopped panel answers `{ running: false, initialised }` —
+`initialised: false` means nothing was ever set up in this state directory — plus `liveness`:
+
+| `liveness` | Means |
+| --- | --- |
+| `alive` | the recorded pid is this panel |
+| `gone` | it is not running; the record is stale and may be cleared |
+| `recycled` | the OS has handed the recorded pid to **another** process. The record is stale, but a signal would hit a stranger, so only the token-authenticated shutdown touches it |
 
 </details>
 
@@ -594,52 +611,60 @@ Provider tokens stay in the workspace's secrets file. **Providers and the config
 
 ## 💾 Backups
 
-**Global settings → Backups** archives the panel's own settings, its secrets and the TLS pair — plus
-every workspace you pick. It is two-level: *Create backup…* lists the global items and each workspace;
-opening one lists its **settings**, **servers**, **secrets** and every data directory its entries
-declare, and you can drop any single piece. Each secret has its own checkbox. *Restore…* shows the
-same list from an archive before anything is written. Either way it is an ordinary `.zip`, or WinZip
-AES-256 with a password, restored per path. Build output and dependency directories (`node_modules`,
-`dist`, `.next`, framework caches) are skipped per entry; `backupIgnoreGenerated: false` captures them
-anyway.
+**Global settings → Backups** takes one `.zip` of the panel and the workspaces you pick — settings,
+servers, secrets, declared data — and puts it back. Plain, or AES-256 with a password.
 
-**Automatic backups** write one archive on a schedule you set — the page asks in hours, the config
-stores `intervalMs` — with a retention of its own (`Keep automatic`). The two counts are independent:
-`Keep` bounds the archives you take by hand, and a scheduled pass never prunes one of yours to make
-room for its own. Both land in the same directory, and an automatic archive is named `auto-…` so you
-can tell them apart — a name you drop in by hand with that prefix is treated as one, so do not use it.
+Both directions are **two-level**: pick whole workspaces, or open one and drop any single piece (its
+settings, servers, secrets, or one data directory). Each secret has its own tick.
 
-**What an automatic backup contains** is yours to choose: *What an automatic backup contains →
-Choose…* offers the same two-level list as *Create backup…*, and writes the result into the schedule
-as `scope`. Two modes, the same two the CLI has:
+```bash
+home-hosted backup create --all --confirm          # everything
+home-hosted backup create --all --exclude global:secrets --confirm
+home-hosted backup restore <name> --all --confirm  # see `backup list`
+home-hosted backup restore --from /media/usb/x.zip --all --confirm
+```
 
-- **Only these** — the archive carries only what you tick. The command-line spelling is
-  `--include <ids>`.
-- **Everything except** — the archive carries everything but what you tick, *including workspaces you
-  add later*. The command-line spelling is `--all --exclude <ids>`.
-
-Leave it at **Everything** (no `scope` in the file) and the schedule keeps taking the whole default
-scope — every workspace plus `includePaths` — which is exactly what a schedule written before this
-existed means. That is also the only setting that follows a workspace you add tomorrow; a stored list
-of ids does not, because it names today's ids. Ticking everything in the dialog is therefore saved as
-no scope at all, not as the list it currently amounts to. An empty selection is refused: it cannot be
-told apart from "everything" in the file, and it would capture nothing.
+Both work with the panel **stopped**, which is when you actually need them.
 
 <details>
-<summary><b>🔑 Restoring a secret</b></summary>
+<summary><b>⏱️ Automatic backups, and choosing what they contain</b></summary>
 
-An archive records **which release wrote it and the config schema it understood**; a restore refuses
-a newer schema outright rather than restoring the parts it recognizes.
+A schedule writes one archive every N hours, with its own retention (`Keep automatic`). The two counts
+are independent: `Keep` bounds the ones you take by hand, and a scheduled pass never prunes yours to
+make room. Automatic archives are named `auto-…` so you can tell them apart.
 
-Ticking a **single secret** merges by field: it lands and the others in that file are left alone. So
-restoring the Telegram token does not clear the DDNS credentials. Ticking the whole **Secrets** entry
-replaces the file with the archive's copy instead, which is what makes the two worth telling apart.
+**What it contains** is yours to choose, in the same two-level dialog, saved into the schedule as
+`scope`:
+
+| Mode | Carries | CLI spelling |
+| --- | --- | --- |
+| **Everything** *(default)* | every workspace, plus `includePaths` | *no flag* |
+| **Only these** | only what you tick | `--include <ids>` |
+| **Everything except** | everything but what you tick, **including workspaces you add later** | `--all --exclude <ids>` |
+
+Only **Everything** follows a workspace you add tomorrow — a stored list names today's ids. Ticking
+everything in the dialog is therefore saved as *no scope*, not as the list it currently amounts to.
+An empty selection is refused, because it cannot be told apart from "everything" in the file.
+
+Generated directories (`node_modules`, `dist`, `.next`, framework caches) are skipped per entry;
+`backupIgnoreGenerated: false` captures them anyway.
+
+</details>
+
+<details>
+<summary><b>🔑 Restoring a secret, and what not to restore</b></summary>
+
+An archive records the release and config schema that wrote it; a restore refuses a newer schema
+outright rather than restoring the parts it recognizes.
+
+Ticking a **single secret** merges by field — restoring the Telegram token leaves the DDNS
+credentials alone. Ticking the whole **Secrets** entry replaces that file with the archive's copy.
 
 Two things to know before restoring onto a machine already in use:
 
-- **The password hash and API token hash are secrets like any other.** Restoring them reinstates the
-  old machine's password and long-lived token, so anyone holding that token keeps access. Leave them
-  unticked, or rotate afterwards with `home-hosted set-token --generate`.
+- **The password hash and API token hash are secrets too.** Restoring them reinstates the old
+  machine's password and long-lived token, so whoever holds that token keeps access. Leave them
+  unticked, or rotate afterwards.
 - **`HHOSTED_DDNS_SECRET` is not in the archive.** DDNS credentials travel sealed under it, so a host
   with a different value cannot open them. Supply the same secret, or re-enter the credentials.
 
@@ -653,11 +678,9 @@ archive and restore. Definitions come back, workspaces the target has never hear
 their labels, data lands where *this* machine's config says, and `autostart` entries come up
 immediately.
 
-It works because an archive carries the workspace registry, each workspace's `settings.json` and
-`servers.config.json`, and paths are matched by the **declaration** (`omniroute:DATA_DIR`), not by an
-absolute path from the source machine. A declaration using `{projectDir}`, `{dataRoot}` or `{home}`
-follows the restoring panel (`{projectDir}` is `HHOSTED_PROJECT` or the panel's cwd, not
-`HHOSTED_HOME`); a literal absolute path is restored to that same path.
+Path matching is by **declaration** (`omniroute:DATA_DIR`), not by an absolute path from the source
+machine. A declaration using `{projectDir}`, `{dataRoot}` or `{home}` follows the restoring panel; a
+literal absolute path is restored to that same path.
 
 **A restore never writes where no config declares, and never across workspaces.** A data path is only
 placed under a workspace the archive says it belongs to — if that workspace's `servers.config.json` is
@@ -666,7 +689,7 @@ not part of the restore, its data is reported as skipped rather than guessed at.
 </details>
 
 <details>
-<summary><b>✅ What comes back, and what you still have to do</b></summary>
+<summary><b>✅ What comes back, and what is still yours to do</b></summary>
 
 | | Restored | Still yours to do |
 | --- | --- | --- |
@@ -677,7 +700,7 @@ not part of the restore, its data is reported as skipped rather than guessed at.
 | Telegram bots and chats, webhook targets | ✅ | Send a test from *Notifications* if the chat id came from another account |
 | DDNS hostnames and their accounts | ✅ | Credentials only open under the same `HHOSTED_DDNS_SECRET`; otherwise re-enter them |
 | Panel password and API token | ⬜ ticked per secret | Leave unticked, or rotate with `home-hosted set-token --generate` |
-| Reverse-proxy routes | ✅ | Automatic HTTPS certificates are reissued by the engine on the new host. A pair **you uploaded** for a `tls: "manual"` route is not in the archive — re-upload it |
+| Reverse-proxy routes | ✅ | Automatic HTTPS certificates are reissued on the new host. A pair **you uploaded** for a `tls: "manual"` route is not in the archive — re-upload it |
 | Reverse-proxy engine binary | ❌ | Installed again from *Global settings → Reverse proxy* |
 | Server logs, crash history, nanny state | ❌ | These describe the old box; the new one starts a fresh history |
 | A server's `envFile` | ❌ not archived | It is the machine-local layer by design — copy it yourself, or declare its directory in `backupPaths` |
@@ -689,24 +712,25 @@ not part of the restore, its data is reported as skipped rather than guessed at.
 <summary><b>⚠️ A backup of a running database may not be restorable</b></summary>
 
 Data directories are copied file by file while your servers keep running — the panel does not stop or
-freeze anything to take an archive, because doing so would mean a backup could take your services down.
+freeze anything, because that would mean a backup could take your services down.
 
-That is fine for files, uploads and most app data. It is **not** a consistent snapshot of a live
-database: SQLite mid-transaction, a Postgres data directory, or a WAL in the middle of a write can all
-be captured torn, and the copy will look complete while failing to open.
+Fine for files, uploads and most app data. **Not** a consistent snapshot of a live database: SQLite
+mid-transaction, a Postgres data directory, or a WAL mid-write can be captured torn, and the copy will
+look complete while failing to open.
 
-For anything with a real database, do one of these before relying on the archive:
+For anything with a real database, do one of these first:
 
-- **Quiesce it** — stop that entry from the panel, take the backup, start it again; or
+- **Quiesce it** — stop that entry, take the backup, start it again; or
 - **dump it properly** (`sqlite3 app.db ".backup out.db"`, `pg_dump`, `mysqldump`) into a directory you
   declare in `backupPaths`, so the archive carries the dump rather than the live files.
 
 **Restoring** has the mirror-image hazard, and the plan names it: a data path copied over while its
-server is running is replaced under a live process, which keeps its old view and loses whatever it
-wrote since. The restore reports those entries — `Data was replaced under a running server` — and
-the fix is to stop and start each one, or stop them before applying.
+server is running is replaced under a live process, which keeps its old view and loses what it wrote
+since. The restore reports those entries — `Data was replaced under a running server` — and the fix is
+to stop them before applying, or stop and start each one.
 
 </details>
+
 
 ---
 
