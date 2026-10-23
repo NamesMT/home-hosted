@@ -96,7 +96,11 @@ describe('cli smoke', () => {
       // `nanny.ts` is the one exemption, and it is deliberate: it is dispatched *before* the curated
       // surface (`cli.ts`, "citty owns its own `--help` for it"), so its description really is read.
       .filter(name => name !== 'nanny.ts')
-      .filter(name => /meta:\s*\{[\s\S]{0,200}?description:/.test(fs.readFileSync(path.join(dir, name), 'utf8')))
+      // The window has to stop at the `meta` object's own closing brace. A fixed 200-character
+      // look-ahead reached into `args:`, so a one-line `meta: { name: 'free-port' }` followed by an
+      // argument description was reported as a duplicated summary — the guard was right about the
+      // rule and wrong about where the `meta` block ends.
+      .filter(name => /meta:\s*\{[^{}]*description:/.test(fs.readFileSync(path.join(dir, name), 'utf8')))
     expect(offenders, 'the summary lives in cli.ts; a module copy is unreachable and drifts').toEqual([])
   })
 

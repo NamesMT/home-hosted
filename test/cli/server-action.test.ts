@@ -398,3 +398,149 @@ describe('a stale run.json naming a live stranger\'s pid', () => {
     expect(json.liveness).toBe('live')
   })
 })
+
+/**
+ * `free-port`, and `start --free-port`.
+ *
+ * The panel has had a **Free port** button since the beginning; the shell had no way to reach it,
+ * so the one situation a headless operator actually hits — "the panel says the port is taken and
+ * I am over SSH" — had no answer. The route already existed under `/api` for the button; this
+ * drives it through the local channel, which needs no session.
+ *
+ * Four behaviours, and the difference between them is the whole point:
+ *
+ *  - `free-port` with a stranger on the port: signalled, reports the pid, exit 0;
+ *  - `free-port` with nothing listening: **refused**, because the person asked to free something;
+ *  - `start --free-port` with nothing listening: proceeds, because a free port is the goal;
+ *  - `start --free-port` where the port survives: exit 1, so a script knows the start will fail.
+ */
+describe('free-port, and start --free-port', () => {
+  it('reports what it stopped, and the path it called', async () => {
+    const fake = await panel(200, JSON.stringify({
+      ok: true,
+      port: 4010,
+      terminated: [4242],
+      forced: [],
+      skipped: [],
+      free: true,
+    }))
+    writeRuntime(fake.url)
+
+    const result = await runCli(['free-port', 'web'])
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('freed port 4010')
+    expect(result.stdout).toContain('4242')
+    // The local channel, not `/api`: no session, just run.json's token.
+    expect(fake.seen.path).toBe('/_hh/servers/web/free-port')
+    expect(fake.seen.token).toBe('local-token')
+  })
+
+  it('names a port it had to kill, separately from one it asked to stop', async () => {
+    const fake = await panel(200, JSON.stringify({
+      ok: true,
+      port: 4010,
+      terminated: [11],
+      forced: [22],
+      skipped: [],
+      free: true,
+    }))
+    writeRuntime(fake.url)
+
+    const result = await runCli(['free-port', 'web'])
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('pid 11 stopped')
+    expect(result.stdout).toContain('pid 22 had to be killed')
+  })
+
+  it('reports a holder this panel supervises instead of signalling it', async () => {
+    const fake = await panel(409, JSON.stringify({
+      ok: true,
+      port: 4010,
+      terminated: [],
+      forced: [],
+      skipped: [33],
+      free: true,
+    }))
+    writeRuntime(fake.url)
+
+    const result = await runCli(['free-port', 'web'])
+    expect(result.stdout).toContain('pid 33 left alone')
+    expect(result.stdout).toContain('supervises')
+  })
+
+  it('refuses when nothing is listening, because that is not what was asked', async () => {
+    const fake = await panel(409, JSON.stringify({
+      ok: false,
+      port: 4010,
+      terminated: [],
+      forced: [],
+      skipped: [],
+      free: false,
+      error: 'nothing is listening on port 4010 any more',
+    }))
+    writeRuntime(fake.url)
+
+    const result = await runCli(['free-port', 'web'])
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('nothing is listening on port 4010')
+  })
+
+  it('lets start --free-port proceed when the port is already idle', async () => {
+    // The panel refuses `free-port` with "nothing is listening"; `start` wants the port free, so
+    // that answer is the desired state and must not abort the start. The stub answers by path,
+    // because a real panel says this to the free-port call and *then* starts the entry.
+    const seen: string[] = []
+    const server = http.createServer((req, res) => {
+      seen.push(req.url ?? '')
+      const isFreePort = (req.url ?? '').includes('free-port')
+      res.statusCode = isFreePort ? 409 : 200
+      res.setHeader('content-type', 'application/json')
+      res.end(isFreePort
+        ? JSON.stringify({
+            ok: false,
+            port: 4010,
+            terminated: [],
+            forced: [],
+            skipped: [],
+            free: false,
+            error: 'nothing is listening on port 4010 any more',
+          })
+        : JSON.stringify({ ok: true }))
+    })
+    servers.push(server)
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const address = server.address() as net.AddressInfo
+    writeRuntime(`http://127.0.0.1:${address.port}`)
+
+    const result = await runCli(['start', 'web', '--free-port'])
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('port is free')
+    expect(result.stdout).toContain('started web')
+    // Both calls happened, in that order — the flag composes rather than replacing.
+    expect(seen).toEqual(['/_hh/servers/web/free-port', '/_hh/servers/web/start'])
+  })
+
+  it('never lets start --free-port continue when the port stays taken', async () => {
+    // The mirror case: a socket that survived. The start would fail anyway, so say why here.
+    const fake = await panel(200, JSON.stringify({
+      ok: true,
+      port: 4010,
+      terminated: [11],
+      forced: [],
+      skipped: [],
+      free: false,
+    }))
+    writeRuntime(fake.url)
+
+    const result = await runCli(['start', 'web', '--free-port'])
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('still in use')
+    expect(result.stdout).not.toContain('started web')
+  })
+
+  it('does not accept --free-port on a command that has no use for it', async () => {
+    // `stop --free-port` would free a port and then stop the entry that wanted it.
+    const result = await runCli(['stop', 'web', '--free-port'])
+    expect(result.status).not.toBe(0)
+  })
+})

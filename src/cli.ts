@@ -43,8 +43,9 @@ const SYNOPSIS: Record<string, string> = {
   'status': 'home-hosted status [--json]',
   'logs': 'home-hosted logs [--lines <n>] [--follow] [--json]',
   'backup': 'home-hosted backup [list|create|restore] [options]',
-  'start': 'home-hosted start <id> [--workspace <id>]',
+  'start': 'home-hosted start <id> [--workspace <id>] [--free-port]',
   'stop': 'home-hosted stop <id> [--workspace <id>]',
+  'free-port': 'home-hosted free-port <id> [--workspace <id>]',
   'set-password': 'home-hosted set-password',
   'set-token': 'home-hosted set-token',
   'migrate': 'home-hosted migrate',
@@ -63,6 +64,7 @@ const SUMMARIES: Record<string, string> = {
   'backup': 'list, create or restore a backup archive',
   'start': 'start one server, leaving the panel up',
   'stop': 'stop one server, leaving the panel up',
+  'free-port': 'free the port a server needs, so it can start',
   'set-password': 'set the panel password without the API',
   'set-token': 'set the API token that scripts and agents use',
   'migrate': 'bring the config up to this release\'s schema',
@@ -128,10 +130,20 @@ const BACKUP_SECTION: OptionSection = {
 }
 
 const SERVER_SECTION: OptionSection = {
-  heading: 'Arguments for start/stop',
+  heading: 'Arguments for start/stop/free-port',
   lines: [
     ['<id>', 'the server id from servers.config.json'],
     ['-w, --workspace <id>', 'the workspace to act in (default: the default workspace)'],
+  ],
+}
+
+// Only `start` takes the flag: freeing a port before stopping a server means nothing.
+const START_SECTION: OptionSection = {
+  heading: 'Arguments for start',
+  lines: [
+    ['<id>', 'the server id from servers.config.json'],
+    ['-w, --workspace <id>', 'the workspace to act in (default: the default workspace)'],
+    ['--free-port', 'free the port first, then start — the panel\'s Free port button'],
   ],
 }
 
@@ -307,8 +319,9 @@ const SECTIONS: Record<string, OptionSection> = {
   'logs': LOGS_SECTION,
   'backup': BACKUP_SECTION,
   'restart': RESTART_SECTION,
-  'start': SERVER_SECTION,
+  'start': START_SECTION,
   'stop': SERVER_SECTION,
+  'free-port': SERVER_SECTION,
   'set-password': SET_PASSWORD_SECTION,
   'set-token': SET_TOKEN_SECTION,
   'migrate': MIGRATE_SECTION,
@@ -357,6 +370,7 @@ const COMMANDS = {
   'logs': () => import('#src/cli/logs').then(module => module.logsCommand),
   'start': () => import('#src/cli/server').then(module => module.startCommand),
   'stop': () => import('#src/cli/server').then(module => module.stopCommand),
+  'free-port': () => import('#src/cli/server').then(module => module.freePortCommand),
   'set-password': () => import('#src/cli/set-password').then(module => module.setPasswordCommand),
   'set-token': () => import('#src/cli/set-token').then(module => module.setTokenCommand),
   'migrate': () => import('#src/cli/migrate').then(module => module.migrateCommand),
