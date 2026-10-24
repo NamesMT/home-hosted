@@ -46,8 +46,12 @@ export function createControlRoute(deps: AppDeps) {
       (c) => {
         assertLocalCall(c, 'stop the control panel')
 
+        // `?withPersistent=true` is `down --with-persistent`: a persistent entry survives this
+        // shutdown by design, so only an explicit ask ends it — and doing it here, while the
+        // panel is still alive, is what records the stop.
+        const withPersistent = c.req.query('withPersistent') === 'true'
         // Deferred: the answer has to reach `down` before the process goes away.
-        afterResponse(deps.onShutdown, error => logger.error('shutdown failed', error))
+        afterResponse(() => deps.onShutdown({ withPersistent }), error => logger.error('shutdown failed', error))
 
         return c.json({ ok: true })
       },

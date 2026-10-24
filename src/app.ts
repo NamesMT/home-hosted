@@ -51,7 +51,8 @@ export interface AppDeps {
   challenge: AcmeChallengeService
   /** Token for the local `down` command, and the graceful stop it asks for. */
   runtimeToken: string
-  onShutdown: () => Promise<void>
+  /** `withPersistent` is `down --with-persistent`: end the persistent entries too. */
+  onShutdown: (options?: { withPersistent?: boolean }) => Promise<void>
 }
 
 /**

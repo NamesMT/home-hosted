@@ -25,6 +25,14 @@ const props = withDefaults(defineProps<{
   title?: string
   /** One line saying what the action does, for an irreversible one. */
   hint?: string
+  /**
+   * An offered alternative, when the action has two honest answers rather than one.
+   *
+   * "Stop every server" is the case: leaving persistent entries running is the default, and
+   * ending them is a separate, narrower choice. Two labelled buttons say which is which, where
+   * a single confirm would have to either hide the choice or make it by surprise.
+   */
+  alternativeLabel?: string
 }>(), {
   confirmLabel: undefined,
   variant: 'danger-ghost',
@@ -34,9 +42,10 @@ const props = withDefaults(defineProps<{
   loading: false,
   title: undefined,
   hint: undefined,
+  alternativeLabel: undefined,
 })
 
-const emit = defineEmits<{ confirm: [] }>()
+const emit = defineEmits<{ confirm: [], alternative: [] }>()
 
 const open = ref(false)
 
@@ -48,6 +57,11 @@ const confirmTitle = computed(() => props.title ?? t('common.confirmQuestion', {
 function confirm(): void {
   open.value = false
   emit('confirm')
+}
+
+function alternative(): void {
+  open.value = false
+  emit('alternative')
 }
 </script>
 
@@ -77,8 +91,12 @@ function confirm(): void {
               {{ t('common.cancel') }}
             </AppButton>
           </PopoverClose>
-          <AppButton size="xs" :variant="props.confirmVariant" :loading="props.loading" @click="confirm">
+          <!-- The safe choice comes first in tab order; the wider one needs the second click. -->
+          <AppButton size="xs" variant="ghost" :loading="props.loading" @click="confirm">
             {{ confirmLabel }}
+          </AppButton>
+          <AppButton v-if="props.alternativeLabel" size="xs" :variant="props.confirmVariant" :loading="props.loading" @click="alternative">
+            {{ props.alternativeLabel }}
           </AppButton>
         </div>
       </PopoverContent>

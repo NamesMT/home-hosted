@@ -985,6 +985,27 @@ describe('lifecycle routes', () => {
     expect((await request(created.app, '/api/servers/stop-all', 'POST')).status).toBe(200)
     expect(calls).toEqual(['start', 'stop'])
   })
+
+  /**
+   * `withPersistent` is the CLI's `--with-persistent`. Omitting it must keep the behaviour every
+   * existing client has — a bare `stop-all` leaves persistent entries running — so the route
+   * reads it with a default of `false` rather than treating an absent query as "stop everything".
+   */
+  it('passes withPersistent to stop-all only when it is asked for', async () => {
+    const created = await withServer({ views: [makeView('web')] })
+    const seen: Array<{ withPersistent?: boolean } | undefined> = []
+    created.supervisor.stopAll = async (options?: { withPersistent?: boolean }) => {
+      seen.push(options)
+    }
+
+    const bare = await request(created.app, '/api/servers/stop-all', 'POST')
+    expect(bare.status).toBe(200)
+
+    const asked = await request(created.app, '/api/servers/stop-all?withPersistent=true', 'POST')
+    expect(asked.status).toBe(200)
+
+    expect(seen).toEqual([{ withPersistent: false }, { withPersistent: true }])
+  })
 })
 
 /**

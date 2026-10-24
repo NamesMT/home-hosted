@@ -243,7 +243,7 @@ means the panel's default workspace.
 | `GET /api/state` | the full snapshot: global settings, every workspace with its servers, host vitals | ❌ |
 | `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the registry: list, create, rename, remove | ❌ |
 | `GET /api/events` | SSE: the live state, plus logs (`?logs=0`, `?serverId=…`; a `server` payload carries its `workspaceId`) | ❌ |
-| `GET`/`POST /api/servers`, `POST /api/servers/start-all`, `POST /api/servers/stop-all` | that workspace's entries, and its lifecycle for all of them | ✅ |
+| `GET`/`POST /api/servers`, `POST /api/servers/start-all`, `POST /api/servers/stop-all` | that workspace's entries, and its lifecycle for all of them (`?withPersistent=true` ends the entries that outlive the panel) | ✅ |
 | `GET`/`PATCH`/`DELETE /api/servers/:id`, `PUT /api/servers/:id` | one entry — `PUT` creates or replaces it, so a re-run converges | ✅ |
 | `POST /api/servers/:id/{start,stop,restart}`, `POST /api/servers/:id/free-port` | one entry's lifecycle, and freeing its port | ✅ |
 | `GET /api/servers/:id/logs`, `GET /api/servers/:id/stream` | that entry's buffered lines, and its SSE | ✅ |

@@ -17,15 +17,28 @@ const props = withDefaults(defineProps<{
   title?: string
   /** One line saying what the action does, for an irreversible one. */
   hint?: string
-}>(), { confirmLabel: 'confirm?', tone: 'ghost', title: undefined, hint: undefined })
+  /**
+   * An offered alternative, for an action that has two honest answers rather than one.
+   *
+   * "Stop every server" is the case: persistent entries keep running by default, and ending
+   * them is a separate, narrower choice. Two labelled buttons say which is which, where one
+   * confirm would have to either hide the choice or make it by surprise.
+   */
+  alternativeLabel?: string
+}>(), { confirmLabel: 'confirm?', tone: 'ghost', title: undefined, hint: undefined, alternativeLabel: undefined })
 
-const emit = defineEmits<{ confirm: [] }>()
+const emit = defineEmits<{ confirm: [], alternative: [] }>()
 
 const open = ref(false)
 
 function confirm(): void {
   open.value = false
   emit('confirm')
+}
+
+function alternative(): void {
+  open.value = false
+  emit('alternative')
 }
 
 function cancel(): void {
@@ -61,11 +74,15 @@ function cancel(): void {
 
       <div class="group sheet__foot">
         <div class="actions">
+          <!-- The safe choice first in tab order; the wider one is the deliberate second. -->
           <button type="button" class="btn btn--sm" @click="cancel">
             cancel
           </button>
-          <button type="button" class="btn btn--sm btn--danger" @click="confirm">
+          <button type="button" class="btn btn--sm" @click="confirm">
             {{ props.confirmLabel }}
+          </button>
+          <button v-if="props.alternativeLabel" type="button" class="btn btn--sm btn--danger" @click="alternative">
+            {{ props.alternativeLabel }}
           </button>
         </div>
       </div>

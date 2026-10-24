@@ -337,7 +337,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   }
 
   let shuttingDown = false
-  const shutdown = async (reason: string): Promise<void> => {
+  const shutdown = async (reason: string, options: { withPersistent?: boolean } = {}): Promise<void> => {
     if (shuttingDown)
       return
     shuttingDown = true
@@ -347,7 +347,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     clearRuntime()
     auth.dispose()
     proxy.dispose()
-    await panel!.dispose()
+    await panel!.dispose(options)
     await controlServer.close(true)
     process.exit(0)
   }
@@ -373,7 +373,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
       },
     }),
     runtimeToken: token,
-    onShutdown: () => shutdown('shutdown requested locally'),
+    onShutdown: options => shutdown('shutdown requested locally', options),
   })
 
   await controlServer.start()

@@ -156,11 +156,17 @@ export function createServersRoute(deps: AppDeps) {
 
     .post(
       '/stop-all',
-      describeRoute({ tags: ['servers'], summary: 'Stop every server in a workspace', responses: { 200: { description: 'The servers', content: jsonBody(serversResponse) } } }),
+      describeRoute({
+        tags: ['servers'],
+        summary: 'Stop every server in a workspace, persistent entries included if asked',
+        responses: { 200: { description: 'The servers', content: jsonBody(serversResponse) } },
+      }),
       validate('query', workspaceQuerySchema),
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        await runtime.supervisor.stopAll()
+        // Read as a raw query, not a validated schema field: `withPersistent` is an optional
+        // spelling and a client that omits it must keep the behaviour it has always had.
+        await runtime.supervisor.stopAll({ withPersistent: c.req.query('withPersistent') === 'true' })
         return c.json({ servers: runtime.supervisor.views() })
       },
     )

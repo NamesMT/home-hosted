@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { Activity, CircleAlert, Play, Plus, Server as ServerIcon, Square, Timer } from '@lucide/vue'
+import { Activity, CircleAlert, Play, Plus, Server as ServerIcon, Timer } from '@lucide/vue'
 import { liveReadings } from '@shared/server-readings'
 import { computed, ref } from 'vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
 import AddServerDialog from '@/components/server/AddServerDialog.vue'
 import ServerCard from '@/components/server/ServerCard.vue'
+import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -86,9 +87,17 @@ const uptime = computed(() => {
         <AppButton variant="ghost" @click="workspace.startAll()">
           <Play class="size-3.5" />{{ t('views.actions.startAll') }}
         </AppButton>
-        <AppButton variant="ghost" @click="workspace.stopAll()">
-          <Square class="size-3.5" />{{ t('views.actions.stopAll') }}
-        </AppButton>
+        <ConfirmButton
+          :label="t('views.actions.stopAll')"
+          :confirm-label="t('views.actions.stopAllIgnore')"
+          :alternative-label="t('views.actions.stopAllWithPersistent')"
+          :title="t('views.actions.stopAllQuestion')"
+          :hint="t('views.actions.stopAllHint')"
+          variant="ghost"
+          confirm-variant="danger"
+          @confirm="workspace.stopAll()"
+          @alternative="workspace.stopAll({ withPersistent: true })"
+        />
         <AppButton variant="primary" @click="showAdd = true">
           <Plus class="size-3.5" />{{ t('views.actions.addServer') }}
         </AppButton>

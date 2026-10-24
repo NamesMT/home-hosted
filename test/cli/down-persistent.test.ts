@@ -161,8 +161,8 @@ describe('down --with-persistent', () => {
   it('stops through a running panel, which is the path that must report what it stopped', async () => {
     // The panel path is what `restart --with-persistent` relies on to know what to start back:
     // when it stopped the entry but reported nothing, the restart left down the thing it was
-    // asked to restart (measured on a real host). This pins the call; `restart`'s own second
-    // half needs a real daemon and is driven end-to-end by hand instead.
+    // asked to restart (measured on a real host). This pins both halves — the request carrying
+    // the flag, and the entry still being reported as stopped once the panel has ended it.
     //
     // Through a **spawned** CLI with its own home: calling `runDown` in-process would inherit
     // this machine's `HHOSTED_HOME` and drive whichever panel is really running.
@@ -204,9 +204,9 @@ describe('down --with-persistent', () => {
     try {
       const result = await runCli(['down', '--with-persistent'])
       expect(result.stderr, 'the CLI failed').toBe('')
-      // The per-server stop went through the panel, not straight to the nanny: that is what
-      // gives the entry its log line, history and health, and what `restart` reads back.
-      expect(seen).toContain('POST /_hh/servers/keep/stop?workspace=default')
+      // The flag rides the shutdown call, so the panel ends the entries itself while it is still
+      // alive to record the stop. A bare `/_hh/shutdown` here would leave them running.
+      expect(seen).toContain('POST /_hh/shutdown?withPersistent=true')
       expect(result.stdout).toContain('stopped persistent default/keep')
     }
     finally {

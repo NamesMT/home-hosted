@@ -308,6 +308,8 @@ What that changes:
 
 - **`down`, `restart` and `stop-all` leave it running** and say so (`2 persistent server(s) left
   running: …`). Only an explicit **Stop** on that entry — or removing/disabling it — ends it.
+  `POST /api/servers/stop-all?withPersistent=true` is the same choice from the API, and the panel's
+  **Stop all** asks it in a popover — **Ignore** leaves them running, **With persistent** ends them.
 - **`down --with-persistent` (and `restart --with-persistent`) stop them as well.** That is the
   flag's whole job, and it works in both situations: with the panel up the stop goes through it, so
   the entry gets its log line, history and health recorded like a click in the UI; with the panel

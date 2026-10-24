@@ -413,11 +413,12 @@ export class PanelService {
     }
   }
 
-  async dispose(): Promise<void> {
+  /** `withPersistent` reaches every workspace's supervisor: a `down` is host-wide. */
+  async dispose(options: { withPersistent?: boolean } = {}): Promise<void> {
     this.disposed = true
     clearInterval(this.timer)
     this.options.backups.dispose()
-    await Promise.all(this.workspaces().map(runtime => runtime.supervisor.dispose()))
+    await Promise.all(this.workspaces().map(runtime => runtime.supervisor.dispose(options)))
     for (const runtime of this.workspaces()) this.disposeRuntime(runtime)
   }
 

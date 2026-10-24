@@ -428,15 +428,15 @@ export class Supervisor {
   }
 
   /**
-   * Stops every entry this command owns. A persistent entry is deliberately not among
-   * them: that is the whole point of the flag, and it is said out loud rather than
+   * Stops every entry this command owns. A persistent entry is deliberately not among them
+   * unless asked: that is the whole point of the flag, and it is said out loud rather than
    * silently skipped, so "stopped everything" is never claimed about a running server.
    */
-  async stopAll(): Promise<void> {
+  async stopAll(options: { withPersistent?: boolean } = {}): Promise<void> {
     const targets = orderByDependencies([...this.entries.values()].map(entry => entry.config)).reverse()
     for (const config of targets) {
       const entry = this.entries.get(config.id)
-      if (entry !== undefined && entry.config.persistent) {
+      if (entry !== undefined && entry.config.persistent && options.withPersistent !== true) {
         if (this.isActive(entry))
           this.log(entry, 'system', 'persistent: left running (stop it explicitly to end it)')
         continue
@@ -816,16 +816,19 @@ export class Supervisor {
     this.publishServer(entry)
   }
 
-  async dispose(): Promise<void> {
+  /**
+   * Ends this supervisor's work. Persistent entries outlive the process by design, so they
+   * are left running unless `withPersistent` says otherwise — `down --with-persistent` is
+   * what asks, and it needs the stop recorded here, while the panel is still alive to do it.
+   */
+  async dispose(options: { withPersistent?: boolean } = {}): Promise<void> {
     this.disposed = true
     clearInterval(this.tickTimer)
     this.storeUnsubscribe()
     for (const entry of this.entries.values()) this.clearRetry(entry)
-    // Persistent entries are left running on purpose: their nannies outlive this
-    // process, which is exactly what `down` is not allowed to end for them.
     await Promise.all(
       [...this.entries.values()]
-        .filter(entry => !entry.config.persistent)
+        .filter(entry => options.withPersistent === true || !entry.config.persistent)
         .map(entry => this.stopEntry(entry)),
     )
     this.relay.dispose()

@@ -722,6 +722,29 @@ describe('/_hh/shutdown', () => {
     await new Promise(resolve => setImmediate(() => setImmediate(resolve)))
     expect(created.shutdownCalls()).toBe(1)
   })
+
+  /**
+   * `?withPersistent=true` is `down --with-persistent`: a persistent entry survives a shutdown by
+   * design, so only an explicit ask ends it. An absent query must keep the old behaviour, because
+   * every panel that predates this flag calls the bare route.
+   */
+  it('carries withPersistent from the query, and defaults it off', async () => {
+    const created = await fixture()
+
+    await created.app.request('/_hh/shutdown', {
+      method: 'POST',
+      headers: { 'x-home-hosted-token': 'runtime-token' },
+    })
+    await new Promise(resolve => setImmediate(() => setImmediate(resolve)))
+
+    await created.app.request('/_hh/shutdown?withPersistent=true', {
+      method: 'POST',
+      headers: { 'x-home-hosted-token': 'runtime-token' },
+    })
+    await new Promise(resolve => setImmediate(() => setImmediate(resolve)))
+
+    expect(created.shutdownOptions()).toEqual([{ withPersistent: false }, { withPersistent: true }])
+  })
 })
 
 /**

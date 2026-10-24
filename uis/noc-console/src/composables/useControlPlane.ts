@@ -296,7 +296,7 @@ export function useControlPlane() {
     stop: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'stop', workspaceId)),
     restart: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'restart', workspaceId)),
     startAll: (workspaceId: string) => run(() => api.startAll(workspaceId)),
-    stopAll: (workspaceId: string) => run(() => api.stopAll(workspaceId)),
+    stopAll: (workspaceId: string, options: { withPersistent?: boolean } = {}) => run(() => api.stopAll(workspaceId, options)),
     setAutostart: (workspaceId: string, id: string, autostart: boolean) => run(() => api.patchServer(id, { autostart }, workspaceId)),
     setBind: (workspaceId: string, id: string, bind: Bind) => run(() => api.patchServer(id, { bind }, workspaceId)),
     setEnabled: (workspaceId: string, id: string, enabled: boolean) => run(() => api.patchServer(id, { enabled }, workspaceId)),

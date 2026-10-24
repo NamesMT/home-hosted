@@ -3,6 +3,7 @@ import type { ServerView } from '@shared/contracts'
 import { Pane, Splitpanes } from 'splitpanes'
 import { computed, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import ConfirmButton from '@/components/ConfirmButton.vue'
 import ServerDetail from '@/components/ServerDetail.vue'
 import ServerList from '@/components/ServerList.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
@@ -201,9 +202,16 @@ useKeyHandler((key) => {
       <button type="button" class="btn btn--sm" @click="workspace.startAll()">
         start all
       </button>
-      <button type="button" class="btn btn--sm" @click="workspace.stopAll()">
-        stop all
-      </button>
+      <ConfirmButton
+        label="stop all"
+        confirm-label="ignore persistent"
+        alternative-label="with persistent"
+        title="Stop every server in this workspace?"
+        hint="Persistent entries keep running unless you choose “with persistent”."
+        tone="ghost"
+        @confirm="workspace.stopAll()"
+        @alternative="workspace.stopAll({ withPersistent: true })"
+      />
       <button type="button" class="btn btn--sm btn--primary" @click="addOpen = true">
         add <kbd class="kbd">a</kbd>
       </button>

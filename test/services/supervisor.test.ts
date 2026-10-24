@@ -1514,6 +1514,18 @@ describe('persistent entries', () => {
     expect(texts[3]).toContain('reattached')
   })
 
+  it('stops a persistent entry through stop-all when asked, leaving it otherwise', async () => {
+    // The flag is the whole difference: one call leaves the nanny alone, the next ends it.
+    const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
+    const pid = await fakeNanny(nannyDir, 'keep')
+    await supervisor.startAll({ autostartOnly: true })
+
+    await supervisor.stopAll({ withPersistent: true })
+    expect(isAlive(pid)).toBe(false)
+    expect(view(supervisor, 'keep').status).toBe('stopped')
+    expect(readNannyState(nannyStatePath(nannyDir, 'keep'))).toBeNull()
+  })
+
   it('leaves a persistent entry running through stop-all, and stops it explicitly', async () => {
     const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
     const pid = await fakeNanny(nannyDir, 'keep')

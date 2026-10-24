@@ -346,8 +346,15 @@ export async function freePort(workspace: string, id: string): Promise<FreePortR
   return payload ?? { ok: true, port: null, terminated: [], forced: [], skipped: [], free: false }
 }
 
-export function stopAll(workspace: string): Promise<unknown> {
-  return request(scoped('/api/servers/stop-all', workspace), { method: 'POST' })
+/**
+ * Stop every server in a workspace.
+ *
+ * `withPersistent` is the CLI's `--with-persistent`: a persistent entry outlives the panel, so
+ * leaving it running is the default and ending it has to be asked for.
+ */
+export function stopAll(workspace: string, options: { withPersistent?: boolean } = {}): Promise<unknown> {
+  const extra = options.withPersistent === true ? new URLSearchParams({ withPersistent: 'true' }) : undefined
+  return request(scoped('/api/servers/stop-all', workspace, extra), { method: 'POST' })
 }
 
 export function clearLogs(workspace: string, id: string): Promise<unknown> {

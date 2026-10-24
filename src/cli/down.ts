@@ -1,4 +1,3 @@
-import type { Runtime } from '#src/helpers/daemon'
 import type { PersistentHandle } from '#src/providers/nanny-sweep'
 import type { StopConfig } from '#src/shared/contracts'
 import { spawnSync } from 'node:child_process'
@@ -30,10 +29,13 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
   const { clearRuntime, isLiveLiveness, readRuntime, requestShutdown, runtimeLiveness } = await import('#src/helpers/daemon')
 
   const result: DownResult = { stoppedPersistent: [] }
-  // Filled by whichever path got here; `restart` starts exactly this list. It is recorded even
-  // when the panel did the stop, so the caller knows what it has to bring back.
+  // What was running before this command did anything. The panel ends the entries itself when
+  // asked, so afterwards they are simply gone — and the difference between "was running" and
+  // "still running" is the only account of what was stopped. `restart` starts exactly that list.
+  const before = options.withPersistent === true ? await livePersistents() : []
+  // Filled by whichever path got here, so one place decides what was stopped and what survived.
   const finish = async (): Promise<DownResult> => {
-    result.stoppedPersistent.push(...await reportPersistent(options, result.stoppedPersistent))
+    result.stoppedPersistent.push(...await reportPersistent(options, before))
     return result
   }
 
@@ -44,11 +46,6 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     // the panel by design, so "nothing is running" must not be said by omission here.
     return finish()
   }
-
-  // Before the panel goes, so there is still a panel to do the work; the offline sweep below
-  // backstops whatever it could not.
-  if (options.withPersistent)
-    result.stoppedPersistent.push(...await stopPersistentsThroughPanel(runtime))
 
   const liveness = await runtimeLiveness(runtime)
   // Nothing at all is behind the pid, so the record is simply stale: delete it, and do not touch the
@@ -73,7 +70,9 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     // The panel's own endpoint stops supervised servers cleanly on every platform; a signal is the
     // fallback for a wedged or unreachable process. Only a pid whose identity is confirmed is ever
     // signalled, and this branch is the only one that signals at all.
-    answered = await requestShutdown(runtime)
+    // The panel ends the persistent entries itself when asked: it is the only one that can
+    // record the stop (log line, history, health) and consume the state file in order.
+    answered = await requestShutdown(runtime, 4000, { withPersistent: options.withPersistent === true })
     if (!answered)
       signal(runtime.pid, 'SIGTERM')
   }
@@ -89,7 +88,7 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
      * panel looks recycled. Either way this returns: `runtime.pid` is not the answering process, so
      * it is not signalled and the record is left for that panel to overwrite.
      */
-    const answeredByPanel = await requestShutdown(runtime)
+    const answeredByPanel = await requestShutdown(runtime, 4000, { withPersistent: options.withPersistent === true })
     if (!answeredByPanel) {
       process.stdout.write(`home-hosted is not running (the pid in run.json, ${runtime.pid}, belongs to another process — it was not signalled)\n`)
       return finish()
@@ -131,59 +130,38 @@ export function persistentLabel(handle: Readonly<PersistentHandle>): string {
 }
 
 /**
- * Stops them while the panel can still do it, so the stop is recorded the way a click in the
- * UI would be: a log line, history, health, and the state file consumed by its owner.
- *
- * A refusal is not fatal here: the offline sweep that follows is the backstop, and it names
- * what it could not stop.
+ * Stops what is left of the snapshot: with the panel gone each nanny is signalled directly, and
+ * its state file consumed once it is really gone. Returns which were ended here and which
+ * survived, so the caller can account for the rest as the panel's work.
  */
-async function stopPersistentsThroughPanel(runtime: Runtime): Promise<DownResult['stoppedPersistent']> {
-  const handles = await livePersistents()
+async function stopPersistents(before: PersistentHandle[]): Promise<{ done: Set<string>, survived: Set<string> }> {
+  const done = new Set<string>()
+  const survived = new Set<string>()
+  // Read again rather than trusting the snapshot: the panel's shutdown has been happening in
+  // the meantime, and a nanny it already ended must not be signalled a second time.
+  const live = new Set((await livePersistents()).map(persistentLabel))
+  const handles = before.filter(handle => live.has(persistentLabel(handle)))
   if (handles.length === 0)
-    return []
-
-  const stopped: DownResult['stoppedPersistent'] = []
-  const { requestControl } = await import('#src/helpers/daemon')
-  for (const handle of handles) {
-    const workspace = `?workspace=${encodeURIComponent(handle.workspaceId)}`
-    // Bounded, not `requestControl`'s 150s default: a wedged panel would otherwise hold the
-    // command open per entry, and the offline sweep can finish what this one could not.
-    const answer = await requestControl(runtime, `/_hh/servers/${encodeURIComponent(handle.serverId)}/stop${workspace}`, 30_000)
-    const body = (answer?.body ?? {}) as { ok?: boolean, error?: string }
-    if (body.ok !== true)
-      continue
-    stopped.push({ workspaceId: handle.workspaceId, serverId: handle.serverId })
-    process.stdout.write(`${green('stopped')} persistent ${persistentLabel(handle)}\n`)
-  }
-  return stopped
-}
-
-/**
- * The stop the flag has to be able to do with no panel: signal each nanny, and consume the
- * record of each one that ended — or say which survived and why.
- */
-async function stopPersistents(already: DownResult['stoppedPersistent'] = []): Promise<DownResult['stoppedPersistent']> {
-  const done = new Set(already.map(entry => `${entry.workspaceId}/${entry.serverId}`))
-  const handles = (await livePersistents())
-    .filter(handle => !done.has(`${handle.workspaceId}/${handle.serverId}`))
-  if (handles.length === 0)
-    return []
+    return { done, survived }
 
   const { stopPersistentEntries } = await import('#src/providers/nanny-sweep')
   const results = await stopPersistentEntries(handles, { stopFor: await stopPolicyLookup() })
 
-  const stopped = results.filter(result => result.stopped)
-  for (const result of stopped)
-    process.stdout.write(`${green('stopped')} persistent ${persistentLabel(result.handle)}\n`)
-
-  const failed = results.filter(result => !result.stopped)
-  for (const result of failed)
-    process.stderr.write(`${paint('31', 'error')} persistent ${persistentLabel(result.handle)}: ${result.error}\n`)
+  for (const result of results) {
+    const label = persistentLabel(result.handle)
+    if (result.stopped) {
+      done.add(label)
+      process.stdout.write(`${green('stopped')} persistent ${label}\n`)
+      continue
+    }
+    survived.add(label)
+    process.stderr.write(`${paint('31', 'error')} persistent ${label}: ${result.error}\n`)
+  }
   // A stop that left a server running is a failed stop, never a quiet success.
   const code = exitCodeForStops(results)
   if (code !== 0)
     process.exitCode = code
-  return stopped.map(({ handle }) => ({ workspaceId: handle.workspaceId, serverId: handle.serverId }))
+  return { done, survived }
 }
 
 /**
@@ -229,19 +207,38 @@ async function stopPolicyLookup(): Promise<(handle: PersistentHandle) => StopCon
 }
 
 /**
- * The last step: stop what the flag still has to stop, or name what was left running. Returns
- * what this command stopped, so a caller like `restart` can bring it back.
+ * The last step: name what the flag left running, or stop what the panel could not and account
+ * for every entry that was running when this command started.
+ *
+ * The panel does the stopping whenever it is reachable — it is the only process that can record
+ * it — so what is left of the snapshot is what still needs a signal here. Anything else in the
+ * snapshot was ended by the panel, and is reported as stopped; a survivor is never reported as
+ * stopped, or `restart` would treat a failed stop as a successful one.
  */
-async function reportPersistent(options: DownOptions, already: DownResult['stoppedPersistent'] = []): Promise<DownResult['stoppedPersistent']> {
-  if (options.withPersistent)
-    return stopPersistents(already)
-
-  const running = await livePersistents()
-  if (running.length === 0)
+async function reportPersistent(options: DownOptions, before: PersistentHandle[] = []): Promise<DownResult['stoppedPersistent']> {
+  if (options.withPersistent !== true) {
+    const running = await livePersistents()
+    if (running.length === 0)
+      return []
+    process.stdout.write(`${dim(`${running.length} persistent server(s) left running: ${running.map(persistentLabel).join(', ')}\n`)}`)
+    process.stdout.write(`${dim('stop one from the panel, or pass --with-persistent')}\n`)
     return []
-  process.stdout.write(`${dim(`${running.length} persistent server(s) left running: ${running.map(persistentLabel).join(', ')}`)}\n`)
-  process.stdout.write(`${dim('stop one from the panel, or pass --with-persistent')}\n`)
-  return []
+  }
+
+  const ended = await stopPersistents(before)
+  const stopped: DownResult['stoppedPersistent'] = []
+  for (const handle of before) {
+    const label = persistentLabel(handle)
+    // A survivor is never reported as stopped, or `restart` would treat a failed stop as one.
+    if (ended.survived.has(label))
+      continue
+    // Not ended here, so the panel did it on the way out: either way it is stopped, and the
+    // caller cannot tell the two apart — nor should it have to.
+    if (!ended.done.has(label))
+      process.stdout.write(`${green('stopped')} persistent ${label}\n`)
+    stopped.push({ workspaceId: handle.workspaceId, serverId: handle.serverId })
+  }
+  return stopped
 }
 
 async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {

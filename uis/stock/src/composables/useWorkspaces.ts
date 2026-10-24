@@ -163,7 +163,7 @@ export function useWorkspaces() {
     stop: (id: string) => control.stop(activeId.value, id),
     restart: (id: string) => control.restart(activeId.value, id),
     startAll: () => control.startAll(activeId.value),
-    stopAll: () => control.stopAll(activeId.value),
+    stopAll: (options: { withPersistent?: boolean } = {}) => control.stopAll(activeId.value, options),
     setEnabled: (id: string, enabled: boolean) => control.setEnabled(activeId.value, id, enabled),
     setAutostart: (id: string, autostart: boolean) => control.setAutostart(activeId.value, id, autostart),
     setBind: (id: string, bind: string) => control.setBind(activeId.value, id, bind),

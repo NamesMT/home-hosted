@@ -50,7 +50,7 @@ export interface FakeSupervisor {
   views: () => ServerView[]
   getState: () => AppState
   startAll: (options?: { autostartOnly?: boolean }) => Promise<void>
-  stopAll: () => Promise<void>
+  stopAll: (options?: { withPersistent?: boolean }) => Promise<void>
   start: (id: string) => Promise<{ ok: boolean, error?: string }>
   stop: (id: string) => Promise<{ ok: boolean, error?: string }>
   restart: (id: string) => Promise<{ ok: boolean, error?: string }>
@@ -100,6 +100,8 @@ export interface Fixture {
   supervisor: FakeSupervisor
   controlServer: { endpoint: ControlEndpoint, rebind: (next: { host: Bind, port: number }) => Promise<{ ok: boolean, error?: string }>, restart: () => Promise<{ ok: boolean, error?: string }> }
   shutdownCalls: () => number
+  /** The `withPersistent` each shutdown asked for, so the local channel's flag is observable. */
+  shutdownOptions: () => Array<{ withPersistent?: boolean } | undefined>
   serverViews: ServerView[]
   cleanup: () => Promise<void>
 }
@@ -476,6 +478,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
   })
 
   let shutdowns = 0
+  const shutdownAsked: Array<{ withPersistent?: boolean } | undefined> = []
   const deps = {
     panel,
     hub,
@@ -491,8 +494,9 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       accountFor: fqdn => proxy.challengeAccount(fqdn),
     }),
     runtimeToken: 'runtime-token',
-    onShutdown: async () => {
+    onShutdown: async (options?: { withPersistent?: boolean }) => {
       shutdowns += 1
+      shutdownAsked.push(options)
     },
   } as unknown as AppDeps
 
@@ -525,6 +529,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     supervisor: defaultWorkspace.supervisor,
     controlServer,
     shutdownCalls: () => shutdowns,
+    shutdownOptions: () => shutdownAsked,
     serverViews: defaultViews,
     cleanup: async () => {
       await panel.dispose()

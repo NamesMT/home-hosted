@@ -128,8 +128,12 @@ export async function probeRuntime(runtime: Runtime, timeoutMs = 2500): Promise<
  * Asks the daemon to stop through its own endpoint, so supervised servers are
  * shut down cleanly on every platform (a bare signal is not graceful on Windows).
  */
-export async function requestShutdown(runtime: Runtime, timeoutMs = 4000): Promise<boolean> {
-  const answer = await localCall(runtime, '/_hh/shutdown', 'POST', runtime.token, timeoutMs)
+export async function requestShutdown(runtime: Runtime, timeoutMs = 4000, options: { withPersistent?: boolean } = {}): Promise<boolean> {
+  // `withPersistent` rides the same query channel `workspace` already uses: the request helper
+  // sends no body, and this is what lets `down --with-persistent` have the panel end the entries
+  // while it is still alive to record the stop.
+  const query = options.withPersistent === true ? '?withPersistent=true' : ''
+  const answer = await localCall(runtime, `/_hh/shutdown${query}`, 'POST', runtime.token, timeoutMs)
   return answer !== null && answer.status >= 200 && answer.status < 300
 }
 

@@ -422,7 +422,10 @@ export function useControlPlane() {
      * them; this is the action that makes the report fixable without a shell.
      */
     stopOrphan: (workspaceId: string, id: string) => run(() => api.stopOrphan(workspaceId, id), { title: `Could not stop the orphaned process "${id}"`, success: 'Orphaned process stopped' }),
-    stopAll: (workspaceId: string) => run(() => api.stopAll(workspaceId), { title: 'Could not stop every server', success: 'Stopping every server' }),
+    stopAll: (workspaceId: string, options: { withPersistent?: boolean } = {}) => run(() => api.stopAll(workspaceId, options), {
+      title: 'Could not stop every server',
+      success: options.withPersistent === true ? 'Stopping every server, persistent entries included' : 'Stopping every server',
+    }),
     setAutostart: (workspaceId: string, id: string, autostart: boolean) => run(() => api.patchServer(workspaceId, id, { autostart }), { title: `Could not change autostart for ${id}` }),
     setEnabled: (workspaceId: string, id: string, enabled: boolean) => run(() => api.patchServer(workspaceId, id, { enabled }), { title: `Could not change ${id}` }),
     /**

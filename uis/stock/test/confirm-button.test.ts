@@ -60,6 +60,31 @@ describe('confirmButton', () => {
     wrapper.unmount()
   })
 
+  /**
+   * An action with two honest answers — "stop every server" either ignores persistent entries or
+   * ends them — offers both as labelled buttons rather than making the choice by surprise or
+   * hiding it. Each has its own event, so the caller cannot confuse them.
+   */
+  it('offers an alternative action beside the confirm, as its own event', async () => {
+    const wrapper = mount(ConfirmButton, {
+      props: { label: 'Stop all', confirmLabel: 'Ignore', alternativeLabel: 'With persistent', title: 'Stop every server?' },
+    })
+
+    await wrapper.find('button').trigger('click')
+    await nextTick()
+
+    const ordered = panelButtons().map(button => button.textContent?.trim())
+    expect(ordered.indexOf('Ignore')).toBeLessThan(ordered.indexOf('With persistent'))
+
+    byText('With persistent')!.click()
+    await nextTick()
+    expect(wrapper.emitted('alternative')).toHaveLength(1)
+    // Emitting one must never also emit the other: two actions, two outcomes.
+    expect(wrapper.emitted('confirm')).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
   it('carries the busy state onto the trigger', () => {
     const wrapper = mount(ConfirmButton, { props: { label: 'Delete', loading: true } })
     expect(wrapper.find('button').attributes('disabled')).toBeDefined()

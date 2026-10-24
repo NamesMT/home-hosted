@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Play, Plus, Search, Server as ServerIcon, Square, X } from '@lucide/vue'
+import { Play, Plus, Search, Server as ServerIcon, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import AddServerDialog from '@/components/server/AddServerDialog.vue'
 import ServerCard from '@/components/server/ServerCard.vue'
+import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -87,9 +88,17 @@ const filterOptions = computed(() => FILTERS.map(option => ({
         <AppButton variant="ghost" @click="workspace.startAll()">
           <Play class="size-3.5" />{{ t('views.actions.startAll') }}
         </AppButton>
-        <AppButton variant="ghost" @click="workspace.stopAll()">
-          <Square class="size-3.5" />{{ t('views.actions.stopAll') }}
-        </AppButton>
+        <ConfirmButton
+          :label="t('views.actions.stopAll')"
+          :confirm-label="t('views.actions.stopAllIgnore')"
+          :alternative-label="t('views.actions.stopAllWithPersistent')"
+          :title="t('views.actions.stopAllQuestion')"
+          :hint="t('views.actions.stopAllHint')"
+          variant="ghost"
+          confirm-variant="danger"
+          @confirm="workspace.stopAll()"
+          @alternative="workspace.stopAll({ withPersistent: true })"
+        />
         <AppButton variant="primary" @click="showAdd = true">
           <Plus class="size-3.5" />{{ t('views.actions.addServer') }}
         </AppButton>

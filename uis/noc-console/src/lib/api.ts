@@ -129,12 +129,16 @@ export interface SettingsSaveResult extends SettingsView {
  * the parameter means the panel's own default workspace. The shell keeps the
  * selected workspace in `selectedWorkspaceId`, so the scoped calls default to it.
  */
-function scoped(path: string, workspace?: string | null): string {
+function scoped(path: string, workspace?: string | null, extra?: URLSearchParams): string {
   const id = workspace ?? selectedWorkspaceId.value
-  if (id === null || id === undefined || id.length === 0)
+  const params = extra ?? new URLSearchParams()
+  if (id !== null && id !== undefined && id.length > 0)
+    params.set('workspace', id)
+  const query = params.toString()
+  if (query.length === 0)
     return path
   const separator = path.includes('?') ? '&' : '?'
-  return `${path}${separator}workspace=${encodeURIComponent(id)}`
+  return `${path}${separator}${query}`
 }
 
 /** Appends the workspace to a URLSearchParams body for the streaming routes. */
@@ -347,8 +351,10 @@ export function startAll(workspace?: string | null): Promise<unknown> {
   return request(scoped('/api/servers/start-all', workspace), { method: 'POST' })
 }
 
-export function stopAll(workspace?: string | null): Promise<unknown> {
-  return request(scoped('/api/servers/stop-all', workspace), { method: 'POST' })
+/** `withPersistent` is the CLI's `--with-persistent`: also end the entries that outlive the panel. */
+export function stopAll(workspace?: string | null, options: { withPersistent?: boolean } = {}): Promise<unknown> {
+  const extra = options.withPersistent === true ? new URLSearchParams({ withPersistent: 'true' }) : undefined
+  return request(scoped('/api/servers/stop-all', workspace, extra), { method: 'POST' })
 }
 
 export function clearLogs(id: string, workspace?: string | null): Promise<unknown> {
