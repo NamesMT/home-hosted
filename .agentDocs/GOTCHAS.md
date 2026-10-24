@@ -127,9 +127,15 @@ line in `AGENTS.md` instead.
 - **`stop.killPortHolders` frees a port only from a *listener* that is not our own process tree.**
   Broad `lsof -ti:<port>` sweeps and pid-as-text parses have killed supervisors in the field; do not
   add one. `free-port` reuses the same lookup and adds the supervisor's own pid set on top.
-- **The per-second tick is not worth optimising.** `getState()` and the 40-pid `sampleMany()` are
-  cheap next to anything else in the loop; the state is published only when its signature changes and
-  resources are sampled every 5 s. Measure elsewhere first.
+- **The tick publishes only on change, but the frame it decides on is built every tick.** `getState()`
+  was believed cheap; a 40-entry home measured the opposite. `getState()` → `backups.view()` →
+  `resolveBackupPaths()` → `serverTemplateVars()` **per entry** → `lanAddress()` →
+  `os.networkInterfaces()`, which is 34–62 ms on a three-interface box: 82 enumerations per frame,
+  ~4.2 s of a 4.3 s window blocked inside them, `/healthz` answering in 4.5 s on an **idle** panel
+  with no client connected. The signature check avoids *publishing*, not the work of building the
+  state, so "we only publish on change" is not a performance argument. Cache the host read on its own
+  clock (`lanAddress`, `src/helpers/bind.ts`) and cost a new view-builder call at the entry count,
+  never at one entry.
 - **Startup is dominated by module load, not by work.** `src/app.ts` and the schemas it pulls in cost
   over a second to import, so `up` defers the daemon graph until it has decided to detach, and the
   daemon child inherits `process.execArgv` — under tsx it re-compiles that graph, under the built CLI

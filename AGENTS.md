@@ -111,6 +111,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).
+- **A per-frame path may not call a syscall per server.** The state frame is built once a second and
+  once per request, so a helper that looks free is multiplied by the entry count and by the frame
+  rate. `os.networkInterfaces()` is 34–62 ms on a three-interface box, and `lanAddress()` sat inside
+  `serverTemplateVars`, which `resolveBackupPaths` calls per entry: a 40-entry panel enumerated the
+  host 82 times per frame and blocked its event loop ~98% of the time on an idle machine, answering
+  `/healthz` in 4.5 s. Anything that reads the host, the filesystem or the process table from a view
+  builder is cached on the host's own clock, not merely memoised per call
+  (`lanAddress`, `src/helpers/bind.ts`, `test/helpers/bind.test.ts`).
 - **A metric with no reading is absent, never zero.** A scrape has no page to qualify a number, so an
   alerted-on gauge published as `0` from an unsampled view is indistinguishable from a healthy one
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
