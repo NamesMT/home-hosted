@@ -86,6 +86,23 @@ function readArchivedServers(staging: string, workspaceId: string, defaults: Rec
   }
 }
 
+/**
+ * Whether one archive path segment is a name a filesystem will accept as-is.
+ *
+ * A separator moves the path, and `\` is a separator on Windows while an archive crosses platforms;
+ * `:` re-roots or opens a stream there. A control character is never a real filename and is how an
+ * extractor is confused. Everything else — spaces, non-ASCII, `&`, `$`, `#`, `@` — is what a data
+ * directory actually contains.
+ */
+function isPortableSegment(segment: string): boolean {
+  for (const character of segment) {
+    const code = character.codePointAt(0) ?? 0
+    if (character === '\\' || character === ':' || code < 0x20 || code === 0x7F)
+      return false
+  }
+  return true
+}
+
 export function isSafeArchiveEntry(entry: string): boolean {
   if (entry.startsWith('/') || entry.includes('\0'))
     return false
@@ -101,7 +118,13 @@ export function isSafeArchiveEntry(entry: string): boolean {
     return false
   if (!ALLOWED_ROOTS.has(segments[0]!))
     return false
-  return segments.every(segment => /^[\w.-]+$/.test(segment))
+  // Not a character allowlist: a backup captures whatever the declared tree holds, and
+  // `My Photos/` or `ünïcode/日本語.txt` are ordinary names in it. A `\w` rule refused the archive
+  // this panel had just written, so a restore onto a blank host — the one restore nobody can check
+  // by eye — died on "unexpected entries" with nothing wrong with the archive. What must be refused
+  // is a segment that could *move* the path: a separator (`\` is one on Windows, and an archive
+  // crosses platforms), a control character, or a drive/stream marker.
+  return segments.every(isPortableSegment)
 }
 
 /**

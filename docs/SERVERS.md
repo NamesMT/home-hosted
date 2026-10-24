@@ -75,7 +75,7 @@ platform cannot confirm is exactly what the rest of this file refuses to signal 
 | `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from |
 | `resources.maxRssBytes` | restart when the process tree — or, for a compose entry, the summed containers — grows past a limit |
 | `bootstrap` | one command to run once before the first start (migrations, warmups) |
-| `backupPaths`, `backupIgnoreGenerated` | extra paths this entry owns, included in backups; the flag (on by default) skips the known build and dependency directories inside them — `node_modules`, `dist`, `.next`, framework caches |
+| `backupPaths`, `backupIgnoreGenerated` | extra paths this entry owns, included in backups; the flag (on by default) skips the known build and dependency directories inside them — `node_modules`, `dist`, `.next`, framework caches. A symlink inside a declared path that resolves outside it is not followed — declare the target as its own path instead |
 
 ### Placeholders
 

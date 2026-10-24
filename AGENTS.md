@@ -252,6 +252,16 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   per-workspace service through `PanelService.requireWorkspace(id)`, never a module global.
 - **A restore writes only where a config says** — archive allowlist, `origin` matching first, symlinks
   never recreated.
+- **A declared path is the capture boundary, and its bytes keep their modes.** *Both* directions of a
+  backup obey the declared path: the restore may not write through a link that leaves it, and the
+  capture may not read through one — a `media -> /mnt/nas` link inside a declared `data/` put the whole
+  share in every archive, and `du` on the declared path still said empty. The allowlist is a *move*
+  rule, not a character rule: `My Photos/` and `ünïcode/日本語.txt` are what a real data tree holds, so
+  a `\w` allowlist refused the archive the panel had just written. And a mode is part of the data —
+  `0600`/`0700`/`0755` travel, a setuid bit does not — because a restore that widens a secret to `0644`
+  changes who can read what the backup existed to protect.
+  `src/providers/archive.ts` (`walk`, `permissionBits`), `src/services/backups.ts`
+  (`isSafeArchiveEntry`), `test/providers/archive.test.ts`.
 - **A port is only ever freed from a fresh lookup, never a quoted pid.** `free-port` re-lists the
   listeners and refuses any in `supervisedPids()` instead of killing it; a docker-published port has
   no pid this user may see, so the container docker reports publishing *that* port is stopped instead.

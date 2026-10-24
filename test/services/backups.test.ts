@@ -537,6 +537,87 @@ describe('backup service', () => {
       expect(fs.statSync(fixture.globalSecretsPath).mode & 0o777).toBe(0o600)
   })
 
+  /**
+   * Fidelity, not merely "something was written".
+   *
+   * Handover item 7: a real data directory with a symlink, a `0600` secret, a nested dir and a large
+   * file, created and restored onto a blank home, then diffed. Rounds 7 and 14 fixed the *refusal*
+   * paths and never measured what the bytes and modes look like afterwards.
+   *
+   * Measured on the built CLI before these fixes: the restored `0600` key came back `0644` (a
+   * secret readable by every user on the new host), an `0755` script came back non-executable, and a
+   * link pointing outside the declared path pulled its target **into** the archive — a 3.8 MB
+   * archive from a directory `du` reported as empty.
+   */
+  it('restores content and permission bits faithfully, and not what a link pointed at', async () => {
+    const fixture = await makeFixture()
+    const outside = path.join(fixture.root, 'outside')
+    fs.mkdirSync(outside, { recursive: true })
+    fs.writeFileSync(path.join(outside, 'passwd.txt'), 'OUTSIDE\n')
+
+    const nested = path.join(fixture.dataDir, 'nested', 'deep')
+    fs.mkdirSync(nested, { recursive: true })
+    fs.writeFileSync(path.join(nested, 'note.txt'), 'hello\n')
+    fs.writeFileSync(path.join(fixture.dataDir, 'run.sh'), '#!/bin/sh\necho hi\n')
+    fs.writeFileSync(path.join(fixture.dataDir, 'api.key'), 'token\n')
+    fs.writeFileSync(path.join(fixture.dataDir, 'large.bin'), Buffer.alloc(1024 * 1024, 7))
+    fs.symlinkSync(outside, path.join(fixture.dataDir, 'escape'))
+    if (process.platform !== 'win32') {
+      fs.chmodSync(path.join(fixture.dataDir, 'run.sh'), 0o755)
+      fs.chmodSync(path.join(fixture.dataDir, 'api.key'), 0o600)
+    }
+
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+
+    // Wipe the tree, as a restore onto a blank host would find it.
+    fs.rmSync(fixture.dataDir, { recursive: true, force: true })
+    const plan = await fixture.service.restore(path.join(fixture.service.directory, created.file!.name), { confirm: true })
+    expect(plan.error).toBeUndefined()
+
+    expect(fs.readFileSync(path.join(fixture.dataDir, 'nested', 'deep', 'note.txt'), 'utf8')).toBe('hello\n')
+    expect(fs.readFileSync(path.join(fixture.dataDir, 'large.bin')).length).toBe(1024 * 1024)
+    // Nothing from outside the declared path was captured, so nothing of it was written back.
+    expect(fs.existsSync(path.join(fixture.dataDir, 'escape'))).toBe(false)
+    // The link is not recreated either: a restore never makes the filesystem point elsewhere.
+    expect(fs.lstatSync(path.join(fixture.dataDir, 'escape'), { throwIfNoEntry: false })).toBeUndefined()
+
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(path.join(fixture.dataDir, 'api.key')).mode & 0o777, 'a 0600 secret must stay 0600').toBe(0o600)
+      expect(fs.statSync(path.join(fixture.dataDir, 'run.sh')).mode & 0o777, 'the executable bit must travel').toBe(0o755)
+    }
+  })
+
+  /**
+   * The gate that reads an archive back must admit the archive this panel writes from an ordinary
+   * data tree.
+   *
+   * `isSafeArchiveEntry` used a `\w` character allowlist, so a backup of `My Photos/` — or any
+   * directory with a space in its name, which on a home server is most of them — was refused by the
+   * panel's own restore with "unexpected entries". The one restore that matters, onto a blank host,
+   * died on an archive that was perfectly fine.
+   */
+  it('re-admits its own archive after capturing a tree with spaces and non-ASCII names', async () => {
+    const fixture = await makeFixture()
+    fs.mkdirSync(path.join(fixture.dataDir, 'My Photos'), { recursive: true })
+    fs.writeFileSync(path.join(fixture.dataDir, 'My Photos', 'IMG 0001.jpg'), 'photo\n')
+    fs.mkdirSync(path.join(fixture.dataDir, 'ünïcode'), { recursive: true })
+    fs.writeFileSync(path.join(fixture.dataDir, 'ünïcode', '日本語.txt'), 'jp\n')
+
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    const admitted = await admitArchive(archive)
+    expect(admitted.ok, admitted.ok ? '' : admitted.error).toBe(true)
+
+    fs.rmSync(fixture.dataDir, { recursive: true, force: true })
+    const plan = await fixture.service.restore(archive, { confirm: true })
+    expect(plan.error).toBeUndefined()
+    expect(fs.readFileSync(path.join(fixture.dataDir, 'My Photos', 'IMG 0001.jpg'), 'utf8')).toBe('photo\n')
+    expect(fs.readFileSync(path.join(fixture.dataDir, 'ünïcode', '日本語.txt'), 'utf8')).toBe('jp\n')
+  })
+
   it('password-protects an archive, and only opens it with the right password', async () => {
     const fixture = await makeFixture()
     const created = await fixture.service.create({ password: 'hunter2' })
@@ -1713,6 +1794,27 @@ describe('archive entry allowlist', () => {
       expect(isSafeArchiveEntry(entry), entry).toBe(true)
   })
 
+  /**
+   * The names a declared data tree really holds.
+   *
+   * This test used to assert only the shapes the *service's own* files use — `\w`-safe names — while
+   * a backup captures whatever is in the user's directory. So `data/<slug>/My Photos/` was written by
+   * this panel and then refused by this panel's own restore gate, and the failure landed on the one
+   * restore nobody can check by eye: a blank host.
+   */
+  it('accepts the names a real data tree holds, not only the service\'s own', () => {
+    for (const entry of [
+      'data/slug/My Photos/IMG 0001.jpg',
+      'data/slug/ünïcode/日本語.txt',
+      'data/slug/.env',
+      'data/slug/releases/v1.2.3+build (1)/app.tar.gz',
+      'data/slug/a&b/c$d/e%f',
+      'data/slug/tmp/~lock#1',
+      'data/slug/@scope/pkg',
+      'data/slug/!important.txt',
+    ]) expect(isSafeArchiveEntry(entry), entry).toBe(true)
+  })
+
   it('refuses anything that could resolve outside the staging directory', () => {
     const bad = [
       '../evil',
@@ -1723,13 +1825,19 @@ describe('archive entry allowlist', () => {
       'global/.',
       'global//evil',
       'notaroot/evil',
-      // A raw backslash is not an allowed character. The root must be a real one, or these are
-      // refused by the root allowlist instead and the character rule goes untested — which is
+      // A raw backslash is a separator on Windows, so it must be refused as the path mover it is —
+      // an archive written on one platform is read on another. The root must be a real one, or these
+      // are refused by the root allowlist instead and the character rule goes untested — which is
       // exactly what a first draft of this list did.
       'global\\evil',
       'global/sub\\..\\..\\evil',
       'data/a\\b',
-
+      // A drive or NTFS stream marker: `C:` inside a segment re-roots the path on Windows.
+      'data/slug/C:/evil',
+      'data/slug/a:b',
+      // A control character in a name is never a real filename and breaks the extractors.
+      'data/slug/a\u0001b',
+      'data/slug/a\u007Fb',
     ]
     for (const entry of bad) expect(isSafeArchiveEntry(entry), entry).toBe(false)
   })

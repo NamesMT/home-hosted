@@ -689,6 +689,13 @@ literal absolute path is restored to that same path.
 placed under a workspace the archive says it belongs to — if that workspace's `servers.config.json` is
 not part of the restore, its data is reported as skipped rather than guessed at.
 
+**A declared path is the capture boundary.** A symlink *inside* a declared directory that resolves
+outside it is left out of the archive rather than followed, so a `media -> /mnt/nas` link does not
+silently pull a share you never declared into every backup. A link that stays inside is captured once,
+under the first name the walk reaches it by, and a declared path that is *itself* a symlink is
+captured through. File permission bits travel: a `0600` key comes back `0600`, a `0700` directory
+`0700`, a `0755` script executable — a backup must not widen access to what it was taken to protect.
+
 </details>
 
 <details>
