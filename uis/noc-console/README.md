@@ -19,6 +19,15 @@ re-install the matching build on an upgrade. `../../docs/media/tour.gif` shows b
 major only for a rewrite or restyle). `tag` and `unix` are not in it on purpose — `build-uis.mjs`
 stamps both into the built copy, and a hand-maintained one is stale the moment the zip is cut.
 
+## One language, on purpose
+
+This UI is **English only**. It has no `i18n/` sheets and no language picker, so a browser that chose
+German in the stock UI gets English here — measured: `hh.locale=de` leaves `document.documentElement.lang`
+at `en` and every nav row in English. That is the same scope call the mobile-layout decision made
+(`.agents/ralph/DECISIONS_NEEDED.md` item 5: leave this UI's own visual language alone, and say so
+here): the console is a deliberately dense, shortcut-first alternative, and translating ~420 text
+nodes plus a second catalog is a port, not a fix. The stock UI carries the nine languages.
+
 ## On a phone
 
 Below `860px` the density stays; what changes is where the width goes.
