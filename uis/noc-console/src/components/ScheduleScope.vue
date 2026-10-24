@@ -4,6 +4,7 @@ import type { BackupScope, BackupsView } from '@shared/contracts'
 import type { CaptureChoice } from '@/lib/backupSelection'
 import { scopeOf } from '@shared/backup-scope'
 import { computed, ref, watch } from 'vue'
+import { useModalLayer } from '@/composables/useModalLayer'
 import { captureItems } from '@/lib/backupSelection'
 
 /**
@@ -22,6 +23,8 @@ import { captureItems } from '@/lib/backupSelection'
 const props = defineProps<{ open: boolean, state: BackupsView | null }>()
 const emit = defineEmits<{ close: [] }>()
 const scope = defineModel<BackupScope | null>('scope', { required: true })
+
+useModalLayer(() => props.open, () => emit('close'))
 
 const draft = ref<CaptureChoice[]>([])
 const mode = ref<BackupScope['mode']>('only')

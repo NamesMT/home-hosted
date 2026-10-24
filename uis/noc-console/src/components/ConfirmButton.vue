@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useModalLayer } from '@/composables/useModalLayer'
 
 /**
  * A destructive action behind an explicit confirmation step.
@@ -31,6 +32,12 @@ const emit = defineEmits<{ confirm: [], alternative: [] }>()
 
 const open = ref(false)
 
+function cancel(): void {
+  open.value = false
+}
+
+useModalLayer(() => open.value, cancel)
+
 function confirm(): void {
   open.value = false
   emit('confirm')
@@ -39,10 +46,6 @@ function confirm(): void {
 function alternative(): void {
   open.value = false
   emit('alternative')
-}
-
-function cancel(): void {
-  open.value = false
 }
 </script>
 

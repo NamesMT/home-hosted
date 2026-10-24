@@ -2,6 +2,7 @@
 import type { BackupFile, RestorePlan } from '@shared/contracts'
 import { errorMessage } from '@shared/error-message'
 import { computed, ref, watch } from 'vue'
+import { useModalLayer } from '@/composables/useModalLayer'
 import * as api from '@/lib/api'
 
 interface RestoreSource {
@@ -20,6 +21,8 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{ close: [], done: [message: string] }>()
+
+useModalLayer(() => props.open, () => emit('close'))
 
 const UPLOAD = '__upload__'
 

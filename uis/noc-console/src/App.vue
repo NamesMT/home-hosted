@@ -9,6 +9,7 @@ import LogDrawer from '@/components/LogDrawer.vue'
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { connect, disconnect, useControlPlane } from '@/composables/useControlPlane'
 import { isTyping, runKeyHandlers } from '@/composables/useKeymap'
+import { closeTopModal, modalOpen, useModalLayer } from '@/composables/useModalLayer'
 import { streamDecision, useSession } from '@/composables/useSession'
 import { useUi } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
@@ -89,43 +90,34 @@ function focusFilter(): void {
   field?.select()
 }
 
-function closeOverlays(): void {
-  if (helpOpen.value) {
-    helpOpen.value = false
-    return
-  }
-  if (addOpen.value) {
-    addOpen.value = false
-    return
-  }
-  if (drawerOpen.value) {
-    drawerOpen.value = false
-    return
-  }
-  if (workspaceOpen.value) {
-    workspaceOpen.value = false
-    return
-  }
-  if (changesOpen.value) {
-    changesOpen.value = false
-    return
-  }
-  if (configChangesOpen.value)
-    configChangesOpen.value = false
-}
+/**
+ * The overlays whose open state this shell owns register here, so Escape reaches the topmost one
+ * and every single-key shortcut is refused while any is up. The drawer is not modal: it sits beside
+ * the page and does not block `j`/`s`.
+ */
+useModalLayer(() => helpOpen.value, () => { helpOpen.value = false })
+useModalLayer(() => addOpen.value, () => { addOpen.value = false })
+useModalLayer(() => workspaceOpen.value, () => { workspaceOpen.value = false })
+useModalLayer(() => changesOpen.value, () => { changesOpen.value = false })
+useModalLayer(() => configChangesOpen.value, () => { configChangesOpen.value = false })
 
 function onKeydown(event: KeyboardEvent): void {
   const key = event.key
 
   if (key === 'Escape') {
-    closeOverlays()
+    closeTopModal()
+    if (drawerOpen.value)
+      drawerOpen.value = false
     if (isTyping(event))
       (event.target as HTMLElement).blur()
     keyPrefix.value = null
     return
   }
 
-  if (helpOpen.value || addOpen.value || workspaceOpen.value || changesOpen.value || configChangesOpen.value || isTyping(event))
+  // No shortcut may act on the page behind an open overlay: the list this used to test held only
+  // the shell's own flags, so `x` stopped a server under an open confirmation and `j` moved the
+  // selection it covered.
+  if (modalOpen() || isTyping(event))
     return
   if (event.metaKey || event.ctrlKey || event.altKey)
     return

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { ProxyDnsAccountView } from '@shared/contracts'
 import type { ProxyWorkspace, RouteDraft, RouteErrors } from '@/lib/proxy'
-import { computed, nextTick, onScopeDispose, ref, toRaw, watch } from 'vue'
+import { computed, nextTick, ref, toRaw, watch } from 'vue'
+import { useModalLayer } from '@/composables/useModalLayer'
 import { dnsAccountOptions, isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
 
 /** One route, edited in the console's own sheet. Nothing is saved here. */
@@ -50,17 +51,11 @@ const accountHint = computed(() => {
   return `the challenge is written through this ${chosenAccount.value.provider} account`
 })
 
-function onKey(event: KeyboardEvent): void {
-  if (event.key === 'Escape')
-    emit('close')
-}
+useModalLayer(() => props.open, () => emit('close'))
 
 watch(() => props.open, async (open) => {
-  if (!open) {
-    window.removeEventListener('keydown', onKey)
+  if (!open)
     return
-  }
-  window.addEventListener('keydown', onKey)
   form.value = props.draft === null ? newRouteDraft() : structuredClone(toRaw(props.draft))
   if (form.value.workspace.length === 0)
     form.value.workspace = props.workspaces[0]?.id ?? ''
@@ -73,8 +68,6 @@ watch(() => form.value.workspace, () => {
   if (!serverOptions.value.some(server => server.id === form.value.server))
     form.value.server = serverOptions.value[0]?.id ?? ''
 })
-
-onScopeDispose(() => window.removeEventListener('keydown', onKey))
 
 function submit(): void {
   const host = form.value.host.trim().toLowerCase()

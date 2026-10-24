@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { CertificateErrors } from '@/lib/proxy'
-import { computed, nextTick, onScopeDispose, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useModalLayer } from '@/composables/useModalLayer'
 import { ROUTE_ID_PATTERN, slugifyCertificateId, uniqueCertificateId } from '@/lib/proxy'
 
 /** One pair, added to the list. The upload is the page's call, not this sheet's. */
@@ -39,28 +40,20 @@ watch([label, () => props.taken], () => {
     id.value = suggestedId.value
 }, { immediate: true })
 
-function onKey(event: KeyboardEvent): void {
-  if (event.key === 'Escape')
-    emit('close')
-}
+useModalLayer(() => props.open, () => emit('close'))
 
 watch(() => props.open, async (open) => {
-  if (!open) {
-    window.removeEventListener('keydown', onKey)
+  if (!open)
     return
-  }
   label.value = ''
   id.value = ''
   certificate.value = ''
   privateKey.value = ''
   errors.value = {}
   idTouched.value = false
-  window.addEventListener('keydown', onKey)
   await nextTick()
   labelField.value?.focus()
 })
-
-onScopeDispose(() => window.removeEventListener('keydown', onKey))
 
 async function readFileInto(event: Event, target: 'cert' | 'key'): Promise<void> {
   const file = (event.target as HTMLInputElement).files?.[0]

@@ -3,11 +3,14 @@ import type { BackupsView } from '@shared/contracts'
 import type { CaptureChoice } from '@/lib/backupSelection'
 import { errorMessage } from '@shared/error-message'
 import { computed, ref, watch } from 'vue'
+import { useModalLayer } from '@/composables/useModalLayer'
 import * as api from '@/lib/api'
 import { captureItems, includeIds } from '@/lib/backupSelection'
 
 const props = defineProps<{ open: boolean, state: BackupsView | null }>()
 const emit = defineEmits<{ close: [], done: [message: string] }>()
+
+useModalLayer(() => props.open, () => emit('close'))
 
 const busy = ref(false)
 const error = ref<string | null>(null)

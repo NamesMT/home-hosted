@@ -35,6 +35,16 @@ Below `860px` the density stays; what changes is where the width goes.
 Every control is at least 24 px at normal density and 44 px under a coarse pointer
 (`../tap-targets.css`, shared with the stock UI).
 
+## The keyboard belongs to the overlay
+
+While any dialog is open, single-key shortcuts act on **nothing behind it**: `x` does not stop the
+server under a confirmation, and `j` does not move the selection it covers. `esc` closes the
+topmost overlay and only that one, so a confirmation inside a page cannot dismiss the page's own
+unsaved work. The console keeps one registry for this (`src/composables/useModalLayer.ts`) rather
+than a listener per dialog, and `test/modal-overlay-scan.test.ts` fails a new overlay that does not
+join it. The live-log drawer is not modal — it sits beside the page, so `j`/`s` stay live while it
+is up.
+
 ## Run it in development
 
 `pnpm dev` starts the panel (3999) and only the stock UI's dev server. For this UI, run the two
