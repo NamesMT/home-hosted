@@ -89,6 +89,7 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
 
   const consented = yes || (process.env.HHOSTED_MIGRATE ?? '').toLowerCase() === 'allow'
   let stampOnly = 0
+  let lifted = 0
 
   for (const target of existing) {
     let raw: Record<string, unknown>
@@ -164,6 +165,7 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
 
     fs.copyFileSync(target.file, `${target.file}.bak`)
     writeFileAtomic(target.file, `${JSON.stringify(stampConfig(migrated), null, 2)}\n`)
+    lifted += 1
     process.stdout.write(`${green(`migrated ${target.label} to schema ${plan.to}`)} in ${target.file}\n`)
     process.stdout.write(`  ${dim(`previous file kept at ${target.file}.bak`)}\n`)
   }
@@ -173,10 +175,18 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
     return
   }
 
+  // "nothing to migrate" has to mean nothing happened: a run that lifted three files printed it
+  // anyway, because only the stamp-only path counted. The line a person reads to decide whether to
+  // re-run has to agree with the lines above it.
+  const done: string[] = []
+  if (lifted > 0)
+    done.push(green(`${lifted} file(s) migrated`))
   if (stampOnly > 0)
-    process.stdout.write(`${green(`${stampOnly} file(s) stamped`)} as written by home-hosted ${appVersion()}\n`)
-  else
+    done.push(green(`${stampOnly} file(s) stamped`))
+  if (done.length === 0)
     process.stdout.write(`every file is already what home-hosted ${appVersion()} understands — nothing to migrate\n`)
+  else
+    process.stdout.write(`${done.join(', ')} to what home-hosted ${appVersion()} understands\n`)
 }
 
 export const migrateCommand = defineCommand({

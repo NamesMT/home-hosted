@@ -69,3 +69,46 @@ describe('migrate --dry-run', () => {
     expect(fs.readFileSync(settings, 'utf8'), 'a real run stamps the file').not.toBe(before)
   })
 })
+
+/**
+ * The last line is what a person reads to decide whether to run this again, so it may not say
+ * "nothing to migrate" after lifting files — which it did, because only the stamp-only path was
+ * counted. Measured on a real 0.7.21 home: three `migrated … to schema 2` lines, then
+ * "every file is already what home-hosted 0.10.0 understands — nothing to migrate".
+ */
+describe('migrate summary', () => {
+  /** A state directory whose three files are stamped schema 1, so all three need the 1 → 2 step. */
+  function homeNeedingMigration(): { home: string } {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-migrate-sum-'))
+    dirs.push(home)
+    const hh = path.join(home, '.hh')
+    fs.mkdirSync(path.join(hh, 'default'), { recursive: true })
+    const stamp = { writtenBy: '0.7.21', schema: 1 }
+    fs.writeFileSync(path.join(hh, 'settings.json'), `${JSON.stringify({ meta: stamp, control: { port: 4100 } }, null, 2)}\n`)
+    fs.writeFileSync(path.join(hh, 'workspaces.json'), `${JSON.stringify({ workspaces: [{ id: 'default', label: 'Default' }] }, null, 2)}\n`)
+    fs.writeFileSync(path.join(hh, 'default', 'settings.json'), `${JSON.stringify({ meta: stamp, notifications: { telegram: { enabled: false, chatId: '' } } }, null, 2)}\n`)
+    fs.writeFileSync(path.join(hh, 'default', 'servers.config.json'), `${JSON.stringify({ meta: stamp, servers: [] }, null, 2)}\n`)
+    return { home }
+  }
+
+  it('counts the files it lifted, and does not claim there was nothing to migrate', () => {
+    const { home } = homeNeedingMigration()
+
+    const result = runCli(home, ['migrate', '--yes'])
+
+    expect(result.status, result.stderr).toBe(0)
+    // The contradiction this pins: it lifted files, so the closing line must not deny it.
+    expect(result.stdout).not.toContain('nothing to migrate')
+    expect(result.stdout).toContain('3 file(s) migrated')
+  })
+
+  it('still says so when a second run really has nothing to do', () => {
+    const { home } = homeNeedingMigration()
+    runCli(home, ['migrate', '--yes'])
+
+    const second = runCli(home, ['migrate', '--yes'])
+
+    expect(second.status, second.stderr).toBe(0)
+    expect(second.stdout).toContain('nothing to migrate')
+  })
+})

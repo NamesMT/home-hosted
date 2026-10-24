@@ -193,6 +193,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   blank workspace beside them). Lift, write the **lifted** file, and stamp it with the release that
   actually wrote it. The newer direction stays a refusal, decided from the manifest.
   `src/services/backups.ts` (`liftArchived`), `test/services/backups.test.ts`.
+- **A summary line that disagrees with the lines above it is a bug.** `migrate` printed
+  "nothing to migrate" after lifting three files, because only the stamp-only path was counted; the
+  line exists so a person knows whether to run it again. Count every outcome the command can have.
 - **Conventional commits** — changelogen derives the changelog and `scripts/check-release-version.mjs`
   the version bump. Below 1.0 the **minor is the breaking channel**: a fix is a patch, a minor means
   someone has to read the release notes and act — ask what the user has to do, not whether the commit
