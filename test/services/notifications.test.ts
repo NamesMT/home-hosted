@@ -353,13 +353,17 @@ describe('the webhook transport', () => {
       url: 'https://ntfy.sh/hh-alerts',
       method: 'POST',
       format: 'text',
-      headers: 'Title: 🔴 server down\nPriority: high\nAuthorization: Bearer tk_123',
+      // The title a header can carry. An emoji cannot: HTTP header values are bytes, so
+      // `Title: 🔴 server down` — this case's own earlier fixture — threw inside `Headers`, and a
+      // stub `fetch` is what kept the test green. A receiver wanting one gets it encoded
+      // (`=?UTF-8?B?…?=`) or from the JSON body; `parseHeaders` refuses the raw one and says so.
+      headers: 'Title: server down\nPriority: high\nAuthorization: Bearer tk_123',
     }, event, impl)
 
     expect(result.ok).toBe(true)
     expect(calls[0]!.url.href).toBe('https://ntfy.sh/hh-alerts')
     const headers = calls[0]!.init.headers as Record<string, string>
-    expect(headers.Title, 'ntfy reads the title from a header').toBe('🔴 server down')
+    expect(headers.Title, 'ntfy reads the title from a header').toBe('server down')
     expect(headers.Priority).toBe('high')
     expect(headers.Authorization).toBe('Bearer tk_123')
     expect(headers['content-type']).toBe('text/plain; charset=utf-8')
@@ -477,6 +481,69 @@ describe('the webhook transport', () => {
     await sendWebhook({ url: 'https://x.example/y', method: 'PUT', format: 'json', headers: '' }, event, impl)
     expect(calls[0]!.init.method).toBe('PUT')
   })
+
+  /**
+   * Header names are case-insensitive, so a target's own `Content-Type` replaces the default.
+   *
+   * Spreading the two object literals made the config's spelling a *second* name rather than an
+   * override, and `Headers` folds them into one comma-joined value — which no receiver parses.
+   * Measured against a real receiver: `Content-Type: application/json` arrived as
+   * `application/json, application/json`, and the form-urlencoded override arrived as
+   * `application/json, application/x-www-form-urlencoded`, the wrong one first. The docstring's
+   * "a target's own header wins" was true only for the one lowercase spelling this build writes.
+   */
+  it('lets a header of any casing replace the default instead of joining it', async () => {
+    for (const [headers, expected] of [
+      ['Content-Type: application/json', 'application/json'],
+      ['content-type: application/x-www-form-urlencoded', 'application/x-www-form-urlencoded'],
+      ['CONTENT-TYPE: text/csv', 'text/csv'],
+    ] as const) {
+      const { calls, impl } = recordingFetch()
+      const result = await sendWebhook({ url: 'https://x.example/y', method: 'POST', format: 'json', headers }, event, impl)
+      expect(result.ok, headers).toBe(true)
+      const sent = calls[0]!.init.headers as Record<string, string>
+      // Exactly one, spelled as written: the value is the override, not a join of both.
+      const names = Object.keys(sent).filter(name => name.toLowerCase() === 'content-type')
+      expect(names, headers).toHaveLength(1)
+      expect(sent[names[0]!], headers).toBe(expected)
+    }
+  })
+
+  /**
+   * A header line HTTP cannot carry is refused with the line named, not by a JS engine message.
+   *
+   * Headers are byte strings: a name with a space or a non-ASCII letter throws, and so does a
+   * value holding an emoji — so `Title: 🔴 server down` (the shape this file's own ntfy case
+   * writes, which passed only because a stub replaced `fetch`) failed at the request with
+   * `Cannot convert argument to a ByteString … value of 55357`, recorded as the destination's
+   * last result. The save is refused too, so the mistake is caught before an alert is missing.
+   */
+  it('refuses a header HTTP cannot carry, naming the line', async () => {
+    const problem = (headers: string) => targetProblem({ url: 'https://x.example/y', headers })
+
+    expect(problem('Bad Name: x')).toContain('not a valid header name')
+    expect(problem('Ünïcode: x')).toContain('not a valid header name')
+    expect(problem('Title: 🔴 server down')).toMatch(/header cannot carry/)
+    // The rest of the line is untouched: a colon in the value, an accent inside Latin-1, an
+    // empty value and a tab are all legal and must keep working.
+    expect(problem('Title: home-hosted: alerts')).toBeNull()
+    expect(problem('Title: Serveur arrêté')).toBeNull()
+    expect(problem('Title:')).toBeNull()
+    expect(problem('X-Note: a\tb')).toBeNull()
+    // An unexpanded placeholder is reported as itself: the environment may still fill it.
+    const open = '$'
+    expect(problem(`Authorization: Bearer ${open}{HH_R7_UNSET}`)).toContain('unexpanded placeholder')
+
+    const { calls, impl } = recordingFetch()
+    const refused = await sendWebhook(
+      { url: 'https://x.example/y', method: 'POST', format: 'json', headers: 'Title: 🔴 server down' },
+      event,
+      impl,
+    )
+    expect(refused.ok).toBe(false)
+    expect(refused.error).toContain('Title')
+    expect(calls, 'nothing was attempted').toHaveLength(0)
+  })
 })
 
 /**
@@ -569,6 +636,7 @@ describe('a list of destinations', () => {
     const following = new NotificationService(new SecretsStore(path.join(dir, 's2.json')), () => updated)
     expect(following.shouldNotify(crash)).toBe(false)
   })
+
   /**
    * A window belongs to a message that *arrived*, not to one that was attempted.
    *

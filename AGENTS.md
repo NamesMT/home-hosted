@@ -151,6 +151,13 @@ workspace config guard, so a busy default port turns config tests red for the wr
   silenced, so bringing the receiver up changed nothing. Undo only the deadline *this* send armed — a
   concurrent dispatch may have set a later one, and clearing that reopens the flood. `notify()` is
   fire-and-forget, so nothing else can retry: the next event is the retry.
+- **A header is a byte string, and a stub does not make it one.** HTTP header names and values are
+  visible ASCII / Latin-1, so `Title: 🔴 server down` throws inside `Headers` — and the test that
+  asserted that header passed only because a stub replaced `fetch`, so the fixture *was* the bug.
+  Validate at the door (`headerProblem`/`parseHeaders`) so a save is refused with the line named
+  instead of a `ByteString` engine message landing on a person's row, and treat a header name as
+  case-insensitive: `Content-Type:` in a config must **replace** the transport's default, never be
+  spread beside it into `application/json, application/json`. `test/services/notifications.test.ts`.
 - **Name the cause the fix follows, not the one the code path suggests.** Node reports a missing
   working directory and a missing program with the same `ENOENT`, so `describeSpawnError` checks the
   resolved `cwd` **and** whether the field holds a whole command line before it blames the command —

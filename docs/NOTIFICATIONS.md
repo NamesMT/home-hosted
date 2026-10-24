@@ -136,3 +136,18 @@ reached a receiver which came back up is the one the outage took.
 `cooldownMs` (default two minutes) is per **destination, server and reason**, so a flapping process
 cannot flood any one destination — and one destination inside its window never silences another. It
 lives in the general block, or on a destination that has **Own settings** on.
+
+## Header limits
+
+A webhook's headers are **HTTP headers**, which are byte strings, so their values carry no character
+above `0xFF`: `Title: 🔴 server down` is refused with the line named rather than sent, and the same
+goes for a name holding a space or a non-ASCII letter. Two ways around it for a title that needs one:
+
+- send `format: json` and let the receiver read `title` from the body (Discord and Slack do);
+- encode the value the way ntfy documents it: `Title: =?UTF-8?B?8J+UtA==?=`, which is a base64
+  UTF-8 header value.
+
+Latin-1 accents (`Serveur arrêté`) are fine as written. A name is matched case-insensitively against
+the default `content-type`, so `Content-Type: application/x-www-form-urlencoded` **replaces** it
+rather than being sent beside it.
+

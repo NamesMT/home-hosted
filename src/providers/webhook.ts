@@ -63,6 +63,30 @@ export function webhookPayload(event: NotificationEventBody, now = Date.now()): 
 }
 
 /**
+ * What `Headers` will refuse, decided here so the refusal names the line.
+ *
+ * This is not a second opinion about validity: `Headers` (and Node's own `http`) throw on a name
+ * holding a space or a non-ASCII letter, and on a value holding a character above `0xFF` — so
+ * `Title: 🔴 server down` fails at the request with `Cannot convert argument to a ByteString …
+ * value of 55357`, beside a `lastResult` a person reads as the receiver's fault. HTTP header values
+ * are bytes, not text: ntfy's own answer for an emoji title is `=?UTF-8?B?…?=`. Naming both here
+ * means the save is refused with the line quoted, and a config that already holds one says which
+ * header it is instead of surfacing a JS engine message.
+ */
+function headerProblem(name: string, value: string): string | null {
+  // RFC 9110 `token`: visible ASCII minus the separators. A colon cannot appear (it splits the
+  // line), so this is the set `Headers` accepts with the space and the high bytes taken out.
+  // eslint-disable-next-line regexp/prefer-w, regexp/use-ignore-case -- the set is `token`, not a word
+  if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(name))
+    return `"${name}" is not a valid header name`
+  for (const char of value) {
+    if (char.codePointAt(0)! > 0xFF)
+      return `the "${name}" value holds a character a header cannot carry (${char}) — headers are bytes, so encode it (ntfy reads \`=?UTF-8?B?…?=\`) or use format: json, which carries text in the body`
+  }
+  return null
+}
+
+/**
  * `Name: value` lines into a header map.
  *
  * The format is line-based rather than a JSON object because it is edited in a textarea, and
@@ -92,8 +116,18 @@ export function parseHeaders(
     }
     const name = trimmed.slice(0, at).trim()
     const value = expandEnv(trimmed.slice(at + 1).trim(), vars)
-    if (value.includes('${'))
+    // A `${…}` still to be expanded would only be a placeholder if it were one; validating it as
+    // a byte string would report the wrong fault for a value the environment may still fill.
+    if (value.includes('${')) {
       unexpanded.push(name)
+    }
+    else {
+      const problem = headerProblem(name, value)
+      if (problem !== null) {
+        errors.push(problem)
+        continue
+      }
+    }
     headers[name] = value
   }
   return { headers, errors, unexpanded }
@@ -151,15 +185,27 @@ export async function sendWebhook(
   if (url.includes('${'))
     return { ok: false, error: `the URL still holds an unexpanded placeholder: ${url}` }
 
+  // HTTP header names are case-insensitive, so a target's own `Content-Type:` must *replace* the
+  // default rather than sit beside it — while keeping the spelling the person wrote, because that
+  // is what a receiver's own docs quote back to them. Spreading the two objects made the config's
+  // spelling a second name instead, and `Headers` folds those into one comma-joined value that no
+  // receiver parses: measured against a real receiver, `Content-Type: application/json` arrived as
+  // `application/json, application/json`, and the form-urlencoded override arrived as
+  // `application/json, application/x-www-form-urlencoded` — the wrong one first.
+  const sent: Record<string, string> = { 'content-type': asText ? 'text/plain; charset=utf-8' : 'application/json' }
+  for (const [name, value] of Object.entries(headers)) {
+    const key = name.toLowerCase()
+    for (const existing of Object.keys(sent)) {
+      if (existing.toLowerCase() === key)
+        delete sent[existing]
+    }
+    sent[name] = value
+  }
+
   try {
     const response = await (fetchImpl ?? fetch)(url, {
       method: target.method,
-      headers: {
-        // A receiver that cares about the type must not be sent `text/plain` for JSON, and a
-        // target's own header wins: `Headers` in the config is the last word.
-        'content-type': asText ? 'text/plain; charset=utf-8' : 'application/json',
-        ...headers,
-      },
+      headers: sent,
       body,
       // A wedged receiver must not hold a supervisor tick for ever.
       signal: AbortSignal.timeout(10_000),
