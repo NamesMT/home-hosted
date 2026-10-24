@@ -185,6 +185,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   when an apply leaves pieces behind (`src/cli/backup.ts`). The same shape is why a scoped id is
   checked against the plan in **both** directions: `--exclude` with a typo excludes nothing, and an
   archive restored that way carries exactly the credentials the person meant to drop.
+- **An archive outlives the release that wrote it.** The backup someone takes *before* an upgrade is
+  the one they need *after* it, so a snapshot is read through the migrations `migrate` would run, not
+  through this release's parser alone — the parsers refuse an older stamp by design, so a plain
+  readability gate silently dropped every config an older archive carried and restored only its
+  secrets (measured on a real 0.7.21 archive: "restored 4 items", every one a secret leaf, and a
+  blank workspace beside them). Lift, write the **lifted** file, and stamp it with the release that
+  actually wrote it. The newer direction stays a refusal, decided from the manifest.
+  `src/services/backups.ts` (`liftArchived`), `test/services/backups.test.ts`.
 - **Conventional commits** — changelogen derives the changelog and `scripts/check-release-version.mjs`
   the version bump. Below 1.0 the **minor is the breaking channel**: a fix is a patch, a minor means
   someone has to read the release notes and act — ask what the user has to do, not whether the commit

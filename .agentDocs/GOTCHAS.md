@@ -303,6 +303,17 @@ line in `AGENTS.md` instead.
   byte baseline `ConfigWatch` compares against, so the poll that follows reports "no change" and the
   autostart pass in `handleConfigChange` never runs. A restored entry therefore waited for a panel
   restart, against the README's "autostart entries come up immediately".
+- **An archive's configs need lifting, not just reading.** The three readability gates in
+  `BackupService.restore` asked "can this release parse it?", and the parsers refuse an older
+  `meta.schema` by design — so the schema an archive was written with decided whether its *config*
+  restored at all. A real 0.7.21 archive applied to a blank 0.10.0 home reported "restored 4 items"
+  and every one was a secret leaf: the global settings, the workspace's settings and its
+  `servers.config.json` were each dropped as "not valid", which is a half-restored setup reading as a
+  success ("a refused operation is a failure, never an empty success"). `liftArchived` runs the same
+  chain `migrate` runs, on the archive's contents, and the **lifted** file is what gets written and
+  stamped — the archive's own bytes would restore a file this release immediately refuses. The newer
+  direction is still a refusal, decided from the manifest before any of this. The gap was structural:
+  every restore test built its archive with `schema: CONFIG_SCHEMA`, so no test could see an older one.
 - **A force restart must announce its outcome, not only its start.** The restart resets health to
   `unknown`, so the `unhealthy -> healthy` transition that sends `recovered` never happens and a
   successful recovery sent nothing — "came back fine" and "came back broken" read the same. `Entry`

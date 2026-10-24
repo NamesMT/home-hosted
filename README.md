@@ -655,8 +655,10 @@ Generated directories (`node_modules`, `dist`, `.next`, framework caches) are sk
 <details>
 <summary><b>🔑 Restoring a secret, and what not to restore</b></summary>
 
-An archive records the release and config schema that wrote it; a restore refuses a newer schema
-outright rather than restoring the parts it recognizes.
+An archive records the release and config schema that wrote it. A restore refuses a **newer** schema
+outright rather than restoring the parts it recognizes, and **lifts an older one** through the same
+migrations `home-hosted migrate` would run — the archive you take before an upgrade is the one you
+reach for afterwards, so its configs are brought to this release's shape as they are written back.
 
 Ticking a **single secret** merges by field — restoring the Telegram token leaves the DDNS
 credentials alone. Ticking the whole **Secrets** entry replaces that file with the archive's copy.

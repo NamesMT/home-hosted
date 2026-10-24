@@ -7,8 +7,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
-import { CONFIG_SCHEMA } from '#src/config/migrations'
-import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings } from '#src/config/parse'
+import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
+import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { KNOWN_SECRET_KEYS, mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts } from '#src/config/secret-parts'
 import { workspacesFileSchema } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
@@ -427,18 +427,63 @@ interface DataTarget {
 }
 
 /**
+ * An archived config, lifted to the schema this release reads.
+ *
+ * An archive is a snapshot, so the release that wrote it is often **older** than the one restoring
+ * it — the backup someone takes before an upgrade is the one they reach for afterwards. Its files
+ * carry the schema they were written with, and the parsers refuse an older stamp by design, so a
+ * plain readability gate discarded every config an older archive carried: measured on a real
+ * 0.7.21 archive applied to a blank 0.10.0 home, it reported "restored 4 items" and every one of
+ * them was a secrets leaf, while both workspaces and the global settings were dropped as "not
+ * valid" — a half-restored setup that reads as a success.
+ *
+ * So run the same chain `migrate` runs, on the contents rather than on a file: an archive that
+ * needs lifting is lifted, and one this release cannot lift is still refused. A newer archive is
+ * never rewritten here — that direction is refused earlier, from the manifest's own schema.
+ *
+ * **Lifting needs an explicit older stamp.** A file carrying no `meta.schema` is not evidence of an
+ * older release — it is a seed (written in the current shape) or a damaged file, and lifting an
+ * unparseable one let `{"not": "a servers file"}` be stamped as a valid empty `servers.config.json`,
+ * which would restore a workspace with every entry deleted. Only a numeric stamp this release can
+ * lift qualifies; anything else is left to its own parser, which refuses it.
+ *
+ * `null` means "this release cannot read it", which stays distinguishable from "it was fine".
+ */
+function liftArchived(raw: unknown): Record<string, unknown> | null {
+  if (!isRecord(raw))
+    return null
+  const meta = isRecord(raw.meta) ? raw.meta as { schema?: unknown } : {}
+  // No stamp, or one this release does not lift: hand it back untouched for the caller's parser.
+  if (typeof meta.schema !== 'number')
+    return raw
+  const plan = planConfigMigrations(meta.schema)
+  if (plan.tooNew || plan.reached !== plan.to)
+    return null
+  if (plan.steps.length === 0)
+    return raw
+  const lifted = applyConfigMigrations(raw, meta.schema).config
+  // Stamped, so the file records the release that actually wrote this shape: leaving the archive's
+  // `writtenBy` beside a schema it never wrote would be a false record on disk.
+  return isRecord(lifted) ? stampConfig(lifted as { $schema?: string, meta?: unknown }) : null
+}
+
+/**
  * A restored settings file is accepted when this release can read it — through
  * the same tolerant parser the stores use, so an archive from a newer release
  * keeps only the keys this one understands instead of being refused outright.
+ *
+ * An older one is lifted first (`liftArchived`), and the **lifted** value is returned so the
+ * caller writes a config this release can load rather than the stamp it could not.
  */
-function readableGlobalSettings(text: string | null): boolean {
+function readableGlobalSettings(text: string | null): Record<string, unknown> | null {
   if (text === null)
-    return false
+    return null
   try {
-    return parseGlobalSettings(JSON.parse(text)).config !== null
+    const lifted = liftArchived(JSON.parse(text))
+    return lifted !== null && parseGlobalSettings(lifted).config !== null ? lifted : null
   }
   catch {
-    return false
+    return null
   }
 }
 
@@ -961,14 +1006,18 @@ export class BackupService {
 
       // ---------------------------------------------------------------- global
       const settingsText = readText(path.join(staging, 'global', 'settings.json'))
-      const parsedGlobal = readableGlobalSettings(settingsText) ? parseGlobalSettings(JSON.parse(settingsText!)).config : null
+      const liftedGlobal = readableGlobalSettings(settingsText)
+      const parsedGlobal = liftedGlobal === null ? null : parseGlobalSettings(liftedGlobal).config
       if (settingsText !== null && parsedGlobal === null) {
         plan.skipped.push('Global settings (the archive\'s settings are not valid)')
         plan.skippedItems.push({ label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', reasonKey: 'settings.restore.reasonInvalidSettings' })
       }
-      if (parsedGlobal !== null && settingsText !== null) {
+      if (parsedGlobal !== null && liftedGlobal !== null) {
+        // The **lifted** config is what gets written: the archive's file carries the schema it was
+        // written with, and writing it back verbatim restores a file this release then refuses.
+        const globalText = `${JSON.stringify(liftedGlobal, null, 2)}\n`
         addItem({ id: 'global:settings', label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', kind: 'settings', restorable: true, note: null }, () => {
-          writeFileAtomic(sources.globalSettingsPath, settingsText)
+          writeFileAtomic(sources.globalSettingsPath, globalText)
         }, ['config'])
       }
 
@@ -1082,10 +1131,12 @@ export class BackupService {
             createdWorkspaces.set(id, workspace)
 
           if (settings !== null) {
-            if (readableWorkspaceSettings(settings)) {
+            const liftedSettings = readableWorkspaceSettings(settings)
+            if (liftedSettings !== null) {
+              const settingsText = `${JSON.stringify(liftedSettings, null, 2)}\n`
               addItem({ id: `workspace:${id}:settings`, label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, kind: 'settings', workspaceId: id, restorable: true, note: null }, () => {
                 fs.mkdirSync(path.dirname(workspace.settingsPath), { recursive: true })
-                writeFileAtomic(workspace.settingsPath, settings)
+                writeFileAtomic(workspace.settingsPath, settingsText)
               })
             }
             else {
@@ -1096,11 +1147,13 @@ export class BackupService {
 
           if (servers !== null) {
             const parsed = readableServersFile(servers)
-            if (parsed !== null) {
+            const liftedServers = parsed === null ? null : liftArchived(JSON.parse(servers))
+            if (parsed !== null && liftedServers !== null) {
+              const serversText = `${JSON.stringify(liftedServers, null, 2)}\n`
               archivedServers.set(id, parsed)
               addItem({ id: `workspace:${id}:servers`, label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, kind: 'servers', workspaceId: id, restorable: true, note: null }, () => {
                 fs.mkdirSync(path.dirname(workspace.serversPath), { recursive: true })
-                writeFileAtomic(workspace.serversPath, servers)
+                writeFileAtomic(workspace.serversPath, serversText)
               })
             }
             else {
@@ -1294,8 +1347,8 @@ export class BackupService {
       // the panel's own listener does, its servers are re-read from the file.
       if (parsedGlobal !== null && actions.has('global:settings') && settingsText !== null) {
         const currentText = readText(sources.globalSettingsPath)
-        const current = readableGlobalSettings(currentText) ? parseGlobalSettings(JSON.parse(currentText!)).config : null
-        plan.restartRequired = JSON.stringify(parsedGlobal.control) !== JSON.stringify(current?.control ?? null)
+        const current = readableGlobalSettings(currentText)
+        plan.restartRequired = JSON.stringify(parsedGlobal.control) !== JSON.stringify(current === null ? null : (parseGlobalSettings(current).config?.control ?? null))
       }
 
       if (!options.confirm) {
@@ -1743,10 +1796,16 @@ function manifestInfo(manifest: BackupManifest): NonNullable<RestorePlan['archiv
  * `servers.config.json` is only a readability gate here: the store applies the
  * workspace's own defaults on the next load, and an archive from another machine
  * need not match this one's default shapes exactly.
+ *
+ * An older archive is lifted to this release's schema first, so its entries are adopted rather
+ * than dropped; `null` means this release cannot read it at all.
  */
 function readableServersFile(text: string): ServerConfig[] | null {
   try {
-    const result = parseServersFile(JSON.parse(text), {})
+    const lifted = liftArchived(JSON.parse(text))
+    if (lifted === null)
+      return null
+    const result = parseServersFile(lifted, {})
     return result.errors.length === 0 ? result.servers : null
   }
   catch {
@@ -1754,12 +1813,13 @@ function readableServersFile(text: string): ServerConfig[] | null {
   }
 }
 
-/** A workspace settings file is adopted only when this release can read it. */
-function readableWorkspaceSettings(text: string): boolean {
+/** A workspace settings file is adopted only when this release can read it, lifted when older. */
+function readableWorkspaceSettings(text: string): Record<string, unknown> | null {
   try {
-    return parseWorkspaceSettings(JSON.parse(text)).config !== null
+    const lifted = liftArchived(JSON.parse(text))
+    return lifted !== null && parseWorkspaceSettings(lifted).config !== null ? lifted : null
   }
   catch {
-    return false
+    return null
   }
 }

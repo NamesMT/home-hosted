@@ -974,6 +974,110 @@ describe('backup service', () => {
     expect((await fixture.service.restore(noManifest, { confirm: false })).error).toContain('no manifest')
   })
 
+  /**
+   * The backup someone takes **before** an upgrade is the one they reach for afterwards, so an
+   * archive written by an older release has to restore into a newer one. Its files carry the
+   * schema they were written with, and the parsers refuse an older stamp by design — so a plain
+   * readability gate dropped every config the archive carried and restored only its secrets.
+   */
+  describe('an archive from an older release', () => {
+    /** A schema-1 archive in the shape 0.7.21 wrote: the Telegram singleton, not a destination list. */
+    async function makeOldArchive(file: string): Promise<void> {
+      await makeZip(file, {
+        'manifest.json': JSON.stringify({ version: 1, createdAt: Date.now(), hostname: 'old-box', data: [] }),
+        'global/settings.json': JSON.stringify({
+          meta: { writtenBy: '0.7.21', schema: 1 },
+          control: { port: 4321, host: 'local', openBrowser: false },
+        }),
+        'workspaces/default/settings.json': JSON.stringify({
+          meta: { writtenBy: '0.7.21', schema: 1 },
+          defaults: { enabled: true, autostart: false, bind: 'local', onPortConflict: 'block' },
+          notifications: { telegram: { enabled: true, chatId: '123456789', onCrash: true } },
+        }),
+        'workspaces/default/servers.config.json': JSON.stringify({
+          meta: { writtenBy: '0.7.21', schema: 1 },
+          servers: [{ id: 'web', command: 'node', args: ['server.js'], bind: 'local', autostart: true }],
+        }),
+        'workspaces/default/secrets.json': '{ "telegram": null }\n',
+      })
+    }
+
+    it('plans its config, instead of dropping it as "not valid"', async () => {
+      const fixture = await makeFixture()
+      const archive = path.join(fixture.root, 'old.zip')
+      await makeOldArchive(archive)
+
+      const plan = await fixture.service.restore(archive, { confirm: false })
+
+      expect(plan.skipped).toEqual([])
+      expect(plan.items.map(item => item.id)).toEqual(expect.arrayContaining([
+        'global:settings',
+        'workspace:default:settings',
+        'workspace:default:servers',
+      ]))
+      // The whole point: the servers item is in the archive and restorable, not skipped as invalid.
+      expect(plan.items.find(item => item.id === 'workspace:default:servers')).toMatchObject({ restorable: true, selected: true })
+    })
+
+    it('writes the lifted config, so the restored home loads in this release', async () => {
+      const fixture = await makeFixture()
+      const archive = path.join(fixture.root, 'old.zip')
+      await makeOldArchive(archive)
+
+      const applied = await fixture.service.restore(archive, { confirm: true })
+      expect(applied.skipped).toEqual([])
+
+      // The stamp is this release's, not the archive's: the file records the shape actually written.
+      const servers = JSON.parse(fs.readFileSync(fixture.serversPath, 'utf8')) as { meta: { schema: number }, servers: Array<{ id: string }> }
+      expect(servers.meta.schema).toBe(CONFIG_SCHEMA)
+      expect(servers.servers.map(server => server.id)).toEqual(['web'])
+
+      // Schema 1 → 2 folded the Telegram singleton into a destination list, which is what the
+      // restored settings file has to carry now.
+      const workspace = JSON.parse(fs.readFileSync(fixture.workspaceSettingsPath, 'utf8')) as { notifications: { destinations?: Array<{ kind: string, chatId?: string }> } }
+      expect(workspace.notifications.destinations).toEqual([
+        expect.objectContaining({ kind: 'telegram', id: 'telegram', chatId: '123456789' }),
+      ])
+      expect((workspace.notifications as { telegram?: unknown }).telegram).toBeUndefined()
+
+      const global = JSON.parse(fs.readFileSync(fixture.globalSettingsPath, 'utf8')) as { meta: { schema: number }, control: { port: number } }
+      expect(global.meta.schema).toBe(CONFIG_SCHEMA)
+      expect(global.control.port).toBe(4321)
+    })
+
+    it('still refuses a config this release cannot lift, rather than writing it blind', async () => {
+      const fixture = await makeFixture()
+      const archive = path.join(fixture.root, 'future.zip')
+      await makeZip(archive, {
+        // A schema this release does not know: not liftable, so the gate must still say so.
+        'manifest.json': JSON.stringify({ version: 1, createdAt: Date.now(), hostname: 'new-box', data: [] }),
+        'global/settings.json': JSON.stringify({ meta: { writtenBy: '9.9.9', schema: 99 }, control: { port: 4000 } }),
+      })
+
+      const plan = await fixture.service.restore(archive, { confirm: false })
+      expect(plan.items.map(item => item.id)).not.toContain('global:settings')
+      expect(plan.skipped.join(' ')).toContain('not valid')
+    })
+
+    /**
+     * An unstamped file is not evidence of an older release — it is a seed or a damaged file. Treating
+     * it as liftable let `{"not": "a servers file"}` through as a valid empty config, which would
+     * restore a workspace with every entry deleted. This is the direction the tightening protects.
+     */
+    it('never lifts a file with no schema stamp, so junk is still refused', async () => {
+      const fixture = await makeFixture()
+      const archive = path.join(fixture.root, 'junk-servers.zip')
+      await makeZip(archive, {
+        'manifest.json': JSON.stringify({ version: 1, createdAt: Date.now(), hostname: 'old-box', data: [] }),
+        'workspaces/default/servers.config.json': '{ "not": "a servers file" }\n',
+      })
+
+      const plan = await fixture.service.restore(archive, { confirm: false })
+      expect(plan.items.map(item => item.id)).not.toContain('workspace:default:servers')
+      expect(plan.skipped.join(' ')).toContain('Servers')
+    })
+  })
+
   it('resolves only names it lists, so downloads cannot escape the directory', async () => {
     const fixture = await makeFixture()
     const created = await fixture.service.create()
