@@ -222,3 +222,98 @@ describe('the tail sizes the Logs page offers', () => {
     expect(all[0]!.ts).toBe(1_700_000_000_000)
   })
 })
+
+/**
+ * `keep` is a promise about the directory, not about a rename loop.
+ *
+ * Three readers disagreed with it in the same way: the list, the size and the tail all believed
+ * `keep` described what was on disk, so a rotation numbered above it was invisible, unreadable
+ * and unremovable. The tail half is the damaging one — a search that answers "no matches" while
+ * the matching line sits on the disk is worse than a shorter window.
+ */
+describe('what `keep` actually bounds', () => {
+  const jsonLine = (i: number, text = `line ${i}`): string =>
+    JSON.stringify({ ts: 1_700_000_000_000 + i, stream: 'stdout', text: `${text} ${'x'.repeat(100)}` })
+
+  async function writeRotations(dir: string, count: number, perFile = 10, text?: (i: number) => string): Promise<void> {
+    await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
+    for (let file = 0; file <= count; file++) {
+      const name = file === 0 ? 'web.log' : `web.log.${file}`
+      const from = (count - file) * perFile
+      await fs.promises.writeFile(
+        path.join(dir, 'logs', name),
+        `${Array.from({ length: perFile }, (_, n) => jsonLine(from + n, text?.(from + n))).join('\n')}\n`,
+      )
+    }
+  }
+
+  it('reads past `.1` into every rotation it kept', async () => {
+    const { files, dir } = await makeLogs({ maxBytes: 10000, keep: 3 })
+    await writeRotations(dir, 3)
+
+    // Four files of ten lines each; the old reader walked the current file and `.1` only.
+    const tail = files.readTail('web', 40)
+    expect(tail).toHaveLength(40)
+    expect(tail[0]!.ts).toBe(1_700_000_000_000)
+  })
+
+  it('finds a match that sits in the oldest retained rotation', async () => {
+    const { files, dir } = await makeLogs({ maxBytes: 10000, keep: 3 })
+    await writeRotations(dir, 3, 10, i => (i === 0 ? 'NEEDLE the deploy failed' : `line ${i}`))
+
+    const window = files.readTail('web', 5000)
+    expect(window.filter(line => line.text.includes('NEEDLE')), 'a search must not report "nothing found" for a line on disk').toHaveLength(1)
+  })
+
+  it('reports the size of everything it lists, not only the newest file', async () => {
+    const { files, dir } = await makeLogs({ maxBytes: 10000, keep: 2 })
+    await writeRotations(dir, 2, 10)
+
+    const info = files.info('web')
+    expect(info.files).toHaveLength(3)
+    const summed = info.files.reduce((total, file) => total + file.sizeBytes, 0)
+    expect(info.sizeBytes, 'the "on disk" total must be the files it lists').toBe(summed)
+  })
+
+  it('drops the rotations a lowered `keep` no longer covers', async () => {
+    const { dir } = await makeLogs({ maxBytes: 10000, keep: 5 })
+    await writeRotations(dir, 5)
+    // A person lowers the ceiling from the settings page; nothing renames down.
+    const lowered = new LogFiles(path.join(dir, 'logs'), () => ({ persist: true, maxBytes: 10000, keep: 1 }))
+
+    expect(lowered.info('web').files.map(file => file.name)).toEqual(['web.log', 'web.log.1'])
+    // A rotation is what runs the prune — the one path that already walks the ceiling — so
+    // write past `maxBytes` and let one happen.
+    for (let index = 0; index < 200; index++) lowered.append('web', { ts: 1_700_000_000_000 + index, stream: 'stdout', text: `fresh ${index} ${'x'.repeat(100)}` })
+    lowered.flush()
+
+    const left = await fs.promises.readdir(path.join(dir, 'logs'))
+    const rotations = left.filter(name => name.startsWith('web.log.')).sort()
+    expect(rotations, `files left after lowering keep: ${left.join(', ')}`).toEqual(['web.log.1'])
+  })
+
+  it('prunes on demand, so lowering `keep` does not wait for the next rotation', async () => {
+    const { dir } = await makeLogs({ maxBytes: 10000, keep: 5 })
+    await writeRotations(dir, 5)
+    // A quiet entry may not fill a file for days; the settings save must not leave `.2`…`.5`
+    // sitting there until it does.
+    const lowered = new LogFiles(path.join(dir, 'logs'), () => ({ persist: true, maxBytes: 10000, keep: 1 }))
+
+    lowered.prune()
+
+    const rotations = (await fs.promises.readdir(path.join(dir, 'logs')))
+      .filter(name => name.startsWith('web.log.'))
+      .sort()
+    expect(rotations, 'a lowered ceiling must take effect when it is saved').toEqual(['web.log.1'])
+    expect(lowered.info('web').files.map(file => file.name)).toEqual(['web.log', 'web.log.1'])
+  })
+
+  it('clears every rotation the id owns, including ones `keep` no longer names', async () => {
+    const { files, dir } = await makeLogs({ maxBytes: 10000, keep: 1 })
+    await writeRotations(dir, 5)
+
+    files.clear('web')
+    const left = await fs.promises.readdir(path.join(dir, 'logs')).catch(() => [] as string[])
+    expect(left, 'a delete must not leave the files it did not think it had').toEqual([])
+  })
+})

@@ -314,7 +314,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. The budget is remembered across a restart of the panel. |
 | 🩺 **Health that acts** | TCP or HTTP probes per server: warn, then force a restart — bounded by the same retry budget as a crash, so a sick entry stops instead of looping. Ports are checked before starting, and a program that [restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed or replaced. |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned. `stop-all`/`down` stop dependents before their dependencies; stopping one server names the dependents it leaves running. [SERVERS.md](./docs/SERVERS.md#field-reference) |
-| 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, filter to one stream, download, one click to clear. |
+| 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, filter to one stream, download, one click to clear. `Keep rotated files` in **Workspace Settings** bounds the directory, and the search reads every rotation it keeps — lowering it deletes the extras. |
 | 📈 **Resources** | CPU and RSS per process tree — the summed containers for a compose entry — with an optional memory ceiling that restarts the entry. |
 | 🌡️ **Host vitals** | CPU usage, memory, swap, disk and CPU temperature, plus the load average as a per-cpu count, with thresholds that notify once and again on recovery. |
 | 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |

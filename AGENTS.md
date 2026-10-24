@@ -111,6 +111,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).
+- **A retention knob bounds the directory, not a loop.** `keep` is how many rotations a person agreed
+  to store, so three readers have to agree with what `readdir` says, not with the number the loop
+  renames to: the list, the size and the tail. `rotate` only renames *up* to the ceiling, so lowering
+  it left `.5`…`.10` on disk where nothing listed them, nothing read them and a `clear` did not remove
+  them — a search answered "no matches" for a line that was there, and the page's "on disk" total
+  named the newest file alone. Derive the set from the directory once (`ownedFiles`/`retained`,
+  `src/services/log-files.ts`) and prune inside `rotate`; `test/services/log-files.test.ts` pins all
+  three, plus a `clear` over files `keep` no longer names.
 - **A per-frame path may not call a syscall per server.** The state frame is built once a second and
   once per request, so a helper that looks free is multiplied by the entry count and by the frame
   rate. `os.networkInterfaces()` is 34–62 ms on a three-interface box, and `lanAddress()` sat inside

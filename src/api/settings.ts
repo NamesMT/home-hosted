@@ -292,8 +292,12 @@ export function createSettingsRoute(deps: AppDeps) {
         try {
           if (patch.defaults !== undefined)
             runtime.store.updateDefaults(patch.defaults)
-          if (patch.logs !== undefined)
+          if (patch.logs !== undefined) {
             runtime.store.updateLogs(patch.logs)
+            // `keep` bounds the directory, not the next rotation: a quiet entry can go days
+            // without filling a file, and "I lowered it" must not mean "eventually".
+            runtime.logFiles.prune()
+          }
           if (patch.notifications !== undefined) {
             const saved = runtime.store.updateNotifications(patch.notifications)
             // A removed destination must not leave its bot token behind: the id keys the secret, so
