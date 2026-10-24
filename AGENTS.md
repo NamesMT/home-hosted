@@ -138,6 +138,19 @@ workspace config guard, so a busy default port turns config tests red for the wr
   `/healthz` in 4.5 s. Anything that reads the host, the filesystem or the process table from a view
   builder is cached on the host's own clock, not merely memoised per call
   (`lanAddress`, `src/helpers/bind.ts`, `test/helpers/bind.test.ts`).
+- **A generated config says what it means for every branch, not just the one it names.** Caddy's
+  automation policies are a list of subjects: a name **no policy names** does not get "no
+  automation", it gets Caddy's default — the public CA. So excluding local-only names from the ACME
+  policy (correct: Let's Encrypt answers `rejectedIdentifier` for `.lan`) also required *naming them*
+  in the internal one, and nobody did: the renderer emitted the fallback name alone, measured as
+  `{"subjects":["hh-fallback.invalid"],"issuers":[{"module":"internal"}]}` for a `.lan` route.
+  Every HTTPS request to it failed with `tlsv1 alert internal error` while the page said "signed by
+  the engine's own CA", and the cleartext port 308'd into that dead handshake instead of serving the
+  notice page `docs/REVERSE_PROXY.md` promises — the notice is chosen by `certificateReady`, which
+  read the same wrong claim. The **second** half is the same class: a state that describes something
+  that has not happened yet is a promise, so `certificateFor` must decide `local` from the leaf in
+  the store, not from the hostname's shape. Two tests pinned the wrong shape and now pin the right
+  one (`test/services/proxy-config.test.ts`, `test/services/proxy.test.ts`).
 - **A metric with no reading is absent, never zero.** A scrape has no page to qualify a number, so an
   alerted-on gauge published as `0` from an unsampled view is indistinguishable from a healthy one
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never

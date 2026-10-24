@@ -321,9 +321,11 @@ describe('pUT /api/proxy/tls', () => {
     expect(response.status).toBe(200)
     const body = await response.json() as ProxyBody
     const states = Object.fromEntries(body.routes.map(entry => [entry.route.id, entry.certificate?.state]))
-    // Nothing issued yet, so the public name is waiting on the CA; the local name is
-    // the engine's own CA, and a plain route has no certificate at all.
-    expect(states).toEqual({ pub: 'pending', lan: 'local', plain: 'off' })
+    // Nothing issued yet, so the public name waits on the CA — and so does the local one,
+    // which the engine's own CA signs rather than the public CA. `local` is a claim that a
+    // leaf exists (it is what `certificateReady` reads), and no leaf exists in a fresh home.
+    // A plain route has no certificate at all.
+    expect(states).toEqual({ pub: 'pending', lan: 'pending', plain: 'off' })
   })
 
   it.runIf(hasOpenssl)('refuses a pair that is not a certificate', async () => {

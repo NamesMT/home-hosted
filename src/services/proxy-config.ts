@@ -1,5 +1,6 @@
 import type { ProxyAdminTransport } from '#src/providers/proxy'
 import type { ProxyConfig, ProxyTlsMode } from '#src/shared/contracts'
+import { isPublicHost } from '#src/shared/proxy-form'
 
 /** One route, resolved to something the engine can actually dial. */
 export interface ProxyUpstreamRoute {
@@ -361,10 +362,18 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
     if (rest.length > 0)
       policies.push({ subjects: rest, issuers: acmeIssuers(input.acme) })
   }
-  // The name the engine falls back to for a bare-IP visitor is issued by its own CA and
-  // never leaves the machine, so it gets its own policy: the ACME one must not see it.
+  // Everything the engine's own CA signs: every local-only name, plus the one a bare-IP
+  // visitor falls back to. They get a policy of their own because the ACME one must never
+  // see them — and because **a name no policy names falls to Caddy's default automation,
+  // which is the public CA**. That is what a `.lan` route used to get: Let's Encrypt
+  // answered `rejectedIdentifier` (a `.lan` name has no public suffix), nothing was issued,
+  // and the HTTPS handshake failed with `tlsv1 alert internal error` while the page said
+  // "signed by the engine's own CA" and the cleartext port redirected into it.
+  const localNames = [...new Set(
+    managed.filter(route => route.tls === 'auto' && !isPublicHost(route.host)).map(route => route.host),
+  )]
   if (managed.length > 0)
-    policies.push({ subjects: [FALLBACK_NAME], issuers: [{ module: 'internal' }] })
+    policies.push({ subjects: [FALLBACK_NAME, ...localNames], issuers: [{ module: 'internal' }] })
   if (policies.length > 0)
     tlsApp.automation = { policies }
 

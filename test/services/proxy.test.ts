@@ -1243,8 +1243,51 @@ describe('proxyService', () => {
     // certmagic renews once a third of the lifetime is left, so two thirds of the
     // three days this pair is valid for is the wait.
     expect(views[0]?.certificate?.retryInMinutes).toBe(2880)
-    expect(views[1]?.certificate).toMatchObject({ state: 'local' })
+    // The local name has no leaf yet in this fixture, and `local` is a claim that one is
+    // there — `certificateReady` reads it, and it decides between the 308 and the notice
+    // page. A name the engine has not signed yet is pending, not served.
+    expect(views[1]?.certificate).toMatchObject({ state: 'pending' })
     expect(views[1]?.certificate?.retryInMinutes).toBeUndefined()
+  })
+
+  it.runIf(hasOpenssl)('calls a local name local once its own CA has issued for it', async () => {
+    // Two harnesses because the certificate snapshot is cached for 15 s by design (the
+    // panel's tick must not re-read the store per frame), so one service cannot watch its
+    // own leaf appear inside a test.
+    const before = await harness()
+    before.settings.updateProxy({ routes: [{ id: 'lan', host: 'gitea.lan', target: 'external', url: 'http://10.0.0.5:3001' }] })
+    expect(before.service.routeViews()[0]?.certificate).toMatchObject({ state: 'pending' })
+
+    const { service, options, settings } = await harness()
+    settings.updateProxy({ routes: [{ id: 'lan', host: 'gitea.lan', target: 'external', url: 'http://10.0.0.5:3001' }] })
+    const pair = makePair('gitea.lan')
+    const dir = path.join(options.engineDir, 'data', 'certificates', 'local', 'gitea.lan')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'gitea.lan.crt'), pair.certificate)
+
+    expect(service.routeViews()[0]?.certificate).toMatchObject({ state: 'local' })
+    // Which is what makes the cleartext port redirect into HTTPS instead of serving the
+    // "not ready" page: readiness is what the renderer gates the redirect on.
+    expect(service.view().routes[0]?.certificate?.state).toBe('local')
+  })
+
+  it('reports a local name the engine refused as failed, naming the engine’s reason', async () => {
+    const { service, options, settings } = await harness()
+    settings.updateProxy({ routes: [{ id: 'lan', host: 'gitea.lan', target: 'external', url: 'http://10.0.0.5:3001' }] })
+    const line = (inner: Record<string, unknown>): string =>
+      `${JSON.stringify({ ts: 1, stream: 'stderr', text: JSON.stringify(inner) })}\n`
+    fs.mkdirSync(options.logDir, { recursive: true })
+    fs.writeFileSync(path.join(options.logDir, 'proxy.log'), line({
+      logger: 'tls.obtain',
+      msg: 'could not get certificate from issuer',
+      identifier: 'gitea.lan',
+      error: 'HTTP 400 urn:ietf:params:acme:error:rejectedIdentifier - Cannot issue for "gitea.lan"',
+    }))
+
+    expect(service.routeViews()[0]?.certificate).toMatchObject({
+      state: 'failed',
+      message: 'HTTP 400 urn:ietf:params:acme:error:rejectedIdentifier - Cannot issue for "gitea.lan"',
+    })
   })
 
   it('keeps the CA’s reason when the engine falls back to its own CA', async () => {

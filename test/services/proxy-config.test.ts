@@ -415,7 +415,7 @@ describe('renderCaddyConfig', () => {
     ])
   })
 
-  it('emits no automation policy when no public name is served', () => {
+  it('signs a local-only name with the engine\'s own CA, and asks no CA for it', () => {
     const rendered = render({
       config: config({}),
       admin: unixAdmin,
@@ -423,12 +423,36 @@ describe('renderCaddyConfig', () => {
       manual: [],
       routes: [{ host: 'gitea.lan', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' }],
     })
-    // No ACME policy for a local-only name: it keeps the engine's own CA. The only
-    // automation is the fallback certificate the bare-IP visitor is served.
+    // No ACME policy for a local-only name — but it has to be named by *some* policy, or
+    // Caddy's default automation takes it and asks the public CA, which answers
+    // `rejectedIdentifier` for a `.lan` name; the handshake then fails with
+    // `tlsv1 alert internal error` while the page claimed the local CA signed it.
     expect(policiesOf(rendered)).toEqual([])
     expect((rendered.apps as any).tls.automation.policies).toEqual([
-      { subjects: ['hh-fallback.invalid'], issuers: [{ module: 'internal' }] },
+      { subjects: ['hh-fallback.invalid', 'gitea.lan'], issuers: [{ module: 'internal' }] },
     ])
+  })
+
+  it('keeps a local name out of the ACME policy beside a public one', () => {
+    const rendered = render({
+      config: config({ email: 'me@example.com' }),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      acme: { email: 'me@example.com', staging: false, subjects: ['git.example.com'] },
+      routes: [
+        { host: 'git.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' },
+        { host: 'nas.lan', path: '', dial: '127.0.0.1:3001', upstreamTls: false, tls: 'auto' },
+        { host: 'plain.lan', path: '', dial: '127.0.0.1:3002', upstreamTls: false, tls: 'off' },
+      ],
+    })
+    const policies = (rendered.apps as any).tls.automation.policies
+    // The public name gets ACME; both local names reach the internal policy, which is
+    // last; the `tls: "off"` one is never challenged at all.
+    expect(policies[0].subjects).toEqual(['git.example.com'])
+    expect(policies[0].issuers[0].module).toBe('acme')
+    expect(policies[1]).toEqual({ subjects: ['hh-fallback.invalid', 'nas.lan'], issuers: [{ module: 'internal' }] })
+    expect(JSON.stringify(policies)).not.toContain('plain.lan')
   })
 
   it('answers an unrouted host with a page on both ports, and never a redirect', () => {

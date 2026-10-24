@@ -618,8 +618,20 @@ export class ProxyService {
       }
     }
 
-    if (!isPublicHost(route.host))
-      return { state: 'local', message: 'signed by the engine\'s own CA' }
+    if (!isPublicHost(route.host)) {
+      // A local-only name is signed by the engine's own CA — but only once that CA has
+      // actually issued it. Saying "signed" from the hostname alone meant the page read
+      // `local` while the handshake failed (`tlsv1 alert internal error`) and the cleartext
+      // port redirected into it, because readiness is what decides between the redirect and
+      // the notice page. Until the leaf is there it is pending, and a refusal the engine
+      // logged is `failed` with the engine's own reason.
+      if (this.localCertificates().has(route.host.toLowerCase()))
+        return { state: 'local', message: 'signed by the engine\'s own CA' }
+      const refusal = this.obtainFailures().get(route.host.toLowerCase())
+      return refusal === undefined
+        ? { state: 'pending', message: 'the engine is issuing its own certificate' }
+        : { state: 'failed', message: refusal }
+    }
 
     const issued = this.issuedCertificates().get(route.host.toLowerCase())
     if (issued !== undefined)

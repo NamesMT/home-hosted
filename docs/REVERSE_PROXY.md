@@ -94,7 +94,7 @@ hostname.
 
 | `tls` | What it means |
 | --- | --- |
-| `auto` | The engine decides. A public name gets a Let's Encrypt certificate (HTTP-01 or TLS-ALPN-01, with renewal in the background). A local-only name gets the engine's own locally-trusted CA. |
+| `auto` | The engine decides. A public name gets a Let's Encrypt certificate (HTTP-01 or TLS-ALPN-01, with renewal in the background). A local-only name gets the engine's own locally-trusted CA, and the public CA is never asked for it. |
 | `off` | Plain HTTP on the http port, no certificate. |
 | `manual` | One of the uploaded pairs, whichever covers the hostname (the engine picks by SNI). A route set to this with no pair covering it is refused, rather than quietly given a certificate from somewhere else. |
 
@@ -118,6 +118,12 @@ no downtime. The panel derives that wait from the certificate: certmagic renews 
 third of the lifetime is left, so two thirds of it is the wait, and the engine's own CA
 issues 12 hours by default. The interval is read, never configured, so there is no knob to
 shorten it.
+
+A **local-only** name (`.lan`, an IP, `localhost`) is a different case: the public CA is
+never asked, because it could only answer `rejectedIdentifier`. The engine signs it from
+its own CA, and the route reads **local — signed by the engine's own CA** once that leaf
+exists. Until it is there the route reads **waiting for the CA**, and the panel reports the
+engine's own reason if it refuses.
 
 **Force retry certificate** appears on that row only, and asks the CA again immediately.
 The engine is **not** restarted: a certificate the engine holds cannot be cleared by
@@ -166,9 +172,9 @@ re-read as soon as its file changes, so editing or replacing one outside the pan
 picked up on the next look; the engine's
 own certificate store (the issued certificates) is read at most every 15 seconds.
 
-Certificates are managed by the engine, inside `.hh/.proxy/engine/`, and nothing else on
-the machine is touched: the generated configuration pins its storage root, and the
-panel passes the engine no `$HOME` of its own to write into.
+Certificates are managed by the engine, inside `.hh/.proxy/engine/`: the generated
+configuration pins its storage root, and the panel passes the engine no `$HOME` of its
+own to write into.
 
 **DNS-01** is the way round a router that will not forward 80 and 443. A route is one
 hostname, so there is no wildcard to issue; what DNS-01 buys is a certificate with
