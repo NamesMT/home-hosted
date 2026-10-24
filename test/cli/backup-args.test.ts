@@ -27,6 +27,17 @@ function run(args: string[]): { status: number | null, output: string } {
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` }
 }
 
+/** The same run with the two streams kept apart, which is what a `--json` caller sees. */
+function runSplit(args: string[]): { status: number | null, stdout: string, stderr: string } {
+  const result = spawnSync(process.execPath, ['--import=tsx', path.join(root, 'src/cli.ts'), ...args, '--home', home], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 60000,
+    env: { ...process.env, HHOSTED_HOME: home, NO_COLOR: '1' },
+  })
+  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
+}
+
 describe('backup flag guards', () => {
   it('refuses an empty --include rather than widening to everything', () => {
     // The bug this pins: `--include ""` parsed to an empty list, the request then omitted it, and a
@@ -124,6 +135,24 @@ describe('backup flag guards', () => {
     expect(dir.status).toBe(1)
     expect(dir.output).toContain(`no file at ${home}`)
     expect(dir.output).not.toContain('name what to act on')
+  })
+
+  /**
+   * A refusal is one message, and it belongs on the stream a reader is watching.
+   *
+   * Measured on the built CLI: `backup create --json` wrote `  global` / `    - global:settings` to
+   * **stdout** and `error name what to act on` to **stderr**. A `--json` caller therefore got
+   * neither a document nor a reason — the ids are not JSON — and a terminal that filters stderr saw
+   * a list with nothing saying what was wrong. The sentence and the ids it introduces are one
+   * refusal, so they travel together.
+   */
+  it('writes a whole refusal to stderr, leaving stdout for the answer', () => {
+    const split = runSplit(['backup', 'create', '--json'])
+    expect(split.status).toBe(1)
+    expect(split.stdout, 'a refused --json run has no answer to print on stdout').toBe('')
+    expect(split.stderr).toContain('name what to act on')
+    // The ids are part of the refusal, not a document.
+    expect(split.stderr).toContain('global:settings')
   })
 
   it('refuses an unknown action instead of guessing', () => {

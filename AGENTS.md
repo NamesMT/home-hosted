@@ -117,6 +117,10 @@ workspace config guard, so a busy default port turns config tests red for the wr
   (`src/cli/io.ts`) is installed **once** at the entry — a per-command copy is the shape that leaves the
   next command broken. Only `EPIPE` is the reader leaving; any other write failure still ends the
   process (`test/cli/epipe.test.ts`). Why this is not SIGPIPE: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
+- **One refusal is one message on one stream.** A refusal's whole text — including any list it exists to
+  explain — goes to stderr; stdout carries only an answer. `backup create` with neither `--all` nor
+  `--include` printed the ids to stdout and the sentence introducing them to stderr, so a `--json`
+  caller got neither a document nor a reason (`test/cli/backup-args.test.ts`).
 - **A retention knob bounds the directory, not a loop.** `keep` is how many rotations a person agreed
   to store, so three readers have to agree with what `readdir` says, not with the number the loop
   renames to: the list, the size and the tail. `rotate` only renames *up* to the ceiling, so lowering

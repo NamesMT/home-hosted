@@ -93,7 +93,7 @@ interface RestoreOutcome {
  * Both directions print through this, and so does the "what could I act on" list, so the three read
  * alike. A row's note is the panel's own wording, passed through untouched.
  */
-function printPlanTree(rows: PlanRow[]): void {
+function printPlanTree(rows: PlanRow[], out: (text: string) => void = text => process.stdout.write(text)): void {
   const known = new Set(rows.map(row => row.id))
   // Every prefix of every id, so a parent that is not itself a row still gets a line to hang under.
   const nodes = new Map<string, { note: string | null, children: Set<string> }>()
@@ -124,7 +124,7 @@ function printPlanTree(rows: PlanRow[]): void {
     if (node === undefined)
       return
     const padding = '  '.repeat(depth)
-    process.stdout.write(`${padding}${depth === 1 ? '' : '- '}${id}${node.note === null ? '' : `  ${dim(`(${node.note})`)}`}\n`)
+    out(`${padding}${depth === 1 ? '' : '- '}${id}${node.note === null ? '' : `  ${dim(`(${node.note})`)}`}\n`)
     for (const child of node.children)
       write(child, depth + 1)
   }
@@ -295,9 +295,14 @@ async function refuseWithoutScope(action: 'create' | 'restore', suffix: string):
     fail('name what to act on — pass --include <ids> or --all')
   // The same tree the plan uses, so all three outputs read alike: a flat list here was the one place
   // the scopes and the nesting disappeared.
+  //
+  // All of it on stderr, tree included. A `--json` caller reads stdout, and the tree landed there
+  // while the sentence explaining it did not: measured `backup create --json` writing `  global` /
+  // `    - global:settings` to stdout and `error name what to act on` to stderr, so a script got
+  // neither a document nor a reason, and a terminal with stderr filtered got ids with no sentence.
   process.stderr.write(`${paint('31', 'error')} name what to act on — pass --include <ids> or --all\n\n`)
   process.stderr.write('available (or narrow it):\n')
-  printPlanTree(flattenRows(rows))
+  printPlanTree(flattenRows(rows), text => process.stderr.write(text))
   process.stderr.write('\n--exclude <ids> leaves those out: --all --exclude global:secrets\n')
   process.exit(1)
 }
