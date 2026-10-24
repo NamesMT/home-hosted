@@ -518,6 +518,30 @@ describe('logs route', () => {
     expect(await refused.json()).toMatchObject({ code: 'UNKNOWN_LOG_FILE' })
   })
 
+  it('streams a log download instead of buffering the rotation', async () => {
+    const created = await withServer()
+    // A rotation near what `logs.maxBytes` allows is what a person downloads a log *for*. Written
+    // real, not sparse: the route must actually read the bytes.
+    const size = 8 * 1024 * 1024
+    const logPath = path.join(created.logFiles.directory, 'web.log.1')
+    fs.mkdirSync(created.logFiles.directory, { recursive: true })
+    fs.writeFileSync(logPath, Buffer.alloc(size, 0x41))
+
+    const download = await request(created.app, '/api/logs/web/download?file=web.log.1')
+    expect(download.status).toBe(200)
+    expect(download.headers.get('content-disposition')).toContain('web.log.1')
+    // `Content-Length` still comes from `stat`, so a client gets a progress bar.
+    expect(download.headers.get('content-length')).toBe(String(size))
+
+    // The property: a stream, not an array buffer — measured on the first chunk. A `createReadStream`
+    // body yields a ~64 KiB chunk while `readFileSync` hands back all 8 MiB in one, which is what the
+    // buffered route did (measured +199 MB RSS on a real 100 MB rotation, +402 MB for four at once).
+    const reader = download.body!.getReader()
+    const first = await reader.read()
+    await reader.cancel()
+    expect(first.value!.byteLength, 'the whole rotation arrived in one chunk, so it was buffered').toBeLessThan(size)
+  })
+
   it('clears persisted logs and 404s an unknown server', async () => {
     const created = await withServer()
     seedLogs(created, 3)

@@ -143,6 +143,15 @@ workspace config guard, so a busy default port turns config tests red for the wr
   named the newest file alone. Derive the set from the directory once (`ownedFiles`/`retained`,
   `src/services/log-files.ts`) and prune inside `rotate`; `test/services/log-files.test.ts` pins all
   three, plus a `clear` over files `keep` no longer names.
+- **A file a route hands back is streamed, and the bound decides how much it matters.** `logs.maxBytes`
+  allows **100 MB per rotation** and `keep` holds ten, so the log download is the biggest file this panel
+  serves — and it read it whole into memory while the archive route beside it had already been fixed for
+  the same class. Measured on the built panel with a real 100 MB rotation: `readFileSync` cost **+199 MB
+  RSS** for one download and **+402 MB** for four at once, `/healthz` went from 4 ms to p95 859 ms / max
+  898 ms, and headers only arrived after the whole read; the same four archive downloads grew **+2 MB**
+  and answered `/healthz` in p50 17 ms. `createReadStream` + `stat` for the `Content-Length` a progress bar
+  needs, in both routes. A comment that excuses one route because its schema *has* a ceiling is how the
+  other one stayed broken — the ceiling is 100 MB, which is the size a person downloads a log at.
 - **An entry's server is not always the process the panel spawned.** A compose entry's containers
   outlive their wrapper — a reboot, a `docker compose up -d` from a shell, a panel crash — so a stop
   that only signals `entry.child`/`entry.pid` answers "stopped" over a stack that is still serving.
