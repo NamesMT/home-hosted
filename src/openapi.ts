@@ -1,15 +1,15 @@
-import { Scalar } from '@scalar/hono-api-reference'
 import { openAPIRouteHandler } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { appVersion } from '#src/helpers/version'
+import { openApiReferencePage } from '#src/openapi-reference'
 
 const PREFIX = '/openapi'
 
 /**
  * The machine-readable contract, generated from the same ArkType schemas the
  * routes validate with — one source of truth, no second set of DTOs to drift.
- * `/openapi/ui` is a browsable reference (Scalar) and needs no session, since a
- * UI author has to be able to read it before they can log in.
+ * `/openapi/ui` is the browsable reference and needs no session, since a UI
+ * author has to be able to read it before they can log in.
  */
 /** The version the package was built with, so the spec never drifts from it. */
 export function setupOpenAPI(app: Parameters<typeof openAPIRouteHandler>[0]) {
@@ -61,6 +61,8 @@ export function setupOpenAPI(app: Parameters<typeof openAPIRouteHandler>[0]) {
     )
     .get(
       `${PREFIX}/ui`,
-      Scalar({ theme: 'deepSpace', url: `${PREFIX}/spec.json` }),
+      // A page that works with no internet, with the CDN browser as optional enhancement — see
+      // `src/openapi-reference.ts` for why `Scalar()` alone was blank on the box this ships to.
+      c => c.html(openApiReferencePage(`${PREFIX}/spec.json`)),
     )
 }

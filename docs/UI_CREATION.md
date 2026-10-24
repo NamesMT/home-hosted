@@ -131,7 +131,7 @@ cannot drift:
 
 | approach | how |
 | --- | --- |
-| **OpenAPI** | `GET /openapi/spec.json` (no session needed); browse it at `/openapi/ui` |
+| **OpenAPI** | `GET /openapi/spec.json` (no session needed); browse it at `/openapi/ui`, which renders its own index from the spec and works with no internet |
 | **Typed RPC** | inside this repo: `import type { AppType } from '@server/app'` + `hc<AppType>()`, as `uis/stock/src/lib/rpc.ts` does |
 | **Generated types** | `pnpm dlx openapi-typescript http://127.0.0.1:3999/openapi/spec.json -o src/api.d.ts` |
 

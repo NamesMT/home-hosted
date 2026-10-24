@@ -283,7 +283,9 @@ stop, a delete or a manual start can lower, so no name ends in `_total`.
 comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on. The
 document declares its own `securitySchemes` (`bearerAuth`), every documented 2xx carries a schema, and
 each operation is tagged — so `openapi-typescript`, `openapi-generator` or a docs renderer can generate
-a working client without hand-written glue.
+a working client without hand-written glue. `/openapi/ui` builds its route index from the spec itself, so
+it stays readable on a box with no internet; the richer interactive browser it also offers is fetched
+from a CDN and is optional — the plain index is what you get when that CDN is unreachable.
 
 </details>
 

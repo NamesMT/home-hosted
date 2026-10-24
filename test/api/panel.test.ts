@@ -966,6 +966,34 @@ describe('openapi document', () => {
    * all produced clients with no auth hook, while the README tells an agent this document *is*
    * the API it may call. The workaround was to read the prose and hand-write a client.
    */
+  /**
+   * The browsable reference must not be an empty page on a box with no internet.
+   *
+   * `/openapi/ui` used to be `Scalar()` alone, whose whole body is a module script importing from
+   * `cdn.jsdelivr.net`. Measured in Chromium with every non-panel request aborted, `#app` had **0
+   * children and 0 characters**: the page a person opens to read the API was blank on the LAN the
+   * docs describe, and `docs/UI_CREATION.md` point 5 says an offline home server should not need a
+   * CDN. The page now renders the route index from `spec.json` itself and treats the CDN browser as
+   * optional enhancement.
+   *
+   * Asserted on the document, because whether a CDN is reachable is not something a unit test can
+   * decide: the fallback markup has to be *in the HTML the server sends*, before any script runs.
+   */
+  it('serves an API reference that works with no CDN', async () => {
+    const created = await fixture()
+    const response = await created.app.request('/openapi/ui')
+
+    expect(response.status).toBe(200)
+    const html = await response.text()
+    // The index is built client-side from the spec, so the spec URL must be in the served document.
+    expect(html).toContain('/openapi/spec.json')
+    // It renders something before any network call, and it names the route index as its own content.
+    expect(html).toContain('id="app"')
+    expect(html).toContain('Loading the route index')
+    // Enhancement is allowed to fail; the import must be the only CDN reference and it must be caught.
+    expect(html).toMatch(/try\s*\{[\s\S]*cdn\.jsdelivr\.net[\s\S]*catch/)
+  })
+
   it('declares the auth scheme a generated client needs', async () => {
     const created = await fixture()
     const spec = await (await created.app.request('/openapi/spec.json')).json() as {

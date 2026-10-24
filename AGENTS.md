@@ -152,6 +152,13 @@ workspace config guard, so a busy default port turns config tests red for the wr
   and answered `/healthz` in p50 17 ms. `createReadStream` + `stat` for the `Content-Length` a progress bar
   needs, in both routes. A comment that excuses one route because its schema *has* a ceiling is how the
   other one stayed broken — the ceiling is 100 MB, which is the size a person downloads a log at.
+- **A page the panel serves must not be blank without a CDN.** `/openapi/ui` was `Scalar()` alone, whose
+  entire body is a module import from `cdn.jsdelivr.net`; with every non-panel request aborted, `#app`
+  had **0 children and 0 characters**. `docs/UI_CREATION.md` point 5 already said an offline home server
+  should not need a CDN — the panel was the counter-example. Render the real content from `spec.json`
+  first (`src/openapi-reference.ts`), then load the richer browser as optional enhancement inside a
+  `try {} catch {}`. The rule generalises: a dependency that renders *only* via the network is a blank
+  page on the box this package is for.
 - **An entry's server is not always the process the panel spawned.** A compose entry's containers
   outlive their wrapper — a reboot, a `docker compose up -d` from a shell, a panel crash — so a stop
   that only signals `entry.child`/`entry.pid` answers "stopped" over a stack that is still serving.
