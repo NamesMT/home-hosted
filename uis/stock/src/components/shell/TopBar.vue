@@ -61,7 +61,15 @@ const connectionLabel = computed(() => ({
       {{ title }}
     </h1>
 
-    <div class="flex shrink-0 items-center gap-1.5">
+    <!--
+      The action cluster may shrink below its content width. `shrink-0` here made the row's
+      min-content the sum of four 44 px targets plus the workspace trigger's own 96 px
+      maximum, which is 246 px beside a 44 px menu button and two 12 px paddings — 326 px on
+      a 320 px phone, so the header scrolled sideways (measured in Chromium: `header.scrollWidth`
+      326 against a 320 px viewport) and the page title, the element that has to give way,
+      was squeezed to **0 px**. `min-w-0`/`shrink` let the cluster give way instead.
+    -->
+    <div class="flex min-w-0 shrink items-center gap-1.5">
       <button
         type="button"
         :class="cn(

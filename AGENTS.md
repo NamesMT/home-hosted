@@ -121,6 +121,20 @@ workspace config guard, so a busy default port turns config tests red for the wr
   explain — goes to stderr; stdout carries only an answer. `backup create` with neither `--all` nor
   `--include` printed the ids to stdout and the sentence introducing them to stderr, so a `--json`
   caller got neither a document nor a reason (`test/cli/backup-args.test.ts`).
+- **A browser API that needs a secure context is absent on the origin the docs promise.** The panel is
+  documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured
+  `undefined` from `http://192.168.1.201:6181` and `object` from `http://127.0.0.1:6181` on the same
+  build, so all nine `CopyButton` sites threw into a `catch {}` and left the icon alone — a dead button
+  with the old clipboard contents still in it. Guard the feature, not the call: `copyText`
+  (`uis/stock/src/lib/clipboard.ts`) falls back to `execCommand` inside the gesture and returns a
+  verdict, and the button shows `common.copyFailed` when it is false. `uis/stock/test/clipboard-source.test.ts`
+  fails any other file that names `navigator.clipboard`.
+- **A row of chrome is measured at 320 px with the floor counted.** `pointer: coarse` raises every
+  icon control to 44 px, so a `shrink-0` action cluster of four targets plus a 96 px labelled trigger
+  is 326 px — 6 px wider than the phone, `header.scrollWidth` 326, and the page title (`flex-1`, the
+  only child that may give way) collapsed to **0 px**. Measured in Chromium at 320/360/390. Let the
+  cluster shrink and drop a label below `360px`; `uis/stock/test/topbar-width.test.ts` pins both
+  declarations because no mount can measure a layout.
 - **A retention knob bounds the directory, not a loop.** `keep` is how many rotations a person agreed
   to store, so three readers have to agree with what `readdir` says, not with the number the loop
   renames to: the list, the size and the tail. `rotate` only renames *up* to the ceiling, so lowering

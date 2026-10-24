@@ -15,6 +15,7 @@ common.add,Add,Thêm,添加,追加,Añadir,추가,Добавить,Ajouter,Hinzu
 common.retry,Retry,Thử lại,重试,再試行,Reintentar,다시 시도,Повторить,Réessayer,Wiederholen
 common.copy,Copy,Sao chép,复制,コピー,Copiar,복사,Копировать,Copier,Kopieren
 common.copied,Copied,Đã sao chép,已复制,コピーしました,Copiado,복사됨,Скопировано,Copié,Kopiert
+common.copyFailed,Could not copy,Không sao chép được,无法复制,コピーできませんでした,No se pudo copiar,복사할 수 없습니다,Не удалось скопировать,Impossible de copier,Kopieren fehlgeschlagen
 common.enabled,Enabled,Đang bật,已启用,有効,Activado,사용,Включено,Activé,Aktiviert
 common.disabled,Disabled,Đang tắt,已停用,無効,Desactivado,사용 안 함,Отключено,Désactivé,Deaktiviert
 common.none,None,Không có,无,なし,Ninguno,없음,Нет,Aucun,Keine

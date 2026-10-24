@@ -90,7 +90,12 @@ must never lock you out of your own machine.
 6. **Limits:** ≤ 20 000 entries, ≤ 512 MB uncompressed, no absolute paths, no `..`, no symlinks, no
    drive letters.
 7. **Offline and plain-http friendly.** Assume a LAN over `http://`: no `Secure`-only cookies, no
-   hard-coded port, no https-only APIs.
+   hard-coded port, no https-only APIs. That origin is **not a secure context**, so
+   `navigator.clipboard` does not exist on it (measured: `undefined` from
+   `http://192.168.1.201:6181`, present on `http://127.0.0.1:6181`). Anything that writes the
+   clipboard goes through `copyText` (`uis/stock/src/lib/clipboard.ts`), which falls back to
+   `execCommand` and reports a failure the person can see — a bare
+   `navigator.clipboard.writeText` is a dead button on the one origin this point names.
 8. **A phone is a real client.** Someone checks a home server from the couch, and the panel is a
    page they open on a phone as often as a desktop. Two things are cheap to get right and expensive
    to add later: a control is at least **24 px** at normal density and **44 px** under
@@ -98,7 +103,11 @@ must never lock you out of your own machine.
    controls or columns **fits the width or visibly scrolls** — a horizontal scroll with no signal
    reads as a clipped row, so prefer wrapping or an overflow menu. A table wider than a phone should
    pin its identity and action columns; `uis/noc-console/src/styles.css` is the worked example.
-   Keyboard hints belong behind `@media (hover: hover)`: a phone has no `j` or `s`.
+   Keyboard hints belong behind `@media (hover: hover)`: a phone has no `j` or `s`. **Check 320 px,
+   not only 390 px**, and count the floor: under `pointer: coarse` each icon control is 44 px, so
+   four of them plus a labelled 96 px trigger is 326 px of header on a 320 px screen — which is
+   how the stock UI's page title reached 0 px. A fixed (`shrink-0`) cluster is the shape that does
+   it; let it shrink and drop a label below `360px`.
 9. **Give each page its own path.** An SPA with canonical URLs is the best default: a path is what
    makes a page bookmarkable, shareable, and reachable with back/forward — and matching the stock
    paths keeps two UIs of the same panel feeling alike. Those are:

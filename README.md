@@ -581,6 +581,12 @@ a PEM pair and let home-hosted terminate TLS itself.
 | `on` | any peer | the proxy is the only way in. **The client address is then the caller's own header**, so the per-IP lockout counts per *forged* address and stops throttling brute force; the panel warns at startup if that panel is exposed |
 | `off` | nobody | nothing in front, or the proxy sets no header |
 
+**A plain-`http://` LAN address is not a secure context.** Browsers withhold some APIs from it, and the
+panel works around the one it uses: **Copy** (the archive directory, the logs directory, the TLS
+fingerprint, a server's JSON config) falls back to the legacy clipboard call, so it still works from
+`http://192.168.1.201:3999`. Where even that is refused, the button says *Could not copy* instead of
+doing nothing.
+
 **Port conflicts.** A busy port is named — `port 4010 is already in use (pid 4242)` — and can be
 resolved from a confirmation popover. The holder is looked up again at that moment, never taken from
 the message, and anything the panel supervises is refused rather than killed. A server that

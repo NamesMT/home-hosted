@@ -74,13 +74,19 @@ async function onOpenChange(value: boolean): Promise<void> {
       <button
         type="button"
         :class="cn(
-          'flex h-8 max-w-36 items-center gap-1.5 rounded-control border border-line bg-panel-2 px-2 text-xs transition-colors duration-150 hover:border-line hover:text-ink sm:max-w-52',
+          'flex h-8 min-w-0 max-w-36 items-center gap-1.5 rounded-control border border-line bg-panel-2 px-2 text-xs transition-colors duration-150 hover:border-line hover:text-ink sm:max-w-52',
           focusRing,
         )"
         :aria-label="t('topbar.workspaceLabel', { name: selected?.label ?? t('common.none') })"
       >
         <Layers class="size-3.5 shrink-0 text-faint" />
-        <span class="min-w-0 truncate font-medium text-ink">{{ selected?.label ?? t('workspace.none') }}</span>
+        <!--
+          Below 360 px the trigger is the icon and the chevron only: four 44 px targets plus a
+          labelled trigger is 326 px of chrome on a 320 px phone, which scrolled the header
+          sideways and squeezed the page title to 0 px. The label is still what the popover
+          opens and what `aria-label` announces.
+        -->
+        <span class="hidden min-w-0 truncate font-medium text-ink min-[360px]:inline">{{ selected?.label ?? t('workspace.none') }}</span>
         <span class="hidden shrink-0 font-mono text-2xs text-faint sm:inline">{{ selected?.runningCount ?? 0 }}/{{ selected?.serverCount ?? 0 }}</span>
         <ChevronsUpDown class="size-3 shrink-0 text-faint" />
       </button>
