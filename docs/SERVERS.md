@@ -173,6 +173,19 @@ published port is the health probe.
 `docker compose up -d` is not an entry: it exits as soon as the containers start, so there is nothing
 left to supervise, and the entry backs off against the stack it just started. Drop the `-d`.
 
+**Stop and `down` end the containers, not just the wrapper.** A stack outlives a reboot, a
+`compose up -d` from a shell, and a panel crash, so the entry's server may be running with nothing of
+the panel's holding it. Stopping that entry — the Stop button, `stop-all`, `down` — stops its
+containers through docker and then lists them again: if one is still up, the entry reports a
+**conflict** naming it instead of claiming it stopped. The stack is attributed the same way the
+metrics are (the project, else the compose file's directory), so another stack on the box is never
+touched.
+
+If the panel finds **this entry's own** stack already up at boot or at start (a reboot with
+`restart: unless-stopped`, a `compose up -d` run by hand) it cannot adopt it through the wrapper.
+It says so, and `onPortConflict: "warn"` starts the entry anyway so the panel supervises it from
+then on. Under the default `block` the page names the container and leaves it alone.
+
 **CPU and RSS are the containers', summed.** A compose entry is measured through `docker stats` over
 the project's own containers, so a busy stack reads busy and `resources.maxRssBytes` acts on the
 memory the containers actually use. Containers are attributed by compose's own labels — the project

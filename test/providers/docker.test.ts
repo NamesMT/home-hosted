@@ -10,12 +10,15 @@ import {
 
   DockerMetrics,
   findComposeFile,
+  isComposeCommand,
+  isOwnStack,
   parseComposeHead,
   parseDockerPs,
   parseDockerStats,
   parseHumanBytes,
   parseMemUsage,
   parsePercent,
+  stopComposeContainers,
   sumContainers,
 } from '#src/providers/docker'
 import { hasDockerTestImage } from '../support/capabilities'
@@ -170,6 +173,48 @@ describe('compose detection', () => {
 
 const ROWS: ContainerRow[] = parseDockerPs(PS_OUTPUT)
 
+/**
+ * Which stack a published port belongs to, so the refusal can name the right escape hatch.
+ *
+ * A docker-published port held by *this entry's own* stack is not a stranger and not a conflict: it
+ * is the server, already up. The sentence offered only `kill` — which throws the stack away to reach
+ * the state it was already in — while the hatch a person wants is to let the panel attach to it.
+ * `isOwnStack` is the one predicate that decides which sentence is true, so it is pinned here.
+ */
+describe('telling this entry’s own stack from a stranger’s', () => {
+  const target: ComposeTarget = { key: 'project:blog', project: 'blog', configFiles: ['/srv/blog/compose.yaml'] }
+
+  it('matches the project name docker reports against the one the entry declares', () => {
+    expect(isOwnStack({ project: 'blog', composeDir: null }, target), 'the same project is this entry’s own stack').toBe(true)
+    expect(isOwnStack({ project: 'other', composeDir: null }, target), 'another project is not').toBe(false)
+  })
+
+  it('falls back to the working directory when neither side names a project', () => {
+    // Most entries never pass `-p`, so both projects are null — the directory compose recorded is
+    // then the only evidence, and it is the one holding this entry's compose file.
+    const unnamed: ComposeTarget = { key: 'files:/srv/blog/compose.yaml', project: null, configFiles: ['/srv/blog/compose.yaml'] }
+    expect(isOwnStack({ project: null, composeDir: '/srv/blog' }, unnamed)).toBe(true)
+    expect(isOwnStack({ project: null, composeDir: '/srv/other' }, unnamed), 'a different directory is another stack').toBe(false)
+  })
+
+  it('refuses to guess when there is nothing to hold the two together', () => {
+    // A plain `docker run` container has neither label, and a bare project with no directory cannot
+    // be attributed to a compose file either.
+    expect(isOwnStack({ project: null, composeDir: null }, target)).toBe(false)
+    expect(isOwnStack({ project: 'blog', composeDir: null }, null)).toBe(false)
+    expect(isOwnStack({ project: 'blog', composeDir: null }, { key: 'files:/srv/x/compose.yaml', project: null, configFiles: [] })).toBe(false)
+    // `null === null` must not read as a match on the project half.
+    expect(isOwnStack({ project: null, composeDir: '/srv/blog' }, { key: 'files:/srv/x/compose.yaml', project: null, configFiles: ['/srv/x/compose.yaml'] })).toBe(false)
+  })
+
+  it('recognizes a compose argv without resolving anything, for a stop of an entry never started', () => {
+    expect(isComposeCommand('docker', ['compose', 'up'])).toBe(true)
+    expect(isComposeCommand('docker-compose', ['up'])).toBe(true)
+    expect(isComposeCommand('docker', ['run', 'nginx'])).toBe(false)
+    expect(isComposeCommand('node', ['server.js'])).toBe(false)
+  })
+})
+
 describe('attribution', () => {
   function target(overrides: Partial<ComposeTarget>): ComposeTarget {
     return { key: 'k', project: null, configFiles: [], ...overrides }
@@ -279,6 +324,118 @@ exit 0
 
 /** The shim is a `#!/bin/sh` script, so Windows cannot run it; the production path is cross-platform. */
 const posixShim = it.runIf(process.platform !== 'win32')
+
+/**
+ * Stopping a stack answers from a **fresh listing**, never from `docker stop`'s exit code.
+ *
+ * `docker stop` exits 0 for a container it could not end, so trusting it is the empty success these
+ * cases exist to refuse — a stop the page reports as done over a stack that is still serving. The
+ * shim keeps a running set in a file that `stop` rewrites, so "did it stop" is read the same way the
+ * real code reads it: by asking docker again.
+ */
+describe('stopping a compose stack', () => {
+  posixShim('stops every container and reports the ones that are gone', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-stack-'))
+    dirs.push(dir)
+    const running = path.join(dir, 'running')
+    const survivors = path.join(dir, 'survivors')
+    const calls = path.join(dir, 'calls')
+    fs.writeFileSync(running, 'blog-web-1\nblog-db-1\n')
+    fs.writeFileSync(survivors, '')
+    fs.writeFileSync(path.join(dir, 'docker'), `#!/bin/sh
+printf '%s ' "$@" >> '${calls}'
+printf '\\n' >> '${calls}'
+case "$1" in
+  ps)
+    while read -r name; do
+      [ -n "$name" ] && printf 'id-%s\\t%s\\tblog\\t/srv/blog/compose.yaml\\n' "$name" "$name"
+    done < '${running}'
+    ;;
+  stop)
+    shift
+    for name in "$@"; do
+      if ! grep -qx "$name" '${survivors}' 2>/dev/null; then
+        grep -vx "$name" '${running}' > '${running}.tmp' || true
+        mv '${running}.tmp' '${running}'
+      fi
+    done
+    ;;
+esac
+exit 0
+`, { mode: 0o755 })
+
+    const original = process.env.PATH
+    process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
+    try {
+      const target: ComposeTarget = { key: 'project:blog', project: 'blog', configFiles: [] }
+      const outcome = await stopComposeContainers(target)
+      expect(outcome).toEqual({ stopped: ['blog-web-1', 'blog-db-1'], survivors: [] })
+      // One ps, one stop naming both, one ps: the answer is the listing after, not the exit code.
+      const invoked = fs.readFileSync(calls, 'utf8').trim().split('\n')
+      expect(invoked[0]).toContain('ps')
+      expect(invoked[1]).toContain('stop blog-web-1 blog-db-1')
+      expect(invoked[2]).toContain('ps')
+    }
+    finally {
+      process.env.PATH = original
+    }
+  })
+
+  posixShim('reports a container that stayed up as a survivor, not as stopped', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-stack-'))
+    dirs.push(dir)
+    fs.writeFileSync(path.join(dir, 'running'), 'blog-web-1\nblog-db-1\n')
+    fs.writeFileSync(path.join(dir, 'survivors'), 'blog-db-1\n')
+    fs.writeFileSync(path.join(dir, 'docker'), `#!/bin/sh
+case "$1" in
+  ps)
+    while read -r name; do
+      [ -n "$name" ] && printf 'id-%s\\t%s\\tblog\\t/srv/blog/compose.yaml\\n' "$name" "$name"
+    done < '${dir}/running'
+    ;;
+  stop)
+    shift
+    for name in "$@"; do
+      if ! grep -qx "$name" '${dir}/survivors' 2>/dev/null; then
+        grep -vx "$name" '${dir}/running' > '${dir}/running.tmp' || true
+        mv '${dir}/running.tmp' '${dir}/running'
+      fi
+    done
+    exit 0
+    ;;
+esac
+exit 0
+`, { mode: 0o755 })
+
+    const original = process.env.PATH
+    process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
+    try {
+      const target: ComposeTarget = { key: 'project:blog', project: 'blog', configFiles: [] }
+      const outcome = await stopComposeContainers(target)
+      // The shim exits 0 for the container it kept — which is exactly why the exit code is not read.
+      expect(outcome!.survivors, 'a stop that printed success is not a stop that worked').toEqual(['blog-db-1'])
+      expect(outcome!.stopped).toEqual(['blog-web-1'])
+    }
+    finally {
+      process.env.PATH = original
+    }
+  })
+
+  posixShim('answers null when docker cannot be asked, rather than "nothing is running"', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-stack-'))
+    dirs.push(dir)
+    fs.writeFileSync(path.join(dir, 'docker'), '#!/bin/sh\nexit 1\n', { mode: 0o755 })
+    const original = process.env.PATH
+    process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
+    try {
+      const target: ComposeTarget = { key: 'project:blog', project: 'blog', configFiles: [] }
+      expect(await stopComposeContainers(target)).toBeNull()
+    }
+    finally {
+      process.env.PATH = original
+    }
+  })
+})
 
 describe('the container metrics reader', () => {
   posixShim('batches every target into one stats call naming all their containers', async () => {

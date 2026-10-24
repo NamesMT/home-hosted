@@ -2659,3 +2659,138 @@ exit 0
     })
   }, 90000)
 })
+
+/**
+ * A compose entry's server is its **containers**, and they outlive the wrapper this panel spawned.
+ *
+ * A reboot, a `docker compose up -d` from a shell, or a panel crash leaves them running with no
+ * child of ours to signal — and this entry's stop path answered `{ ok: true }` for exactly that
+ * state. Measured on the built panel: `POST /api/servers/web/stop` returned `{"ok":true}` while the
+ * stack kept answering HTTP 200, `stop-all` did the same, and `down` exited 0 with it still up.
+ *
+ * These drive a **stateful** `docker` shim: `ps` reports `running`, `stop <name>` removes that name
+ * from the file `ps` reads, so the assertion is about what a later listing says, not about a call
+ * having been made. A shim, so skipped on Windows; the live suite in `test/providers/docker.test.ts`
+ * drives a real daemon.
+ */
+describe('stopping a docker-backed entry that this panel did not spawn', () => {
+  const posixShim = it.runIf(process.platform !== 'win32')
+
+  /**
+   * A project directory, a `docker` shim, and the running set it owns.
+   *
+   * `survivors` are the container names `docker stop` will refuse to remove, which is how the
+   * "the stop did not take" half is staged: a shim that exits 0 without touching the file would
+   * otherwise pass for a stop that worked.
+   */
+  async function withStack(body: (dir: string, running: () => string[], survivors: string[]) => Promise<void>, options: { survivors?: string[] } = {}): Promise<void> {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-sup-stack-'))
+    const project = path.join(dir, 'blog')
+    await fs.promises.mkdir(project, { recursive: true })
+    await fs.promises.writeFile(path.join(project, 'compose.yaml'), 'services: {}\n')
+
+    const names = ['blog-web-1', 'blog-db-1']
+    await fs.promises.writeFile(path.join(dir, 'running'), `${names.join('\n')}\n`)
+    await fs.promises.writeFile(path.join(dir, 'survivors'), `${(options.survivors ?? []).join('\n')}\n`)
+
+    // `ps` prints the rows the real CLI prints for a compose project; `stop` rewrites the set unless
+    // the name is in `survivors`. `stats` never answers, so the sampler keeps the tree reading —
+    // these cases are about the stop, not about metrics.
+    await fs.promises.writeFile(path.join(dir, 'docker'), `#!/bin/sh
+case "$1" in
+  ps)
+    while read -r name; do
+      [ -n "$name" ] && printf 'aaaa%s\\t%s\\tblog\\t%s\\n' "$name" "$name" '${project}/compose.yaml'
+    done < '${dir}/running'
+    ;;
+  stop)
+    shift
+    for name in "$@"; do
+      if ! grep -qx "$name" '${dir}/survivors' 2>/dev/null; then
+        grep -vx "$name" '${dir}/running' > '${dir}/running.tmp' || true
+        mv '${dir}/running.tmp' '${dir}/running'
+      fi
+    done
+    ;;
+  compose) sleep 120 ;;
+esac
+exit 0
+`, { mode: 0o755 })
+
+    const original = process.env.PATH
+    process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
+    cleanups.push(async () => {
+      process.env.PATH = original
+      await fs.promises.rm(dir, { recursive: true, force: true })
+    })
+    await body(project, () => fs.readFileSync(path.join(dir, 'running'), 'utf8').split('\n').filter(Boolean), options.survivors ?? [])
+  }
+
+  /** A compose entry with the port the stack publishes, never started by this panel. */
+  function stackConfig(project: string): Record<string, unknown> {
+    return {
+      id: 'blog',
+      command: 'docker',
+      args: ['compose', '-p', 'blog', 'up'],
+      cwd: project,
+      port: null,
+      restart: { enabled: false },
+    }
+  }
+
+  posixShim('stops the containers when nothing of ours is running', async () => {
+    await withStack(async (project, running) => {
+      const { supervisor } = await makeSupervisor([stackConfig(project)])
+      // The state a reboot leaves: the stack is up, the panel has no child and no pid.
+      expect(running(), 'the fixture must start with the stack up').toEqual(['blog-web-1', 'blog-db-1'])
+
+      const result = await supervisor.stop('blog')
+      expect(result, 'a stop that ended the whole stack is a success').toEqual({ ok: true })
+      expect(running(), 'the containers are this entry’s server, so a stop must end them').toEqual([])
+      expect(view(supervisor, 'blog').status).toBe('stopped')
+
+      const logged = supervisor.logLines('blog').map(line => line.text).join('\n')
+      expect(logged, 'the log must say which containers it stopped').toContain('stopped the containers blog-web-1, blog-db-1')
+    })
+  }, 60000)
+
+  /**
+   * The same refusal on the path that *did* spawn the wrapper.
+   *
+   * `docker compose up` normally takes its stack down on SIGTERM, so this is the case where it did
+   * not: the wrapper is killed, the containers are still listed, and the old code dropped our
+   * readings and answered "stopped" because the process it held was gone.
+   */
+  posixShim('refuses to claim "stopped" when the wrapper died but a container is still up', async () => {
+    await withStack(async (project, running) => {
+      const { supervisor } = await makeSupervisor([stackConfig(project)])
+      await supervisor.start('blog')
+      await waitForStatus(supervisor, 'blog', 'running')
+      expect(view(supervisor, 'blog').pid, 'the fixture needs a wrapper of ours to stop').not.toBeNull()
+
+      const result = await supervisor.stop('blog')
+      expect(result.ok, 'a container that outlived the wrapper is still this entry’s server').toBe(false)
+      expect(running()).toEqual(['blog-db-1'])
+      const after = view(supervisor, 'blog')
+      expect(after.status).toBe('conflict')
+      expect(after.lastError).toContain('blog-db-1')
+      expect(after.pid, 'the wrapper is gone, so its pid goes too, whatever the containers did').toBeNull()
+    }, { survivors: ['blog-db-1'] })
+  }, 60000)
+
+  posixShim('refuses to claim "stopped" when a container is still up', async () => {
+    // `docker stop` exits 0 for the container it cannot end. Trusting that answer is the empty
+    // success this test exists to refuse: the page would say Stopped over a serving stack.
+    await withStack(async (project, running) => {
+      const { supervisor } = await makeSupervisor([stackConfig(project)])
+      const result = await supervisor.stop('blog')
+
+      expect(result.ok, 'the stack is still serving, so this is not a success').toBe(false)
+      expect(result.error, 'the refusal must name the container that stayed up').toContain('blog-db-1')
+      expect(running(), 'the surviving container is still running, which is the fact being reported').toEqual(['blog-db-1'])
+      const after = view(supervisor, 'blog')
+      expect(after.status, 'a stack that survived the stop is a conflict, never stopped').toBe('conflict')
+      expect(after.lastError).toContain('still running')
+    }, { survivors: ['blog-db-1'] })
+  }, 60000)
+})

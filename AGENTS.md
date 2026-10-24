@@ -119,6 +119,17 @@ workspace config guard, so a busy default port turns config tests red for the wr
   named the newest file alone. Derive the set from the directory once (`ownedFiles`/`retained`,
   `src/services/log-files.ts`) and prune inside `rotate`; `test/services/log-files.test.ts` pins all
   three, plus a `clear` over files `keep` no longer names.
+- **An entry's server is not always the process the panel spawned.** A compose entry's containers
+  outlive their wrapper — a reboot, a `docker compose up -d` from a shell, a panel crash — so a stop
+  that only signals `entry.child`/`entry.pid` answers "stopped" over a stack that is still serving.
+  Measured: `POST /api/servers/web/stop` returned `{"ok":true}` while the stack answered HTTP 200,
+  and `stop-all` and `down` did the same, all exiting 0. Resolve what the entry *declares it runs*
+  from its own config (`composeTarget`), stop that, and decide from a **fresh listing** — never from
+  the signal or `docker stop`'s exit code, which is 0 for a container it could not end. A survivor
+  is a `conflict` naming it (`refuseLingeringStack`, `stopComposeContainers`,
+  `src/providers/docker.ts`). The same predicate (`isOwnStack`) decides whether the refusal sentence
+  may offer `warn`, because "this is your own stack, already up" and "a stranger holds this port"
+  need opposite advice.
 - **A per-frame path may not call a syscall per server.** The state frame is built once a second and
   once per request, so a helper that looks free is multiplied by the entry count and by the frame
   rate. `os.networkInterfaces()` is 34–62 ms on a three-interface box, and `lanAddress()` sat inside

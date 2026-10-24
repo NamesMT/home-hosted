@@ -301,6 +301,8 @@ export function parseNetstatListeners(output: string, port: number): number[] {
 export interface DockerPortHolder {
   /** `com.docker.compose.project.working_dir` when the container came from compose. */
   composeDir: string | null
+  /** `com.docker.compose.project`, so a caller can tell this entry's own stack from a stranger's. */
+  project: string | null
   container: string
   port: number
 }
@@ -312,15 +314,20 @@ export async function findDockerPortHolder(port: number): Promise<DockerPortHold
       '--filter',
       `publish=${port}`,
       '--format',
-      '{{.Names}}\t{{.Label "com.docker.compose.project.working_dir"}}',
+      '{{.Names}}\t{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.project.working_dir"}}',
     ], { timeout: 3000 })
     const line = stdout.split('\n').find(entry => entry.trim().length > 0)
     if (line === undefined)
       return null
-    const [container = '', composeDir = ''] = line.split('\t')
+    const [container = '', project = '', composeDir = ''] = line.split('\t')
     if (container.trim().length === 0)
       return null
-    return { container: container.trim(), composeDir: composeDir.trim().length > 0 ? composeDir.trim() : null, port }
+    return {
+      container: container.trim(),
+      project: project.trim().length > 0 ? project.trim() : null,
+      composeDir: composeDir.trim().length > 0 ? composeDir.trim() : null,
+      port,
+    }
   }
   catch {
     // docker absent, not running, or not permissioned: no claim either way.

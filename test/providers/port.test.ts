@@ -369,15 +369,15 @@ describe('findDockerPortHolder', () => {
     }
   }
 
-  posixShim('names the container and the compose directory publishing the port', async () => {
-    await withFakeDocker('printf \'blog-web-1\\t/srv/blog\\n\'', async () => {
-      expect(await findDockerPortHolder(8080)).toEqual({ container: 'blog-web-1', composeDir: '/srv/blog', port: 8080 })
+  posixShim('names the container, its project and the compose directory publishing the port', async () => {
+    await withFakeDocker('printf \'blog-web-1\\tblog\\t/srv/blog\\n\'', async () => {
+      expect(await findDockerPortHolder(8080)).toEqual({ container: 'blog-web-1', project: 'blog', composeDir: '/srv/blog', port: 8080 })
     })
   })
 
   posixShim('answers null for a container that is not from compose', async () => {
-    await withFakeDocker('printf \'plain-container\\t\\n\'', async () => {
-      expect(await findDockerPortHolder(8080)).toEqual({ container: 'plain-container', composeDir: null, port: 8080 })
+    await withFakeDocker('printf \'plain-container\\t\\t\\n\'', async () => {
+      expect(await findDockerPortHolder(8080)).toEqual({ container: 'plain-container', project: null, composeDir: null, port: 8080 })
     })
   })
 
@@ -412,7 +412,7 @@ describe('releaseDockerPort', () => {
     const original = process.env.PATH
     process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
     try {
-      const holder = { container: 'blog-web-1', composeDir: '/srv/blog', port: 8080 }
+      const holder = { container: 'blog-web-1', project: 'blog', composeDir: '/srv/blog', port: 8080 }
       expect(await releaseDockerPort(holder)).toBe(true)
       expect(fs.readFileSync(calls, 'utf8').trim()).toBe('stop blog-web-1')
     }
@@ -429,7 +429,7 @@ describe('releaseDockerPort', () => {
     const original = process.env.PATH
     process.env.PATH = `${dir}${path.delimiter}${original ?? ''}`
     try {
-      expect(await releaseDockerPort({ container: 'gone', composeDir: null, port: 8080 })).toBe(false)
+      expect(await releaseDockerPort({ container: 'gone', project: null, composeDir: null, port: 8080 })).toBe(false)
     }
     finally {
       process.env.PATH = original

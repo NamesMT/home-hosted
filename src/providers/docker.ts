@@ -302,6 +302,11 @@ export function findComposeFile(from: string): string[] {
   }
 }
 
+/** Whether this argv runs a compose stack, without resolving anything — a cheap pre-check. */
+export function isComposeCommand(command: string, args: string[]): boolean {
+  return composeArgv(command, args) !== null
+}
+
 /**
  * The compose project an entry runs, from evidence in its own config: the command it spawns, its
  * argv, its cwd and its environment. `null` means "sample the process tree", which is the right
@@ -385,6 +390,71 @@ export function sumContainers(rows: ContainerRow[], readings: Map<string, Omit<C
     rssBytes: Math.round(rssBytes),
     processes,
     containers: rows.length,
+  }
+}
+
+/** Whether a container publishing a port belongs to the stack this entry itself declares. */
+export function isOwnStack(holder: { project: string | null, composeDir: string | null }, target: ComposeTarget | null): boolean {
+  if (target === null)
+    return false
+  // A non-null project on both sides is the exact answer, and `null === null` must not read as one.
+  if (holder.project !== null && target.project !== null)
+    return holder.project === target.project
+  // Otherwise the working directory compose recorded is the one holding this entry's compose file.
+  // Most entries never pass `-p`, so the project name is unknown on both sides and the directory is
+  // the evidence that remains — measured: without this, an entry's own already-up stack read as a
+  // stranger, and the only escape hatch offered was `kill`.
+  if (holder.composeDir === null)
+    return false
+  return target.configFiles.some(file => samePath(path.dirname(file), holder.composeDir!))
+}
+
+/** One target's running containers from a fresh `docker ps`, or `null` when docker cannot answer. */
+export async function composeContainers(target: ComposeTarget): Promise<ContainerRow[] | null> {
+  try {
+    const listing = await execFileAsync('docker', [
+      'ps',
+      '--filter',
+      'label=com.docker.compose.project',
+      '--format',
+      PS_FORMAT,
+    ], { timeout: 5000, maxBuffer: 4 * 1024 * 1024 })
+    return attributeContainers(target, parseDockerPs(listing.stdout))
+  }
+  catch {
+    // Docker absent, down or not permissioned. "Cannot ask" is not "nothing is running".
+    return null
+  }
+}
+
+/**
+ * Stops every container of one target and reports what is still running afterwards.
+ *
+ * The answer comes from a **fresh listing**, not from `docker stop`'s exit code: a stop that
+ * printed success for a container still listed is the empty success this exists to refuse.
+ * `null` means docker could not be asked, which is not the same as "it stopped".
+ */
+export async function stopComposeContainers(target: ComposeTarget): Promise<{ stopped: string[], survivors: string[] } | null> {
+  const before = await composeContainers(target)
+  if (before === null)
+    return null
+  if (before.length === 0)
+    return { stopped: [], survivors: [] }
+
+  try {
+    await execFileAsync('docker', ['stop', ...before.map(row => row.name)], { timeout: 120_000, maxBuffer: 4 * 1024 * 1024 })
+  }
+  catch {
+    // A non-zero exit only means one name failed; the relisting below is what decides.
+  }
+
+  const after = await composeContainers(target)
+  if (after === null)
+    return null
+  const remaining = new Set(after.map(row => row.name))
+  return {
+    stopped: before.map(row => row.name).filter(name => !remaining.has(name)),
+    survivors: after.map(row => row.name),
   }
 }
 

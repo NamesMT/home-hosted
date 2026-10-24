@@ -23,7 +23,7 @@ import { dataRoot, projectDir } from '#src/helpers/paths'
 import { nannyArgv } from '#src/helpers/runtime'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
-import { composeTarget, DockerMetrics } from '#src/providers/docker'
+import { composeTarget, DockerMetrics, isComposeCommand, isOwnStack, stopComposeContainers } from '#src/providers/docker'
 import { clearEntryState, entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { probeHealth } from '#src/providers/health-check'
 import { identifyHolders } from '#src/providers/identity'
@@ -931,6 +931,15 @@ export class Supervisor {
 
     if (entry.child === null && entry.pid === null) {
       entry.stopping = false
+      // Nothing of *ours* is running, but a compose entry's server is not its wrapper: the
+      // containers outlive a reboot, a `docker compose up -d` from a shell, and a panel crash that
+      // left them up. Answering "stopped" here was measured leaving the whole stack serving and
+      // exiting 0 — on the page, in `stop-all`, and through `down`. Stopping what this entry
+      // *declares it runs* is the same act as stopping its child.
+      const stack = await this.stopComposeStack(entry)
+      entry.stopping = false
+      if (this.refuseLingeringStack(entry, stack))
+        return { ok: false, error: entry.lastError! }
       entry.status = 'stopped'
       this.publishServer(entry)
       return { ok: true }
@@ -999,6 +1008,11 @@ export class Supervisor {
 
     entry.stopping = false
     entry.child = null
+    // A compose wrapper stops its own containers on SIGTERM, but a SIGKILL, an adopted wrapper, or a
+    // `compose up -d` started elsewhere does not — and the entry's server is the containers, not the
+    // wrapper. Ending the stack is the same act as ending the child, and is confirmed by a fresh
+    // listing rather than by trusting the signal.
+    const stack = await this.stopComposeStack(entry)
     // The pid, the probe latency and the sampled resources are one process's numbers; a stop ends
     // that process, so they go with it. An *adopted* entry reaches this line and nowhere else that
     // clears them — it has no exit event of its own — so this is the only path that would keep a
@@ -1017,12 +1031,15 @@ export class Supervisor {
       entry.lastChild = null
       this.persistEntryState(entry)
     }
-    entry.status = survivor === null ? 'stopped' : 'conflict'
+    // A container that stayed up is a refusal for the same reason a pid is: the entry's server is
+    // still running, so "stopped" would be the empty success this whole path exists to avoid.
+    const lingering = this.refuseLingeringStack(entry, stack)
     if (survivor !== null)
       entry.lastError = `pid ${survivor} survived the stop`
-    this.log(entry, 'system', survivor === null ? 'stopped' : entry.lastError!)
+    entry.status = survivor === null && !lingering ? 'stopped' : 'conflict'
+    this.log(entry, 'system', entry.status === 'stopped' ? 'stopped' : entry.lastError!)
     this.publishServer(entry)
-    return survivor === null
+    return entry.status === 'stopped'
       ? { ok: true }
       : { ok: false, error: entry.lastError! }
   }
@@ -1331,11 +1348,19 @@ export class Supervisor {
      * it is in — this page cannot show another workspace's server, and "already in use (pid 1234)"
      * is a dead end from here. That case gets its own sentence rather than a suffix on the generic
      * one, which would name the same port twice. */
-    const hint = own !== null
-      ? ` — pid ${own} is a detached restart of this entry: set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a supervised process, or "kill" to stop whatever holds the port`
-      : docker === null
-        ? ''
-        : ` — it is published by a docker container, which \`kill\` stops through docker; \`block\` and \`warn\` leave it alone`
+    /* A docker-published port held by **this entry's own** stack is not a stranger and not a
+     * conflict either: it is the server, already up, with nothing of ours holding it — after a
+     * reboot, a `compose up -d` from a shell, or a panel crash. The old sentence offered only
+     * `kill`, which threw the stack away to reach the same state; the escape hatch a person wants
+     * is to let the panel adopt what is already serving. */
+    const ownStack = isOwnStack(docker ?? { project: null, composeDir: null }, entry.compose)
+    const hint = ownStack
+      ? ` — this is this entry's own stack, already up: set onPortConflict to "warn" to attach to it`
+      : own !== null
+        ? ` — pid ${own} is a detached restart of this entry: set onPortConflict to "follow" to adopt it, "reclaim" to replace it with a supervised process, or "kill" to stop whatever holds the port`
+        : docker === null
+          ? ''
+          : ` — it is published by a docker container, which \`kill\` stops through docker; \`block\` and \`warn\` leave it alone`
     const blockedError = ours.length > 0
       ? this.heldByOurs(port, ours, siblings)
       : `port ${port} is already in use${suffix}${hint}`
@@ -1568,6 +1593,58 @@ export class Supervisor {
       this.log(entry, 'system', 'bootstrap finished')
     else if (code !== null)
       this.log(entry, 'system', `bootstrap exited with code ${code} — continuing anyway`)
+  }
+
+  /**
+   * Marks a stop that did not take because a container outlived it, and reports whether it happened.
+   *
+   * Both stop paths can end with the wrapper gone and the stack up — with no child to signal at all
+   * (a reboot, `compose up -d` from a shell, a panel crash), or with one this process signalled that
+   * did not take its containers down. One sentence for the one condition, so the card answers the
+   * same whether the person pressed Stop on a conflict or on a running entry.
+   */
+  private refuseLingeringStack(entry: Entry, stack: { survivors: string[] } | null): boolean {
+    const survivors = stack?.survivors ?? []
+    if (survivors.length === 0)
+      return false
+    entry.status = 'conflict'
+    entry.lastError = `the stack "${entry.config.id}" is still running: container${survivors.length === 1 ? '' : 's'} ${survivors.join(', ')} — docker was asked to stop them and they stayed up`
+    // Logged here as well, because a pid that also survived replaces `lastError` above with the
+    // more specific sentence — the stack must not vanish from the record when both did.
+    this.log(entry, 'system', entry.lastError)
+    return true
+  }
+
+  /**
+   * Stops the running containers of a compose entry whose wrapper this panel is not holding.
+   *
+   * A compose entry's server is its containers, and they are not descendants of the wrapper: a
+   * reboot, a `docker compose up -d` from a shell, or a panel crash leaves them running with no
+   * child to signal. The stop path answered "stopped" for exactly that state (measured: the stack
+   * kept serving HTTP 200 through `stop`, `stop-all` and `down`, all exiting 0), so the containers
+   * have to be ended by the thing that knows which stack this entry declares.
+   *
+   * `null` means "this entry has no compose stack, or docker could not be asked" — the caller then
+   * reports what it can actually see, never a stack it did not confirm is gone.
+   */
+  private async stopComposeStack(entry: Entry): Promise<{ stopped: string[], survivors: string[] } | null> {
+    // An entry this panel never started (autostart off, or a stop after a boot that only preflighted)
+    // has no detected target yet; resolve it here rather than refusing to stop a stack the config
+    // plainly declares.
+    if (entry.compose === null && !isComposeCommand(entry.config.command, entry.config.args))
+      return null
+    if (entry.compose === null)
+      this.detectCompose(entry, this.resolveSpawn(entry))
+    if (entry.compose === null)
+      return null
+    const outcome = await stopComposeContainers(entry.compose)
+    if (outcome === null) {
+      this.log(entry, 'system', 'docker could not be asked to stop this stack — its containers were not confirmed stopped')
+      return null
+    }
+    if (outcome.stopped.length > 0)
+      this.log(entry, 'system', `stopped the container${outcome.stopped.length === 1 ? '' : 's'} ${outcome.stopped.join(', ')}`)
+    return outcome
   }
 
   /**
