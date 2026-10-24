@@ -137,21 +137,29 @@ describe('cli smoke', () => {
     expect(start.stdout).toContain('<id>')
     expect(start.stdout).not.toContain('--foreground')
 
-    for (const [name, marker] of [['down', '--foreground'], ['ui-revert', '--asset']] as const) {
-      const text = runCli([name, '--help'])
-      expect(text.status, name).toBe(0)
-      expect(text.stdout, name).toContain('no options')
-      expect(text.stdout, name).not.toContain(marker)
-    }
-  })
-
-  it('a command with no options says so instead of printing someone else’s', () => {
+    // `down` used to advertise no options; `--with-persistent` is the first one it has.
     const down = runCli(['down', '--help'])
     expect(down.status).toBe(0)
-    expect(down.stdout).toContain('home-hosted down')
-    expect(down.stdout).toContain('no options')
+    expect(down.stdout).toContain('--with-persistent')
     // `--port` is `up`'s, so seeing it here would mean another command's section leaked.
     expect(down.stdout).not.toContain('--port')
+
+    // Still a command with nothing of its own to offer.
+    const revert = runCli(['ui-revert', '--help'])
+    expect(revert.status).toBe(0)
+    expect(revert.stdout).toContain('no options')
+    expect(revert.stdout).not.toContain('--asset')
+  })
+
+  it('offers --with-persistent on both commands that take it', () => {
+    // One flag, two commands: a person should not have to remember which spelling is which.
+    for (const name of ['down', 'restart']) {
+      const text = runCli([name, '--help'])
+      expect(text.status, name).toBe(0)
+      expect(text.stdout, name).toContain('--with-persistent')
+    }
+    // `up` does not: there is nothing being stopped for it to affect.
+    expect(runCli(['up', '--help']).stdout).not.toContain('--with-persistent')
   })
 
   it('refuses a flag the command no longer takes, rather than ignoring it', () => {

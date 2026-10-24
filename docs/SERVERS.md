@@ -308,6 +308,12 @@ What that changes:
 
 - **`down`, `restart` and `stop-all` leave it running** and say so (`2 persistent server(s) left
   running: …`). Only an explicit **Stop** on that entry — or removing/disabling it — ends it.
+- **`down --with-persistent` (and `restart --with-persistent`) stop them as well.** That is the
+  flag's whole job, and it works in both situations: with the panel up the stop goes through it, so
+  the entry gets its log line, history and health recorded like a click in the UI; with the panel
+  already gone each nanny is signalled directly from its `.state` record, which is what makes the
+  flag usable after a crash. `restart --with-persistent` starts them back afterwards, including
+  entries marked `autostart: false` that `up` alone would leave stopped.
 - **It is reattached, not restarted.** `--no-autostart` still starts nothing, but a persistent entry
   that is already running is adopted, because leaving it unmanaged would make the panel treat its own
   server as a stranger on the port.
@@ -340,7 +346,9 @@ normal process, so it is still subject to:
   panel's lifetime inside that container, not the host's.
 - **Windows, on the forced path.** `taskkill /T` walks the parent tree, and `down` takes that path
   automatically when the panel has not exited 20s after the shutdown request; the graceful path
-  (which is what `down` normally takes) leaves a persistent entry alone.
+  (which is what `down` normally takes) leaves a persistent entry alone. `--with-persistent` stops
+  each nanny by pid, so it ends them on either path — and `restart --with-persistent` has to stop
+  them for real, because `up` reattaches to a nanny that is still alive.
 
 ## Editing fields
 

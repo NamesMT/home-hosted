@@ -38,7 +38,7 @@ const HEADER = 'home-hosted — a control panel for the processes on your home s
 /** The one line the full reference lists for a command. */
 const SYNOPSIS: Record<string, string> = {
   'up': 'home-hosted up [options]',
-  'down': 'home-hosted down',
+  'down': 'home-hosted down [--with-persistent]',
   'restart': 'home-hosted restart [<id>] [options]',
   'status': 'home-hosted status [--json]',
   'logs': 'home-hosted logs [--lines <n>] [--follow] [--json]',
@@ -149,6 +149,15 @@ const START_SECTION: OptionSection = {
 
 // `restart <id>` acts on one entry; bare `restart` acts on the panel, so the id is optional
 // and reads under `up`'s heading alongside its flags.
+// `down` had no options at all until `--with-persistent`, so its section is new rather than
+// an addition to someone else's: the flag exists on both commands and must read the same.
+const PERSISTENT_LINE: OptionLine = ['--with-persistent', 'stop the persistent entries too (default: leave them running)']
+
+const DOWN_SECTION: OptionSection = {
+  heading: 'Options for down',
+  lines: [PERSISTENT_LINE],
+}
+
 const RESTART_SECTION: OptionSection = {
   heading: 'Options for restart',
   lines: [
@@ -156,6 +165,7 @@ const RESTART_SECTION: OptionSection = {
     // advertising one there would document a flag `up` rejects.
     ['<id>', 'restart just this server, leaving the panel up (optional)'],
     ['-w, --workspace <id>', 'the workspace to act in, with an id'],
+    PERSISTENT_LINE,
     ...UP_SECTION.lines,
   ],
 }
@@ -304,6 +314,8 @@ const USAGE = [
   '',
   renderSection(UI_SWITCH_SECTION),
   '',
+  renderSection(DOWN_SECTION),
+  '',
   renderSection(STATUS_SECTION),
   '',
   renderSection(SERVER_SECTION),
@@ -315,6 +327,7 @@ const USAGE = [
 const UP_COMMANDS = new Set(['up', 'restart'])
 
 const SECTIONS: Record<string, OptionSection> = {
+  'down': DOWN_SECTION,
   'status': STATUS_SECTION,
   'logs': LOGS_SECTION,
   'backup': BACKUP_SECTION,

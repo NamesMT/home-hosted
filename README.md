@@ -384,8 +384,8 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | command | |
 | --- | --- |
 | `home-hosted up` | start the panel detached, and keep it alive in the background |
-| `home-hosted down` | stop it cleanly — supervised processes included, persistent entries left running |
-| `home-hosted restart` | `down`, then `up` — or `restart <id>` to restart one server, leaving the panel up |
+| `home-hosted down` | stop it cleanly — supervised processes included, [persistent entries](./docs/SERVERS.md#persistent-entries) left running (`--with-persistent` stops those too) |
+| `home-hosted restart` | `down`, then `up` — or `restart <id>` to restart one server, leaving the panel up (`--with-persistent` restarts the persistent entries as well) |
 | `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts). Edge cases are under [what `status` tells you](#-cli). |
 | `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`). `--free-port` frees the port first, then starts |
 | `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
@@ -409,12 +409,12 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 ```text
 up                -p/--port --host --open --no-autostart --foreground --print-config
 
-down              (no flags)
+down              --with-persistent
 status            --json
 logs              --lines <n> --follow --json
 backup            [list|create|restore] [<name> | --from <path>] (--include <ids> | --all) [--exclude <ids>] --password --confirm --json
 start, stop       <id> [-w/--workspace <id>]   (both need the panel up)
-restart           [<id>] [-w/--workspace <id>]  (no id: the panel; with one: that server)
+restart           [<id>] [-w/--workspace <id>] [--with-persistent]  (no id: the panel; with one: that server)
 init              --dir --name --pm --no-install -y/--yes
 set-password      --clear
 set-token         --generate --clear
@@ -801,7 +801,8 @@ the same way: every supervised process tree is stopped before the panel exits.
 
 An entry marked `persistent` is the exception, and `down` names it instead of stopping it: it runs
 under its own nanny process, keeps logging, and is reattached by the next panel
-([SERVERS.md](./docs/SERVERS.md#persistent-entries)).
+([SERVERS.md](./docs/SERVERS.md#persistent-entries)). Add `--with-persistent` to stop those too —
+with the panel up or after it has already gone, since each nanny's state file is enough.
 
 </details>
 
