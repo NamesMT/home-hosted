@@ -4,6 +4,7 @@ import { errorMessage } from '@shared/error-message'
 import { computed, readonly, ref, watch } from 'vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useToasts } from '@/composables/useToasts'
+import { t } from '@/i18n'
 import * as api from '@/lib/api'
 
 /**
@@ -94,13 +95,13 @@ export function useWorkspaces() {
     creating.value = true
     try {
       const workspace = await api.createWorkspace(label.trim().length > 0 ? { label: label.trim() } : {})
-      await control.refresh('Could not read the workspaces')
+      await control.refresh(t('toast.readWorkspacesFailed'))
       select(workspace.id)
-      toasts.success(`Workspace “${workspace.label}” created`)
+      toasts.success(t('toast.workspaceCreated', { workspace: workspace.label }))
       return workspace
     }
     catch (error) {
-      toasts.failure('Could not create the workspace', errorMessage(error))
+      toasts.failure(t('toast.workspaceCreateFailed'), errorMessage(error))
       return undefined
     }
     finally {
@@ -111,12 +112,12 @@ export function useWorkspaces() {
   async function rename(id: string, label: string): Promise<boolean> {
     try {
       await api.renameWorkspace(id, label.trim())
-      await control.refresh('Could not read the workspaces')
-      toasts.success('Workspace renamed')
+      await control.refresh(t('toast.readWorkspacesFailed'))
+      toasts.success(t('toast.workspaceRenamed'))
       return true
     }
     catch (error) {
-      toasts.failure('Could not rename the workspace', errorMessage(error))
+      toasts.failure(t('toast.workspaceRenameFailed'), errorMessage(error))
       return false
     }
   }
@@ -124,12 +125,12 @@ export function useWorkspaces() {
   async function remove(id: string): Promise<boolean> {
     try {
       await api.deleteWorkspace(id)
-      await control.refresh('Could not read the workspaces')
-      toasts.success('Workspace deleted')
+      await control.refresh(t('toast.readWorkspacesFailed'))
+      toasts.success(t('toast.workspaceDeleted'))
       return true
     }
     catch (error) {
-      toasts.failure('Could not delete the workspace', errorMessage(error))
+      toasts.failure(t('toast.workspaceDeleteFailed'), errorMessage(error))
       return false
     }
   }

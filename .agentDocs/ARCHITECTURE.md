@@ -176,6 +176,16 @@ twelve strings including the "delete this workspace" confirmation, and no test c
 no test mounted the component. A `<code>` span is exempt: it holds a token the reader types
 (`home-hosted set-token --generate`, `dependsOn`), which translating would break.
 
+**A template scan cannot see a string a `.ts` file hands to a toast.** Copy here does not only live in
+markup: `useControlPlane`'s `run()` takes a `{ title, success }` pair, so every action's toast is an
+object literal in a composable, and `useWorkspaces` calls `toasts.success(...)` directly. The template
+scan reads `.vue` markup only, and the composables are *mocked* by every page test, so the whole toast
+surface was invisible: a German panel answered a duplicate server id with `Could not add the server /
+server "ghost" already exists` — the shell translated, the one line explaining the refusal in
+English. `uis/stock/test/toast-copy.test.ts` scans both surfaces (the `toasts.*`/`notifier.*` call and
+the `{ title, success }` option literal) across `.ts` **and** `.vue`, naming the file and line of each
+offender.
+
 ## How to test
 
 A component worth guarding mounts under `// @vitest-environment happy-dom`; the suite resolves `@/…`
