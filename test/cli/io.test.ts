@@ -72,6 +72,37 @@ describe('cli io', () => {
   })
 
   /**
+   * A reader that hangs up is a finished conversation, not a crash.
+   *
+   * Measured on the built CLI: `dist/cli.js status | head -1` printed `Error: write EPIPE` and exited 1,
+   * because Node's stdout is a socket and the failed write arrives as an unhandled `error` event. Only
+   * `EPIPE` is the reader leaving; any other write failure is a real one and must still end the process.
+   */
+  it('treats a closed reader as done, and any other write failure as a failure', async () => {
+    const { treatClosedReaderAsDone } = await import('#src/cli/io')
+    const listeners: Array<(error: NodeJS.ErrnoException) => void> = []
+    vi.spyOn(process.stdout, 'on').mockImplementation(((event: string, listener: never) => {
+      if (event === 'error')
+        listeners.push(listener)
+      return process.stdout
+    }) as never)
+    const exit = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit ${code}`)
+    }) as never)
+
+    treatClosedReaderAsDone()
+    expect(listeners).toHaveLength(1)
+    const onError = listeners[0]!
+
+    // The reader closed the pipe: the command did its work, so it is a success.
+    expect(() => onError(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).toThrow('exit 0')
+    expect(exit).toHaveBeenCalledWith(0)
+
+    // A different write failure is not the reader leaving, and must not be silently swallowed.
+    expect(() => onError(Object.assign(new Error('write ENOSPC'), { code: 'ENOSPC' }))).toThrow('write ENOSPC')
+  })
+
+  /**
    * `fail` is the one error shape: a message on stderr and exit 1. Commands rely on it
    * instead of citty's own `console.error`, which is why the root calls `runCommand`
    * rather than `runMain` — so the envelope it produces is part of the CLI's contract.

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
 import { errorMessage } from '#src/shared/error-message'
 import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
-import { cyan, dim, fail, heading } from './cli/io'
+import { cyan, dim, fail, heading, treatClosedReaderAsDone } from './cli/io'
 import { nearestWord } from './cli/nearest'
 import { NANNY_COMMAND } from './helpers/runtime'
 import { appVersion } from './helpers/version'
@@ -406,6 +406,10 @@ const rootCommand = defineCommand({
 const commandNames = Object.keys(COMMANDS)
 
 async function main(): Promise<void> {
+  // Before the first byte is written: a reader that hangs up (`| head -1`, `grep -q`) closes the pipe,
+  // and an unhandled EPIPE would print an engine stack trace and exit 1. One install, every command.
+  treatClosedReaderAsDone()
+
   const dirFlags = extractDirFlags(process.argv.slice(2))
   if (dirFlags.error !== undefined)
     fail(dirFlags.error)

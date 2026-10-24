@@ -111,6 +111,12 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).
+- **A reader that hangs up is a finished conversation, not a crash.** A closed pipe (`| head -1`,
+  `| grep -q`, an agent's reader that stops early) arrives as an `error` event on `process.stdout`, and
+  an unhandled one kills the process with an engine trace and exit 1. `treatClosedReaderAsDone()`
+  (`src/cli/io.ts`) is installed **once** at the entry — a per-command copy is the shape that leaves the
+  next command broken. Only `EPIPE` is the reader leaving; any other write failure still ends the
+  process (`test/cli/epipe.test.ts`). Why this is not SIGPIPE: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A retention knob bounds the directory, not a loop.** `keep` is how many rotations a person agreed
   to store, so three readers have to agree with what `readdir` says, not with the number the loop
   renames to: the list, the size and the tail. `rotate` only renames *up* to the ceiling, so lowering

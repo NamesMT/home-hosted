@@ -506,6 +506,9 @@ the move on its first run; 0.8.0 then starts against the result.
 | `gone` | it is not running; the record is stale and may be cleared |
 | `recycled` | the OS has handed the recorded pid to **another** process. The record is stale, but a signal would hit a stranger, so only the token-authenticated shutdown touches it |
 
+Piping a command into `head`, `grep -q` or anything that stops reading early is ordinary shell and it
+works: the command exits **0**, not with a broken-pipe error, so `set -o pipefail` stays happy.
+
 </details>
 
 ---

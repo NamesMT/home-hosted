@@ -45,6 +45,31 @@ export function invocation(): string {
   return 'home-hosted'
 }
 
+/**
+ * A reader that hangs up is a finished conversation, not a crash.
+ *
+ * Node's stdout is a socket. When the reader closes it, the next write raises `EPIPE` as an **error
+ * event**, and an unhandled one kills the process with an engine stack trace and exit 1: measured on
+ * the built CLI, `dist/cli.js status | head -1` printed `Error: write EPIPE … at runStatus` and exited
+ * 1, so `set -o pipefail` turned a working panel into a failed deploy step. `logs --lines all | head`
+ * and `logs --follow | head` did the same.
+ *
+ * GNU tools die of SIGPIPE (141), which `pipefail` reports as a failure too; Node's own CLI and
+ * Python's exit 0. This follows the latter, because the command *succeeded* and only the reader
+ * stopped listening — nothing was refused, and no work was lost.
+ *
+ * Installed once at the entry so every command shares it. A per-command copy is the shape that leaves
+ * the next command broken, and there are 109 write sites.
+ */
+export function treatClosedReaderAsDone(): void {
+  process.stdout.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EPIPE')
+      process.exit(0)
+    // Anything else is a real write failure, which used to end the process by default; keep that.
+    throw error
+  })
+}
+
 /** One shape for every failure: a red `error <message>` on stderr and exit 1. */
 export function fail(message: string): never {
   process.stderr.write(`${paint('31', 'error')} ${message}\n`)

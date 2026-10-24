@@ -9,6 +9,19 @@ line in `AGENTS.md` instead.
 
 ## Process and platform
 
+- **A pipe's reader leaving is not a write failure, but Node reports it as one.** `process.stdout` in a
+  CLI is a socket, so when the reader closes (`| head -1`, `| grep -q`, an agent that reads one line)
+  the next write emits an `error` event with `code: 'EPIPE'`, and an unhandled `error` on a stream kills
+  the process. Measured on `dist/cli.js`: `status | head -1` printed
+  `Error: write EPIPE … at runStatus (dist/cli.js:22272)` and exited **1**, and `logs --lines all` and
+  `logs --follow` did the same — so `set -o pipefail`, the first line of most deploy scripts, turned a
+  working panel into a failed step and put a traceback in the operator's log where the answer belonged.
+  `treatClosedReaderAsDone()` (`src/cli/io.ts`) is installed **once** in `main()`, not per command:
+  there are 109 `process.stdout.write` sites and a per-site guard is exactly the shape that leaves the
+  next one broken. It exits **0** instead of dying of `SIGPIPE` (141, what `cat` and `git` do), because
+  the command did its work and only the reader stopped listening, so nothing was refused — `node --help`
+  and `python -c` exit 0 for the same reason. Only `EPIPE` is special-cased; `ENOSPC` and friends are
+  real failures and are rethrown (`test/cli/epipe.test.ts`, `test/cli/io.test.ts`).
 - **A test spawns the CLI through `process.execPath`, never `node_modules/.bin/tsx`.** That file is a
   `#!/bin/sh` shim; Windows has `tsx.cmd`/`tsx.ps1` there instead, so `execFile` on the POSIX path
   starts nothing and the child's streams come back empty. Nothing throws: the assertion fails as
