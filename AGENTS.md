@@ -327,6 +327,19 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
 - **The reverse proxy's engine is a process the panel owns, not a server entry.** Its config is applied
   through the engine's admin API (atomic, never hand-edited), it runs under the same nanny a
   `persistent: true` entry uses, and its admin endpoint stays panel-side.
+- **A claim that a dependency touches nothing else has to be checked against the dependency.** The
+  proxy docs said "nothing else on the machine is touched", and the engine's own log said otherwise on
+  the very first start: `pki.ca.local | installing root certificate (you might be prompted for
+  password)` then `certificate installed properly in linux trusts` — the local CA's root goes into
+  `/etc/ssl/certs`, which is why a `.lan` name is trusted at all, and why that first start needs
+  `sudo`. Measured: one new `Caddy_Local_Authority_-_2026_ECC_Root*.pem` per engine data directory, so
+  two homes on one box leave two roots, and a root outlives the `.hh` it came from. The knob exists
+  (`apps.pki.certificate_authorities.local.install_trust`, verified by `POST /load`: `install_trust`
+  under `ca`, under `apps.tls`, and on the issuer are all `unknown field`) and the panel does not set
+  it, which is the right default — but the doc has to say what happens. Any run of the engine against
+  a scratch home therefore **writes the host's trust store**; say so and clean up the root and its
+  `/etc/ssl/certs` hash symlinks, or the next round inherits a machine with a dozen dead CAs.
+
 - **Cross-platform is a hard requirement.** Linux/macOS/Windows: `/proc` vs `ps` vs Win32_Process,
   process groups vs `taskkill /T`, graceful fallbacks, no shell utilities assumed. Three Windows
   behaviours no other runner here can exercise, so each is decided in **one shared helper** rather

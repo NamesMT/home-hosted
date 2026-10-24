@@ -122,8 +122,10 @@ shorten it.
 A **local-only** name (`.lan`, an IP, `localhost`) is a different case: the public CA is
 never asked, because it could only answer `rejectedIdentifier`. The engine signs it from
 its own CA, and the route reads **local — signed by the engine's own CA** once that leaf
-exists. Until it is there the route reads **waiting for the CA**, and the panel reports the
-engine's own reason if it refuses.
+exists. The root is added to this machine's trust store when the engine first starts
+(which is why the first start may ask for a password), so a browser on it accepts the
+name without a warning. Until the leaf is there the route reads **waiting for the CA**,
+and the panel reports the engine's own reason if it refuses.
 
 **Force retry certificate** appears on that row only, and asks the CA again immediately.
 The engine is **not** restarted: a certificate the engine holds cannot be cleared by
@@ -175,6 +177,17 @@ own certificate store (the issued certificates) is read at most every 15 seconds
 Certificates are managed by the engine, inside `.hh/.proxy/engine/`: the generated
 configuration pins its storage root, and the panel passes the engine no `$HOME` of its
 own to write into.
+
+One thing outside it is touched, by the engine and not by the panel: for its own CA it
+adds the root to this machine's **trust store** (`/etc/ssl/certs` on Linux, the login
+keychain on macOS, `certutil` on Windows) — a `.lan` name is only trusted by a browser
+because of that. On Linux the directory is root-owned, so the install needs `sudo` once;
+the engine logs `installing root certificate (you might be prompted for password)` and
+then `certificate installed properly in linux trusts`. It is one root per engine data
+directory, so **a second home-hosted home on one machine installs a second one**, and a
+root is not removed when that home's `.hh` is deleted. The engine has a knob for it —
+`apps.pki.certificate_authorities.local.install_trust: false` — which the panel does not
+set, because a browser would then warn on every local name.
 
 **DNS-01** is the way round a router that will not forward 80 and 443. A route is one
 hostname, so there is no wildcard to issue; what DNS-01 buys is a certificate with
