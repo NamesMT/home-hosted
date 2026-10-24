@@ -111,106 +111,51 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).
-- **A reader that hangs up is a finished conversation, not a crash.** A closed pipe (`| head -1`,
-  `| grep -q`, an agent's reader that stops early) arrives as an `error` event on `process.stdout`, and
-  an unhandled one kills the process with an engine trace and exit 1. `treatClosedReaderAsDone()`
-  (`src/cli/io.ts`) is installed **once** at the entry — a per-command copy is the shape that leaves the
-  next command broken. Only `EPIPE` is the reader leaving; any other write failure still ends the
-  process (`test/cli/epipe.test.ts`). Why this is not SIGPIPE: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
-- **One refusal is one message on one stream.** A refusal's whole text — including any list it exists to
-  explain — goes to stderr; stdout carries only an answer. `backup create` with neither `--all` nor
-  `--include` printed the ids to stdout and the sentence introducing them to stderr, so a `--json`
-  caller got neither a document nor a reason (`test/cli/backup-args.test.ts`).
-- **A browser API that needs a secure context is absent on the origin the docs promise.** The panel is
-  documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured
-  `undefined` from `http://192.168.1.201:6181` and `object` from `http://127.0.0.1:6181` on the same
-  build, so all nine `CopyButton` sites threw into a `catch {}` and left the icon alone — a dead button
-  with the old clipboard contents still in it. Guard the feature, not the call: `copyText`
-  (`uis/stock/src/lib/clipboard.ts`) falls back to `execCommand` inside the gesture and returns a
-  verdict, and the button shows `common.copyFailed` when it is false. `uis/stock/test/clipboard-source.test.ts`
+- **A reader that hangs up is a finished conversation, not a crash.** `treatClosedReaderAsDone()`
+  (`src/cli/io.ts`) is installed **once** at the entry; only `EPIPE` is the reader leaving
+  (`test/cli/epipe.test.ts`). Why not `SIGPIPE`: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
+- **One refusal is one message on one stream.** A refusal's whole text goes to stderr, including any
+  list it exists to explain; stdout carries only an answer (`test/cli/backup-args.test.ts`).
+- **A browser API that needs a secure context is absent on the origin the docs promise.** Guard the
+  feature, not the call: `copyText` (`uis/stock/src/lib/clipboard.ts`) falls back to `execCommand` and
+  returns a verdict, or a button is dead on a LAN page; `uis/stock/test/clipboard-source.test.ts`
   fails any other file that names `navigator.clipboard`.
-- **A row of chrome is measured at 320 px with the floor counted.** `pointer: coarse` raises every
-  icon control to 44 px, so a `shrink-0` action cluster of four targets plus a 96 px labelled trigger
-  is 326 px — 6 px wider than the phone, `header.scrollWidth` 326, and the page title (`flex-1`, the
-  only child that may give way) collapsed to **0 px**. Measured in Chromium at 320/360/390. Let the
-  cluster shrink and drop a label below `360px`; `uis/stock/test/topbar-width.test.ts` pins both
-  declarations because no mount can measure a layout.
-- **A retention knob bounds the directory, not a loop.** `keep` is how many rotations a person agreed
-  to store, so three readers have to agree with what `readdir` says, not with the number the loop
-  renames to: the list, the size and the tail. `rotate` only renames *up* to the ceiling, so lowering
-  it left `.5`…`.10` on disk where nothing listed them, nothing read them and a `clear` did not remove
-  them — a search answered "no matches" for a line that was there, and the page's "on disk" total
-  named the newest file alone. Derive the set from the directory once (`ownedFiles`/`retained`,
-  `src/services/log-files.ts`) and prune inside `rotate`; `test/services/log-files.test.ts` pins all
-  three, plus a `clear` over files `keep` no longer names.
+- **A row of chrome is measured at 320 px with the tap floor counted.** No mount can measure a
+  layout, so `uis/stock/test/topbar-width.test.ts` pins the declarations that keep the title from
+  collapsing to 0 px.
+- **A retention knob bounds the directory, not a loop.** Derive the set from the directory once
+  (`ownedFiles`/`retained`, `src/services/log-files.ts`) so the list, the size and the tail agree with
+  `readdir`, and prune inside `rotate` (`test/services/log-files.test.ts`).
 - **A file a route hands back is streamed, and the bound decides how much it matters.** `logs.maxBytes`
-  allows **100 MB per rotation** and `keep` holds ten, so the log download is the biggest file this panel
-  serves — and it read it whole into memory while the archive route beside it had already been fixed for
-  the same class. Measured on the built panel with a real 100 MB rotation: `readFileSync` cost **+199 MB
-  RSS** for one download and **+402 MB** for four at once, `/healthz` went from 4 ms to p95 859 ms / max
-  898 ms, and headers only arrived after the whole read; the same four archive downloads grew **+2 MB**
-  and answered `/healthz` in p50 17 ms. `createReadStream` + `stat` for the `Content-Length` a progress bar
-  needs, in both routes. A comment that excuses one route because its schema *has* a ceiling is how the
-  other one stayed broken — the ceiling is 100 MB, which is the size a person downloads a log at.
-- **A page the panel serves must not be blank without a CDN.** `/openapi/ui` was `Scalar()` alone, whose
-  entire body is a module import from `cdn.jsdelivr.net`; with every non-panel request aborted, `#app`
-  had **0 children and 0 characters**. `docs/UI_CREATION.md` point 5 already said an offline home server
-  should not need a CDN — the panel was the counter-example. Render the real content from `spec.json`
-  first (`src/openapi-reference.ts`), then load the richer browser as optional enhancement inside a
-  `try {} catch {}`. The rule generalises: a dependency that renders *only* via the network is a blank
-  page on the box this package is for.
+  allows 100 MB per rotation, so `createReadStream` + `stat` for `Content-Length`, in both routes. A
+  schema ceiling is not a reason to buffer: it is the size a person downloads at.
+- **A page the panel serves must not be blank without a CDN.** Render real content from
+  `spec.json` first (`src/openapi-reference.ts`), then load any richer browser as optional
+  enhancement. A dependency that renders *only* via the network is a blank page on the box this
+  package is for.
 - **An entry's server is not always the process the panel spawned.** A compose entry's containers
-  outlive their wrapper — a reboot, a `docker compose up -d` from a shell, a panel crash — so a stop
-  that only signals `entry.child`/`entry.pid` answers "stopped" over a stack that is still serving.
-  Measured: `POST /api/servers/web/stop` returned `{"ok":true}` while the stack answered HTTP 200,
-  and `stop-all` and `down` did the same, all exiting 0. Resolve what the entry *declares it runs*
-  from its own config (`composeTarget`), stop that, and decide from a **fresh listing** — never from
-  the signal or `docker stop`'s exit code, which is 0 for a container it could not end. A survivor
-  is a `conflict` naming it (`refuseLingeringStack`, `stopComposeContainers`,
-  `src/providers/docker.ts`). The same predicate (`isOwnStack`) decides whether the refusal sentence
-  may offer `warn`, because "this is your own stack, already up" and "a stranger holds this port"
-  need opposite advice.
-- **A per-frame path may not call a syscall per server.** The state frame is built once a second and
-  once per request, so a helper that looks free is multiplied by the entry count and by the frame
-  rate. `os.networkInterfaces()` is 34–62 ms on a three-interface box, and `lanAddress()` sat inside
-  `serverTemplateVars`, which `resolveBackupPaths` calls per entry: a 40-entry panel enumerated the
-  host 82 times per frame and blocked its event loop ~98% of the time on an idle machine, answering
-  `/healthz` in 4.5 s. Anything that reads the host, the filesystem or the process table from a view
-  builder is cached on the host's own clock, not merely memoised per call
-  (`lanAddress`, `src/helpers/bind.ts`, `test/helpers/bind.test.ts`).
-- **A generated config says what it means for every branch, not just the one it names.** Caddy's
-  automation policies are a list of subjects: a name **no policy names** does not get "no
-  automation", it gets Caddy's default — the public CA. So excluding local-only names from the ACME
-  policy (correct: Let's Encrypt answers `rejectedIdentifier` for `.lan`) also required *naming them*
-  in the internal one, and nobody did: the renderer emitted the fallback name alone, measured as
-  `{"subjects":["hh-fallback.invalid"],"issuers":[{"module":"internal"}]}` for a `.lan` route.
-  Every HTTPS request to it failed with `tlsv1 alert internal error` while the page said "signed by
-  the engine's own CA", and the cleartext port 308'd into that dead handshake instead of serving the
-  notice page `docs/REVERSE_PROXY.md` promises — the notice is chosen by `certificateReady`, which
-  read the same wrong claim. The **second** half is the same class: a state that describes something
-  that has not happened yet is a promise, so `certificateFor` must decide `local` from the leaf in
-  the store, not from the hostname's shape. Two tests pinned the wrong shape and now pin the right
-  one (`test/services/proxy-config.test.ts`, `test/services/proxy.test.ts`).
+  outlive their wrapper, so resolve what the entry *declares it runs* (`composeTarget`), stop that,
+  and decide from a **fresh listing** — never the signal or `docker stop`'s exit code, which is 0 for
+  a container it could not end. A survivor is a `conflict` naming it (`src/providers/docker.ts`).
+- **A per-frame path may not call a syscall per server.** The frame is built once a second and once
+  per request, so anything reading the host, the filesystem or the process table from a view builder
+  is cached on its own clock, not merely memoised per call (`lanAddress`, `src/helpers/bind.ts`).
+- **A generated config says what it means for every branch, not just the one it names.** A name no
+  policy names gets the engine's **default** (the public CA), not "no automation" — so every local
+  name must be named in the internal policy too. A state describing something that has not happened
+  is a promise: decide `local` from the leaf in the store, not the hostname's shape.
 - **A metric with no reading is absent, never zero.** A scrape has no page to qualify a number, so an
   alerted-on gauge published as `0` from an unsampled view is indistinguishable from a healthy one
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
   suffix `_total` a value that a user action resets — no series here is a counter, and
   `test/api/panel.test.ts` enumerates the scrape and fails on a `_total` name or a `counter` type.
-- **A throttle window belongs to a message that arrived.** A window armed before the send collapses a
-  flapping server, which is the point — but a send that failed told nobody anything, so it must give
-  its window back (`releaseCooldown`) or the alert that would have reached a receiver coming back up
-  is the one the outage took. Measured on the built panel: a crash alert recorded `fetch failed`
-  against a receiver that was down, and the next two crashes inside the five-minute window were
-  silenced, so bringing the receiver up changed nothing. Undo only the deadline *this* send armed — a
-  concurrent dispatch may have set a later one, and clearing that reopens the flood. `notify()` is
-  fire-and-forget, so nothing else can retry: the next event is the retry.
-- **A header is a byte string, and a stub does not make it one.** HTTP header names and values are
-  visible ASCII / Latin-1, so `Title: 🔴 server down` throws inside `Headers` — and the test that
-  asserted that header passed only because a stub replaced `fetch`, so the fixture *was* the bug.
-  Validate at the door (`headerProblem`/`parseHeaders`) so a save is refused with the line named
-  instead of a `ByteString` engine message landing on a person's row, and treat a header name as
-  case-insensitive: `Content-Type:` in a config must **replace** the transport's default, never be
-  spread beside it into `application/json, application/json`. `test/services/notifications.test.ts`.
+- **A throttle window belongs to a message that arrived.** A send that failed must give its window
+  back (`releaseCooldown`), or the alert that would have reached a recovering receiver is the one the
+  outage took. Undo only the deadline *this* send armed; `notify()` is fire-and-forget.
+- **A header is a byte string, and a stub does not make it one.** HTTP headers are Latin-1, so
+  validate at the door (`headerProblem`/`parseHeaders`) rather than let a `ByteString` engine message
+  land on a person's row, and treat a header name as case-insensitive
+  (`test/services/notifications.test.ts`).
 - **Name the cause the fix follows, not the one the code path suggests.** Node reports a missing
   working directory and a missing program with the same `ENOENT`, so `describeSpawnError` checks the
   resolved `cwd` **and** whether the field holds a whole command line before it blames the command —
@@ -272,17 +217,11 @@ workspace config guard, so a busy default port turns config tests red for the wr
   when an apply leaves pieces behind (`src/cli/backup.ts`). The same shape is why a scoped id is
   checked against the plan in **both** directions: `--exclude` with a typo excludes nothing, and an
   archive restored that way carries exactly the credentials the person meant to drop.
-- **An archive outlives the release that wrote it.** The backup someone takes *before* an upgrade is
-  the one they need *after* it, so a snapshot is read through the migrations `migrate` would run, not
-  through this release's parser alone — the parsers refuse an older stamp by design, so a plain
-  readability gate silently dropped every config an older archive carried and restored only its
-  secrets (measured on a real 0.7.21 archive: "restored 4 items", every one a secret leaf, and a
-  blank workspace beside them). Lift, write the **lifted** file, and stamp it with the release that
-  actually wrote it. The newer direction stays a refusal, decided from the manifest.
-  `src/services/backups.ts` (`liftArchived`), `test/services/backups.test.ts`.
-- **A summary line that disagrees with the lines above it is a bug.** `migrate` printed
-  "nothing to migrate" after lifting three files, because only the stamp-only path was counted; the
-  line exists so a person knows whether to run it again. Count every outcome the command can have.
+- **An archive outlives the release that wrote it.** Read a snapshot through the migrations `migrate`
+  would run (`liftArchived`, `src/services/backups.ts`), write the **lifted** file, and stamp it with
+  the release that wrote it; the newer direction stays a refusal from the manifest.
+- **A summary line that disagrees with the lines above it is a bug.** Count every outcome a command
+  can have.
 - **Conventional commits** — changelogen derives the changelog and `scripts/check-release-version.mjs`
   the version bump. Below 1.0 the **minor is the breaking channel**: a fix is a patch, a minor means
   someone has to read the release notes and act — ask what the user has to do, not whether the commit
