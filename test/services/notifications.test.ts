@@ -1,5 +1,7 @@
+import type { AddressInfo } from 'node:net'
 import type { NotificationEvent, NotificationReason } from '#src/services/notifications'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { type } from 'arktype'
@@ -566,5 +568,64 @@ describe('a list of destinations', () => {
       throw new Error(updated.summary)
     const following = new NotificationService(new SecretsStore(path.join(dir, 's2.json')), () => updated)
     expect(following.shouldNotify(crash)).toBe(false)
+  })
+  /**
+   * A window belongs to a message that *arrived*, not to one that was attempted.
+   *
+   * The window is armed before the send (two events already in flight must not both go out), but
+   * a send that failed told nobody anything. Measured on the built panel against a real receiver:
+   * a crash alert sent while it was down recorded `fetch failed`, and the next two crashes inside
+   * the five-minute window were silenced by it — so a receiver that came back up heard nothing
+   * until the window expired. The one alert that would have reached it was the one the outage
+   * took. Driven over a real socket, because the failure this is about is a real one.
+   */
+  it('gives back the window when a send failed, so the next alert is not silenced', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-notify-cooldown-'))
+    dirs.push(dir)
+
+    let delivered = 0
+    let down = true
+    const server = http.createServer((_req, res) => {
+      if (down) {
+        res.statusCode = 503
+        res.end('receiver is rebooting')
+        return
+      }
+      delivered += 1
+      res.setHeader('content-type', 'application/json')
+      res.end('{"ok":true}')
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    try {
+      const config = notificationsSchema({
+        destinations: [{
+          kind: 'webhook',
+          id: 'phone',
+          url: `http://127.0.0.1:${port}/alerts`,
+          useOwnSettings: true,
+          onCrash: true,
+          cooldownMs: 300_000,
+        }],
+      })
+      if (config instanceof type.errors)
+        throw new Error(config.summary)
+      const service = new NotificationService(new SecretsStore(path.join(dir, 'secrets.json')), () => config)
+
+      expect(await service.dispatch(crash), 'the first send was refused by the receiver').toBe(false)
+      expect(row(service, 'phone').lastResult).toContain('503')
+      expect(delivered, 'nothing arrived').toBe(0)
+
+      // The receiver is back, and the same crash happens again, well inside the 5-minute window.
+      down = false
+      expect(service.shouldNotify(crash), 'a failed send must leave no window').toBe(true)
+      expect(await service.dispatch(crash), 'so the next one goes out').toBe(true)
+      expect(delivered, 'the receiver heard the second crash').toBe(1)
+      // A window that *did* deliver still collapses the flap — the half that was already right.
+      expect(service.shouldNotify(crash, Date.now() + 1_000), 'the delivered send armed its window').toBe(false)
+    }
+    finally {
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
   })
 })

@@ -127,6 +127,10 @@ Sends are fire-and-forget: supervision never waits on a chat or webhook API. A f
 the last outcome is recorded per destination and shown on its row, so a wrong chat id or an
 unreachable URL is visible there instead of silently swallowing alerts.
 
+A failed send does **not** start the throttle window: a window is for a message that arrived, so a
+receiver that was down for one alert still hears the next one. Otherwise the alert that would have
+reached a receiver which came back up is the one the outage took.
+
 ## Throttling
 
 `cooldownMs` (default two minutes) is per **destination, server and reason**, so a flapping process

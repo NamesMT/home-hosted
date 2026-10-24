@@ -185,9 +185,32 @@ export class NotificationService {
 
   /** Starts the cooldown window for every destination about to be asked to send. */
   markSent(event: NotificationEvent, now = Date.now()): void {
-    for (const target of this.targetsFor(event, now)) {
-      this.cooldowns.set(this.cooldownKey(target, event), now + this.effectivePolicy(target).cooldownMs)
-    }
+    for (const target of this.targetsFor(event, now))
+      this.armCooldown(target, event, now)
+  }
+
+  /** One destination's window, returning the deadline it set so a failed send can undo it. */
+  private armCooldown(target: NotificationTarget, event: NotificationEvent, now = Date.now()): number {
+    const until = now + this.effectivePolicy(target).cooldownMs
+    this.cooldowns.set(this.cooldownKey(target, event), until)
+    return until
+  }
+
+  /**
+   * Gives back the window a **failed** send took.
+   *
+   * The window exists to collapse a flapping server into one message, so it is armed before the
+   * send rather than after: two events already in flight must not both go out. But a send that
+   * never arrived has told nobody anything — measured on the built panel, a crash alert sent while
+   * the receiver was down recorded `fetch failed`, and the next two crashes inside the 5-minute
+   * window were silenced by it, so the one alert that would have reached a working receiver was
+   * the one the outage took. Undo only the deadline this send set: a concurrent dispatch may have
+   * armed a later one, and clearing that would reopen the flood the window is for.
+   */
+  private releaseCooldown(target: NotificationTarget, event: NotificationEvent, armed: number): void {
+    const key = this.cooldownKey(target, event)
+    if (this.cooldowns.get(key) === armed)
+      this.cooldowns.delete(key)
   }
 
   /** Fire-and-forget by design: supervision must never wait on a chat or webhook API. */
@@ -202,26 +225,30 @@ export class NotificationService {
     const targets = this.targetsFor(event)
     if (targets.length === 0)
       return false
-    this.markSent(event)
+    // Armed per destination so a failure can hand its own window back (see `releaseCooldown`).
+    const armed = new Map(targets.map(target => [target.id, this.armCooldown(target, event)]))
 
     const title = TITLE[event.reason]
     const message = `${event.label} (${event.serverId}) ${REASON_LABEL[event.reason]}\n${event.detail}`
     // One destination failing must not stop the others, so each is settled on its own.
-    const results = await Promise.all(targets.map(target => this.deliver(target, title, message, event)))
+    const results = await Promise.all(targets.map(target => this.deliver(target, title, message, event, armed.get(target.id) ?? 0)))
     return results.includes(true)
   }
 
   /** One destination, one event. A throw is recorded against it and nothing else. */
-  private async deliver(target: NotificationTarget, title: string, message: string, event: NotificationEvent): Promise<boolean> {
+  private async deliver(target: NotificationTarget, title: string, message: string, event: NotificationEvent, armed: number): Promise<boolean> {
     try {
       const result = target.kind === 'telegram'
         ? await this.sendTelegram(target, title, message)
         : await sendWebhook(target, { title, message, reason: event.reason, serverId: event.serverId, label: event.label })
       this.remember(target.id, result.ok ? 'sent' : result.error ?? 'send failed')
+      if (!result.ok)
+        this.releaseCooldown(target, event, armed)
       return result.ok
     }
     catch (error) {
       this.remember(target.id, errorMessage(error))
+      this.releaseCooldown(target, event, armed)
       return false
     }
   }

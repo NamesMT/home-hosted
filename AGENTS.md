@@ -143,6 +143,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
   suffix `_total` a value that a user action resets — no series here is a counter, and
   `test/api/panel.test.ts` enumerates the scrape and fails on a `_total` name or a `counter` type.
+- **A throttle window belongs to a message that arrived.** A window armed before the send collapses a
+  flapping server, which is the point — but a send that failed told nobody anything, so it must give
+  its window back (`releaseCooldown`) or the alert that would have reached a receiver coming back up
+  is the one the outage took. Measured on the built panel: a crash alert recorded `fetch failed`
+  against a receiver that was down, and the next two crashes inside the five-minute window were
+  silenced, so bringing the receiver up changed nothing. Undo only the deadline *this* send armed — a
+  concurrent dispatch may have set a later one, and clearing that reopens the flood. `notify()` is
+  fire-and-forget, so nothing else can retry: the next event is the retry.
 - **Name the cause the fix follows, not the one the code path suggests.** Node reports a missing
   working directory and a missing program with the same `ENOENT`, so `describeSpawnError` checks the
   resolved `cwd` **and** whether the field holds a whole command line before it blames the command —
