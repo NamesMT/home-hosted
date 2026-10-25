@@ -143,15 +143,10 @@ export function wslTemperatureStatus(scriptPath: string | null, tempCommand: str
   const wsl = isWsl()
   const scriptWritten = scriptPath !== null && fs.existsSync(scriptPath)
   const configured = tempCommand.trim().length > 0
-  // LibreHardwareMonitor lives on the Windows side, so its presence is a Windows-path check from the
-  // guest: look for the DLL the script loads.
-  let libraryPresent = false
-  try {
-    libraryPresent = fs.existsSync(path.join('/mnt', 'c', 'Tools', 'LibreHardwareMonitor', 'LibreHardwareMonitorLib.dll'))
-  }
-  catch {
-    libraryPresent = false
-  }
+  // `lhmInstalled`, not a second path of its own: this had a hardcoded `C:\Tools` copy, so it reported
+  // "missing" after the installer had put the library in `%ProgramData%` — and the page told a person
+  // to fix something that was already installed.
+  const libraryPresent = lhmInstalled()
   return {
     wsl,
     supported: wsl,
@@ -265,7 +260,7 @@ export async function probeWslTemperature(tempCommand: string, timeoutMs: number
         celsius: null,
         error: stderr.trim().length > 0
           ? stderr.trim()
-          : 'the script printed no number — is LibreHardwareMonitor installed at C:\\Tools\\LibreHardwareMonitor?',
+          : 'the script printed no number — is LibreHardwareMonitor installed?',
       }
     }
     const celsius = Number.parseFloat(match[0])

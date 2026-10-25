@@ -102,6 +102,17 @@ describe('the LibreHardwareMonitor install', () => {
     expect(LHM_SUBDIR).not.toMatch(/^[A-Z]:/i)
   })
 
+  it('locates the library in exactly one place', () => {
+    // Two copies of "where is the DLL" is how the page came to say "not installed" right after the
+    // installer had put it in `%ProgramData%`: `wslTemperatureStatus` kept a hardcoded `C:\Tools`
+    // path while the installer wrote elsewhere. One predicate, or the two drift the moment one moves.
+    const source = readFileSync(new URL('../../src/providers/wsl-temperature.ts', import.meta.url), 'utf8')
+    const hardcoded = /['"]\/mnt['"]\s*,\s*['"]c['"]\s*,\s*['"]Tools['"]/.test(source)
+    expect(hardcoded, 'no call site may rebuild the install path by hand').toBe(false)
+    // The one lookup is `lhmInstalled`, and it must be what status reports.
+    expect(source).toMatch(/const libraryPresent = lhmInstalled\(\)/)
+  })
+
   it('translates a Windows path to one this process can read', () => {
     expect(toGuestPath('C:\\ProgramData\\home-hosted\\LibreHardwareMonitor')).toBe('/mnt/c/ProgramData/home-hosted/LibreHardwareMonitor')
     // The separator must be `/` on **this** platform too. Asserted as a string comparison that does

@@ -3,6 +3,7 @@ import type { HostConfig, WslTemperatureStatus } from '@shared/contracts'
 import type { HostForm } from '@/components/settings/settingsForm'
 import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, ref } from 'vue'
+import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import { numberModel, secondsModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -59,6 +60,7 @@ onMounted(async () => {
   }
 })
 
+/** Write the helper. Without the library this answers `needsDownload` and the button becomes a question. */
 async function setupBridge(): Promise<void> {
   bridgeBusy.value = true
   bridgeError.value = null
@@ -67,6 +69,24 @@ async function setupBridge(): Promise<void> {
     bridge.value = status
     // The panel only writes the command when the helper answered — a setup that cannot work must not
     // look configured, so mirror whatever it actually did rather than assuming it succeeded.
+    if (status.configured && status.tempCommand !== null && status.tempCommand !== undefined)
+      host.value.tempCommand = status.tempCommand
+  }
+  catch (caught) {
+    bridgeError.value = errorMessage(caught)
+  }
+  finally {
+    bridgeBusy.value = false
+  }
+}
+
+/** The consented press: fetches LibreHardwareMonitor, then writes the helper. */
+async function setupBridgeWithDownload(): Promise<void> {
+  bridgeBusy.value = true
+  bridgeError.value = null
+  try {
+    const status = await api.installWslTemperature({ download: true })
+    bridge.value = status
     if (status.configured && status.tempCommand !== null && status.tempCommand !== undefined)
       host.value.tempCommand = status.tempCommand
   }
@@ -149,8 +169,25 @@ async function removeBridge(): Promise<void> {
     :description="t('settings.host.wslDescription')"
   >
     <div class="flex flex-wrap items-center gap-2 sm:col-span-2">
+      <!--
+        The library is a ~6 MB third-party binary, so the click that installs it names it first. One
+        press writes the helper and answers "needs the library"; the second is the question, and only
+        its confirm downloads.
+      -->
+      <ConfirmButton
+        v-if="!bridge?.configured && bridge?.needsDownload"
+        :label="t('settings.host.wslDownloadNow')"
+        :confirm-label="t('settings.host.wslDownloadConfirm')"
+        :title="t('settings.host.wslDownloadTitle')"
+        :hint="t('settings.host.wslDownloadHint')"
+        variant="primary"
+        confirm-variant="primary"
+        size="xs"
+        :loading="bridgeBusy"
+        @confirm="setupBridgeWithDownload()"
+      />
       <AppButton
-        v-if="!bridge?.configured"
+        v-else-if="!bridge?.configured"
         size="xs"
         variant="primary"
         :loading="bridgeBusy"

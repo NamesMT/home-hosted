@@ -326,7 +326,7 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 | 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
 | 🔀 **Reverse proxy** | One Caddy engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `panel.example.com` → the panel itself. Installed and supervised by it. [Details](./docs/REVERSE_PROXY.md) |
 | 💾 **Backups** | One `.zip` of the panel and the workspaces you pick — plain or AES-256, picked per item, from the panel or the CLI. [Details](#-backups). |
-| 🌍 **Nine languages** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French, German — picked on the login page or in **Global settings → Language**, kept per browser. Action toasts included. The NOC console ships English-only on purpose; its density is the point. |
+| 🌍 **Translated UI** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French and German — picked on the login page or in **Global settings → Language**, kept per browser. Action toasts included. The NOC console ships English-only on purpose; its density is the point. |
 | 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
 | 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
 | 🧩 **Bring any program** | A server is a `command`, its args and a working directory — plus optional `dataEnvs`, `dependsOn` and `dump`/`load` hooks. Presets fill the form; nothing requires one. [Fields](./docs/SERVERS.md) |

@@ -5,7 +5,7 @@ import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
-import { probeWslTemperature, tempCommandFor, writeWslTemperatureScript, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
+import { installLibreHardwareMonitor, lhmInstalled, probeWslTemperature, tempCommandFor, writeWslTemperatureScript, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
 import { wslTemperatureSchema } from '#src/shared/contracts'
 
 /**
@@ -75,6 +75,17 @@ export function createWslTemperatureRoute(deps: AppDeps) {
             statusCode: 400,
             code: 'SCRIPT_WRITE_FAILED',
           })
+        }
+
+        // The helper only prints a number; the sensor comes from a third-party Windows binary the
+        // panel does not ship. The first press says so and asks; a second press carries
+        // `?download=true` and installs it. Never on the same click that did not mention a download.
+        if (!lhmInstalled()) {
+          if (c.req.query('download') !== 'true')
+            return c.json({ ...status(deps), needsDownload: true })
+          const install = await installLibreHardwareMonitor()
+          if (install.error !== null)
+            throw new DetailedError(`LibreHardwareMonitor could not be installed: ${install.error}`, { statusCode: 400, code: 'LIBRARY_INSTALL_FAILED' })
         }
         // The command is what the panel will run; saving it here is the whole point, so the person
         // does not have to copy a path out of a log.

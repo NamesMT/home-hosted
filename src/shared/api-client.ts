@@ -180,8 +180,15 @@ export function fetchWslTemperature(): Promise<WslTemperatureStatus> {
   return request<WslTemperatureStatus>('/api/host/temperature')
 }
 
-export function installWslTemperature(): Promise<WslTemperatureStatus> {
-  return request<WslTemperatureStatus>('/api/host/temperature', { method: 'POST' })
+/**
+ * Write the helper and point the config at it.
+ *
+ * `download` is the person's consent to fetch LibreHardwareMonitor: without it the panel answers
+ * `needsDownload` and writes nothing but the helper, so no click installs a binary it did not mention.
+ */
+export function installWslTemperature(options: { download?: boolean } = {}): Promise<WslTemperatureStatus> {
+  const query = options.download === true ? '?download=true' : ''
+  return request<WslTemperatureStatus>(`/api/host/temperature${query}`, { method: 'POST' })
 }
 
 export function removeWslTemperature(): Promise<WslTemperatureStatus> {

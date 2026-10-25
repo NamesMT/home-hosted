@@ -12,11 +12,14 @@ import {
   fetchProxy,
   fetchSession,
   fetchSettings,
+  fetchWslTemperature,
   installProxyEngine,
+  installWslTemperature,
   login,
   logout,
   patchProxy,
   proxyAction,
+  removeWslTemperature,
   restoreBody,
   restoreStoredBackup,
   retryProxyCertificate,
@@ -337,5 +340,45 @@ describe('auth and backups', () => {
     const mock = stub(proxyPayload)
     await proxyAction('apply')
     expect(lastCall(mock)[0]).toBe('/api/proxy/apply')
+  })
+})
+
+/**
+ * The WSL temperature bridge's three calls.
+ *
+ * The `download` query is consent, and it is the whole safety property: a press without it writes the
+ * helper and answers `needsDownload`, so no click installs a binary the person was not told about.
+ * A URL assertion is the only place that is visible — the panel's own branch is tested beside it.
+ */
+describe('the WSL temperature bridge', () => {
+  const status = { wsl: true, supported: true, configured: false, scriptWritten: false, libraryPresent: false, scriptPath: null }
+
+  it('asks for the state', async () => {
+    const mock = vi.fn(async () => new Response(JSON.stringify(status), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await expect(fetchWslTemperature()).resolves.toMatchObject({ supported: true })
+    expect(lastCall(mock)[0]).toBe('/api/host/temperature')
+  })
+
+  it('posts without consent by default, and with it only when asked', async () => {
+    const mock = vi.fn(async () => new Response(JSON.stringify(status), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+
+    await installWslTemperature()
+    const [plainUrl, plainInit] = lastCall(mock)
+    expect(plainUrl, 'no consent must mean no download query').toBe('/api/host/temperature')
+    expect(plainInit?.method).toBe('POST')
+
+    await installWslTemperature({ download: true })
+    expect(lastCall(mock)[0], 'consent travels as the query the route reads').toBe('/api/host/temperature?download=true')
+  })
+
+  it('deletes through the same path', async () => {
+    const mock = vi.fn(async () => new Response(JSON.stringify(status), { status: 200 }))
+    vi.stubGlobal('fetch', mock)
+    await removeWslTemperature()
+    const [url, init] = lastCall(mock)
+    expect(url).toBe('/api/host/temperature')
+    expect(init?.method).toBe('DELETE')
   })
 })

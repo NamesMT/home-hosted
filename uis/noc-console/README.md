@@ -26,7 +26,7 @@ German in the stock UI gets English here — measured: `hh.locale=de` leaves `do
 at `en` and every nav row in English. That is the same scope call the mobile-layout decision made
 (`.agents/ralph/DECISIONS_NEEDED.md` item 5: leave this UI's own visual language alone, and say so
 here): the console is a deliberately dense, shortcut-first alternative, and translating ~420 text
-nodes plus a second catalog is a port, not a fix. The stock UI carries the nine languages.
+nodes plus a second catalog is a port, not a fix. The stock UI carries the translations.
 
 ## On a phone
 

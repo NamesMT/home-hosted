@@ -138,6 +138,23 @@ describe('the sheets', () => {
     expect(offenders).toEqual([])
   })
 
+  it('names in the README every language it offers, without counting them', () => {
+    // "Nine languages" is a count that goes stale the moment one is added, and it is not what a reader
+    // needs — the list is. This pins that every locale in `LOCALES` appears in the README's feature
+    // row, so adding a language and forgetting the front page is a red test rather than a year-old
+    // number.
+    const readme = fs.readFileSync(path.join(root, '..', '..', 'README.md'), 'utf8')
+    // The README names each language in **English** ("German"), while `name` is the endonym the picker
+    // shows ("Deutsch") — so the check is on the English word, taken from the locale's own ISO language.
+    // The **base** language, not the regional variant: `of('en-US')` is "American English", which the
+    // README would never write.
+    const englishName = (iso: string): string =>
+      new Intl.DisplayNames(['en'], { type: 'language' }).of(iso.split('-')[0]!) ?? iso
+    const missing = LOCALES.filter(locale => !readme.includes(englishName(locale.iso))).map(locale => locale.code)
+    expect(missing, 'a supported language the README never mentions').toEqual([])
+    expect(readme, 'a hardcoded language count drifts; the list says it better').not.toMatch(/\b(?:nine|eight|ten) (?:languages|locales)\b/i)
+  })
+
   it('gives every sheet a column for every supported locale', () => {
     // A sheet missing a locale's column drops those strings from that catalog, and the picker then
     // shows a language with English showing through.
@@ -420,3 +437,45 @@ function englishKeys(catalogs = readEnglish()): Map<string, unknown> {
     out.set(key, value)
   return out
 }
+
+/**
+ * A translation that still names a **path** the English no longer has.
+ *
+ * Editing only the English cell is the easy mistake and nothing types it: nine locales are nine
+ * cells, and a `str.replace` on the row's second column leaves the other eight saying what the
+ * English stopped saying. Measured — `settings.host.wslNeedsLibrary` told eight languages to put the
+ * library at `C:\Tools\...`, long after the panel had grown a button that fetches it and moved the
+ * install to `%ProgramData%`.
+ *
+ * Paths are the checkable part: a locale translates a sentence, never a directory. Bare numbers are
+ * **excluded on purpose** — Japanese writes "1 行に 1 つ" where English says "one per line", so a digit
+ * comparison produces noise rather than a finding.
+ */
+describe('a translation does not keep a path the English dropped', () => {
+  /** Path-like tokens: a Windows drive, an environment variable, or a POSIX root. */
+  function pathsIn(text: string): Set<string> {
+    const out = new Set<string>()
+    for (const match of text.matchAll(/(?:[A-Za-z]:\\|%[A-Za-z]+%|\/mnt\/)[^\s,.;:!?)\]]*/g))
+      out.add(match[0].toLowerCase())
+    return out
+  }
+
+  it('no cell names a path the English cell dropped', () => {
+    const offenders: string[] = []
+    for (const row of readSheet()) {
+      const english = row.en ?? ''
+      if (english.length === 0)
+        continue
+      const allowed = pathsIn(english)
+      for (const [locale, cell] of Object.entries(row)) {
+        if (locale === 'en' || locale === 'KEY' || locale === '__sheet' || !cell)
+          continue
+        for (const path of pathsIn(cell)) {
+          if (!allowed.has(path))
+            offenders.push(`${row.KEY} [${locale}]: keeps "${path}", which the English dropped`)
+        }
+      }
+    }
+    expect(offenders, 'a translation still names a path the English dropped').toEqual([])
+  })
+})

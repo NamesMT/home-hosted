@@ -1465,6 +1465,13 @@ export const wslTemperatureSchema = type({
   'lastReadingCelsius?': 'number | null',
   /** Why the last probe failed, if it did — a missing library and no sensor read differently. */
   'lastError?': 'string | null',
+  /**
+   * The library is missing and installing it needs consent.
+   *
+   * The panel will not download a third-party binary on a click that did not mention one, so the
+   * first press answers `needsDownload` and the page asks. Absent on an older panel.
+   */
+  'needsDownload?': 'boolean',
 })
 export type WslTemperatureStatus = typeof wslTemperatureSchema.infer
 
