@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { isWsl, tempCommandFor, windowsScriptPath, wslScriptPath } from '#src/providers/wsl-temperature'
+import { isWsl, LHM_RELEASE, LHM_SUBDIR, tempCommandFor, toGuestPath, windowsScriptPath, wslScriptPath } from '#src/providers/wsl-temperature'
 
 /**
  * The WSL2 temperature bridge.
@@ -72,5 +72,41 @@ describe('setup probes before it saves', () => {
     expect(wsl.indexOf('probeWslTemperature'), 'the CLI must probe').toBeGreaterThan(-1)
     expect(wsl.indexOf('updateHost'), 'the CLI must save').toBeGreaterThan(-1)
     expect(wsl.indexOf('probeWslTemperature'), 'a broken setup must not reach the config').toBeLessThan(wsl.indexOf('updateHost'))
+  })
+})
+
+/**
+ * The pinned download, and where it lands.
+ *
+ * `%ProgramData%`, not `C:\Tools` and not `%LOCALAPPDATA%`. The first two were both wrong for the
+ * same reason in opposite directions: a folder at the drive root clutters Explorer for every account,
+ * while a per-user directory is *invisible to a service* — and the panel is documented as something
+ * that starts on boot, which on Windows means session 0, usually SYSTEM, whose `%LOCALAPPDATA%` is
+ * `C:\Windows\system32\config\systemprofile\AppData\Local`. ProgramData is the one path every account
+ * on the box resolves the same way.
+ */
+describe('the LibreHardwareMonitor install', () => {
+  it('pins a version and a sha256, not just a URL', () => {
+    // A pinned version alone is not enough for a binary that is executed on every sample: the URL is a
+    // redirect to a third-party CDN, and the digest is what makes a swapped asset fail closed.
+    expect(LHM_RELEASE.version).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(LHM_RELEASE.sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(LHM_RELEASE.url).toContain(LHM_RELEASE.version)
+    expect(LHM_RELEASE.asset).toBe('LibreHardwareMonitor.zip')
+  })
+
+  it('installs under ProgramData, never at the drive root or in a per-user directory', () => {
+    // The directory is read from the environment, so this asserts the *shape*: one `home-hosted`
+    // segment under ProgramData. Asserting the absolute path would pin this machine's drive.
+    expect(LHM_SUBDIR.startsWith('home-hosted')).toBe(true)
+    expect(LHM_SUBDIR).not.toMatch(/^[A-Z]:/i)
+  })
+
+  it('translates a Windows path to one this process can read', () => {
+    expect(toGuestPath('C:\\ProgramData\\home-hosted\\LibreHardwareMonitor')).toBe('/mnt/c/ProgramData/home-hosted/LibreHardwareMonitor')
+    // A system drive that is not C: is translatable too.
+    expect(toGuestPath('D:\\ProgramData\\x')).toBe('/mnt/d/ProgramData/x')
+    // A UNC path has no `/mnt` equivalent, so it is refused rather than guessed.
+    expect(toGuestPath('\\\\server\\share\\x')).toBeNull()
   })
 })
