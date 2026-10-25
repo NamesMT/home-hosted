@@ -1,6 +1,55 @@
 # Changelog
 
 
+## v0.10.1
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.10.0...v0.10.1)
+
+### 🚀 Enhancements
+
+- **cli:** `down --with-persistent`, and the same flag on `restart` ([7de5d37](https://github.com/NamesMT/home-hosted/commit/7de5d37))
+- `withPersistent` on the API and in both UIs ([9b6b091](https://github.com/NamesMT/home-hosted/commit/9b6b091))
+- **host:** A temperature command, and a one-button WSL2 bridge for it ([c5ad944](https://github.com/NamesMT/home-hosted/commit/c5ad944))
+
+### 🔥 Performance
+
+- **bind:** Cache the host's LAN address instead of enumerating per entry ([41d8f1d](https://github.com/NamesMT/home-hosted/commit/41d8f1d))
+
+### 🩹 Fixes
+
+- **backups:** Lift an older archive's config instead of dropping it ([3372a72](https://github.com/NamesMT/home-hosted/commit/3372a72))
+- **cli:** Count the files migrate lifted before saying "nothing to migrate" ([2b20f64](https://github.com/NamesMT/home-hosted/commit/2b20f64))
+- **noc-console:** One modal layer, so Escape closes and shortcuts stop ([88ac97b](https://github.com/NamesMT/home-hosted/commit/88ac97b))
+- **backups:** A declared path is the capture boundary, and its modes travel ([089972b](https://github.com/NamesMT/home-hosted/commit/089972b))
+- **logs:** A retention knob bounds the directory, not a rename loop ([89fe8fd](https://github.com/NamesMT/home-hosted/commit/89fe8fd))
+- **docker:** Stopping a compose entry ends its containers, and says so if one stays up ([a2e0189](https://github.com/NamesMT/home-hosted/commit/a2e0189))
+- **notifications:** A failed send gives its throttle window back ([c7db513](https://github.com/NamesMT/home-hosted/commit/c7db513))
+- **webhook:** A header is a byte string, and its name is case-insensitive ([fbe3870](https://github.com/NamesMT/home-hosted/commit/fbe3870))
+- **proxy:** A local-only route is signed by the engine's own CA, not asked of the public CA ([f5e1739](https://github.com/NamesMT/home-hosted/commit/f5e1739))
+- **stock:** An action's toast is catalog copy, not a string in a composable ([8e8011e](https://github.com/NamesMT/home-hosted/commit/8e8011e))
+- **cli:** A reader that hangs up is done, not a crash ([7a58f22](https://github.com/NamesMT/home-hosted/commit/7a58f22))
+- **backup:** A refusal is one message on one stream ([10d84db](https://github.com/NamesMT/home-hosted/commit/10d84db))
+- **stock:** A copy on a plain-http LAN origin, and a top bar that fits 320px ([6e0aa16](https://github.com/NamesMT/home-hosted/commit/6e0aa16))
+- **logs:** Stream a log download instead of buffering the rotation ([422c8ac](https://github.com/NamesMT/home-hosted/commit/422c8ac))
+- **openapi:** A reference page that is not blank without a CDN ([0e76c57](https://github.com/NamesMT/home-hosted/commit/0e76c57))
+- **openapi:** Pin the reference's enhancement, and correct what the page claims ([80daa26](https://github.com/NamesMT/home-hosted/commit/80daa26))
+- **host:** Read the CPU's temperature, not the hottest peripheral ([d2d61e4](https://github.com/NamesMT/home-hosted/commit/d2d61e4))
+- **setup-temp:** Probe the helper before saving the command, not after ([37e12fc](https://github.com/NamesMT/home-hosted/commit/37e12fc))
+- **test:** The platform gate's two failures were both real, and both mine ([ce3d245](https://github.com/NamesMT/home-hosted/commit/ce3d245))
+- **cli:** A closed reader is not always `EPIPE`, and the macOS gate proved it ([d9b3b66](https://github.com/NamesMT/home-hosted/commit/d9b3b66))
+- **test:** The mode round trip is POSIX-only, and Windows has no such bits ([fe51523](https://github.com/NamesMT/home-hosted/commit/fe51523))
+
+### 📖 Documentation
+
+- **proxy:** The engine's own CA installs a root into the host's trust store ([4f6a955](https://github.com/NamesMT/home-hosted/commit/4f6a955))
+- **noc-console:** The console is English only, and says so ([9ba2cd2](https://github.com/NamesMT/home-hosted/commit/9ba2cd2))
+- Keep the rule inline, the reasoning in `.agentDocs/` ([50a08d4](https://github.com/NamesMT/home-hosted/commit/50a08d4))
+- **agentdocs:** What a WSL2 guest can and cannot read for a temperature ([3a7c7c6](https://github.com/NamesMT/home-hosted/commit/3a7c7c6))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.10.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.9.11...v0.10.0)
