@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 
@@ -70,7 +71,11 @@ describe('createZip', () => {
  * a backup silently widening access to what it was taken to protect.
  */
 describe('permission bits survive the round trip', () => {
-  it('writes each entry\'s mode into the archive', async () => {
+  // Windows has no POSIX permission bits: `chmodSync` only toggles the read-only flag and
+  // `statSync().mode` reports a synthetic value, so neither the fixture nor the assertion can mean
+  // anything there. The capture half is POSIX-only by nature; the *restore* half still runs anywhere
+  // the archive carries a mode, which is why the format is what these cases pin.
+  it.runIf(process.platform !== 'win32')('writes each entry\'s mode into the archive', async () => {
     const dir = await tempDir()
     const src = path.join(dir, 'src')
     fs.mkdirSync(path.join(src, 'private'), { recursive: true })
@@ -89,7 +94,7 @@ describe('permission bits survive the round trip', () => {
     expect(byName.get('private/')?.mode).toBe(0o040700)
   })
 
-  it('restores the mode each entry carried, including a directory\'s', async () => {
+  it.runIf(process.platform !== 'win32')('restores the mode each entry carried, including a directory\'s', async () => {
     const dir = await tempDir()
     const src = path.join(dir, 'src')
     fs.mkdirSync(path.join(src, 'locked'), { recursive: true })
