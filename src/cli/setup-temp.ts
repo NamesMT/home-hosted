@@ -8,17 +8,16 @@ import { installLibreHardwareMonitor, lhmDirectoryWindows, lhmInstalled, probeWs
 /**
  * `setup-temp` — teach the panel how to read this machine's CPU temperature.
  *
- * Generic on purpose: `--wsl` is one *source*, and the next machine that needs a bridge (a VM
- * forwarding a sensor, a board behind a vendor daemon) is another flag beside it rather than a
- * second command. With no flag the command reports what the panel can already read and what the
- * options are, which is the useful thing to type when the tile says `n/a`.
+ * `--wsl` is one *source*; the next bridge is another flag beside it, not a second command.
  */
 
 export const setupTempArgs = {
   wsl: { type: 'boolean', description: 'read the temperature through the Windows host (WSL2)', default: false },
   clear: { type: 'boolean', description: 'stop using a configured command and delete its helper', default: false },
-  download: { type: 'boolean', description: 'download LibreHardwareMonitor without asking (for a script)', default: false },
-  offline: { type: 'boolean', description: 'never download; report what is missing and exit', default: false },
+  // No `default`: citty leaves it `undefined` when absent and `false` for `--no-download`, which is
+  // what lets one flag express the three outcomes — ask, install, refuse — instead of needing a
+  // second flag to say "no".
+  download: { type: 'boolean', description: 'download LibreHardwareMonitor without asking; --no-download never does (for a script)' },
 } as const
 
 /** The temperature sources `setup-temp` can install. One today; a flag each as more appear. */
@@ -33,7 +32,7 @@ export function sourceFromFlags(flags: { wsl?: boolean, clear?: boolean }): Temp
   return null
 }
 
-export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean, download?: boolean, offline?: boolean }): Promise<void> {
+export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean, download?: boolean }): Promise<void> {
   const store = new GlobalSettingsStore(globalSettingsPath)
   store.load()
   const host = store.host
@@ -104,29 +103,23 @@ export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean, down
 }
 
 /**
- * Offer to download LibreHardwareMonitor when the helper cannot work without it.
- *
- * A prompt rather than an automatic fetch: it is a ~6 MB third-party binary that will run on every
- * sample, and installing software nobody asked for is not something a setup command does quietly.
- * `--download` answers up front for a script; `--no-download` refuses; with neither, a non-interactive
- * stdin (a pipe, an agent, CI) answers **no**, so nothing is installed unattended.
- *
- * Never stops the flow: with the library still missing the probe below fails and says so, which is
- * the one place that knows whether the thing actually reads a temperature.
+ * Offer the ~6 MB download. A prompt, never a silent fetch: installing software nobody asked for is
+ * not a setup command's job, and a non-interactive stdin answers no.
  */
-async function offerLibreHardwareMonitor(flags: { download?: boolean, offline?: boolean }): Promise<void> {
+async function offerLibreHardwareMonitor(flags: { download?: boolean }): Promise<void> {
   const where = lhmDirectoryWindows() ?? 'C:\\ProgramData\\home-hosted\\LibreHardwareMonitor'
 
-  if (flags.offline !== true && flags.download !== true) {
+  // `undefined` (absent): ask. `true` (`--download`): install. `false` (`--no-download`): refuse.
+  if (flags.download !== true) {
+    if (flags.download === false) {
+      process.stdout.write(`${dim(`LibreHardwareMonitor is not installed; install it into ${where}, or pass --download`)}\n`)
+      return
+    }
     const answer = await prompt(`LibreHardwareMonitor is required to read the sensor. Download it now (~6 MB)? [y/N] `)
     if (!/^y(?:es)?$/i.test(answer.trim())) {
       process.stdout.write(`${dim(`left it alone — install it into ${where} and re-run this command`)}\n`)
       return
     }
-  }
-  else if (flags.download !== true) {
-    process.stdout.write(`${dim(`LibreHardwareMonitor is not installed; install it into ${where}, or pass --download`)}\n`)
-    return
   }
 
   const result = await installLibreHardwareMonitor({ onProgress: message => process.stdout.write(`  ${dim(message)}\n`) })
@@ -141,6 +134,6 @@ export const setupTempCommand = defineCommand({
   meta: { name: 'setup-temp' },
   args: setupTempArgs,
   async run({ args }) {
-    await runSetupTemp({ wsl: args.wsl === true, clear: args.clear === true, download: args.download === true, offline: args.offline === true })
+    await runSetupTemp({ wsl: args.wsl === true, clear: args.clear === true, download: args.download })
   },
 })

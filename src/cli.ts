@@ -48,6 +48,7 @@ const SYNOPSIS: Record<string, string> = {
   'free-port': 'home-hosted free-port <id> [--workspace <id>]',
   'set-password': 'home-hosted set-password',
   'set-token': 'home-hosted set-token',
+  'setup-temp': 'home-hosted setup-temp [--wsl] [--download|--no-download] [--clear]',
   'migrate': 'home-hosted migrate',
   'init': 'home-hosted init',
   'ui-switch': 'home-hosted ui-switch',
@@ -183,6 +184,16 @@ const SET_TOKEN_SECTION: OptionSection = {
   lines: [
     ['--generate', 'create a strong token and print it once'],
     ['--clear', 'remove the token, so it stops working'],
+  ],
+}
+
+const SETUP_TEMP_SECTION: OptionSection = {
+  heading: 'Options for setup-temp',
+  lines: [
+    ['--wsl', 'read the temperature through the Windows host (WSL2)'],
+    ['--download', 'fetch LibreHardwareMonitor without asking (for a script)'],
+    ['--no-download', 'never fetch it; report what is missing'],
+    ['--clear', 'stop using the command and delete the helper'],
   ],
 }
 
@@ -338,6 +349,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'free-port': SERVER_SECTION,
   'set-password': SET_PASSWORD_SECTION,
   'set-token': SET_TOKEN_SECTION,
+  'setup-temp': SETUP_TEMP_SECTION,
   'migrate': MIGRATE_SECTION,
   'init': INIT_SECTION,
   'ui-switch': UI_SWITCH_SECTION,

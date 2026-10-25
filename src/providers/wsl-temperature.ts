@@ -11,45 +11,22 @@ import { logger } from '#src/helpers/logger'
 const execFileAsync = promisify(execFile)
 
 /**
- * The WSL2 temperature bridge.
+ * The WSL2 temperature bridge: a PowerShell helper that becomes `host.tempCommand`.
  *
- * A WSL2 guest has no sensor the kernel can read: `/sys/class/hwmon` is empty, there is no
- * `thermal_zone*`, and `sensors` says "No sensors found". The **Windows host** does have one, but
- * only through a driver-level reader — the ACPI class Windows exposes
- * (`MSAcpi_ThermalZoneTemperature`) answers a constant 20 °C at idle and under load alike, so
- * reporting it would be a fabricated number. LibreHardwareMonitor reads the real value (verified
- * on a Ryzen AI 9 HX 370: 63.9 °C idle, 75.2 °C under load).
- *
- * So the panel offers to set that up: it writes a small PowerShell script that prints one number,
- * and the `powershell.exe` call that runs it becomes `host.tempCommand`. Everything here is
- * **opt-in and reversible** — the person presses a button and can clear the field again.
+ * A WSL2 guest has no sensor the kernel can read, and Windows' own ACPI class answers a constant
+ * 20 °C whatever the load. LibreHardwareMonitor reads the real value. Opt-in and reversible.
  */
 
 /** The script that prints the CPU temperature, written beside the panel's own state. */
 const SCRIPT_NAME = 'cpu-temp.ps1'
 
 /**
- * Where LibreHardwareMonitor lives: `%ProgramData%\home-hosted\LibreHardwareMonitor`.
- *
- * **Machine-wide, not per-user.** `%LOCALAPPDATA%` is the obvious choice and the wrong one: the panel
- * is meant to start on boot, and on Windows that is a service — session 0, usually SYSTEM, whose
- * per-user directory is `C:\Windows\system32\config\systemprofile\AppData\Local`. A library
- * installed by a person would then be invisible to exactly the deployment that needs it unattended.
- * ProgramData is one path for every account on the box.
- *
- * Not `C:\Tools` either: a folder at the drive root is clutter in Explorer for every account, and
- * `Program Files` would need elevation on every setup. ProgramData is where a service's own data
- * belongs, and it is where this panel's Windows-side helper belongs with it.
+ * `%ProgramData%`, not `%LOCALAPPDATA%`: a boot-started panel is SYSTEM in session 0, whose per-user
+ * path differs. Not the drive root either — that clutters every account's Explorer.
  */
 export const LHM_SUBDIR = 'home-hosted\\LibreHardwareMonitor'
 
-/**
- * The install directory, in Windows terms — read from the environment rather than assembled from
- * `C:\`, because a machine can have its system drive elsewhere.
- *
- * Null when this is not a WSL guest or `powershell.exe` cannot be reached, which is the same condition
- * as "there is no Windows side to install to".
- */
+/** The install directory in Windows terms, read from the environment (the system drive may not be `C:`). */
 export function lhmDirectoryWindows(): string | null {
   try {
     const base = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$env:ProgramData'], { timeout: 10_000, windowsHide: true, encoding: 'utf8' }).trim()
@@ -91,14 +68,7 @@ export function isWsl(): boolean {
   }
 }
 
-/**
- * Where the helper script goes: **on the Windows side**, beside the library in `%ProgramData%`.
- *
- * This is the part that is easy to get wrong. `powershell.exe` reads a *Windows* path, so a script
- * written into the guest's Linux home (`/tmp`, `~/.home-hosted`) is invisible to it — the command
- * appears to work only while some stale copy exists, then fails with a path error that names nothing
- * useful. `/mnt/c` is the 9p mount of `C:`, so writing there gives both sides the same file.
- */
+/** A `/mnt/c/...` path as the `C:\...` path `powershell.exe` needs. Untranslatable paths pass through. */
 export function windowsScriptPath(scriptPath: string): string {
   // `/mnt/c/Users/me/x.ps1` is `C:\Users\me\x.ps1` to powershell.exe.
   const match = /^\/mnt\/([a-z])\/(.*)$/i.exec(scriptPath)
@@ -107,13 +77,7 @@ export function windowsScriptPath(scriptPath: string): string {
   return `${match[1]!.toUpperCase()}:\\${match[2]!.replaceAll('/', '\\')}`
 }
 
-/**
- * Where the helper script is written, as a path this process can read.
- *
- * It lives **beside the library** rather than at the drive root: a boot-started panel runs as SYSTEM
- * and must find it, so `%ProgramData%` is the location; `C:\Tools` was both clutter at the root of
- * the user's Explorer and invisible to any account but the one that made it.
- */
+/** The helper script, written beside the library so every account resolves the same file. */
 export function wslScriptPath(): string | null {
   if (!isWsl())
     return null
@@ -142,12 +106,7 @@ export function tempCommandForWindows(windowsPath: string): string {
 
 /** The script's body. Kept tiny: it runs on every host sample. */
 function scriptBody(): string {
-  return `# CPU temperature for home-hosted, read through LibreHardwareMonitor.
-# Written by \`home-hosted setup-temp --wsl\`; safe to delete, and the panel stops using it when the
-# Temperature command field is cleared.
-# ProgramData is machine-wide, so the path is the same whether a person or a boot-started service
-# (session 0, often SYSTEM) runs this. LOCALAPPDATA would differ per account and hide the library
-# from exactly the deployment that needs it unattended.
+  return `# CPU temperature for home-hosted. Written by \`home-hosted setup-temp --wsl\`; safe to delete.
 $dir = Join-Path $env:ProgramData 'home-hosted\\LibreHardwareMonitor'
 if (-not (Test-Path (Join-Path $dir 'LibreHardwareMonitorLib.dll'))) {
   [Console]::Error.WriteLine("LibreHardwareMonitor not found in $dir")
@@ -177,12 +136,7 @@ $out
 `
 }
 
-/**
- * Whether the setup is in place: the script exists, and the panel has been pointed at it.
- *
- * `configured` is what the panel *will do*; `ready` is whether it can work — the two are separate so
- * the UI can say "set up, but the library is missing" rather than only "not set up".
- */
+/** `configured` (pointed at a command) and `libraryPresent` are separate, so the UI can say "set up, but the library is missing". */
 export function wslTemperatureStatus(scriptPath: string | null, tempCommand: string): WslTemperatureStatus {
   const wsl = isWsl()
   const scriptWritten = scriptPath !== null && fs.existsSync(scriptPath)
@@ -214,14 +168,8 @@ export function writeWslTemperatureScript(scriptPath: string): void {
 }
 
 /**
- * The LibreHardwareMonitor release this setup downloads, pinned by version and **digest**.
- *
- * A pinned version is not enough for a binary that gets executed: the URL is a redirect to a
- * third-party CDN, and a swapped asset would be run as the user on every host sample. So the
- * `sha256` GitHub publishes for the asset is checked before anything is unpacked, and a mismatch
- * deletes the download instead of writing it into `C:\Tools`.
- *
- * Bumping this is a deliberate act: change all three fields together and re-run the setup.
+ * Pinned by version **and** sha256: this file is then executed on every sample, and the URL redirects
+ * to a third-party CDN. Checked before anything is unpacked. Change all three fields together.
  */
 export const LHM_RELEASE = {
   version: '0.9.6',
@@ -244,12 +192,7 @@ export function lhmInstalled(): boolean {
   }
 }
 
-/**
- * Download and unpack LibreHardwareMonitor into the Windows-side tools directory.
- *
- * Returns the directory, or a sentence saying why it did not. Every failure path removes what it
- * wrote, so a half-extracted folder never looks like an install.
- */
+/** Download, verify and unpack LibreHardwareMonitor. A failed attempt leaves nothing installed. */
 export async function installLibreHardwareMonitor(options: { onProgress?: (message: string) => void } = {}): Promise<{ dir: string | null, error: string | null }> {
   const report = options.onProgress ?? (() => {})
   const targetWindows = lhmDirectoryWindows()
@@ -285,8 +228,7 @@ export async function installLibreHardwareMonitor(options: { onProgress?: (messa
     report(`unpacking into ${targetWindows}…`)
     await fs.promises.rm(target, { recursive: true, force: true })
     await fs.promises.mkdir(target, { recursive: true })
-    // `Expand-Archive` is the extractor every Windows has; `unzip` may not be installed, and the
-    // archive has to be expanded by the side that can read a Windows path.
+    // Windows must unpack its own archive; `unzip` may not exist there.
     await execFileAsync(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${windowsScriptPath(archive)}' -DestinationPath '${targetWindows}' -Force`],
@@ -303,8 +245,7 @@ export async function installLibreHardwareMonitor(options: { onProgress?: (messa
     return { dir: null, error: error instanceof Error ? error.message : String(error) }
   }
   finally {
-    // The staging tree is ours; the install is not, so only this goes away on every path — the
-    // `run-*` directory *and* its parent, or an empty `.staging` is left in ProgramData forever.
+    // Ours, unlike the install: remove the `run-*` dir *and* its parent, or `.staging` lingers.
     if (staging !== null) {
       await fs.promises.rm(staging, { recursive: true, force: true }).catch(() => {})
       await fs.promises.rmdir(path.dirname(staging)).catch(() => {})
@@ -312,13 +253,7 @@ export async function installLibreHardwareMonitor(options: { onProgress?: (messa
   }
 }
 
-/**
- * Run the helper once, to tell the person whether the setup works before they save a broken command.
- *
- * The answer is the reading, or a reason. A missing library and a library that returned nothing are
- * different problems and get different sentences — the first says where to put the download, the
- * second that the harness ran but found no sensor (a locked-down driver, a VM in a VM).
- */
+/** Run the helper once, so a setup that cannot work is reported rather than saved. */
 export async function probeWslTemperature(tempCommand: string, timeoutMs: number): Promise<{ celsius: number | null, error: string | null }> {
   try {
     const { stdout, stderr } = await execFileAsync(tempCommand, { timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024, shell: true })

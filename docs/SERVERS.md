@@ -379,45 +379,35 @@ the first plausible °C number from its stdout; empty means "use the built-in pr
 
 ### WSL2
 
-A WSL2 guest cannot read the sensor itself, but the **Windows host** can, through
-[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor). Download it on
-the Windows side, then point the panel at a small PowerShell script:
+A WSL2 guest cannot read the sensor; the Windows host can, through
+[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor). One command
+does the setup:
 
-```powershell
-# In Windows: C:\Tools\cpu-temp.ps1 — prints the CPU temperature in °C.
-$dir = 'C:\Tools\LibreHardwareMonitor'
-[System.Reflection.Assembly]::LoadFrom("$dir\System.Memory.dll") | Out-Null
-[System.Reflection.Assembly]::LoadFrom("$dir\System.Buffers.dll") | Out-Null
-[System.Reflection.Assembly]::LoadFrom("$dir\Microsoft.Bcl.AsyncInterfaces.dll") | Out-Null
-Add-Type -Path "$dir\LibreHardwareMonitorLib.dll"
-$c = New-Object LibreHardwareMonitor.Hardware.Computer
-$c.IsCpuEnabled = $true
-$c.Open()
-foreach ($hw in $c.Hardware) {
-  $hw.Update()
-  foreach ($s in $hw.Sensors) {
-    if ($s.SensorType -eq 'Temperature' -and $s.Name -match 'Tctl|Package|Core') {
-      [math]::Round($s.Value, 1)
-      break
-    }
-  }
-}
-$c.Close()
+```bash
+home-hosted setup-temp --wsl
 ```
 
-Then in the panel's **Temperature command**:
+It writes a PowerShell helper, offers the ~6 MB download, points `host.tempCommand` at the helper, and
+prints the reading. Nothing reaches the config until the helper answers. The same is one button on
+**Global settings → Host vitals**, shown only on WSL.
 
-```text
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Tools\cpu-temp.ps1
-```
+| flag | what it does |
+| --- | --- |
+| *(none)* | reports whether a source is set, and lists the options |
+| `--wsl` | writes the helper and offers the download |
+| `--download` / `--no-download` | install without asking / never install |
+| `--clear` | stop using it and delete the helper |
 
-Two things to know: the call costs a few hundred milliseconds and spawns a PowerShell each sample, so
-raise `host.intervalMs` a little (15–30 s is plenty for a temperature); and the value is the *host's*
-CPU, which is what you want — the guest shares it. Verified on a GMKtec NucBox EVO-X1 (Ryzen AI 9 HX
-370): 63.9 °C idle, 75.2 °C under load, while every built-in path returned the 20 °C stub.
+It installs into `%ProgramData%\home-hosted`, not `%LOCALAPPDATA%`: a boot-started panel runs as SYSTEM
+in session 0, where the per-user path differs and the library would be invisible. Installing there may
+ask for elevation.
+
+The PowerShell call costs a few hundred milliseconds per sample, so raise `host.intervalMs` to 15–30 s.
+The value is the host's CPU, which the guest shares — measured 63.9 °C idle and 75.2 °C under load on a
+NucBox EVO-X1, where every built-in path returned a constant 20 °C.
 
 > [!NOTE]
-> On a machine whose sensor the panel *can* read, leave this empty — the command overrides the probe.
+> Where the panel *can* read a sensor, leave `Temperature command` empty — it overrides the probe.
 
 ## Editing fields
 
