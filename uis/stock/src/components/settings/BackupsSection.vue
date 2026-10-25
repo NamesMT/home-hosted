@@ -3,7 +3,7 @@ import type { BackupsView, WorkspaceView } from '@shared/contracts'
 import type { BackupsForm } from '@/components/settings/settingsForm'
 import { Archive, Download, RotateCcw } from '@lucide/vue'
 import { errorMessage } from '@shared/error-message'
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import BackupDialog from '@/components/settings/BackupDialog.vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -20,6 +20,7 @@ import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
 import TransText from '@/components/ui/TransText.vue'
+import { useBackupSelection } from '@/composables/useBackupSelection'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
@@ -44,6 +45,13 @@ const form = defineModel<BackupsForm>('form', { required: true })
 
 const control = useControlPlane()
 
+/** The capture tree and the archives on disk; not in the state frame, so fetched here. */
+const selection = useBackupSelection()
+
+// The archive list is page content, not dialog content — the page must show what is on disk without
+// anyone opening a dialog first. (The capture *tree* is dialog-gated; one fetch serves both.)
+onMounted(() => { void selection.load() })
+
 const keep = numberModel(() => form.value.keep, value => (form.value.keep = value), 5)
 const scheduleHours = numberModel(() => form.value.scheduleHours, value => (form.value.scheduleHours = value), 24)
 const scheduleKeep = numberModel(() => form.value.scheduleKeep, value => (form.value.scheduleKeep = value), 7)
@@ -65,8 +73,10 @@ const restoreOpen = ref(false)
 /** Which archive the restore dialog starts on; `null` lets it pick. */
 const restoreSource = ref<{ kind: 'stored', name: string } | null>(null)
 
-const files = computed(() => props.state?.files ?? [])
-const entries = computed(() => props.state?.entries ?? [])
+/** The archives on disk. Part of the selection model now, so loaded with the dialog's tree. */
+const files = computed(() => selection.selection.value?.files ?? [])
+/** What a backup would capture, for the read-only summary above the archive list. */
+const entries = computed(() => selection.selection.value?.entries ?? [])
 
 const downloadClass = cn(
   'inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-line bg-raise px-2 text-2xs font-medium text-ink',
@@ -82,7 +92,15 @@ function openRestore(name?: string): void {
 function onCreated(result: string): void {
   error.value = null
   message.value = result
+  // The new archive changes `files`, which is the selection model's, not the frame's.
+  selection.invalidate()
   void control.refresh()
+}
+
+/** Open the capture dialog, fetching the tree it edits if this page has not got it yet. */
+function openCreate(): void {
+  void selection.load()
+  createOpen.value = true
 }
 
 function onRestored(result: string): void {
@@ -98,6 +116,7 @@ async function removeBackup(name: string): Promise<void> {
   try {
     await api.deleteBackup(name)
     message.value = t('settings.backups.deleted', { name })
+    await selection.load()
     await control.refresh()
   }
   catch (caught) {
@@ -150,7 +169,7 @@ async function removeBackup(name: string): Promise<void> {
           {{ t('settings.backups.scheduleFailed', { when: formatDateTime(scheduleError.at), message: scheduleError.message }) }}
         </p>
         <!-- What an automatic archive contains. It used to be the full default scope, always. -->
-        <ScheduleScope v-model:scope="form.scheduleScope" :state="props.state" />
+        <ScheduleScope v-model:scope="form.scheduleScope" :selection="selection.selection.value" />
       </template>
       <TextField
         v-model="form.includePaths"
@@ -235,7 +254,7 @@ async function removeBackup(name: string): Promise<void> {
           size="xs"
           variant="primary"
           :disabled="props.state === null"
-          @click="createOpen = true"
+          @click="openCreate()"
         >
           {{ t('settings.backups.create') }}
         </AppButton>
@@ -260,7 +279,7 @@ async function removeBackup(name: string): Promise<void> {
             <Archive class="size-4" />
           </template>
           <template v-if="form.enabled" #action>
-            <AppButton size="sm" variant="primary" @click="createOpen = true">
+            <AppButton size="sm" variant="primary" @click="openCreate()">
               {{ t('settings.backups.create') }}
             </AppButton>
           </template>
@@ -311,7 +330,7 @@ async function removeBackup(name: string): Promise<void> {
       </div>
     </FieldGroup>
 
-    <BackupDialog v-model:open="createOpen" :state="props.state" @created="onCreated" />
+    <BackupDialog v-model:open="createOpen" :selection="selection.selection.value" @created="onCreated" />
     <RestoreDialog v-model:open="restoreOpen" :files="files" :initial="restoreSource" @applied="onRestored" />
   </div>
 </template>

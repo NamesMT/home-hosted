@@ -420,3 +420,46 @@ function englishKeys(catalogs = readEnglish()): Map<string, unknown> {
     out.set(key, value)
   return out
 }
+
+/**
+ * A plural key must be rendered through `tc()`, never `t()`.
+ *
+ * A key with `[one]`/`[other]` forms resolves to an **object**, and `t()` stringifies it — so the
+ * backup capture tree rendered `[object Object] · [object Object]` where "4 entries · 9 items
+ * selected" belonged. Nothing failed: `t()` returns a string either way, the catalog looks complete,
+ * and no page test mounts that component. So the guard reads the sheets for which keys *are* plural
+ * and scans the sources for one passed to `t(`.
+ */
+describe('plural keys go through tc()', () => {
+  it('never passes a plural key to t()', () => {
+    const pluralKeys = new Set(
+      readSheet()
+        .map(row => String(row.KEY ?? ''))
+        .filter(key => /\[\w+\]$/.test(key))
+        .map(key => key.replace(/\[[^\]]+\]$/, '')),
+    )
+    expect(pluralKeys.size, 'the sheets should hold plural keys').toBeGreaterThan(0)
+
+    const sourcesDir = path.join(root, 'src')
+    const offenders: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!/\.(?:ts|vue)$/.test(entry.name))
+          continue
+        const text = fs.readFileSync(full, 'utf8')
+        for (const match of text.matchAll(/\bt\(\s*'([^']+)'/g)) {
+          if (pluralKeys.has(match[1]!))
+            offenders.push(`${path.relative(root, full)}: t('${match[1]}')`)
+        }
+      }
+    }
+    walk(sourcesDir)
+
+    expect(offenders, 'a plural key rendered with t() prints [object Object]').toEqual([])
+  })
+})

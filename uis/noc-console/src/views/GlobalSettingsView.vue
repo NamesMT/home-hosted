@@ -9,6 +9,7 @@ import BackupDialog from '@/components/BackupDialog.vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import RestoreDialog from '@/components/RestoreDialog.vue'
 import ScheduleScope from '@/components/ScheduleScope.vue'
+import { useBackupSelection } from '@/composables/useBackupSelection'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useSession } from '@/composables/useSession'
 import { changesOpen } from '@/composables/useUi'
@@ -511,11 +512,23 @@ const restoreOpen = ref(false)
 /** Which archive the restore dialog starts on; `null` lets it pick. */
 const restoreSource = ref<{ kind: 'stored', name: string } | null>(null)
 
+/**
+ * The capture model and the archives on disk.
+ *
+ * Not part of the state frame any more: building it reads every workspace's secrets file and stats
+ * every archive, while the frame is rebuilt about thirteen times a second. Fetched when a dialog
+ * opens, and refetched after anything that changes the list.
+ */
+const selection = useBackupSelection()
+
+// The archive list and the declared data paths are page content, so fetch them with the page rather
+// than when a dialog opens — one fetch serves the list, the tree and the scope editor.
+onMounted(() => { void selection.load() })
 const backupsView = computed<BackupsView | null>(() => control.backups.value)
 
 /** Every declared data path, flattened out of the two-level entry tree. */
 const backupPaths = computed<BackupPathEntry[]>(() =>
-  (backupsView.value?.entries ?? []).flatMap(entry =>
+  (selection.selection.value?.entries ?? []).flatMap(entry =>
     entry.items
       .filter(item => item.kind === 'data')
       .map<BackupPathEntry>(item => ({
@@ -527,16 +540,30 @@ const backupPaths = computed<BackupPathEntry[]>(() =>
       })),
   ),
 )
-const backupFiles = computed<BackupFile[]>(() => backupsView.value?.files ?? [])
+const backupFiles = computed<BackupFile[]>(() => selection.selection.value?.files ?? [])
 
 function openRestore(name?: string): void {
   restoreSource.value = name === undefined ? null : { kind: 'stored', name }
   restoreOpen.value = true
 }
 
+/** Open the capture dialog, fetching the tree it edits if this page has not got it yet. */
+function openCreateBackup(): void {
+  void selection.load()
+  createBackupOpen.value = true
+}
+
+/** Open the scope dialog, which edits the same tree. */
+function openScope(): void {
+  void selection.load()
+  scopeOpen.value = true
+}
+
 function onBackupDone(result: string): void {
   backupError.value = null
   backupMessage.value = result
+  // The archive list is the selection's, not the frame's.
+  selection.invalidate()
   void control.refresh()
 }
 
@@ -551,6 +578,8 @@ async function removeBackup(name: string): Promise<void> {
   backupError.value = null
   try {
     await api.deleteBackup(name)
+    // The archive list lives in the selection model now, so the frame refresh does not update it.
+    await selection.load()
     await control.refresh()
   }
   catch (caught) {
@@ -993,7 +1022,7 @@ async function revertUi(): Promise<void> {
                   <span class="field__label">what an automatic backup contains</span>
                   <div class="actions actions--start">
                     <span class="mono faint">{{ scopeSummary }}</span>
-                    <button type="button" class="btn btn--xs" :disabled="backupsView === null" @click="scopeOpen = true">
+                    <button type="button" class="btn btn--xs" :disabled="backupsView === null" @click="openScope()">
                       choose…
                     </button>
                   </div>
@@ -1032,7 +1061,7 @@ async function revertUi(): Promise<void> {
                 type="button"
                 class="btn btn--sm btn--primary"
                 :disabled="backupsView === null"
-                @click="createBackupOpen = true"
+                @click="openCreateBackup()"
               >
                 create backup…
               </button>
@@ -1326,7 +1355,7 @@ async function revertUi(): Promise<void> {
 
   <BackupDialog
     :open="createBackupOpen"
-    :state="backupsView"
+    :selection="selection.selection.value"
     @close="createBackupOpen = false"
     @done="onBackupDone"
   />
@@ -1340,7 +1369,7 @@ async function revertUi(): Promise<void> {
   <ScheduleScope
     v-model:scope="form.backups.scheduleScope"
     :open="scopeOpen"
-    :state="backupsView"
+    :selection="selection.selection.value"
     @close="scopeOpen = false"
   />
 </template>

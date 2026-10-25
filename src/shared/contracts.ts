@@ -1516,11 +1516,35 @@ export const backupsViewSchema = type({
   }),
   /** Extra paths from the global config, in addition to each server's own. */
   'includePaths': type('string[]'),
-  /** Every selectable entry, global first, then each workspace. */
-  'entries': backupEntrySchema.array(),
-  'files': backupFileSchema.array(),
+  /**
+   * The selection model, carried here only by a panel older than this release.
+   *
+   * Reading it costs a `readFileSync` of the global and every workspace's `.secrets.json` plus a
+   * `statSync` per archive, and the state frame is rebuilt ~13×/s — so it moved to
+   * `GET /api/backups` (`backupSelectionSchema`), which a dialog fetches when it opens. Optional on
+   * purpose: a newer UI reads a panel that still sends it, and a UI must never reject a payload for
+   * a field it does not use. Absent means "ask the endpoint".
+   */
+  'entries?': backupEntrySchema.array(),
+  'files?': backupFileSchema.array(),
 })
 export type BackupsView = typeof backupsViewSchema.infer
+
+/**
+ * The backup *selection model*: what a capture could include, and what is already on disk.
+ *
+ * Its own route rather than a field of the state frame, because building it reads every workspace's
+ * secrets file and stats every archive — work proportional to workspaces × archives, on a path that
+ * runs per frame. A dialog needs it when it opens and not otherwise.
+ */
+export const backupSelectionSchema = type({
+  /** The archive directory, so a dialog can print the path without a second read. */
+  dir: 'string',
+  /** Every selectable entry, global first, then each workspace. */
+  entries: backupEntrySchema.array(),
+  files: backupFileSchema.array(),
+})
+export type BackupSelection = typeof backupSelectionSchema.infer
 
 /** One restorable slice of an archive: a global item, a workspace item, or a data path. */
 export const restoreItemSchema = type({

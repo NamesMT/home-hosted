@@ -1,6 +1,6 @@
 import type { SecretScope } from '#src/config/secret-parts'
 import type { TemplateVars } from '#src/helpers/template'
-import type { BackupEntry, BackupFile, BackupsConfig, BackupsView, RestoreItem, RestorePlan, RestoreSkip, ServerConfig } from '#src/shared/contracts'
+import type { BackupEntry, BackupFile, BackupsConfig, BackupSelection, BackupsView, RestoreItem, RestorePlan, RestoreSkip, ServerConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -643,7 +643,13 @@ export class BackupService {
     return this.resolveDir()
   }
 
-  /** The whole two-level selection model the backup dialog reads. */
+  /**
+   * The policy and the status: what the settings page shows, and what the state frame carries.
+   *
+   * Deliberately **not** the selection model. `entries()` reads every workspace's `.secrets.json` and
+   * `list()` stats every archive on disk, so including them here made the frame's cost scale with
+   * workspaces × archives on a path rebuilt ~13×/s. A dialog asks `selection()` instead.
+   */
   view(): BackupsView {
     const config = this.options.getConfig()
     const sources = this.options.getSources()
@@ -655,7 +661,18 @@ export class BackupService {
       lastAutomaticAt: this.lastAutomatic(),
       ...(this.scheduleError === null ? {} : { scheduleError: { ...this.scheduleError } }),
       includePaths: [...sources.includePaths],
-      entries: this.entries(sources),
+    }
+  }
+
+  /**
+   * The selection model: every entry a capture could include, and every archive already on disk.
+   *
+   * Served by `GET /api/backups` and fetched when a dialog opens, never on a per-frame path.
+   */
+  selection(): BackupSelection {
+    return {
+      dir: this.directory,
+      entries: this.entries(this.options.getSources()),
       files: this.list(),
     }
   }

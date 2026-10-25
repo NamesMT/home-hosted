@@ -1,18 +1,13 @@
 // @vitest-environment happy-dom
-import type { BackupsView } from '@shared/contracts'
+import type { BackupSelection } from '@shared/contracts'
 import { mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 import BackupDialog from '../src/components/settings/BackupDialog.vue'
 import * as api from '../src/lib/api'
 
-const state: BackupsView = {
-  enabled: true,
+const selection: BackupSelection = {
   dir: '/tmp/.backups',
-  keep: 5,
-  schedule: { intervalMs: 0, keep: 7 },
-  lastAutomaticAt: null,
-  includePaths: [],
   entries: [
     { id: 'global:settings', label: 'Panel settings', kind: 'settings', note: null, items: [] },
     { id: 'global:secrets', label: 'Secrets', kind: 'secrets', note: null, items: [] },
@@ -55,8 +50,8 @@ const stubs = {
 describe('backupDialog', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  async function open(view: BackupsView = state) {
-    const wrapper = mount(BackupDialog, { props: { open: true, state: view }, global: { stubs } })
+  async function open(view: BackupSelection = selection) {
+    const wrapper = mount(BackupDialog, { props: { open: true, selection: view }, global: { stubs } })
     await nextTick()
     return wrapper
   }
@@ -125,7 +120,7 @@ describe('backupDialog', () => {
   it('offers a sub-dialog for the global secrets entry, not only for a workspace', async () => {
     const spy = vi.spyOn(api, 'createBackup').mockResolvedValue({})
     const wrapper = await open({
-      ...state,
+      ...selection,
       entries: [
         { id: 'global:settings', label: 'Panel settings', kind: 'settings', note: null, items: [] },
         {

@@ -15,9 +15,8 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { parseOrThrow } from '#src/helpers/validate'
 import { validate } from '#src/helpers/validator'
 import { requestIdentity } from '#src/middleware/auth'
-import { buildBackupsView } from '#src/services/state'
 import { selectionWritesCredentials } from '#src/shared/backup-scope'
-import { backupCreatedResponseSchema, backupCreateSchema, backupFilesResponseSchema, backupsViewSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
+import { backupCreatedResponseSchema, backupCreateSchema, backupFilesResponseSchema, backupSelectionSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
 
 /** Uploads are buffered in memory by `parseBody`, so they get a hard ceiling. */
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024
@@ -36,9 +35,9 @@ export function createBackupsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['backups'],
         summary: 'Archives on disk, and the paths a backup would capture',
-        responses: { 200: { description: 'Backups', content: jsonBody(backupsViewSchema) } },
+        responses: { 200: { description: 'Backups', content: jsonBody(backupSelectionSchema) } },
       }),
-      c => c.json(buildBackupsView(deps.backups)),
+      c => c.json(deps.backups.selection()),
     )
 
     .post(

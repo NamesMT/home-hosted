@@ -41,6 +41,18 @@ either is a last resort, and never an accidental one.
 - **A new response *field* is optional (`'x?'`) and read defensively** (see `AGENTS.md`): a new UI meets
   an older payload for a while, and a required field there rejects the whole frame. Request bodies and
   config keep their strict, defaulted shape.
+- **A field may leave a per-frame path when it moves to its own route, and the two directions are not
+  symmetric.** `backups.entries` and `backups.files` left the state frame for `GET /api/backups`
+  (F54: the frame runs ~13×/s and building them read every workspace's secrets file and stat'd every
+  archive). The old UI is the risk, not the old panel — a UI from before this release reads `entries`
+  off the frame and would render an **empty capture tree**, which reads as "nothing to back up".
+  Two things keep that from being a defect:
+  - the field stays **optional** in `backupsViewSchema`, so a *newer* schema parsing an older panel's
+    payload accepts it rather than rejecting the frame;
+  - `uis/*/public/ui.json` is bumped, and the panel serves the UI it shipped with, so the pairing that
+    breaks (old UI + new panel) is not one an install reaches by upgrading normally.
+  A UI written against this release fetches the route and must **refetch after a create or a delete**:
+  the frame no longer changes when the archive list does, so `stateSignature` deliberately omits it.
 
 ## The metrics scrape
 

@@ -1,6 +1,5 @@
 import type { GlobalSettingsStore } from '#src/config/settings'
 import type { AuthService } from '#src/services/auth'
-import type { BackupService } from '#src/services/backups'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { TlsStore } from '#src/services/tls'
 import type { ControlConfig, ControlView, DdnsStatus, DestinationStatusView, LogsConfig, NotificationDefaults, ServerDefaults, ServerOrphan, ServerView, WorkspaceView } from '#src/shared/contracts'
@@ -65,10 +64,6 @@ export function buildControlView(
     },
     tls: tls.status(config.tls.enabled),
   }
-}
-
-export function buildBackupsView(backups: BackupService): ReturnType<BackupService['view']> {
-  return backups.view()
 }
 
 /** One workspace's subtree of the state frame. */

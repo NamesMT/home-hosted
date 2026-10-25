@@ -5,7 +5,7 @@ import { computed, ref } from 'vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CheckField from '@/components/ui/CheckField.vue'
 import Modal from '@/components/ui/Modal.vue'
-import { t } from '@/i18n'
+import { t, tc } from '@/i18n'
 import { kindLabel } from '@/lib/panel-text'
 
 /**
@@ -87,7 +87,7 @@ function partiallySelected(entry: EntryChoice): boolean {
   <div class="space-y-3">
     <div class="flex items-center justify-between gap-2">
       <span v-if="props.showCount" class="text-xs font-medium text-muted">
-        {{ t('settings.backup.entriesCount', { count: counts.entries }) }} · {{ t('settings.backup.itemsSelected', { count: counts.leaves }) }}
+        {{ tc('settings.backup.entriesCount', counts.entries) }} · {{ tc('settings.backup.itemsSelected', counts.leaves) }}
       </span>
       <div class="ml-auto flex items-center gap-1.5">
         <AppButton size="xs" variant="ghost" :disabled="props.disabled" @click="selectAll(true)">

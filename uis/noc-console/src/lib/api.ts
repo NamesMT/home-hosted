@@ -2,6 +2,7 @@ import type {
   AppState,
   BackupEntry,
   BackupFile,
+  BackupSelection,
   BackupsView,
   DdnsConfig,
   DdnsView,
@@ -27,7 +28,7 @@ import {
 } from '@shared/api-client'
 import {
   appStateSchema,
-  backupsViewSchema,
+  backupSelectionSchema,
   logHistoryViewSchema,
   logServersViewSchema,
   settingsPatchSchema,
@@ -264,12 +265,12 @@ export function logDownloadUrl(id: string, file: string, workspace?: string | nu
   return scoped(`/api/logs/${encodeURIComponent(id)}/download?file=${encodeURIComponent(file)}`, workspace)
 }
 
-export async function fetchBackups(): Promise<BackupsView> {
+export async function fetchBackups(): Promise<BackupSelection> {
   const payload = await request<unknown>('/api/backups')
-  const parsed = backupsViewSchema(payload)
+  const parsed = backupSelectionSchema(payload)
   if (parsed instanceof type.errors)
     throw new Error(`backups contract mismatch: ${parsed.summary}`)
-  return parsed as BackupsView
+  return parsed as BackupSelection
 }
 
 /**

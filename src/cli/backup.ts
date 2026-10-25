@@ -318,7 +318,7 @@ async function availableRowsFromDisk(action: 'create' | 'restore', suffix: strin
     const { service } = await offlineBackup()
     await service.warm()
     if (action === 'create')
-      return service.view().entries as unknown as PlanItem[]
+      return service.selection().entries as unknown as PlanItem[]
     // A restore lists what the **archive** holds, not what this host declares. Reading the create
     // view here named every slot on the machine — including ones the archive never carried — and
     // marked them "(not set)", which is not a thing a restore can be missing.
@@ -416,7 +416,7 @@ export async function runBackupList(json: boolean): Promise<void> {
   }
   const { service } = await offlineBackup()
   await service.warm()
-  printList(service.view(), json)
+  printList(service.selection(), json)
 }
 
 function printList(view: { files?: BackupFileView[], dir?: string } | null, json: boolean): void {
@@ -471,7 +471,7 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
     }
     const { service } = await offlineBackup()
     await service.warm()
-    return service.view().entries as unknown as PlanItem[]
+    return service.selection().entries as unknown as PlanItem[]
   })()
 
   // Checked against the plan the user is looking at, so a typo is refused instead of quietly

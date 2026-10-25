@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { BackupScope, BackupsView } from '@shared/contracts'
+import type { BackupScope, BackupSelection } from '@shared/contracts'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
@@ -13,13 +13,8 @@ import ScheduleScope from '../src/components/ScheduleScope.vue'
  * survive the round trip narrows a schedule on an ordinary Save, with nothing on screen to show it.
  */
 
-const state: BackupsView = {
-  enabled: true,
+const selection: BackupSelection = {
   dir: '/tmp/.backups',
-  keep: 5,
-  schedule: { intervalMs: 3_600_000, keep: 7 },
-  lastAutomaticAt: null,
-  includePaths: [],
   entries: [
     { id: 'global:settings', label: 'Panel settings', kind: 'settings', note: null, items: [] },
     { id: 'global:secrets', label: 'Secrets', kind: 'secrets', note: null, items: [] },
@@ -42,7 +37,7 @@ function mountScope(scope: BackupScope | null, onWrite: (value: BackupScope | nu
   return mount(ScheduleScope, {
     // `defineModel('scope')` emits `update:scope`; the quoted keys are needed for that one and keep
     // the object consistent.
-    props: { 'open': false, 'state': state, 'scope': scope, 'onUpdate:scope': onWrite },
+    props: { 'open': false, 'selection': selection, 'scope': scope, 'onUpdate:scope': onWrite },
   })
 }
 

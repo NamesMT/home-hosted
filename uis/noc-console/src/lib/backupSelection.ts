@@ -1,4 +1,4 @@
-import type { BackupScheduleConfig, BackupScope, BackupsView } from '@shared/contracts'
+import type { BackupScheduleConfig, BackupScope, BackupSelection } from '@shared/contracts'
 import { sameScope, scopeOf } from '@shared/backup-scope'
 
 /** One thing a backup can capture, as the dialog offers it. */
@@ -28,7 +28,7 @@ const GLOBAL_ITEMS: CaptureItem[] = [
  * slices first, then every workspace's own leaves and data paths. A data path
  * the panel reports as not included is left out, exactly as before.
  */
-export function captureItems(view: BackupsView | null): CaptureItem[] {
+export function captureItems(view: BackupSelection | null): CaptureItem[] {
   if (view === null)
     return []
 

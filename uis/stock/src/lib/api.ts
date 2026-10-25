@@ -1,6 +1,6 @@
 import type {
   AppState,
-  BackupsView,
+  BackupSelection,
   DdnsConfig,
   DdnsView,
   FreePortResult,
@@ -230,8 +230,8 @@ export function logDownloadUrl(workspace: string, id: string, file: string): str
 }
 
 /** Backups are panel-wide: every workspace is a selectable entry in the archive. */
-export function fetchBackups(): Promise<BackupsView> {
-  return request<BackupsView>('/api/backups')
+export function fetchBackups(): Promise<BackupSelection> {
+  return request<BackupSelection>('/api/backups')
 }
 
 /**

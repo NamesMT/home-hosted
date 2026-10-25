@@ -12,9 +12,9 @@ import { secretEqual } from '#src/helpers/secret-compare'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
-import { buildBackupsView } from '#src/services/state'
+
 import { selectionOf } from '#src/shared/backup-scope'
-import { backupCreatedResponseSchema, backupsViewSchema, freePortResultSchema, okResponseSchema, restorePlanSchema } from '#src/shared/contracts'
+import { backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema } from '#src/shared/contracts'
 
 /**
  * The local control channel used by `home-hosted down` and `home-hosted start|stop`.
@@ -145,11 +145,11 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'List the stored backup archives (local token required)',
-        responses: { 200: { description: 'The archives', content: jsonBody(backupsViewSchema) }, 403: { description: 'Bad token, or not a local caller' } },
+        responses: { 200: { description: 'The archives', content: jsonBody(backupSelectionSchema) }, 403: { description: 'Bad token, or not a local caller' } },
       }),
       (c) => {
         assertLocalCall(c, 'list backups')
-        return c.json(buildBackupsView(deps.backups))
+        return c.json(deps.backups.selection())
       },
     )
 
@@ -171,7 +171,10 @@ export function createControlRoute(deps: AppDeps) {
         // Without `confirm` this answers the plan and writes nothing, so a script can read what a
         // backup would capture before taking one.
         if (c.req.query('confirm') !== 'true') {
-          const view = buildBackupsView(deps.backups)
+          // `selection()` for the entries, `view()` for `includePaths`: the model is off the state
+          // frame now, and a plan still needs both halves.
+          const view = deps.backups.selection()
+          const includePaths = deps.backups.view().includePaths
           // The service's own selection rule, so the plan cannot disagree with what an apply writes —
           // that divergence is exactly how `--exclude` would work on backup and do nothing in a plan.
           const selects = selectionOf({ include, exclude })
@@ -184,7 +187,7 @@ export function createControlRoute(deps: AppDeps) {
           const entries = view.entries
             .filter(entry => selects(entry.id) || namesLeafOf(entry.id))
             .map(entry => ({ ...entry, items: entry.items.filter(item => selects(item.id)) }))
-          return c.json({ apply: false, entries, includePaths: view.includePaths })
+          return c.json({ apply: false, entries, includePaths })
         }
         const result = await deps.backups.create({ password, include, exclude })
         if (!result.ok)

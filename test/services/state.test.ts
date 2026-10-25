@@ -29,7 +29,10 @@ function searchableFiles(): string[] {
   const out: string[] = []
   const walk = (dir: string): void => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (['node_modules', 'dist', 'coverage', '.git'].includes(entry.name))
+      // `.agents` is a git-ignored scratch directory that holds whole *worktrees* — second
+      // checkouts of this repo. A caller counted from one of them is not a caller: measured at
+      // 3,141 of 3,679 scanned files, enough for a dead helper to read as used.
+      if (['node_modules', 'dist', 'coverage', '.git', '.agents'].includes(entry.name))
         continue
       const full = path.join(dir, entry.name)
       if (entry.isDirectory())
@@ -56,7 +59,11 @@ describe('state builders', () => {
     const state = deComment(source('src/services/state.ts'))
     const builders = [...state.matchAll(/^export function (build\w+)\(/gm)].map(m => m[1]!)
     // The file is meant to build views; an empty list would make this pass for the wrong reason.
-    expect(builders.length, 'expected several builders').toBeGreaterThanOrEqual(3)
+    // Named, not counted: a regex that stops matching shows up as a missing name, and adding or
+    // removing a builder is a deliberate edit here rather than a number that happens to line up.
+    // `buildBackupsView` was a one-line pass-through to `BackupService.view()`; the selection model
+    // moved to its own route (F54) and the last caller went with it.
+    expect(builders, 'the builders this file is expected to export').toEqual(['buildControlView', 'buildWorkspaceView'])
 
     const orphans = builders.filter((name) => {
       const uses = bodies

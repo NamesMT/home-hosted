@@ -24,7 +24,10 @@ function searchableFiles(): string[] {
   const out: string[] = []
   const walk = (dir: string): void => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (['node_modules', 'dist', 'coverage', '.git'].includes(entry.name))
+      // `.agents` is a git-ignored scratch directory that holds whole *worktrees* — second
+      // checkouts of this repo. A caller counted from one of them is not a caller: measured at
+      // 3,141 of 3,679 scanned files, enough for a dead helper to read as used.
+      if (['node_modules', 'dist', 'coverage', '.git', '.agents'].includes(entry.name))
         continue
       const full = path.join(dir, entry.name)
       if (entry.isDirectory())

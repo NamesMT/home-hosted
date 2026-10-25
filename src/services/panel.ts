@@ -615,8 +615,11 @@ function stateSignature(state: AppState): string {
     state.control.tls.enabled,
     state.host.sampledAt,
     state.host.alerts.join(','),
-    state.backups.files.length,
-    state.backups.entries.length,
+    // The archive list and the capture entries are no longer in the frame — they are `GET
+    // /api/backups`, fetched when a dialog opens — so a new archive does not change this signature.
+    // `lastAutomaticAt` and `scheduleError` are the policy facts a page still redraws from.
+    state.backups.lastAutomaticAt,
+    state.backups.scheduleError?.at ?? 0,
     // Which UI the panel serves. `ui.status()` reads the installed `ui.json`, so an upload
     // or a revert is news the moment it happens — and without this it was only picked up when
     // something else moved, which the host sample eventually does (up to one interval later).
