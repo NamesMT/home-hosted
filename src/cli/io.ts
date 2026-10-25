@@ -58,12 +58,30 @@ export function invocation(): string {
  * Python's exit 0. This follows the latter, because the command *succeeded* and only the reader
  * stopped listening — nothing was refused, and no work was lost.
  *
+ * **The code for "the reader is gone" is not the same on every platform.** `EPIPE` is what Linux
+ * reports; libuv elsewhere can surface the same condition as `ERR_STREAM_DESTROYED`, and a write to an
+ * already-destroyed stream arrives with no `code` at all and the message `closed`. Matching only
+ * `EPIPE` left the macOS gate failing with exit 1 and an **empty stderr** — nothing was printed and
+ * nothing was explained, because the error was a stream state, not a failed write. So the test is
+ * "does this error say the reader went away"; a full disk or an EIO still ends the process.
+ *
  * Installed once at the entry so every command shares it. A per-command copy is the shape that leaves
  * the next command broken, and there are 109 write sites.
  */
+const READER_GONE = /^(?:EPIPE|ERR_STREAM_DESTROYED|ERR_STREAM_WRITE_AFTER_END|ECONNRESET)$/
+
+export function isClosedReaderError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code
+  if (typeof code === 'string' && READER_GONE.test(code))
+    return true
+  // A write to a destroyed stream carries no code, only the message.
+  const message = (error as Error | null)?.message ?? ''
+  return /^(?:closed|write after end|premature close)$/i.test(message)
+}
+
 export function treatClosedReaderAsDone(): void {
   process.stdout.on('error', (error: NodeJS.ErrnoException) => {
-    if (error.code === 'EPIPE')
+    if (isClosedReaderError(error))
       process.exit(0)
     // Anything else is a real write failure, which used to end the process by default; keep that.
     throw error

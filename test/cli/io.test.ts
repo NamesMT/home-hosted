@@ -103,6 +103,33 @@ describe('cli io', () => {
   })
 
   /**
+   * "The reader is gone" does not look the same on every platform, and the macOS gate proved it.
+   *
+   * The guard matched only `EPIPE`; libuv on macOS surfaced the closed pipe as
+   * `ERR_STREAM_DESTROYED` (and a write to a destroyed stream carries no `code` at all, only the
+   * message `closed`), so the process exited 1 with an empty stderr — the failure the whole guard
+   * exists to prevent, on one platform only. Each code below is a shape a real Node stream produces.
+   */
+  it('recognises a closed reader however the platform spells it', async () => {
+    const { isClosedReaderError } = await import('#src/cli/io')
+
+    // Linux.
+    expect(isClosedReaderError(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).toBe(true)
+    // macOS/libuv, and a write after the stream ended.
+    expect(isClosedReaderError(Object.assign(new Error('write'), { code: 'ERR_STREAM_DESTROYED' }))).toBe(true)
+    expect(isClosedReaderError(Object.assign(new Error('write'), { code: 'ERR_STREAM_WRITE_AFTER_END' }))).toBe(true)
+    // A destroyed stream reports no code, only the message.
+    expect(isClosedReaderError(new Error('closed'))).toBe(true)
+    expect(isClosedReaderError(new Error('write after end'))).toBe(true)
+
+    // A real write failure is still a failure — the guard must not become "ignore every error".
+    expect(isClosedReaderError(Object.assign(new Error('write ENOSPC'), { code: 'ENOSPC' }))).toBe(false)
+    expect(isClosedReaderError(Object.assign(new Error('read EIO'), { code: 'EIO' }))).toBe(false)
+    expect(isClosedReaderError(new Error('something else entirely'))).toBe(false)
+    expect(isClosedReaderError(undefined)).toBe(false)
+  })
+
+  /**
    * `fail` is the one error shape: a message on stderr and exit 1. Commands rely on it
    * instead of citty's own `console.error`, which is why the root calls `runCommand`
    * rather than `runMain` — so the envelope it produces is part of the CLI's contract.
