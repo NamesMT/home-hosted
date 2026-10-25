@@ -1,6 +1,27 @@
 # Changelog
 
 
+## v0.10.2
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.10.1...v0.10.2)
+
+### 🚀 Enhancements
+
+- **setup-temp:** Offer to download LibreHardwareMonitor, into ProgramData ([71f8247](https://github.com/NamesMT/home-hosted/commit/71f8247))
+- **uis:** Edit a duration in seconds, not a millisecond count ([bc7aa98](https://github.com/NamesMT/home-hosted/commit/bc7aa98))
+
+### 🩹 Fixes
+
+- **wsl:** The guest path is POSIX, whatever platform builds it ([9fcb6d1](https://github.com/NamesMT/home-hosted/commit/9fcb6d1))
+
+### 💅 Refactors
+
+- **setup-temp:** One flag for three states, and prose a reader can act on ([4bf2b65](https://github.com/NamesMT/home-hosted/commit/4bf2b65))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.10.1
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.10.0...v0.10.1)
