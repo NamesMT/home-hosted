@@ -63,6 +63,25 @@ const FULL = { width: 1600, height: 1000 }
 const TOUR = { width: 1120, height: 700 }
 const FRAME_MS = 2400
 
+/**
+ * This machine's real temperature command, or null when it has none.
+ *
+ * Read from the panel's own settings rather than hardcoded: the demo then shows whatever the host
+ * genuinely reports, and a box with no sensor still captures an honest `n/a`.
+ */
+function realTempCommand() {
+  try {
+    const settings = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.home-hosted', '.hh', 'settings.json'), 'utf8'))
+    const command = settings?.host?.tempCommand
+    return typeof command === 'string' && command.trim().length > 0 ? command : null
+  }
+  catch {
+    return null
+  }
+}
+
+const demoTempCommand = realTempCommand()
+
 const only = process.argv.slice(2)
 const wants = what => only.length === 0 || only.includes(what)
 
@@ -185,7 +204,12 @@ async function makeHome(uiDist, label) {
       // A demo page has seconds, not an interval, to look alive: the default 15 s sampling leaves
       // the CPU dial showing "—" (its honest first-sample state) in every screenshot. 5000 is the
       // schema's minimum.
-      host: { intervalMs: 5000, diskPaths: ['.'] },
+      //
+      // `tempCommand` only when this machine actually reads a temperature. A screenshot showing
+      // `n/a` is honest where no sensor exists, but the front page is the wrong place to discover
+      // that this box cannot — and a *fabricated* number would be worse. So the demo borrows the
+      // real bridge when it is set up, and omits the field when it is not.
+      host: { intervalMs: 5000, diskPaths: ['.'], ...(demoTempCommand === null ? {} : { tempCommand: demoTempCommand, tempCommandTimeoutMs: 5000 }) },
     }, null, 2)}\n`,
   )
   fs.writeFileSync(
