@@ -131,8 +131,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   schema ceiling is not a reason to buffer: it is the size a person downloads at.
 - **A page the panel serves must not be blank without a CDN.** Render real content from
   `spec.json` first (`src/openapi-reference.ts`), then load any richer browser as optional
-  enhancement. A dependency that renders *only* via the network is a blank page on the box this
-  package is for.
+  enhancement, **pinned** — an unpinned `import` from a CDN is a third party that can break the
+  panel's page. Before blaming a library for being online-only, drive its self-hosted build offline:
+  the claim is usually about the integration, not the library.
 - **An entry's server is not always the process the panel spawned.** A compose entry's containers
   outlive their wrapper, so resolve what the entry *declares it runs* (`composeTarget`), stop that,
   and decide from a **fresh listing** — never the signal or `docker stop`'s exit code, which is 0 for

@@ -1,20 +1,26 @@
 /**
  * The browsable API reference at `/openapi/ui`.
  *
- * It used to be `Scalar()`, which renders a page whose only content is
- * `<script type="module">import … from 'https://cdn.jsdelivr.net/…'</script>` — so on the machine this
- * package exists for, a home server with no route to the internet (or a browser with a strict CSP, or a
- * blocked CDN), the page is **blank**: measured in Chromium with every non-panel request aborted, `#app`
- * had 0 children and 0 characters of text, while the same page pulled 30 requests / a 754 KB bundle from
- * jsDelivr plus two fonts from `fonts.scalar.com` when it could reach them.
+ * It used to be `Scalar()`, whose HTML is a `<script type="module">` importing the reference from
+ * `cdn.jsdelivr.net` and nothing else — so with no route to the internet `#app` held 0 children and 0
+ * characters. Measured in Chromium with every non-panel request aborted; the same page made 30 off-origin
+ * requests and pulled a 754 KB bundle when it could reach them.
  *
- * `docs/UI_CREATION.md` point 5 is "an offline home server should not need a CDN", and the panel is the
- * thing being documented. So the index below is rendered **from `/openapi/spec.json` with no dependency**
- * — grouped by tag, every operation with its method, path and summary — and Scalar is loaded afterwards as
- * optional enhancement: if it arrives, it takes over; if it does not, the person still has the API.
+ * Scalar itself is not the limitation: its standalone bundle renders fine offline when it is served
+ * alongside the panel. It weighs 4.9 MB, and `docs/UI_CREATION.md` point 5 says an offline home server
+ * should not need a CDN, so shipping that to every install is a worse trade than rendering the route
+ * index from `/openapi/spec.json` — grouped by tag, every operation with its method, path and summary —
+ * and offering the interactive browser to whoever can reach it. The index is what renders first and
+ * stays if the import fails, so the page is never blank.
  *
  * The spec stays the single source of truth; this file only formats what the routes already declare.
  */
+
+/**
+ * The Scalar release the optional enhancement loads, pinned so an upstream release cannot change this
+ * page without a commit here. Bump it deliberately and re-check `/openapi/ui` with the network on.
+ */
+const SCALAR_VERSION = '1.76.0'
 
 /**
  * Deliberately a string, not a `.vue` or a template dependency: this route is outside `/api` and outside
@@ -120,9 +126,13 @@ export function openApiReferencePage(specUrl: string): string {
        * Optional enhancement: the interactive reference, which lives on a CDN. It is allowed to fail —
        * that is the whole point of rendering the index first — so a LAN box with no internet keeps a
        * usable page instead of a blank one.
+       *
+       * The version is pinned: this is an enhancement fetched from a third party at page load, and a
+       * floating major would let an upstream release break or restyle the panel's page with no change
+       * here. The index above is unaffected either way.
        */
       try {
-        const { createApiReference } = await import('https://cdn.jsdelivr.net/npm/@scalar/api-reference/esm.js')
+        const { createApiReference } = await import('https://cdn.jsdelivr.net/npm/@scalar/api-reference@${SCALAR_VERSION}/esm.js')
         app.innerHTML = ''
         app.dataset.fallback = 'enhanced'
         createApiReference('#app', { _integration: 'hono', url: specUrl, theme: 'deepSpace' })

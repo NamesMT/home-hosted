@@ -354,6 +354,23 @@ line in `AGENTS.md` instead.
   said an offline home server should not need a CDN. Render real content from `spec.json` first
   (`src/openapi-reference.ts`), then load the richer browser as optional enhancement inside a
   `try {} catch {}`. The rule generalises to any dependency that renders only via the network.
+- **"That library cannot work offline" is a claim about its *integration*, and it needs a measurement
+  before it becomes one about the library.** The paragraph above is what the Hono middleware does, and
+  it is real — but a follow-up round nearly wrote it up as a Scalar limitation, which is false:
+  Scalar's `dist/browser/standalone.js`, served from the panel, renders the whole reference with the
+  network blocked (**998 characters, 0 errors, identical to online**; the only off-origin requests are
+  two `fonts.scalar.com` woff2 files, non-blocking). So the honest statement is "4.9 MB to self-host,
+  which is a bad trade for this panel", not "it only works online". Both readings justify the same
+  code; only one of them survives being checked, and the wrong one would have deleted a dependency
+  that a different design could have kept. When a dependency's docs offer a self-hosted variant
+  (`cdn:` pointing at a local file, a `bundle` build, a vendored asset), download it and drive it
+  offline before deciding the library is at fault.
+- **An enhancement fetched at page load is pinned, and the pin is guarded.** `src/openapi-reference.ts`
+  imports `@scalar/api-reference@<version>/esm.js` from jsDelivr; a floating `@scalar/api-reference`
+  would let any upstream release restyle, break, or add a request to the panel's own page with no
+  commit here — a supply-chain edge that the panel otherwise does not have. `test/api/panel.test.ts`
+  asserts the served HTML names an exact `x.y.z` (broken deliberately → fails on the unpinned form),
+  so the pin cannot be dropped back to `latest` without a red test.
 
 ## Data
 

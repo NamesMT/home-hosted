@@ -976,6 +976,9 @@ describe('openapi document', () => {
    * CDN. The page now renders the route index from `spec.json` itself and treats the CDN browser as
    * optional enhancement.
    *
+   * Scalar itself is not the constraint — its standalone bundle renders offline when self-hosted, at
+   * 4.9 MB. Rendering the index here is the cheaper trade, not the only one available.
+   *
    * Asserted on the document, because whether a CDN is reachable is not something a unit test can
    * decide: the fallback markup has to be *in the HTML the server sends*, before any script runs.
    */
@@ -992,6 +995,9 @@ describe('openapi document', () => {
     expect(html).toContain('Loading the route index')
     // Enhancement is allowed to fail; the import must be the only CDN reference and it must be caught.
     expect(html).toMatch(/try\s*\{[\s\S]*cdn\.jsdelivr\.net[\s\S]*catch/)
+    // …and it must name a version. A floating `@scalar/api-reference` lets an upstream release change
+    // or break the panel's own page with no commit here; the pinned form is `@scalar/api-reference@1.2.3`.
+    expect(html).toMatch(/@scalar\/api-reference@\d+\.\d+\.\d+/)
   })
 
   it('declares the auth scheme a generated client needs', async () => {

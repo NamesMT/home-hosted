@@ -285,7 +285,9 @@ document declares its own `securitySchemes` (`bearerAuth`), every documented 2xx
 each operation is tagged — so `openapi-typescript`, `openapi-generator` or a docs renderer can generate
 a working client without hand-written glue. `/openapi/ui` builds its route index from the spec itself, so
 it stays readable on a box with no internet; the richer interactive browser it also offers is fetched
-from a CDN and is optional — the plain index is what you get when that CDN is unreachable.
+from a **version-pinned** CDN and is optional — the plain index is what you get when that CDN is
+unreachable. Scalar's bundle does render offline when self-hosted, but it is 4.9 MB, so the index is the
+cheaper trade for a panel that ships no other web assets.
 
 </details>
 
