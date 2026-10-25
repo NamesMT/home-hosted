@@ -42,7 +42,9 @@ export function toGuestPath(windowsPath: string): string | null {
   const match = /^([a-z]):\\(.*)$/i.exec(windowsPath)
   if (match === null)
     return null
-  return path.join('/mnt', match[1]!.toLowerCase(), ...match[2]!.split('\\'))
+  // `path.posix`, not `path.join`: this is always a *Linux guest* path, and on a Windows checkout
+  // `path.join` would build it with backslashes — which is how the Windows gate caught this.
+  return path.posix.join('/mnt', match[1]!.toLowerCase(), ...match[2]!.split('\\'))
 }
 
 /** The install directory as a guest path, or null when the Windows side cannot be reached. */

@@ -104,6 +104,11 @@ describe('the LibreHardwareMonitor install', () => {
 
   it('translates a Windows path to one this process can read', () => {
     expect(toGuestPath('C:\\ProgramData\\home-hosted\\LibreHardwareMonitor')).toBe('/mnt/c/ProgramData/home-hosted/LibreHardwareMonitor')
+    // The separator must be `/` on **this** platform too. Asserted as a string comparison that does
+    // not go through `path`, because the bug this pins was `path.join` building the guest path with
+    // the *host's* separator: green on Linux, `\\mnt\\c\\...` on the Windows gate.
+    expect(toGuestPath('C:\\x')!.includes('\\')).toBe(false)
+    expect(toGuestPath('C:\\x')!.startsWith('/mnt/')).toBe(true)
     // A system drive that is not C: is translatable too.
     expect(toGuestPath('D:\\ProgramData\\x')).toBe('/mnt/d/ProgramData/x')
     // A UNC path has no `/mnt` equivalent, so it is refused rather than guessed.
