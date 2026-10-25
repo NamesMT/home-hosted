@@ -1,6 +1,18 @@
 # Changelog
 
 
+## v0.10.3
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.10.2...v0.10.3)
+
+### 🩹 Fixes
+
+- **wsl:** The button downloads the library, and the advice names no stale path ([80c05b3](https://github.com/NamesMT/home-hosted/commit/80c05b3))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.10.2
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.10.1...v0.10.2)
