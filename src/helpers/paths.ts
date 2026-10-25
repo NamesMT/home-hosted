@@ -121,19 +121,6 @@ export function workspaceDdnsStatePath(id: string): string {
   return path.join(workspaceStateDir(id), 'ddns.json')
 }
 
-/** Every directory a nanny state file may sit in, across all workspaces. */
-export function workspaceIdsOnDisk(): string[] {
-  try {
-    return fs.readdirSync(hhDir, { withFileTypes: true })
-      .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
-      .map(entry => entry.name)
-      .filter(id => /^[a-z0-9][a-z0-9_-]*$/.test(id))
-  }
-  catch {
-    return []
-  }
-}
-
 // -------------------------------------------------------------------- legacy
 
 /**

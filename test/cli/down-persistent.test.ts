@@ -216,7 +216,12 @@ describe('down --with-persistent', () => {
     }
   })
 
-  it('honours the entry’s own stop policy instead of a hard-coded grace period', async () => {
+  // Windows has no catchable SIGINT: `process.kill(pid, 'SIGINT')` terminates the process instead
+  // of raising a handler, so the marker this test reads is never written. The product path is
+  // `signalPid`'s win32 branch, which cannot express a POSIX signal at all — a platform limitation,
+  // stated here rather than asserted as if it worked (`RELEASING.md`: use `it.runIf`, computed at
+  // module load).
+  it.runIf(process.platform !== 'win32')('honours the entry’s own stop policy instead of a hard-coded grace period', async () => {
     // The nanny forwards the entry's `stop.signal` to the child it owns, so the signal this
     // sends is the one the config asked for. A hard-coded SIGTERM here would stop a service
     // with a signal its author deliberately did not choose.
