@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { isWsl, tempCommandFor, windowsScriptPath, wslScriptPath } from '#src/providers/wsl-temperature'
 
@@ -41,5 +42,35 @@ describe('the WSL temperature bridge', () => {
     expect(target).not.toBeNull()
     // The whole point: powershell.exe must be able to read it.
     expect(target!.startsWith('/mnt/')).toBe(true)
+  })
+})
+
+/**
+ * A setup that cannot work must not look configured.
+ *
+ * The first version saved `tempCommand` *before* probing the helper, so on a machine without
+ * LibreHardwareMonitor the config claimed a temperature source while every sample ran a failing
+ * PowerShell and the tile stayed `n/a`. That is the one state a person cannot diagnose: the settings
+ * page says "configured", the tile says "n/a", and nothing connects them.
+ *
+ * The rule is order, and order is what a source scan can see.
+ */
+describe('setup probes before it saves', () => {
+  it('writes the command only after the helper answered', () => {
+    const source = readFileSync(new URL('../../src/api/wsl-temperature.ts', import.meta.url), 'utf8')
+    const post = source.slice(source.indexOf('.post('), source.indexOf('.delete('))
+    const probeAt = post.indexOf('probeWslTemperature')
+    const saveAt = post.indexOf('updateHost')
+    expect(probeAt, 'the POST route must probe').toBeGreaterThan(-1)
+    expect(saveAt, 'the POST route must save').toBeGreaterThan(-1)
+    expect(probeAt, 'probing must come before saving, or a broken setup reads as configured').toBeLessThan(saveAt)
+  })
+
+  it('the CLI does the same', () => {
+    const source = readFileSync(new URL('../../src/cli/setup-temp.ts', import.meta.url), 'utf8')
+    const wsl = source.slice(source.indexOf('source === \'wsl\''))
+    expect(wsl.indexOf('probeWslTemperature'), 'the CLI must probe').toBeGreaterThan(-1)
+    expect(wsl.indexOf('updateHost'), 'the CLI must save').toBeGreaterThan(-1)
+    expect(wsl.indexOf('probeWslTemperature'), 'a broken setup must not reach the config').toBeLessThan(wsl.indexOf('updateHost'))
   })
 })

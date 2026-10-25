@@ -76,18 +76,22 @@ export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean }): P
     }
     writeWslTemperatureScript(scriptPath)
     const command = tempCommandFor(scriptPath)
-    store.updateHost({ tempCommand: command, tempCommandTimeoutMs: 5000 })
-    process.stdout.write(`${green('WSL temperature bridge set up')}\n`)
     process.stdout.write(`  helper  ${dim(`${scriptPath}  (${windowsScriptPath(scriptPath)} on Windows)`)}\n`)
-    process.stdout.write(`  command ${bold(command)}\n`)
 
-    // Say whether it actually works, rather than leaving a person to find out from a tile.
+    // Probe **before** saving. A command that cannot work must not reach the config: the panel would
+    // run a failing PowerShell on every sample, and the tile would stay `n/a` while the settings page
+    // claimed a source was configured — the one state a person has no way to diagnose.
     const probe = await probeWslTemperature(command, 5000)
     if (probe.celsius === null) {
-      process.stdout.write(`${dim('\nit did not answer yet')}: ${probe.error ?? 'unknown reason'}\n`)
+      process.stdout.write(`${fail('not set up')} — the helper did not answer: ${probe.error ?? 'unknown reason'}\n`)
       process.stdout.write(`${dim('install LibreHardwareMonitor in C:\\Tools\\LibreHardwareMonitor on Windows, then re-run this command')}\n`)
+      process.stdout.write(`${dim(`the script is at ${scriptPath}; the config was left unchanged`)}\n`)
       return
     }
+
+    store.updateHost({ tempCommand: command, tempCommandTimeoutMs: 5000 })
+    process.stdout.write(`${green('WSL temperature bridge set up')}\n`)
+    process.stdout.write(`  command ${bold(command)}\n`)
     process.stdout.write(`  reading ${green(`${probe.celsius}°C`)}\n`)
   }
 }

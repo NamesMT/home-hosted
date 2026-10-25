@@ -79,11 +79,19 @@ export function createWslTemperatureRoute(deps: AppDeps) {
         // The command is what the panel will run; saving it here is the whole point, so the person
         // does not have to copy a path out of a log.
         const command = tempCommandFor(target)
-        deps.panel.settings.updateHost({ tempCommand: command, tempCommandTimeoutMs: 5000 })
-        // Answer with the reading, not just "configured": a setup that cannot say whether it works
-        // leaves a person to discover it from a tile that may not have sampled yet.
+        // Probe **before** saving: a command that cannot work must not reach the config, or the panel
+        // runs a failing PowerShell every sample while the page says a source is configured. The
+        // helper file stays on disk — it is what the person re-runs after installing the library.
         const probe = await probeWslTemperature(command, 5000)
-        return c.json({ ...status(deps), lastReadingCelsius: probe.celsius, lastError: probe.error })
+        if (probe.celsius === null) {
+          return c.json({
+            ...status(deps),
+            lastReadingCelsius: null,
+            lastError: probe.error ?? 'the helper did not answer',
+          })
+        }
+        deps.panel.settings.updateHost({ tempCommand: command, tempCommandTimeoutMs: 5000 })
+        return c.json({ ...status(deps), lastReadingCelsius: probe.celsius, lastError: null })
       },
     )
 

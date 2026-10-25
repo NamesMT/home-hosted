@@ -62,8 +62,9 @@ async function setupBridge(): Promise<void> {
   try {
     const status = await api.installWslTemperature()
     bridge.value = status
-    // The helper sets the command on the panel; reflect it in the form so Save is not needed.
-    if (status.tempCommand !== null && status.tempCommand !== undefined)
+    // The panel only writes the command when the helper answered — a setup that cannot work must not
+    // look configured, so mirror whatever it actually did rather than assuming it succeeded.
+    if (status.configured && status.tempCommand !== null && status.tempCommand !== undefined)
       host.value.tempCommand = status.tempCommand
   }
   catch (caught) {
