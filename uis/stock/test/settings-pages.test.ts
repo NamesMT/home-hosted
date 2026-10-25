@@ -391,7 +391,8 @@ describe('the copy-from-live guard stays per block', () => {
     await inputFor(wrapper, 'Panel name').setValue('My panel')
     await flushPromises()
     // The host block is still on the schema defaults, which differ from the config below.
-    expect((inputFor(wrapper, 'Interval (ms)').element as HTMLInputElement).value).toBe('15000')
+    // Shown in seconds now, so the schema default 15000 ms reads as `15`.
+    expect((inputFor(wrapper, 'Interval (s)').element as HTMLInputElement).value).toBe('15')
 
     // Now the file-level block arrives with the config's own value.
     gate.release()
@@ -399,7 +400,7 @@ describe('the copy-from-live guard stays per block', () => {
 
     // A guard over the whole form would have read the pending rename as "this block is edited"
     // and left the schema default showing forever, offering to revert a change nobody made.
-    expect((inputFor(wrapper, 'Interval (ms)').element as HTMLInputElement).value).toBe('20000')
+    expect((inputFor(wrapper, 'Interval (s)').element as HTMLInputElement).value).toBe('20')
     // …and the rename in the other block survived the fill.
     expect((inputFor(wrapper, 'Panel name').element as HTMLInputElement).value).toBe('My panel')
   })

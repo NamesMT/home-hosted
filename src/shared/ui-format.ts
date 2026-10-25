@@ -92,3 +92,39 @@ export function formatAgo(ts: number | null, now: number, words: DurationWords =
     return words.ago(Math.floor(delta / 3_600_000), 'h')
   return words.ago(Math.floor(delta / 86_400_000), 'd')
 }
+
+/** Milliseconds in a second — the one conversion a duration field needs. */
+const MS_PER_SECOND = 1000
+
+/**
+ * A millisecond setting, shown to a person in **seconds**.
+ *
+ * The config stores `ms` because that is what a timer is; nothing about it is worth retyping, and
+ * changing it would be a migration for no gain. But a person never thinks "1200000" — every field
+ * whose floor is a second or more (`sessionTtlMs` 60s, `lockoutMs` 1s, the vitals `intervalMs` 5s,
+ * the notification `cooldownMs`, and the DDNS check interval) is edited in seconds and converted
+ * here, once, rather than at eight call sites.
+ *
+ * Rounding is deliberate: a value stored as `1500` reads `2s`, and only a *change* writes, so
+ * simply visiting a page cannot rewrite a config that was fine.
+ */
+export function msToSeconds(ms: number): number {
+  return Math.round(ms / MS_PER_SECOND)
+}
+
+/** The inverse: whole seconds back to the milliseconds the config stores. */
+export function secondsToMs(seconds: number): number {
+  return Math.round(seconds) * MS_PER_SECOND
+}
+
+/**
+ * Whether a field is shown in seconds.
+ *
+ * Decided by the schema's floor, not per call site: below a second (`health.timeoutMs` starts at
+ * 100 ms, `intervalMs` at 500) a seconds box would round away the only values the field accepts, so
+ * those stay in `ms`. A field whose floor is 1000 or more has no meaningful sub-second value, which
+ * is what makes the conversion safe to apply.
+ */
+export function shownInSeconds(minMs: number): boolean {
+  return minMs >= MS_PER_SECOND
+}

@@ -18,6 +18,7 @@ import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
 import { sameScope } from '@shared/backup-scope'
 import { countLeaves, diffFields, mergeReplacedList, replacedListConflicts } from '@shared/patch-diff'
+import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed } from 'vue'
 import { t } from '@/i18n'
 import { waitForEndpoint } from '@/lib/endpoint'
@@ -607,6 +608,26 @@ export function tlsChanged(view: ControlView, form: GlobalSettingsForm): boolean
 
 export function authChanged(view: ControlView, form: GlobalSettingsForm): boolean {
   return countLeaves(diffFields({ ...authBaseline(view.auth) }, { ...form.auth })) > 0
+}
+
+/**
+ * A millisecond setting edited in **seconds**.
+ *
+ * The config keeps `ms`; only the box changes, so an existing value is shown as `2s` for `1500` and
+ * nothing is migrated. Use this for a field whose schema floor is a second or more — a sub-second
+ * value in one of those is not a thing a person sets, and rounding would eat it anyway.
+ */
+export function secondsModel(
+  get: () => number,
+  set: (value: number) => void,
+  fallbackMs: number,
+): WritableComputedRef<number | null> {
+  return computed<number | null>({
+    get: () => msToSeconds(get()),
+    set: (value) => {
+      set(value === null || Number.isNaN(value) ? fallbackMs : secondsToMs(value))
+    },
+  })
 }
 
 /** `NumberField` speaks `number | null`; stored config never carries null. */

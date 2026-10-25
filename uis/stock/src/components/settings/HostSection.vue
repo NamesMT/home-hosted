@@ -4,7 +4,7 @@ import type { HostForm } from '@/components/settings/settingsForm'
 import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, ref } from 'vue'
 import Notice from '@/components/settings/Notice.vue'
-import { numberModel } from '@/components/settings/settingsForm'
+import { numberModel, secondsModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
@@ -25,7 +25,10 @@ const emit = defineEmits<{ reset: [] }>()
 
 const host = defineModel<HostForm>('host', { required: true })
 
-const intervalMs = numberModel(() => host.value.intervalMs, value => (host.value.intervalMs = value), 15_000)
+// Seconds: the floor is 5 s, so a sub-second sample interval does not exist. Shown as `15`, not
+// `15000`. The command's own timeout stays in ms — its floor is 100 ms, where seconds would round
+// away values the schema accepts.
+const intervalSeconds = secondsModel(() => host.value.intervalMs, value => (host.value.intervalMs = value), 15_000)
 const diskUsedPercent = numberModel(() => host.value.diskUsedPercent, value => (host.value.diskUsedPercent = value), 90)
 const memoryUsedPercent = numberModel(() => host.value.memoryUsedPercent, value => (host.value.memoryUsedPercent = value), 90)
 const swapUsedPercent = numberModel(() => host.value.swapUsedPercent, value => (host.value.swapUsedPercent = value), 50)
@@ -108,7 +111,7 @@ async function removeBridge(): Promise<void> {
       :hint="t('settings.host.enabledHint')"
       wide
     />
-    <NumberField v-model="intervalMs" :label="t('settings.host.interval')" :min="5000" :hint="t('settings.host.intervalHint')" />
+    <NumberField v-model="intervalSeconds" :label="t('settings.host.interval')" :min="5" :hint="t('settings.host.intervalHint')" />
     <TextField v-model="host.diskPaths" :label="t('settings.host.diskPaths')" :hint="t('settings.host.diskPathsHint')" />
     <NumberField v-model="diskUsedPercent" :label="t('settings.host.diskUsed')" :min="0" :max="100" :hint="t('settings.host.zeroDisables')" />
     <NumberField v-model="memoryUsedPercent" :label="t('settings.host.memoryUsed')" :min="0" :max="100" :hint="t('settings.host.zeroDisables')" />

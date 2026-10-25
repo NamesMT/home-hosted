@@ -4,6 +4,7 @@ import type { Patch } from '@shared/patch-diff'
 import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
+import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import BackupDialog from '@/components/BackupDialog.vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
@@ -816,8 +817,8 @@ async function revertUi(): Promise<void> {
                 </select>
               </label>
               <label class="field">
-                <span class="field__label">session lifetime (ms)</span>
-                <input v-model.number="form.auth.sessionTtlMs" inputmode="numeric">
+                <span class="field__label">session lifetime (s)</span>
+                <input :value="msToSeconds(form.auth.sessionTtlMs)" inputmode="numeric" @input="form.auth.sessionTtlMs = secondsToMs(Number(($event.target as HTMLInputElement).value))">
               </label>
               <label class="field">
                 <span class="field__label">cookie secure</span>
@@ -832,8 +833,8 @@ async function revertUi(): Promise<void> {
                 <input v-model.number="form.auth.maxLoginAttempts" inputmode="numeric">
               </label>
               <label class="field">
-                <span class="field__label">lockout (ms)</span>
-                <input v-model.number="form.auth.lockoutMs" inputmode="numeric">
+                <span class="field__label">lockout (s)</span>
+                <input :value="msToSeconds(form.auth.lockoutMs)" inputmode="numeric" @input="form.auth.lockoutMs = secondsToMs(Number(($event.target as HTMLInputElement).value))">
               </label>
             </div>
 
@@ -923,8 +924,8 @@ async function revertUi(): Promise<void> {
                 <span class="field__label">sample this machine</span>
               </label>
               <label class="field">
-                <span class="field__label">interval (ms)</span>
-                <input v-model.number="form.host.intervalMs" inputmode="numeric">
+                <span class="field__label">interval (s)</span>
+                <input :value="msToSeconds(form.host.intervalMs)" inputmode="numeric" @input="form.host.intervalMs = secondsToMs(Number(($event.target as HTMLInputElement).value))">
               </label>
               <label class="field grid__full">
                 <span class="field__label">disk paths (comma separated)</span>

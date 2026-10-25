@@ -4,7 +4,7 @@ import type { AuthForm } from '@/components/settings/settingsForm'
 import { computed, ref } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
-import { numberModel } from '@/components/settings/settingsForm'
+import { numberModel, secondsModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
@@ -24,9 +24,11 @@ const emit = defineEmits<{ reset: [] }>()
 
 const auth = defineModel<AuthForm>('auth', { required: true })
 
-const sessionTtlMs = numberModel(() => auth.value.sessionTtlMs, value => (auth.value.sessionTtlMs = value), 604_800_000)
+// Seconds, not ms: a session lifetime is days, and `604800000` in a box is unreadable. The floor
+// is 60 s, so nothing sub-second is lost.
+const sessionTtl = secondsModel(() => auth.value.sessionTtlMs, value => (auth.value.sessionTtlMs = value), 604_800_000)
 const maxLoginAttempts = numberModel(() => auth.value.maxLoginAttempts, value => (auth.value.maxLoginAttempts = value), 5)
-const lockoutMs = numberModel(() => auth.value.lockoutMs, value => (auth.value.lockoutMs = value), 60_000)
+const lockout = secondsModel(() => auth.value.lockoutMs, value => (auth.value.lockoutMs = value), 60_000)
 
 const passwordSet = computed(() => props.view?.auth.passwordSet === true)
 const apiTokenSet = computed(() => props.view?.auth.apiTokenSet === true)
@@ -99,7 +101,7 @@ async function clearPasswordValue(): Promise<void> {
       :hint="t('settings.auth.requirePasswordHint')"
       class="sm:col-span-2"
     />
-    <NumberField v-model="sessionTtlMs" :label="t('settings.auth.sessionLifetime')" :min="60000" :hint="t('settings.auth.sessionLifetimeHint')" />
+    <NumberField v-model="sessionTtl" :label="t('settings.auth.sessionLifetime')" :min="60" :hint="t('settings.auth.sessionLifetimeHint')" />
     <SelectField
       v-model="auth.cookieSecure"
       :label="t('settings.auth.cookieSecure')"
@@ -121,7 +123,7 @@ async function clearPasswordValue(): Promise<void> {
       class="sm:col-span-2"
     />
     <NumberField v-model="maxLoginAttempts" :label="t('settings.auth.maxLoginAttempts')" :min="1" :hint="t('settings.auth.maxLoginAttemptsHint')" />
-    <NumberField v-model="lockoutMs" :label="t('settings.auth.lockout')" :min="1000" />
+    <NumberField v-model="lockout" :label="t('settings.auth.lockout')" :min="1" />
   </FieldGroup>
 
   <div class="space-y-2">

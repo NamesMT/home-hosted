@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { PolicyForm } from '@/components/settings/settingsForm'
+import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed } from 'vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
@@ -38,12 +39,16 @@ const toggles = computed(() => [
       :label="toggle.label"
       :hint="toggle.hint"
     />
+    <!--
+      Shown in seconds, stored in ms. The form keeps milliseconds and the patch compares
+      milliseconds, so this conversion is display-only: visiting a page cannot rewrite a value.
+    -->
     <NumberField
-      :model-value="policy.cooldownMs"
+      :model-value="msToSeconds(policy.cooldownMs)"
       :label="t('settings.telegram.cooldown')"
       :min="0"
       :hint="t('settings.telegram.cooldownHint')"
-      @update:model-value="policy.cooldownMs = $event ?? 0"
+      @update:model-value="policy.cooldownMs = $event === null ? 0 : secondsToMs($event)"
     />
   </div>
 </template>

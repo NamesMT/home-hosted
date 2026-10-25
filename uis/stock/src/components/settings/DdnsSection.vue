@@ -3,6 +3,7 @@ import type { DdnsAccount, DdnsConfig, DdnsProviderInfo, DdnsRecordState, DdnsRe
 import type { DraftAccount, DraftConfig, DraftDomain } from '@/lib/ddns'
 import type { Tone } from '@/lib/status'
 import { errorMessage } from '@shared/error-message'
+import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -306,13 +307,13 @@ defineExpose({ reload: load })
         />
         <!-- Both keys are required, so a cleared box falls back to the schema's default
              rather than storing null, which the panel rejects for the whole save. -->
+        <!-- Seconds, stored as ms: the floor is 60 s, so no sub-second value exists to lose. -->
         <NumberField
-          :model-value="draft.intervalMs"
+          :model-value="msToSeconds(draft.intervalMs)"
           :label="t('settings.ddns.interval')"
-          :min="60000"
-          :step="60000"
+          :min="60"
           :hint="t('settings.ddns.intervalHint')"
-          @update:model-value="value => setRequired(draft, 'intervalMs', value)"
+          @update:model-value="value => setRequired(draft, 'intervalMs', value === null ? null : secondsToMs(value))"
         />
         <NumberField
           :model-value="draft.ttl"
