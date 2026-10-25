@@ -98,7 +98,6 @@
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",
     "@namesmt/utils": "^0.5.21",
-    "@scalar/hono-api-reference": "^0.12.13",
     "@zip.js/zip.js": "^2.24.0",
     "arktype": "^2.2.8",
     "citty": "^0.2.2",
