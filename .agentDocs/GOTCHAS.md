@@ -180,6 +180,28 @@ line in `AGENTS.md` instead.
   concurrent dispatch may have set a later one. `notify()` is fire-and-forget, so nothing retries: the
   next event is the retry.
 
+- **A WSL2 guest has no temperature the kernel can read, and the Windows fallback is a stub — but the
+  hardware does have one.** Chased end to end on a GMKtec NucBox EVO-X1 (Ryzen AI 9 HX 370), because
+  the host vitals tile read `n/a`:
+  - inside the guest: **no** `/sys/class/thermal/thermal_zone*`, an **empty** `/sys/class/hwmon`, and
+    `find /sys -name 'temp*_input'` returns **nothing** — so no bundled Linux binary can read what
+    the kernel does not expose. `CONFIG_SENSORS_K10TEMP=m` and `x86_pkg_temp_thermal` exist and load,
+    but bind no device (`No such device`): WSL2 exposes 3 synthetic PCI devices and the guest CPUID
+    carries no thermal feature for them to attach to.
+  - the guest *can* read MSRs (`/dev/cpu/0/msr` after `modprobe msr`; TSC and APIC_BASE return real
+    values) — but `MSR 0xC00000A4` (AMD Tctl) reads **0**, because `k10temp` never bound.
+  - the Windows side's only thermal class is `MSAcpi_ThermalZoneTemperature`, and on this box it is a
+    **constant 2932** (20.0 °C) at idle *and* under twelve busy cores, as is the perfmon counter and
+    `Win32_PerfRawData_Counters_ThermalZoneInformation`. Reporting it would be a fabricated number in
+    the tile that exists to warn about heat — worse than `n/a`.
+  - **LibreHardwareMonitor's library reads the real sensor**: `Core (Tctl/Tdie)` = **63.9 °C** idle,
+    **75.25 °C** after four seconds of full load, settling to ~73.8 °C. So the reading is reachable —
+    just not from anything built into Windows or WSL.
+  A bundled reader is therefore possible but is a product decision, not a fix: LHM is **MPL-2.0**, the
+  package is 6.4 MB, it only helps a Windows host with a WSL2 guest, and it needs a `powershell.exe`
+  (5.1 works; the DLL wants `System.Memory` beside it) reached across `/mnt/c`. The honest default
+  stays `n/a`; the docstring and `README.md` say "best-effort" and that is accurate.
+
 ## Metrics
 
 - **Three different "CPU" numbers, and none of them is interchangeable.** `loadAvg` is a **count
