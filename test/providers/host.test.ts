@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, usedPercent } from '#src/providers/host'
+import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, pickCpuTemperature, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, usedPercent } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -418,5 +418,37 @@ describe('host cpu utilisation', () => {
 
   it('offers no utilisation in the empty view', () => {
     expect(emptyHostView(config({})).cpuUsedPercent).toBeNull()
+  })
+})
+
+/**
+ * The reading is labelled "CPU temp", so it must be the CPU's.
+ *
+ * The probe used to take the maximum over *every* hwmon chip, and a machine with an NVMe reports
+ * that disk's temperature beside the CPU's — measured on a simulated tree with `coretemp` at 45 °C
+ * and `nvme` at 89 °C, the panel said "CPU temp 89°". It also fired the temperature **alert** on a
+ * disk. A CPU package reports several dies, so the max *within* the CPU tier is right; the max
+ * across the machine is not.
+ */
+describe('cpu temperature picks the cpu, not the hottest peripheral', () => {
+  it('ignores a disk sitting beside the cpu', () => {
+    expect(pickCpuTemperature([{ name: 'coretemp', celsius: 45 }, { name: 'nvme', celsius: 89 }])).toBe(45)
+    expect(pickCpuTemperature([{ name: 'k10temp', celsius: 62 }, { name: 'amdgpu', celsius: 78 }])).toBe(62)
+  })
+
+  it('takes the hottest die when the cpu reports several', () => {
+    expect(pickCpuTemperature([{ name: 'coretemp', celsius: 55 }, { name: 'coretemp', celsius: 71 }])).toBe(71)
+    expect(pickCpuTemperature([{ name: 'x86_pkg_temp', celsius: 64 }, { name: 'acpitz', celsius: 40 }])).toBe(64)
+  })
+
+  it('falls back to the acpi zone when no chip names the cpu', () => {
+    expect(pickCpuTemperature([{ name: 'acpitz', celsius: 48 }])).toBe(48)
+  })
+
+  it('answers null rather than a peripheral when nothing names the cpu', () => {
+    // WSL2 exposes no sensor at all; a box with only an NVMe exposes the disk's. Neither is a CPU
+    // temperature, and "n/a" is the honest reading for both — a number here would be a fabrication.
+    expect(pickCpuTemperature([{ name: 'nvme', celsius: 89 }])).toBeNull()
+    expect(pickCpuTemperature([])).toBeNull()
   })
 })

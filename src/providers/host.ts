@@ -283,21 +283,57 @@ function getPageSize(): number {
 }
 
 /**
- * Best-effort CPU temperature from Linux thermal zones / hwmon. macOS and
- * Windows expose no unprivileged sensor, so those platforms report null and the
- * UI simply hides the reading.
+ * Sensor names that report the **CPU** package/die temperature, best first.
+ *
+ * `hwmon` exposes one directory per chip and each has a `name`; `thermal_zone` exposes a `type`.
+ * A machine has several: `nvme` and `drivemet` are disks, `amdgpu` is a GPU, `acpitz` is the ACPI
+ * thermal zone. Taking the maximum over *all* of them and calling it "CPU temp" reported the NVMe's
+ * 89 °C as the CPU on any box with one — and fired the temperature alert on a disk.
+ */
+const CPU_SENSOR = /coretemp|k10temp|zenpower|cpu_thermal|cpu-thermal|x86_pkg_temp|soc_thermal|package/i
+
+/** A fallback that is the machine's own thermal zone rather than a peripheral's. */
+const ACPI_SENSOR = /acpitz|acpi/i
+
+export interface TemperatureSensor {
+  /** The chip or zone name, e.g. `coretemp`, `nvme`, `x86_pkg_temp`. */
+  name: string
+  celsius: number
+}
+
+/**
+ * The CPU temperature, or null when this machine names no CPU sensor.
+ *
+ * One tier is chosen and the maximum is taken only *within* it — a CPU package reports several
+ * dies, so the hottest die is the reading, but a disk's temperature is not a second opinion.
+ */
+export function pickCpuTemperature(sensors: TemperatureSensor[]): number | null {
+  for (const pattern of [CPU_SENSOR, ACPI_SENSOR]) {
+    const tier = sensors.filter(sensor => pattern.test(sensor.name)).map(sensor => sensor.celsius)
+    if (tier.length > 0)
+      return Math.max(...tier)
+  }
+  return null
+}
+
+/**
+ * Best-effort CPU temperature from Linux thermal zones / hwmon. macOS and Windows expose no
+ * unprivileged sensor, so those platforms report null and both UIs read "n/a" — a WSL2 guest has
+ * none either, and the Windows host's `MSAcpi_ThermalZoneTemperature` answers a constant 20 °C
+ * regardless of load, so reaching across for it would be a fabricated number rather than a reading.
  */
 export function cpuTemperature(): number | null {
-  const readings: number[] = []
+  const sensors: TemperatureSensor[] = []
 
-  const inspect = (file: string): void => {
+  /** `name` is the sensor's own label; absent means the file could not be read, so skip it. */
+  const inspect = (file: string, name: string): void => {
     try {
       const raw = Number.parseInt(fs.readFileSync(file, 'utf8').trim(), 10)
       if (!Number.isFinite(raw))
         return
       const celsius = raw / 1000 // both interfaces report millidegrees
       if (celsius > 0 && celsius < 150)
-        readings.push(celsius)
+        sensors.push({ name, celsius })
     }
     catch {
       // Absent on this machine.
@@ -306,8 +342,17 @@ export function cpuTemperature(): number | null {
 
   try {
     for (const zone of fs.readdirSync('/sys/class/thermal')) {
-      if (zone.startsWith('thermal_zone'))
-        inspect(path.join('/sys/class/thermal', zone, 'temp'))
+      if (!zone.startsWith('thermal_zone'))
+        continue
+      const dir = path.join('/sys/class/thermal', zone)
+      let type = ''
+      try {
+        type = fs.readFileSync(path.join(dir, 'type'), 'utf8').trim()
+      }
+      catch {
+        // A zone with no `type` is unnamed, and an unnamed sensor cannot be claimed as the CPU.
+      }
+      inspect(path.join(dir, 'temp'), type)
     }
   }
   catch {
@@ -317,9 +362,16 @@ export function cpuTemperature(): number | null {
   try {
     for (const hwmon of fs.readdirSync('/sys/class/hwmon')) {
       const dir = path.join('/sys/class/hwmon', hwmon)
+      let chip = ''
+      try {
+        chip = fs.readFileSync(path.join(dir, 'name'), 'utf8').trim()
+      }
+      catch {
+        // Unnamed chip: keep reading its files, they are just not attributable to the CPU.
+      }
       for (const entry of fs.readdirSync(dir)) {
         if (/^temp\d+_input$/.test(entry))
-          inspect(path.join(dir, entry))
+          inspect(path.join(dir, entry), chip)
       }
     }
   }
@@ -327,7 +379,7 @@ export function cpuTemperature(): number | null {
     // No hwmon.
   }
 
-  return readings.length > 0 ? Math.max(...readings) : null
+  return pickCpuTemperature(sensors)
 }
 
 async function diskUsage(target: string): Promise<HostView['disks'][number] | null> {

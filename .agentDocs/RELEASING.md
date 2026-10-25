@@ -62,6 +62,21 @@ So the migration lives in `.agentDocs/UPGRADING.md`, one `## <version>` section,
 Write it when the release needs it and skip it when it does not — a version with no section ships
 the changelog alone.
 
+## Waiting branches: merge these into the next breaking version
+
+<!-- TEMPORARY — delete this section once both branches are merged. -->
+
+A branch that carries a `BREAKING CHANGE:` does not ship as a patch, so it waits for the next **minor**.
+These are outstanding; the release is not the moment to discover one of them is still unmerged.
+
+| branch | what it changes | merge when |
+| --- | --- | --- |
+| `feat/backup-selection-endpoint` | `entries`/`files` leave `/api/state`, SSE frames, `GET`/`PATCH /api/settings`; the selection model is `GET /api/backups`. Stock 2.24.0, noc-console 1.22.0 | the next minor |
+
+**Before dispatching that minor:** merge the branch, re-run the gate on the merge commit, and write
+the `.agentDocs/UPGRADING.md` section — the client-side migration is "read `GET /api/backups` instead of
+the frame's `backups.entries`/`backups.files`". Check this table is empty afterwards and delete it.
+
 ## Which version to dispatch
 
 Below 1.0 the **minor is the breaking channel**: a fix or non-breaking feature is a **patch**, while a

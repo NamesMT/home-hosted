@@ -150,6 +150,15 @@ workspace config guard, so a busy default port turns config tests red for the wr
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
   suffix `_total` a value that a user action resets — no series here is a counter, and
   `test/api/panel.test.ts` enumerates the scrape and fails on a `_total` name or a `counter` type.
+- **A reading is labelled with what it measured, and a fallback must measure the same thing.** The
+  "CPU temp" tile took `Math.max` over every hwmon chip, so a box with an NVMe reported the **disk's**
+  temperature as the CPU's — and fired the temperature alert on it. Pick the sensor *by name*
+  (`coretemp`/`k10temp`/`x86_pkg_temp`/`cpu-thermal`, then `acpitz`), and take the max only inside that
+  tier, because a CPU package honestly has several dies. `pickCpuTemperature` (`src/providers/host.ts`)
+  is the one place that decides, so it is testable without a sensor. **A platform with no sensor
+  reports `null` and the UI says `n/a`** — WSL2 exposes no thermal zone at all, and the Windows host's
+  `MSAcpi_ThermalZoneTemperature` returns a constant 20 °C whatever the load, so reaching for it
+  would publish a fabricated number in the tile that exists to warn about heat.
 - **A throttle window belongs to a message that arrived.** A send that failed must give its window
   back (`releaseCooldown`), or the alert that would have reached a recovering receiver is the one the
   outage took. Undo only the deadline *this* send armed; `notify()` is fire-and-forget.
