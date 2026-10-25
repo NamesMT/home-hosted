@@ -25,6 +25,7 @@ import { createStateRoute } from '#src/api/state'
 import { createStaticRoute } from '#src/api/static'
 import { createTlsRoute } from '#src/api/tls'
 import { createWorkspacesRoute } from '#src/api/workspaces/$.routes'
+import { createWslTemperatureRoute } from '#src/api/wsl-temperature'
 import { errorHandler } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
@@ -87,6 +88,7 @@ export function createRootApp(deps: AppDeps) {
     .route('/api', createEventsRoute(deps))
     .route('/api', createSettingsRoute(deps))
     .route('/api', createTlsRoute(deps))
+    .route('/api', createWslTemperatureRoute(deps))
     .route('/api', createLogsRoute(deps))
     .route('/api', createNotificationsRoute(deps))
     .route('/api', createDdnsRoute(deps))

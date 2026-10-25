@@ -400,6 +400,59 @@ async function diskUsage(target: string): Promise<HostView['disks'][number] | nu
 }
 
 /**
+ * Run the configured temperature command and parse one number out of its stdout.
+ *
+ * This is the escape hatch for a machine whose kernel exposes no sensor — a WSL2 guest above all,
+ * where `/sys/class/hwmon` is empty and the Windows ACPI zone answers a constant 20 °C. The user
+ * supplies the command, so it is spawned without a shell and given a timeout: a hung helper must
+ * not stall a sample that the whole panel's tick waits on.
+ *
+ * Only a whole-number or decimal reading in a plausible range is accepted. Anything else answers
+ * null, which the UI reads as `n/a` — never a guess, for the same reason a missing sensor is not
+ * published as 0.
+ */
+export async function temperatureFromCommand(command: string, timeoutMs: number): Promise<number | null> {
+  const trimmed = command.trim()
+  if (trimmed.length === 0)
+    return null
+  try {
+    // Run through a shell: the value is a command *line* the person wrote in their own config, like a
+    // server entry's `command`+`args` they could have written instead, and a pipeline
+    // (`… | awk '{print $1}'`) cannot be expressed without one. `execFile` picks cmd.exe on Windows
+    // and /bin/sh elsewhere; `windowsHide` keeps a console from flashing on a desktop.
+    const { stdout } = await execFileAsync(trimmed, { timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024, shell: true })
+    return parseTemperature(stdout)
+  }
+  catch {
+    return null
+  }
+}
+
+/** The first plausible °C reading in a command's output, or null. Exported for its own tests. */
+export function parseTemperature(output: string): number | null {
+  // A helper may print a label before the number (`Tctl: 63.9`), so take the first match anywhere.
+  const match = /-?\d+(?:\.\d+)?/.exec(output)
+  if (match === null)
+    return null
+  const celsius = Number.parseFloat(match[0])
+  if (!Number.isFinite(celsius) || celsius <= 0 || celsius >= 150)
+    return null
+  return celsius
+}
+
+/**
+ * The temperature to report: the configured command when there is one, else the built-in probe.
+ *
+ * The command wins even on a platform whose probe works, because a person who set it did so to
+ * override what the panel found.
+ */
+export async function readTemperature(config: HostConfig): Promise<number | null> {
+  if (config.tempCommand.trim().length > 0)
+    return temperatureFromCommand(config.tempCommand, config.tempCommandTimeoutMs)
+  return cpuTemperature()
+}
+
+/**
  * Samples the machine itself: the failures a home server actually dies from are
  * a full disk, exhausted memory or a runaway load — none of which a port probe
  * can see.
@@ -419,7 +472,7 @@ export async function sampleHost(config: HostConfig, resolvePath: (target: strin
   if (memory.swapUsedPercent === 0 && process.platform !== 'linux') {
     memory.swapUsedPercent = await swapUsedPercent()
   }
-  const tempCelsius = cpuTemperature()
+  const tempCelsius = await readTemperature(config)
 
   const disks = (await Promise.all(config.diskPaths.map(entry => diskUsage(resolvePath(entry))))).filter(
     (disk): disk is HostView['disks'][number] => disk !== null,

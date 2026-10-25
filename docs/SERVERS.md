@@ -365,6 +365,60 @@ normal process, so it is still subject to:
   each nanny by pid, so it ends them on either path — and `restart --with-persistent` has to stop
   them for real, because `up` reattaches to a nanny that is still alive.
 
+## CPU temperature where the OS exposes none
+
+The Host vitals tile reads **n/a** when the machine offers no sensor. That is not a failure of the
+panel: on a WSL2 guest the kernel exposes no `thermal_zone*` at all, `/sys/class/hwmon` is empty, and
+the Windows-side ACPI zone answers a constant 20 °C whatever the load — so there is nothing honest to
+report. macOS and plain Windows behave the same way.
+
+If your hardware does have a sensor, give the panel a command that prints it. **Global settings →
+Host → Temperature command** (or `host.tempCommand` in `settings.json`) runs on every sample and takes
+the first plausible °C number from its stdout; empty means "use the built-in probe". `tempCommandTimeoutMs`
+(default 5000) kills a helper that hangs.
+
+### WSL2
+
+A WSL2 guest cannot read the sensor itself, but the **Windows host** can, through
+[LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor). Download it on
+the Windows side, then point the panel at a small PowerShell script:
+
+```powershell
+# In Windows: C:\Tools\cpu-temp.ps1 — prints the CPU temperature in °C.
+$dir = 'C:\Tools\LibreHardwareMonitor'
+[System.Reflection.Assembly]::LoadFrom("$dir\System.Memory.dll") | Out-Null
+[System.Reflection.Assembly]::LoadFrom("$dir\System.Buffers.dll") | Out-Null
+[System.Reflection.Assembly]::LoadFrom("$dir\Microsoft.Bcl.AsyncInterfaces.dll") | Out-Null
+Add-Type -Path "$dir\LibreHardwareMonitorLib.dll"
+$c = New-Object LibreHardwareMonitor.Hardware.Computer
+$c.IsCpuEnabled = $true
+$c.Open()
+foreach ($hw in $c.Hardware) {
+  $hw.Update()
+  foreach ($s in $hw.Sensors) {
+    if ($s.SensorType -eq 'Temperature' -and $s.Name -match 'Tctl|Package|Core') {
+      [math]::Round($s.Value, 1)
+      break
+    }
+  }
+}
+$c.Close()
+```
+
+Then in the panel's **Temperature command**:
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Tools\cpu-temp.ps1
+```
+
+Two things to know: the call costs a few hundred milliseconds and spawns a PowerShell each sample, so
+raise `host.intervalMs` a little (15–30 s is plenty for a temperature); and the value is the *host's*
+CPU, which is what you want — the guest shares it. Verified on a GMKtec NucBox EVO-X1 (Ryzen AI 9 HX
+370): 63.9 °C idle, 75.2 °C under load, while every built-in path returned the 20 °C stub.
+
+> [!NOTE]
+> On a machine whose sensor the panel *can* read, leave this empty — the command overrides the probe.
+
 ## Editing fields
 
 Changes from the panel are atomic and validated before they are written. Editing the file by hand —

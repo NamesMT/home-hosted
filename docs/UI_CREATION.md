@@ -164,6 +164,7 @@ naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fall
 | `PUT` / `DELETE /api/notifications/destinations/:id/token`, `POST /api/notifications/destinations/:id/{test,detect-chats}`, `POST /api/notifications/test-webhook` | one destination's bot credential and a test send, per workspace |
 | `GET` / `PUT /api/ddns`, `PUT` / `DELETE /api/ddns/credentials/:id`, `POST /api/ddns/check` | dynamic DNS, per workspace: the policy plus live per-record state, one account's sealed credentials (write-only — the view exposes ids and whether each is set, never the values), and a pass run now |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | the session |
+| `GET` / `POST` / `DELETE /api/host/temperature` | the WSL2 temperature bridge, panel-wide: read whether a helper is installed, install one and point `host.tempCommand` at it, or remove both. `supported` is false off WSL, so hide the control rather than offering a button that cannot work |
 | `GET /healthz` | liveness — **no session**, and `503` when a server has crashed, when the panel stopped one because it could not serve, or while a running one is failing its health check |
 | `GET /api/metrics` | Prometheus text (needs a session) |
 

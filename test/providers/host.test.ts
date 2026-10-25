@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, pickCpuTemperature, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, usedPercent } from '#src/providers/host'
+import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, parseTemperature, pickCpuTemperature, readTemperature, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, temperatureFromCommand, usedPercent } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -450,5 +450,49 @@ describe('cpu temperature picks the cpu, not the hottest peripheral', () => {
     // temperature, and "n/a" is the honest reading for both — a number here would be a fabrication.
     expect(pickCpuTemperature([{ name: 'nvme', celsius: 89 }])).toBeNull()
     expect(pickCpuTemperature([])).toBeNull()
+  })
+})
+
+/**
+ * The escape hatch for a machine whose kernel exposes no sensor.
+ *
+ * A WSL2 guest is the case that motivated it: `/sys/class/hwmon` is empty, and the Windows ACPI zone
+ * answers a constant 20 °C whatever the load, so the built-in probe can only answer `n/a`. A person
+ * who knows how to read their own hardware can say so in one config line.
+ */
+describe('a configured temperature command', () => {
+  it('parses the first plausible reading, wherever it sits in the output', () => {
+    expect(parseTemperature('63.9')).toBe(63.9)
+    // A helper may print a label first; the number is still the answer.
+    expect(parseTemperature('Tctl: 64.5 C')).toBe(64.5)
+    expect(parseTemperature('  \n  41 \n')).toBe(41)
+  })
+
+  it('refuses a value that is not a temperature', () => {
+    // The same rule as a missing sensor: no guess. A zero or an absurd number is a broken helper,
+    // and publishing it would either read as idle or fire the heat alert forever.
+    expect(parseTemperature('garbage')).toBeNull()
+    expect(parseTemperature('')).toBeNull()
+    expect(parseTemperature('0')).toBeNull()
+    expect(parseTemperature('999')).toBeNull()
+    expect(parseTemperature('-5')).toBeNull()
+  })
+
+  it('runs a command line, including a pipeline', async () => {
+    expect(await temperatureFromCommand('echo 63.9', 5000)).toBe(63.9)
+    // A shell is what makes the one-liner in the docs expressible at all.
+    expect(await temperatureFromCommand('echo "Tctl: 64.5 C" | awk \'{print $2}\'', 5000)).toBe(64.5)
+  })
+
+  it('answers null for an empty command, a failure, or a hang', async () => {
+    expect(await temperatureFromCommand('', 5000)).toBeNull()
+    expect(await temperatureFromCommand('exit 3', 5000)).toBeNull()
+    // A hung helper must not stall the sample the whole tick waits on.
+    expect(await temperatureFromCommand('sleep 5; echo 50', 300)).toBeNull()
+  })
+
+  it('prefers the command over the built-in probe', async () => {
+    // Even on a machine where the probe would work: a person who set it meant to override.
+    expect(await readTemperature(config({ tempCommand: 'echo 77', tempCommandTimeoutMs: 5000 }))).toBe(77)
   })
 })

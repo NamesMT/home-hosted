@@ -63,6 +63,9 @@ export interface HostForm {
   swapUsedPercent: number
   loadPerCpu: number
   tempCelsius: number
+  /** A command to read the temperature where the kernel exposes no sensor; empty = built-in probe. */
+  tempCommand: string
+  tempCommandTimeoutMs: number
 }
 
 /** The panel-wide backups policy; `dir` stays a file-level decision. */
@@ -199,6 +202,8 @@ export function createGlobalForm(): GlobalSettingsForm {
       swapUsedPercent: 50,
       loadPerCpu: 2,
       tempCelsius: 85,
+      tempCommand: '',
+      tempCommandTimeoutMs: 5000,
     },
     backups: { enabled: true, keep: 5, includePaths: '', scheduleEnabled: false, scheduleHours: 24, scheduleKeep: 7, scheduleScope: null },
   }
@@ -285,6 +290,9 @@ export function hostBaseline(config: HostConfig): HostForm {
     swapUsedPercent: config.swapUsedPercent,
     loadPerCpu: config.loadPerCpu,
     tempCelsius: config.tempCelsius,
+    // Optional in the config: an older panel sends neither, and the form shows the defaults.
+    tempCommand: config.tempCommand ?? '',
+    tempCommandTimeoutMs: config.tempCommandTimeoutMs ?? 5000,
   }
 }
 
@@ -310,10 +318,14 @@ export function backupsBaseline(policy: Pick<BackupsView, 'enabled' | 'keep' | '
 }
 
 export function hostPatch(current: HostConfig, form: HostForm): Patch {
-  return diffFields(current as unknown as Patch, {
-    ...form,
-    diskPaths: splitList(form.diskPaths),
-  } as unknown as Patch)
+  // Diff against the *normalised* current, not the raw config. A field the file omits — an older
+  // panel's `settings.json`, or one added by a newer release — reads as `undefined` there while the
+  // form holds its default, so the page showed unsaved changes nobody made.
+  const baseline = hostBaseline(current)
+  return diffFields(
+    { ...baseline, diskPaths: splitList(baseline.diskPaths) } as unknown as Patch,
+    { ...form, diskPaths: splitList(form.diskPaths) } as unknown as Patch,
+  )
 }
 
 export function backupsPatch(

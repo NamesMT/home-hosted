@@ -120,6 +120,32 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
   process.stdout.write(`  ${dim(`project ${runtime.projectDir}`)}\n`)
   process.stdout.write(`  ${dim(`state   ${runtime.dataRoot}`)}\n`)
   process.stdout.write(`  ${dim(`log     ${runtime.logFile}`)}\n`)
+  await warnIfWslTemperatureMissing()
+}
+
+/**
+ * Say once, on `up`, that this box cannot read its own temperature and that it can be fixed.
+ *
+ * A WSL2 guest has no sensor the kernel exposes, so the Host vitals tile reads `n/a` and looks
+ * broken. Nothing tells a person why — the settings page has the button, but only if they go
+ * looking. This is the one line that turns "the panel is broken" into "run one command".
+ *
+ * Silent when a command is already configured, and on any platform that is not WSL.
+ */
+async function warnIfWslTemperatureMissing(): Promise<void> {
+  const { isWsl } = await import('#src/providers/wsl-temperature')
+  if (!isWsl())
+    return
+  const { GlobalSettingsStore } = await import('#src/config/settings')
+  const { globalSettingsPath } = await import('#src/helpers/paths')
+  const store = new GlobalSettingsStore(globalSettingsPath)
+  store.load()
+  if (store.host.tempCommand.trim().length > 0)
+    return
+  process.stdout.write(
+    `${paint('33', 'note')} WSL2 detected: the guest exposes no CPU temperature, so Host vitals shows n/a\n`
+    + `  ${dim(`set it up with ${invocation()} setup-temp --wsl`)}\n`,
+  )
 }
 
 async function waitForStartup(child: ChildProcess, timeoutMs = 20000) {

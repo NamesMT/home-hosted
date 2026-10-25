@@ -414,6 +414,17 @@ export const hostSchema = type({
   swapUsedPercent: 'number >= 0 = 50',
   loadPerCpu: 'number >= 0 = 2',
   tempCelsius: 'number >= 0 = 85',
+  /**
+   * How to read the CPU temperature when the kernel exposes no sensor.
+   *
+   * A command whose stdout is a number in °C — the escape hatch for a machine this panel cannot read
+   * for itself (a WSL2 guest, a VM, a board whose hwmon chip is unsupported). Empty means "use the
+   * built-in probe". It runs on the sampling interval, so it must be cheap; `docs/SERVERS.md` carries
+   * the WSL2 setup.
+   */
+  tempCommand: 'string <= 512 = ""',
+  /** How long that command may run before it is killed, so a hung helper cannot stall a sample. */
+  tempCommandTimeoutMs: '100 <= number <= 30000 = 5000',
 }).onUndeclaredKey('reject')
 export type HostConfig = typeof hostSchema.infer
 
@@ -750,6 +761,8 @@ const hostPatchSchema = type({
   swapUsedPercent: 'number >= 0?',
   loadPerCpu: 'number >= 0?',
   tempCelsius: 'number >= 0?',
+  tempCommand: 'string <= 512?',
+  tempCommandTimeoutMs: '100 <= number <= 30000?',
 }).onUndeclaredKey('reject')
 
 const backupSchedulePatchSchema = type({
@@ -1425,6 +1438,35 @@ export const hostViewSchema = type({
   'sampledAt': 'number | null',
 })
 export type HostView = typeof hostViewSchema.infer
+
+/**
+ * The WSL2 temperature bridge, as the settings page reports it.
+ *
+ * A WSL2 guest cannot read a CPU temperature at all, so the panel offers to install a Windows-side
+ * helper and point `host.tempCommand` at it. `supported` is false on any other platform, which is
+ * how the UI hides the whole block rather than offering a button that cannot work.
+ */
+export const wslTemperatureSchema = type({
+  /** This process runs under WSL. */
+  'wsl': 'boolean',
+  /** The setup can work here — the same as `wsl` today, separate so a future bridge can differ. */
+  'supported': 'boolean',
+  /** `host.tempCommand` already names a command. */
+  'configured': 'boolean',
+  /** The helper script exists on disk. */
+  'scriptWritten': 'boolean',
+  /** LibreHardwareMonitor was found on the Windows side. */
+  'libraryPresent': 'boolean',
+  /** Where the helper was written, for the sentence that tells a person what to delete. */
+  'scriptPath': 'string | null',
+  /** The command the panel would run, absent until it is configured. */
+  'tempCommand?': 'string | null',
+  /** The last probe's reading, so the page can say "this works" without running it again. */
+  'lastReadingCelsius?': 'number | null',
+  /** Why the last probe failed, if it did — a missing library and no sensor read differently. */
+  'lastError?': 'string | null',
+})
+export type WslTemperatureStatus = typeof wslTemperatureSchema.infer
 
 export const backupFileSchema = type({
   name: 'string',

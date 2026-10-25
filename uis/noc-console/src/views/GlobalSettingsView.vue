@@ -53,6 +53,8 @@ const form = reactive({
     swapUsedPercent: 50,
     loadPerCpu: 2,
     tempCelsius: 85,
+    tempCommand: '',
+    tempCommandTimeoutMs: 5000,
   },
   backups: {
     enabled: true,
@@ -948,7 +950,19 @@ async function revertUi(): Promise<void> {
                 <span class="field__label">cpu temp °C</span>
                 <input v-model.number="form.host.tempCelsius" inputmode="numeric">
               </label>
+              <label class="field grid__full">
+                <span class="field__label">temperature command</span>
+                <input v-model="form.host.tempCommand" placeholder="cat /sys/class/hwmon/hwmon0/temp1_input">
+              </label>
+              <label v-if="form.host.tempCommand.trim()" class="field">
+                <span class="field__label">command timeout ms</span>
+                <input v-model.number="form.host.tempCommandTimeoutMs" inputmode="numeric">
+              </label>
             </div>
+            <p class="note">
+              The command prints one number in °C. For a machine with no readable sensor — a WSL2
+              guest above all; docs/SERVERS.md has the setup. Empty uses the built-in probe.
+            </p>
             <p class="note">
               A threshold of 0 disables that alert. Breaches notify once (and once on recovery).
               <template v-if="control.host.value?.alerts.length">

@@ -13,7 +13,7 @@
  * `noc-console` reads a reactive `selectedWorkspaceId`, `stock` takes an explicit argument — so their
  * `scoped()` differs and the calls that use it stay in the UI.
  */
-import type { DdnsView, ProxyPatch, ProxyView, RestorePlan, SessionView, SettingsView, UiStatus } from './contracts'
+import type { DdnsView, ProxyPatch, ProxyView, RestorePlan, SessionView, SettingsView, UiStatus, WslTemperatureStatus } from './contracts'
 import { type } from 'arktype'
 import { ddnsViewSchema, loginSchema, passwordSchema, proxyCertificateUploadSchema, proxyPatchSchema, proxyViewSchema } from './contracts'
 import { isRecord } from './shape'
@@ -168,6 +168,24 @@ export async function clearProxyCertificate(id: string): Promise<ProxyView> {
 
 export function deleteBackup(name: string): Promise<unknown> {
   return request(`/api/backups/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+
+/**
+ * The WSL2 temperature bridge: read its state, install it, remove it.
+ *
+ * A guest has no readable sensor, so these three are what the settings page offers instead of a tile
+ * that says `n/a` with no explanation.
+ */
+export function fetchWslTemperature(): Promise<WslTemperatureStatus> {
+  return request<WslTemperatureStatus>('/api/host/temperature')
+}
+
+export function installWslTemperature(): Promise<WslTemperatureStatus> {
+  return request<WslTemperatureStatus>('/api/host/temperature', { method: 'POST' })
+}
+
+export function removeWslTemperature(): Promise<WslTemperatureStatus> {
+  return request<WslTemperatureStatus>('/api/host/temperature', { method: 'DELETE' })
 }
 
 export async function fetchProxy(): Promise<ProxyView> {
