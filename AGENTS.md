@@ -103,6 +103,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A single on/off setting is a `ToggleSwitch`**; `CheckField` is only for picking items out of a set.
 - **A destructive action one click away confirms in a popover**, never by arming the same button for a
   second press — an impatient double click fires an armed button. Safe choice first in tab order.
+  `ConfirmButton` is that popover in both UIs; `test/shared/ui-destructive-confirm.test.ts` reads every
+  `.vue` for the armed shape (a label chosen by a `confirm*` flag, a handler that raises the flag and
+  acts), so a new destructive control gets the rule from a red test rather than from review.
 - **A numeric option is a whole decimal integer, never a prefix parse** (`src/cli/up.ts`): `--port 1e3`
   and `--port 8000x` are refused, not read as 1 and 8000. A flag the command cannot honour is refused
   too — `restart --workspace <id>` with no server id exits 1 before anything is attempted, because the

@@ -376,6 +376,17 @@ line in `AGENTS.md` instead.
   be the predicate's own field with no fallback, which catches `?? 0`, `|| 0` and any future spelling.
   And **a guard that names a defect must be re-broken after every refactor of the code it guards** —
   a scan whose mutation no longer reaches it is worse than no scan, because it reports done.
+- **A rule every surface already knows is still only enforced by a scan of the surfaces.** "A
+  destructive action confirms in a popover" was in `AGENTS.md`, `ConfirmButton` existed in *both*
+  UIs, and every settings section used it — except the one that deletes the uploaded UI, which
+  renamed its own button (`Revert to stock` → `Confirm revert`) and fired `DELETE /api/settings/ui`
+  on the second press, deleting a build with no archive of it. The twin surface in `noc-console`
+  had always used the popover, so review read the diff as fine. A documented rule plus a shared
+  component is not a guard: nothing read the components that *did not* use it. The scan now reads
+  every `.vue` in both UIs for the shape (a label chosen by a `confirm*` flag, a handler that raises
+  that flag and then calls the action), and its own narrowing is on record — the first version
+  matched a fixed list of flag spellings (`confirming\w*|armed\w*`) and let a renamed `confirmArmed`
+  through until the re-break named it. Match the word in any name, not the name you chose.
 
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured

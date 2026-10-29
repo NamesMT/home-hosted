@@ -2,6 +2,7 @@
 import type { UiStatus } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
 import { computed, ref } from 'vue'
+import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
@@ -22,7 +23,6 @@ const file = ref<File | null>(null)
 const busy = ref(false)
 const message = ref<string | null>(null)
 const error = ref<string | null>(null)
-const confirmingRevert = ref(false)
 
 const source = computed(() => {
   const ui = props.ui
@@ -71,15 +71,14 @@ async function install(): Promise<void> {
   }
 }
 
+/**
+ * Back to the stock panel.
+ *
+ * The confirmation is `ConfirmButton`'s popover, not a second press on this button: `revert()`
+ * deletes `$HHOSTED_HOME/.hh/.ui` with no archive, so an impatient double click would destroy a
+ * build the person may have no other copy of.
+ */
 async function revert(): Promise<void> {
-  if (!confirmingRevert.value) {
-    confirmingRevert.value = true
-    setTimeout(() => {
-      confirmingRevert.value = false
-    }, 5000)
-    return
-  }
-  confirmingRevert.value = false
   busy.value = true
   error.value = null
   try {
@@ -164,9 +163,18 @@ async function revert(): Promise<void> {
       <AppButton size="xs" variant="ghost" :disabled="!props.labelDirty" @click="emit('resetLabel')">
         {{ t('settings.interface.resetName') }}
       </AppButton>
-      <AppButton v-if="ui?.custom" size="xs" variant="ghost" :disabled="busy" @click="revert">
-        {{ confirmingRevert ? t('settings.interface.confirmRevert') : t('settings.interface.revertToStock') }}
-      </AppButton>
+      <ConfirmButton
+        v-if="ui?.custom"
+        :label="t('settings.interface.revertToStock')"
+        :confirm-label="t('settings.interface.confirmRevert')"
+        :title="t('settings.interface.revertTitle')"
+        :hint="t('settings.interface.revertHint')"
+        size="xs"
+        variant="ghost"
+        confirm-variant="danger"
+        :disabled="busy"
+        @confirm="revert"
+      />
       <AppButton size="xs" variant="primary" :disabled="busy || file === null" @click="install">
         {{ t('settings.interface.install') }}
       </AppButton>

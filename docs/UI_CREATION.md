@@ -72,8 +72,9 @@ Nothing is built on the server side: whatever you upload is served as-is, so shi
 HTML/JS/CSS or the output of your own Vite/Next/Astro build with relative asset paths.
 
 **If it breaks:** `home-hosted ui-revert` puts the stock panel back (or *Revert to stock* in
-Global settings). The CLI also prints a reminder at startup while a custom UI is active — a broken UI
-must never lock you out of your own machine.
+Global settings, which asks first — the delete is not archived, so keep your own copy of the build).
+The CLI also prints a reminder at startup while a custom UI is active — a broken UI must never lock
+you out of your own machine.
 
 ## Rules of the road
 
