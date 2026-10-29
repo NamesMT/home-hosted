@@ -43,12 +43,13 @@ const cpuTone = computed(() => hostCpuBand(cpuUsed.value) ?? 'ok')
 /**
  * Every dial's colour is the panel's own verdict, never a literal pair.
  *
- * `Gauge` defaults to `75`/`90`, and this panel used to hand it its own `:warn-at="50"` for swap
- * and scale the temperature dial by `85`. Those are `hostSchema`'s *defaults*, so the copy is
- * invisible on a fresh config and wrong on any other: with `host.tempCelsius` at 95 a 90 °C box
- * stayed `danger`, and 92% memory against a threshold raised to 95 was painted `danger` for a
- * notification that could never arrive. `hostReadings` decides the band against the threshold the
- * frame carries, so the dial reads it.
+ * This panel used to hand `Gauge` its own `:warn-at="50"` for swap and scale the temperature dial by
+ * `85`. Those are `hostSchema`'s *defaults*, so the copy was invisible on a fresh config and wrong on
+ * any other: with `host.tempCelsius` at 95 a 90 °C box stayed `danger`, and 92% memory against a
+ * threshold raised to 95 was painted `danger` for a notification that could never arrive.
+ * `hostReadings` decides each band against the threshold the frame carries, so the dial reads it —
+ * and `Gauge` no longer accepts a `warnAt`/`dangerAt` pair at all, because that fallback was how the
+ * copy could be written in the first place.
  */
 function toneClass(band: HostBand): Tone {
   // An absent reading is dim, not green: `0%` on an unsampled frame is not a healthy zero.

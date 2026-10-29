@@ -597,3 +597,34 @@ describe('no host surface passes a literal band to a dial', () => {
     expect(offenders, 'a band restated at the call site instead of taken from the predicate').toEqual([])
   })
 })
+
+/**
+ * A dial takes a verdict, not a pair of thresholds to work one out from.
+ *
+ * `Gauge`/`Meter` shipped `warnAt`/`dangerAt` defaults of `75`/`90`, and that fallback is exactly how
+ * a band gets copied: the disk alert was configured at 80 while the component's default still said
+ * 75/90, and the bar read `warn` where the panel notified. Once every surface was moved onto its own
+ * band the pair was unreachable — a default nothing can hit, still reading like the authority on
+ * where a dial changes colour. `tone` is required now, so a call site cannot omit the verdict.
+ */
+describe('a telemetry dial takes its verdict from the caller', () => {
+  it('declares no threshold pair to fall back to', () => {
+    for (const file of ['uis/stock/src/components/telemetry/Gauge.vue', 'uis/stock/src/components/telemetry/Meter.vue']) {
+      const source = sourceOf(file)
+      expect(source, `${file} must not declare warnAt`).not.toMatch(/^\s*warnAt\??:/m)
+      expect(source, `${file} must not declare dangerAt`).not.toMatch(/^\s*dangerAt\??:/m)
+      expect(source, `${file} must require a tone`).toMatch(/^\s*tone: Tone/m)
+    }
+  })
+
+  it('has no call site passing one', () => {
+    const offenders: string[] = []
+    for (const ui of ['stock', 'noc-console']) {
+      for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
+        if (/:(?:warn-at|danger-at)=/.test(sourceOf(rel)))
+          offenders.push(rel)
+      }
+    }
+    expect(offenders, 'a threshold pair at a call site is a band restated, and the component cannot compute it').toEqual([])
+  })
+})

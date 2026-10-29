@@ -6,40 +6,22 @@ import { cn } from '@/lib/cn'
 const props = withDefaults(defineProps<{
   value: number | null
   /**
-   * The fill's colour, when the caller already has a verdict.
+   * The fill's colour, which every caller supplies.
    *
    * A host reading is banded against the threshold the panel notifies on, and that decision belongs
-   * to `hostReadings` — the same rule as `Gauge`'s `tone`. Passing it here keeps a second
-   * `warnAt`/`dangerAt` pair from being restated at the call site, which is how the disk bar drifted
-   * from the alert it was supposed to follow.
+   * to `hostReadings`. The `warnAt`/`dangerAt` pair that used to sit here as a fallback was how the
+   * disk bar drifted from its alert — and once every surface read the predicate it was a default
+   * nothing could reach, reading like the authority on a band.
    */
-  tone?: Tone
-  /** Where the fill changes colour, in percent. Ignored when `tone` is given. */
-  warnAt?: number
-  dangerAt?: number
+  tone: Tone
   height?: string
   class?: string
 }>(), {
-  tone: undefined,
-  warnAt: 75,
-  dangerAt: 90,
   height: 'h-1.5',
   class: undefined,
 })
 
 const clamped = computed(() => (props.value === null || !Number.isFinite(props.value) ? 0 : Math.min(100, Math.max(0, props.value))))
-
-const tone = computed<Tone>(() => {
-  if (props.tone !== undefined)
-    return props.tone
-  if (props.value === null)
-    return 'neutral'
-  if (props.value >= props.dangerAt)
-    return 'danger'
-  if (props.value >= props.warnAt)
-    return 'warn'
-  return 'ok'
-})
 
 const FILL: Record<Tone, string> = {
   ok: 'bg-ok/80',
@@ -54,7 +36,7 @@ const FILL: Record<Tone, string> = {
 <template>
   <div :class="cn('w-full overflow-hidden rounded-full bg-line-soft', props.height, props.class)">
     <div
-      :class="cn('h-full rounded-full transition-[width] duration-300 ease-out', FILL[tone])"
+      :class="cn('h-full rounded-full transition-[width] duration-300 ease-out', FILL[props.tone])"
       :style="{ width: `${clamped}%` }"
     />
   </div>

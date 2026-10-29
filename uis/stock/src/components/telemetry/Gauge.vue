@@ -9,15 +9,18 @@ const props = withDefaults(defineProps<{
   label: string
   display?: string
   size?: number
-  tone?: Tone
-  warnAt?: number
-  dangerAt?: number
+  /**
+   * The fill's colour, which every caller supplies.
+   *
+   * There used to be a `warnAt`/`dangerAt` pair here as a fallback, and it went unreachable the
+   * moment each host surface was moved onto its own band — a default nobody could hit, reading like
+   * the authority on where a dial changes colour. It is also how the disk bar drifted: the alert was
+   * 80 while this default said 75/90. A verdict belongs to the surface that has the reading.
+   */
+  tone: Tone
 }>(), {
   display: undefined,
   size: 74,
-  tone: undefined,
-  warnAt: 75,
-  dangerAt: 90,
 })
 
 const R = 34
@@ -29,18 +32,6 @@ const fraction = computed(() => {
   if (props.value === null || !Number.isFinite(props.value))
     return 0
   return Math.min(1, Math.max(0, props.value / 100)) * SWEEP
-})
-
-const autoTone = computed<Tone>(() => {
-  if (props.tone)
-    return props.tone
-  if (props.value === null || !Number.isFinite(props.value))
-    return 'neutral'
-  if (props.value >= props.dangerAt)
-    return 'danger'
-  if (props.value >= props.warnAt)
-    return 'warn'
-  return 'ok'
 })
 
 const STROKE: Record<Tone, string> = {
@@ -73,7 +64,7 @@ const STROKE: Record<Tone, string> = {
           cy="40"
           :r="R"
           fill="none"
-          :class="STROKE[autoTone]"
+          :class="STROKE[props.tone]"
           :stroke-width="6"
           :stroke-dasharray="`${fraction * CIRC} ${CIRC}`"
           transform="rotate(135 40 40)"
