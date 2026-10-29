@@ -613,8 +613,13 @@ function stateSignature(state: AppState): string {
     state.control.auth.exposed,
     state.control.restartRequired,
     state.control.tls.enabled,
-    state.host.sampledAt,
-    state.host.alerts.join(','),
+    /*
+     * The whole host view, not a list of its fields. Signing only `sampledAt` and `alerts` published
+     * nothing when sampling was switched off — that branch of `HostMonitor.tick` changes `enabled`
+     * alone — so every other tab kept drawing dials. A field this list omits is a change no client
+     * sees; the measurement is in `.agentDocs/GOTCHAS.md`.
+     */
+    JSON.stringify(state.host),
     state.backups.files.length,
     state.backups.entries.length,
     // Which UI the panel serves. `ui.status()` reads the installed `ui.json`, so an upload

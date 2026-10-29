@@ -153,6 +153,19 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A per-frame path may not call a syscall per server.** The frame is built once a second and once
   per request, so anything reading the host, the filesystem or the process table from a view builder
   is cached on its own clock, not merely memoised per call (`lanAddress`, `src/helpers/bind.ts`).
+- **What makes a frame "news" is derived from the block, never hand-picked out of it.** The signature
+  gate (`stateSignature`, `src/services/panel.ts`) only decides whether a built frame is *published*,
+  so a field it does not name is a change no client ever sees — and the field carrying a surface's
+  **empty state** is the easiest one to forget. `host.enabled` is the whole empty state of four host
+  surfaces, and the branch that writes it (`HostMonitor.tick` with sampling off) changes nothing else,
+  so a signature naming only `sampledAt` and `alerts` published **no frame at all** when sampling was
+  switched off, and a second tab kept drawing dials. Sign the whole view (`JSON.stringify(state.host)`)
+  rather than a list of its fields, so a field added to a view is published without anyone remembering;
+  a hand-picked list goes stale the next time a field earns a use. **A test for a transition must
+  publish the preceding state first**, or the change it claims to watch is still banked in the
+  signature and the test passes for the wrong reason
+  (`test/services/panel.test.ts`: "carries a switch of host sampling into a published frame"). Why this
+  keeps recurring: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A generated config says what it means for every branch, not just the one it names.** A name no
   policy names gets the engine's **default** (the public CA), not "no automation" — so every local
   name must be named in the internal policy too. A state describing something that has not happened

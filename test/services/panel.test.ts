@@ -678,6 +678,90 @@ describe('panelService', () => {
   })
 
   /**
+   * Switching host sampling off publishes a frame.
+   *
+   * `host.enabled` is not a decoration on the wire: four surfaces in both UIs render it as their
+   * whole empty state (`HostVitals`' head says "sampling off", `HostVitalsPanel` swaps the dial
+   * grid for one, `HostRail` and `InstrumentCluster` each fall back to it). `stateSignature` named
+   * only `sampledAt` and `alerts` for the host block, and the disabled branch of `HostMonitor.tick`
+   * writes neither — it keeps the last sample and flips `enabled`. So the transition published
+   * **nothing at all**, and a second tab kept drawing live dials for a panel that had stopped
+   * measuring: the same stale-view defect this function has already been fixed twice for
+   * (`ui` above, a destination's policy below), each time by adding the one field that was missing.
+   *
+   * Driving the real monitor rather than patching its view: the disabled branch is where the field
+   * is written, so a hand-set `enabled` would only prove the signature covers a field, not that the
+   * transition reaches a client.
+   */
+  /**
+   * Switching host sampling off publishes a frame.
+   *
+   * `host.enabled` is not decoration on the wire: four surfaces in both UIs render it as their whole
+   * empty state — `HostVitals`' head reads "sampling off", `HostVitalsPanel` swaps its dial grid for
+   * one, and `HostRail`/`InstrumentCluster` each fall back to it. `stateSignature` named only
+   * `sampledAt` and `alerts` for the host block, and the disabled branch of `HostMonitor.tick` writes
+   * neither: it keeps the last sample and flips `enabled`. Measured on the real service — sample,
+   * publish, disable, tick, `notifyStateChange()` — the frame count stayed at 2 and both frames still
+   * read `enabled: true`, so a second tab kept drawing live dials for a panel that had stopped
+   * measuring. It is the same stale-view defect this function has been fixed for twice before (`ui`
+   * below, a destination's policy after it), and each time the fix was one more hand-picked field.
+   *
+   * The sample's own frame is published *before* the switch, deliberately: a test that skipped that
+   * pass would leave the sample "banked" in the signature and the switch would publish a frame for
+   * the wrong reason — which is exactly how the first version of this test went green.
+   */
+  it('carries a switch of host sampling into a published frame', async () => {
+    const { panel, settings, frames, dispose } = await makeHarness()
+    const hostMonitor = (panel as unknown as {
+      options: { hostMonitor: { tick: (now?: number) => Promise<void> } }
+    }).options.hostMonitor
+    const realTick = hostMonitor.tick.bind(hostMonitor)
+    /*
+     * The panel's own timer ticks `HostMonitor` on the *real* clock every second, so a simulated
+     * tick 20 s ahead would be followed a second later by a real one that samples again, and the
+     * fixture rather than the code would be what moved `sampledAt`. Only the ticks below get through.
+     */
+    let allowed = false
+    hostMonitor.tick = async (now?: number) => {
+      if (allowed)
+        await realTick(now)
+    }
+
+    try {
+      // A real sample, then its frame — so what is left to report is the switch alone. Past the
+      // 15 s default interval, or the tick skips and there is no sample to go stale.
+      allowed = true
+      await realTick(20_000)
+      allowed = false
+      panel.notifyStateChange()
+      await waitFor(() => frames.some(frame => frame.host.sampledAt !== null))
+      const sampled = frames.at(-1)!
+      const sampledAt = sampled.host.sampledAt
+      expect(sampled.host.enabled, 'the sample itself should report sampling on').toBe(true)
+
+      settings.updateHost({ enabled: false })
+      allowed = true
+      await realTick(20_000)
+      allowed = false
+      expect(panel.getState().host.enabled, 'the monitor did not record the switch').toBe(false)
+
+      // The routes publish through this door. The client has to be told.
+      const before = frames.length
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > before)
+
+      const last = frames.at(-1)!
+      expect(last.host.enabled, 'a switched-off sampler was published as sampling').toBe(false)
+      // The last reading stays on the frame with its timestamp, so a surface can say how old it is
+      // rather than imply it is current.
+      expect(last.host.sampledAt).toBe(sampledAt)
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  /**
    * `ui` is part of the state frame — Global Settings → Interface reads which UI is installed
    * straight from it — but it was missing from `stateSignature`, the gate that decides whether
    * a frame is published at all. A UI upload or revert therefore published nothing on its own;

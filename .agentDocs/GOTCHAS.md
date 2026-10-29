@@ -156,6 +156,19 @@ line in `AGENTS.md` instead.
   state, so "we only publish on change" is not a performance argument. Cache the host read on its own
   clock (`lanAddress`, `src/helpers/bind.ts`) and cost a new view-builder call at the entry count,
   never at one entry.
+- **A hand-picked signature publishes nothing for the field it forgot, and the empty state is what it
+  forgets.** `stateSignature` joins one string per thing a UI redraws from, and the host block was
+  two of its fields: `sampledAt` and `alerts`. `HostMonitor.tick` with sampling off writes **neither**
+  — it keeps the last view and sets `enabled: false` — so switching sampling off in Settings published
+  no frame at all, and every other tab kept drawing live dials and a green `quiet` chip for a panel
+  that had stopped measuring. Measured on the real `PanelService`: sample, publish, `updateHost({
+  enabled: false })`, tick, `notifyStateChange()` → frame count stayed at 2 and both frames still read
+  `enabled: true`. Two earlier fixes had already added the one field that was missing (`ui`, then a
+  destination's policy), which is the tell that the list is the defect and not its contents; the host
+  view is now signed whole (`JSON.stringify`). And the reason the first test for this went **green**
+  is worth keeping: the sample's own frame had not been published yet, so `sampledAt` was still a
+  change banked in the signature and the switch rode out on it. A test for a transition has to publish
+  the state before the transition, or it is watching the previous change arrive.
 - **Startup is dominated by module load, not by work.** `src/app.ts` and the schemas it pulls in cost
   over a second to import, so `up` defers the daemon graph until it has decided to detach, and the
   daemon child inherits `process.execArgv` — under tsx it re-compiles that graph, under the built CLI
