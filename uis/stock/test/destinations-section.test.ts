@@ -3,6 +3,7 @@ import type { DestinationStatusView } from '@shared/contracts'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
+import ConfirmButton from '../src/components/settings/ConfirmButton.vue'
 import DestinationsSection from '../src/components/settings/DestinationsSection.vue'
 import NotificationPolicyFields from '../src/components/settings/NotificationPolicyFields.vue'
 import { createWorkspaceForm } from '../src/components/settings/settingsForm'
@@ -124,5 +125,64 @@ describe('the policy fields component has one root', () => {
     for (const expected of ['Retries exhausted', 'Port unhealthy', 'Forced restart', 'Recovered', 'Host vitals breached', 'Dynamic DNS'])
       expect(labels, `${expected} must render`).toContain(expected)
     expect(fields.text()).toContain('Cooldown')
+  })
+})
+
+/**
+ * The confirmation names what removing *this* destination costs.
+ *
+ * The rows all bound the Telegram sentence, so removing a webhook said "any stored bot token for it
+ * is removed" — a consequence a webhook does not have, and one that reads as though the button
+ * deletes somebody else's credential. The webhook's own copy
+ * (`settings.webhook.removeQuestion`/`removeBody`) existed in all nine catalogs and was rendered
+ * nowhere.
+ */
+describe('the remove confirmation names the right consequence', () => {
+  function row(kind: 'telegram' | 'webhook', id: string) {
+    const form = createWorkspaceForm()
+    return {
+      ...form,
+      destinations: [{
+        id,
+        kind,
+        enabled: true,
+        useOwnSettings: false,
+        chatId: kind === 'telegram' ? '424242' : '',
+        tokenSet: kind === 'telegram',
+        url: kind === 'webhook' ? 'https://example.com/hook' : '',
+        method: 'POST' as const,
+        format: 'json' as const,
+        headers: '',
+        policy: { ...form.policy },
+      }],
+    }
+  }
+
+  it('tells a webhook that its URL and headers go', () => {
+    const form = row('webhook', 'tickets')
+    // The popover content is what states the cost, so read what the button was handed.
+    const section = mount(DestinationsSection, {
+      props: { statuses: [], destinations: form.destinations, dirty: false },
+      global: { stubs: { Notice: true } },
+    })
+
+    const button = section.findAllComponents(ConfirmButton)[0]
+    expect(button, 'the row rendered no confirmation').toBeDefined()
+    const props = button!.props() as { title?: string, hint?: string }
+    expect(props.hint, 'a webhook has no bot token to remove').toContain('URL and headers')
+    expect(props.hint, 'the Telegram sentence must not reach a webhook').not.toContain('bot token')
+    expect(props.title).toContain('tickets')
+  })
+
+  it('tells a Telegram destination that its token goes', () => {
+    const form = row('telegram', 'alerts')
+    const section = mount(DestinationsSection, {
+      props: { statuses: [telegramRow], destinations: form.destinations, dirty: false },
+      global: { stubs: { Notice: true } },
+    })
+
+    const button = section.findAllComponents(ConfirmButton)[0]
+    const props = button!.props() as { title?: string, hint?: string }
+    expect(props.hint).toContain('bot token')
   })
 })

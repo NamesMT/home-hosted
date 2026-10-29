@@ -265,8 +265,10 @@ function tokenPlaceholder(form: DestinationForm): string {
         <span class="min-w-0 flex-1 truncate font-mono text-2xs text-muted">{{ form.id }}</span>
         <ConfirmButton
           :label="t('settings.destination.remove')"
-          :question="t('settings.destination.removeQuestion', { name: form.id })"
-          :body="t('settings.destination.removeBody')"
+          :title="form.kind === 'webhook'
+            ? t('settings.webhook.removeQuestion', { name: form.id })
+            : t('settings.destination.removeQuestion', { name: form.id })"
+          :hint="form.kind === 'webhook' ? t('settings.webhook.removeBody') : t('settings.destination.removeBody')"
           @confirm="remove(form.id)"
         />
       </div>
@@ -305,8 +307,8 @@ function tokenPlaceholder(form: DestinationForm): string {
             <ConfirmButton
               v-if="form.tokenSet"
               :label="t('settings.telegram.removeToken')"
-              :question="t('settings.telegram.removeTokenTitle')"
-              :body="t('settings.telegram.removeTokenHint')"
+              :title="t('settings.telegram.removeTokenTitle')"
+              :hint="t('settings.telegram.removeTokenHint')"
               @confirm="removeToken(form)"
             />
           </div>
