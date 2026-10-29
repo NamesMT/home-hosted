@@ -205,7 +205,11 @@ workspace config guard, so a busy default port turns config tests red for the wr
   *render* must carry the absence too: a percent goes through `pct`
   (`uis/noc-console/src/lib/format.ts`), because `{{ (… ?? 0).toFixed(0) }}%` put a measured `0%`
   on every stopped entry of the panel-wide overview, and `test/shared/ui-readings.test.ts` walks
-  every UI template for that shape.
+  every UI template for that shape. **A chart is the same render**: an absent point stays absent in
+  the series and the line breaks at it — `sparkSegments` (`uis/noc-console/src/lib/format.ts`) and
+  stock's `components/telemetry/Sparkline.vue` — because a zero vertex drew a stopped entry as a flat
+  line on the floor: a measured `0%` by eye, on every page the number beside it had already been
+  fixed on. A new chart reads this paragraph before it picks its geometry function.
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"

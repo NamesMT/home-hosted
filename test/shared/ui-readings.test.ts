@@ -65,12 +65,40 @@ describe('the UIs read a process’s numbers through one predicate', () => {
     expect(offenders, 'a measurement read straight off the frame instead of the shared predicate').toEqual([])
   })
 
-  it('the noc-console sampler stops writing a zero for an absent reading', () => {
-    // `pushCapped(ring.cpu, server.resources?.cpuPercent ?? 0)` drew a stopped entry as a measured
-    // idle one. A zero is what the chart cannot tell from a real reading.
+  /**
+   * The noc-console's charts keep an absent reading absent, all the way to the SVG.
+   *
+   * This test used to assert that the text `ring.cpu, server.resources?.cpuPercent` was absent.
+   * The commit that introduced the predicate deleted that literal, so the assertion could not
+   * fail again — a guard that looks like it runs and does not. The defect it was meant to catch
+   * survived underneath: the sampler writes `live.cpuPercent ?? 0`, the ring is typed `number[]`,
+   * and the renderer draws one vertex per index, so a stopped entry's CPU chart was a **flat line
+   * on the floor** — 0% by eye, the exact value `AGENTS.md` forbids a surface to invent. So this
+   * reads the shape rather than a spelling.
+   */
+  it('the noc-console sampler keeps an absent reading absent in its series', () => {
     const source = ui('noc-console', 'composables/useControlPlane.ts')
     expect(source, 'the sampler must build its point from the predicate').toMatch(/const live = liveReadings\(server\)/)
-    expect(source, 'a raw `resources?.cpuPercent ?? 0` here is the zero this pins').not.toMatch(/ring\.cpu, server\.resources\?\.cpuPercent/)
+
+    // Every ring push, read from the source: the value must be the predicate's own field with no
+    // fallback. `?? 0` is the coercion this exists for, and it is a shape, not one spelling.
+    const pushes = [...source.matchAll(/pushCapped\(ring\.(\w+), (.*)\)$/gm)].map(match => ({
+      ring: match[1]!,
+      value: match[2]!.trim(),
+    }))
+    // Anti-vacuity: the sampler writes three points, so an empty match list cannot pass.
+    expect(pushes.map(push => push.ring).sort()).toEqual(['cpu', 'probe', 'rss'])
+
+    const coerced = pushes.filter(push => /\?\?\s*0\b|\|\|\s*0\b/.test(push.value))
+    expect(coerced.map(push => `ring.${push.ring} <- ${push.value}`), 'a zero for an absent reading is a measured idle process').toEqual([])
+    for (const push of pushes)
+      expect(push.value, `ring.${push.ring} must carry the reading, not a re-read of the frame`).toMatch(/^live\.\w+$/)
+
+    // And the ring type has to admit the absence, or the sampler could not keep it anyway.
+    const iface = /export interface ServerSeries \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? ''
+    expect(iface, 'the series type must be declared for this to guard anything').toContain('cpu')
+    for (const field of ['cpu', 'rss', 'probe'])
+      expect(iface, `ServerSeries.${field} must allow a null reading`).toMatch(new RegExp(`${field}: \\(number \\| null\\)\\[\\]`))
   })
 
   /**

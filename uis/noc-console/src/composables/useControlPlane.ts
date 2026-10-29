@@ -15,11 +15,16 @@ export { AuthRequiredError } from '@/lib/api'
 
 export type ConnectionState = 'connecting' | 'open' | 'closed'
 
-/** Ring buffers kept client-side for the sparklines; the API has no history. */
+/**
+ * Ring buffers kept client-side for the sparklines; the API has no history.
+ *
+ * A point is `null` when nothing was measured: a stopped entry has no reading, and the chart must
+ * break there rather than draw a vertex on the floor. A `0` would be a measured idle process.
+ */
 export interface ServerSeries {
-  cpu: number[]
-  rss: number[]
-  probe: number[]
+  cpu: (number | null)[]
+  rss: (number | null)[]
+  probe: (number | null)[]
 }
 
 const MAX_CLIENT_LINES = 1000
@@ -40,7 +45,7 @@ let globalSource: EventSource | null = null
 let clock: ReturnType<typeof setInterval> | null = null
 let statePromise: Promise<void> | null = null
 
-function pushCapped(ring: number[], value: number): void {
+function pushCapped(ring: (number | null)[], value: number | null): void {
   ring.push(value)
   if (ring.length > SERIES_LENGTH)
     ring.splice(0, ring.length - SERIES_LENGTH)
@@ -60,12 +65,13 @@ function sampleServer(server: ServerView): void {
   lastSample.set(key, at)
   // One process's readings: absent, not a stale number and not a zero. A newer UI can meet an older
   // panel that kept them across an adopted entry's stop, and a zero is the value that looks like a
-  // measured idle process rather than a stopped one.
+  // measured idle process rather than a stopped one. The series keeps the absence so the chart can
+  // break at it — a `?? 0` here drew a stopped entry as a flat line on the floor.
   const live = liveReadings(server)
   const ring = seriesFor(key)
-  pushCapped(ring.cpu, live.cpuPercent ?? 0)
-  pushCapped(ring.rss, live.rssBytes ?? 0)
-  pushCapped(ring.probe, live.responseMs ?? 0)
+  pushCapped(ring.cpu, live.cpuPercent)
+  pushCapped(ring.rss, live.rssBytes)
+  pushCapped(ring.probe, live.responseMs)
 }
 
 function appendLines(key: string, lines: LogLine[]): void {

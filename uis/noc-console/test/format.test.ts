@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { briefBytes, clamp, formatAgo, formatBytes, formatDuration, formatMs, formatMsHint, formatRatio, loadPerCpu, pct, relativeFrom, sparkPoints } from '../src/lib/format'
+import { briefBytes, clamp, formatAgo, formatBytes, formatDuration, formatMs, formatMsHint, formatRatio, loadPerCpu, pct, relativeFrom, sparkSegments } from '../src/lib/format'
 
 /**
  * `lib/format.ts` renders every number this UI shows, and had no test.
@@ -101,17 +101,18 @@ describe('clamp and loadPerCpu', () => {
   })
 })
 
-describe('sparkPoints', () => {
-  it('produces one point per value and an empty string for none', () => {
-    expect(sparkPoints([], 100, 20)).toBe('')
-    const points = sparkPoints([0, 1, 2, 3], 100, 20)
-    expect(points.split(' ')).toHaveLength(4)
+describe('sparkSegments', () => {
+  it('produces one point per present value and nothing at all for none', () => {
+    expect(sparkSegments([], 100, 20)).toEqual([])
+    const [segment] = sparkSegments([0, 1, 2, 3], 100, 20)
+    expect(segment!.line.split(' ')).toHaveLength(4)
+    expect(segment!.area).toContain(segment!.line)
   })
 
   it('survives a flat series, where a naive scale would divide by zero', () => {
     // Every value equal means max - min is 0; the line should still be drawable, not `NaN`.
-    const flat = sparkPoints([5, 5, 5], 100, 20)
-    expect(flat).not.toContain('NaN')
-    expect(flat.split(' ')).toHaveLength(3)
+    const [flat] = sparkSegments([5, 5, 5], 100, 20)
+    expect(flat!.line).not.toContain('NaN')
+    expect(flat!.line.split(' ')).toHaveLength(3)
   })
 })

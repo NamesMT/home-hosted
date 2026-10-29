@@ -1525,6 +1525,14 @@ input[type='file'] {
   overflow: visible;
 }
 
+/*
+ * Nothing measured: a dashed baseline says "no line here" rather than the flat line at the floor a
+ * zero vertex used to draw, which read as a measured idle process.
+ */
+.spark__empty {
+  color: var(--line);
+}
+
 .spark__line {
   fill: none;
   stroke-width: 1.25;

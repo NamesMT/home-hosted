@@ -365,6 +365,17 @@ line in `AGENTS.md` instead.
   rules follow: **build the pattern where it is used** (or drop `/g`; `matchAll` is the one that wants
   it), and **plant a copy in each shape the scan claims to read** — one assertion that names the only
   allowed holder cannot tell "there is one definition" from "the walk never looked".
+- **A scan that forbids one *spelling* passes the moment that spelling is deleted — including the
+  delete that should have failed it.** `test/shared/ui-readings.test.ts` asserted the literal
+  `ring.cpu, server.resources?.cpuPercent` was absent from noc-console's sampler. The commit that
+  routed the sampler through `liveReadings` rewrote the line to `live.cpuPercent ?? 0`, so the old
+  pattern could never match again: a guard that still ran and could no longer fail. The defect it
+  named survived the rewrite in the same expression, because `?? 0` coerces an absent reading into a
+  measured-looking zero. Two rules follow. **Assert the shape, not the text it used to be written
+  in**: read the pushes out of the source (`pushCapped(ring.(\w+), (.*))`) and require each value to
+  be the predicate's own field with no fallback, which catches `?? 0`, `|| 0` and any future spelling.
+  And **a guard that names a defect must be re-broken after every refactor of the code it guards** —
+  a scan whose mutation no longer reaches it is worse than no scan, because it reports done.
 
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured

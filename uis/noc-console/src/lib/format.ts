@@ -68,20 +68,64 @@ export function loadPerCpu(loadAvg: number[], cpus: number): number {
   return (loadAvg[0] ?? 0) / Math.max(1, cpus)
 }
 
-/** SVG polyline points for a sparkline in a `width` x `height` box. */
-export function sparkPoints(values: number[], width: number, height: number, max?: number): string {
-  if (values.length === 0)
-    return ''
-  const top = max !== undefined && max > 0 ? max : Math.max(...values)
+/** One unbroken stretch of a series: the `points` of its line, and of the area beneath it. */
+export interface SparkSegment {
+  line: string
+  area: string
+}
+
+/**
+ * SVG `points` geometry for a sparkline in a `width` x `height` box, split at every absent reading.
+ *
+ * A `null` is a sample where nothing was measured — a stopped entry, or a gap inside a run — so
+ * it must not become a vertex. Drawing one made a stopped entry's CPU chart a **flat line on the
+ * floor**: the same picture as a server honestly measuring 0%, which is the value `AGENTS.md`
+ * forbids a surface to invent. A break also keeps each vertex on its own sample's `x`, so a gap
+ * reads as time that passed rather than as the surviving points squeezed together.
+ *
+ * The scale comes from the **present** values only: an absence can neither raise a ceiling nor
+ * pin one, and `Math.max(...[])` on an all-absent series would be `-Infinity`.
+ *
+ * The stock UI's `Sparkline` has drawn its nulls this way since it was written; this is that
+ * rule, in the one function the line and its fill are both built from.
+ */
+export function sparkSegments(values: (number | null)[], width: number, height: number, max?: number): SparkSegment[] {
+  const present = values.filter((value): value is number => value !== null && Number.isFinite(value))
+  if (present.length === 0)
+    return []
+  const top = max !== undefined && max > 0 ? max : Math.max(...present)
   const scale = top > 0 ? top : 1
   const step = values.length > 1 ? width / (values.length - 1) : 0
-  return values
-    .map((value, index) => {
-      const x = values.length > 1 ? index * step : width
-      const y = height - clamp(value / scale, 0, 1) * (height - 2) - 1
-      return `${x.toFixed(2)},${y.toFixed(2)}`
+  const at = (value: number, index: number): { x: number, y: number } => ({
+    x: values.length > 1 ? index * step : width,
+    y: height - clamp(value / scale, 0, 1) * (height - 2) - 1,
+  })
+
+  const segments: SparkSegment[] = []
+  let run: Array<{ x: number, y: number }> = []
+  const flush = (): void => {
+    if (run.length === 0)
+      return
+    const line = run.map(point => `${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(' ')
+    // The fill stays under its own run: closing it at the box edges painted over the gap.
+    const first = run[0]!
+    const last = run[run.length - 1]!
+    segments.push({
+      line,
+      area: `${first.x.toFixed(2)},${height} ${line} ${last.x.toFixed(2)},${height}`,
     })
-    .join(' ')
+    run = []
+  }
+
+  values.forEach((value, index) => {
+    if (value === null || !Number.isFinite(value)) {
+      flush()
+      return
+    }
+    run.push(at(value, index))
+  })
+  flush()
+  return segments
 }
 
 export const shortByteUnits = ['B', 'K', 'M', 'G', 'T'] as const
