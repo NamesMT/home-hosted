@@ -510,8 +510,12 @@ export async function sampleHost(config: HostConfig, resolvePath: (target: strin
     disks,
     alerts,
     sampledAt: Date.now(),
-    // The threshold a surface bands the load against, so a raised one is not painted as a breach.
+    // The thresholds a surface bands against, so a raised one is not painted as a breach while
+    // the notification it governs stays silent.
     loadAlertPerCpu: config.loadPerCpu,
+    memoryUsedPercentAlert: config.memoryUsedPercent,
+    swapUsedPercentAlert: config.swapUsedPercent,
+    tempCelsiusAlert: config.tempCelsius,
   }
 }
 
@@ -529,5 +533,8 @@ export function emptyHostView(config: HostConfig): HostView {
     alerts: [],
     sampledAt: null,
     loadAlertPerCpu: config.loadPerCpu,
+    memoryUsedPercentAlert: config.memoryUsedPercent,
+    swapUsedPercentAlert: config.swapUsedPercent,
+    tempCelsiusAlert: config.tempCelsius,
   }
 }

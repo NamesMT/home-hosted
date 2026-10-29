@@ -137,7 +137,8 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
         <div class="metric__v" :class="readings.swapUsedPercent === null ? 'metric__v--dim' : ''">
           {{ pct(readings.swapUsedPercent, 1) }}
         </div>
-        <MeterBar :value="readings.swapUsedPercent" :tone="(readings.swapUsedPercent ?? 0) >= 80 ? 'danger' : (readings.swapUsedPercent ?? 0) >= 50 ? 'warn' : 'ok'" />
+        <!-- The bar's colour is the panel's own verdict, not a literal: see `hostReadings`. -->
+        <MeterBar :value="readings.swapUsedPercent" :tone="readings.swapBand ?? 'ok'" />
       </div>
       <div class="metric">
         <div class="metric__k">

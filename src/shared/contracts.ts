@@ -1451,6 +1451,19 @@ export const hostViewSchema = type({
    * threshold governs stayed silent. `0` disables the alert, so nothing can breach it.
    */
   'loadAlertPerCpu?': 'number',
+  /**
+   * The percentage alert thresholds — `host.memoryUsedPercent`, `host.swapUsedPercent` and
+   * `host.tempCelsius` — the numbers the panel notifies at.
+   *
+   * Optional for the same reason as `loadAlertPerCpu`, and carried for the same reason: a surface
+   * that cannot see the threshold has to invent one, and the four invented ones disagreed with the
+   * panel's verdict. The swap bar called 50% `warn` while the alert fired there; raising
+   * `host.tempCelsius` to 95 left a 90 °C box painted `danger` for a notification that never
+   * arrives. `0` disables that alert, so nothing can breach it.
+   */
+  'memoryUsedPercentAlert?': 'number',
+  'swapUsedPercentAlert?': 'number',
+  'tempCelsiusAlert?': 'number',
 })
 export type HostView = typeof hostViewSchema.infer
 

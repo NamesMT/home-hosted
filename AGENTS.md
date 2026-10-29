@@ -254,7 +254,12 @@ workspace config guard, so a busy default port turns config tests red for the wr
   (`src/shared/host-readings.ts`) decides the band once, for both UIs; `0` disables the alert, so it
   cannot be breached, and a panel that sends no threshold gets the default it alerted on.
   `test/shared/host-readings.test.ts` fails a load compared against a literal, or a load tone
-  computed outside the predicate. Why the two copies survived: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
+  computed outside the predicate. **The percentages are the same rule, and they were missed the first
+  time.** `memoryUsedPercent`, `swapUsedPercent` and `tempCelsius` carry their thresholds
+  (`…Alert`) and `percentageBand` bands them against those, because the literals contradicted the
+  panel's own notifications: `hostSchema` alerts on swap at **50**, and the rail painted 52% `warn`;
+  raising `host.tempCelsius` to 95 left a 90 °C box `danger`. Why the copies survived:
+  [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"

@@ -32,11 +32,28 @@
  */
 export const LOAD_ALERT_PER_CPU_DEFAULT = 2
 
+/**
+ * The alert thresholds a percentage reading is banded against, when the frame carries none.
+ *
+ * One home, the same rule as `LOAD_ALERT_PER_CPU_DEFAULT`: `hostSchema` defaults to these, and a
+ * surface reading a frame from a panel that predates the fields bands against the numbers that
+ * panel alerted on.
+ */
+export const HOST_ALERT_DEFAULTS = { memoryUsedPercent: 90, swapUsedPercent: 50, tempCelsius: 85 } as const
+
+/** A configurable alert threshold, as it travels on the frame. */
+export interface HostAlertThresholds {
+  /** `host.memoryUsedPercent` — the threshold the panel notifies on, `0` disabling it. */
+  memoryUsedPercentAlert?: number
+  swapUsedPercentAlert?: number
+  tempCelsiusAlert?: number
+}
+
 /** What the predicate needs: the sample's stamp and the numbers the frame carries. */
-export interface HostReadingSource {
+export interface HostReadingSource extends HostAlertThresholds {
   sampledAt: number | null
   cpus: number
-  /** The alert threshold from the panel's own config; absent on a panel that predates the field. */
+  /** The alert thresholds from the panel's own config; absent on a panel that predates the fields. */
   loadAlertPerCpu?: number
   cpuUsedPercent?: number | null
   memoryUsedPercent: number
@@ -67,8 +84,20 @@ export interface HostReadings {
    * How urgent that per-cpu load is: `null` when nothing was measured (an absent reading has no
    * band of its own, or a zero would read as healthy), else the alert threshold it crossed.
    */
-  loadBand: 'ok' | 'warn' | 'danger' | null
+  loadBand: HostBand
+  /**
+   * The same verdict for the three percentage readings, each against the threshold the panel
+   * **notifies** on — `null` when nothing was measured. A surface paints `thresholdBand`, never a
+   * literal: the swap bar used to call 50% `warn` while the alert fired there, and a raised
+   * `tempCelsius` left a box painted `danger` for a notification that never arrives.
+   */
+  memoryBand: HostBand
+  swapBand: HostBand
+  tempBand: HostBand
 }
+
+/** A reading's urgency, or `null` when there is no reading to judge. */
+export type HostBand = 'ok' | 'warn' | 'danger' | null
 
 const NOTHING_SAMPLED: HostReadings = {
   sampled: false,
@@ -82,6 +111,9 @@ const NOTHING_SAMPLED: HostReadings = {
   tempCelsius: null,
   disks: [],
   loadBand: null,
+  memoryBand: null,
+  swapBand: null,
+  tempBand: null,
 }
 
 /** A number the frame carries, or null when it carries none. */
@@ -99,18 +131,33 @@ function present(value: number | null | undefined): number | null {
  * rather than in a component so both UIs share one band, the mistake that produced two hardcoded
  * copies of the default.
  */
-export function loadBand(loadPerCpu: number | null, alertPerCpu: number | undefined): 'ok' | 'warn' | 'danger' | null {
-  if (loadPerCpu === null || !Number.isFinite(loadPerCpu))
+export function loadBand(loadPerCpu: number | null, alertPerCpu: number | undefined): HostBand {
+  return thresholdBand(loadPerCpu, alertPerCpu, LOAD_ALERT_PER_CPU_DEFAULT)
+}
+
+/**
+ * How a reading sits against the threshold the panel notifies on.
+ *
+ * `danger` at the threshold is the whole point: the alert fires there, so a bar that stays `warn`
+ * while a notification goes out disagrees with the panel's own verdict. `0` disables that alert in
+ * `sampleHost`, so nothing can breach it and the band is `ok`. One rule for the per-cpu load and the
+ * three percentages — they differ only in what the number means, and the mistake this replaced was
+ * four surfaces each deciding a band for itself.
+ */
+export function percentageBand(value: number | null, alertAt: number | undefined, fallback: number): HostBand {
+  return thresholdBand(value, alertAt, fallback)
+}
+
+function thresholdBand(value: number | null, alertAt: number | undefined, fallback: number): HostBand {
+  if (value === null || !Number.isFinite(value))
     return null
   // An older panel sends no threshold, and it alerted on the default — so that is the band to draw.
-  const threshold = alertPerCpu === undefined || !Number.isFinite(alertPerCpu)
-    ? LOAD_ALERT_PER_CPU_DEFAULT
-    : alertPerCpu
+  const threshold = alertAt === undefined || !Number.isFinite(alertAt) ? fallback : alertAt
   if (threshold <= 0)
     return 'ok'
-  if (loadPerCpu >= threshold)
+  if (value >= threshold)
     return 'danger'
-  if (loadPerCpu >= threshold * 0.7)
+  if (value >= threshold * 0.7)
     return 'warn'
   return 'ok'
 }
@@ -137,6 +184,9 @@ export function hostReadings(host: HostReadingSource | null | undefined): HostRe
     load15m: present(host.loadAvg[2]),
     loadPerCpu,
     loadBand: loadBand(loadPerCpu, host.loadAlertPerCpu),
+    memoryBand: percentageBand(present(host.memoryUsedPercent), host.memoryUsedPercentAlert, HOST_ALERT_DEFAULTS.memoryUsedPercent),
+    swapBand: percentageBand(present(host.swapUsedPercent), host.swapUsedPercentAlert, HOST_ALERT_DEFAULTS.swapUsedPercent),
+    tempBand: percentageBand(present(host.tempCelsius), host.tempCelsiusAlert, HOST_ALERT_DEFAULTS.tempCelsius),
     tempCelsius: present(host.tempCelsius),
     disks: host.disks,
   }

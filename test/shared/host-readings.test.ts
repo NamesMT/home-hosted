@@ -54,6 +54,9 @@ describe('hostReadings', () => {
       tempCelsius: null,
       disks: [],
       loadBand: null,
+      memoryBand: null,
+      swapBand: null,
+      tempBand: null,
     })
   })
 
@@ -284,5 +287,61 @@ describe('the UIs band the load against the configured threshold', () => {
       .filter(surface => !new RegExp(`\\b${surface.reading}\\.value\\.loadBand\\b`).test(sourceOf(surface.file)))
       .map(surface => surface.file)
     expect(missing, 'a load tone computed beside the predicate instead of from it').toEqual([])
+  })
+})
+
+/**
+ * The three percentage bands have the same one home as the load's.
+ *
+ * They kept literals after the load was fixed, and the literals disagreed with the alerts the panel
+ * sends: `hostSchema` defaults the swap alert to **50** while `HostRail` painted 52% `warn`, and
+ * `HostVitals` painted the same `warn` up to 80. A `tempCelsius` raised to 95 left a 90 °C box
+ * `danger`. Those thresholds now travel on the frame (`swapUsedPercentAlert` and friends) and
+ * `percentageBand` decides each band, so this pins the same two halves the load guard pins: no
+ * surface compares these readings against a literal, and each takes its tone from the predicate.
+ */
+describe('the UIs band the percentages against the configured thresholds', () => {
+  /** A percentage reading compared with a literal that could be one of its thresholds. */
+  const PERCENT_COMPARISON = /\b(?:memoryUsedPercent|swapUsedPercent|tempCelsius)\s*(?:>=|<=|>|<)\s*\d+(?:\.\d+)?/g
+
+  it('still reaches the shape it forbids', () => {
+    // The rail's three one-liners, exactly as they were written.
+    expect([...'band(readings.value.swapUsedPercent, 50, 80)'.matchAll(PERCENT_COMPARISON)]).toHaveLength(0)
+    expect([...'readings.value.swapUsedPercent >= 80'.matchAll(PERCENT_COMPARISON)].map(m => m[0])).toEqual(['swapUsedPercent >= 80'])
+    expect([...'readings.value.tempCelsius >= 85'.matchAll(PERCENT_COMPARISON)].map(m => m[0])).toEqual(['tempCelsius >= 85'])
+    // The helper's call site compares nothing, so it must stay clean.
+    expect([...'percentageBand(present(host.swapUsedPercent), host.swapUsedPercentAlert, HOST_ALERT_DEFAULTS.swapUsedPercent)'.matchAll(PERCENT_COMPARISON)]).toHaveLength(0)
+  })
+
+  it('does not compare a percentage reading against a literal', () => {
+    const offenders: string[] = []
+    for (const ui of ['stock', 'noc-console']) {
+      for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
+        for (const match of sourceOf(rel).matchAll(PERCENT_COMPARISON))
+          offenders.push(`${rel}: ${match[0].trim()}`)
+      }
+    }
+    expect(offenders, 'a band measured against a number nobody configured').toEqual([])
+  })
+
+  it('takes each percentage tone from the predicate', () => {
+    const rail = sourceOf('uis/noc-console/src/components/HostRail.vue')
+    for (const band of ['memoryBand', 'swapBand', 'tempBand'])
+      expect(rail, `the rail must read ${band}`).toContain(`readings.value.${band}`)
+    expect(sourceOf('uis/noc-console/src/components/HostVitals.vue'), 'the swap bar must read its band').toContain('readings.swapBand')
+  })
+
+  /**
+   * The frame has to carry them, or a surface could not follow one it is never given.
+   *
+   * Counted, not merely found: `sampleHost` and `emptyHostView` both build a frame, and a scan that
+   * only asked "does the file mention it" passed after the sampled builder lost the field — the
+   * boot frame still had it. Measured by deleting the three lines from `sampleHost` and watching
+   * this stay green before the count was added.
+   */
+  it('carries every threshold on the frame, from both builders', () => {
+    const provider = sourceOf('src/providers/host.ts')
+    for (const field of ['memoryUsedPercentAlert', 'swapUsedPercentAlert', 'tempCelsiusAlert'])
+      expect([...provider.matchAll(new RegExp(`\\b${field}: config\\.`, 'g'))], `${field} in both frame builders`).toHaveLength(2)
   })
 })

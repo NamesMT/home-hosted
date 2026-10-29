@@ -47,9 +47,15 @@ const cpuTone = computed(() => {
     return 'ok'
   return value >= 90 ? 'danger' : value >= 70 ? 'warn' : 'ok'
 })
-const memTone = computed(() => (readings.value.memoryUsedPercent === null ? 'ok' : band(readings.value.memoryUsedPercent, 70, 90)))
-const swapTone = computed(() => (readings.value.swapUsedPercent === null ? 'ok' : band(readings.value.swapUsedPercent, 50, 80)))
-const tempTone = computed(() => (readings.value.tempCelsius === null ? 'ok' : band(readings.value.tempCelsius, 70, 85)))
+/**
+ * The three percentage bars read the shared band, measured against the threshold the panel
+ * **notifies** on — the same rule the load bar follows. They used to carry literals, and the
+ * literals disagreed with the alerts: swap fired at 50 while this bar called that `warn`, and a
+ * `tempCelsius` raised to 95 left a normal 90 °C box painted `danger`.
+ */
+const memTone = computed(() => readings.value.memoryBand ?? 'ok')
+const swapTone = computed(() => readings.value.swapBand ?? 'ok')
+const tempTone = computed(() => readings.value.tempBand ?? 'ok')
 
 function diskTone(percent: number): 'ok' | 'warn' | 'danger' {
   return band(percent, 75, 90)
