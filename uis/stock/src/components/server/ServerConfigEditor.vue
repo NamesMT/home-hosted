@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { HealthConfig, OnPortConflict, RestartConfig, ServerConfig, StopConfig } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
+import { clonePlain } from '@shared/clone'
 import { serverPatchSchema } from '@shared/contracts'
 import { countLeaves, describeChanges, diffServerConfig } from '@shared/patch-diff'
 import { type } from 'arktype'
@@ -237,19 +238,14 @@ const changes = computed(() => describeChanges(patch.value, props.config as unkn
 const showChanges = ref(false)
 
 /** The inbound config the form was last synced to, so a state refresh does not wipe unsaved edits. */
-let source: ServerConfig = detach(props.config)
-
-/** A detached copy: the form must never alias the live state this guard compares against. */
-function detach(config: ServerConfig): ServerConfig {
-  return JSON.parse(JSON.stringify(config)) as ServerConfig
-}
+let source: ServerConfig = clonePlain(props.config)
 
 function resetFrom(config: ServerConfig): void {
   Object.assign(form, formFrom(config))
   restart.value = { ...config.restart }
   health.value = cloneHealth(config.health)
   stop.value = { ...config.stop }
-  source = detach(config)
+  source = clonePlain(config)
   error.value = null
 }
 

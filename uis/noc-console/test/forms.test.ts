@@ -1,5 +1,7 @@
+import type { DdnsConfig } from '@shared/contracts'
 import { readFileSync } from 'node:fs'
 import { ddnsConfigSchema, settingsPatchSchema, workspaceSettingsPatchSchema } from '@shared/contracts'
+import { cloneDdnsConfig, ddnsConfigPatch, newDraftDomainKey } from '@shared/ddns-form'
 import { describe, expect, it } from 'vitest'
 import { detachConfig, isLiveConfigChange, repairNumbers } from '../src/lib/forms'
 
@@ -186,5 +188,39 @@ describe('clearing the label', () => {
       expect(source, `${file} must send null for an emptied label`).toMatch(/label: .*\? null :/)
       expect(source, `${file} must not send a bare blank label`).not.toMatch(/label: form\.label\.trim\(\),/)
     }
+  })
+})
+
+/**
+ * The DDNS panel's published patch, which the page's count and change list read.
+ *
+ * This UI counted the whole block it hands to `/api/ddns`, so one IPv6 toggle reported 9 fields.
+ * `uis/stock` has the mounted page test; this pins the same predicate on the same data shape, so a
+ * change to one UI's count cannot land without the other.
+ */
+describe('the DDNS patch', () => {
+  /** Parsed through the schema, so this fixture is the shape the route actually receives. */
+  const live = ddnsConfigSchema({
+    enabled: true,
+    intervalMs: 300000,
+    ttl: 1,
+    ipv4: { enabled: true, url: '' },
+    ipv6: { enabled: true, url: '' },
+    accounts: [{ id: 'main', provider: 'cloudflare', label: '' }],
+    domains: [{ host: 'one.example.com', account: 'main', types: ['A'], proxied: false, enabled: true }],
+  }) as DdnsConfig
+
+  it('reports the one field a single toggle moved', () => {
+    const draft = cloneDdnsConfig(live)
+    draft.ipv6.enabled = false
+
+    expect(ddnsConfigPatch(live, draft)).toEqual({ ipv6: { enabled: false } })
+  })
+
+  it('reports nothing for a form nobody touched, row keys aside', () => {
+    const draft = cloneDdnsConfig(live)
+    draft.domains = draft.domains.map(domain => ({ ...domain, key: newDraftDomainKey() }))
+
+    expect(ddnsConfigPatch(live, draft)).toBeNull()
   })
 })

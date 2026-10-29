@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { DdnsConfig, DestinationStatusView, LogsConfig, ServerDefaults, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { DraftConfig } from '@shared/ddns-form'
 import type { Patch } from '@shared/patch-diff'
-import type { DraftConfig } from '@/lib/ddns'
+import { ddnsConfigPatch, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields, mergeReplacedList, replacedListConflicts } from '@shared/patch-diff'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -399,7 +400,15 @@ const pendingPatch = computed(() => {
   return buildWorkspacePatch(defaults)
 })
 
-const changedCount = computed(() => (pendingPatch.value === null ? 0 : countLeaves(pendingPatch.value as Patch)))
+/**
+ * The DDNS block is **replaced** by its route, so only the fields that moved are news for the
+ * count and the list — counting the block itself listed all nine of its leaves for one toggle.
+ */
+const ddnsChanges = computed(() => (ddnsPatch.value === null || ddnsBaseline.value === null
+  ? null
+  : ddnsConfigPatch(ddnsBaseline.value, ddnsPatch.value)))
+
+const changedCount = computed(() => (pendingPatch.value === null ? 0 : countLeaves(pendingPatch.value as Patch)) + (ddnsChanges.value === null ? 0 : countLeaves(ddnsChanges.value as Patch)))
 
 /** What every patched field is compared against, keyed the way the patch is. */
 const currentSnapshot = computed<Patch>(() => {
@@ -410,11 +419,15 @@ const currentSnapshot = computed<Patch>(() => {
     notifications: configured === null
       ? {}
       : { defaults: configured.notifications.defaults ?? {}, destinations: (configured.notifications.destinations ?? []).map(destinationConfig) },
-    ddns: ddnsBaseline.value ?? {},
+    // Wire shape, so a row key never shows up as a change of its own.
+    ddns: ddnsBaseline.value === null ? {} : toDdnsConfig(ddnsBaseline.value),
   }
 })
 
-const changes = computed(() => (pendingPatch.value === null ? [] : describeChanges(pendingPatch.value as Patch, currentSnapshot.value)))
+const changes = computed(() => {
+  const pending = { ...(pendingPatch.value ?? {}), ...(ddnsChanges.value === null ? {} : { ddns: ddnsChanges.value }) }
+  return Object.keys(pending).length === 0 ? [] : describeChanges(pending as Patch, currentSnapshot.value)
+})
 
 function formatChangeValue(value: unknown): string {
   if (value === undefined)

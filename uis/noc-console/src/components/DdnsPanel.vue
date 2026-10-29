@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import type { DdnsConfig, DdnsProviderInfo, DdnsRecordState, DdnsRecordType } from '@shared/contracts'
-import type { DraftAccount, DraftConfig, DraftDomain } from '@/lib/ddns'
+import type { DraftAccount, DraftConfig, DraftDomain } from '@shared/ddns-form'
+import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
-import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@/lib/ddns'
 import { formatAgo } from '@/lib/format'
 import { repairNumbers } from '@/lib/forms'
 

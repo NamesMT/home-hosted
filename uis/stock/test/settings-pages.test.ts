@@ -427,3 +427,77 @@ describe('the unsaved-changes list', () => {
     expect(document.body.textContent).toContain('Renamed')
   })
 })
+
+/**
+ * The DDNS block's count, driven through the mounted section.
+ *
+ * The page's own count reported **9 fields** for a single IPv6 toggle: it counted the leaves of the
+ * whole block it hands to `/api/ddns`, which is a replaced block, so every untouched key rode along
+ * — and the change list showed them as `true → true`. The fix is `ddnsConfigPatch`, and this is the
+ * one test that can see the number the footer actually prints.
+ *
+ * `DdnsSection` is mounted for real here; every other test stubs it.
+ */
+describe('the DDNS block counts only what it changed', () => {
+  const DDNS_CONFIG = {
+    enabled: true,
+    intervalMs: 300_000,
+    ttl: 1,
+    ipv4: { enabled: true, url: '' },
+    ipv6: { enabled: true, url: '' },
+    accounts: [{ id: 'main', provider: 'cloudflare', label: '' }],
+    domains: [
+      { host: 'one.example.com', account: 'main', types: ['A'], proxied: false, enabled: true },
+      { host: 'two.example.com', account: 'main', types: ['A'], proxied: false, enabled: true },
+    ],
+  }
+
+  async function mountWithDdns() {
+    const original = await import('@/lib/api')
+    vi.spyOn(original, 'fetchDdns').mockResolvedValue({
+      config: DDNS_CONFIG,
+      status: { enabled: true, running: false, lastRunAt: null, lastResult: null, ipv4: null, ipv6: null, records: [] },
+      providers: [{ id: 'cloudflare', label: 'Cloudflare', docsUrl: '', families: ['A', 'AAAA'], fields: [], ttl: true, proxied: true, txt: false }],
+      credentials: [],
+    } as never)
+
+    const View = (await import('@/views/SettingsView.vue')).default
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', component: { template: '<div />' } }] })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(View, { global: { plugins: [router], stubs: { ...stubs, DdnsSection: false } }, attachTo: document.body })
+    await flushPromises()
+    gate.release()
+    await flushPromises()
+    return wrapper
+  }
+
+  it('reports one field for turning IPv6 off, not the whole block', async () => {
+    const wrapper = await mountWithDdns()
+
+    // Turning IPv6 off is the reported action: its switch carries that label.
+    const labels = wrapper.findAll('label').filter(node => node.text().startsWith('Detect IPv6'))
+    expect(labels.length, 'the DDNS section did not render its IPv6 switch').toBeGreaterThan(0)
+    await labels[0]!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('1 field changed')
+    expect(wrapper.text()).not.toContain('9 fields changed')
+
+    // The list behind that count: the one field, and not the eight it was never asked about.
+    await wrapper.findAll('button').find(button => button.text().includes('field changed'))!.trigger('click')
+    await flushPromises()
+
+    const list = await vi.waitFor(() => {
+      const text = document.body.textContent ?? ''
+      expect(text).toContain('ddns.ipv6.enabled')
+      return text
+    })
+    for (const untouched of ['ddns.enabled', 'ddns.ttl', 'ddns.intervalMs', 'ddns.accounts', 'ddns.domains'])
+      expect(list, `${untouched} was reported for a toggle that never touched it`).not.toContain(untouched)
+    // A row key is a UI detail, so it may not appear in a value either.
+    expect(list).not.toContain('ddns-row-')
+
+    wrapper.unmount()
+  })
+})

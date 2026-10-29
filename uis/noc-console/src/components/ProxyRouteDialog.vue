@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { ProxyDnsAccountView } from '@shared/contracts'
 import type { ProxyWorkspace, RouteDraft, RouteErrors } from '@/lib/proxy'
-import { computed, nextTick, ref, toRaw, watch } from 'vue'
+import { clonePlain } from '@shared/clone'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useModalLayer } from '@/composables/useModalLayer'
 import { dnsAccountOptions, isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
 
@@ -56,7 +57,7 @@ useModalLayer(() => props.open, () => emit('close'))
 watch(() => props.open, async (open) => {
   if (!open)
     return
-  form.value = props.draft === null ? newRouteDraft() : structuredClone(toRaw(props.draft))
+  form.value = props.draft === null ? newRouteDraft() : clonePlain(props.draft)
   if (form.value.workspace.length === 0)
     form.value.workspace = props.workspaces[0]?.id ?? ''
   errors.value = {}

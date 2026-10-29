@@ -55,13 +55,94 @@ describe('the UIs share one proxy form', () => {
     expect(source, 'the panel should read the shared form').toContain('from \'#src/shared/proxy-form\'')
   })
 
-  it('keeps `cloneRoutes` in each UI, because it needs Vue', () => {
-    // The one deliberate exception: it calls `toRaw`, and the shared module must not depend on Vue
-    // (the UIs bundle it as a devDependency; the published package does not ship it).
+  it('keeps `cloneRoutes` in each UI, because it mints that UI\'s row keys', () => {
+    // `cloneRoutes` calls `newRouteKey`, and the copy itself is shared: `clonePlain` needs no Vue,
+    // which is what made this the *only* reason for the exception rather than the clone.
     const shared = fs.readFileSync(path.join(root, 'src', 'shared', 'proxy-form.ts'), 'utf8')
     expect(shared, 'src/shared must not import Vue').not.toMatch(/from 'vue'/)
+    for (const ui of ['stock', 'noc-console']) {
+      const source = uiProxy(ui)
+      expect(source, `${ui} keeps cloneRoutes`).toContain('export function cloneRoutes')
+      // The half that was wrong: a `structuredClone(toRaw(...))` throws on a rebuilt reactive list.
+      expect(source, `${ui} must detach through clonePlain`).toContain('clonePlain(')
+    }
+  })
+})
+
+/**
+ * The DDNS form is one implementation, and its clone is not `structuredClone(toRaw(...))`.
+ *
+ * Both UIs carried their own `lib/ddns.ts`, and they had already diverged: `noc-console` ran
+ * `repairNumbers` where `stock` fell back to the schema default. The clone bug had to be fixed in
+ * both, which is the duplication cost this pins against coming back.
+ */
+describe('the UIs share one DDNS form', () => {
+  it('keeps the form logic in the shared module', () => {
+    const shared = fs.readFileSync(path.join(root, 'src', 'shared', 'ddns-form.ts'), 'utf8')
+    expect(shared).toContain('export function cloneDdnsConfig')
+    expect(shared).toContain('export function ddnsConfigPatch')
+    expect(shared, 'src/shared must not import Vue').not.toMatch(/from 'vue'/)
+
+    for (const ui of ['stock', 'noc-console']) {
+      const dir = path.join(root, 'uis', ui, 'src', 'lib')
+      expect(fs.existsSync(path.join(dir, 'ddns.ts')), `${ui} must not keep its own lib/ddns.ts`).toBe(false)
+    }
+  })
+
+  /**
+   * Both pages must count the **diff**, never the block they hand to `/api/ddns`.
+   *
+   * The block is replaced on the wire, so it carries every key — counting its leaves reported 9
+   * fields for one IPv6 toggle, untouched ones included. Only one page had a mounted test, and the
+   * other is the one that would drift.
+   */
+  it('counts the DDNS diff on both pages, not the whole block', () => {
+    for (const page of ['SettingsView.vue']) {
+      for (const ui of ['stock', 'noc-console']) {
+        const source = fs.readFileSync(path.join(root, 'uis', ui, 'src', 'views', page), 'utf8')
+        expect(source, `${ui} must reach the shared DDNS form`).toContain('from \'@shared/ddns-form\'')
+        expect(source, `${ui} must diff the DDNS block for its count`).toContain('ddnsConfigPatch(')
+        // The count line itself, not a comment about it.
+        expect(source, `${ui} counts the raw block`).not.toMatch(/countLeaves\(ddnsPatch\.value/)
+      }
+    }
+  })
+
+  /**
+   * The bug itself, scanned where it can still appear: any `structuredClone` the UIs hand a value
+   * that came out of a reactive form. The DDNS section's rows are the reported case, but the same
+   * mistake was in the route dialogs and `cloneRoutes`.
+   */
+  it('never clones a form value with `structuredClone`', () => {
+    const offenders: string[] = []
+    /**
+     * Comments are stripped first: these files discuss the bug by name, and a scan a comment can
+     * trip would fail on its own explanation. Only the block and whole-line forms are removed,
+     * which is every comment shape these sources use — no string here contains `//`.
+     */
+    const code = (source: string): string => source
+      .replaceAll(/\/\*[\s\S]*?\*\//g, '')
+      .replaceAll(/^\s*\/\/.*$/gm, '')
+
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist')
+            continue
+          walk(full)
+        }
+        else if (/\.(?:ts|vue)$/.test(entry.name) && /structuredClone/.test(code(fs.readFileSync(full, 'utf8')))) {
+          offenders.push(path.relative(root, full).replaceAll('\\', '/'))
+        }
+      }
+    }
     for (const ui of ['stock', 'noc-console'])
-      expect(uiProxy(ui), `${ui} keeps cloneRoutes`).toContain('export function cloneRoutes')
+      walk(path.join(root, 'uis', ui, 'src'))
+
+    // Anti-vacuity: the walk sees the UI sources.
+    expect(fs.existsSync(path.join(root, 'uis', 'stock', 'src', 'lib', 'proxy.ts'))).toBe(true)
+    expect(offenders).toEqual([])
   })
 })
 

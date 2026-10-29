@@ -1,3 +1,4 @@
+import { clonePlain } from '@shared/clone'
 import { isRecord } from '@shared/shape'
 /**
  * Repairs a form whose numeric boxes were emptied before it is diffed against live config.
@@ -75,7 +76,12 @@ export function isLiveConfigChange(next: unknown, snapshot: unknown): boolean {
   return JSON.stringify(next) !== JSON.stringify(snapshot ?? null)
 }
 
-/** An independent copy, so a snapshot can never alias the live state it is compared against. */
+/**
+ * An independent copy, so a snapshot can never alias the live state it is compared against.
+ *
+ * `clonePlain` rather than `JSON.parse(JSON.stringify(...))`: that dropped `undefined` members and
+ * flattened a `Date`, and it was the third copy of "detach this form data".
+ */
 export function detachConfig<T>(config: T): T {
-  return JSON.parse(JSON.stringify(config)) as T
+  return clonePlain(config)
 }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { DdnsAccount, DdnsConfig, DdnsProviderInfo, DdnsRecordState, DdnsRecordType } from '@shared/contracts'
-import type { DraftAccount, DraftConfig, DraftDomain } from '@/lib/ddns'
+import type { DraftAccount, DraftConfig, DraftDomain } from '@shared/ddns-form'
 import type { Tone } from '@/lib/status'
+import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
 import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -22,7 +23,6 @@ import { useToasts } from '@/composables/useToasts'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import { t, tc } from '@/i18n'
 import * as api from '@/lib/api'
-import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '@/lib/ddns'
 import { formatAgo } from '@/lib/format'
 
 /**

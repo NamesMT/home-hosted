@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { ProxyDnsAccountView } from '@shared/contracts'
 import type { ProxyWorkspace, RouteDraft, RouteErrors } from '@/lib/proxy'
-import { computed, ref, toRaw, watch } from 'vue'
+import { clonePlain } from '@shared/clone'
+import { computed, ref, watch } from 'vue'
 import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
@@ -69,7 +70,7 @@ const accountHint = computed(() => {
 watch(open, (isOpen) => {
   if (!isOpen)
     return
-  form.value = props.draft === null ? newRouteDraft() : structuredClone(toRaw(props.draft))
+  form.value = props.draft === null ? newRouteDraft() : clonePlain(props.draft)
   if (form.value.workspace.length === 0)
     form.value.workspace = props.workspaces[0]?.id ?? ''
   errors.value = {}

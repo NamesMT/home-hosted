@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import type { DdnsConfig, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { DraftConfig } from '@shared/ddns-form'
 import type { FormSnapshots, WorkspaceFormBlock, WorkspaceSettingsForm } from '@/components/settings/settingsForm'
-import type { DraftConfig } from '@/lib/ddns'
+import { ddnsConfigPatch, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
 import { computed, reactive, ref, watch } from 'vue'
@@ -56,7 +57,8 @@ const saveMessage = ref<string | null>(null)
 
 /**
  * The DDNS section owns its own draft (its accounts and hostnames are lists). Its
- * policy is written through `/api/ddns`, so this page saves it alongside the rest.
+ * policy is written through `/api/ddns`, so this page saves it alongside the rest —
+ * which is also why the count below reads its **diff**, not the whole block.
  */
 const ddnsPatch = ref<DdnsConfig | null>(null)
 const ddnsBaseline = ref<DraftConfig | null>(null)
@@ -105,7 +107,16 @@ const patch = computed<WorkspaceSettingsPatch>(() => {
   return out
 })
 
-const changedCount = computed(() => countLeaves(patch.value as Record<string, unknown>) + (ddnsPatch.value === null ? 0 : countLeaves(ddnsPatch.value as Record<string, unknown>)))
+/**
+ * The DDNS block is **replaced** by its route, so its pending value is the whole config — but only
+ * the fields that moved are news for the count and the list. Counting the block itself listed all
+ * nine of its leaves for a single IPv6 toggle, untouched ones included.
+ */
+const ddnsChanges = computed(() => (ddnsPatch.value === null || ddnsBaseline.value === null
+  ? null
+  : ddnsConfigPatch(ddnsBaseline.value, ddnsPatch.value)))
+
+const changedCount = computed(() => countLeaves(patch.value as Record<string, unknown>) + (ddnsChanges.value === null ? 0 : countLeaves(ddnsChanges.value as Record<string, unknown>)))
 
 /** What every patch compares against, keyed the way the patch is. */
 const currentSnapshot = computed<Record<string, unknown>>(() => {
@@ -114,11 +125,12 @@ const currentSnapshot = computed<Record<string, unknown>>(() => {
     defaults: defaultsView.value ?? {},
     logs: logsConfig.value ?? {},
     notifications: policy === null ? {} : { defaults: policyBaseline(policy), destinations: destinationStatuses.value.map(destinationBaseline) },
-    ddns: ddnsBaseline.value ?? {},
+    // Wire shape, so a row key never shows up as a change of its own.
+    ddns: ddnsBaseline.value === null ? {} : toDdnsConfig(ddnsBaseline.value),
   }
 })
 
-const changes = computed(() => describeChanges({ ...(patch.value as Record<string, unknown>), ...(ddnsPatch.value === null ? {} : { ddns: ddnsPatch.value }) }, currentSnapshot.value))
+const changes = computed(() => describeChanges({ ...(patch.value as Record<string, unknown>), ...(ddnsChanges.value === null ? {} : { ddns: ddnsChanges.value }) }, currentSnapshot.value))
 
 const defaultsDirty = computed(() => defaultsView.value !== null && Object.keys(defaultsPatch(defaultsView.value, form.defaults)).length > 0)
 const logsDirty = computed(() => logsConfig.value !== null && Object.keys(logsPatch(logsConfig.value, form.logs)).length > 0)

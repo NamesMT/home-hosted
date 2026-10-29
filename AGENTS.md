@@ -219,6 +219,19 @@ workspace config guard, so a busy default port turns config tests red for the wr
   saving an unrelated toggle. Keep the baseline the block was filled with and compare the draft to
   *that* (`mergeReplacedList`); a list that was never filled must not travel, because `[]` on a
   replaced list means "delete every entry".
+- **A replaced block is sent whole but *counted* as a diff.** A block the route replaces (`ddns`) has
+  no partial wire form, so the patch carries every key — and counting that patch's leaves reported
+  "9 fields changed" for one IPv6 toggle, with the untouched ones listed as `true → true`. What the
+  footer counts, and what the change list shows, is `ddnsConfigPatch` against the block the form was
+  filled with; the wire body stays whole.
+- **A reactive value detaches by being rebuilt, never by `structuredClone(toRaw(...))`.** Reading a
+  reactive array hands back **proxies for its members**, so a list the form rebuilt
+  (`domains = domains.filter(...)`) stores them inside the raw array: `toRaw` on the parent unwraps
+  nothing below it and the clone throws `DataCloneError: #<Object> could not be cloned`. Measured on
+  the DDNS form, where removing one hostname left every later edit unable to publish a patch. One
+  helper (`clonePlain`, `src/shared/clone.ts`) rebuilds plain objects at every level, needs no Vue,
+  and is what the detach helpers and `cloneRoutes` use; a scan fails any UI source that names
+  `structuredClone`.
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank

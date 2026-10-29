@@ -7,7 +7,8 @@ confirmed address per hostname is kept in the workspace's `.hh/<workspace>/.stat
 **Workspace Settings → Dynamic DNS** is the whole setup: add an account, paste its credentials, add
 hostnames. The block is saved by the page's own **Save settings**, like every other section on it; the
 credentials button saves on its own, being a secret. Provider credentials never enter
-`servers.config.json`.
+`servers.config.json`. The pending-changes summary counts only the fields you touched, though the
+save writes the block whole.
 
 ```json
 {

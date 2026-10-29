@@ -1,8 +1,8 @@
 import type { ProxyCertificateState, ProxyConfig, ProxyDnsAccountView, ProxyRoute, ProxyRouteStatus, ProxyRouteView, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
 import type { ListenerDraft, ProxyWorkspace, RouteDraft, RouteErrorMessages, RouteSummaryLabels } from '@shared/proxy-form'
 import type { Tone } from '@/lib/status'
+import { clonePlain } from '@shared/clone'
 import { isPublicHost, newRouteKey, retryInLabel as sharedRetryInLabel, targetSummary as sharedTargetSummary } from '@shared/proxy-form'
-import { toRaw } from 'vue'
 import { t, tc } from '@/i18n'
 
 export { certificateTitle, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
@@ -109,9 +109,14 @@ export function cloneListenerDraft(config: ProxyConfig): ListenerDraft {
   return { ...listenerDraft(config) }
 }
 
-/** A detached, plain copy of the route list, so an edit cannot reach live state. */
+/**
+ * A detached, plain copy of the route list, so an edit cannot reach live state.
+ *
+ * `clonePlain`, not `structuredClone(toRaw(...))`: a list the page rebuilt holds Vue proxies
+ * inside the raw array, and the clone then throws `DataCloneError`.
+ */
 export function cloneRoutes(routes: readonly ProxyRoute[]): RouteDraft[] {
-  return structuredClone(toRaw(routes)).map(route => ({ ...route, key: newRouteKey() }))
+  return clonePlain(routes).map(route => ({ ...route, key: newRouteKey() }))
 }
 
 /**
