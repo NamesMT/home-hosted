@@ -86,7 +86,10 @@ both files — one literally "carry the fix into the other UI". One module now h
 the save patch and the checks the panel would otherwise answer with a 400.
 
 **Nothing in it may import Vue**: the UIs bundle Vue as a devDependency while the published package
-does not ship it, so `cloneRoutes` (which needs `toRaw`) stays in each UI.
+does not ship it. That is why the detach is `clonePlain` (`clone.ts`) and not
+`structuredClone(toRaw(...))` — and why the route-draft helpers (`cloneRoutes`, `applyRouteDraft`)
+belong here too: they were held out only while they needed `toRaw`, and once `clonePlain` removed
+that need the exception outlived its reason.
 `test/shared/ui-parity.test.ts` fails if any consumer re-declares a shared member — the UIs **and**
 `src/**`, because `services/proxy.ts` once kept its own `isPublicHost`/`LOCAL_TLDS` beside the shared
 pair and the bodies had already diverged (the shared copy trims the host, the panel's did not).
@@ -115,8 +118,10 @@ Seven more modules, each created because the same code existed twice — the cla
 
 **The rule for what belongs here, and what does not.** A module moves in when its dependencies already
 resolve within `src/shared/`; it stays out when it would import *upward*. `rpc.ts` needs `AppType` from
-`src/app.ts`, so it stays duplicated in each UI, and the same reasoning keeps the `ddns`/`proxy` helpers
-where they are — they use Vue's `toRaw`. `formatBytes` and `formatDateTime` also stay per-UI: their
+`src/app.ts`, so it stays duplicated in each UI. A form helper does *not* stay out because a UI holds
+the value reactively: `clonePlain` detaches it without Vue, so the form logic itself is shared
+(`ddns-form.ts`, `proxy-form.ts`) and only the render stays per-UI. `formatBytes` and `formatDateTime`
+also stay per-UI: their
 signatures and unit thresholds genuinely differ between the two products (`formatBytes` is `number` in
 one and `number | null` in the other), a distinction worth keeping rather than collapsing for tidiness.
 

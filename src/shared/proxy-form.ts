@@ -1,5 +1,6 @@
 import type { ProxyCertificateView, ProxyConfig, ProxyPatch, ProxyRoute, ProxyRoutePatch } from './contracts'
 import { type } from 'arktype'
+import { clonePlain } from './clone'
 import { proxyRouteSchema } from './contracts'
 import { mergeReplacedList, replacedListConflicts } from './patch-diff'
 
@@ -7,13 +8,13 @@ import { mergeReplacedList, replacedListConflicts } from './patch-diff'
  * The reverse-proxy form, shared by both UIs: the route draft the table edits, the patch a save
  * sends, and the checks the panel would otherwise answer with a 400.
  *
- * These 40 declarations were identical copies in `uis/stock` and `uis/noc-console`
+ * These declarations were identical copies in `uis/stock` and `uis/noc-console`
  * (`parseUpstream` differs only in a doc comment, so it takes the fuller one). Eight commits had
  * touched both files, one literally "carry the fix into the other UI" — a measured cost.
  *
- * `cloneRoutes` deliberately stays in each UI: it calls Vue's `toRaw`, and this module must not
- * depend on Vue — the UIs bundle it as a devDependency while the published package does not ship
- * it, so a Vue import here would break the server if it ever imported this file.
+ * Nothing here may import Vue: the UIs bundle it as a devDependency while the published package
+ * does not ship it, so a Vue import would break the server if it ever read this file. That is also
+ * why the detach is `clonePlain` (`./clone.ts`), never `structuredClone(toRaw(...))`.
  */
 
 export interface CertificateErrors {
@@ -205,6 +206,31 @@ export function newRouteDraft(): RouteDraft {
 export function newRouteKey(): string {
   counter += 1
   return `proxy-route-${counter}`
+}
+
+/**
+ * A detached, plain copy of the route list, so an edit cannot reach live state.
+ *
+ * `clonePlain`, not `structuredClone(toRaw(...))`: a list the page rebuilt holds Vue proxies
+ * inside the raw array, and the clone then throws `DataCloneError`.
+ */
+export function cloneRoutes(routes: readonly ProxyRoute[]): RouteDraft[] {
+  return clonePlain(routes).map(route => ({ ...route, key: newRouteKey() }))
+}
+
+/**
+ * Applies a dialog result to the draft list.
+ *
+ * `edited` is matched by route **id**, never by the row's `key`: a state frame arriving while the
+ * dialog is open re-clones the list and mints a fresh key per row, so the row the dialog was opened
+ * from no longer matches by key — and the edit was then dropped with the dialog closing as if it
+ * had saved. An id survives the re-clone. `null` means the dialog is adding, which is why the add
+ * case is not "no match found".
+ */
+export function applyRouteDraft(routes: readonly RouteDraft[], edited: RouteDraft | null, next: RouteDraft): RouteDraft[] {
+  if (edited === null)
+    return [...routes, next]
+  return routes.map(route => (route.id === edited.id ? next : route))
 }
 
 /** Nameservers as typed: split on commas or newlines, trimmed, empties dropped. */

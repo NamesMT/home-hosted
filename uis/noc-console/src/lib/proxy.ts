@@ -1,9 +1,8 @@
 import type { ProxyCertificateState, ProxyConfig, ProxyDnsAccountView, ProxyRoute, ProxyRouteStatus, ProxyRouteView, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
 import type { ListenerDraft, RouteDraft } from '@shared/proxy-form'
-import { clonePlain } from '@shared/clone'
-import { isPublicHost, newRouteKey, proxyPatch } from '@shared/proxy-form'
+import { isPublicHost, proxyPatch } from '@shared/proxy-form'
 
-export { certificateTitle, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, retryInLabel, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, targetSummary, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
+export { applyRouteDraft, certificateTitle, cloneRoutes, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, retryInLabel, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, targetSummary, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
 export type { CertificateErrors, ListenerDraft, ProxyWorkspace, RouteDraft, RouteErrors } from '@shared/proxy-form'
 
 /**
@@ -124,31 +123,6 @@ export function dnsAccountOptions(accounts: readonly ProxyDnsAccountView[]): Arr
     })
   }
   return options
-}
-
-/**
- * A detached, plain copy of the route list, so an edit cannot reach live state.
- *
- * `clonePlain`, not `structuredClone(toRaw(...))`: a list the page rebuilt holds Vue proxies
- * inside the raw array, and the clone then throws `DataCloneError`.
- */
-export function cloneRoutes(routes: readonly ProxyRoute[]): RouteDraft[] {
-  return clonePlain(routes).map(route => ({ ...route, key: newRouteKey() }))
-}
-
-/**
- * Applies a dialog result to the draft list.
- *
- * `edited` is matched by route **id**, never by the row's `key`: a state frame arriving
- * while the dialog is open re-clones the list and mints a fresh key per row, so the row the
- * dialog was opened from no longer matches by key — and the edit was then dropped with the
- * dialog closing as if it had saved. An id survives the re-clone. `null` means the dialog
- * is adding, which is why the add case is not "no match found".
- */
-export function applyRouteDraft(routes: readonly RouteDraft[], edited: RouteDraft | null, next: RouteDraft): RouteDraft[] {
-  if (edited === null)
-    return [...routes, next]
-  return routes.map(route => (route.id === edited.id ? next : route))
 }
 
 export function changedKeys(current: ProxyConfig, listener: ListenerDraft, drafts: readonly RouteDraft[], filledRoutes?: readonly ProxyRoute[]): number {

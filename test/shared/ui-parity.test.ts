@@ -55,16 +55,27 @@ describe('the UIs share one proxy form', () => {
     expect(source, 'the panel should read the shared form').toContain('from \'#src/shared/proxy-form\'')
   })
 
-  it('keeps `cloneRoutes` in each UI, because it mints that UI\'s row keys', () => {
-    // `cloneRoutes` calls `newRouteKey`, and the copy itself is shared: `clonePlain` needs no Vue,
-    // which is what made this the *only* reason for the exception rather than the clone.
+  /**
+   * The route drafts' two helpers moved in with the rest.
+   *
+   * They stayed per-UI as long as they called Vue's `toRaw` for the detach. `clonePlain` needs no
+   * Vue, which left the exception pointing at a reason that no longer existed: both UIs were then
+   * carrying a byte-identical `cloneRoutes` and `applyRouteDraft` beside a shared module that could
+   * hold them. A stale rationale is how the duplication survives its own fix, so this pins both.
+   */
+  it('keeps the route draft helpers in the shared module', () => {
     const shared = fs.readFileSync(path.join(root, 'src', 'shared', 'proxy-form.ts'), 'utf8')
     expect(shared, 'src/shared must not import Vue').not.toMatch(/from 'vue'/)
+    expect(shared, 'the detach must go through clonePlain').toContain('clonePlain(')
+    expect(shared).toContain('export function cloneRoutes')
+    expect(shared).toContain('export function applyRouteDraft')
+
     for (const ui of ['stock', 'noc-console']) {
       const source = uiProxy(ui)
-      expect(source, `${ui} keeps cloneRoutes`).toContain('export function cloneRoutes')
-      // The half that was wrong: a `structuredClone(toRaw(...))` throws on a rebuilt reactive list.
-      expect(source, `${ui} must detach through clonePlain`).toContain('clonePlain(')
+      expect(source, `${ui} must not re-declare cloneRoutes`).not.toMatch(/^export function cloneRoutes/m)
+      expect(source, `${ui} must not re-declare applyRouteDraft`).not.toMatch(/^export function applyRouteDraft/m)
+      // And each still resolves them locally, so no call site had to learn a new import path.
+      expect(source, `${ui} should re-export the shared cloneRoutes`).toContain('cloneRoutes')
     }
   })
 })
