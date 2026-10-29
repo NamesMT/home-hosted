@@ -201,7 +201,11 @@ workspace config guard, so a busy default port turns config tests red for the wr
   happened to. `portState` is the deliberate exception — a port's occupancy outlives its process.
   The client half is the same predicate as the paragraph above: both UIs read a reading through
   `liveReadings` (`src/shared/server-readings.ts`), never off the frame, and never `?? 0` (a zero
-  is the value that looks like a measured idle process).
+  is the value that looks like a measured idle process). The read is not the whole gate — the
+  *render* must carry the absence too: a percent goes through `pct`
+  (`uis/noc-console/src/lib/format.ts`), because `{{ (… ?? 0).toFixed(0) }}%` put a measured `0%`
+  on every stopped entry of the panel-wide overview, and `test/shared/ui-readings.test.ts` walks
+  every UI template for that shape.
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"

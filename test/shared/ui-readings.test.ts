@@ -72,4 +72,53 @@ describe('the UIs read a process’s numbers through one predicate', () => {
     expect(source, 'the sampler must build its point from the predicate').toMatch(/const live = liveReadings\(server\)/)
     expect(source, 'a raw `resources?.cpuPercent ?? 0` here is the zero this pins').not.toMatch(/ring\.cpu, server\.resources\?\.cpuPercent/)
   })
+
+  /**
+   * The other half of the same rule: `liveReadings` returns `null` for an absent measurement, and
+   * a surface that *renders* that null as `0` has undone the gate.
+   *
+   * `GlobalOverviewView` printed `{{ (liveReadings(server).cpuPercent ?? 0).toFixed(0) }}%`, so a
+   * stopped entry read `0%` — exactly the "measured idle process" the predicate exists to prevent,
+   * on the panel-wide table where a person scans many workspaces at once. The rule is written in
+   * `AGENTS.md` ("never `?? 0`"), and the scan above watched for a raw *field* read, so a read
+   * through the predicate followed by a zero fallback passed it.
+   *
+   * Every `.vue` under both UIs is read, not the `surfaces` list above: that list is a fixture that
+   * rots, and the whole point is the surface nobody thought of yet.
+   *
+   * Only rendered text is checked. A `?? 0` in a *comparison* (`(… ?? 0) >= 1000` for a warning
+   * tone) is a sentinel that means "no warning", not a number on screen, and flagging it would fail
+   * working code.
+   */
+  it('renders an absent reading as unknown, never as a zero', () => {
+    const offenders: string[] = []
+    const walk = (dir: string): void => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === 'dist')
+            continue
+          walk(full)
+        }
+        else if (entry.name.endsWith('.vue')) {
+          const source = fs.readFileSync(full, 'utf8')
+          const start = source.indexOf('<template>')
+          if (start < 0)
+            continue
+          const rel = path.relative(root, full).replaceAll('\\', '/')
+          for (const text of source.slice(start).matchAll(/\{\{([\s\S]*?)\}\}/g)) {
+            // A predicate reading, or the local it was destructured into, with a zero fallback.
+            for (const zero of (text[1] ?? '').matchAll(/liveReadings\([^)]*\)\.\w+\s*\?\?\s*0\b|live\.\w+\s*\?\?\s*0\b/g))
+              offenders.push(`${rel}: {{ ${zero[0]} }}`)
+          }
+        }
+      }
+    }
+    for (const name of ['stock', 'noc-console'])
+      walk(path.join(root, 'uis', name, 'src'))
+
+    // Anti-vacuity: the walk must see the templates, not an empty directory.
+    expect(fs.existsSync(path.join(root, 'uis', 'noc-console', 'src', 'views', 'GlobalOverviewView.vue'))).toBe(true)
+    expect(offenders, 'an absent reading rendered as a zero reads as a measured idle process').toEqual([])
+  })
 })

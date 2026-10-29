@@ -9,7 +9,7 @@ import StatusChip from '@/components/StatusChip.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { selectedId } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
-import { briefBytes, formatRatio, formatUptime } from '@/lib/format'
+import { briefBytes, formatRatio, formatUptime, pct } from '@/lib/format'
 import { workspacePath } from '@/router'
 
 /**
@@ -127,7 +127,7 @@ function openServer(workspaceId: string, serverId: string): void {
               <td>
                 <span class="row" style="gap: 0.35rem">
                   <Sparkline :values="control.seriesOf(group.id, server.id).cpu" color="var(--accent)" :width="54" :height="13" />
-                  <span class="num mono">{{ (liveReadings(server).cpuPercent ?? 0).toFixed(0) }}%</span>
+                  <span class="num mono">{{ pct(liveReadings(server).cpuPercent) }}</span>
                 </span>
               </td>
               <td class="num">
