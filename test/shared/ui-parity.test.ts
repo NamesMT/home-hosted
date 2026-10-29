@@ -197,7 +197,19 @@ describe('the plain-object predicate has one definition', () => {
    * express) and is left alone. The two forms this catches are the ones that were copied:
    * `return typeof v === 'object' && v !== null && !Array.isArray(v)` and the same as a ternary.
    */
-  const PREDICATE = /typeof \w+ === 'object' && \w+ !== null && !Array\.isArray\(\w+\)/g
+  /**
+   * Whether a source body holds the predicate's shape.
+   *
+   * The pattern is built **inside the call**, not held in a module-level `const … /g` used with
+   * `.test()`. That is not style: a `/g` regex is stateful, because `.test()` advances `lastIndex`
+   * and the next call starts from there rather than from 0. Measured on this scan — it matched
+   * `src/shared/shape.ts` at offset 1037, then walked over a copy planted at the top of the very
+   * next file in its order (`src/shared/ui-format.ts`), so a duplicate sitting beside the original
+   * was invisible. A fresh regex per call cannot carry that state.
+   */
+  function holdsPredicate(body: string): boolean {
+    return /typeof \w+ === 'object' && \w+ !== null && !Array\.isArray\(\w+\)/.test(body)
+  }
 
   const sources = (): Array<{ rel: string, body: string }> => {
     const found: Array<{ rel: string, body: string }> = []
@@ -209,7 +221,10 @@ describe('the plain-object predicate has one definition', () => {
             continue
           walk(full)
         }
-        else if (/\.tsx?$/.test(entry.name)) {
+        // `.vue` too: a component's `<script setup>` is where a copy was actually planted, and
+        // accepting only `.ts`/`.tsx` meant the guard never looked inside it. The template half of
+        // the file cannot match this shape, so widening the corpus costs nothing.
+        else if (/\.(?:tsx?|vue)$/.test(entry.name)) {
           // POSIX form, so the comparison below is the same on Windows: `path.relative` returns
           // backslashes there, and a literal expectation would pass on Linux and fail on Windows.
           const rel = path.relative(root, full).replaceAll('\\', '/')
@@ -253,11 +268,63 @@ describe('the plain-object predicate has one definition', () => {
     expect(files.length).toBeGreaterThan(100)
 
     const holders = files
-      .filter(file => PREDICATE.test(file.body))
+      .filter(file => holdsPredicate(file.body))
       .map(file => file.rel)
       .sort()
 
     expect(holders).toEqual(['src/shared/shape.ts'])
+  })
+
+  /**
+   * The scan must see a copy wherever it is written, which is a property of the *scanner*.
+   *
+   * Asserting only `holders === ['src/shared/shape.ts']` cannot distinguish "there is one
+   * definition" from "the walk never looked". Two measured holes hid behind that single
+   * assertion, and both were reproduced by planting a real duplicate and watching this file stay
+   * green:
+   *
+   *  - the pattern was a module-level `const … /g` passed to `.test()`, and `.test()` on a `/g`
+   *    regex advances `lastIndex`. After matching `src/shared/shape.ts` it left `lastIndex` at
+   *    1037, so a copy placed at the top of the *next* file in walk order starts before that
+   *    offset and is skipped;
+   *  - the walk accepted only `.ts`/`.tsx`, so a copy inside a component's `<script setup>` was
+   *    never read at all.
+   *
+   * So this plants a copy into a real file of each shape and requires the scanner to find it.
+   * The copy is built from the same body, under a name the scan cannot recognise by name.
+   */
+  it('finds a planted copy in any scanned file, not just the one it already knows', () => {
+    const files = sources()
+    // A copy of the shape, deliberately not named `isRecord`: the guard matches the body.
+    const PLANT = [
+      'export function looksLikeRecord(value: unknown): boolean {',
+      `  return typeof value === 'object' && value !== null && !Array.isArray(value)`,
+      '}',
+      '',
+      '',
+    ].join('\n')
+
+    // The two shapes that were invisible: the file immediately after the real definition in walk
+    // order (where a stale `lastIndex` lands), and any `.vue` component.
+    const holderIndex = files.findIndex(file => file.rel === 'src/shared/shape.ts')
+    expect(holderIndex, 'the real definition must be in the corpus for this to mean anything').toBeGreaterThan(-1)
+    const neighbour = files[holderIndex + 1]
+    expect(neighbour, 'a file must follow the definition, or the lastIndex case cannot be tested').toBeTruthy()
+
+    const vue = files.find(file => file.rel.endsWith('.vue'))
+    expect(vue, 'the corpus must contain a .vue file, and the walk must not skip it').toBeTruthy()
+
+    const missed = [neighbour!, vue!]
+      .filter(target => !files.some(file => file.rel === target.rel && holdsPredicate(PLANT + file.body)))
+      .map(target => target.rel)
+    expect(missed, 'the scan must find a copy planted in every file it claims to read').toEqual([])
+
+    // The statelessness itself, independent of walk order: matching a body must not change what the
+    // *next* call sees. A `/g` matcher returns `false` for the second call whenever the second match
+    // would start before the first call left `lastIndex`.
+    const realShape = files.find(file => file.rel === 'src/shared/shape.ts')!.body
+    expect(holdsPredicate(realShape), 'the real definition matches').toBe(true)
+    expect(holdsPredicate(PLANT), 'and a copy still matches after it').toBe(true)
   })
 
   it('is reached through `@shared` from a UI and `#src` from the core', () => {

@@ -355,6 +355,16 @@ line in `AGENTS.md` instead.
   comments were stripped, and a `button.nav__item` selector assertion matched the selector named in
   the explanatory comment above the rule. A source scan must match a parsed *selector list* or rule
   body, and the mutation is what proves it does.
+- **A scan is only as good as its matcher and its corpus — and a green scan says neither.** The
+  plain-object scan (`test/shared/ui-parity.test.ts`) reported exactly one holder while a copy sat
+  *inside* it twice over. Its pattern was a module-level `const … /g` passed to `.test()`: a `/g`
+  regex is **stateful**, because `.test()` advances `lastIndex` and the next call resumes from there.
+  It matched `src/shared/shape.ts` at offset 1037, then skipped a copy planted at the top of the next
+  file in walk order, which starts before that offset. And its walk accepted only `.ts`/`.tsx`, so a
+  copy in a component's `<script setup>` was never read. Both stayed green on the real duplicate. Two
+  rules follow: **build the pattern where it is used** (or drop `/g`; `matchAll` is the one that wants
+  it), and **plant a copy in each shape the scan claims to read** — one assertion that names the only
+  allowed holder cannot tell "there is one definition" from "the walk never looked".
 
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured
