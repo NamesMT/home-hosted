@@ -3,7 +3,7 @@ import type { HostView } from '@shared/contracts'
 import type { HostBand } from '@shared/host-readings'
 import type { Tone } from '@/lib/status'
 import { Cpu, HardDrive, MemoryStick, Thermometer } from '@lucide/vue'
-import { hostReadings, tempDialPercent } from '@shared/host-readings'
+import { hostCpuBand, hostReadings, tempDialPercent } from '@shared/host-readings'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
 import Meter from '@/components/telemetry/Meter.vue'
@@ -37,6 +37,8 @@ const loadLoads = computed(() => {
 
 /** The real percentage: share of the machine's total CPU capacity used since the last sample. */
 const cpuUsed = computed(() => readings.value.cpuUsedPercent)
+/** No configurable cpu alert exists, so the band is a shared constant — not this file's pair. */
+const cpuTone = computed(() => hostCpuBand(cpuUsed.value) ?? 'ok')
 
 /**
  * Every dial's colour is the panel's own verdict, never a literal pair.
@@ -78,13 +80,8 @@ const tempTone = computed(() => toneClass(readings.value.tempBand))
 
   <div v-else class="space-y-4">
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <Gauge
-        :value="cpuUsed"
-        :label="t('host.cpuUsage')"
-        :size="72"
-        :warn-at="80"
-        :danger-at="95"
-      />
+      <!-- The band is shared: `hostCpuBand` decides it, so both UIs agree on the same reading. -->
+      <Gauge :value="cpuUsed" :label="t('host.cpuUsage')" :size="72" :tone="cpuTone" />
       <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="72" :tone="memoryTone" />
       <Gauge :value="readings.swapUsedPercent" :label="t('host.swap')" :size="72" :tone="swapTone" />
       <Gauge

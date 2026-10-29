@@ -158,6 +158,31 @@ export function loadBand(loadPerCpu: number | null, alertPerCpu: number | undefi
 }
 
 /**
+ * The band for the host's own CPU share, which has no configurable alert.
+ *
+ * `host.cpuUsedPercent` is a share of the whole machine, and `hostSchema` has no threshold for it —
+ * so there is nothing a person chose for a surface to follow, and a fixed band is a decision. The
+ * decision is *this one*: the two UIs disagreed (noc-console painted 70/90, every stock dial 80/95),
+ * so one 75% reading came back `warn` on one page and `ok` on the other — `AGENTS.md`'s "UIs move
+ * together" broken by two literal pairs. A real alert would make this a `…Alert` field on the frame
+ * like its neighbours; until then it is a constant here, not a pair at each call site.
+ */
+export const HOST_CPU_BAND = { warnAt: 80, dangerAt: 95 } as const
+
+/** The band for a host cpu share, against {@link HOST_CPU_BAND}. */
+export function hostCpuBand(percent: number | null): HostBand {
+  if (percent === null || !Number.isFinite(percent))
+    return null
+  // An explicit pair, not `thresholdBand`'s 70%-of-the-alert: these are two chosen numbers, and
+  // deriving one from the other moved the warn line to 66.5 for a band written as 80/95.
+  if (percent >= HOST_CPU_BAND.dangerAt)
+    return 'danger'
+  if (percent >= HOST_CPU_BAND.warnAt)
+    return 'warn'
+  return 'ok'
+}
+
+/**
  * How a reading sits against the threshold the panel notifies on.
  *
  * `danger` at the threshold is the whole point: the alert fires there, so a bar that stays `warn`

@@ -167,3 +167,60 @@ describe('both stock surfaces draw the temperature dial on the same scale', () =
     cluster.unmount()
   })
 })
+
+/**
+ * The host cpu share has no configurable alert, so its band is a shared decision.
+ *
+ * `hostSchema` has no cpu threshold — nothing a person chose — so the band is fixed by nature. It
+ * was fixed *twice*: noc-console painted 70/90 and every stock dial 80/95, so one 75% reading came
+ * back `warn` on one page and `ok` on the other. That is `AGENTS.md`'s "UIs move together" broken by
+ * two literal pairs, and no test could see it because each side was self-consistent.
+ */
+describe('the cpu band is one decision', () => {
+  const CPU_AT_75: HostView = {
+    enabled: true,
+    cpus: 8,
+    loadAvg: [0, 0, 0],
+    cpuUsedPercent: 75,
+    uptimeMs: 1000,
+    memoryUsedPercent: 10,
+    swapUsedPercent: 1,
+    tempCelsius: 40,
+    disks: [],
+    alerts: [],
+    sampledAt: 1_000_000,
+  }
+
+  /** The colour of one dial, found by the label it prints under it. */
+  function cpuStroke(wrapper: ReturnType<typeof mount>): string {
+    const dial = wrapper.findAll('div').find(node => node.find('span').exists() && node.text().endsWith('CPU usage'))
+      ?? wrapper.findAll('div').find(node => node.text().includes('CPU usage'))
+    expect(dial, 'no cpu dial on this surface').toBeDefined()
+    // The value arc is the second circle; the first is the `stroke-line-soft` track.
+    const strokes = dial!.findAll('circle').map(circle => circle.attributes('class') ?? '').filter(name => /stroke-(?!line-soft)/.test(name))
+    return strokes[0] ?? ''
+  }
+
+  it('bands a 75% share the same way on the stock card and in the cluster', () => {
+    const card = mount(HostVitalsPanel, { props: { host: CPU_AT_75, now: 1_000_000 } })
+    const cluster = mount(InstrumentCluster, { props: { host: CPU_AT_75 } })
+
+    const onCard = cpuStroke(card)
+    expect(onCard, 'the card and the cluster must agree').toBe(cpuStroke(cluster))
+    // 75 sits under the shared warn line, so neither paints it.
+    expect(onCard, '75% is below the band this package chose').not.toMatch(/stroke-(?:warn|danger)/)
+
+    card.unmount()
+    cluster.unmount()
+  })
+
+  it('paints danger at the shared line, on both', () => {
+    const host = { ...CPU_AT_75, cpuUsedPercent: 96 }
+    const card = mount(HostVitalsPanel, { props: { host, now: 1_000_000 } })
+    const cluster = mount(InstrumentCluster, { props: { host } })
+    expect(cpuStroke(card)).toContain('stroke-danger')
+    expect(cpuStroke(cluster)).toContain('stroke-danger')
+    card.unmount()
+    cluster.unmount()
+  })
+})

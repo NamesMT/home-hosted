@@ -569,3 +569,31 @@ describe('the fallback bands are the schema defaults', () => {
       expect(source, `hostSchema must write ${key}'s default from the constant`).toContain(`= \${HOST_ALERT_DEFAULTS.${key}}`)
   })
 })
+
+/**
+ * A dial's `warn-at`/`danger-at` pair is a copy of a band, so no host surface may pass one.
+ *
+ * `host.cpuUsedPercent` has no configurable alert, so every host dial's band comes from a predicate
+ * here instead — and the literal pairs had already diverged (70/90 in one UI, 80/95 in the other)
+ * before anything noticed. `Gauge` keeps its own defaults for non-host callers; on a host surface the
+ * band is decided once.
+ */
+describe('no host surface passes a literal band to a dial', () => {
+  const HOST_SURFACES = [
+    'uis/stock/src/components/host/HostVitalsPanel.vue',
+    'uis/stock/src/components/shell/InstrumentCluster.vue',
+    'uis/noc-console/src/components/HostVitals.vue',
+    'uis/noc-console/src/components/HostRail.vue',
+  ]
+
+  it('finds the surfaces it checks', () => {
+    for (const file of HOST_SURFACES)
+      expect(sourceOf(file).length, `${file} must be readable`).toBeGreaterThan(200)
+  })
+
+  it('passes no warn-at or danger-at on a host dial', () => {
+    const offenders = HOST_SURFACES
+      .filter(file => /:(?:warn-at|danger-at)=/.test(sourceOf(file)))
+    expect(offenders, 'a band restated at the call site instead of taken from the predicate').toEqual([])
+  })
+})

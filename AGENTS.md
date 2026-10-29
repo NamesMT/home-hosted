@@ -273,6 +273,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   itself. Every *colour* was right, so the tone tests stayed green while the needle disagreed —
   `tempDialPercent` (`src/shared/host-readings.ts`) decides the fill once, and the scan in
   `test/shared/host-readings.test.ts` fails a temperature divided, clamped or defaulted by a number.
+  **A reading with no alert still has one band, and it is a constant here.** `host.cpuUsedPercent` is
+  a share of the whole machine and `hostSchema` has no threshold for it, so there is nothing a person
+  chose — but the band was written *twice*: noc-console painted `70`/`90` and every stock dial
+  `80`/`95`, so one 75% reading came back `warn` on one page and `ok` on the other, each side
+  self-consistent and neither tested against its twin. `hostCpuBand`/`HOST_CPU_BAND` decide it, and
+  the scan fails a host surface that passes `warn-at`/`danger-at` to a dial. When a fixed band is a
+  real decision, make it one decision — a component's default is a copy you cannot see, and two
+  copies of a *fixed* number cannot even be caught by raising a config.
   Why these copies survived: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and

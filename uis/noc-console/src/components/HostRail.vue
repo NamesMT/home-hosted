@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { hostReadings, tempDialPercent } from '@shared/host-readings'
+import { hostCpuBand, hostReadings, tempDialPercent } from '@shared/host-readings'
 import { computed } from 'vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { clamp, pct } from '@/lib/format'
@@ -33,12 +33,12 @@ const loadRatio = computed(() => readings.value.loadPerCpu)
 const loadTone = computed(() => readings.value.loadBand ?? 'ok')
 /** The CPU bar shows the real utilisation, so the rail's numbers share one unit. */
 const cpuUsed = computed(() => readings.value.cpuUsedPercent)
-const cpuTone = computed(() => {
-  const value = cpuUsed.value
-  if (value === null)
-    return 'ok'
-  return value >= 90 ? 'danger' : value >= 70 ? 'warn' : 'ok'
-})
+/**
+ * The cpu share's band comes from the shared predicate. It has no configurable alert, so the band
+ * is a fixed decision — and one it has to share: this surface painted 70/90 while every stock dial
+ * used 80/95, so one 75% reading was `warn` here and `ok` there.
+ */
+const cpuTone = computed(() => hostCpuBand(cpuUsed.value) ?? 'ok')
 /**
  * The three percentage bars read the shared band, measured against the threshold the panel
  * **notifies** on — the same rule the load bar follows. They used to carry literals, and the

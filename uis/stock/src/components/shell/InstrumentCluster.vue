@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
 import type { Tone } from '@/lib/status'
-import { hostReadings, tempDialPercent } from '@shared/host-readings'
+import { hostCpuBand, hostReadings, tempDialPercent } from '@shared/host-readings'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
 import { t } from '@/i18n'
@@ -17,6 +17,8 @@ const props = defineProps<{ host: HostView | null }>()
 /** The cluster is on the sidebar of every page, so the absence rule is the same one both UIs use. */
 const readings = computed(() => hostReadings(props.host))
 const cpuUsed = computed(() => readings.value.cpuUsedPercent)
+/** No configurable cpu alert exists, so the band is a shared constant — not this file's pair. */
+const cpuTone = computed(() => hostCpuBand(cpuUsed.value) ?? 'ok')
 
 const loadDisplay = computed(() => (readings.value.loadPerCpu === null ? '—' : readings.value.loadPerCpu.toFixed(2)))
 
@@ -69,7 +71,8 @@ const tempDisplay = computed(() => {
     </div>
 
     <div v-if="props.host?.enabled" class="grid grid-cols-2 gap-x-1 gap-y-2">
-      <Gauge :value="cpuUsed" :label="t('host.cpuUsage')" :size="58" :warn-at="80" :danger-at="95" />
+      <!-- The band is shared: `hostCpuBand` decides it, so both UIs agree on the same reading. -->
+      <Gauge :value="cpuUsed" :label="t('host.cpuUsage')" :size="58" :tone="cpuTone" />
       <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="58" :tone="memoryTone" />
       <Gauge :value="diskUsed" :label="t('common.disk')" :size="58" :tone="diskTone" />
       <Gauge :value="tempDial" :label="t('host.cpuTemp')" :display="tempDisplay" :size="58" :tone="tempTone" />
