@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { hostReadings, LOAD_ALERT_PER_CPU_DEFAULT } from '#src/shared/host-readings'
+import { HOST_ALERT_DEFAULTS, hostReadings, LOAD_ALERT_PER_CPU_DEFAULT } from '#src/shared/host-readings'
 
 /**
  * A host frame with no sample has no readings, and the panel's own pages said otherwise.
@@ -87,7 +87,8 @@ describe('hostReadings', () => {
 
   it('keeps a disk list that came from a real sample, and none otherwise', () => {
     const disk = { path: '/', totalBytes: 100, freeBytes: 50, usedPercent: 50 }
-    expect(hostReadings({ ...empty, sampledAt: 1, disks: [disk] }).disks).toEqual([disk])
+    // The numbers survive as they were measured; the band is the one thing the predicate adds.
+    expect(hostReadings({ ...empty, sampledAt: 1, disks: [disk] }).disks).toEqual([{ ...disk, band: 'ok' }])
     // A panel switched off after a sample still carries disks. They are a per-path measurement, so
     // they go with the rest when there is no sample behind them.
     expect(hostReadings({ ...empty, disks: [disk] }).disks).toEqual([])
@@ -343,5 +344,116 @@ describe('the UIs band the percentages against the configured thresholds', () =>
     const provider = sourceOf('src/providers/host.ts')
     for (const field of ['memoryUsedPercentAlert', 'swapUsedPercentAlert', 'tempCelsiusAlert'])
       expect([...provider.matchAll(new RegExp(`\\b${field}: config\\.`, 'g'))], `${field} in both frame builders`).toHaveLength(2)
+  })
+})
+
+/**
+ * The disk band is the same rule, and it is the reading the last fix missed.
+ *
+ * The load and the three percentages each got a predicate; the disk bar kept `band(percent, 75, 90)`
+ * in `HostRail`/`HostVitals` and the stock `Gauge`/`Meter` defaults. Those are the schema's *default*
+ * (`hostSchema` ships `diskUsedPercent: 90`), so the copy is invisible on a fresh config and wrong
+ * on any other: with `host.diskUsedPercent` at **80**, `sampleHost` notifies at 82% and every
+ * surface painted it `warn` — the panel contradicting its own warning on the one reading where a
+ * late warning costs a full filesystem.
+ *
+ * The threshold had never travelled on the frame, so no surface *could* have followed it. It rides
+ * beside the other three now, and each disk carries its own band from the predicate.
+ */
+describe('a disk is banded against the threshold the panel notifies on', () => {
+  const disk = (usedPercent: number) => ({ path: '/srv', totalBytes: 100, freeBytes: 100 - usedPercent, usedPercent })
+
+  it('bands each disk against the configured alert, not the schema default', () => {
+    // 82% against a threshold a person lowered to 80 is a breach — the alert fires there.
+    expect(hostReadings({ ...empty, sampledAt: 1, diskUsedPercentAlert: 80, disks: [disk(82)] }).disks[0]!.band).toBe('danger')
+    // The same reading at the shipped default of 90 is only the approach to it.
+    expect(hostReadings({ ...empty, sampledAt: 1, disks: [disk(82)] }).disks[0]!.band).toBe('warn')
+    // The edge itself is where the panel notifies.
+    expect(hostReadings({ ...empty, sampledAt: 1, diskUsedPercentAlert: 80, disks: [disk(80)] }).disks[0]!.band).toBe('danger')
+  })
+
+  it('keeps the default band for a panel that sends no disk threshold', () => {
+    // An older panel alerted on the schema default, which is what its surfaces banded against.
+    expect(HOST_ALERT_DEFAULTS.diskUsedPercent).toBe(90)
+    expect(hostReadings({ ...empty, sampledAt: 1, disks: [disk(95)] }).disks[0]!.band).toBe('danger')
+  })
+
+  it('has no band, and no disks, where nothing was measured', () => {
+    // A zero on an unsampled frame is not an empty filesystem.
+    expect(hostReadings({ ...empty, disks: [disk(99)] }).disks).toEqual([])
+  })
+
+  it('paints nothing alarming for a disk alert switched off', () => {
+    // `0` disables the alert in `sampleHost`, so there is no threshold to cross.
+    expect(hostReadings({ ...empty, sampledAt: 1, diskUsedPercentAlert: 0, disks: [disk(99.9)] }).disks[0]!.band).toBe('ok')
+  })
+})
+
+/**
+ * The scan for the class: no UI may band a disk against a literal.
+ *
+ * A test of the helper cannot see a fourth copy written beside it — that is how the disk bar
+ * survived while its three neighbours were fixed. Two shapes produced it: a `usedPercent` compared
+ * against a number (`HostVitals`' `diskTone`), and a `band(value, 75, 90)` restatement (`HostRail`).
+ * Both are read here; a surface that reads the predicate's `disk.band` matches neither.
+ */
+describe('the UIs band a disk from the predicate', () => {
+  /**
+   * The three bodies that restated the pair, matched by **shape** rather than by a helper's name.
+   *
+   * A scan for `diskTone` would pass the moment someone renamed it — the trap `ui-readings.test.ts`
+   * already paid for — and would also flag a correct computed of that name. What is forbidden is a
+   * disk reading *compared against a number*: the reading itself, a disk-named local helper that
+   * bands its own parameter, and a band call handed a percentage plus two literals.
+   */
+  const DISK_LITERAL = new RegExp([
+    // `disk.usedPercent >= 90`
+    String.raw`\busedPercent\s*(?:>=|<=|>|<)\s*\d+(?:\.\d+)?`,
+    // `function diskTone(percent: number) { if (percent >= 90) … }`
+    String.raw`function\s+disk\w*\s*\(\s*(\w+)\s*:[^)]*\)[^{]*\{[^}]*\b\1\s*(?:>=|<=|>|<)\s*\d+`,
+    // `band(percent, 75, 90)` — the `i` flag already covers the spelling.
+    String.raw`\b(?:band|tone\w*)\(\s*[\w.$]*percent\s*,\s*\d+(?:\.\d+)?\s*,\s*\d+(?:\.\d+)?\s*\)`,
+  ].join('|'), 'gi')
+
+  it('still reaches the shape it forbids, so the matcher cannot silently rot', () => {
+    // Both bodies exactly as they were written, and the call the rail's helper made.
+    expect([...'disk.usedPercent >= 90'.matchAll(DISK_LITERAL)].map(m => m[0])).toEqual(['usedPercent >= 90'])
+    expect([...'function diskTone(percent: number): \'ok\' { if (percent >= 90) return \'danger\' }'.matchAll(DISK_LITERAL)]).toHaveLength(1)
+    expect([...'return band(percent, 75, 90)'.matchAll(DISK_LITERAL)]).toHaveLength(1)
+    // A correct call site is left alone: it reads the band, and formats a number.
+    expect([...'disk.usedPercent.toFixed(1)'.matchAll(DISK_LITERAL)]).toHaveLength(0)
+    expect([...'disk.band ?? \'ok\''.matchAll(DISK_LITERAL)]).toHaveLength(0)
+    // And the successor that reads the predicate's bands is not a restatement.
+    expect([...'const diskTone = computed<Tone>(() => bands.includes(\'danger\') ? \'danger\' : \'ok\')'.matchAll(DISK_LITERAL)]).toHaveLength(0)
+  })
+
+  it('bands no disk reading against a number nobody configured', () => {
+    const offenders: string[] = []
+    for (const ui of ['stock', 'noc-console']) {
+      for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
+        for (const match of sourceOf(rel).matchAll(DISK_LITERAL))
+          offenders.push(`${rel}: ${match[0].trim()}`)
+      }
+    }
+    expect(offenders, 'a disk band measured against a literal instead of the configured alert').toEqual([])
+  })
+
+  it('takes each disk tone from the predicate', () => {
+    // The four surfaces that paint a disk, and what each must read.
+    const surfaces: Array<[string, string]> = [
+      ['uis/noc-console/src/components/HostRail.vue', 'disk.band'],
+      ['uis/noc-console/src/components/HostVitals.vue', 'disk.band'],
+      ['uis/stock/src/components/host/HostVitalsPanel.vue', 'disk.band'],
+      ['uis/stock/src/components/shell/InstrumentCluster.vue', 'disk.band'],
+    ]
+    for (const [file, needle] of surfaces)
+      expect(sourceOf(file), `${file} must read the band the predicate decided`).toContain(needle)
+  })
+
+  it('carries the disk threshold on the frame, from both builders', () => {
+    const provider = sourceOf('src/providers/host.ts')
+    // Counted, not merely found: a scan that only asked "is it mentioned" passed after the sampled
+    // builder lost a field, because the boot frame still carried it.
+    expect([...provider.matchAll(/\bdiskUsedPercentAlert: config\./g)], 'diskUsedPercentAlert in both frame builders').toHaveLength(2)
   })
 })

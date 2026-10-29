@@ -286,6 +286,23 @@ line in `AGENTS.md` instead.
   it alerted on rather than `undefined` propagating into a comparison; and a `loadRatio ?? 0` that
   sizes a **bar** is not this defect — it picks an empty bar, not a colour — so the scan matches
   comparisons only.
+- **The fix that named the class still left one instance, and the reason is worth keeping.** After the
+  load and the three percentages got predicates, the **disk** bar kept `band(percent, 75, 90)` in both
+  noc-console surfaces, and the stock `Gauge`/`Meter` carried the same pair as *component defaults*
+  (`warnAt: 75, dangerAt: 90`). That is `hostSchema`'s default `diskUsedPercent: 90`, so — exactly as
+  with the load — the copy is invisible on a fresh config and wrong on any other. Measured with the
+  alert at **80**: `sampleHost` notifies at 82% and every surface painted that number `warn`, on the
+  one reading where a late warning costs a full filesystem. Two things made it survive the round that
+  fixed its neighbours. First, `host.diskUsedPercent` had **never been put on the frame**, so no
+  surface *could* have followed it — the previous fix added three thresholds and did not audit the
+  fourth reading for one. Second, the copies were not literals beside a component call; they were the
+  component's own **defaults**, which read as "the component's business" rather than as a restated
+  rule, and a scan for a comparison against a number cannot see a default declared in another file.
+  So the band rides on **each disk** (`HostDiskReading.band`, `hostReadings`) rather than in one
+  `diskBand` beside `memoryBand`: the reading is per path and a frame carries several, and one
+  frame-level band would have answered for whichever path it happened to name. The general lesson is
+  the audit, not the fourth patch — when a paragraph in `AGENTS.md` claims a *set* of readings
+  follows a rule, enumerate the set against the frame and against every surface.
 - **A `_total` that can go down is not a counter.** `hh_server_restarts_total` was the retry budget
   spent on a server's *current* crash sequence, and a start someone asked for resets it to `0`
   (measured: `2` → `0` on a manual start), so `rate()` saw a counter reset every time an operator

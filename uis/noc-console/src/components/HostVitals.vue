@@ -38,14 +38,6 @@ watch(() => host.value?.sampledAt, () => {
   pushCapped(memSeries.value, view.memoryUsedPercent)
 }, { immediate: true })
 
-function diskTone(percent: number): 'ok' | 'warn' | 'danger' {
-  if (percent >= 90)
-    return 'danger'
-  if (percent >= 75)
-    return 'warn'
-  return 'ok'
-}
-
 /**
  * Load is a *count* of runnable tasks, not a share: `1.00` is one core's worth, and on a 24-core
  * host that is nothing. The old bands painted that red at `1`. The band now comes from
@@ -201,11 +193,11 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
               <td class="num">
                 {{ formatBytes(disk.freeBytes) }}
               </td>
-              <td class="num" :class="diskTone(disk.usedPercent) === 'danger' ? 'danger' : diskTone(disk.usedPercent) === 'warn' ? 'warn' : ''">
+              <td class="num" :class="disk.band === 'danger' ? 'danger' : disk.band === 'warn' ? 'warn' : ''">
                 {{ disk.usedPercent.toFixed(1) }}%
               </td>
               <td style="width: 34%">
-                <MeterBar :value="disk.usedPercent" :tone="diskTone(disk.usedPercent)" :digits="1" />
+                <MeterBar :value="disk.usedPercent" :tone="disk.band ?? 'ok'" :digits="1" />
               </td>
             </tr>
           </tbody>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
+import type { Tone } from '@/lib/status'
 import { hostReadings } from '@shared/host-readings'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
@@ -7,7 +8,13 @@ import { t } from '@/i18n'
 
 const props = defineProps<{ host: HostView | null }>()
 
-/** Full-scale for the temperature dial: the alert threshold the settings page defaults to. */
+/**
+ * The temperature dial's full scale when the frame carries no threshold.
+ *
+ * `hostSchema`'s default, so a panel that predates `tempCelsiusAlert` is drawn on the scale it
+ * alerted against. A frame that carries one uses it instead — a fixed `85` left the dial reading
+ * full at the old number after a person raised `host.tempCelsius` to 95.
+ */
 const TEMP_FULL = 85
 
 /**
@@ -29,9 +36,38 @@ const diskUsed = computed(() => {
   return Math.max(...disks.map(disk => disk.usedPercent))
 })
 
+/**
+ * The worst band among the configured filesystems.
+ *
+ * The dial shows the fullest disk, so its colour is the band of that same disk — not a `75`/`90`
+ * pair restated here. `Gauge`'s defaults were the schema's *default*, so a person who lowered
+ * `host.diskUsedPercent` to 80 got a notification at 82% beside a dial still painted `warn`.
+ */
+const diskTone = computed<Tone>(() => {
+  const bands = readings.value.disks.map(disk => disk.band)
+  if (bands.includes('danger'))
+    return 'danger'
+  if (bands.includes('warn'))
+    return 'warn'
+  return bands.includes('ok') ? 'ok' : 'neutral'
+})
+
+const memoryTone = computed<Tone>(() => readings.value.memoryBand ?? 'neutral')
+const tempTone = computed<Tone>(() => readings.value.tempBand ?? 'neutral')
+
+/**
+ * Full-scale for the temperature dial: the threshold the panel notifies on.
+ *
+ * It used to be a fixed `85`, the schema's default, so raising `host.tempCelsius` to 95 left the
+ * dial reading full at the old number. `0` disables the alert and leaves no scale to draw, so the
+ * dial keeps the default rather than dividing by zero.
+ */
+const tempFull = computed(() => props.host?.tempCelsiusAlert ?? TEMP_FULL)
+
 const tempDial = computed(() => {
   const temp = readings.value.tempCelsius
-  return temp === null ? null : (temp / TEMP_FULL) * 100
+  const full = tempFull.value > 0 ? tempFull.value : TEMP_FULL
+  return temp === null ? null : (temp / full) * 100
 })
 
 const tempDisplay = computed(() => {
@@ -49,9 +85,9 @@ const tempDisplay = computed(() => {
 
     <div v-if="props.host?.enabled" class="grid grid-cols-2 gap-x-1 gap-y-2">
       <Gauge :value="cpuUsed" :label="t('host.cpuUsage')" :size="58" :warn-at="80" :danger-at="95" />
-      <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="58" />
-      <Gauge :value="diskUsed" :label="t('common.disk')" :size="58" />
-      <Gauge :value="tempDial" :label="t('host.cpuTemp')" :display="tempDisplay" :size="58" />
+      <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="58" :tone="memoryTone" />
+      <Gauge :value="diskUsed" :label="t('common.disk')" :size="58" :tone="diskTone" />
+      <Gauge :value="tempDial" :label="t('host.cpuTemp')" :display="tempDisplay" :size="58" :tone="tempTone" />
     </div>
 
     <!-- Load is a count, so it is a number: `1.00` is one core's worth of runnable work. -->

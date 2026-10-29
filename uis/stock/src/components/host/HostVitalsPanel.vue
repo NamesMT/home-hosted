@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
+import type { HostBand } from '@shared/host-readings'
+import type { Tone } from '@/lib/status'
 import { Cpu, HardDrive, MemoryStick, Thermometer } from '@lucide/vue'
 import { hostReadings } from '@shared/host-readings'
 import { computed } from 'vue'
@@ -35,6 +37,25 @@ const loadLoads = computed(() => {
 
 /** The real percentage: share of the machine's total CPU capacity used since the last sample. */
 const cpuUsed = computed(() => readings.value.cpuUsedPercent)
+
+/**
+ * Every dial's colour is the panel's own verdict, never a literal pair.
+ *
+ * `Gauge` defaults to `75`/`90`, and this panel used to hand it its own `:warn-at="50"` for swap
+ * and scale the temperature dial by `85`. Those are `hostSchema`'s *defaults*, so the copy is
+ * invisible on a fresh config and wrong on any other: with `host.tempCelsius` at 95 a 90 °C box
+ * stayed `danger`, and 92% memory against a threshold raised to 95 was painted `danger` for a
+ * notification that could never arrive. `hostReadings` decides the band against the threshold the
+ * frame carries, so the dial reads it.
+ */
+function toneClass(band: HostBand): Tone {
+  // An absent reading is dim, not green: `0%` on an unsampled frame is not a healthy zero.
+  return band ?? 'neutral'
+}
+
+const memoryTone = computed(() => toneClass(readings.value.memoryBand))
+const swapTone = computed(() => toneClass(readings.value.swapBand))
+const tempTone = computed(() => toneClass(readings.value.tempBand))
 </script>
 
 <template>
@@ -54,13 +75,14 @@ const cpuUsed = computed(() => readings.value.cpuUsedPercent)
         :warn-at="80"
         :danger-at="95"
       />
-      <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="72" />
-      <Gauge :value="readings.swapUsedPercent" :label="t('host.swap')" :size="72" :warn-at="50" />
+      <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="72" :tone="memoryTone" />
+      <Gauge :value="readings.swapUsedPercent" :label="t('host.swap')" :size="72" :tone="swapTone" />
       <Gauge
         :value="readings.tempCelsius === null ? null : (readings.tempCelsius / 85) * 100"
         :label="t('host.cpuTemp')"
         :display="readings.tempCelsius === null ? t('common.notAvailable') : `${Math.round(readings.tempCelsius)}°C`"
         :size="72"
+        :tone="tempTone"
       />
     </div>
 
@@ -114,7 +136,7 @@ const cpuUsed = computed(() => readings.value.cpuUsedPercent)
             · {{ disk.usedPercent.toFixed(0) }}%
           </span>
         </div>
-        <Meter :value="disk.usedPercent" />
+        <Meter :value="disk.usedPercent" :tone="disk.band ?? 'neutral'" />
       </div>
     </div>
 

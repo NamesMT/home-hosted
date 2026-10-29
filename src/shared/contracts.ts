@@ -1452,18 +1452,26 @@ export const hostViewSchema = type({
    */
   'loadAlertPerCpu?': 'number',
   /**
-   * The percentage alert thresholds — `host.memoryUsedPercent`, `host.swapUsedPercent` and
-   * `host.tempCelsius` — the numbers the panel notifies at.
+   * The percentage alert thresholds — `host.diskUsedPercent`, `host.memoryUsedPercent`,
+   * `host.swapUsedPercent` and `host.tempCelsius` — the numbers the panel notifies at.
    *
    * Optional for the same reason as `loadAlertPerCpu`, and carried for the same reason: a surface
-   * that cannot see the threshold has to invent one, and the four invented ones disagreed with the
+   * that cannot see the threshold has to invent one, and the invented ones disagreed with the
    * panel's verdict. The swap bar called 50% `warn` while the alert fired there; raising
    * `host.tempCelsius` to 95 left a 90 °C box painted `danger` for a notification that never
-   * arrives. `0` disables that alert, so nothing can breach it.
+   * arrives; and a disk threshold lowered to 80 notified at 82% while every disk bar called it
+   * `warn`. `0` disables that alert, so nothing can breach it.
    */
   'memoryUsedPercentAlert?': 'number',
   'swapUsedPercentAlert?': 'number',
   'tempCelsiusAlert?': 'number',
+  /**
+   * `host.diskUsedPercent`, the threshold a filesystem is banded against.
+   *
+   * It travels once for the frame rather than per disk: the threshold is one config value that
+   * applies to every configured path, which is why `hostReadings` copies it onto each disk's `band`.
+   */
+  'diskUsedPercentAlert?': 'number',
 })
 export type HostView = typeof hostViewSchema.infer
 

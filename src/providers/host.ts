@@ -516,6 +516,7 @@ export async function sampleHost(config: HostConfig, resolvePath: (target: strin
     memoryUsedPercentAlert: config.memoryUsedPercent,
     swapUsedPercentAlert: config.swapUsedPercent,
     tempCelsiusAlert: config.tempCelsius,
+    diskUsedPercentAlert: config.diskUsedPercent,
   }
 }
 
@@ -536,5 +537,6 @@ export function emptyHostView(config: HostConfig): HostView {
     memoryUsedPercentAlert: config.memoryUsedPercent,
     swapUsedPercentAlert: config.swapUsedPercent,
     tempCelsiusAlert: config.tempCelsius,
+    diskUsedPercentAlert: config.diskUsedPercent,
   }
 }

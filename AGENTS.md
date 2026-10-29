@@ -258,7 +258,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   time.** `memoryUsedPercent`, `swapUsedPercent` and `tempCelsius` carry their thresholds
   (`…Alert`) and `percentageBand` bands them against those, because the literals contradicted the
   panel's own notifications: `hostSchema` alerts on swap at **50**, and the rail painted 52% `warn`;
-  raising `host.tempCelsius` to 95 left a 90 °C box `danger`. Why the copies survived:
+  raising `host.tempCelsius` to 95 left a 90 °C box `danger`. **A disk is the same rule again, and it
+  is the one the second pass still missed.** `host.diskUsedPercent` travels as
+  `diskUsedPercentAlert`, and `hostReadings` puts a `band` on **each** disk rather than one beside the
+  frame, because the reading is per path and a frame carries several: with the alert lowered to 80 the
+  panel notified at 82% while `Gauge`/`Meter`'s `75`/`90` defaults and both noc-console helpers called
+  it `warn`. So a host band always names the field it is measured against — when the paragraph above
+  grows a new reading, check that the threshold is on the frame *and* that every surface reads the
+  predicate, on both UIs; a component default is a copy you cannot see. Why the copies survived:
   [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and

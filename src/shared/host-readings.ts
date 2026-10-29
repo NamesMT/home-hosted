@@ -39,14 +39,35 @@ export const LOAD_ALERT_PER_CPU_DEFAULT = 2
  * surface reading a frame from a panel that predates the fields bands against the numbers that
  * panel alerted on.
  */
-export const HOST_ALERT_DEFAULTS = { memoryUsedPercent: 90, swapUsedPercent: 50, tempCelsius: 85 } as const
+export const HOST_ALERT_DEFAULTS = { diskUsedPercent: 90, memoryUsedPercent: 90, swapUsedPercent: 50, tempCelsius: 85 } as const
 
 /** A configurable alert threshold, as it travels on the frame. */
 export interface HostAlertThresholds {
+  /** `host.diskUsedPercent` — the threshold the panel notifies on, `0` disabling it. */
+  diskUsedPercentAlert?: number
   /** `host.memoryUsedPercent` — the threshold the panel notifies on, `0` disabling it. */
   memoryUsedPercentAlert?: number
   swapUsedPercentAlert?: number
   tempCelsiusAlert?: number
+}
+
+/** One configured filesystem, with the band its own usage is painted in. */
+export interface HostDiskReading {
+  path: string
+  totalBytes: number
+  freeBytes: number
+  usedPercent: number
+  /**
+   * How urgent that filesystem's usage is, against `host.diskUsedPercent` — the threshold the panel
+   * **notifies** on — else `null` when nothing was measured.
+   *
+   * It rides on the disk rather than beside the frame because the threshold is per-path usage and a
+   * frame can carry several paths; a single `diskBand` next to `memoryBand` would answer for one of
+   * them. The band was the last literal: `Gauge`/`Meter` defaulted to `75`/`90` and both
+   * noc-console surfaces restated the same pair, which is `hostSchema`'s *default*, so lowering
+   * `host.diskUsedPercent` to 80 made the panel notify at 82% while every surface called it `warn`.
+   */
+  band: HostBand
 }
 
 /** What the predicate needs: the sample's stamp and the numbers the frame carries. */
@@ -79,7 +100,8 @@ export interface HostReadings {
    */
   loadPerCpu: number | null
   tempCelsius: number | null
-  disks: HostReadingSource['disks']
+  /** Each configured filesystem, carrying its own band. Empty when nothing was sampled. */
+  disks: HostDiskReading[]
   /**
    * How urgent that per-cpu load is: `null` when nothing was measured (an absent reading has no
    * band of its own, or a zero would read as healthy), else the alert threshold it crossed.
@@ -140,9 +162,9 @@ export function loadBand(loadPerCpu: number | null, alertPerCpu: number | undefi
  *
  * `danger` at the threshold is the whole point: the alert fires there, so a bar that stays `warn`
  * while a notification goes out disagrees with the panel's own verdict. `0` disables that alert in
- * `sampleHost`, so nothing can breach it and the band is `ok`. One rule for the per-cpu load and the
- * three percentages — they differ only in what the number means, and the mistake this replaced was
- * four surfaces each deciding a band for itself.
+ * `sampleHost`, so nothing can breach it and the band is `ok`. One rule for the per-cpu load, the
+ * three percentages and each disk — they differ only in what the number means, and the mistake this
+ * replaced was four surfaces each deciding a band for itself.
  */
 export function percentageBand(value: number | null, alertAt: number | undefined, fallback: number): HostBand {
   return thresholdBand(value, alertAt, fallback)
@@ -188,6 +210,10 @@ export function hostReadings(host: HostReadingSource | null | undefined): HostRe
     swapBand: percentageBand(present(host.swapUsedPercent), host.swapUsedPercentAlert, HOST_ALERT_DEFAULTS.swapUsedPercent),
     tempBand: percentageBand(present(host.tempCelsius), host.tempCelsiusAlert, HOST_ALERT_DEFAULTS.tempCelsius),
     tempCelsius: present(host.tempCelsius),
-    disks: host.disks,
+    // Each disk is banded against the same configured alert, on its own usage.
+    disks: host.disks.map(disk => ({
+      ...disk,
+      band: percentageBand(present(disk.usedPercent), host.diskUsedPercentAlert, HOST_ALERT_DEFAULTS.diskUsedPercent),
+    })),
   }
 }

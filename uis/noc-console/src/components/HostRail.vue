@@ -19,14 +19,6 @@ const disks = computed(() => readings.value.disks)
 const controlUrl = computed(() => control.control.value?.url ?? '')
 const exposed = computed(() => control.control.value?.auth.exposed === true)
 
-function band(value: number, warn: number, danger: number): 'ok' | 'warn' | 'danger' {
-  if (value >= danger)
-    return 'danger'
-  if (value >= warn)
-    return 'warn'
-  return 'ok'
-}
-
 function barClass(tone: 'ok' | 'warn' | 'danger'): string {
   return tone === 'ok' ? '' : `rail__bar--${tone}`
 }
@@ -56,10 +48,6 @@ const cpuTone = computed(() => {
 const memTone = computed(() => readings.value.memoryBand ?? 'ok')
 const swapTone = computed(() => readings.value.swapBand ?? 'ok')
 const tempTone = computed(() => readings.value.tempBand ?? 'ok')
-
-function diskTone(percent: number): 'ok' | 'warn' | 'danger' {
-  return band(percent, 75, 90)
-}
 
 function shortPath(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean)
@@ -105,7 +93,7 @@ function shortPath(path: string): string {
       <div v-for="disk in disks" :key="disk.path" class="rail__cell" :title="disk.path">
         <span class="rail__label truncate">disk <span class="faint">{{ shortPath(disk.path) }}</span></span>
         <span class="rail__value">{{ disk.usedPercent.toFixed(0) }}%</span>
-        <span class="rail__bar" :class="barClass(diskTone(disk.usedPercent))">
+        <span class="rail__bar" :class="barClass(disk.band ?? 'ok')">
           <i :style="{ width: `${clamp(disk.usedPercent, 0, 100)}%` }" />
         </span>
       </div>
