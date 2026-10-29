@@ -16,12 +16,28 @@
  *
  * `cpus` and `uptimeMs` are **not** readings: they describe the machine, not a sample, and the
  * empty frame already reports them truthfully.
+ *
+ * `loadAlertPerCpu` is not a reading either: it is the threshold the panel *notifies* on, and it
+ * travels with the frame so a surface can band the load against the number a person actually
+ * chose. `AGENTS.md` names the rule — a verdict is measured against the configured threshold, and
+ * one module decides it — after two surfaces hardcoded the default and kept calling a box a person
+ * had raised the threshold on `danger`, for a notification that stayed silent.
  */
+
+/**
+ * The load per cpu a panel notifies on when nothing else is configured.
+ *
+ * One home: `hostSchema` defaults to it, and a surface reading a frame from a panel that predates
+ * the field bands its load against the same number the older panel alerted on.
+ */
+export const LOAD_ALERT_PER_CPU_DEFAULT = 2
 
 /** What the predicate needs: the sample's stamp and the numbers the frame carries. */
 export interface HostReadingSource {
   sampledAt: number | null
   cpus: number
+  /** The alert threshold from the panel's own config; absent on a panel that predates the field. */
+  loadAlertPerCpu?: number
   cpuUsedPercent?: number | null
   memoryUsedPercent: number
   swapUsedPercent: number
@@ -47,6 +63,11 @@ export interface HostReadings {
   loadPerCpu: number | null
   tempCelsius: number | null
   disks: HostReadingSource['disks']
+  /**
+   * How urgent that per-cpu load is: `null` when nothing was measured (an absent reading has no
+   * band of its own, or a zero would read as healthy), else the alert threshold it crossed.
+   */
+  loadBand: 'ok' | 'warn' | 'danger' | null
 }
 
 const NOTHING_SAMPLED: HostReadings = {
@@ -60,11 +81,38 @@ const NOTHING_SAMPLED: HostReadings = {
   loadPerCpu: null,
   tempCelsius: null,
   disks: [],
+  loadBand: null,
 }
 
 /** A number the frame carries, or null when it carries none. */
 function present(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * How a per-cpu load sits against the threshold the panel notifies on.
+ *
+ * The ratio is what a person configures: `host.loadPerCpu` is the count the alert fires at, so
+ * `danger` is that number itself and `warn` is the approach to it. `0` disables the alert in
+ * `sampleHost`, so nothing can breach it and the band is `ok` — painting a box red for a
+ * notification that will never arrive is the same defect as inventing a reading. It lives here
+ * rather than in a component so both UIs share one band, the mistake that produced two hardcoded
+ * copies of the default.
+ */
+export function loadBand(loadPerCpu: number | null, alertPerCpu: number | undefined): 'ok' | 'warn' | 'danger' | null {
+  if (loadPerCpu === null || !Number.isFinite(loadPerCpu))
+    return null
+  // An older panel sends no threshold, and it alerted on the default — so that is the band to draw.
+  const threshold = alertPerCpu === undefined || !Number.isFinite(alertPerCpu)
+    ? LOAD_ALERT_PER_CPU_DEFAULT
+    : alertPerCpu
+  if (threshold <= 0)
+    return 'ok'
+  if (loadPerCpu >= threshold)
+    return 'danger'
+  if (loadPerCpu >= threshold * 0.7)
+    return 'warn'
+  return 'ok'
 }
 
 /** The readings of one host frame; a missing frame is the same as an unsampled one. */
@@ -78,6 +126,7 @@ export function hostReadings(host: HostReadingSource | null | undefined): HostRe
   // reports 0%, and that must survive as 0 rather than becoming an absence of its own.
   const load1m = present(host.loadAvg[0])
   const cpus = present(host.cpus)
+  const loadPerCpu = load1m === null ? null : load1m / Math.max(1, cpus ?? 1)
   return {
     sampled: true,
     cpuUsedPercent: present(host.cpuUsedPercent),
@@ -86,7 +135,8 @@ export function hostReadings(host: HostReadingSource | null | undefined): HostRe
     load1m,
     load5m: present(host.loadAvg[1]),
     load15m: present(host.loadAvg[2]),
-    loadPerCpu: load1m === null ? null : load1m / Math.max(1, cpus ?? 1),
+    loadPerCpu,
+    loadBand: loadBand(loadPerCpu, host.loadAlertPerCpu),
     tempCelsius: present(host.tempCelsius),
     disks: host.disks,
   }

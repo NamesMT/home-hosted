@@ -142,6 +142,27 @@ describe('host sampling', () => {
     expect(view.loadAvg).toEqual([0, 0, 0])
   })
 
+  /**
+   * The threshold a surface bands the load against has to reach the frame.
+   *
+   * The band used to be the schema's *default* hardcoded in two surfaces, so a raised
+   * `loadPerCpu` painted a normal box `danger` for an alert that could never fire — the frame
+   * carried no threshold at all, so no surface could have followed one. Both frames carry it: the
+   * boot frame a panel serves on its first tick, and a real sample.
+   */
+  it('carries the alert threshold the load band is measured against', async () => {
+    expect(emptyHostView(config({ loadPerCpu: 4 })).loadAlertPerCpu).toBe(4)
+    // And the default one, so a surface reading a default config bands against what it alerts on.
+    expect(emptyHostView(config({})).loadAlertPerCpu).toBe(2)
+
+    const sample = await sampleHost(config({ diskPaths: [], loadPerCpu: 4 }), t => t)
+    expect(sample.loadAlertPerCpu).toBe(4)
+    // `0` disables the alert, and it must survive as `0` rather than being dropped as falsy — a
+    // disabled alarm has no band, which is not the same as the default one.
+    const off = await sampleHost(config({ diskPaths: [], loadPerCpu: 0 }), t => t)
+    expect(off.loadAlertPerCpu).toBe(0)
+  })
+
   it('can be disabled', async () => {
     const view = emptyHostView(config({ enabled: false }))
     expect(view.enabled).toBe(false)

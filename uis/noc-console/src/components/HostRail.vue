@@ -34,9 +34,11 @@ function barClass(tone: 'ok' | 'warn' | 'danger'): string {
 const loadRatio = computed(() => readings.value.loadPerCpu)
 /**
  * Load is a count of runnable tasks, not a percentage: `1.00` is one core's worth. The rail used to
- * turn red at `1`, which on a 24-core box is 4% and completely normal.
+ * turn red at `1`, which on a 24-core box is 4% and completely normal — and then at a hardcoded `2`
+ * whatever the configured threshold was, which painted a box a person had raised to 4 bright red
+ * for an alert that could not fire. It reads the shared band, the same verdict as the vitals page.
  */
-const loadTone = computed(() => (loadRatio.value === null ? 'ok' : loadRatio.value >= 2 ? 'danger' : loadRatio.value >= 1.4 ? 'warn' : 'ok'))
+const loadTone = computed(() => readings.value.loadBand ?? 'ok')
 /** The CPU bar shows the real utilisation, so the rail's numbers share one unit. */
 const cpuUsed = computed(() => readings.value.cpuUsedPercent)
 const cpuTone = computed(() => {

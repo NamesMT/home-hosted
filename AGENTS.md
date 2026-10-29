@@ -246,7 +246,15 @@ workspace config guard, so a busy default port turns config tests red for the wr
   the line's colour and the number's colour all come from `cpuCapacity`/`cpuBand`
   (`src/shared/cpu-scale.ts`), one home for the rule. Four surfaces restating it left the detail
   page's number on the old per-core bands, painting a sixth of a 24-core box red while its own
-  sparkline stayed accent; `test/shared/cpu-scale.test.ts` fails a restated copy.
+  sparkline stayed accent; `test/shared/cpu-scale.test.ts` fails a restated copy. **A verdict is
+  measured against the threshold a person configured, and the frame has to carry it.** The band for
+  a per-cpu load was the schema's *default* `2`/`1.4` written into two surfaces, so raising
+  `host.loadPerCpu` painted a normal box `danger` for a notification that could never fire. The
+  threshold travels on the frame (`host.loadAlertPerCpu`) and `loadBand`
+  (`src/shared/host-readings.ts`) decides the band once, for both UIs; `0` disables the alert, so it
+  cannot be breached, and a panel that sends no threshold gets the default it alerted on.
+  `test/shared/host-readings.test.ts` fails a load compared against a literal, or a load tone
+  computed outside the predicate. Why the two copies survived: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"

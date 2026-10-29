@@ -48,17 +48,13 @@ function diskTone(percent: number): 'ok' | 'warn' | 'danger' {
 
 /**
  * Load is a *count* of runnable tasks, not a share: `1.00` is one core's worth, and on a 24-core
- * host that is nothing. The old bands painted that red. The bands now follow the configured alert
- * threshold (default 2/cpu), which is the number the panel itself notifies on.
+ * host that is nothing. The old bands painted that red at `1`. The band now comes from
+ * `hostReadings`, measured against `loadAlertPerCpu` — the threshold this panel actually notifies
+ * on — so a number a person raised to 4 is not painted as a breach while the alert stays silent.
  */
-const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
-  const value = readings.value.loadPerCpu ?? 0
-  if (value >= 2)
-    return 'danger'
-  if (value >= 1.4)
-    return 'warn'
-  return 'accent'
-})
+const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
+  readings.value.loadBand === 'danger' ? 'danger' : readings.value.loadBand === 'warn' ? 'warn' : 'accent',
+)
 </script>
 
 <template>

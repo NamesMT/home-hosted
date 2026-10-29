@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { hostReadings } from '#src/shared/host-readings'
+import { hostReadings, LOAD_ALERT_PER_CPU_DEFAULT } from '#src/shared/host-readings'
 
 /**
  * A host frame with no sample has no readings, and the panel's own pages said otherwise.
@@ -53,6 +53,7 @@ describe('hostReadings', () => {
       loadPerCpu: null,
       tempCelsius: null,
       disks: [],
+      loadBand: null,
     })
   })
 
@@ -87,6 +88,47 @@ describe('hostReadings', () => {
     // A panel switched off after a sample still carries disks. They are a per-path measurement, so
     // they go with the rest when there is no sample behind them.
     expect(hostReadings({ ...empty, disks: [disk] }).disks).toEqual([])
+  })
+
+  /**
+   * The load band is measured against the threshold the panel notifies on, never a literal.
+   *
+   * `HostVitals`' docstring claimed the bands "follow the configured alert threshold" while the body
+   * compared against `2` and `1.4`, and `HostRail` carried the same pair. A person raising
+   * `host.loadPerCpu` to 4 was notified at 4 and saw the tile paint `danger` at 2.5 — a verdict on a
+   * threshold nobody configured. So the frame carries the threshold and this decides the band.
+   */
+  it('bands the load against the configured threshold, not a default', () => {
+    const at = (load: number, threshold?: number) => hostReadings({
+      ...empty,
+      sampledAt: 1,
+      cpus: 8,
+      loadAvg: [load * 8, 0, 0],
+      ...(threshold === undefined ? {} : { loadAlertPerCpu: threshold }),
+    }).loadBand
+
+    // A raised threshold leaves a normal box alone; the same reading at the default is a breach.
+    expect(at(2.5, 4)).toBe('ok')
+    expect(at(2.5, 2)).toBe('danger')
+    // The edge itself is the number the alert fires at.
+    expect(at(4, 4)).toBe('danger')
+    // Warn is the approach to that number, and it moves with it.
+    expect(at(2.9, 4)).toBe('warn')
+    expect(at(1.4, 2)).toBe('warn')
+  })
+
+  it('has no band for an absent reading, and a plain ok for a switched-off alert', () => {
+    // A zero on an unsampled frame is not a healthy load; it is no measurement at all.
+    expect(hostReadings(empty).loadBand).toBeNull()
+    // `0` disables the alert in `sampleHost`, so nothing can be a breach of it.
+    expect(hostReadings({ ...empty, sampledAt: 1, loadAvg: [80, 0, 0], loadAlertPerCpu: 0 }).loadBand).toBe('ok')
+  })
+
+  it('keeps the default band for a panel that sends no threshold at all', () => {
+    // An older panel predates the field and alerted on the default, so that is what it gets.
+    const older = { ...empty, sampledAt: 1, cpus: 8, loadAvg: [16, 0, 0] }
+    expect(LOAD_ALERT_PER_CPU_DEFAULT).toBe(2)
+    expect(hostReadings(older).loadBand).toBe('danger')
   })
 })
 
@@ -191,5 +233,56 @@ describe('the panel reads host measurements from one module', () => {
     expect(new RegExp(`\\b(?:${MEASUREMENTS})\\b`).test(expression)).toBe(true)
     expect(/\?\?\s*0\b|\|\|\s*0\b/.test(expression)).toBe(true)
     expect(offenders, 'a host measurement rendered with a zero fallback reads as a measured idle machine').toEqual([])
+  })
+})
+
+/**
+ * The band for a per-cpu load has one home too.
+ *
+ * Both noc-console surfaces hardcoded `2` and `1.4` — the schema's *default* — while the docstring
+ * above one of them claimed the bands "follow the configured alert threshold". Raising
+ * `host.loadPerCpu` to 4 made the tile paint a normal box `danger` for a notification that could
+ * never fire. A scan for the helper's name would pass the moment someone renamed it, so this pins
+ * both halves: no surface compares a load against a literal, and each surface that paints a load
+ * tone takes its band from the predicate.
+ *
+ * A `loadRatio ?? 0` feeding a *bar width* is not this defect — it picks an empty bar, not a colour
+ * — so only comparisons are matched, the same distinction the template scan above draws.
+ */
+describe('the UIs band the load against the configured threshold', () => {
+  /** A load-named value compared with a numeric literal, on one line. */
+  const LOAD_COMPARISON = /\bload[\w$]*(?:\.[\w$]+)?\s*(?:>=|<=|>|<)\s*\d+(?:\.\d+)?/gi
+
+  it('still reaches the shape it forbids, so the matcher cannot silently rot', () => {
+    // The rail's one-liner, exactly as it was written.
+    expect([...'loadRatio.value >= 2'.matchAll(LOAD_COMPARISON)].map(m => m[0])).toEqual(['loadRatio.value >= 2'])
+    // And the tile's alias, through the frame it came from.
+    expect([...'readings.value.loadPerCpu >= 1.4'.matchAll(LOAD_COMPARISON)].map(m => m[0])).toEqual(['loadPerCpu >= 1.4'])
+    // A correct call site is left alone — the helper takes the threshold, it does not compare.
+    expect([...'loadBand(loadPerCpu, host.loadAlertPerCpu)'.matchAll(LOAD_COMPARISON)]).toHaveLength(0)
+  })
+
+  it('does not compare a per-cpu load against a literal', () => {
+    const offenders: string[] = []
+    for (const ui of ['stock', 'noc-console']) {
+      for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
+        for (const match of sourceOf(rel).matchAll(LOAD_COMPARISON))
+          offenders.push(`${rel}: ${match[0].trim()}`)
+      }
+    }
+    expect(offenders, 'a load band measured against a number nobody configured').toEqual([])
+  })
+
+  /** The two surfaces that paint a load tone, and the frame each names the reading after. */
+  const banded: Array<{ file: string, reading: string }> = [
+    { file: 'uis/noc-console/src/components/HostVitals.vue', reading: 'readings' },
+    { file: 'uis/noc-console/src/components/HostRail.vue', reading: 'readings' },
+  ]
+
+  it('takes each load tone from the predicate, so a renamed helper cannot hide a copy', () => {
+    const missing = banded
+      .filter(surface => !new RegExp(`\\b${surface.reading}\\.value\\.loadBand\\b`).test(sourceOf(surface.file)))
+      .map(surface => surface.file)
+    expect(missing, 'a load tone computed beside the predicate instead of from it').toEqual([])
   })
 })

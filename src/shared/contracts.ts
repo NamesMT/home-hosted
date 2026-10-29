@@ -1,4 +1,5 @@
 import { type } from 'arktype'
+import { LOAD_ALERT_PER_CPU_DEFAULT } from './host-readings'
 
 /**
  * Schemas shared by the control plane and the SPA: the server entry shape, the
@@ -412,7 +413,11 @@ export const hostSchema = type({
   diskUsedPercent: 'number >= 0 = 90',
   memoryUsedPercent: 'number >= 0 = 90',
   swapUsedPercent: 'number >= 0 = 50',
-  loadPerCpu: 'number >= 0 = 2',
+  /**
+   * The per-cpu load the panel notifies on. One home: the frame's `loadAlertPerCpu` is this value,
+   * and `loadBand` reads it, so a surface cannot band the load against a number nobody configured.
+   */
+  loadPerCpu: type('number >= 0').default(LOAD_ALERT_PER_CPU_DEFAULT),
   tempCelsius: 'number >= 0 = 85',
   /**
    * How to read the CPU temperature when the kernel exposes no sensor.
@@ -1436,6 +1441,16 @@ export const hostViewSchema = type({
   /** Human readable threshold breaches, for the banner and notifications. */
   'alerts': type('string[]'),
   'sampledAt': 'number | null',
+  /**
+   * The per-cpu load this panel notifies on — `host.loadPerCpu`, the number the alert fires at.
+   *
+   * Optional: a panel that predates this field alerts on the default, which is what the UI's band
+   * assumes when the field is absent. It travels here because the frame is the only thing a host
+   * surface reads, and a surface that cannot see the threshold hardcoded `2`/`1.4` — so raising
+   * the threshold in Settings left the tile painting a healthy box `danger` while the alert the
+   * threshold governs stayed silent. `0` disables the alert, so nothing can breach it.
+   */
+  'loadAlertPerCpu?': 'number',
 })
 export type HostView = typeof hostViewSchema.infer
 

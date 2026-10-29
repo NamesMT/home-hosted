@@ -269,6 +269,23 @@ line in `AGENTS.md` instead.
   never by making the DTO nullable; and a **sampled** box honestly measuring `0%` must survive as
   `0`, so the predicate gates on `sampledAt`, not on the value being zero. A scan walks every `.vue`
   for `(host?.memoryUsedPercent ?? 0)` because the next surface is the one nobody declared.
+- **A docstring that describes the fix is a claim, and the body can still hold the old number.** The
+  per-cpu load bands were `2` and `1.4` in two noc-console surfaces. That is `hostSchema`'s
+  **default**, so the copy is invisible on a fresh config and wrong on any other: with
+  `host.loadPerCpu` at 4, `sampleHost` notifies at 4 and the tile painted `danger` from 2.5 —
+  a verdict on a threshold nobody chose, for an alert that could not fire. The docstring above one
+  of the two said "the bands now follow the configured alert threshold (default 2/cpu), which is the
+  number the panel itself notifies on", which was true of the *intent* and false of the code; the
+  default in the prose is what made a reader believe it. The frame carried no threshold at all, so
+  neither surface could have followed one — when a comment claims a value comes from config, check
+  that the value is reachable from where the code sits before trusting the sentence. The fix ships
+  `loadAlertPerCpu` on the view, `loadBand` beside `hostReadings`, and `LOAD_ALERT_PER_CPU_DEFAULT`
+  as the schema's default, so the number has one home. Three cautions: `0` disables the alert in
+  `sampleHost`, so nothing can breach it and the band is `ok` — not a colour a reader has to
+  interpret; an older panel sends no threshold, so it gets the default
+  it alerted on rather than `undefined` propagating into a comparison; and a `loadRatio ?? 0` that
+  sizes a **bar** is not this defect — it picks an empty bar, not a colour — so the scan matches
+  comparisons only.
 - **A `_total` that can go down is not a counter.** `hh_server_restarts_total` was the retry budget
   spent on a server's *current* crash sequence, and a start someone asked for resets it to `0`
   (measured: `2` → `0` on a manual start), so `rate()` saw a counter reset every time an operator
