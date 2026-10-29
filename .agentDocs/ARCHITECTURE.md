@@ -33,7 +33,10 @@ state layout is there too.
   schema (config, API and SSE DTOs); the OpenAPI spec is generated from it. `shape.ts` is the
   plain-object predicate. `proxy-form.ts` is the reverse-proxy form both UIs edit. `fields.ts` is the
   server form's textarea round-trips, `error-message.ts` the one rendering of a caught value;
-  `patch-diff.ts` and `generated.ts` are shared helpers. **These must not import Vue or `node:` APIs.**
+  `patch-diff.ts` and `generated.ts` are shared helpers; `cpu-scale.ts` decides how a server's
+  `cpuPercent` sits on *this* machine (`cpuCapacity`/`cpuBand`), because the charts and the numbers
+  that colour themselves had drifted apart while the rule was restated at each surface.
+  **These must not import Vue or `node:` APIs.**
 - `src/config/` — split by scope. `settings.ts` (`GlobalSettingsStore`: `.hh/settings.json` —
   listener, auth, TLS policy, host vitals, backups) and `store.ts` (`WorkspaceStore`: a workspace's
   `settings.json` + `servers.config.json`, validate/merge/atomic commit, reporting

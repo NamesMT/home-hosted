@@ -212,6 +212,19 @@ line in `AGENTS.md` instead.
   while the per-server figures read `400%` and the two looked like a contradiction. The dial is now
   CPU utilisation (`cpuUsedPercent`), load is a labelled number with its per-cpu value, and the
   per-server charts scale to `cpus × 100` rather than clipping at 100.
+- **A reading and its own chart are one verdict, and a fourth copy is what drifts.** `ServerDetail`'s
+  cpu chart was scaled to `cpus × 100`, and the **number directly above it** kept the fixed
+  `toneClass(cpuPercent, 40, 80)`; the helper's comment on the chart said the bands scaled with the
+  machine, so the drift sat inside a docstring that claimed otherwise. Measured on a 24-core host: a
+  server at `1000%` — a sixth of the box — painted its number `--danger` while the sparkline beneath
+  it stayed `--accent`, and the list row one click away agreed with the sparkline. Nothing failed,
+  because the rule was correct in three places. The fix is `src/shared/cpu-scale.ts`
+  (`cpuCapacity`/`cpuBand`), read by all four surfaces, and `test/shared/cpu-scale.test.ts` walks
+  every UI source for a restated `Math.max(100, …)` and for a cpu value compared against a literal
+  pair. Two cautions from doing it: an absent reading needs its **own band** (`unknown`), or the
+  helper quietly answers `ok` for a stopped entry; and the per-core thresholds are the same numbers
+  at one core, so a test asserting `40%` of one core is `ok` fails for the wrong reason — `40%` was
+  always the warn edge.
 - **A process tree's CPU cannot be differenced as two sums.** The tree is not a fixed set of pids:
   a wrapper respawns its worker, so "sum the cumulative seconds over whatever is in the tree now"
   is not comparable with the previous sum. Measured against a wrapper respawning a 1.5 s worker,

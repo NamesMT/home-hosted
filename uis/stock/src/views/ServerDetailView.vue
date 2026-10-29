@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ServerView } from '@shared/contracts'
 import { Code2, ExternalLink, MoreHorizontal, Pencil, Play, RotateCw, Square, Trash2 } from '@lucide/vue'
+import { cpuCapacity } from '@shared/cpu-scale'
 import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
@@ -89,7 +90,7 @@ const rssValues = computed(() => series.value.rss)
 const probeValues = computed(() => series.value.probe)
 
 /** As in `ServerCard`: CPU sums the tree across cores, so the ceiling is the whole machine. */
-const cpuCeiling = computed(() => Math.max(100, (control.host.value?.cpus ?? 1) * 100))
+const cpuCeiling = computed(() => cpuCapacity(control.host.value?.cpus))
 
 const uptime = computed(() => {
   const value = server.value

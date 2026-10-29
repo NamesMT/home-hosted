@@ -14,6 +14,7 @@ import {
   Trash2,
   TriangleAlert,
 } from '@lucide/vue'
+import { cpuCapacity } from '@shared/cpu-scale'
 import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
@@ -99,10 +100,10 @@ const probeValues = computed(() => props.series?.probe ?? [])
  *
  * `cpuPercent` sums the entry's process tree, so four busy cores is `400` — a real reading, not an
  * error. With a fixed `100` those points were clipped to the top edge and every multi-core server
- * looked pinned at 100%. Scaling to `cpus * 100` also answers the question a person actually has:
- * how much of *this box* is that one server using.
+ * looked pinned at 100%. The scale answers the question a person actually has — how much of *this
+ * box* is that one server using — and `@shared/cpu-scale` is the one place that decides it.
  */
-const cpuCeiling = computed(() => Math.max(100, (control.host.value?.cpus ?? 1) * 100))
+const cpuCeiling = computed(() => cpuCapacity(control.host.value?.cpus))
 
 /** The three most recent events, newest first. */
 const recentEvents = computed(() => [...props.server.history.events].slice(-3).reverse())

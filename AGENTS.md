@@ -212,7 +212,12 @@ workspace config guard, so a busy default port turns config tests red for the wr
   the series and the line breaks at it — `sparkSegments` (`uis/noc-console/src/lib/format.ts`) and
   stock's `components/telemetry/Sparkline.vue` — because a zero vertex drew a stopped entry as a flat
   line on the floor: a measured `0%` by eye, on every page the number beside it had already been
-  fixed on. A new chart reads this paragraph before it picks its geometry function.
+  fixed on. A new chart reads this paragraph before it picks its geometry function. **And a chart's
+  scale is not the chart's alone**: `cpuPercent` sums a process tree, so it counts cores — the ceiling,
+  the line's colour and the number's colour all come from `cpuCapacity`/`cpuBand`
+  (`src/shared/cpu-scale.ts`), one home for the rule. Four surfaces restating it left the detail
+  page's number on the old per-core bands, painting a sixth of a 24-core box red while its own
+  sparkline stayed accent; `test/shared/cpu-scale.test.ts` fails a restated copy.
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"

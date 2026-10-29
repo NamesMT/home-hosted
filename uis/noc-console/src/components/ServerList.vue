@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import type { HealthState, ServerStatus, ServerView } from '@shared/contracts'
+import { cpuBand } from '@shared/cpu-scale'
 import { liveReadings } from '@shared/server-readings'
 import Sparkline from '@/components/Sparkline.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useUi } from '@/composables/useUi'
+import { CPU_STROKE } from '@/lib/cpu-tone'
 import { briefBytes, formatRatio, formatUptime } from '@/lib/format'
 
 const props = defineProps<{
@@ -66,17 +68,11 @@ function healthLed(health: HealthState): string {
 
 /**
  * CPU is summed over the entry's process tree, so it counts *cores*: 400% is four cores busy, not
- * an error. These bands are a share of this machine, so they scale with its core count — at a
- * fixed 80/40 a busy worker on a 24-core host was painted red for using a sixth of the box.
+ * an error. The band is a share of this machine, read from `@shared/cpu-scale` — at a fixed 80/40 a
+ * busy worker on a 24-core host was painted red for using a sixth of the box.
  */
 function cpuColor(server: ServerView): string {
-  const value = liveReadings(server).cpuPercent ?? 0
-  const capacity = Math.max(100, (control.host.value?.cpus ?? 1) * 100)
-  if (value >= capacity * 0.8)
-    return 'var(--danger)'
-  if (value >= capacity * 0.4)
-    return 'var(--warn)'
-  return 'var(--accent)'
+  return CPU_STROKE[cpuBand(liveReadings(server).cpuPercent, control.host.value?.cpus)]
 }
 </script>
 

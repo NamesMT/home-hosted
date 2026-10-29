@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Bind, LogLine, ServerStatus, ServerView } from '@shared/contracts'
 import { parseBind } from '@shared/contracts'
+import { cpuBand } from '@shared/cpu-scale'
 import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -13,6 +14,7 @@ import Sparkline from '@/components/Sparkline.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { unwatchLogs, useControlPlane, watchLogs } from '@/composables/useControlPlane'
 import { flash, useUi } from '@/composables/useUi'
+import { CPU_STROKE, CPU_VALUE_CLASS } from '@/lib/cpu-tone'
 import {
   briefBytes,
   formatAgo,
@@ -82,15 +84,12 @@ const cpuPercent = computed(() => readings.value.cpuPercent)
 const rssBytes = computed(() => readings.value.rssBytes)
 const responseMs = computed(() => readings.value.responseMs)
 
-/** As in `ServerList`: CPU counts cores, so the bands scale with this machine's capacity. */
+/**
+ * CPU counts cores, so the colour is a share of this machine — the same rule as `ServerList`, read
+ * from `@shared/cpu-scale` so the number and the sparkline in this tile cannot disagree.
+ */
 function cpuColor(): string {
-  const value = cpuPercent.value ?? 0
-  const capacity = Math.max(100, (control.host.value?.cpus ?? 1) * 100)
-  if (value >= capacity * 0.8)
-    return 'var(--danger)'
-  if (value >= capacity * 0.4)
-    return 'var(--warn)'
-  return 'var(--accent)'
+  return CPU_STROKE[cpuBand(cpuPercent.value, control.host.value?.cpus)]
 }
 
 function probeColor(): string {
@@ -303,7 +302,7 @@ function ledClass(status: ServerStatus): string {
         <div class="metric__k">
           cpu
         </div>
-        <div class="metric__v" :class="toneClass(cpuPercent, 40, 80)">
+        <div class="metric__v" :class="CPU_VALUE_CLASS[cpuBand(cpuPercent, control.host.value?.cpus)]">
           {{ cpuPercent === null ? '—' : `${cpuPercent.toFixed(0)}%` }}
         </div>
         <Sparkline :values="series.cpu" :color="cpuColor()" :width="92" :height="16" />
