@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
+import { hostReadings } from '@shared/host-readings'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
 import { t } from '@/i18n'
@@ -15,31 +16,26 @@ const TEMP_FULL = 85
  * instead. The old load dial sat near empty on a busy 24-core box, which read as "the panel says
  * 0% while my server says 400%".
  */
-const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
+/** The cluster is on the sidebar of every page, so the absence rule is the same one both UIs use. */
+const readings = computed(() => hostReadings(props.host))
+const cpuUsed = computed(() => readings.value.cpuUsedPercent)
 
-const loadPerCpu = computed(() => {
-  const host = props.host
-  if (!host)
-    return null
-  return (host.loadAvg[0] ?? 0) / Math.max(1, host.cpus)
-})
-
-const loadDisplay = computed(() => (loadPerCpu.value === null ? '—' : loadPerCpu.value.toFixed(2)))
+const loadDisplay = computed(() => (readings.value.loadPerCpu === null ? '—' : readings.value.loadPerCpu.toFixed(2)))
 
 const diskUsed = computed(() => {
-  const disks = props.host?.disks ?? []
+  const disks = readings.value.disks
   if (disks.length === 0)
     return null
   return Math.max(...disks.map(disk => disk.usedPercent))
 })
 
 const tempDial = computed(() => {
-  const temp = props.host?.tempCelsius ?? null
+  const temp = readings.value.tempCelsius
   return temp === null ? null : (temp / TEMP_FULL) * 100
 })
 
 const tempDisplay = computed(() => {
-  const temp = props.host?.tempCelsius ?? null
+  const temp = readings.value.tempCelsius
   return temp === null ? t('common.notAvailable') : `${Math.round(temp)}°`
 })
 </script>
@@ -53,7 +49,7 @@ const tempDisplay = computed(() => {
 
     <div v-if="props.host?.enabled" class="grid grid-cols-2 gap-x-1 gap-y-2">
       <Gauge :value="cpuUsed" :label="t('host.cpuUsage')" :size="58" :warn-at="80" :danger-at="95" />
-      <Gauge :value="props.host?.memoryUsedPercent ?? null" :label="t('common.memory')" :size="58" />
+      <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="58" />
       <Gauge :value="diskUsed" :label="t('common.disk')" :size="58" />
       <Gauge :value="tempDial" :label="t('host.cpuTemp')" :display="tempDisplay" :size="58" />
     </div>

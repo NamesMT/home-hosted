@@ -1,18 +1,21 @@
 <script setup lang="ts">
+import { hostReadings } from '@shared/host-readings'
 import { computed, ref, watch } from 'vue'
 import MeterBar from '@/components/MeterBar.vue'
 import Sparkline from '@/components/Sparkline.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
-import { formatAgo, formatBytes, formatDuration, loadPerCpu } from '@/lib/format'
+import { formatAgo, formatBytes, formatDuration, pct } from '@/lib/format'
 
 const control = useControlPlane()
 
 const host = computed(() => control.host.value)
-const disks = computed(() => host.value?.disks ?? [])
+/**
+ * Every number on this page comes from `hostReadings`, so a host that has never been sampled shows
+ * `—` here exactly as `/api/metrics` omits the series it would otherwise publish as `0`.
+ */
+const readings = computed(() => hostReadings(host.value))
+const disks = computed(() => readings.value.disks)
 const alerts = computed(() => host.value?.alerts ?? [])
-const load = computed(() => (host.value ? loadPerCpu(host.value.loadAvg, host.value.cpus) : null))
-/** The real percentage. Load is a count of runnable tasks, so it is never shown as one. */
-const cpuUsed = computed(() => host.value?.cpuUsedPercent ?? null)
 
 const SERIES = 60
 const cpuSeries = ref<number[]>([])
@@ -29,11 +32,9 @@ function pushCapped(series: number[], value: number | null | undefined): void {
 }
 
 watch(() => host.value?.sampledAt, () => {
-  const view = host.value
-  if (!view)
-    return
+  const view = readings.value
   pushCapped(cpuSeries.value, view.cpuUsedPercent)
-  pushCapped(loadSeries.value, view.loadAvg[0])
+  pushCapped(loadSeries.value, view.load1m)
   pushCapped(memSeries.value, view.memoryUsedPercent)
 }, { immediate: true })
 
@@ -51,7 +52,7 @@ function diskTone(percent: number): 'ok' | 'warn' | 'danger' {
  * threshold (default 2/cpu), which is the number the panel itself notifies on.
  */
 const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
-  const value = load.value ?? 0
+  const value = readings.value.loadPerCpu ?? 0
   if (value >= 2)
     return 'danger'
   if (value >= 1.4)
@@ -68,7 +69,9 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
       <span v-if="host?.sampledAt" class="faint">sampled {{ formatAgo(host.sampledAt, control.now.value) }}</span>
       <span class="view__spacer" />
       <span v-if="alerts.length > 0" class="chip chip--danger">{{ alerts.length }} alert{{ alerts.length === 1 ? '' : 's' }}</span>
-      <span v-else class="chip chip--ok">quiet</span>
+      <!-- "quiet" is a verdict on a measurement; an unsampled host has none to give. -->
+      <span v-else-if="readings.sampled" class="chip chip--ok">quiet</span>
+      <span v-else class="chip chip--idle">no sample</span>
       <RouterLink to="/global/settings" class="btn btn--xs btn--ghost">
         thresholds →
       </RouterLink>
@@ -84,8 +87,8 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
         <div class="metric__k">
           cpu
         </div>
-        <div class="metric__v">
-          {{ cpuUsed === null ? '—' : `${cpuUsed.toFixed(0)}%` }}
+        <div class="metric__v" :class="readings.cpuUsedPercent === null ? 'metric__v--dim' : ''">
+          {{ pct(readings.cpuUsedPercent) }}
         </div>
         <Sparkline :values="cpuSeries" color="var(--accent)" :width="120" :height="20" :max="100" />
       </div>
@@ -93,8 +96,8 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
         <div class="metric__k">
           load 1m
         </div>
-        <div class="metric__v">
-          {{ (host?.loadAvg[0] ?? 0).toFixed(2) }}
+        <div class="metric__v" :class="readings.load1m === null ? 'metric__v--dim' : ''">
+          {{ readings.load1m === null ? '—' : readings.load1m.toFixed(2) }}
         </div>
         <Sparkline :values="loadSeries" color="var(--accent)" :width="120" :height="20" />
       </div>
@@ -102,32 +105,32 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
         <div class="metric__k">
           load 5m
         </div>
-        <div class="metric__v">
-          {{ (host?.loadAvg[1] ?? 0).toFixed(2) }}
+        <div class="metric__v" :class="readings.load5m === null ? 'metric__v--dim' : ''">
+          {{ readings.load5m === null ? '—' : readings.load5m.toFixed(2) }}
         </div>
       </div>
       <div class="metric">
         <div class="metric__k">
           load 15m
         </div>
-        <div class="metric__v">
-          {{ (host?.loadAvg[2] ?? 0).toFixed(2) }}
+        <div class="metric__v" :class="readings.load15m === null ? 'metric__v--dim' : ''">
+          {{ readings.load15m === null ? '—' : readings.load15m.toFixed(2) }}
         </div>
       </div>
       <div class="metric">
         <div class="metric__k">
           per cpu
         </div>
-        <div class="metric__v" :class="loadTone === 'danger' ? 'metric__v--danger' : loadTone === 'warn' ? 'metric__v--warn' : ''">
-          {{ (load ?? 0).toFixed(2) }}
+        <div class="metric__v" :class="readings.loadPerCpu === null ? 'metric__v--dim' : loadTone === 'danger' ? 'metric__v--danger' : loadTone === 'warn' ? 'metric__v--warn' : ''">
+          {{ readings.loadPerCpu === null ? '—' : readings.loadPerCpu.toFixed(2) }}
         </div>
       </div>
       <div class="metric">
         <div class="metric__k">
           memory
         </div>
-        <div class="metric__v">
-          {{ (host?.memoryUsedPercent ?? 0).toFixed(1) }}%
+        <div class="metric__v" :class="readings.memoryUsedPercent === null ? 'metric__v--dim' : ''">
+          {{ pct(readings.memoryUsedPercent, 1) }}
         </div>
         <Sparkline :values="memSeries" color="var(--ok)" :width="120" :height="20" :max="100" />
       </div>
@@ -135,17 +138,17 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() => {
         <div class="metric__k">
           swap
         </div>
-        <div class="metric__v">
-          {{ (host?.swapUsedPercent ?? 0).toFixed(1) }}%
+        <div class="metric__v" :class="readings.swapUsedPercent === null ? 'metric__v--dim' : ''">
+          {{ pct(readings.swapUsedPercent, 1) }}
         </div>
-        <MeterBar :value="host?.swapUsedPercent ?? 0" :tone="(host?.swapUsedPercent ?? 0) >= 80 ? 'danger' : (host?.swapUsedPercent ?? 0) >= 50 ? 'warn' : 'ok'" />
+        <MeterBar :value="readings.swapUsedPercent" :tone="(readings.swapUsedPercent ?? 0) >= 80 ? 'danger' : (readings.swapUsedPercent ?? 0) >= 50 ? 'warn' : 'ok'" />
       </div>
       <div class="metric">
         <div class="metric__k">
           cpu temp
         </div>
-        <div class="metric__v">
-          {{ host?.tempCelsius === null || host?.tempCelsius === undefined ? '—' : `${host.tempCelsius.toFixed(0)}°C` }}
+        <div class="metric__v" :class="readings.tempCelsius === null ? 'metric__v--dim' : ''">
+          {{ readings.tempCelsius === null ? '—' : `${readings.tempCelsius.toFixed(0)}°C` }}
         </div>
       </div>
       <div class="metric">

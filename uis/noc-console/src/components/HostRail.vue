@@ -1,14 +1,21 @@
 <script setup lang="ts">
+import { hostReadings } from '@shared/host-readings'
 import { computed } from 'vue'
 import { useControlPlane } from '@/composables/useControlPlane'
-import { clamp, loadPerCpu } from '@/lib/format'
+import { clamp, pct } from '@/lib/format'
 
 const control = useControlPlane()
 
 const view = computed(() => control.host.value)
 const enabled = computed(() => view.value?.enabled === true)
 const alerts = computed(() => view.value?.alerts ?? [])
-const disks = computed(() => view.value?.disks ?? [])
+/**
+ * The rail is on every page, so it is the first place a person meets an unsampled host: the same
+ * rule as the vitals page, from the same module. It printed `mem 0% swap 0%` on a panel that had
+ * measured nothing — the frame `/api/metrics` already refuses to publish.
+ */
+const readings = computed(() => hostReadings(view.value))
+const disks = computed(() => readings.value.disks)
 const controlUrl = computed(() => control.control.value?.url ?? '')
 const exposed = computed(() => control.control.value?.auth.exposed === true)
 
@@ -24,21 +31,23 @@ function barClass(tone: 'ok' | 'warn' | 'danger'): string {
   return tone === 'ok' ? '' : `rail__bar--${tone}`
 }
 
-const loadRatio = computed(() => loadPerCpu(view.value?.loadAvg ?? [], view.value?.cpus ?? 1))
+const loadRatio = computed(() => readings.value.loadPerCpu)
 /**
  * Load is a count of runnable tasks, not a percentage: `1.00` is one core's worth. The rail used to
  * turn red at `1`, which on a 24-core box is 4% and completely normal.
  */
-const loadTone = computed(() => (loadRatio.value >= 2 ? 'danger' : loadRatio.value >= 1.4 ? 'warn' : 'ok'))
+const loadTone = computed(() => (loadRatio.value === null ? 'ok' : loadRatio.value >= 2 ? 'danger' : loadRatio.value >= 1.4 ? 'warn' : 'ok'))
 /** The CPU bar shows the real utilisation, so the rail's numbers share one unit. */
-const cpuUsed = computed(() => view.value?.cpuUsedPercent ?? null)
+const cpuUsed = computed(() => readings.value.cpuUsedPercent)
 const cpuTone = computed(() => {
-  const value = cpuUsed.value ?? 0
+  const value = cpuUsed.value
+  if (value === null)
+    return 'ok'
   return value >= 90 ? 'danger' : value >= 70 ? 'warn' : 'ok'
 })
-const memTone = computed(() => band(view.value?.memoryUsedPercent ?? 0, 70, 90))
-const swapTone = computed(() => band(view.value?.swapUsedPercent ?? 0, 50, 80))
-const tempTone = computed(() => band(view.value?.tempCelsius ?? 0, 70, 85))
+const memTone = computed(() => (readings.value.memoryUsedPercent === null ? 'ok' : band(readings.value.memoryUsedPercent, 70, 90)))
+const swapTone = computed(() => (readings.value.swapUsedPercent === null ? 'ok' : band(readings.value.swapUsedPercent, 50, 80)))
+const tempTone = computed(() => (readings.value.tempCelsius === null ? 'ok' : band(readings.value.tempCelsius, 70, 85)))
 
 function diskTone(percent: number): 'ok' | 'warn' | 'danger' {
   return band(percent, 75, 90)
@@ -55,7 +64,7 @@ function shortPath(path: string): string {
     <template v-if="enabled">
       <div class="rail__cell" title="share of this machine's cpu in use over the last interval">
         <span class="rail__label">cpu</span>
-        <span class="rail__value">{{ cpuUsed === null ? '—' : `${cpuUsed.toFixed(0)}%` }}</span>
+        <span class="rail__value" :class="cpuUsed === null ? 'rail__value--dim' : ''">{{ pct(cpuUsed) }}</span>
         <span class="rail__bar" :class="barClass(cpuTone)">
           <i :style="{ width: `${clamp(cpuUsed ?? 0, 0, 100)}%` }" />
         </span>
@@ -63,25 +72,25 @@ function shortPath(path: string): string {
 
       <div class="rail__cell" title="1-minute load average per cpu — a count, not a percentage">
         <span class="rail__label">load <span class="faint">/{{ view?.cpus }}c</span></span>
-        <span class="rail__value">{{ loadRatio.toFixed(2) }}</span>
+        <span class="rail__value" :class="loadRatio === null ? 'rail__value--dim' : ''">{{ loadRatio === null ? '—' : loadRatio.toFixed(2) }}</span>
         <span class="rail__bar" :class="barClass(loadTone)">
-          <i :style="{ width: `${clamp(loadRatio * 50, 0, 100)}%` }" />
+          <i :style="{ width: `${clamp((loadRatio ?? 0) * 50, 0, 100)}%` }" />
         </span>
       </div>
 
       <div class="rail__cell" title="memory used">
         <span class="rail__label">mem</span>
-        <span class="rail__value">{{ (view?.memoryUsedPercent ?? 0).toFixed(0) }}%</span>
+        <span class="rail__value" :class="readings.memoryUsedPercent === null ? 'rail__value--dim' : ''">{{ pct(readings.memoryUsedPercent) }}</span>
         <span class="rail__bar" :class="barClass(memTone)">
-          <i :style="{ width: `${clamp(view?.memoryUsedPercent ?? 0, 0, 100)}%` }" />
+          <i :style="{ width: `${clamp(readings.memoryUsedPercent ?? 0, 0, 100)}%` }" />
         </span>
       </div>
 
       <div class="rail__cell" title="swap used">
         <span class="rail__label">swap</span>
-        <span class="rail__value">{{ (view?.swapUsedPercent ?? 0).toFixed(0) }}%</span>
+        <span class="rail__value" :class="readings.swapUsedPercent === null ? 'rail__value--dim' : ''">{{ pct(readings.swapUsedPercent) }}</span>
         <span class="rail__bar" :class="barClass(swapTone)">
-          <i :style="{ width: `${clamp(view?.swapUsedPercent ?? 0, 0, 100)}%` }" />
+          <i :style="{ width: `${clamp(readings.swapUsedPercent ?? 0, 0, 100)}%` }" />
         </span>
       </div>
 
@@ -93,11 +102,11 @@ function shortPath(path: string): string {
         </span>
       </div>
 
-      <div v-if="view?.tempCelsius !== null && view?.tempCelsius !== undefined" class="rail__cell" title="cpu temperature">
+      <div v-if="readings.tempCelsius !== null" class="rail__cell" title="cpu temperature">
         <span class="rail__label">temp</span>
-        <span class="rail__value">{{ view.tempCelsius.toFixed(0) }}°C</span>
+        <span class="rail__value">{{ readings.tempCelsius.toFixed(0) }}°C</span>
         <span class="rail__bar" :class="barClass(tempTone)">
-          <i :style="{ width: `${clamp(view.tempCelsius, 0, 100)}%` }" />
+          <i :style="{ width: `${clamp(readings.tempCelsius, 0, 100)}%` }" />
         </span>
       </div>
     </template>

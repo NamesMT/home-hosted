@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
 import { Cpu, HardDrive, MemoryStick, Thermometer } from '@lucide/vue'
+import { hostReadings } from '@shared/host-readings'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
 import Meter from '@/components/telemetry/Meter.vue'
@@ -13,12 +14,11 @@ const props = defineProps<{
   now: number
 }>()
 
-const loadPerCpu = computed(() => {
-  const host = props.host
-  if (!host)
-    return null
-  return (host.loadAvg[0] ?? 0) / Math.max(1, host.cpus)
-})
+/**
+ * A panel that is on but has not sampled yet (or one whose sampler is slow) carries the same
+ * all-zero frame as `emptyHostView()`; this decides "no reading" once, for both UIs.
+ */
+const readings = computed(() => hostReadings(props.host))
 
 /**
  * Load is a **count of runnable tasks**, not a percentage, so it is shown as a number and never
@@ -26,10 +26,15 @@ const loadPerCpu = computed(() => {
  * Rendering it in a dial next to the memory percentage read as "0% CPU" while the machine was
  * actually working — which is the confusion this panel used to cause.
  */
-const loadLoads = computed(() => props.host?.loadAvg.map(value => value.toFixed(2)).join('  ') ?? '—')
+const loadLoads = computed(() => {
+  const { load1m, load5m, load15m } = readings.value
+  if (load1m === null || load5m === null || load15m === null)
+    return '—'
+  return [load1m, load5m, load15m].map(value => value.toFixed(2)).join('  ')
+})
 
 /** The real percentage: share of the machine's total CPU capacity used since the last sample. */
-const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
+const cpuUsed = computed(() => readings.value.cpuUsedPercent)
 </script>
 
 <template>
@@ -49,12 +54,12 @@ const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
         :warn-at="80"
         :danger-at="95"
       />
-      <Gauge :value="props.host.memoryUsedPercent" :label="t('common.memory')" :size="72" />
-      <Gauge :value="props.host.swapUsedPercent" :label="t('host.swap')" :size="72" :warn-at="50" />
+      <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="72" />
+      <Gauge :value="readings.swapUsedPercent" :label="t('host.swap')" :size="72" :warn-at="50" />
       <Gauge
-        :value="props.host.tempCelsius === null ? null : (props.host.tempCelsius / 85) * 100"
+        :value="readings.tempCelsius === null ? null : (readings.tempCelsius / 85) * 100"
         :label="t('host.cpuTemp')"
-        :display="props.host.tempCelsius === null ? t('common.notAvailable') : `${Math.round(props.host.tempCelsius)}°C`"
+        :display="readings.tempCelsius === null ? t('common.notAvailable') : `${Math.round(readings.tempCelsius)}°C`"
         :size="72"
       />
     </div>
@@ -76,7 +81,7 @@ const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
           {{ loadLoads }}
         </dd>
         <dd class="font-mono text-2xs tabular-nums text-faint">
-          {{ loadPerCpu === null ? '—' : `${loadPerCpu.toFixed(2)} ${t('host.perCpu')}` }}
+          {{ readings.loadPerCpu === null ? '—' : `${readings.loadPerCpu.toFixed(2)} ${t('host.perCpu')}` }}
         </dd>
       </div>
       <div>
@@ -84,7 +89,7 @@ const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
           <MemoryStick class="size-3" />{{ t('host.memoryUsed') }}
         </dt>
         <dd class="font-mono text-xs text-ink">
-          {{ props.host.memoryUsedPercent.toFixed(0) }}%
+          {{ readings.memoryUsedPercent === null ? '—' : `${readings.memoryUsedPercent.toFixed(0)}%` }}
         </dd>
       </div>
       <div>
@@ -101,7 +106,7 @@ const cpuUsed = computed(() => props.host?.cpuUsedPercent ?? null)
       <p class="flex items-center gap-1.5 text-2xs font-medium text-faint">
         <HardDrive class="size-3" />{{ t('host.filesystems') }}
       </p>
-      <div v-for="disk in props.host.disks" :key="disk.path" class="space-y-1">
+      <div v-for="disk in readings.disks" :key="disk.path" class="space-y-1">
         <div class="flex items-baseline justify-between gap-2">
           <span class="truncate font-mono text-2xs text-muted" :title="disk.path">{{ disk.path }}</span>
           <span class="shrink-0 font-mono text-2xs tabular-nums text-faint">

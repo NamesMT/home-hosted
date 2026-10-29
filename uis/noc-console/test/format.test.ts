@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { briefBytes, clamp, formatAgo, formatBytes, formatDuration, formatMs, formatMsHint, formatRatio, loadPerCpu, pct, relativeFrom, sparkSegments } from '../src/lib/format'
+import { briefBytes, clamp, formatAgo, formatBytes, formatDuration, formatMs, formatMsHint, formatRatio, pct, relativeFrom, sparkSegments } from '../src/lib/format'
 
 /**
  * `lib/format.ts` renders every number this UI shows, and had no test.
@@ -87,17 +87,11 @@ describe('formatAgo and relativeFrom', () => {
   })
 })
 
-describe('clamp and loadPerCpu', () => {
+describe('clamp', () => {
   it('clamps to the closed range', () => {
     expect(clamp(5, 0, 10)).toBe(5)
     expect(clamp(-1, 0, 10)).toBe(0)
     expect(clamp(11, 0, 10)).toBe(10)
-  })
-
-  it('divides by at least one cpu, so an unknown count cannot divide by zero', () => {
-    expect(loadPerCpu([2], 1)).toBe(2)
-    expect(loadPerCpu([2], 0)).toBe(2)
-    expect(loadPerCpu([], 4)).toBe(0)
   })
 })
 

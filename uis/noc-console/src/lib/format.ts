@@ -64,10 +64,6 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-export function loadPerCpu(loadAvg: number[], cpus: number): number {
-  return (loadAvg[0] ?? 0) / Math.max(1, cpus)
-}
-
 /** One unbroken stretch of a series: the `points` of its line, and of the area beneath it. */
 export interface SparkSegment {
   line: string

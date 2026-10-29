@@ -35,7 +35,10 @@ state layout is there too.
   server form's textarea round-trips, `error-message.ts` the one rendering of a caught value;
   `patch-diff.ts` and `generated.ts` are shared helpers; `cpu-scale.ts` decides how a server's
   `cpuPercent` sits on *this* machine (`cpuCapacity`/`cpuBand`), because the charts and the numbers
-  that colour themselves had drifted apart while the rule was restated at each surface.
+  that colour themselves had drifted apart while the rule was restated at each surface;
+  `host-readings.ts` decides whether a host frame carries a sample at all (`hostReadings`), read by
+  the scrape and by every host surface in both UIs, so neither can publish the all-zero boot frame
+  as a measurement.
   **These must not import Vue or `node:` APIs.**
 - `src/config/` — split by scope. `settings.ts` (`GlobalSettingsStore`: `.hh/settings.json` —
   listener, auth, TLS policy, host vitals, backups) and `store.ts` (`WorkspaceStore`: a workspace's

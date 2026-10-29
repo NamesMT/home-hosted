@@ -2,6 +2,7 @@ import type { AppDeps } from '#src/app'
 import type { ServerView } from '#src/shared/contracts'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
+import { hostReadings } from '#src/shared/host-readings'
 
 /**
  * Escapes a value for the quoted form of a Prometheus label, per the exposition
@@ -35,7 +36,7 @@ export function createMetricsRoute(deps: AppDeps) {
       responses: { 200: { description: 'text/plain; version=0.0.4' } },
     }), (c) => {
       const servers = deps.panel.serverViews()
-      const host = deps.panel.getState().host
+      const host = hostReadings(deps.panel.getState().host)
       const lines: string[] = []
 
       /*
@@ -100,29 +101,32 @@ export function createMetricsRoute(deps: AppDeps) {
        * panel — or on one whose sampling is switched off — which is the one reading a homelab
        * dashboard must not invent: a memory or disk alert rule (`> 90`) stays quiet while the
        * series looks healthy and present, and `hh_host_load1_per_cpu 0.000` says "idle". The
-       * per-server gauges above already follow this rule ("no reading means no series at all"), so
-       * the host ones do too. `enabled: false` is not enough on its own — a panel switched off
-       * *after* sampling keeps its last view, which is stale, not empty.
+       * rule is `hostReadings` (`src/shared/host-readings.ts`), which the panel's own pages read
+       * too — one home, so the scrape and the page cannot disagree about whether anything was
+       * measured. `enabled: false` is not enough on its own: a panel switched off *after*
+       * sampling keeps its last view, which is stale, not empty.
        */
-      if (host.sampledAt !== null) {
-        const disks = host.disks.map(disk => `hh_host_disk_used_percent{mount="${labelValue(disk.path)}"} ${disk.usedPercent.toFixed(2)}`)
-        metric('hh_host_disk_used_percent', 'Disk usage percent per configured path', disks)
+      const disks = host.disks.map(disk => `hh_host_disk_used_percent{mount="${labelValue(disk.path)}"} ${disk.usedPercent.toFixed(2)}`)
+      metric('hh_host_disk_used_percent', 'Disk usage percent per configured path', disks)
 
-        /*
-         * `cpuUsedPercent` is optional on the wire and `null` on the first sample, which has no
-         * window to measure. `loadAvg` is a **count of runnable tasks**, not a share, so it is a
-         * different unit from this one and neither substitutes for the other — a dashboard that
-         * wants host CPU was reaching for `hh_host_load1_per_cpu` and reading it as a percentage.
-         */
-        metric('hh_host_cpu_used_percent', 'Share of this machine\'s CPU capacity in use, 0-100', host.cpuUsedPercent == null
-          ? []
-          : [`hh_host_cpu_used_percent ${host.cpuUsedPercent.toFixed(2)}`])
-        metric('hh_host_memory_used_percent', 'Memory usage percent', [`hh_host_memory_used_percent ${host.memoryUsedPercent.toFixed(2)}`])
-        metric('hh_host_swap_used_percent', 'Swap usage percent', [`hh_host_swap_used_percent ${host.swapUsedPercent.toFixed(2)}`])
-        metric('hh_host_load1_per_cpu', '1 minute load average per cpu', [
-          `hh_host_load1_per_cpu ${((host.loadAvg[0] ?? 0) / Math.max(1, host.cpus)).toFixed(3)}`,
-        ])
-      }
+      /*
+       * `cpuUsedPercent` is `null` on the first sample, which has no window to measure.
+       * `loadAvg` is a **count of runnable tasks**, not a share, so it is a different unit from
+       * this one and neither substitutes for the other — a dashboard that wants host CPU was
+       * reaching for `hh_host_load1_per_cpu` and reading it as a percentage.
+       */
+      metric('hh_host_cpu_used_percent', 'Share of this machine\'s CPU capacity in use, 0-100', host.cpuUsedPercent === null
+        ? []
+        : [`hh_host_cpu_used_percent ${host.cpuUsedPercent.toFixed(2)}`])
+      metric('hh_host_memory_used_percent', 'Memory usage percent', host.memoryUsedPercent === null
+        ? []
+        : [`hh_host_memory_used_percent ${host.memoryUsedPercent.toFixed(2)}`])
+      metric('hh_host_swap_used_percent', 'Swap usage percent', host.swapUsedPercent === null
+        ? []
+        : [`hh_host_swap_used_percent ${host.swapUsedPercent.toFixed(2)}`])
+      metric('hh_host_load1_per_cpu', '1 minute load average per cpu', host.loadPerCpu === null
+        ? []
+        : [`hh_host_load1_per_cpu ${host.loadPerCpu.toFixed(3)}`])
 
       return c.text(`${lines.join('\n')}\n`, 200, { 'Content-Type': 'text/plain; version=0.0.4; charset=utf-8' })
     })

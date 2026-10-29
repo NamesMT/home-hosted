@@ -153,6 +153,13 @@ workspace config guard, so a busy default port turns config tests red for the wr
   and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
   suffix `_total` a value that a user action resets — no series here is a counter, and
   `test/api/panel.test.ts` enumerates the scrape and fails on a `_total` name or a `counter` type.
+  **The page a person reads has no page to qualify it either.** `emptyHostView()` is the all-zero
+  frame a panel boots with and the one it keeps for ever with host vitals switched off, and the
+  panel's own pages printed it — `0.0%` memory, `0.0%` swap, `0.00` load under a green `quiet` chip,
+  in the rail on every screen. One predicate decides a host's readings (`hostReadings`,
+  `src/shared/host-readings.ts`); a surface renders it, never the frame. The wire fields stay
+  `number` because an overridden older UI in `.hh/.ui` calls `.toFixed()` on them.
+  `test/shared/host-readings.test.ts` walks every `.vue` for a `?? 0` on one of those fields.
 - **A reading is labelled with what it measured, and a fallback must measure the same thing.** The
   "CPU temp" tile took `Math.max` over every hwmon chip, so a box with an NVMe reported the **disk's**
   temperature as the CPU's — and fired the temperature alert on it. Pick the sensor *by name*

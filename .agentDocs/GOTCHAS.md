@@ -244,6 +244,18 @@ line in `AGENTS.md` instead.
   per-server ones already followed. The same round found the scrape had never published
   `cpuUsedPercent` at all, so the **only** host CPU figure a dashboard could reach was the load
   count — a different unit, which the UI section above had already fixed for the page.
+- **The rule was only ever enforced where it was written, so the pages kept printing the frame.** The
+  scrape was fixed and the UI was not: a never-sampled panel rendered memory `0.0%`, swap `0.0%`,
+  `0.00` load and a green `quiet` chip in noc-console's vitals page, and `mem 0%` / `swap 0%` in the
+  rail that is on every screen — the same fabricated zeros the route refused to publish, shown to
+  the person instead of the dashboard. Two tiles were already gated (`cpuUsedPercent`,
+  `tempCelsius`) and four were not, because "no reading" was a line in a route rather than a decision.
+  It is `hostReadings` (`src/shared/host-readings.ts`) now, and the four host surfaces across both
+  UIs read it. Two cautions: the frame's fields stay `number` on the wire, because an overridden
+  older UI under `.hh/.ui` calls `.toFixed()` on them — the absence is decided where it is rendered,
+  never by making the DTO nullable; and a **sampled** box honestly measuring `0%` must survive as
+  `0`, so the predicate gates on `sampledAt`, not on the value being zero. A scan walks every `.vue`
+  for `(host?.memoryUsedPercent ?? 0)` because the next surface is the one nobody declared.
 - **A `_total` that can go down is not a counter.** `hh_server_restarts_total` was the retry budget
   spent on a server's *current* crash sequence, and a start someone asked for resets it to `0`
   (measured: `2` → `0` on a manual start), so `rate()` saw a counter reset every time an operator
