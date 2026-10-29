@@ -263,7 +263,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   `diskUsedPercentAlert`, and `hostReadings` puts a `band` on **each** disk rather than one beside the
   frame, because the reading is per path and a frame carries several: with the alert lowered to 80 the
   panel notified at 82% while `Gauge`/`Meter`'s `75`/`90` defaults and both noc-console helpers called
-  it `warn`. So a host band always names the field it is measured against — when the paragraph above
+  it `warn`. Both components now *require* a `tone` (`warnAt`/`dangerAt` are gone), so the fallback
+  that let a default stand in for a verdict cannot be reintroduced. So a host band always names the
+  field it is measured against — when the paragraph above
   grows a new reading, check that the threshold is on the frame *and* that every surface reads the
   predicate, on both UIs; a component default is a copy you cannot see. **A dial's *scale* is that
   threshold too, and a band guard cannot see it.** There is no natural `100 °C`, so a temperature

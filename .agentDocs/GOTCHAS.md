@@ -289,7 +289,9 @@ line in `AGENTS.md` instead.
 - **The fix that named the class still left one instance, and the reason is worth keeping.** After the
   load and the three percentages got predicates, the **disk** bar kept `band(percent, 75, 90)` in both
   noc-console surfaces, and the stock `Gauge`/`Meter` carried the same pair as *component defaults*
-  (`warnAt: 75, dangerAt: 90`). That is `hostSchema`'s default `diskUsedPercent: 90`, so — exactly as
+  (`warnAt: 75, dangerAt: 90` — since removed: `tone` is now required on both, so a call site cannot
+  omit a verdict and the component cannot compute one). That is `hostSchema`'s default
+  `diskUsedPercent: 90`, so — exactly as
   with the load — the copy is invisible on a fresh config and wrong on any other. Measured with the
   alert at **80**: `sampleHost` notifies at 82% and every surface painted that number `warn`, on the
   one reading where a late warning costs a full filesystem. Two things made it survive the round that
