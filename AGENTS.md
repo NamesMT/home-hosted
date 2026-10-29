@@ -265,8 +265,15 @@ workspace config guard, so a busy default port turns config tests red for the wr
   panel notified at 82% while `Gauge`/`Meter`'s `75`/`90` defaults and both noc-console helpers called
   it `warn`. So a host band always names the field it is measured against — when the paragraph above
   grows a new reading, check that the threshold is on the frame *and* that every surface reads the
-  predicate, on both UIs; a component default is a copy you cannot see. Why the copies survived:
-  [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
+  predicate, on both UIs; a component default is a copy you cannot see. **A dial's *scale* is that
+  threshold too, and a band guard cannot see it.** There is no natural `100 °C`, so a temperature
+  dial is drawn full at the alert — which one stock surface took from the frame and the other kept
+  as `(tempCelsius / 85) * 100`, the schema's default. One frame at 60 °C against an alert of 95
+  therefore drew arcs of `101.19` and `113.10`, and noc-console's rail sized its bar by the °C value
+  itself. Every *colour* was right, so the tone tests stayed green while the needle disagreed —
+  `tempDialPercent` (`src/shared/host-readings.ts`) decides the fill once, and the scan in
+  `test/shared/host-readings.test.ts` fails a temperature divided, clamped or defaulted by a number.
+  Why these copies survived: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"

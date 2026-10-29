@@ -170,6 +170,36 @@ export function percentageBand(value: number | null, alertAt: number | undefined
   return thresholdBand(value, alertAt, fallback)
 }
 
+/**
+ * The full scale of a temperature dial: the threshold the panel **notifies** on.
+ *
+ * There is no natural `100 °C`, so unlike a percentage a temperature has no scale of its own —
+ * the alert is the only number a person configured for it, and it is what the dial is drawn
+ * against. `0` disables the alert and leaves no scale to draw, so the default the older panels
+ * alerted on is kept rather than dividing by zero.
+ *
+ * This exists because the *band* was moved onto the frame and the *scale* was not: one stock
+ * surface scaled by `tempCelsiusAlert` while the other kept `(tempCelsius / 85) * 100`, so one
+ * frame at 60 °C against an alert of 95 drew arcs of `101.19` and `113.10` — the same number
+ * fuller on one page than the other. A tone test cannot see that; only the arc can.
+ */
+export function tempScale(alertAt: number | undefined): number {
+  return alertAt === undefined || !Number.isFinite(alertAt) || alertAt <= 0 ? HOST_ALERT_DEFAULTS.tempCelsius : alertAt
+}
+
+/**
+ * How full a temperature dial is, as the percentage a `Gauge`/bar draws: a share of `tempScale`.
+ *
+ * `null` when nothing was measured — an absent reading has no dial, the same rule every other
+ * reading on the frame follows.
+ */
+export function tempDialPercent(temp: number | null | undefined, alertAt: number | undefined): number | null {
+  const value = present(temp)
+  if (value === null)
+    return null
+  return (value / tempScale(alertAt)) * 100
+}
+
 function thresholdBand(value: number | null, alertAt: number | undefined, fallback: number): HostBand {
   if (value === null || !Number.isFinite(value))
     return null

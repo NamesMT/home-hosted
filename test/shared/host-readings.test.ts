@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { HOST_ALERT_DEFAULTS, hostReadings, LOAD_ALERT_PER_CPU_DEFAULT } from '#src/shared/host-readings'
+import { HOST_ALERT_DEFAULTS, hostReadings, LOAD_ALERT_PER_CPU_DEFAULT, tempDialPercent, tempScale } from '#src/shared/host-readings'
 
 /**
  * A host frame with no sample has no readings, and the panel's own pages said otherwise.
@@ -455,5 +455,90 @@ describe('the UIs band a disk from the predicate', () => {
     // Counted, not merely found: a scan that only asked "is it mentioned" passed after the sampled
     // builder lost a field, because the boot frame still carried it.
     expect([...provider.matchAll(/\bdiskUsedPercentAlert: config\./g)], 'diskUsedPercentAlert in both frame builders').toHaveLength(2)
+  })
+})
+
+/**
+ * How full a temperature dial is: a share of the threshold the panel notifies on.
+ *
+ * The band for a temperature was moved onto the frame, and the **scale** was left behind. There is
+ * no natural `100 °C`, so a dial's full scale is the alert — and one surface scaled by the frame's
+ * `tempCelsiusAlert` while the other divided by the literal `85`, `hostSchema`'s default. On one
+ * frame at 60 °C with the alert raised to 95 the two stock surfaces drew arcs of `101.19` and
+ * `113.10`, and noc-console's rail sized its bar by the °C value as though it were a percentage.
+ * Neither is a colour, so the tone tests that pinned the bands could not see either one.
+ */
+describe('a temperature dial is scaled by the alert the panel notifies on', () => {
+  it('takes that threshold as its full scale', () => {
+    expect(tempScale(95)).toBe(95)
+    // Half the threshold is half the dial, and the threshold itself is a full one.
+    expect(tempDialPercent(47.5, 95)).toBe(50)
+    expect(tempDialPercent(95, 95)).toBe(100)
+  })
+
+  it('keeps the default scale for a panel that sends no threshold', () => {
+    expect(tempScale(undefined)).toBe(HOST_ALERT_DEFAULTS.tempCelsius)
+    expect(tempDialPercent(42.5, undefined)).toBe(50)
+  })
+
+  it('keeps a scale where the alert is switched off, rather than dividing by zero', () => {
+    // `0` disables the alert and leaves no scale of its own.
+    expect(tempScale(0)).toBe(HOST_ALERT_DEFAULTS.tempCelsius)
+    expect(tempDialPercent(42.5, 0)).toBe(50)
+  })
+
+  it('has no dial where nothing was measured', () => {
+    expect(tempDialPercent(null, 95)).toBeNull()
+  })
+})
+
+/**
+ * The scan for the class: a UI may not decide a temperature's scale for itself.
+ *
+ * Two shapes produced the defect — a reading divided by a number (`(tempCelsius / 85) * 100`), and
+ * a °C value used as if it were a percentage (`clamp(tempCelsius, 0, 100)` sizing the rail's bar,
+ * which is a 0–100 °C scale and not a share of anything). The predicate's successors match neither.
+ */
+describe('the UIs do not restate a temperature scale', () => {
+  const TEMP_SCALE = new RegExp([
+    // `(readings.tempCelsius / 85) * 100`
+    String.raw`\btempCelsius\s*\/\s*\d+(?:\.\d+)?`,
+    // `clamp(readings.tempCelsius, 0, 100)` — a bar sized by degrees.
+    String.raw`\bclamp\(\s*[\w.]*tempCelsius\s*,`,
+    // `const TEMP_FULL = 85`, and `props.host?.tempCelsiusAlert ?? 85`.
+    String.raw`\bTEMP_FULL\s*=\s*\d+`,
+    String.raw`\btempCelsiusAlert\s*\?\?\s*\d+`,
+  ].join('|'), 'gi')
+
+  it('still reaches the shape it forbids, so the matcher cannot silently rot', () => {
+    // Both bodies exactly as they were written before the fix.
+    expect([...'(readings.tempCelsius / 85) * 100'.matchAll(TEMP_SCALE)].map(m => m[0])).toEqual(['tempCelsius / 85'])
+    expect([...'clamp(readings.tempCelsius, 0, 100)'.matchAll(TEMP_SCALE)]).toHaveLength(1)
+    expect([...'const TEMP_FULL = 85'.matchAll(TEMP_SCALE)]).toHaveLength(1)
+    expect([...'props.host?.tempCelsiusAlert ?? 85'.matchAll(TEMP_SCALE)]).toHaveLength(1)
+    // The predicate's successor is not a restatement.
+    expect([...'tempDialPercent(readings.value.tempCelsius, props.host?.tempCelsiusAlert)'.matchAll(TEMP_SCALE)]).toHaveLength(0)
+  })
+
+  it('scales no temperature against a number nobody configured', () => {
+    const offenders: string[] = []
+    for (const ui of ['stock', 'noc-console']) {
+      for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
+        for (const match of sourceOf(rel).matchAll(TEMP_SCALE))
+          offenders.push(`${rel}: ${match[0].trim()}`)
+      }
+    }
+    expect(offenders, 'a temperature dial scaled by a literal instead of the configured alert').toEqual([])
+  })
+
+  it('takes every temperature dial from the predicate', () => {
+    // The three surfaces that draw one: the stock card, the stock rail, and noc-console's rail.
+    const surfaces = [
+      'uis/stock/src/components/host/HostVitalsPanel.vue',
+      'uis/stock/src/components/shell/InstrumentCluster.vue',
+      'uis/noc-console/src/components/HostRail.vue',
+    ]
+    for (const file of surfaces)
+      expect(sourceOf(file), `${file} must scale its temperature dial from the predicate`).toContain('tempDialPercent')
   })
 })

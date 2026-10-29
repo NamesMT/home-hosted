@@ -303,6 +303,22 @@ line in `AGENTS.md` instead.
   frame-level band would have answered for whichever path it happened to name. The general lesson is
   the audit, not the fourth patch — when a paragraph in `AGENTS.md` claims a *set* of readings
   follows a rule, enumerate the set against the frame and against every surface.
+- **The band and the scale are two decisions, and a guard on one hid the other.** The temperature
+  reading got a `tempBand` decided by the frame's `tempCelsiusAlert`, and the tests that pinned it
+  mounted the real components and read the `stroke-*` class each dial drew. So every *colour* was
+  right on both stock surfaces while the *needle* was not: `InstrumentCluster` scaled its dial by the
+  frame's threshold, and `HostVitalsPanel` still had `(readings.tempCelsius / 85) * 100` inline in its
+  template — `hostSchema`'s default. With the alert raised to 95, one frame at 60 °C drew arcs of
+  `101.19` on the rail and `113.10` on the card. noc-console's rail had a third shape: it sized its
+  bar by the °C value itself, `clamp(tempCelsius, 0, 100)`, which is a 0–100 °C scale and a share of
+  nothing. Three lessons. A colour assertion cannot see a geometry bug, so a dial needs one test that
+  reads the **arc** (`stroke-dasharray`) rather than the class. A percentage has a natural full scale
+  of 100 and a temperature does not, which is why only this reading grew a scale of its own — the
+  `percentageBand`/`tempBand` machinery was correct and simply does not answer "how full is the
+  dial". And the inline-template copy is the hardest to grep for: it sat in a `:value=` expression,
+  not in a `computed`, so a scan listing surface *helpers* would have found nothing. The successor is
+  `tempDialPercent` (`src/shared/host-readings.ts`), read by all three surfaces, and its scan matches
+  the arithmetic rather than the name.
 - **A `_total` that can go down is not a counter.** `hh_server_restarts_total` was the retry budget
   spent on a server's *current* crash sequence, and a start someone asked for resets it to `0`
   (measured: `2` → `0` on a manual start), so `rate()` saw a counter reset every time an operator

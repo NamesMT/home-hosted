@@ -109,3 +109,61 @@ describe('the stock instrument cluster bands each dial against its alert', () =>
     wrapper.unmount()
   })
 })
+
+/**
+ * The temperature dial's **full scale** is the threshold, and one surface was still dividing by a
+ * literal.
+ *
+ * `InstrumentCluster` was fixed to scale the dial by `tempCelsiusAlert`; `HostVitalsPanel` kept
+ * `(readings.tempCelsius / 85) * 100` in its template. Both paint the same reading, so with the
+ * alert raised to 95 the two surfaces drew the *same* 60 °C at different arc lengths — the card's
+ * dial fuller than the rail's, for one number. Measured on the real components before the fix:
+ * the panel's temp arc was `113.10` and the cluster's `101.19` on an identical frame.
+ *
+ * The tone tests above could not see it: the colour comes from `tempBand`, which was already
+ * correct, so a wrong scale left every verdict right and only the needle wrong.
+ */
+describe('both stock surfaces draw the temperature dial on the same scale', () => {
+  /**
+   * The value arc's dash length, which is the only thing that shows a dial's scale.
+   *
+   * A dial is the last `svg` that draws one: lucide icons are `svg`s too, and one of them sits in
+   * the vitals card's own detail list, so picking the last `svg` on the page read an icon.
+   */
+  function tempArc(wrapper: ReturnType<typeof mount>): number {
+    const dials = wrapper.findAll('svg').filter(svg => svg.findAll('circle').some(node => node.attributes('stroke-dasharray') !== undefined))
+    const svg = dials[dials.length - 1]!
+    const arc = svg.findAll('circle').find(node => !(node.attributes('class') ?? '').includes('stroke-line-soft'))
+    return Number.parseFloat((arc?.attributes('stroke-dasharray') ?? '0').split(' ')[0]!)
+  }
+
+  it('draws one reading the same on the card and in the rail', () => {
+    // 60 °C against an alert raised to 95: the scale is 95, not the schema default of 85.
+    const panel = mount(HostVitalsPanel, { props: { host: frame({ temp: 60 }, { tempCelsiusAlert: 95 }), now: 1_000_000 } })
+    const cluster = mount(InstrumentCluster, { props: { host: frame({ temp: 60 }, { tempCelsiusAlert: 95 }) } })
+    expect(tempArc(panel), 'the vitals card against the rail, one frame').toBe(tempArc(cluster))
+    panel.unmount()
+    cluster.unmount()
+  })
+
+  it('draws half the dial at half the threshold a person configured', () => {
+    // The alert fires at 95, so 47.5 °C is half of it — a quarter of the 270° sweep.
+    const panel = mount(HostVitalsPanel, { props: { host: frame({ temp: 47.5 }, { tempCelsiusAlert: 95 }), now: 1_000_000 } })
+    const cluster = mount(InstrumentCluster, { props: { host: frame({ temp: 47.5 }, { tempCelsiusAlert: 95 }) } })
+    // A full sweep is 0.75 of the circumference, `2 * π * 34`.
+    const half = 0.5 * 0.75 * 2 * Math.PI * 34
+    expect(tempArc(panel), 'the vitals card').toBeCloseTo(half, 5)
+    expect(tempArc(cluster), 'the rail').toBeCloseTo(half, 5)
+    panel.unmount()
+    cluster.unmount()
+  })
+
+  it('keeps the default scale for a panel that sends no temperature threshold', () => {
+    // An older panel alerted on the schema default of 85, so that is the scale it is drawn on.
+    const panel = mount(HostVitalsPanel, { props: { host: frame({ temp: 60 }), now: 1_000_000 } })
+    const cluster = mount(InstrumentCluster, { props: { host: frame({ temp: 60 }) } })
+    expect(tempArc(panel), 'no threshold on the frame').toBe(tempArc(cluster))
+    panel.unmount()
+    cluster.unmount()
+  })
+})

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { hostReadings } from '@shared/host-readings'
+import { hostReadings, tempDialPercent } from '@shared/host-readings'
 import { computed } from 'vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { clamp, pct } from '@/lib/format'
@@ -48,6 +48,15 @@ const cpuTone = computed(() => {
 const memTone = computed(() => readings.value.memoryBand ?? 'ok')
 const swapTone = computed(() => readings.value.swapBand ?? 'ok')
 const tempTone = computed(() => readings.value.tempBand ?? 'ok')
+/**
+ * The temperature bar's fill, as a share of the alert the panel notifies on.
+ *
+ * It used to size the bar by the °C value itself (`clamp(tempCelsius, 0, 100)`) — a 0–100 °C scale
+ * that is a share of nothing, so the bar sat near full on a cool box and could never reach the end
+ * of the hottest one. A temperature has no natural percentage; `tempDialPercent` gives it the only
+ * one a person configured, the same scale both stock surfaces draw.
+ */
+const tempFill = computed(() => tempDialPercent(readings.value.tempCelsius, view.value?.tempCelsiusAlert))
 
 function shortPath(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean)
@@ -102,7 +111,7 @@ function shortPath(path: string): string {
         <span class="rail__label">temp</span>
         <span class="rail__value">{{ readings.tempCelsius.toFixed(0) }}°C</span>
         <span class="rail__bar" :class="barClass(tempTone)">
-          <i :style="{ width: `${clamp(readings.tempCelsius, 0, 100)}%` }" />
+          <i :style="{ width: `${clamp(tempFill ?? 0, 0, 100)}%` }" />
         </span>
       </div>
     </template>

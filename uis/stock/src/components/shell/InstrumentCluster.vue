@@ -1,21 +1,12 @@
 <script setup lang="ts">
 import type { HostView } from '@shared/contracts'
 import type { Tone } from '@/lib/status'
-import { hostReadings } from '@shared/host-readings'
+import { hostReadings, tempDialPercent } from '@shared/host-readings'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
 import { t } from '@/i18n'
 
 const props = defineProps<{ host: HostView | null }>()
-
-/**
- * The temperature dial's full scale when the frame carries no threshold.
- *
- * `hostSchema`'s default, so a panel that predates `tempCelsiusAlert` is drawn on the scale it
- * alerted against. A frame that carries one uses it instead — a fixed `85` left the dial reading
- * full at the old number after a person raised `host.tempCelsius` to 95.
- */
-const TEMP_FULL = 85
 
 /**
  * A dial only tells the truth for a share of something. Load is a *count* of runnable tasks —
@@ -56,19 +47,13 @@ const memoryTone = computed<Tone>(() => readings.value.memoryBand ?? 'neutral')
 const tempTone = computed<Tone>(() => readings.value.tempBand ?? 'neutral')
 
 /**
- * Full-scale for the temperature dial: the threshold the panel notifies on.
+ * The temperature dial's fill: a share of the threshold the panel notifies on.
  *
- * It used to be a fixed `85`, the schema's default, so raising `host.tempCelsius` to 95 left the
- * dial reading full at the old number. `0` disables the alert and leaves no scale to draw, so the
- * dial keeps the default rather than dividing by zero.
+ * `tempDialPercent` decides the scale for both stock surfaces — this one used to carry its own
+ * `TEMP_FULL = 85`, which `HostVitalsPanel` restated as `(tempCelsius / 85) * 100`, so the two
+ * disagreed the moment a person changed the alert.
  */
-const tempFull = computed(() => props.host?.tempCelsiusAlert ?? TEMP_FULL)
-
-const tempDial = computed(() => {
-  const temp = readings.value.tempCelsius
-  const full = tempFull.value > 0 ? tempFull.value : TEMP_FULL
-  return temp === null ? null : (temp / full) * 100
-})
+const tempDial = computed(() => tempDialPercent(readings.value.tempCelsius, props.host?.tempCelsiusAlert))
 
 const tempDisplay = computed(() => {
   const temp = readings.value.tempCelsius

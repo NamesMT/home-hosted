@@ -3,7 +3,7 @@ import type { HostView } from '@shared/contracts'
 import type { HostBand } from '@shared/host-readings'
 import type { Tone } from '@/lib/status'
 import { Cpu, HardDrive, MemoryStick, Thermometer } from '@lucide/vue'
-import { hostReadings } from '@shared/host-readings'
+import { hostReadings, tempDialPercent } from '@shared/host-readings'
 import { computed } from 'vue'
 import Gauge from '@/components/telemetry/Gauge.vue'
 import Meter from '@/components/telemetry/Meter.vue'
@@ -53,6 +53,16 @@ function toneClass(band: HostBand): Tone {
   return band ?? 'neutral'
 }
 
+/**
+ * The temperature dial's fill: a share of the threshold the panel notifies on.
+ *
+ * It used to be `(tempCelsius / 85) * 100` in the template — `hostSchema`'s *default*, so the copy
+ * was invisible on a fresh config and wrong on any other. The neighbouring `InstrumentCluster`
+ * scaled by `tempCelsiusAlert`, so with the threshold raised to 95 the two surfaces drew one
+ * 60 °C reading at different arc lengths. `tempDialPercent` decides it once, for both.
+ */
+const tempDial = computed(() => tempDialPercent(readings.value.tempCelsius, props.host?.tempCelsiusAlert))
+
 const memoryTone = computed(() => toneClass(readings.value.memoryBand))
 const swapTone = computed(() => toneClass(readings.value.swapBand))
 const tempTone = computed(() => toneClass(readings.value.tempBand))
@@ -78,7 +88,7 @@ const tempTone = computed(() => toneClass(readings.value.tempBand))
       <Gauge :value="readings.memoryUsedPercent" :label="t('common.memory')" :size="72" :tone="memoryTone" />
       <Gauge :value="readings.swapUsedPercent" :label="t('host.swap')" :size="72" :tone="swapTone" />
       <Gauge
-        :value="readings.tempCelsius === null ? null : (readings.tempCelsius / 85) * 100"
+        :value="tempDial"
         :label="t('host.cpuTemp')"
         :display="readings.tempCelsius === null ? t('common.notAvailable') : `${Math.round(readings.tempCelsius)}°C`"
         :size="72"
