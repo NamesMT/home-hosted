@@ -106,6 +106,15 @@ workspace config guard, so a busy default port turns config tests red for the wr
   `ConfirmButton` is that popover in both UIs; `test/shared/ui-destructive-confirm.test.ts` reads every
   `.vue` for the armed shape (a label chosen by a `confirm*` flag, a handler that raises the flag and
   acts), so a new destructive control gets the rule from a red test rather than from review.
+  **And the popover must name what it costs — the right cost for that row.** A destination row bound
+  one kind's sentence for both kinds, so removing a webhook promised a bot token would go; the
+  webhook's own copy sat unused in all nine catalogs. `ConfirmButton` also *silently* accepts a prop
+  it does not declare (Vue puts it in `$attrs`), which is how `:question`/`:body` reached a component
+  that expects `title`/`hint` and the popover fell back to "Confirm remove?" — typechecking cannot see
+  a template, and a consequence scan asking only whether a `title` was present read the typo as
+  "untitled". `test/shared/ui-prop-contract.test.ts` pins the two copies to one prop set and fails a
+  call site that binds a name its own copy lacks. An exemption recorded for a row whose own text
+  already states the cost is fine; a missing string is not.
 - **A numeric option is a whole decimal integer, never a prefix parse** (`src/cli/up.ts`): `--port 1e3`
   and `--port 8000x` are refused, not read as 1 and 8000. A flag the command cannot honour is refused
   too — `restart --workspace <id>` with no server id exits 1 before anything is attempted, because the
