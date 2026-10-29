@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { hostSchema } from '#src/shared/contracts'
 import { HOST_ALERT_DEFAULTS, hostReadings, LOAD_ALERT_PER_CPU_DEFAULT, tempDialPercent, tempScale } from '#src/shared/host-readings'
 
 /**
@@ -374,7 +375,6 @@ describe('a disk is banded against the threshold the panel notifies on', () => {
 
   it('keeps the default band for a panel that sends no disk threshold', () => {
     // An older panel alerted on the schema default, which is what its surfaces banded against.
-    expect(HOST_ALERT_DEFAULTS.diskUsedPercent).toBe(90)
     expect(hostReadings({ ...empty, sampledAt: 1, disks: [disk(95)] }).disks[0]!.band).toBe('danger')
   })
 
@@ -540,5 +540,32 @@ describe('the UIs do not restate a temperature scale', () => {
     ]
     for (const file of surfaces)
       expect(sourceOf(file), `${file} must scale its temperature dial from the predicate`).toContain('tempDialPercent')
+  })
+})
+
+/**
+ * The fallback band and the default a fresh config gets are one number.
+ *
+ * `HOST_ALERT_DEFAULTS` is what a surface bands against when the frame carries no threshold — a
+ * panel older than the field — and it has to equal what that older panel actually alerted on, which
+ * is `hostSchema`'s own default. Two constants would have been a copy a reader cannot see: raise
+ * `host.tempCelsius`'s default and the fallback band keeps drawing the old one, for a panel that
+ * now notifies elsewhere. `hostSchema` is the source of truth (it is what `migrate` and the settings
+ * form read), so this compares against a parsed empty config rather than restating the numbers.
+ */
+describe('the fallback bands are the schema defaults', () => {
+  it('matches the config a fresh install gets', () => {
+    const defaults = hostSchema({}) as typeof hostSchema.infer
+    expect(defaults.diskUsedPercent).toBe(HOST_ALERT_DEFAULTS.diskUsedPercent)
+    expect(defaults.memoryUsedPercent).toBe(HOST_ALERT_DEFAULTS.memoryUsedPercent)
+    expect(defaults.swapUsedPercent).toBe(HOST_ALERT_DEFAULTS.swapUsedPercent)
+    expect(defaults.tempCelsius).toBe(HOST_ALERT_DEFAULTS.tempCelsius)
+  })
+
+  /** And the schema reads them from the constant, so one edit moves both. */
+  it('takes its own defaults from the constant, not a second copy', () => {
+    const source = sourceOf('src/shared/contracts.ts')
+    for (const key of ['diskUsedPercent', 'memoryUsedPercent', 'swapUsedPercent', 'tempCelsius'])
+      expect(source, `hostSchema must write ${key}'s default from the constant`).toContain(`= \${HOST_ALERT_DEFAULTS.${key}}`)
   })
 })

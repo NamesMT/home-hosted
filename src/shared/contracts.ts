@@ -1,5 +1,5 @@
 import { type } from 'arktype'
-import { LOAD_ALERT_PER_CPU_DEFAULT } from './host-readings'
+import { HOST_ALERT_DEFAULTS, LOAD_ALERT_PER_CPU_DEFAULT } from './host-readings'
 
 /**
  * Schemas shared by the control plane and the SPA: the server entry shape, the
@@ -409,16 +409,20 @@ export const hostSchema = type({
   intervalMs: 'number >= 5000 = 15000',
   /** Filesystems reported and alerted on; templates and `~` are expanded. */
   diskPaths: type('string[]').default(() => ['.']),
-  /** 0 disables an individual alert. */
-  diskUsedPercent: 'number >= 0 = 90',
-  memoryUsedPercent: 'number >= 0 = 90',
-  swapUsedPercent: 'number >= 0 = 50',
+  /**
+   * 0 disables an individual alert. Each default is written from `HOST_ALERT_DEFAULTS`, so the
+   * number a fresh config gets and the number a surface bands against when a frame carries no
+   * threshold are one value — the same one-home rule `loadPerCpu` follows below.
+   */
+  diskUsedPercent: `number >= 0 = ${HOST_ALERT_DEFAULTS.diskUsedPercent}`,
+  memoryUsedPercent: `number >= 0 = ${HOST_ALERT_DEFAULTS.memoryUsedPercent}`,
+  swapUsedPercent: `number >= 0 = ${HOST_ALERT_DEFAULTS.swapUsedPercent}`,
   /**
    * The per-cpu load the panel notifies on. One home: the frame's `loadAlertPerCpu` is this value,
    * and `loadBand` reads it, so a surface cannot band the load against a number nobody configured.
    */
   loadPerCpu: type('number >= 0').default(LOAD_ALERT_PER_CPU_DEFAULT),
-  tempCelsius: 'number >= 0 = 85',
+  tempCelsius: `number >= 0 = ${HOST_ALERT_DEFAULTS.tempCelsius}`,
   /**
    * How to read the CPU temperature when the kernel exposes no sensor.
    *
