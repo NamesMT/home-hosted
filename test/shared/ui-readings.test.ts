@@ -17,12 +17,31 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
  */
 function zeroReadings(script: string, template: string): string[] {
   const FIELDS = 'cpuPercent|rssBytes|responseMs|processes'
+  // `const live = liveReadings(server)` — and any initializer may span lines, because the shape that
+  // hid the real defect is a `computed` whose body is a block.
+  const declarations = new Map<string, string>()
+  for (const match of script.matchAll(/\bconst\s+(\w+)\s*=\s*/g)) {
+    const from = match.index + match[0].length
+    let depth = 0
+    let index = from
+    for (; index < script.length; index += 1) {
+      const char = script[index]!
+      if (char === '(' || char === '[' || char === '{')
+        depth += 1
+      else if (char === ')' || char === ']' || char === '}')
+        depth -= 1
+      else if (char === '\n' && depth <= 0)
+        break
+    }
+    declarations.set(match[1]!, script.slice(from, index))
+  }
+
   const locals = new Set<string>()
-  // `const live = liveReadings(server)`, `const readings = computed(() => liveReadings(...))`, and
-  // the whole result destructured.
-  for (const match of script.matchAll(/\bconst\s+(\w+)\s*=\s*([^\n]*)/g)) {
-    if (match[2]?.includes('liveReadings('))
-      locals.add(match[1]!)
+  for (const [name, init] of declarations) {
+    // `sumReadings(...)` is the aggregate form of the same predicate: a total over several entries is
+    // a reading of the set, so it inherits the set's absence.
+    if (init.includes('liveReadings(') || init.includes('sumReadings('))
+      locals.add(name)
   }
   for (const match of script.matchAll(/\{([^}]*)\}\s*=\s*liveReadings\(/g)) {
     for (const part of (match[1] ?? '').split(',')) {
@@ -35,8 +54,7 @@ function zeroReadings(script: string, template: string): string[] {
   // The hops after it, until nothing new is derived: `responseMs = computed(() => readings.value.responseMs)`.
   for (let changed = true; changed;) {
     changed = false
-    for (const match of script.matchAll(/\bconst\s+(\w+)\s*=\s*([^\n]*)/g)) {
-      const [name, init] = [match[1]!, match[2] ?? '']
+    for (const [name, init] of declarations) {
       if (locals.has(name))
         continue
       const fromReading = new RegExp(`\\.(?:${FIELDS})\\b`).test(init)
@@ -49,17 +67,38 @@ function zeroReadings(script: string, template: string): string[] {
   }
 
   const zero = /\?\?\s*0\b|\|\|\s*0\b/
+  /**
+   * Whether a reading reaches a zero fallback *here*, either straight in the rendered expression or
+   * in the initializer of a local the expression renders.
+   *
+   * The second half is the shape this scan could not see. `OverviewView` summed a workspace's CPU in
+   * a `computed` — `total += liveReadings(server).cpuPercent ?? 0` — and rendered `liveCpu.toFixed(1)`;
+   * the fallback was in the script and the template held only a local's name, so a workspace whose
+   * only server had just started printed a measured `0.0% cpu now`. A `?? 0` inside a `computed` is
+   * the same number on screen as one in `{{ }}`, and this is the only place it is decided.
+   */
+  const zeroOnReading = (text: string): boolean => zero.test(text)
   const shapes = [
     // The predicate's own field, read at the call site.
     new RegExp(`liveReadings\\([^)]*\\)\\.(?:${FIELDS})`),
-    // Any local the chain reached.
-    ...(locals.size === 0 ? [] : [new RegExp([...locals].map(local => `\\b${local}\\b`).join('|'))]),
+    /\bsumReadings\([^)]*\)/,
   ]
-  return renderedExpressions(template)
-    .filter(expression => !isGeometry(expression))
-    .filter(expression => shapes.some(shape => shape.test(expression.text)))
-    .filter(expression => zero.test(expression.text))
-    .map(expression => expression.source)
+  const rendered = renderedExpressions(template).filter(expression => !isGeometry(expression))
+  const offenders: string[] = []
+  for (const expression of rendered) {
+    const mentioned = [...locals].filter(local => new RegExp(`\\b${local}\\b`).test(expression.text))
+    const reached = shapes.some(shape => shape.test(expression.text)) || mentioned.length > 0
+    if (!reached)
+      continue
+    if (zeroOnReading(expression.text))
+      offenders.push(expression.source)
+    // The local's own initializer: the fallback the template cannot show.
+    for (const local of mentioned) {
+      if (zeroOnReading(declarations.get(local) ?? ''))
+        offenders.push(`${local} = ${(declarations.get(local) ?? '').trim()}`)
+    }
+  }
+  return offenders
 }
 
 /**
@@ -218,6 +257,10 @@ describe('the UIs read a process’s numbers through one predicate', () => {
     // renders a second computed derived from it.
     expect(zeroReadings('const readings = computed(() => liveReadings(props.server))\nconst responseMs = computed(() => readings.value.responseMs)', `:title="\`probe ${'$'}{responseMs ?? 0} ms\`"`), 'a second computed derived from the predicate').toHaveLength(1)
     expect(zeroReadings('', '{{ cpuPercent === null ? \'—\' : cpuPercent }}'), 'a guarded read is the fix, not the defect').toHaveLength(0)
+    // The aggregate shape, which the scan could not see: a workspace total rendered through a
+    // `computed` that added a zero fallback in its *body*. The template holds only the local's name.
+    expect(zeroReadings('const liveCpu = computed(() => {\n  let total = 0\n  for (const server of running.value)\n    total += liveReadings(server).cpuPercent ?? 0\n  return total\n})', '{{ liveCpu.toFixed(1) }}%'), 'a zero fallback inside the computed that builds a total').toHaveLength(1)
+    expect(zeroReadings('const liveCpu = computed(() => sumReadings(running.value, \'cpuPercent\'))', '{{ liveCpu.toFixed(1) }}%'), 'the sum carries the absence, so the render is the fix').toHaveLength(0)
     // A zero that picks a colour or an empty bar is not a number a person reads.
     expect(zeroReadings('const { responseMs } = liveReadings(server)', ':class="{ warn: (responseMs ?? 0) >= 1000 }"'), 'a class is not text').toHaveLength(0)
     expect(offenders, 'an absent reading rendered as a zero reads as a measured idle process').toEqual([])

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Activity, CircleAlert, Play, Plus, Server as ServerIcon, Timer } from '@lucide/vue'
-import { liveReadings } from '@shared/server-readings'
+import { sumReadings } from '@shared/server-readings'
 import { computed, ref } from 'vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
 import AddServerDialog from '@/components/server/AddServerDialog.vue'
@@ -39,15 +39,7 @@ const stopped = computed(() => servers.value.filter(server => ['stopped', 'stopp
 const attention = computed(() => servers.value.filter(server =>
   server.status === 'crashed' || server.status === 'conflict' || server.health === 'unhealthy'))
 
-const totalRss = computed(() => {
-  let total = 0
-  for (const server of running.value) {
-    const rss = liveReadings(server).rssBytes
-    if (typeof rss === 'number')
-      total += rss
-  }
-  return total
-})
+const totalRss = computed(() => sumReadings(running.value, 'rssBytes'))
 
 const peakRss = computed(() => {
   let peak = 0
@@ -59,13 +51,8 @@ const peakRss = computed(() => {
   return peak
 })
 
-/** Live CPU across this workspace's running servers. */
-const liveCpu = computed(() => {
-  let total = 0
-  for (const server of running.value)
-    total += liveReadings(server).cpuPercent ?? 0
-  return total
-})
+/** Live CPU across this workspace's running servers, or nothing until every one has a sample. */
+const liveCpu = computed(() => sumReadings(running.value, 'cpuPercent'))
 
 const uptime = computed(() => {
   const started = servers.value
@@ -130,7 +117,11 @@ const uptime = computed(() => {
           <StatTile :label="t('views.overview.processMemory')" :value="formatBytesShort(totalRss)" :hint="peakRss > 0 ? t('views.overview.peak', { value: formatBytesShort(peakRss) }) : t('views.overview.acrossTree')" />
         </div>
         <div class="p-4">
-          <StatTile :label="t('views.overview.longestUptime')" :value="uptime" :hint="running.length > 0 ? t('views.overview.cpuNow', { value: liveCpu.toFixed(1) }) : t('views.overview.nothingRunning')" />
+          <StatTile
+            :label="t('views.overview.longestUptime')"
+            :value="uptime"
+            :hint="running.length === 0 ? t('views.overview.nothingRunning') : liveCpu === null ? t('metric.emptyHint') : t('views.overview.cpuNow', { value: liveCpu.toFixed(1) })"
+          />
         </div>
       </div>
     </Panel>

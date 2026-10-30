@@ -48,3 +48,28 @@ export function liveReadings(server: ReadingSource): LiveReadings {
     processes: server.resources?.processes ?? null,
   }
 }
+
+/**
+ * The same reading summed across several entries — a workspace's own total.
+ *
+ * An aggregate is a reading of the *set*, so it inherits the set's absence: if one entry has no
+ * sample the total is `null`, never the other entries' sum. `OverviewView` summed a workspace's CPU
+ * with `?? 0` and printed `0.0% cpu now`, so a workspace whose only server had just started — the
+ * first sampling window has no window to measure yet — claimed a measured `0.0%`. That is the
+ * fabricated idle process the predicate above exists to prevent, in the one number that summarises
+ * every entry at once, and it was the same shape for process memory.
+ *
+ * An empty list is a genuine `0`: nothing is running, and the surface beside it says so. A member
+ * that honestly measured `0` also survives, because `0` is a number and only a missing one is
+ * absent.
+ */
+export function sumReadings(servers: ReadingSource[], field: keyof LiveReadings): number | null {
+  let total = 0
+  for (const server of servers) {
+    const value = liveReadings(server)[field]
+    if (typeof value !== 'number')
+      return null
+    total += value
+  }
+  return total
+}

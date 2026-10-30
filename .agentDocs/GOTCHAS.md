@@ -396,6 +396,18 @@ line in `AGENTS.md` instead.
 
 ## UI
 
+- **A rendered fallback can live in the script, not the template.** The render scans read what a
+  template *renders*, which made `?? 0` inside a `computed` invisible: `OverviewView` summed a
+  workspace's live CPU with `total += liveReadings(server).cpuPercent ?? 0` and rendered
+  `{{ liveCpu.toFixed(1) }}%`, so the template held only a local's name and the fabricated `0.0%`
+  sat one file above it. Two things followed. The scan now reads the initializer of every local a
+  rendered expression names, so a fallback anywhere on the chain is seen — and an **aggregate** got
+  the same treatment as a reading: `sumReadings` answers `null` when any member has no sample,
+  because a workspace total is a reading of the set and one entry without a sample makes the set
+  unmeasured. That case is real on every start, since `proc.sample` has no CPU window on its first
+  sample, so a workspace whose only server had just started claimed a measured `0.0%`. A total of
+  zero entries is a genuine `0` — the surface beside it says nothing is running — and so is a
+  measured `0`.
 - **Watch the *session*, not the flags derived from it.** With authentication off, `authRequired` and
   `authenticated` are both `false` from first paint to last, so a watcher on those two never fires
   after the session lands — the stream never opens. Both UIs derive one `streamDecision(session)`

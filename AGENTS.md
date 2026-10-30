@@ -265,7 +265,13 @@ workspace config guard, so a busy default port turns config tests red for the wr
   on every stopped entry of the panel-wide overview, and `test/shared/ui-readings.test.ts` walks
   every UI template for that shape — following the reading into whatever local it was *destructured*
   or *derived* into, since `const { responseMs } = liveReadings(...)` and a second `computed` are the
-  same number on screen. **A chart is the same render**: an absent point stays absent in
+  same number on screen, and reading that local's own initializer, because a fallback inside a
+  `computed` never appears in the template. **An aggregate is a reading of the set**: `sumReadings`
+  (`src/shared/server-readings.ts`) answers `null` when any member has no reading, so a workspace
+  total is absent until every entry in it has a sample — summing with `?? 0` made a workspace whose
+  only server had just started print `0.0% cpu now`, the fabricated idle process in the one number
+  that summarises every entry at once. An empty list is a genuine `0`, and so is a measured one.
+  **A chart is the same render**: an absent point stays absent in
   the series and the line breaks at it — `sparkSegments` (`uis/noc-console/src/lib/format.ts`) and
   stock's `components/telemetry/Sparkline.vue` — because a zero vertex drew a stopped entry as a flat
   line on the floor: a measured `0%` by eye, on every page the number beside it had already been
