@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../helpers/strip-comments'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -41,7 +42,8 @@ const rel = (file: string): string => path.relative(root, file).replaceAll('\\',
 
 /** A button whose visible label is picked by a confirmation flag: the armed-button shape. */
 function armedLabels(source: string): string[] {
-  const template = source.slice(source.indexOf('<template>'))
+  // The template region, not everything from the root tag onward: a `<script>` above it is not markup.
+  const template = templateRegion(source)
   const found: string[] = []
   for (const button of template.matchAll(/<(?:button|AppButton)\b([^>]*)>([\s\S]{0,400}?)<\/(?:button|AppButton)>/g)) {
     for (const slot of (button[2] ?? '').matchAll(/\{\{([\s\S]*?)\}\}/g)) {

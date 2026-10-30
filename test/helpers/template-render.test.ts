@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isGeometry, renderedExpressions } from './template-render'
+import { isGeometry, openingTags, renderedExpressions } from './template-render'
 
 /**
  * The two render guards share this reader, so its claims are about template syntax, not about a
@@ -47,5 +47,40 @@ describe('what counts as geometry rather than text', () => {
       expect(expression, attribute ?? 'interpolation').toBeDefined()
       expect(isGeometry(expression!), attribute ?? 'interpolation').toBe(false)
     }
+  })
+})
+
+/**
+ * A component's opening tags, in both spellings of "no children".
+ *
+ * `uis/stock/test/metric-spark-hint.test.ts` and three siblings matched `/<X\b([\s\S]*?)\/>/`,
+ * which reads a self-closing call site and treats `<X …></X>` as none at all. Measured: a dropped
+ * `:empty-hint` on a paired `<MetricSpark …></MetricSpark>` left the file green.
+ */
+describe('a component call site', () => {
+  const markup = [
+    '<MetricSpark :label="a" :empty-hint="b" />',
+    '<MetricSpark :label="c"></MetricSpark>',
+    '<MetricSpark v-if="count > 1" :label="d" />',
+    '<MetricSparkLine :label="e" />',
+  ].join('\n')
+
+  it('reads the paired form as well as the self-closing one', () => {
+    expect(openingTags(markup, 'MetricSpark')).toHaveLength(3)
+    expect(openingTags(markup, 'MetricSpark')[1]).toContain(':label="c"')
+  })
+
+  it('reads a tag by its own `>`, not the first one in an attribute', () => {
+    expect(openingTags(markup, 'MetricSpark')[2]).toBe('<MetricSpark v-if="count > 1" :label="d" />')
+  })
+
+  it('does not read a longer component name as this one', () => {
+    expect(openingTags(markup, 'MetricSpark').join('\n')).not.toContain(':label="e"')
+  })
+
+  it('names the hole the self-closing matcher had', () => {
+    // Kept as evidence, not as a guard: the retired matcher must stay blind to the paired form.
+    const retired = /<MetricSpark\b([\s\S]*?)\/>/g
+    expect([...markup.matchAll(retired)]).toHaveLength(2)
   })
 })

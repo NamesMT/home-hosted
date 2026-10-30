@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../../../test/helpers/strip-comments'
+import { openingTags } from '../../../test/helpers/template-render'
 
 /**
  * A destructive confirmation must say what it destroys.
@@ -23,20 +25,12 @@ const CONTEXTUAL = new Map([
 ])
 
 /**
- * Blocks are read with a brace-aware scan rather than `[\s\S]*?\/>`: a `:title` ternary contains `>`,
- * so a non-greedy match stopped early and reported a titled button as untitled — which is how one of
- * these was nearly given redundant copy.
+ * Each opening tag, attributes alone: a `:title` ternary contains `>`, so `[\s\S]*?\/>` stopped at
+ * the wrong place, and a `/>`-only matcher read a paired `<ConfirmButton …></ConfirmButton>` as no
+ * button at all — measured green on a confirmation whose `title` had been dropped.
  */
 function confirmBlocks(file: string): string[] {
-  const text = fs.readFileSync(file, 'utf8')
-  const out: string[] = []
-  for (let at = text.indexOf('<ConfirmButton'); at !== -1; at = text.indexOf('<ConfirmButton', at + 1)) {
-    const end = text.indexOf('/>', at)
-    if (end === -1)
-      continue
-    out.push(text.slice(at, end + 2))
-  }
-  return out
+  return openingTags(templateRegion(fs.readFileSync(file, 'utf8')), 'ConfirmButton')
 }
 
 describe('destructive confirmations', () => {

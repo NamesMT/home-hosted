@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../../../test/helpers/strip-comments'
+import { openingTags } from '../../../test/helpers/template-render'
 
 /**
  * Every `<MetricSpark>` reads one entry's series, so only its caller knows whether that entry
@@ -27,11 +29,14 @@ function vueFiles(): string[] {
   return found.sort()
 }
 
-/** Each opening `<MetricSpark …>` tag's attribute text, comments stripped. */
+/**
+ * Each opening `<MetricSpark …>` tag, comments stripped.
+ *
+ * Self-closing and paired are one call site: the old matcher read only `/>`, so a hint dropped on
+ * `<MetricSpark …></MetricSpark>` was no call site at all and the scan stayed green.
+ */
 function sparkTags(source: string): string[] {
-  const template = /<template>([\s\S]*)<\/template>/.exec(source)?.[1] ?? ''
-  const clean = template.replace(/<!--[\s\S]*?-->/g, '')
-  return [...clean.matchAll(/<MetricSpark\b([\s\S]*?)\/>/g)].map(match => match[1]!)
+  return openingTags(templateRegion(source), 'MetricSpark')
 }
 
 describe('every chart call site states its empty hint', () => {

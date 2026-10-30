@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { hostSchema } from '#src/shared/contracts'
 import { HOST_ALERT_DEFAULTS, hostReadings, LOAD_ALERT_PER_CPU_DEFAULT, tempDialPercent, tempScale } from '#src/shared/host-readings'
-import { stripComments } from '../helpers/strip-comments'
+import { stripComments, templateRegion } from '../helpers/strip-comments'
 import { isGeometry, renderedExpressions } from '../helpers/template-render'
 
 /**
@@ -239,11 +239,7 @@ describe('the panel reads host measurements from one module', () => {
     const offenders: string[] = []
     for (const ui of ['stock', 'noc-console']) {
       for (const rel of vueFiles(path.join(root, 'uis', ui, 'src'))) {
-        const source = sourceOf(rel)
-        const start = source.indexOf('<template>')
-        if (start < 0)
-          continue
-        for (const hit of zeroFallbacksOnReadings(source.slice(start)))
+        for (const hit of zeroFallbacksOnReadings(templateRegion(sourceOf(rel))))
           offenders.push(`${rel}: ${hit}`)
       }
     }

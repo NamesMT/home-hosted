@@ -54,3 +54,44 @@ export function renderedExpressions(template: string): RenderedExpression[] {
 export function isGeometry(expression: RenderedExpression): boolean {
   return expression.attribute !== null && /^(?::|v-bind:)(?:style|class)\b/.test(expression.attribute)
 }
+
+/**
+ * Every opening tag of one component in a template, self-closing or paired.
+ *
+ * `<MetricSpark … />` and `<MetricSpark …></MetricSpark>` are one call site spelled two ways; a scan
+ * that matches only `/>` treats the second as no call site at all, so a required attribute dropped
+ * there is invisible. The returned text is the opening tag alone, so its attributes are what a
+ * caller reads; a lazy `[\s\S]*?` up to the first `/>` instead runs to the next self-closing
+ * sibling and reads that sibling's attributes as this tag's.
+ */
+export function openingTags(markup: string, component: string): string[] {
+  const found: string[] = []
+  for (const match of markup.matchAll(new RegExp(`<${component}(?![\\w.:-])`, 'g'))) {
+    const end = tagEnd(markup, match.index + match[0].length)
+    if (end >= 0)
+      found.push(markup.slice(match.index, end + 1))
+  }
+  return found
+}
+
+/**
+ * The `>` that ends an opening tag, skipping any `>` inside a quoted attribute value.
+ *
+ * An attribute is quoted, so that is the only place a `>` may hide — a `:title` ternary contains
+ * one, and a matcher that stops at the first `>` splits the tag mid-attribute.
+ */
+function tagEnd(markup: string, from: number): number {
+  for (let at = from; at < markup.length; at += 1) {
+    const char = markup[at]
+    if (char === '"' || char === '\'') {
+      const close = markup.indexOf(char, at + 1)
+      if (close < 0)
+        return -1
+      at = close
+    }
+    else if (char === '>') {
+      return at
+    }
+  }
+  return -1
+}

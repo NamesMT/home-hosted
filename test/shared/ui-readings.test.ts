@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../helpers/strip-comments'
 import { isGeometry, renderedExpressions } from '../helpers/template-render'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
@@ -233,11 +234,11 @@ describe('the UIs read a process’s numbers through one predicate', () => {
         }
         else if (entry.name.endsWith('.vue')) {
           const source = fs.readFileSync(full, 'utf8')
-          const start = source.indexOf('<template>')
-          if (start < 0)
-            continue
+          const template = templateRegion(source)
+          // The script is everything the region is not: `indexOf('<template>')` finds the tag, and a
+          // component whose root carries an attribute has none to find.
           const rel = path.relative(root, full).replaceAll('\\', '/')
-          for (const hit of zeroReadings(source.slice(0, start), source.slice(start)))
+          for (const hit of zeroReadings(source.slice(0, source.indexOf('<template')), template))
             offenders.push(`${rel}: ${hit}`)
         }
       }

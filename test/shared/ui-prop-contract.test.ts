@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../helpers/strip-comments'
+import { openingTags } from '../helpers/template-render'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -41,9 +43,11 @@ function boundOnConfirmButton(ui: string): Array<{ file: string, prop: string }>
     if (!entry.isFile() || !entry.name.endsWith('.vue') || entry.name === 'ConfirmButton.vue')
       continue
     const file = path.join(entry.parentPath, entry.name)
-    const template = fs.readFileSync(file, 'utf8').slice(fs.readFileSync(file, 'utf8').indexOf('<template>'))
-    for (const tag of template.matchAll(/<ConfirmButton\b[^>]*>/g)) {
-      for (const attribute of tag[0].matchAll(/(?:^|\s)(:\w+|v-model:\w+|\w[\w-]*)=/g)) {
+    // The opening tag alone: `/<ConfirmButton\b[^>]*>/` ends at the first `>`, so a `>` inside a
+    // `:title` ternary truncated the tag and hid every prop bound after it — measured green on a
+    // `:question` planted below one.
+    for (const tag of openingTags(templateRegion(fs.readFileSync(file, 'utf8')), 'ConfirmButton')) {
+      for (const attribute of tag.matchAll(/(?:^|\s)(:\w+|v-model:\w+|\w[\w-]*)=/g)) {
         const name = attribute[1]!
         if (name.startsWith('@'))
           continue

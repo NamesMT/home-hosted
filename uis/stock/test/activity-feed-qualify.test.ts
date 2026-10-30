@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../../../test/helpers/strip-comments'
+import { openingTags } from '../../../test/helpers/template-render'
 
 /**
  * A feed that spans workspaces has to say which one each row is in.
@@ -29,11 +31,14 @@ function vueFiles(): string[] {
   return found.sort()
 }
 
-/** Each opening `<ActivityFeed …>` tag's attribute text, comments stripped. */
+/**
+ * Each opening `<ActivityFeed …>` tag, comments stripped.
+ *
+ * Self-closing and paired are one call site: the old matcher read only `/>`, so a `qualify` dropped
+ * on `<ActivityFeed …></ActivityFeed>` was no call site at all.
+ */
 function feedTags(source: string): string[] {
-  const template = /<template>([\s\S]*)<\/template>/.exec(source)?.[1] ?? ''
-  const clean = template.replace(/<!--[\s\S]*?-->/g, '')
-  return [...clean.matchAll(/<ActivityFeed\b([\s\S]*?)\/>/g)].map(match => match[1]!)
+  return openingTags(templateRegion(source), 'ActivityFeed')
 }
 
 /**

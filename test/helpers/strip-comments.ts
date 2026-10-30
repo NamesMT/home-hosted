@@ -304,7 +304,14 @@ function stripMarkup(source: string, opaque: Array<[number, number]> = []): stri
  * SFC parser — began the block at the `"` that closes the attribute, and the string it opened ran
  * over the lines below, leaving every comment in the block in place.
  */
-function stripVue(source: string): string {
+interface VueScan {
+  /** The whole file with each region's comments blanked, offsets preserved. */
+  text: string
+  /** `<script>` and `<style>` spans, whose bodies are another language. */
+  opaque: Array<[number, number]>
+}
+
+function scanVue(source: string): VueScan {
   const out = source.split('')
   const scriptRanges: Array<[number, number]> = []
   /** The `>` that closes an open tag, skipping any `>` inside a quoted attribute value. */
@@ -381,7 +388,17 @@ function stripVue(source: string): string {
     for (let offset = 0; offset < scanned.length; offset += 1)
       out[body + offset] = scanned[offset]!
   }
-  return out.join('')
+  return {
+    text: out.join(''),
+    opaque: [
+      ...scriptRanges,
+      ...styleRanges.map(({ body, end }): [number, number] => [body, end]),
+    ],
+  }
+}
+
+function stripVue(source: string): string {
+  return scanVue(source).text
 }
 
 /** A source file with its comments blanked; `.vue` is read as markup plus script blocks. */
@@ -391,6 +408,77 @@ export function stripComments(source: string, file = ''): string {
   return file.endsWith('.vue') ? stripVue(source) : scanJavaScript(source).out.join('')
 }
 
+/**
+ * The root `<template>` of a `.vue` file: comments blanked, scripts and styles left out.
+ *
+ * A scan that slices from `indexOf('<template>')` to the last `</template>` reads a `</template>`
+ * held in a *string* as the end of the region, and finds nothing when the root tag carries an
+ * attribute (`<template lang="pug">`). Regions are counted by depth over the blanked source, and
+ * only real tags count: a `<template>` inside a quoted attribute value or a `<script>` body is
+ * stepped over rather than read.
+ */
+export function templateRegion(source: string): string {
+  const { text, opaque } = scanVue(source)
+  const out = text.split('')
+  // Another language's body cannot hold a template tag, so it is hidden before tags are counted.
+  for (const [from, to] of opaque) {
+    for (let at = from; at < to; at += 1) {
+      if (out[at] !== '\n')
+        out[at] = ' '
+    }
+  }
+  const markup = out.join('')
+  let depth = 0
+  let start = -1
+  for (let at = 0; at < markup.length; at += 1) {
+    if (markup[at] !== '<' || !/[a-z/]/i.test(markup[at + 1] ?? ''))
+      continue
+    // A tag ends at its own `>`, so one inside a quoted attribute (`v-if="a > b"`) is data.
+    const end = tagClose(markup, at + 1)
+    if (end < 0)
+      break
+    const tag = markup.slice(at, end + 1)
+    at = end
+    if (!/^<\s*(?:\/\s*)?template\b/i.test(tag))
+      continue
+    if (/^<\s*\//.test(tag)) {
+      if (depth === 0)
+        continue
+      depth -= 1
+      if (depth === 0)
+        return text.slice(start, end + 1 - tag.length)
+      continue
+    }
+    // `<template />` is an empty slot: it opens no region and closes none.
+    if (tag.endsWith('/>'))
+      continue
+    if (depth === 0)
+      start = end + 1
+    depth += 1
+  }
+  return start < 0 ? '' : text.slice(start)
+}
+
+/** The first `>` at or after `from` that is not inside a quoted attribute value, or `-1`. */
+function tagClose(source: string, from: number): number {
+  for (let at = from; at < source.length; at += 1) {
+    const char = source[at]
+    if (char === '"' || char === '\'') {
+      const close = source.indexOf(char, at + 1)
+      if (close < 0)
+        return -1
+      at = close
+    }
+    else if (char === '>') {
+      return at
+    }
+    else if (char === '<') {
+      // A `<` before any `>` closes nothing: the tag ended at a `>` we already passed.
+      return at - 1
+    }
+  }
+  return -1
+}
 /** One CSS rule: the at-rule conditions it sits inside, its selector list and its body. */
 export interface CssRule {
   /** Enclosing at-rule conditions in source order, e.g. `['(width <= 860px)']` at top level `[]`. */

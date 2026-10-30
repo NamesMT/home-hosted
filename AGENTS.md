@@ -367,6 +367,12 @@ workspace config guard, so a busy default port turns config tests red for the wr
   `content: '/*'` in CSS opens a "comment" that closes at the next real one and deletes the code
   between them, so the scan goes green on the defect it exists to catch. `cssRules` parses a
   stylesheet: ask a rule's selector list and its `@media` tier, never a text pattern.
+  **And a template is a region and a tag set, not a slice and a spelling.** `templateRegion` is the
+  one root-`<template>` reader (depth-counted over the blanked source, so a `</template>` in a string
+  or a nested `<template #slot>` cannot end it), and `openingTags` (`test/helpers/template-render.ts`)
+  is the one call-site reader — self-closing `<X … />` and paired `<X …></X>` are the same call
+  site, and a `>` inside a `:title` ternary is inside an attribute. `<MetricSpark …></MetricSpark>`
+  with its hint dropped, and a `:question` bound after a `>` in the tag, each left their scan green.
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank

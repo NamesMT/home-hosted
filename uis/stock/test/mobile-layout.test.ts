@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../../../test/helpers/strip-comments'
 
 /**
  * A phone is the page you check without walking to the desk, and it was unusable.
@@ -43,13 +44,16 @@ function templateFiles(): string[] {
   return files.sort()
 }
 
-/** The `<template>` block, comments stripped so an explanation is never read as markup. */
+/**
+ * The `<template>` region, comments stripped so an explanation is never read as markup.
+ *
+ * Only comments and attribute values are needed, so a whole-file scan would also read the `class`
+ * strings a script builds; those are real classes too, but they are composed through `cn()` and
+ * this test deliberately checks what the markup declares. The shared reader (`templateRegion`)
+ * blanks comments without reading a `<!--` inside a quoted attribute as an opener.
+ */
 function templateOf(source: string): string {
-  // Only comments and attribute values are needed, so a whole-file scan would also read the
-  // `class` strings a script builds; those are real classes too, but they are composed through
-  // `cn()` and this test deliberately checks what the markup declares.
-  const match = /<template>([\s\S]*)<\/template>/.exec(source)
-  return (match?.[1] ?? '').replace(/<!--[\s\S]*?-->/g, '')
+  return templateRegion(source)
 }
 
 /**

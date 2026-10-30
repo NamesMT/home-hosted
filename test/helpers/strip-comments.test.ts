@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cssRules, stripComments } from './strip-comments'
+import { cssRules, stripComments, templateRegion } from './strip-comments'
 
 /**
  * The reader every scan uses, and the corpus that breaks a regex.
@@ -107,6 +107,67 @@ describe('the shared comment reader', () => {
     const stripped = stripComments(vue, 'Panel.vue')
     expect(stripped).toContain('const close = \'</script>\'')
     expect(stripped).not.toContain('gone')
+  })
+})
+
+/**
+ * The template region, and why a slice is not one.
+ *
+ * Four scans read a `.vue`'s markup, and each did it with `/<template>([\s\S]*)<\/template>/`:
+ * that ends at a `</template>` written in a *string* and reads the whole file when the root tag
+ * carries an attribute. A `<template #header>` inside it is not the root either.
+ */
+describe('the template region', () => {
+  const vue = [
+    '<script setup lang="ts">',
+    'const close = \'</template>\'',
+    '</script>',
+    '<template>',
+    '  <div>',
+    '    <template #header>title</template>',
+    '    <MetricSpark :label="x" />',
+    '  </div>',
+    '</template>',
+    '<style>.a { color: red }</style>',
+  ].join('\n')
+
+  it('ends where the root template ends, not at a `</template>` in a script string', () => {
+    const region = templateRegion(vue)
+    expect(region).toContain('<MetricSpark :label="x" />')
+    expect(region).not.toContain('const close')
+  })
+
+  it('keeps a nested `<template #slot>` inside the region rather than ending it there', () => {
+    expect(templateRegion(vue)).toContain('<template #header>title</template>')
+  })
+
+  it('ends a `<template>` start tag at its own `>`, not one inside an attribute', () => {
+    const attributed = '<template v-if="a > b"><b>{{ x }}</b></template>'
+    expect(templateRegion(attributed)).toBe('<b>{{ x }}</b>')
+  })
+
+  it('does not read a `<template>` in a script string as the root', () => {
+    const scripted = '<script>const open = \'<template>\'</script>\n<template><b>{{ x }}</b></template>'
+    expect(templateRegion(scripted)).toContain('{{ x }}')
+  })
+
+  it('does not open a comment at a `<!--` inside a quoted attribute value', () => {
+    // `:title="'<!--'"` is how a template shows that literal. The local `<!--[\s\S]*?-->` pattern
+    // deleted from it to the next real comment — measured green on a planted English text node.
+    // The marker is built, so this file's own source has no opener to be confused by.
+    const open = `<!${'--'}`
+    const close = `${'--'}>`
+    const markup = [
+      '<template>',
+      `  <span :title="'${open}'">Undeclared English copy</span>`,
+      `  ${open} a note ${close}`,
+      '</template>',
+    ].join('\n')
+    expect(templateRegion(markup)).toContain('Undeclared English copy')
+    expect(templateRegion(markup)).not.toContain('a note')
+    // The retired local pattern, kept as evidence of the hole rather than as a guard.
+    const retired = (/<template>([\s\S]*)<\/template>/.exec(markup)?.[1] ?? '').replace(/<!--[\s\S]*?-->/g, '')
+    expect(retired).not.toContain('Undeclared English copy')
   })
 })
 

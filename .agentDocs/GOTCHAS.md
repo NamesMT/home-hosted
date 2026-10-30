@@ -580,7 +580,15 @@ line in `AGENTS.md` instead.
   green on a rule pinned under the tap floor and on a `display: none` in the wrong tier. A CSS scan
   needs a parser, not a stripper: `cssRules` returns each rule's selector list and the `@media`
   tiers it sits in, so `ruleIn(rulesIn('(width <= 860px)'), '.nav')` cannot be fed a comment or a
-  quoted brace.
+  quoted brace. **The markup half kept two local spellings after that audit.** A `<!--[\s\S]*?-->`
+  pattern reads a `<!--` inside a quoted attribute (`:title="'<!--'"`) as an opener and deletes
+  through the next real comment — measured green on an English text node planted beside it — so the
+  region now comes from `templateRegion`, which reuses the reader's own markup pass. And
+  `/<X\b([\s\S]*?)\/>/` reads `<MetricSpark … />` as a call site but `<MetricSpark …></MetricSpark>`
+  as none, so a dropped `:empty-hint` on the paired form was invisible; `openingTags` ends a tag at
+  the first `>` that is *not inside an attribute*, which also matters because `:title` ternaries
+  contain `>` and a lazy match ran on to a sibling's `/>`, reading that sibling's attributes as this
+  tag's.
 
 - **A hand-written lexer is a claim about every shape the language allows, and the corpus keeps
   supplying the shape it missed.** The one reader every scan shares (`test/helpers/strip-comments.ts`)

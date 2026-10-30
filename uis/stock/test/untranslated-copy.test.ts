@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../../../test/helpers/strip-comments'
 
 /**
  * A string typed straight into a template never reaches the catalog, so it stays English in every
@@ -57,10 +58,15 @@ function templateFiles(): string[] {
   return files.sort()
 }
 
-/** The `<template>` block, comments removed so an explanatory note is not read as copy. */
+/**
+ * The `<template>` region, comments removed so an explanatory note is not read as copy.
+ *
+ * The shared reader knows that a `<!--` inside a quoted attribute value is data — `:title="'<!--'"`
+ * is how a template shows that literal — where a `<!--[\s\S]*?-->` pattern deleted through the
+ * next real comment and the copy between them, measured green on a planted English string.
+ */
 function templateOf(source: string): string {
-  const match = /<template>([\s\S]*)<\/template>/.exec(source)
-  return withoutCodeSpans((match?.[1] ?? '').replace(/<!--[\s\S]*?-->/g, ''))
+  return withoutCodeSpans(templateRegion(source))
 }
 
 /**

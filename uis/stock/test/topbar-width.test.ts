@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { templateRegion } from '../../../test/helpers/strip-comments'
 
 /**
  * A fixed-width action cluster in the top bar is wider than a 320 px phone.
@@ -26,10 +27,9 @@ import { describe, expect, it } from 'vitest'
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 const shellDir = path.join(root, 'src', 'components', 'shell')
 
+/** The component's template, comments blanked by the shared reader. */
 function source(name: string): string {
-  return fs
-    .readFileSync(path.join(shellDir, name), 'utf8')
-    .replace(/<!--[\s\S]*?-->/g, '')
+  return templateRegion(fs.readFileSync(path.join(shellDir, name), 'utf8'))
 }
 
 describe('the top bar fits a 320 px phone', () => {
