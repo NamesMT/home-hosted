@@ -137,6 +137,12 @@ workspace config guard, so a busy default port turns config tests red for the wr
   for one setting (`test/shared/ms-fields-seconds.test.ts`). A field name is not a field — `intervalMs`
   is declared four times with four floors — so a scan names the object a box reads through. An emptied
   seconds box is `NaN`, never `0`, which would store "every 0 seconds" or silently disable the throttle.
+  **A seconds box is `:value`/`@input`, so its read-back is hand-written and a `v-model` scan cannot
+  see it**: three boxes read `secondsToMs(Number(value))`, where `''` is `0` — a *decided* value the
+  client schema then refused for the whole page (`sessionTtlMs must be at least 60000 (was 0)`), and
+  the stock cooldown guarded `null` against a control that reports `NaN`. `readSeconds` and
+  `secondsToMsOr` (`src/shared/ui-format.ts`) are the one read and the one conversion; the scan
+  matches the coercion, not the attribute.
 - **A reader that hangs up is a finished conversation, not a crash.** `treatClosedReaderAsDone()`
   (`src/cli/io.ts`) is installed **once** at the entry; only `EPIPE` is the reader leaving
   (`test/cli/epipe.test.ts`). Why not `SIGPIPE`: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).

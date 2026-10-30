@@ -118,6 +118,37 @@ export function secondsToMs(seconds: number): number {
 }
 
 /**
+ * Whole seconds back to milliseconds, or `fallbackMs` when the box decided nothing.
+ *
+ * A seconds box is `:value`/`@input` by necessity — that is what carries the conversion — so its
+ * read-back is hand-written, and `Number('')` is `0`: a *decided* value. For a field whose floor is
+ * a minute that is a save the schema refuses (`sessionTtlMs must be at least 60000 (was 0)`); for
+ * the notification throttle, whose off sentinel is also `0`, it silently disables it. Neither is
+ * what clearing a box to retype means, so a blank or unreadable one keeps the value the field
+ * already held — the same answer `repairNumbers` gives a `v-model` box.
+ *
+ * `0` stays `0`: both callers treat it as a real setting.
+ */
+export function secondsToMsOr(seconds: number | null | undefined, fallbackMs: number): number {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds))
+    return fallbackMs
+  return secondsToMs(seconds)
+}
+
+/**
+ * The seconds an input's raw value reports, with `NaN` for "nothing decided".
+ *
+ * Takes the raw `value` rather than the event so this stays free of the DOM: `src/shared` builds
+ * for the panel as well, whose typecheck has no `lib.dom`.
+ */
+export function readSeconds(raw: unknown): number {
+  const text = String(raw ?? '').trim()
+  if (text.length === 0)
+    return Number.NaN
+  return Number(text)
+}
+
+/**
  * Whether a field is shown in seconds.
  *
  * Decided by the schema's floor, not per call site: below a second (`health.timeoutMs` starts at

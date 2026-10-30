@@ -273,3 +273,58 @@ describe('every UI states the unit its binding is in', () => {
     expect(uiFiles('noc-console').length).toBeGreaterThan(20)
   })
 })
+
+/**
+ * The cleared half: a seconds box reports nothing, and `0` is not "nothing".
+ *
+ * `AGENTS.md` states the rule — *"An emptied seconds box is `NaN`, never `0`, which would store
+ * 'every 0 seconds' or silently disable the throttle"* — and three boxes broke it. They read the
+ * element with `Number(...)`, whose answer for `''` is `0`, so clearing `session lifetime` to retype
+ * it stored `0` into a field whose floor is a minute: the client schema refused the **whole** page
+ * save with `control.auth.sessionTtlMs must be at least 60000 (was 0)`. `repairNumbers` cannot help,
+ * because `0` is a decided number.
+ *
+ * The scan above could not see it. It reads `v-model`, and these boxes are `:value`/`@input` — the
+ * shape the conversion requires — so the one attribute that makes a seconds field possible is the one
+ * that took it out of the guard's sight. Re-broken in place, a `:value="form.auth.lockoutMs"` went
+ * green.
+ *
+ * So this reads the **read-back**, whichever attribute carries it, and matches the two coerce shapes
+ * that turn a cleared box into a stored number rather than into "nothing decided".
+ */
+const COERCED_READ = /secondsToMs\(\s*Number\(/g
+
+/** A guard against `null` only, while the control it reads reports `NaN` for a cleared box. */
+const NULL_ONLY_READ = /===\s*null\s*\?\s*0\s*:\s*secondsToMs\(/g
+
+describe('a cleared seconds box is never a stored zero', () => {
+  it('reads no seconds field back through a coercion', () => {
+    const offenders: string[] = []
+    for (const ui of UIS) {
+      for (const file of uiFiles(ui)) {
+        for (const match of file.body.matchAll(COERCED_READ))
+          offenders.push(`${file.rel}: ${match[0]}…) — \`Number('')\` is 0, not "nothing decided"`)
+        for (const match of file.body.matchAll(NULL_ONLY_READ))
+          offenders.push(`${file.rel}: ${match[0]}…) — the box reports NaN when cleared, so the null branch never runs`)
+      }
+    }
+    expect(offenders, 'an emptied box stored a number, refusing the whole save').toEqual([])
+  })
+
+  /**
+   * Anti-vacuity, both ways: the matcher must still reach the shape it forbids, and the files it
+   * walks must contain the correct form — or a UI that dropped seconds boxes entirely would pass.
+   */
+  it('still reaches the shape it forbids, and leaves the guarded form alone', () => {
+    expect([...'form.auth.sessionTtlMs = secondsToMs(Number(($event.target as HTMLInputElement).value))'.matchAll(COERCED_READ)]).toHaveLength(1)
+    expect([...'policy.cooldownMs = $event === null ? 0 : secondsToMs($event)'.matchAll(NULL_ONLY_READ)]).toHaveLength(1)
+    // The correct read: a helper that answers NaN, and a caller that keeps the live value.
+    const guarded = 'form.auth.sessionTtlMs = secondsToMs(secondsOf($event))'
+    expect([...guarded.matchAll(COERCED_READ)]).toHaveLength(0)
+    expect([...guarded.matchAll(NULL_ONLY_READ)]).toHaveLength(0)
+
+    // The walk reaches the sources, and the seconds conversion is still in use in both UIs.
+    for (const ui of UIS)
+      expect(uiFiles(ui).some(file => file.body.includes('msToSeconds(')), `${ui} must still edit a duration in seconds`).toBe(true)
+  })
+})

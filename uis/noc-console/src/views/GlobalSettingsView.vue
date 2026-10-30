@@ -4,7 +4,7 @@ import type { Patch } from '@shared/patch-diff'
 import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
-import { msToSeconds, secondsToMs } from '@shared/ui-format'
+import { msToSeconds, secondsToMsOr } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import BackupDialog from '@/components/BackupDialog.vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
@@ -17,7 +17,7 @@ import * as api from '@/lib/api'
 import { describeScope, schedulePatch } from '@/lib/backupSelection'
 import { waitForEndpoint } from '@/lib/endpoint'
 import { formatBytes, formatDateTime } from '@/lib/format'
-import { repairNumbers } from '@/lib/forms'
+import { repairNumbers, secondsOf } from '@/lib/forms'
 
 /**
  * The panel-wide groups: listener, authentication, TLS, host vitals and backups.
@@ -818,7 +818,7 @@ async function revertUi(): Promise<void> {
               </label>
               <label class="field">
                 <span class="field__label">session lifetime (s)</span>
-                <input :value="msToSeconds(form.auth.sessionTtlMs)" inputmode="numeric" @input="form.auth.sessionTtlMs = secondsToMs(Number(($event.target as HTMLInputElement).value))">
+                <input :value="msToSeconds(form.auth.sessionTtlMs)" inputmode="numeric" @input="form.auth.sessionTtlMs = secondsToMsOr(secondsOf($event), form.auth.sessionTtlMs)">
               </label>
               <label class="field">
                 <span class="field__label">cookie secure</span>
@@ -834,7 +834,7 @@ async function revertUi(): Promise<void> {
               </label>
               <label class="field">
                 <span class="field__label">lockout (s)</span>
-                <input :value="msToSeconds(form.auth.lockoutMs)" inputmode="numeric" @input="form.auth.lockoutMs = secondsToMs(Number(($event.target as HTMLInputElement).value))">
+                <input :value="msToSeconds(form.auth.lockoutMs)" inputmode="numeric" @input="form.auth.lockoutMs = secondsToMsOr(secondsOf($event), form.auth.lockoutMs)">
               </label>
             </div>
 
@@ -925,7 +925,7 @@ async function revertUi(): Promise<void> {
               </label>
               <label class="field">
                 <span class="field__label">interval (s)</span>
-                <input :value="msToSeconds(form.host.intervalMs)" inputmode="numeric" @input="form.host.intervalMs = secondsToMs(Number(($event.target as HTMLInputElement).value))">
+                <input :value="msToSeconds(form.host.intervalMs)" inputmode="numeric" @input="form.host.intervalMs = secondsToMsOr(secondsOf($event), form.host.intervalMs)">
               </label>
               <label class="field grid__full">
                 <span class="field__label">disk paths (comma separated)</span>

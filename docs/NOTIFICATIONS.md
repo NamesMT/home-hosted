@@ -136,7 +136,8 @@ reached a receiver which came back up is the one the outage took.
 `cooldownMs` (default two minutes) is per **destination, server and reason**, so a flapping process
 cannot flood any one destination — and one destination inside its window never silences another. It
 lives in the general block, or on a destination that has **Own settings** on, and its box edits
-**seconds** (`0` turns the throttle off).
+**seconds** (`0` turns the throttle off). Clearing the box keeps the value it held, so retyping it
+cannot switch the throttle off by accident.
 
 ## Header limits
 

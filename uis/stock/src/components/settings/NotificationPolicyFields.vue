@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PolicyForm } from '@/components/settings/settingsForm'
-import { msToSeconds, secondsToMs } from '@shared/ui-format'
+import { msToSeconds, secondsToMsOr } from '@shared/ui-format'
 import { computed } from 'vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
@@ -42,13 +42,15 @@ const toggles = computed(() => [
     <!--
       Shown in seconds, stored in ms. The form keeps milliseconds and the patch compares
       milliseconds, so this conversion is display-only: visiting a page cannot rewrite a value.
+      A cleared box keeps what the field held: `NumberField` reports `NaN` here, not `null`, and
+      `secondsToMs(NaN)` is `NaN`, which the patch schema refuses for the whole save.
     -->
     <NumberField
       :model-value="msToSeconds(policy.cooldownMs)"
       :label="t('settings.telegram.cooldown')"
       :min="0"
       :hint="t('settings.telegram.cooldownHint')"
-      @update:model-value="policy.cooldownMs = $event === null ? 0 : secondsToMs($event)"
+      @update:model-value="policy.cooldownMs = secondsToMsOr($event, policy.cooldownMs)"
     />
   </div>
 </template>
