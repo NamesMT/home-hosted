@@ -1,11 +1,10 @@
 import type { AppDeps } from '#src/app'
 import type { WslTemperatureStatus } from '#src/shared/contracts'
-import fs from 'node:fs'
 import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
-import { installLibreHardwareMonitor, lhmInstalled, probeWslTemperature, tempCommandFor, writeWslTemperatureScript, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
+import { installLibreHardwareMonitor, lhmInstalled, probeWslTemperature, removeWslTemperatureScript, tempCommandFor, writeWslTemperatureScript, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
 import { wslTemperatureSchema } from '#src/shared/contracts'
 
 /**
@@ -114,16 +113,8 @@ export function createWslTemperatureRoute(deps: AppDeps) {
         responses: { 200: { description: 'Cleared', content: jsonBody(wslTemperatureSchema) }, 400: ERROR_RESPONSES[400] },
       }),
       async (c) => {
-        const target = scriptPath()
         deps.panel.settings.updateHost({ tempCommand: '' })
-        // Deleting is best-effort: a file someone already removed is the outcome they wanted.
-        try {
-          if (target !== null)
-            fs.rmSync(target, { force: true })
-        }
-        catch {
-          // Left behind; the command is cleared, which is what stops it being used.
-        }
+        removeWslTemperatureScript(scriptPath())
         return c.json(status(deps))
       },
     )

@@ -191,8 +191,8 @@ const SETUP_TEMP_SECTION: OptionSection = {
   heading: 'Options for setup-temp',
   lines: [
     ['--wsl', 'read the temperature through the Windows host (WSL2)'],
-    ['--download', 'fetch LibreHardwareMonitor without asking (for a script)'],
-    ['--no-download', 'never fetch it; report what is missing'],
+    ['--download', 'with --wsl: fetch LibreHardwareMonitor without asking (for a script)'],
+    ['--no-download', 'with --wsl: never fetch it; report what is missing'],
     ['--clear', 'stop using the command and delete the helper'],
   ],
 }

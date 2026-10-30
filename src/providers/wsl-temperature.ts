@@ -165,6 +165,25 @@ export function writeWslTemperatureScript(scriptPath: string): void {
 }
 
 /**
+ * Delete the helper script, best-effort: a file someone already removed is the outcome they wanted.
+ *
+ * The one home for it, because `--clear` promises it in the CLI help and in `docs/SERVERS.md` — and
+ * the CLI cleared `host.tempCommand` without ever removing the file, so the helper outlived the
+ * setting that pointed at it. A command nothing names any more is left for the next person to
+ * wonder about, and the route that *did* delete it was the only caller.
+ */
+export function removeWslTemperatureScript(scriptPath: string | null): void {
+  if (scriptPath === null)
+    return
+  try {
+    fs.rmSync(scriptPath, { force: true })
+  }
+  catch {
+    // Left behind; the command is cleared, which is what stops it being used.
+  }
+}
+
+/**
  * Pinned by version **and** sha256: this file is then executed on every sample, and the URL redirects
  * to a third-party CDN. Checked before anything is unpacked. Change all three fields together.
  */

@@ -1,9 +1,10 @@
+import fs from 'node:fs'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, dim, fail, green, prompt } from '#src/cli/io'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { globalSettingsPath } from '#src/helpers/paths'
-import { installLibreHardwareMonitor, lhmDirectoryWindows, lhmInstalled, probeWslTemperature, tempCommandFor, windowsScriptPath, writeWslTemperatureScript, wslScriptPath } from '#src/providers/wsl-temperature'
+import { installLibreHardwareMonitor, lhmDirectoryWindows, lhmInstalled, probeWslTemperature, removeWslTemperatureScript, tempCommandFor, windowsScriptPath, writeWslTemperatureScript, wslScriptPath } from '#src/providers/wsl-temperature'
 
 /**
  * `setup-temp` — teach the panel how to read this machine's CPU temperature.
@@ -32,19 +33,63 @@ export function sourceFromFlags(flags: { wsl?: boolean, clear?: boolean }): Temp
   return null
 }
 
+/**
+ * The refusal for a flag set that cannot mean what it says, or `null`.
+ *
+ * `download` is a **modifier of `--wsl`**, not a command of its own: only the WSL2 branch fetches
+ * anything, and the no-flag branch ends before a source is chosen. Left unreachable it was silently
+ * dropped — `setup-temp --download` exited 0 having done nothing, which a script reads as
+ * "installed" — so the flag is refused instead, naming the one it belongs to.
+ *
+ * `--clear` is the opposite request, so pairing it with either is refused rather than letting one
+ * quietly win.
+ */
+export function flagProblem(flags: { wsl?: boolean, clear?: boolean, download?: boolean }): string | null {
+  const download = flags.download === undefined ? null : flags.download === true ? '--download' : '--no-download'
+  if (flags.clear === true) {
+    if (download !== null)
+      return `\`--clear\` and \`${download}\` ask for opposite things — clear the source, or set one up, not both`
+    if (flags.wsl === true)
+      return '`--clear` and `--wsl` ask for opposite things — clear the source, or set one up, not both'
+    return null
+  }
+  if (download !== null && flags.wsl !== true)
+    return `\`${download}\` only means something with \`--wsl\` — pass \`setup-temp --wsl ${download}\`, or drop it to read the state`
+  return null
+}
+
 export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean, download?: boolean }): Promise<void> {
+  // Before any read: a flag this command cannot honour is a mistake in the invocation, not a
+  // property of the machine's config.
+  const problem = flagProblem(flags)
+  if (problem !== null)
+    fail(problem)
+
   const store = new GlobalSettingsStore(globalSettingsPath)
   store.load()
   const host = store.host
   const configured = host.tempCommand.trim().length > 0
 
   if (flags.clear === true) {
-    if (!configured) {
+    // `--clear` promises to delete the helper as well as the setting, and it used to clear the
+    // command only: measured, the file outlived every `--clear`. A stale helper is also the one
+    // thing left when the command is already empty, so it is removed on both paths.
+    const helper = wslScriptPath()
+    const hadHelper = helper !== null && fs.existsSync(helper)
+    if (configured)
+      store.updateHost({ tempCommand: '' })
+    removeWslTemperatureScript(helper)
+    if (!configured && !hadHelper) {
       process.stdout.write('no temperature command is set — nothing to clear\n')
       return
     }
-    store.updateHost({ tempCommand: '' })
+    if (!configured) {
+      process.stdout.write(`no temperature command is set — removed the leftover helper at ${dim(helper!)}\n`)
+      return
+    }
     process.stdout.write(`${green('temperature command cleared')} — the tile uses the built-in probe again\n`)
+    if (hadHelper)
+      process.stdout.write(`  ${dim(`helper ${helper!} deleted`)}\n`)
     return
   }
 

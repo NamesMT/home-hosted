@@ -395,8 +395,12 @@ prints the reading. Nothing reaches the config until the helper answers. The sam
 | --- | --- |
 | *(none)* | reports whether a source is set, and lists the options |
 | `--wsl` | writes the helper and offers the download |
-| `--download` / `--no-download` | install without asking / never install |
+| `--wsl --download` / `--wsl --no-download` | install without asking / never install |
 | `--clear` | stop using it and delete the helper |
+
+`--download` and `--no-download` modify `--wsl`; either one alone is refused rather than ignored, so a
+script cannot read a successful exit as "installed". `--clear` is refused beside them, because the two
+ask for opposite things.
 
 It installs into `%ProgramData%\home-hosted`, not `%LOCALAPPDATA%`: a boot-started panel runs as SYSTEM
 in session 0, where the per-user path differs and the library would be invisible. Installing there may

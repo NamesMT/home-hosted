@@ -214,6 +214,16 @@ line in `AGENTS.md` instead.
   package is 6.4 MB, it only helps a Windows host with a WSL2 guest, and it needs a `powershell.exe`
   (5.1 works; the DLL wants `System.Memory` beside it) reached across `/mnt/c`. The honest default
   stays `n/a`; the docstring and `README.md` say "best-effort" and that is accurate.
+- **`setup-temp`'s modifier flags were advertised as if they stood alone.** `--download` and
+  `--no-download` only reach a download inside the `--wsl` branch, and the no-flag branch returns
+  before a source is chosen, so `setup-temp --download` printed the state, wrote nothing and exited
+  **0** — the shape a script reads as "installed", followed by a tile that still says `n/a`. `--clear`
+  broke the opposite way: its help text and `docs/SERVERS.md` both promise it deletes the helper, and
+  it wrote `tempCommand: ''` while `/mnt/c/ProgramData/home-hosted/cpu-temp.ps1` survived
+  — measured on this guest, where the file outlived every clear. The API's own `DELETE` route *did*
+  delete it, which is why the promise looked kept from the settings page and not from the CLI. Both
+  are now decided once: `flagProblem` refuses a modifier with no base flag or beside `--clear`, and
+  `removeWslTemperatureScript` is the one deleter both callers use.
 
 ## Metrics
 

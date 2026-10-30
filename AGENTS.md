@@ -119,7 +119,11 @@ workspace config guard, so a busy default port turns config tests red for the wr
   and `--port 8000x` are refused, not read as 1 and 8000. A flag the command cannot honour is refused
   too — `restart --workspace <id>` with no server id exits 1 before anything is attempted, because the
   panel's own restart is not per-server and `down` then `up` would restart every server
-  (`test/cli/server-action.test.ts`).
+  (`test/cli/server-action.test.ts`). That includes a modifier whose base flag is absent:
+  `setup-temp --download` exited 0 having done nothing, so a script read it as "installed"
+  (`test/cli/setup-temp.test.ts`). **The same rule covers a promise made in the help text**:
+  `--clear` says it deletes the helper, and the CLI cleared the setting while the script survived —
+  so `removeWslTemperatureScript` is one helper both callers use.
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).
