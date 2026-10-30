@@ -1,7 +1,9 @@
+import type { CssRule } from '../../../test/helpers/strip-comments'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { cssRules } from '../../../test/helpers/strip-comments'
 
 /**
  * noc-console reflows on a phone — the 860 px breakpoint was already there. What was wrong was
@@ -27,63 +29,45 @@ const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 
 const shell = fs.readFileSync(path.join(root, 'src/App.vue'), 'utf8')
 const styles = fs.readFileSync(path.join(root, 'src/styles.css'), 'utf8')
+/** Every rule, for the assertions that are about the sheet rather than a breakpoint. */
+const allRules = cssRules(styles)
 
 /**
- * Every `@media` block with a condition, concatenated: the phone layout is written in more than
- * one block (the table rules sit next to the tables they describe, the shell rules next to the
- * shell), and a scan that read only the first one would silently miss half the layout.
+ * The rules inside one `@media` tier, as `selector { body }` text.
+ *
+ * The phone layout is written in more than one block (the table rules sit next to the tables they
+ * describe, the shell rules next to the shell), and a scan that read only the first one would
+ * silently miss half the layout — so every block carrying the condition contributes.
+ *
+ * The parse is `cssRules` (`test/helpers/strip-comments.ts`), because this stylesheet breaks a
+ * regex: `.probe::after { content: '/*' }` opened a "comment" that ran to the next `/*` and deleted
+ * the rules between them, so a `flex-wrap: wrap` that had been removed stayed green.
  */
-function mediaBody(condition: string): string {
-  const bodies: string[] = []
-  let from = 0
-  for (;;) {
-    const start = styles.indexOf(`@media ${condition}`, from)
-    if (start === -1)
-      break
-    const open = styles.indexOf('{', start)
-    let depth = 0
-    let index = open
-    for (; index < styles.length; index++) {
-      if (styles[index] === '{')
-        depth++
-      else if (styles[index] === '}')
-        depth--
-      if (depth === 0 && index > open)
-        break
-    }
-    bodies.push(styles.slice(open + 1, index))
-    from = index
-  }
-  expect(bodies.length, `no @media ${condition} block`).toBeGreaterThan(0)
-  return bodies.join('\n')
+function rulesIn(condition: string): CssRule[] {
+  const found = cssRules(styles).filter(rule => rule.media.includes(condition))
+  expect(found.length, `no @media ${condition} rule`).toBeGreaterThan(0)
+  return found
 }
 
 /**
- * Every declaration that applies to one selector in a block, concatenated.
+ * Every declaration that applies to one selector in a tier, concatenated.
  *
  * A selector can be written more than once (`.tblwrap` sets its scroll and, separately, its edge
  * shadows) and can be one of several in a selector list (`.tbl__keep, .tbl__actions`). Reading
  * only the first `selector { … }` would test half a rule and pass a broken layout.
  */
-function ruleIn(block: string, selector: string): string {
-  const declarations: string[] = []
-  for (const rule of block.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const selectors = (rule[1] ?? '')
-      // Drop a trailing comment: `\n  /* why */\n  .tbl__keep` is one selector, not a comment.
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .split(',')
-      .map(part => part.trim())
-    if (selectors.includes(selector))
-      declarations.push(rule[2] ?? '')
-  }
-  return declarations.join('\n')
+function ruleIn(rules: CssRule[], selector: string): string {
+  return rules
+    .filter(rule => rule.selectors.includes(selector))
+    .map(rule => rule.body)
+    .join('\n')
 }
 
 describe('noc-console is usable at a phone width', () => {
   it('finds the shell and its responsive block, so a rename cannot pass for free', () => {
     expect(shell).toContain('<nav class="nav"')
     expect(shell).toContain('footer class="status"')
-    expect(mediaBody('(width <= 860px)').length).toBeGreaterThan(200)
+    expect(rulesIn('(width <= 860px)').length).toBeGreaterThan(20)
   })
 
   /**
@@ -92,7 +76,7 @@ describe('noc-console is usable at a phone width', () => {
    * width it wraps instead: a wrapped label is visible, a scrolled-past one is not.
    */
   it('wraps the nav on a phone instead of hiding items behind a horizontal scroll', () => {
-    const mobile = mediaBody('(width <= 860px)')
+    const mobile = rulesIn('(width <= 860px)')
     const nav = ruleIn(mobile, '.nav')
     expect(nav, '.nav in the phone block').toContain('flex-wrap: wrap')
     expect(nav, '.nav must not keep a hidden horizontal scroll').not.toContain('overflow-x: auto')
@@ -107,9 +91,10 @@ describe('noc-console is usable at a phone width', () => {
     expect(shell).toContain('nav__more')
     expect(shell).toContain('nav__item--secondary')
     expect(shell).toMatch(/v-if|nav--more-open|@click="navMore/)
-    const tier = mediaBody('(width <= 640px)')
+    const tier = rulesIn('(width <= 640px)')
     expect(ruleIn(tier, '.nav__item--secondary')).toContain('display: none')
-    expect(tier).toContain('.nav--more-open .nav__item--secondary')
+    // The toggle re-shows them, and that re-show must be written as a selector of its own.
+    expect(tier.flatMap(rule => rule.selectors)).toContain('.nav--more-open .nav__item--secondary')
     expect(shell).toContain(':aria-expanded="navMore"')
   })
 
@@ -120,7 +105,7 @@ describe('noc-console is usable at a phone width', () => {
    * settings and reverse proxy had no entry at 700 px.
    */
   it('does not hide a page in a range where the toggle that holds it is also hidden', () => {
-    const layout = mediaBody('(width <= 860px)')
+    const layout = rulesIn('(width <= 860px)')
     const secondary = ruleIn(layout, '.nav__item--secondary')
     expect(secondary).not.toContain('display: none')
   })
@@ -131,7 +116,7 @@ describe('noc-console is usable at a phone width', () => {
    * take a whole line — measured at 844 px as three nav rows and a 149 px header.
    */
   it('lets a nav button be a chip in the wrapping row, where a column width would take a line', () => {
-    const layout = mediaBody('(width <= 860px)')
+    const layout = rulesIn('(width <= 860px)')
     /*
      * The selector has to be *written*, not merely mentioned: an earlier version of this test
      * matched `button.nav__item` inside the rule's own explanatory comment, so deleting the
@@ -147,9 +132,9 @@ describe('noc-console is usable at a phone width', () => {
    * it squeezed `state` to 43 px of visible table. The split view keeps them.
    */
   it('drops the duplicated row actions only in the stacked layout', () => {
-    expect(ruleIn(styles, '.split--stacked .tbl__actions')).toContain('display: none')
+    expect(ruleIn(allRules, '.split--stacked .tbl__actions')).toContain('display: none')
     // The wide layout's rule must not carry it: the split view renders the buttons.
-    expect(ruleIn(styles, '.tbl__actions')).not.toContain('display: none')
+    expect(ruleIn(allRules, '.tbl__actions')).not.toContain('display: none')
   })
 
   /**
@@ -158,9 +143,9 @@ describe('noc-console is usable at a phone width', () => {
    * does have a keyboard.
    */
   it('hides the keyboard-shortcut hint unless the pointer can hover', () => {
-    const hint = ruleIn(styles, '.status__hint')
+    const hint = ruleIn(allRules, '.status__hint')
     expect(hint).toContain('display: none')
-    const hover = mediaBody('(hover: hover)')
+    const hover = rulesIn('(hover: hover)')
     expect(ruleIn(hover, '.status__hint')).toContain('display: inline')
   })
 
@@ -171,7 +156,7 @@ describe('noc-console is usable at a phone width', () => {
    * to the far right — which is what was cut off.
    */
   it('pins the identity and action columns of a wide table on a phone', () => {
-    const mobile = mediaBody('(width <= 860px)')
+    const mobile = rulesIn('(width <= 860px)')
     expect(ruleIn(mobile, '.tbl__keep')).toContain('position: sticky')
     expect(ruleIn(mobile, '.tbl__actions')).toContain('position: sticky')
     // The pinned cell needs its own opaque background, or content scrolls visibly beneath it.
@@ -184,7 +169,7 @@ describe('noc-console is usable at a phone width', () => {
    * scrolls, so a table that fits shows no shadow at all.
    */
   it('gives a scrollable table a visible edge hint', () => {
-    const wrap = ruleIn(styles, '.tblwrap')
+    const wrap = ruleIn(allRules, '.tblwrap')
     expect(wrap).toContain('background-attachment: local')
     expect(wrap).toContain('scroll')
   })
@@ -210,13 +195,13 @@ describe('noc-console is usable at a phone width', () => {
    * the `start all` row. Chrome is not content: it does not shrink.
    */
   it('keeps a wrapped header from being squeezed over the content below it', () => {
-    expect(ruleIn(styles, '.view__head')).toContain('flex: none')
-    expect(ruleIn(styles, '.pane__head')).toContain('flex: none')
+    expect(ruleIn(allRules, '.view__head')).toContain('flex: none')
+    expect(ruleIn(allRules, '.pane__head')).toContain('flex: none')
   })
 
   /** A rail item is as wide as its text unless it is told it may be narrower; the panel URL is not. */
   it('lets a rail link ellipsize instead of widening the rail past the viewport', () => {
-    const mobile = mediaBody('(width <= 860px)')
+    const mobile = rulesIn('(width <= 860px)')
     const link = ruleIn(mobile, '.rail__link')
     expect(link).toContain('min-width: 0')
     expect(link).toContain('text-overflow: ellipsis')

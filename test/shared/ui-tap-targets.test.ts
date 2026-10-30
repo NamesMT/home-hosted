@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { cssRules } from '../helpers/strip-comments'
 
 /**
  * A tap-target floor is a rule about every control, so it is one stylesheet both UIs import —
@@ -31,30 +32,29 @@ function read(file: string): string {
 }
 
 /**
- * Comments are stripped before a rule is parsed, because a comment above a rule is otherwise
- * read as part of its selector: `.btn--icon` after an explanatory comment did not match
- * `.btn--icon`, which made this guard pass a mutation it was written to catch.
+ * Comments and quoted strings are blanked by the shared reader (`test/helpers/strip-comments.ts`),
+ * because this stylesheet is a corpus that breaks a regex: `.probe::after { content: '/*' }` opened
+ * a "comment" that ran to the next `/*` and deleted every rule between them — a `.btn--icon` pinned
+ * under the floor stayed green. A rule is parsed, not found by string search.
  */
-function withoutComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, '')
-}
-
-/** A `min-width`/`min-height` value in px, in a rule body, for a given selector. */
 function declaredPx(source: string, selector: string, property: 'min-width' | 'min-height'): number[] {
-  const css = withoutComments(source)
   const values: number[] = []
-  // One rule at a time: the floor is small enough that a flat scan for `selector { … }` is exact.
-  const rules = css.matchAll(/([^{}]+)\{([^{}]*)\}/g)
-  for (const rule of rules) {
-    const selectors = (rule[1] ?? '').split(',').map(part => part.trim())
-    const body = rule[2] ?? ''
-    if (!selectors.includes(selector))
+  for (const rule of cssRules(source)) {
+    if (!rule.selectors.includes(selector))
       continue
-    const match = new RegExp(`${property}\\s*:\\s*(-?[\\d.]+)px`).exec(body)
+    const match = new RegExp(`(?<![\\w-])${property}\\s*:\\s*(-?[\\d.]+)px`).exec(rule.body)
     if (match?.[1] !== undefined)
       values.push(Number(match[1]))
   }
   return values
+}
+
+/** The rules inside one `@media` tier, by its condition — the 44 px tier is asked for by name. */
+function rulesInTier(source: string, condition: string): string {
+  return cssRules(source)
+    .filter(rule => rule.media.includes(condition))
+    .map(rule => `${rule.selectors.join(', ')} {${rule.body}}`)
+    .join('\n')
 }
 
 describe('every control has a thumb-sized target', () => {
@@ -78,10 +78,10 @@ describe('every control has a thumb-sized target', () => {
     expect(css).toMatch(/--hh-tap-icon:\s*24px/)
     // The 44 px tier must be the coarse-pointer one, or a desktop window gets restyled for a
     // thumb and the rule stops meaning "touch".
-    const coarse = /@media\s*\(pointer:\s*coarse\)\s*\{([\s\S]*?)\n\}/.exec(css)
-    expect(coarse?.[1], 'no @media (pointer: coarse) block').toBeTruthy()
-    expect(coarse![1]).toMatch(/--hh-tap:\s*44px/)
-    expect(coarse![1]).toMatch(/--hh-tap-icon:\s*44px/)
+    const coarse = rulesInTier(css, '(pointer: coarse)')
+    expect(coarse, 'no @media (pointer: coarse) block').not.toBe('')
+    expect(coarse).toMatch(/--hh-tap:\s*44px/)
+    expect(coarse).toMatch(/--hh-tap-icon:\s*44px/)
   })
 
   /**

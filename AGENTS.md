@@ -347,9 +347,11 @@ workspace config guard, so a busy default port turns config tests red for the wr
   the DDNS form, where removing one hostname left every later edit unable to publish a patch. One
   helper (`clonePlain`, `src/shared/clone.ts`) rebuilds plain objects at every level and needs no Vue,
   which is what lets the form logic live in `src/shared` rather than once per UI; a scan fails any UI
-  source that names `structuredClone`. **The scan reads the source, and it must strip comments without
-  eating code** — a `/*` inside a glob string opened a "comment" that closed at the next real one and
-  deleted the statements between them (`test/helpers/strip-comments.ts`).
+  source that names `structuredClone`. **Every source scan reads through
+  `test/helpers/strip-comments.ts`; none strips comments by pattern.** A `/*` in a glob string or a
+  `content: '/*'` in CSS opens a "comment" that closes at the next real one and deletes the code
+  between them, so the scan goes green on the defect it exists to catch. `cssRules` parses a
+  stylesheet: ask a rule's selector list and its `@media` tier, never a text pattern.
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank

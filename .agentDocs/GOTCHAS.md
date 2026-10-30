@@ -538,7 +538,20 @@ line in `AGENTS.md` instead.
   `.vue` as markup plus `<script>` blocks, because `placeholder="http://10.0.0.5:8080"` in a template
   made the line pattern truncate the rest of the line. A guard that reports a `:line` must keep the
   line count while blanking comments — both helpers replace comment characters with spaces for that
-  reason.
+  reason. **The same audit found the helper's own users had not replaced every copy.** Seven scans
+  still carried a local regex, and each was driven with a plant the round could not explain away:
+  six went green on a real violation. The shape is always the same — the corpus supplies an
+  *unclosed* opener (`'src/*.ts'`, or a `'/*'` in CSS `content`) that pairs with a later real
+  comment, or a `//` in a URL that the line pattern reads as a comment — and the statements in
+  between vanish. `test/shared/cpu-scale.test.ts`, `uis/stock/test/toast-copy.test.ts` and
+  `uis/stock/test/commands-in-copy.test.ts` each stayed green with a planted per-core band, a
+  planted English toast and a planted `pnpm run` under exactly that shape; `test/services/state.test.ts`
+  and `test/helpers/paths.test.ts` stayed green on a planted orphan export whose file began with the
+  glob; `test/shared/ui-tap-targets.test.ts` and `uis/noc-console/test/mobile-layout.test.ts` stayed
+  green on a rule pinned under the tap floor and on a `display: none` in the wrong tier. A CSS scan
+  needs a parser, not a stripper: `cssRules` returns each rule's selector list and the `@media`
+  tiers it sits in, so `ruleIn(rulesIn('(width <= 860px)'), '.nav')` cannot be fed a comment or a
+  quoted brace.
 
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured

@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from '../../../test/helpers/strip-comments'
 
 /**
  * A toast's words are a string, and a string in a `.ts` file is not copy to anything.
@@ -28,11 +29,10 @@ const TOAST_CALL = /(?:notifier|toasts)\.(?:success|failure|info|warn)\(\s*(['"`
 const RUN_OPTION = /\b(?:title|success)\s*:\s*(['"`])((?:[^'"`\\]|\\.)*)\1/g
 
 /** Source with comments removed, so an explanatory English note is not read as copy. */
-function withoutComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '')
-    .replace(/[ \t]\/\/.*$/gm, '')
+function withoutComments(source: string, file: string): string {
+  // The shared reader (`test/helpers/strip-comments.ts`) tracks strings: a pattern for `//` and
+  // `/*` reads a URL as a comment and a glob star as an opening delimiter.
+  return stripComments(source, file)
 }
 
 function sourceFiles(): string[] {
@@ -64,7 +64,7 @@ describe('toast copy comes from the catalog', () => {
   it('leaves no English sentence handed straight to a toast', () => {
     const offenders: string[] = []
     for (const file of sourceFiles()) {
-      const source = withoutComments(fs.readFileSync(file, 'utf8'))
+      const source = withoutComments(fs.readFileSync(file, 'utf8'), file)
       for (const pattern of [TOAST_CALL, RUN_OPTION]) {
         for (const match of source.matchAll(pattern)) {
           const text = match[2]!.trim()

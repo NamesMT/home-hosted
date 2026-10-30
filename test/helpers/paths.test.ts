@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from './strip-comments'
 
 /**
  * Every path helper in `helpers/paths.ts` must be reachable.
@@ -45,11 +46,12 @@ describe('path helpers', () => {
 
     // Comments are stripped first: this file's own prose names one of the removed helpers, which
     // counted as a use and would make the guard pass on exactly what it exists to catch.
-    const deComment = (text: string): string =>
-      text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '')
-    const bodies = files.map(file => ({ rel: path.relative(root, file).replaceAll('\\', '/'), text: deComment(fs.readFileSync(file, 'utf8')) }))
+    // The shared reader tracks strings, so a glob (`'src/*.ts'`) or a URL in prose is not a
+    // comment; the regex pair here ate the rest of the file and hid the very orphan this checks.
+    const deComment = (text: string, file: string): string => stripComments(text, file)
+    const bodies = files.map(file => ({ rel: path.relative(root, file).replaceAll('\\', '/'), text: deComment(fs.readFileSync(file, 'utf8'), file) }))
 
-    const source = deComment(fs.readFileSync(path.join(root, 'src/helpers/paths.ts'), 'utf8'))
+    const source = deComment(fs.readFileSync(path.join(root, 'src/helpers/paths.ts'), 'utf8'), 'paths.ts')
     const exported = [...source.matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]!)
     // The file is the layout table; an empty list would make this pass for the wrong reason.
     expect(exported.length, 'expected the layout exports').toBeGreaterThan(10)

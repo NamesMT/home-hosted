@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { cpuBand, cpuCapacity } from '#src/shared/cpu-scale'
+import { stripComments } from '../helpers/strip-comments'
 
 /**
  * A server's `cpuPercent` is a share of **this machine**, and one rule decides it.
@@ -71,10 +72,9 @@ describe('the UIs read the cpu scale from one module', () => {
         else if (/\.(?:ts|vue)$/.test(entry.name)) {
           found.push({
             rel: path.relative(root, full).replaceAll('\\', '/'),
-            // Comments discuss the expression by name, so only code is read.
-            text: fs.readFileSync(full, 'utf8')
-              .replaceAll(/\/\*[\s\S]*?\*\//g, '')
-              .replaceAll(/^\s*\/\/.*$/gm, ''),
+            // Only code is read: comments discuss the expression by name. The reader tracks strings,
+            // because `'../../i18n/generated/**/*.json'` is a glob, not the start of a comment.
+            text: stripComments(fs.readFileSync(full, 'utf8'), entry.name),
           })
         }
       }

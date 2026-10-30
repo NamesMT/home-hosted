@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from '../helpers/strip-comments'
 
 /**
  * The builders in `services/state.ts` must stay reachable, or go.
@@ -50,10 +51,11 @@ describe('state builders', () => {
 
     // Comments are stripped first: this file's own prose named one of the builders, which counted as
     // a use and made the guard pass on the very orphan it was written to catch.
-    const deComment = (text: string): string =>
-      text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '')
-    const bodies = files.map(file => ({ rel: path.relative(root, file).replaceAll('\\', '/'), text: deComment(fs.readFileSync(file, 'utf8')) }))
-    const state = deComment(source('src/services/state.ts'))
+    // The shared reader tracks strings, so a glob (`'src/*.ts'`) or a URL in prose is not a
+    // comment; the regex pair here ate the rest of the file and hid the very orphan this checks.
+    const deComment = (text: string, file: string): string => stripComments(text, file)
+    const bodies = files.map(file => ({ rel: path.relative(root, file).replaceAll('\\', '/'), text: deComment(fs.readFileSync(file, 'utf8'), file) }))
+    const state = deComment(source('src/services/state.ts'), 'state.ts')
     const builders = [...state.matchAll(/^export function (build\w+)\(/gm)].map(m => m[1]!)
     // The file is meant to build views; an empty list would make this pass for the wrong reason.
     expect(builders.length, 'expected several builders').toBeGreaterThanOrEqual(3)

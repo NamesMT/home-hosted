@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from '../../../test/helpers/strip-comments'
 
 /**
  * A command printed in the UI is a promise the package has to keep.
@@ -43,13 +44,6 @@ function uiSources(): string[] {
   return files
 }
 
-/** Comments removed, so a note about how the repo is built is not read as user copy. */
-function stripComments(text: string): string {
-  return text
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/(?:^|\s)\/\/[^\n]*/g, '')
-}
-
 function packageScripts(): string[] {
   const parsed = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as { scripts?: Record<string, string> }
   return Object.keys(parsed.scripts ?? {})
@@ -62,7 +56,7 @@ describe('commands printed in the UI', () => {
     for (const file of uiSources()) {
       // Comments are stripped here too: `src/i18n/index.ts` explains in prose that
       // `pnpm install` generates the catalogs, which is not a command shown to a user.
-      const text = stripComments(fs.readFileSync(file, 'utf8'))
+      const text = stripComments(fs.readFileSync(file, 'utf8'), file)
       for (const match of text.matchAll(PNPM_SCRIPT)) {
         if (!scripts.includes(match[1]!))
           offenders.push(`${path.relative(repoRoot, file)}: ${match[0]}`)
@@ -77,7 +71,7 @@ describe('commands printed in the UI', () => {
     for (const file of uiSources()) {
       if (!COPY_SOURCES.test(file))
         continue
-      for (const match of stripComments(fs.readFileSync(file, 'utf8')).matchAll(ANY_PNPM))
+      for (const match of stripComments(fs.readFileSync(file, 'utf8'), file).matchAll(ANY_PNPM))
         offenders.push(`${path.relative(repoRoot, file)}: ${match[0]}`)
     }
     expect(offenders).toEqual([])
