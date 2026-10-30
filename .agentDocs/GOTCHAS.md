@@ -493,9 +493,18 @@ line in `AGENTS.md` instead.
   had always used the popover, so review read the diff as fine. A documented rule plus a shared
   component is not a guard: nothing read the components that *did not* use it. The scan now reads
   every `.vue` in both UIs for the shape (a label chosen by a `confirm*` flag, a handler that raises
-  that flag and then calls the action), and its own narrowing is on record — the first version
-  matched a fixed list of flag spellings (`confirming\w*|armed\w*`) and let a renamed `confirmArmed`
-  through until the re-break named it. Match the word in any name, not the name you chose.
+  that flag and then calls the action), and its own narrowing is on record. **The first version
+  matched a fixed list of flag spellings** (`confirming\w*|armed\w*`) and let a renamed
+  `confirmArmed` through until the re-break named it — so match the word in any name, not the name
+  you chose. **The second version then matched only the declaration form**: `function askRemove() {}`
+  was read and `const askRemove = (): void => { confirming.value = true; emit('remove', …) }` was
+  not, though Vue treats them as the same click handler, and `ref<boolean>(false)` was not a ref
+  either. A comment claiming "a handler that raises the flag and acts" is a claim about *every*
+  spelling an author may write. **And a flag name is not the rule.** Reading the *branch* instead —
+  `if (!flag.value) { flag.value = true; …; return }` followed by the action on the next press — needs
+  no name at all, and it catches the pre-`c83a9e6` armed revert under any rename. A detector that
+  needs a `confirm` in the identifier is defeated by calling the ref `asking`, which is a rename, not
+  a fix.
 
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured

@@ -56,6 +56,42 @@ function armedLabels(source: string): string[] {
 }
 
 /**
+ * Every function-shaped thing in a `<script>`, with its body read to the matching brace.
+ *
+ * A handler is written as `function askRemove() {}`, `const askRemove = (): void => {}` or
+ * `const askRemove = e => {}`, and Vue treats all three as the same click handler. Matching only the
+ * declaration form is how this guard passed a planted arrow handler (`WorkspacePicker.vue`) that
+ * raised its flag and emitted the removal in one click — the exact shape its comment claims to fail.
+ */
+function functions(script: string): Array<{ name: string, body: string }> {
+  const found: Array<{ name: string, body: string }> = []
+  const heads = [
+    /(?:async\s+)?function\s+(\w+)\s*\([^)]*\)[^{]*\{/g,
+    /(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\s*)?\([^)]*\)\s*(?::[^{}=]+)?=>\s*\{/g,
+    /(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?(?:function\s*)?\w+\s*=>\s*\{/g,
+  ]
+  const seen = new Set<number>()
+  for (const head of heads) {
+    for (const match of script.matchAll(head)) {
+      if (seen.has(match.index!))
+        continue
+      seen.add(match.index!)
+      const start = match.index! + match[0].length
+      let depth = 1
+      let index = start
+      for (; index < script.length && depth > 0; index++) {
+        if (script[index] === '{')
+          depth++
+        else if (script[index] === '}')
+          depth--
+      }
+      found.push({ name: match[1]!, body: script.slice(start, index) })
+    }
+  }
+  return found
+}
+
+/**
  * A function that raises an arming flag and then calls the destructive action it guards.
  *
  * Reading the function body is what separates "two honest answers in one popover" from "the same
@@ -65,32 +101,58 @@ function armingActions(source: string): string[] {
   const script = source.slice(0, source.indexOf('</script>'))
   // Any ref whose name carries the word: `confirmingRevert` and `confirmArmed` are the same idea,
   // and a fixed list of spellings is a guard the next author trips over by renaming a ref — measured
-  // on the re-break, where `confirmArmed` walked past a `confirming\w*|armed\w*` list.
-  const flags = [...script.matchAll(/const\s+(\w*(?:confirm|arm)\w*)\s*=\s*ref\(/gi)]
+  // on the re-break, where `confirmArmed` walked past a `confirming\w*|armed\w*` list. The type
+  // argument is optional: `ref<boolean>(false)` is the same ref, and it walked past the matcher.
+  const flags = [...script.matchAll(/const\s+(\w*(?:confirm|arm)\w*)\s*=\s*(?:shallowRef|ref)\s*(?:<[^>]*>)?\(/gi)]
     .map(match => match[1]!)
   if (flags.length === 0)
     return []
   const found: string[] = []
-  for (const fn of script.matchAll(/(?:async\s+)?function\s+(\w+)\s*\([^)]*\)[^{]*\{/g)) {
-    const start = fn.index! + fn[0].length
-    let depth = 1
-    let index = start
-    for (; index < script.length && depth > 0; index++) {
-      if (script[index] === '{')
-        depth++
-      else if (script[index] === '}')
-        depth--
-    }
-    const body = script.slice(start, index)
+  for (const { name, body } of functions(script)) {
     const raised = flags.filter(flag => new RegExp(`\\b${flag}(?:\\.value)?\\s*=\\s*true`).test(body))
     if (raised.length === 0)
       continue
     // The action it guards is whatever the same function calls after the flag, so a handler that
-    // only opens a confirmation is not a finding.
+    // only opens a confirmation is not a finding. The emit is the third spelling: a child component
+    // hands the destructive action to its parent, which then calls the API.
     const acted = /(?:await\s+)?(?:api|control|workspace|props)\??\.\w+\(/.test(body)
       || /\b(?:revertUi|uploadUi|remove|delete|destroy|clear|forget)\w*\s*\(/.test(body)
+      || /\bemit\s*\(\s*['"](?:remove|delete|destroy|clear|forget|revert)\w*['"]/.test(body)
     if (acted)
-      found.push(`${fn[1]} raises ${raised.join(', ')} and then acts`)
+      found.push(`${name} raises ${raised.join(', ')} and then acts`)
+  }
+  return found
+}
+
+/**
+ * The armed idiom, with no name to go on: the first press raises a flag and returns, the second
+ * press performs the destructive action.
+ *
+ * `armingActions` above needs the flag to be called `confirm*`/`arm*`, so an armed button with a
+ * differently-named flag is a shape it cannot see — measured on the pre-fix `InterfaceSection.vue`,
+ * whose flag was `confirmingRevert` and would have passed just as well as `asking`. This reads the
+ * branch instead: `if (!flag.value) { flag.value = true; … return }` followed by the action, which
+ * is the double-click hazard itself and is identical however the ref is spelled. The historical
+ * defect is reproduced from git in the anti-vacuity test below, so this is pinned against a real
+ * one, not a shape invented for the scan.
+ */
+function armedFirstPress(source: string): string[] {
+  const script = source.slice(0, source.indexOf('</script>'))
+  const acted = /(?:await\s+)?(?:api|control|workspace|props)\??\.\w+\(/
+  const found: string[] = []
+  for (const { name, body } of functions(script)) {
+    for (const branch of body.matchAll(/if\s*\(\s*!\s*(\w+)(?:\.value)?\s*\)\s*\{([\s\S]*?)\breturn\b/g)) {
+      const flag = branch[1]!
+      if (!new RegExp(`\\b${flag}(?:\\.value)?\\s*=\\s*true\\b`).test(branch[2]!))
+        continue
+      const after = body.slice(branch.index! + branch[0].length)
+      // The action has to be in the *second* press: a branch that acts before returning is a
+      // guarded no-op, not an armed button.
+      if (acted.test(branch[2]!))
+        continue
+      if (acted.test(after))
+        found.push(`${name}: the first press raises \`${flag}\` and returns, the second acts`)
+    }
   }
   return found
 }
@@ -112,5 +174,90 @@ describe('a destructive action confirms in a popover, not by arming its own butt
     const offenders = vueFiles()
       .flatMap(file => armingActions(fs.readFileSync(file, 'utf8')).map(found => `${rel(file)}: ${found}`))
     expect(offenders, 'the second press is a different target — the popover — or it is a double click away').toEqual([])
+  })
+
+  it('never arms on the first press and acts on the second, under any flag name', () => {
+    const offenders = vueFiles()
+      .flatMap(file => armedFirstPress(fs.readFileSync(file, 'utf8')).map(found => `${rel(file)}: ${found}`))
+    expect(offenders, 'an armed button needs no `confirm` in its name to fire on a double click').toEqual([])
+  })
+
+  /**
+   * Every way a handler that arms can be *written*, not the one spelling the corpus happens to use.
+   *
+   * The scan above is a "no offenders" list, so a matcher that sees nothing is indistinguishable
+   * from a corpus that is clean. Measured on `WorkspacePicker.vue`: a `const askRemove = (): void
+   * => { confirming.value = true; emit('remove', …) }` left the suite green, because the matcher
+   * read `function` declarations only. Each shape below is a handler no author would call unusual.
+   */
+  it('sees every spelling of an arming handler, so a green run means something', () => {
+    const shapes: Record<string, string> = {
+      'a function declaration': 'function askRemove(): void {\n  confirming.value = true\n  void api.deleteWorkspace(id)\n}',
+      'an arrow const': 'const askRemove = (): void => {\n  confirming.value = true\n  void api.deleteWorkspace(id)\n}',
+      'an async arrow with a bare parameter': 'const askRemove = async (workspace) => {\n  confirming.value = true\n  await api.deleteWorkspace(workspace.id)\n}',
+      'a handler that hands the action to its parent': 'const askRemove = (): void => {\n  confirming.value = true\n  emit(\'remove\', selected)\n}',
+      'a typed ref': 'const confirming = ref<boolean>(false)\nfunction askRemove(): void {\n  confirming.value = true\n  void api.deleteWorkspace(id)\n}',
+    }
+    const missed = Object.entries(shapes)
+      .filter(([, source]) => armingActions(`<script setup lang="ts">\nconst confirming = ref(false)\nconst workspaceId = ref('x')\n${source}\n</script>`).length === 0)
+      .map(([shape]) => shape)
+    expect(missed, 'a handler shape the scan cannot see is the next armed button').toEqual([])
+
+    // And the honest ones stay clear: the popover's own confirm acts without arming anything.
+    const popover = '<script setup lang="ts">\nconst open = ref(false)\nfunction confirm(): void {\n  open.value = false\n  emit(\'confirm\')\n}\n</script>'
+    expect(armingActions(popover)).toEqual([])
+  })
+
+  /**
+   * The name-agnostic scan, against the defect it was written from: the revert handler in
+   * `InterfaceSection.vue` before `c83a9e6`, with its flag renamed to `asking`.
+   *
+   * The historic flag was `confirmingRevert`, so the *name* scan catches that one too — the rename
+   * is what makes this a test of the branch shape rather than of a spelling. The real file is
+   * planted with it in the test below; this is the same handler written out, so the failure names
+   * the shape even if that file is ever rewritten.
+   */
+  it('sees the armed branch even when the flag is not called `confirm…`', () => {
+    const armed = [
+      'const asking = ref(false)',
+      'async function revert(): Promise<void> {',
+      '  if (!asking.value) {',
+      '    asking.value = true',
+      '    setTimeout(() => { asking.value = false }, 5000)',
+      '    return',
+      '  }',
+      '  asking.value = false',
+      '  busy.value = true',
+      '  try { await api.revertUi() } finally { busy.value = false }',
+      '}',
+    ].join('\n')
+    expect(armedFirstPress(`<script setup lang="ts">\n${armed}\n</script>`)).toHaveLength(1)
+
+    // A handler that guards itself with a flag but never arms a *second* press is not this defect:
+    // `if (!canSubmit) { notice = '…'; return }` is a refusal, and it must stay clear.
+    const refusal = [
+      'function submit(): void {',
+      '  if (!canSubmit.value) {',
+      '    error.value = true',
+      '    return',
+      '  }',
+      '  void api.save()',
+      '}',
+    ].join('\n')
+    expect(armedFirstPress(`<script setup lang="ts">\n${refusal}\n</script>`)).toEqual([])
+  })
+
+  it('fails the armed branch planted back into the component that was fixed', () => {
+    const file = path.join(root, 'uis', 'stock', 'src', 'components', 'settings', 'InterfaceSection.vue')
+    const source = fs.readFileSync(file, 'utf8')
+    expect(source, 'the fix is still in place: the revert delegates to ConfirmButton').toContain('ConfirmButton')
+    // The pre-fix handler, put back where it was, with the flag renamed and the popover's template
+    // left alone: nothing but the branch shape marks this as armed.
+    const armed = source.replace(
+      /async function revert\(\): Promise<void> \{/,
+      'async function revert(): Promise<void> {\n  if (!asking.value) {\n    asking.value = true\n    return\n  }\n  asking.value = false\n  void api.revertUi()',
+    )
+    expect(armed, 'the revert handler was found to plant into').not.toBe(source)
+    expect(armedFirstPress(armed), 'a planted armed revert must be visible to this scan').toHaveLength(1)
   })
 })

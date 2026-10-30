@@ -104,8 +104,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A destructive action one click away confirms in a popover**, never by arming the same button for a
   second press — an impatient double click fires an armed button. Safe choice first in tab order.
   `ConfirmButton` is that popover in both UIs; `test/shared/ui-destructive-confirm.test.ts` reads every
-  `.vue` for the armed shape (a label chosen by a `confirm*` flag, a handler that raises the flag and
-  acts), so a new destructive control gets the rule from a red test rather than from review.
+  `.vue` for the armed shape — a label chosen by a flag, and the branch that arms on the first press
+  and acts on the second, whichever way the handler is written and whatever the flag is called — so a
+  new destructive control gets the rule from a red test rather than from review.
   **And the popover must name what it costs — the right cost for that row.** A destination row bound
   one kind's sentence for both kinds, so removing a webhook promised a bot token would go; the
   webhook's own copy sat unused in all nine catalogs. `ConfirmButton` also *silently* accepts a prop
