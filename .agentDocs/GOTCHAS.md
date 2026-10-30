@@ -553,6 +553,32 @@ line in `AGENTS.md` instead.
   tiers it sits in, so `ruleIn(rulesIn('(width <= 860px)'), '.nav')` cannot be fed a comment or a
   quoted brace.
 
+- **A hand-written lexer is a claim about every shape the language allows, and the corpus keeps
+  supplying the shape it missed.** The one reader every scan shares (`test/helpers/strip-comments.ts`)
+  was itself audited the round after it consolidated seven scans, and had three blind spots — each
+  measured by diffing its output against the TypeScript parser's own trivia (blanked comments, leaf
+  tokens unchanged) over all 301 `.ts` source files, and each proven with a plant a dependent scan
+  could not explain away:
+  - `regexCanFollow` tested the character *immediately* before the `/`, so `= /^https?:\/\//` — how
+    every regex in this corpus is written — was not a regex: its `\/` pairs were read as code, the
+    second opened a **line comment**, and the rest of the line vanished. `parseUpstream`
+    (`src/services/proxy.ts:2054`) lost its `explicit !== null` branch, and a `structuredClone`
+    planted on that line after the regex stayed green in `test/shared/ui-parity.test.ts`;
+  - template literals were one flat state, but a `${}` interpolation is **code** and may hold a
+    template of its own: `` `  ${dim(`! the panel's listener changed`)}` `` (`src/cli/backup.ts:758`)
+    closed the outer literal at the inner backtick, and the apostrophe after it opened a string that
+    ran past the end of the line — leaving **39 of that file's 111 comments** in place, so a scan read
+    comment prose as code;
+  - CSS strings were closed at the first matching quote, so `content: "\""` — a valid escaped quote —
+    ended the string on its **closing** quote; `cssRules` then met a `}` with no open and dropped
+    every rule after it, and a `.btn--icon { min-width: 10px }` planted under the floor stayed green
+    in `test/shared/ui-tap-targets.test.ts`.
+  The fix is a frame stack, not a longer state list: a `${}` pushes a nested `code` frame, and a `}`
+  with no braces left pops it. A regex follows any character a value may begin after, or a keyword
+  (`return`, `typeof`, `case`), never merely a delimiter. **When a helper is the single reader for
+  every guard, its test is a syntax tour of the *language*, not of the inputs already seen** — each
+  case above is legal code this corpus contains today.
+
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured
   `undefined` from `http://192.168.1.201:6181` and `object` from `http://127.0.0.1:6181` on the same

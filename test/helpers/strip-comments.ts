@@ -22,71 +22,173 @@
  * delimiters of its own: `/* *\/` is a comment and `'…'`/`"…"` is not.
  */
 
+/** A character after which a `/` begins a regex literal rather than a division. */
+const REGEX_AFTER = new Set('=(,:;[!&|?{}+\-*/%<>~^')
+
+/** A keyword after which a `/` begins a regex literal: `return /…/`, `typeof /…/`, `case /…/`. */
+const REGEX_KEYWORDS = new Set(['await', 'case', 'delete', 'do', 'else', 'in', 'instanceof', 'new', 'of', 'return', 'throw', 'typeof', 'void', 'yield'])
+
+/** What the scanner is inside of; a `${}` interpolation pushes a nested `code` frame. */
+type Frame
+  = { kind: 'code', braces: number }
+    | { kind: 'string', quote: string }
+    | { kind: 'template' }
+    | { kind: 'regex', inClass: boolean }
+
 /**
  * The JavaScript half of the stripper: comments blanked, string and template literals preserved.
  *
  * Comment characters become spaces rather than vanishing, so a scan that reports `:line` still
  * reports the line in the file the author edits.
+ *
+ * The state is a stack, not one state: a `${}` interpolation is code again, and may hold a template
+ * literal of its own — `` `  ${dim(`load ${id}`)}` `` is in `src/cli/backup.ts` — so one flat
+ * "template" state closes the outer literal at the inner backtick and reads the rest of the file
+ * through a string that never ends. A regex starts after any place a value may begin, including
+ * after whitespace and after a keyword (`return`), because `= /^https?:\/\//` is how every regex in
+ * this corpus is written and the character before the first `/` there is a space.
  */
 function stripJavaScript(source: string): string {
   const out = source.split('')
-  let state: 'code' | 'string' | 'template' | 'regex' = 'code'
-  let quote = ''
-  // A `/` begins a regex only where a value may begin; after an identifier or `)` it is division.
-  const regexCanFollow = /[=(,:;[!&|?{}+\-*/%<>~^]$/
+  const blank = (from: number, to: number): void => {
+    for (let at = from; at < to && at < source.length; at += 1) {
+      if (source[at] !== '\n')
+        out[at] = ' '
+    }
+  }
 
-  for (let index = 0; index < source.length; index += 1) {
+  const frames: Frame[] = [{ kind: 'code', braces: 0 }]
+  let lastCode = ''
+  let lastCodeAt = -1
+  const wordBefore = (): string => {
+    if (!/[\w$]/.test(lastCode))
+      return ''
+    let from = lastCodeAt
+    while (from > 0 && /[\w$]/.test(source[from - 1] ?? ''))
+      from -= 1
+    return source.slice(from, lastCodeAt + 1)
+  }
+  // Only code sets `lastCode`, so a keyword inside a comment or a string cannot start one.
+  const regexCanFollow = (): boolean =>
+    lastCode === '' || REGEX_AFTER.has(lastCode) || REGEX_KEYWORDS.has(wordBefore())
+
+  let index = 0
+  while (index < source.length) {
     const char = source[index]!
-    const next = source[index + 1]
+    const frame = frames[frames.length - 1]!
 
-    if (state === 'string' || state === 'template') {
-      if (char === '\\')
+    if (frame.kind === 'string') {
+      if (char === '\\') {
+        index += 2
+      }
+      else {
+        if (char === frame.quote) {
+          frames.pop()
+          // A closed string is a value, so a `/` after it is division, not a regex.
+          lastCode = char
+          lastCodeAt = index
+        }
         index += 1
-      else if (char === quote)
-        state = 'code'
+      }
       continue
     }
-    if (state === 'regex') {
+
+    if (frame.kind === 'template') {
       if (char === '\\') {
+        index += 2
+      }
+      else if (char === '`') {
+        frames.pop()
+        lastCode = '`'
+        lastCodeAt = index
         index += 1
+      }
+      else if (char === '$' && source[index + 1] === '{') {
+        frames.push({ kind: 'code', braces: 0 })
+        lastCode = '{'
+        lastCodeAt = index + 1
+        index += 2
+      }
+      else {
+        index += 1
+      }
+      continue
+    }
+
+    if (frame.kind === 'regex') {
+      if (char === '\\') {
+        index += 2
       }
       else if (char === '[') {
         // A `/` inside a character class does not close the literal.
-        while (index < source.length && source[index] !== ']') {
-          index += 1
-        }
+        frame.inClass = true
+        index += 1
       }
-      else if (char === '/') {
-        state = 'code'
+      else if (char === ']' && frame.inClass) {
+        frame.inClass = false
+        index += 1
+      }
+      else if (char === '/' && !frame.inClass) {
+        frames.pop()
+        lastCode = '/'
+        lastCodeAt = index
+        index += 1
+      }
+      else {
+        index += 1
       }
       continue
     }
 
-    if (char === '/' && next === '/') {
-      while (index < source.length && source[index] !== '\n') {
-        out[index] = ' '
-        index += 1
-      }
-      index -= 1
-      continue
-    }
-    if (char === '/' && next === '*') {
-      const end = source.indexOf('*/', index + 2)
-      const stop = end < 0 ? source.length : end + 1
-      for (let blank = index; blank <= stop && blank < source.length; blank += 1) {
-        if (source[blank] !== '\n')
-          out[blank] = ' '
-      }
+    if (char === '/' && source[index + 1] === '/') {
+      let stop = index
+      while (stop < source.length && source[stop] !== '\n')
+        stop += 1
+      blank(index, stop)
       index = stop
       continue
     }
-    if (char === '"' || char === '\'' || char === '`') {
-      state = char === '`' ? 'template' : 'string'
-      quote = char
+    if (char === '/' && source[index + 1] === '*') {
+      const end = source.indexOf('*/', index + 2)
+      const stop = end < 0 ? source.length : end + 2
+      blank(index, stop)
+      index = stop
       continue
     }
-    if (char === '/' && regexCanFollow.test(source.slice(Math.max(0, index - 1), index)))
-      state = 'regex'
+    if (char === '"' || char === '\'') {
+      frames.push({ kind: 'string', quote: char })
+      index += 1
+      continue
+    }
+    if (char === '`') {
+      frames.push({ kind: 'template' })
+      index += 1
+      continue
+    }
+    if (char === '/' && regexCanFollow()) {
+      frames.push({ kind: 'regex', inClass: false })
+      index += 1
+      continue
+    }
+    if (char === '{') {
+      frame.braces += 1
+    }
+    else if (char === '}') {
+      if (frame.braces > 0) {
+        frame.braces -= 1
+      }
+      // A `}` that closes a `${}` returns to the template around it.
+      else if (frames.length > 1) {
+        frames.pop()
+        index += 1
+        continue
+      }
+    }
+    if (char.trim().length > 0) {
+      lastCode = char
+      lastCodeAt = index
+    }
+    index += 1
   }
   return out.join('')
 }
@@ -104,6 +206,9 @@ function stripCss(source: string): string {
     const char = source[index]
     if (char === '\'' || char === '"') {
       for (index += 1; index < source.length && source[index] !== char; index += 1) {
+        // A backslash escapes the next character, so `content: "\""` holds a quote, not the end.
+        if (source[index] === '\\')
+          index += 1
         if (source[index] !== '\n')
           out[index] = ' '
       }

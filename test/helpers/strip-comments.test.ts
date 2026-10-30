@@ -31,6 +31,83 @@ describe('the shared comment reader', () => {
     const stripped = stripComments(vue, 'Panel.vue')
     expect(stripped).toContain('{{ live.responseMs }}')
   })
+
+  /**
+   * A regex literal opens after whitespace as often as after a delimiter.
+   *
+   * `regexCanFollow` tested the character *immediately* before the `/`, so `= /^https?:\/\//`
+   * — the shape the corpus writes everywhere (`src/services/proxy.ts:2054`,
+   * `src/providers/ui-release.ts:127`) — was not a regex at all: the `\/` pairs were read as
+   * code, and the second one opened a **line comment** at `//i.exec(trimmed)`, blanking the
+   * rest of the line. A scan reading `proxy.ts` therefore never saw `parseUpstream`'s
+   * `explicit !== null` check, the branch the whole function exists for.
+   */
+  it('reads a regex literal that follows a space, so its escaped slashes are not a comment', () => {
+    const source = 'const explicit = /^([a-z][a-z0-9+.-]*):\\/\\//i.exec(trimmed)\nconst next = 1\n'
+    const stripped = stripComments(source, 'proxy.ts')
+    expect(stripped).toContain('.exec(trimmed)')
+    expect(stripped).toContain('const next = 1')
+  })
+
+  it('reads a regex literal that follows `return`, `(`, or a comma', () => {
+    for (const source of [
+      'function f(u) {\n  return /^https?:\\/\\//.test(u)\n}\nconst next = 1\n',
+      'const ok = f(/^a\\/\\//, 1)\nconst next = 1\n',
+      'const xs = [/a\\/\\//, /b\\/\\//]\nconst next = 1\n',
+    ])
+      expect(stripComments(source, 'a.ts'), source).toContain('const next = 1')
+  })
+
+  /**
+   * A `${}` interpolation is code, and may hold a template literal of its own.
+   *
+   * `src/cli/backup.ts:758` writes `` `  ${dim(`! the panel's listener changed`)}\n` ``. The reader
+   * treated the whole outer template as one string, so the **inner** backtick closed it: the rest of
+   * the line became code, the inner `'` opened a string that ran past the end of the line, and every
+   * comment after it survived — 39 of 111 comments in that file were left in place, so a dependent
+   * scan read comment prose as code. The first case below is the shape without an apostrophe, which
+   * happened to survive; it is here so the two are told apart.
+   */
+  it('keeps a template literal inside a `${}` interpolation, including a nested backtick', () => {
+    const source = `process.stdout.write(\`  ${'$'}{dim(\`load ${'$'}{hook.serverId}: ${'$'}{hook.output ?? 'staged'}\`)}\\n\`)\n// gone\nconst live = structuredClone(x)\n`
+    const stripped = stripComments(source, 'backup.ts')
+    expect(stripped).toContain('const live = structuredClone(x)')
+    expect(stripped).toContain(`\`load ${'$'}{hook.serverId}: ${'$'}{hook.output ?? 'staged'}\``)
+    expect(stripped).not.toContain('gone')
+  })
+
+  it('does not let an apostrophe in a nested template swallow the comments after it', () => {
+    const source = `process.stdout.write(\`  ${'$'}{dim(\`! the panel's listener changed\`)}\\n\`)\n/** the note */\nconst live = structuredClone(x)\n`
+    const stripped = stripComments(source, 'backup.ts')
+    expect(stripped).toContain('const live = structuredClone(x)')
+    expect(stripped).not.toContain('the note')
+  })
+
+  it('does not read a `//` inside a nested template as a comment', () => {
+    const source = `const s = \`${'$'}{xs.map(x => \`${'$'}{x} // y\`).join('')}\`\nconst live = structuredClone(x)\n`
+    const stripped = stripComments(source, 'a.ts')
+    expect(stripped).toContain('const live = structuredClone(x)')
+    expect(stripped).toContain(`\`${'$'}{x} // y\``)
+  })
+
+  /**
+   * Comments are blanked to spaces, so a caller can slice the result by a source offset.
+   *
+   * `stripVue` relies on it: it copies each `<script>` body back over the markup-stripped text at
+   * the same offsets. A `.vue` script also lives inside a template whose `</script>` may be text.
+   */
+  it('blanks a comment in a `.vue` script without touching a `</script>` inside a string', () => {
+    const vue = [
+      '<template><b>{{ x }}</b></template>',
+      '<script setup lang="ts">',
+      '// gone',
+      'const close = \'</script>\'',
+      '</script>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'Panel.vue')
+    expect(stripped).toContain('const close = \'</script>\'')
+    expect(stripped).not.toContain('gone')
+  })
 })
 
 /**
@@ -68,6 +145,27 @@ describe('the CSS reader', () => {
 
   it('does not let a brace inside quoted content close a block early', () => {
     const css = '.a::after { content: \'{\'; }\n.b { width: auto; }\n'
+    expect(cssRules(css).map(rule => rule.selectors)).toEqual([['.a::after'], ['.b']])
+  })
+})
+
+/**
+ * The CSS reader's own escape, and why a `\"` matters.
+ *
+ * `.probe::after { content: "\\"" }` is a valid stylesheet — the escaped quote is content, not a
+ * delimiter. The reader advanced to the next `"`, which was the **closing** quote of the string, so
+ * the rest of the declaration was read as code: the `{`/`}` counting in `cssRules` then saw a
+ * close without an open and dropped the rule, and every rule after it in that file with it.
+ */
+describe('the CSS reader and escaped quotes', () => {
+  it('does not end a quoted string at a backslash-escaped quote', () => {
+    const css = '.a::after { content: "\\""; }\n.b { min-width: 10px; }\n'
+    expect(stripComments(css, 'x.css')).toContain('min-width: 10px')
+    expect(cssRules(css).map(rule => rule.selectors)).toEqual([['.a::after'], ['.b']])
+  })
+
+  it('does not end a single-quoted string at an escaped quote either', () => {
+    const css = '.a::after { content: \'it\\\'s\' }\n.b { min-width: 10px; }\n'
     expect(cssRules(css).map(rule => rule.selectors)).toEqual([['.a::after'], ['.b']])
   })
 })
