@@ -5,6 +5,18 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
+import { isWsl } from '#src/providers/wsl-temperature'
+
+/**
+ * Whether the WSL2 path can run at all, decided once at module load.
+ *
+ * `setup-temp --wsl` refuses on a non-WSL host, so a test asserting it *succeeds* can only be right
+ * on a WSL2 guest. It was written on one and passed here, then failed on the Linux CI runner — the
+ * mirror image of the usual mistake (a test that skips where the code would have run), and the same
+ * remedy: gate with `it.runIf` on a condition computed once, never an early `return`, which reports
+ * a **pass** for a case that never ran.
+ */
+const onWsl = isWsl()
 
 /**
  * `setup-temp`'s download flag has **three** states, and one flag expresses all of them.
@@ -95,7 +107,7 @@ describe('setup-temp refuses a flag it cannot honour', () => {
     }
   }, 120_000)
 
-  it('still accepts the flags where they mean something', async () => {
+  it.runIf(onWsl)('still accepts the flags where they mean something', async () => {
     // The refusal must not catch the combination that is the whole point: `--wsl --no-download`.
     // Measured through the real binary, so this cannot pass on a parse alone.
     const result = await run(['--wsl', '--no-download'], '')
@@ -118,23 +130,33 @@ describe('setup-temp refuses a flag it cannot honour', () => {
  * asserted rather than skipped.
  */
 describe('setup-temp --clear deletes the helper it wrote', () => {
-  it('removes the script, not just the setting', async () => {
-    const { isWsl, wslScriptPath } = await import('#src/providers/wsl-temperature')
+  it.runIf(onWsl)('removes the script, not just the setting', async () => {
+    const { wslScriptPath } = await import('#src/providers/wsl-temperature')
     const script = wslScriptPath()
-    if (!isWsl() || script === null) {
-      // Nothing is written on a non-WSL host, so the promise cannot be exercised here. Say so rather
-      // than pass silently: the case above already proves the flag is honoured.
-      expect(script).toBeNull()
-      return
-    }
+    expect(script, 'a WSL2 guest with the Windows drive mounted').not.toBeNull()
     // Set the bridge up for real (the library is already installed on this guest, and
     // `--no-download` refuses to fetch when it is not).
     const setup = await run(['--wsl', '--no-download'], '')
     expect(setup.code, 'the setup itself must succeed for this case to mean anything').toBe(0)
-    expect(fs.existsSync(script), `${script} must exist after setup`).toBe(true)
+    expect(fs.existsSync(script!), `${script} must exist after setup`).toBe(true)
 
     const cleared = await run(['--clear'], '')
     expect(cleared.code).toBe(0)
-    expect(fs.existsSync(script), `--clear promises to delete the helper, and ${script} survived`).toBe(false)
+    expect(fs.existsSync(script!), `--clear promises to delete the helper, and ${script} survived`).toBe(false)
   }, 180_000)
+
+  /**
+   * The other platform's answer, asserted rather than skipped: there is nothing to delete here, and
+   * `--clear` must still be honest about it rather than pretending to have removed a file.
+   */
+  it.runIf(!onWsl)('clears the setting alone where no helper can exist', async () => {
+    // The bridge cannot be installed here, so `--clear` has only the setting to clear — and it must
+    // say that, rather than claim to have deleted a helper it never found. This is the sentence a
+    // non-WSL user actually reads; the WSL case above proves the deletion.
+    const cleared = await run(['--clear'], '')
+    expect(cleared.code).toBe(0)
+    const said = cleared.stdout + cleared.stderr
+    expect(said, 'nothing to clear is the honest answer').toContain('nothing to clear')
+    expect(said, 'no helper was found, so none was deleted').not.toContain('deleted')
+  }, 60_000)
 })
