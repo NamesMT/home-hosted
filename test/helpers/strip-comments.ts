@@ -265,13 +265,42 @@ function stripMarkup(source: string): string {
  * after it was then read as markup, so the line's real comment survived — and a `<!--` in the same
  * string opened a "markup comment" that blanked the rest of the script. The close is the first one
  * the reader meets in code, which is also what the Vue compiler does.
+ *
+ * The **open** tag is read the same way: `/<script\b[^>]*>/` stops at a `>` inside an attribute
+ * value, so `<script generic="T extends Record<string, unknown>">` — legal, `errors: 0` in Vue's own
+ * SFC parser — began the block at the `"` that closes the attribute, and the string it opened ran
+ * over the lines below, leaving every comment in the block in place.
  */
 function stripVue(source: string): string {
   const out = source.split('')
   const scriptRanges: Array<[number, number]> = []
-  const opener = /<script\b[^>]*>/g
+  /** The `>` that closes an open tag, skipping any `>` inside a quoted attribute value. */
+  const tagEnd = (from: number): number => {
+    for (let at = from; at < source.length; at += 1) {
+      const char = source[at]
+      if (char === '"' || char === '\'') {
+        // An attribute value is quoted, so a `>` in it is data: `generic="T extends Record<K, V>"`.
+        const close = source.indexOf(char, at + 1)
+        if (close < 0)
+          return source.length
+        at = close
+      }
+      else if (char === '>') {
+        return at
+      }
+      else if (char === '\n') {
+        // An open tag is one line in every SFC this corpus writes; a stray `<script` in prose is not.
+        return -1
+      }
+    }
+    return -1
+  }
+  const opener = /<script\b/g
   for (let match = opener.exec(source); match !== null; match = opener.exec(source)) {
-    const start = match.index + match[0].length
+    const tagClosed = tagEnd(match.index + match[0].length)
+    if (tagClosed < 0)
+      continue
+    const start = tagClosed + 1
     const scanned = scanJavaScript(source, start, index => source.startsWith('</script>', index))
     // Only this block's span: a later scan starts from a fresh copy of the source, so copying all of
     // it would put an earlier block's comments back.

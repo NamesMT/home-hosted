@@ -219,3 +219,39 @@ describe('the `.vue` reader and `</script>` inside a script string', () => {
     expect(stripped).not.toContain('gone')
   })
 })
+
+/**
+ * A `.vue` open tag ends at the first `>` **outside** an attribute value.
+ *
+ * `<script\b[^>]*>` stops at the `>` inside `generic="T extends Record<string, unknown>"` — a
+ * constraint Vue's own SFC parser reads fine (`errors: 0`). The block then started mid-tag, at the
+ * `"` that closes the attribute, so the reader began inside a string that ran over the lines below
+ * it and every comment in the block survived — the false-positive direction, where a comment that
+ * merely *names* `structuredClone` fails a scan on a file with no call.
+ */
+describe('the `.vue` reader and a `>` inside a script attribute', () => {
+  it('does not end the open tag at a `>` inside an attribute value', () => {
+    const vue = [
+      '<script setup lang="ts" generic="T extends Record<string, unknown>">',
+      '// gone',
+      'const keep = structuredClone({ a: 1 })',
+      '</script>',
+      '<template><b>{{ keep }}</b></template>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'G.vue')
+    expect(stripped).toContain('const keep = structuredClone({ a: 1 })')
+    expect(stripped).not.toContain('gone')
+  })
+
+  it('reads a `>` in any attribute, not only in `generic`', () => {
+    const vue = [
+      '<script setup lang="ts" data-note="a > b">',
+      '// gone',
+      'const keep = 1',
+      '</script>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'H.vue')
+    expect(stripped).toContain('const keep = 1')
+    expect(stripped).not.toContain('gone')
+  })
+})

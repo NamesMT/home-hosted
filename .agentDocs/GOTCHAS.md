@@ -579,12 +579,26 @@ line in `AGENTS.md` instead.
     comment merely *naming* `structuredClone` failed `test/shared/ui-parity.test.ts`), and a `'<!--'`
     in the same string opened a markup comment that blanked real code after it. The block's end is
     now the first `</script>` the *script* reader meets in code, which is also what the Vue compiler
+    does;
+  - a block's **open tag** was found with `/<script\b[^>]*>/`, which stops at a `>` inside an
+    attribute value. `<script setup lang="ts" generic="T extends Record<string, unknown>">` is legal —
+    Vue's own SFC parser reads it and reports `errors: 0` — but the block then began at the `"` that
+    closes the attribute, inside a string that ran over the lines below, so **every comment in the
+    block survived**: a comment merely *naming* `structuredClone` failed `ui-parity` on a file with no
+    call. An open tag ends at the first `>` **outside** a quoted attribute, which is what the parser
     does.
   The fix is a frame stack, not a longer state list: a `${}` pushes a nested `code` frame, and a `}`
   with no braces left pops it. A regex follows any character a value may begin after, or a keyword
   (`return`, `typeof`, `case`), never merely a delimiter. **When a helper is the single reader for
   every guard, its test is a syntax tour of the *language*, not of the inputs already seen** — each
   case above is legal code this corpus contains today.
+  **The fifth cause was found by aiming the reader's own question back at it.** The four before it
+  were each a *token* read wrong; an open tag is not a token, it is markup, and the reader was
+  audited only on what came *after* the tag it found by pattern. What settles it is a differential
+  audit — the helper's output against the language's own parser over the whole corpus, blanked
+  comments and unchanged leaf tokens — which runs clean on 458 `.ts`/`.mjs` and 115 `.vue` files.
+  The `>` shape is not in the corpus, so the **language's** parser, not the corpus, is what says it
+  is legal; a corpus-diff audit alone cannot find a shape nobody has written yet.
 
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured
