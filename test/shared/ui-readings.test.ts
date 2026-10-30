@@ -2,8 +2,65 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { isGeometry, renderedExpressions } from '../helpers/template-render'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
+
+/**
+ * A reading rendered with a zero fallback, whichever local it travelled through.
+ *
+ * `liveReadings(...)` is the predicate, and a file rarely puts its result straight on screen: it
+ * holds it in a `computed`, then derives another `computed` from that one — `readings` →
+ * `responseMs` in `ServerDetail.vue`. Each hop is a name the template renders, so the scan follows
+ * the chain to a fixpoint. Only names a file bound *from the predicate* are followed, so a bare
+ * `cpuPercent` that came from config, or a function parameter, is not swept in.
+ */
+function zeroReadings(script: string, template: string): string[] {
+  const FIELDS = 'cpuPercent|rssBytes|responseMs|processes'
+  const locals = new Set<string>()
+  // `const live = liveReadings(server)`, `const readings = computed(() => liveReadings(...))`, and
+  // the whole result destructured.
+  for (const match of script.matchAll(/\bconst\s+(\w+)\s*=\s*([^\n]*)/g)) {
+    if (match[2]?.includes('liveReadings('))
+      locals.add(match[1]!)
+  }
+  for (const match of script.matchAll(/\{([^}]*)\}\s*=\s*liveReadings\(/g)) {
+    for (const part of (match[1] ?? '').split(',')) {
+      // `cpuPercent: cpu` binds `cpu`; a bare `rssBytes` binds itself.
+      const name = part.split(':').pop()?.trim()
+      if (name !== undefined && /^\w+$/.test(name))
+        locals.add(name)
+    }
+  }
+  // The hops after it, until nothing new is derived: `responseMs = computed(() => readings.value.responseMs)`.
+  for (let changed = true; changed;) {
+    changed = false
+    for (const match of script.matchAll(/\bconst\s+(\w+)\s*=\s*([^\n]*)/g)) {
+      const [name, init] = [match[1]!, match[2] ?? '']
+      if (locals.has(name))
+        continue
+      const fromReading = new RegExp(`\\.(?:${FIELDS})\\b`).test(init)
+        && [...locals].some(local => new RegExp(`\\b${local}\\b`).test(init))
+      if (fromReading) {
+        locals.add(name)
+        changed = true
+      }
+    }
+  }
+
+  const zero = /\?\?\s*0\b|\|\|\s*0\b/
+  const shapes = [
+    // The predicate's own field, read at the call site.
+    new RegExp(`liveReadings\\([^)]*\\)\\.(?:${FIELDS})`),
+    // Any local the chain reached.
+    ...(locals.size === 0 ? [] : [new RegExp([...locals].map(local => `\\b${local}\\b`).join('|'))]),
+  ]
+  return renderedExpressions(template)
+    .filter(expression => !isGeometry(expression))
+    .filter(expression => shapes.some(shape => shape.test(expression.text)))
+    .filter(expression => zero.test(expression.text))
+    .map(expression => expression.source)
+}
 
 /**
  * Both UIs read a process's numbers through one predicate.
@@ -117,6 +174,13 @@ describe('the UIs read a process’s numbers through one predicate', () => {
    * Only rendered text is checked. A `?? 0` in a *comparison* (`(… ?? 0) >= 1000` for a warning
    * tone) is a sentinel that means "no warning", not a number on screen, and flagging it would fail
    * working code.
+   *
+   * Reading only `liveReadings(...)`/`live.` in `{{ }}` was the same one-spelling matcher the host
+   * guard had: a reading destructured into a local, or handed to a component, walked past it.
+   * `:title="`probe ${responseMs ?? 0} ms`"` on a detail page stayed green, and that is the exact
+   * `0 ms` this rule exists to forbid. Every local a predicate result lands in is collected from the
+   * `<script>`, and every rendered expression is read — the shapes are shared with
+   * `test/shared/host-readings.test.ts` so the two guards cannot drift apart again.
    */
   it('renders an absent reading as unknown, never as a zero', () => {
     const offenders: string[] = []
@@ -134,19 +198,28 @@ describe('the UIs read a process’s numbers through one predicate', () => {
           if (start < 0)
             continue
           const rel = path.relative(root, full).replaceAll('\\', '/')
-          for (const text of source.slice(start).matchAll(/\{\{([\s\S]*?)\}\}/g)) {
-            // A predicate reading, or the local it was destructured into, with a zero fallback.
-            for (const zero of (text[1] ?? '').matchAll(/liveReadings\([^)]*\)\.\w+\s*\?\?\s*0\b|live\.\w+\s*\?\?\s*0\b/g))
-              offenders.push(`${rel}: {{ ${zero[0]} }}`)
-          }
+          for (const hit of zeroReadings(source.slice(0, start), source.slice(start)))
+            offenders.push(`${rel}: ${hit}`)
         }
       }
     }
     for (const name of ['stock', 'noc-console'])
       walk(path.join(root, 'uis', name, 'src'))
 
-    // Anti-vacuity: the walk must see the templates, not an empty directory.
+    // Anti-vacuity: the walk must see the templates, not an empty directory, and the matcher must
+    // reach every shape a reading is rendered through.
     expect(fs.existsSync(path.join(root, 'uis', 'noc-console', 'src', 'views', 'GlobalOverviewView.vue'))).toBe(true)
+    const direct = '{{ (liveReadings(server).cpuPercent ?? 0).toFixed(0) }}%'
+    expect(zeroReadings('', direct), 'the reported text shape').toHaveLength(1)
+    expect(zeroReadings('const live = liveReadings(server)', '{{ live.rssBytes ?? 0 }}'), 'the local a file already has').toHaveLength(1)
+    expect(zeroReadings('const { responseMs } = liveReadings(server)', `:title="\`probe ${'$'}{responseMs ?? 0} ms\`"`), 'a destructured local handed to a component').toHaveLength(1)
+    expect(zeroReadings('const { cpuPercent: cpu } = liveReadings(server)', '<b>{{ cpu ?? 0 }}</b>'), 'a renamed destructured local').toHaveLength(1)
+    // The hop that hid the real file: the predicate's result lands in a computed, and the template
+    // renders a second computed derived from it.
+    expect(zeroReadings('const readings = computed(() => liveReadings(props.server))\nconst responseMs = computed(() => readings.value.responseMs)', `:title="\`probe ${'$'}{responseMs ?? 0} ms\`"`), 'a second computed derived from the predicate').toHaveLength(1)
+    expect(zeroReadings('', '{{ cpuPercent === null ? \'—\' : cpuPercent }}'), 'a guarded read is the fix, not the defect').toHaveLength(0)
+    // A zero that picks a colour or an empty bar is not a number a person reads.
+    expect(zeroReadings('const { responseMs } = liveReadings(server)', ':class="{ warn: (responseMs ?? 0) >= 1000 }"'), 'a class is not text').toHaveLength(0)
     expect(offenders, 'an absent reading rendered as a zero reads as a measured idle process').toEqual([])
   })
 })

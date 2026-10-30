@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { hostSchema } from '#src/shared/contracts'
 import { HOST_ALERT_DEFAULTS, hostReadings, LOAD_ALERT_PER_CPU_DEFAULT, tempDialPercent, tempScale } from '#src/shared/host-readings'
+import { stripComments } from '../helpers/strip-comments'
+import { isGeometry, renderedExpressions } from '../helpers/template-render'
 
 /**
  * A host frame with no sample has no readings, and the panel's own pages said otherwise.
@@ -148,10 +150,30 @@ describe('hostReadings', () => {
 const MEASUREMENTS = 'cpuUsedPercent|memoryUsedPercent|swapUsedPercent|loadAvg|tempCelsius|disks'
 
 function sourceOf(rel: string): string {
-  // Comments name the fields to explain the rule, so only code is read.
-  return fs.readFileSync(path.join(root, rel), 'utf8')
-    .replaceAll(/\/\*[\s\S]*?\*\//g, '')
-    .replaceAll(/^\s*\/\/.*$/gm, '')
+  // Comments name the fields to explain the rule, so only code and markup are read. The stripper
+  // knows a `.vue` file is markup plus script (`test/helpers/strip-comments.ts`): the old line-based
+  // pattern ended a line at the `//` in `placeholder="http://…"` and hid the markup after it.
+  return stripComments(fs.readFileSync(path.join(root, rel), 'utf8'), rel)
+}
+
+/**
+ * A measurement rendered with a zero fallback, in every shape a template renders one.
+ *
+ * Reading only `{{ }}` was a matcher for one spelling, not for the rule: a measurement handed to a
+ * component (`:value`, `:display`) or set through `v-text`/`v-bind` never appeared in an
+ * interpolation, so `:display="\`${Math.round(readings.tempCelsius ?? 0)}°C\`"` stayed green — a
+ * fabricated `0 °C` in the tile that exists to warn about heat.
+ *
+ * A `?? 0` that sizes a bar or picks a class is *not* this defect: it chooses an empty bar, not a
+ * number a person reads. That is why `:style` and `:class` are the only bound attributes excused,
+ * and why they are excused by what they render rather than by the helper they call.
+ */
+function zeroFallbacksOnReadings(template: string): string[] {
+  return renderedExpressions(template)
+    .filter(expression => !isGeometry(expression))
+    .filter(expression => new RegExp(`\\b(?:${MEASUREMENTS})\\b`).test(expression.text))
+    .filter(expression => /\?\?\s*0\b|\|\|\s*0\b/.test(expression.text))
+    .map(expression => expression.source)
 }
 
 function vueFiles(dir: string, found: string[] = []): string[] {
@@ -211,8 +233,7 @@ describe('the panel reads host measurements from one module', () => {
    * The render half, which is where the defect actually was: `(host?.memoryUsedPercent ?? 0)`.
    *
    * Every `.vue` under both UIs is read, not the declared list — the declared list is a fixture
-   * that rots, and the surface nobody thought of yet is the one that matters. Only `{{ }}` text is
-   * checked: a `?? 0` in a comparison chooses an empty bar, not a number on screen.
+   * that rots, and the surface nobody thought of yet is the one that matters.
    */
   it('renders a host measurement with no zero fallback', () => {
     const offenders: string[] = []
@@ -222,21 +243,19 @@ describe('the panel reads host measurements from one module', () => {
         const start = source.indexOf('<template>')
         if (start < 0)
           continue
-        for (const text of source.slice(start).matchAll(/\{\{([\s\S]*?)\}\}/g)) {
-          const expression = text[1] ?? ''
-          if (!new RegExp(`\\b(?:${MEASUREMENTS})\\b`).test(expression))
-            continue
-          if (/\?\?\s*0\b|\|\|\s*0\b/.test(expression))
-            offenders.push(`${rel}: {{ ${expression.trim()} }}`)
-        }
+        for (const hit of zeroFallbacksOnReadings(source.slice(start)))
+          offenders.push(`${rel}: ${hit}`)
       }
     }
-    // Anti-vacuity: the walk must reach the templates, and the matcher must see the old shape.
+    // Anti-vacuity: the walk must reach the templates, and the matcher must see every shape a
+    // measurement is rendered through — text, a component prop, a bound attribute.
     expect(vueFiles(path.join(root, 'uis', 'noc-console', 'src')).length).toBeGreaterThan(20)
-    const planted = '{{ (host?.memoryUsedPercent ?? 0).toFixed(1) }}%'
-    const expression = /\{\{([\s\S]*?)\}\}/.exec(planted)![1]!
-    expect(new RegExp(`\\b(?:${MEASUREMENTS})\\b`).test(expression)).toBe(true)
-    expect(/\?\?\s*0\b|\|\|\s*0\b/.test(expression)).toBe(true)
+    expect(zeroFallbacksOnReadings('{{ (host?.memoryUsedPercent ?? 0).toFixed(1) }}%'), 'the old text shape').toEqual(['{{ (host?.memoryUsedPercent ?? 0).toFixed(1) }}'])
+    expect(zeroFallbacksOnReadings(':value="readings.memoryUsedPercent ?? 0"'), 'a measurement handed to a component').toHaveLength(1)
+    expect(zeroFallbacksOnReadings(`:display="\`${'$'}{Math.round(host.tempCelsius ?? 0)}°C\`"`), 'a measurement rendered through a prop').toHaveLength(1)
+    expect(zeroFallbacksOnReadings('v-text="host.swapUsedPercent ?? 0"'), 'the same value through v-text').toHaveLength(1)
+    expect(zeroFallbacksOnReadings(`:style="{ width: \`${'$'}{clamp(host.loadAvg[0] ?? 0, 0, 100)}%\` }"`), 'a bar width is an empty bar, not a number').toHaveLength(0)
+    expect(zeroFallbacksOnReadings(':class="{ warn: (host.swapUsedPercent ?? 0) > 90 }"'), 'a class is not text either').toHaveLength(0)
     expect(offenders, 'a host measurement rendered with a zero fallback reads as a measured idle machine').toEqual([])
   })
 })

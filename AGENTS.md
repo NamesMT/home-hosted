@@ -152,7 +152,8 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A browser API that needs a secure context is absent on the origin the docs promise.** Guard the
   feature, not the call: `copyText` (`uis/stock/src/lib/clipboard.ts`) falls back to `execCommand` and
   returns a verdict, or a button is dead on a LAN page; `uis/stock/test/clipboard-source.test.ts`
-  fails any other file that names `navigator.clipboard`.
+  fails any other file that reaches the clipboard object — `navigator.clipboard`,
+  `navigator['clipboard']` and `const { clipboard } = navigator` are one rule, not three spellings.
 - **A row of chrome is measured at 320 px with the tap floor counted.** No mount can measure a
   layout, so `uis/stock/test/topbar-width.test.ts` pins the declarations that keep the title from
   collapsing to 0 px.
@@ -202,7 +203,11 @@ workspace config guard, so a busy default port turns config tests red for the wr
   in the rail on every screen. One predicate decides a host's readings (`hostReadings`,
   `src/shared/host-readings.ts`); a surface renders it, never the frame. The wire fields stay
   `number` because an overridden older UI in `.hh/.ui` calls `.toFixed()` on them.
-  `test/shared/host-readings.test.ts` walks every `.vue` for a `?? 0` on one of those fields.
+  `test/shared/host-readings.test.ts` walks every `.vue` for a `?? 0` on one of those fields, in
+  **any** shape a template renders one — `{{ }}`, a bound attribute (`:value`, `:display`) or
+  `v-text` — because reading only the interpolation missed a fabricated `0 °C` in a `:display` prop.
+  The scan shares its template reader with `test/shared/ui-readings.test.ts`
+  (`test/helpers/template-render.ts`), so the two cannot drift apart again.
 - **A reading is labelled with what it measured, and a fallback must measure the same thing.** The
   "CPU temp" tile took `Math.max` over every hwmon chip, so a box with an NVMe reported the **disk's**
   temperature as the CPU's — and fired the temperature alert on it. Pick the sensor *by name*
@@ -258,7 +263,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   *render* must carry the absence too: a percent goes through `pct`
   (`uis/noc-console/src/lib/format.ts`), because `{{ (… ?? 0).toFixed(0) }}%` put a measured `0%`
   on every stopped entry of the panel-wide overview, and `test/shared/ui-readings.test.ts` walks
-  every UI template for that shape. **A chart is the same render**: an absent point stays absent in
+  every UI template for that shape — following the reading into whatever local it was *destructured*
+  or *derived* into, since `const { responseMs } = liveReadings(...)` and a second `computed` are the
+  same number on screen. **A chart is the same render**: an absent point stays absent in
   the series and the line breaks at it — `sparkSegments` (`uis/noc-console/src/lib/format.ts`) and
   stock's `components/telemetry/Sparkline.vue` — because a zero vertex drew a stopped entry as a flat
   line on the floor: a measured `0%` by eye, on every page the number beside it had already been
@@ -334,7 +341,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   the DDNS form, where removing one hostname left every later edit unable to publish a patch. One
   helper (`clonePlain`, `src/shared/clone.ts`) rebuilds plain objects at every level and needs no Vue,
   which is what lets the form logic live in `src/shared` rather than once per UI; a scan fails any UI
-  source that names `structuredClone`.
+  source that names `structuredClone`. **The scan reads the source, and it must strip comments without
+  eating code** — a `/*` inside a glob string opened a "comment" that closed at the next real one and
+  deleted the statements between them (`test/helpers/strip-comments.ts`).
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank

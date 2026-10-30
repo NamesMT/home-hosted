@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from '../helpers/strip-comments'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
@@ -123,18 +124,16 @@ describe('the UIs share one DDNS form', () => {
    * The bug itself, scanned where it can still appear: any `structuredClone` the UIs hand a value
    * that came out of a reactive form. The DDNS section's rows are the reported case, but the same
    * mistake was in the route dialogs and `cloneRoutes`.
+   *
+   * The scan used to strip comments with two regexes and justify it as "no string here contains
+   * `//`" — an assumption about the corpus, not a property of the scanner. The corpus already broke
+   * it: `uis/stock/src/i18n/index.ts` holds `'../../i18n/generated/**\/*.json'`, so the block pattern
+   * opened at that `/*` and closed at the end of the *next* comment — deleting the `createI18n(...)`
+   * call between them. A `structuredClone` planted on the line after that glob stayed green. The
+   * stripper now tracks what it is inside of (`test/helpers/strip-comments.ts`).
    */
   it('never clones a form value with `structuredClone`', () => {
     const offenders: string[] = []
-    /**
-     * Comments are stripped first: these files discuss the bug by name, and a scan a comment can
-     * trip would fail on its own explanation. Only the block and whole-line forms are removed,
-     * which is every comment shape these sources use — no string here contains `//`.
-     */
-    const code = (source: string): string => source
-      .replaceAll(/\/\*[\s\S]*?\*\//g, '')
-      .replaceAll(/^\s*\/\/.*$/gm, '')
-
     const walk = (dir: string): void => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = path.join(dir, entry.name)
@@ -143,7 +142,7 @@ describe('the UIs share one DDNS form', () => {
             continue
           walk(full)
         }
-        else if (/\.(?:ts|vue)$/.test(entry.name) && /structuredClone/.test(code(fs.readFileSync(full, 'utf8')))) {
+        else if (/\.(?:ts|vue)$/.test(entry.name) && /structuredClone/.test(stripComments(fs.readFileSync(full, 'utf8'), entry.name))) {
           offenders.push(path.relative(root, full).replaceAll('\\', '/'))
         }
       }
@@ -151,8 +150,12 @@ describe('the UIs share one DDNS form', () => {
     for (const ui of ['stock', 'noc-console'])
       walk(path.join(root, 'uis', ui, 'src'))
 
-    // Anti-vacuity: the walk sees the UI sources.
+    // Anti-vacuity: the walk sees the UI sources, and the stripper keeps a call a comment merely
+    // mentions while removing the comment itself.
     expect(fs.existsSync(path.join(root, 'uis', 'stock', 'src', 'lib', 'proxy.ts'))).toBe(true)
+    expect(stripComments('// structuredClone(toRaw(x)) is the bug'), 'a comment is stripped').not.toContain('structuredClone')
+    expect(stripComments('const g = import.meta.glob(\'../**/*.json\')\nconst c = structuredClone(x)'), 'a glob star is not a comment').toContain('structuredClone')
+    expect(stripComments('const url = \'http://h:6181\'\nstructuredClone(x)'), 'a // in a URL is not a comment').toContain('structuredClone')
     expect(offenders).toEqual([])
   })
 })

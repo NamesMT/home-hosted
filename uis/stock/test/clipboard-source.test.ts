@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { stripComments } from '../../../test/helpers/strip-comments'
 
 /**
  * The class rule behind the copy-button fix: **a copy is only ever `copyText`**.
@@ -19,11 +20,22 @@ import { describe, expect, it } from 'vitest'
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 const srcDir = path.join(root, 'src')
 
-/** Comments removed, so a docstring quoting the API is not read as a call. */
-function withoutComments(source: string): string {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '')
+/**
+ * Reaching the clipboard object, in every spelling that gets hold of it.
+ *
+ * The matcher was `navigator\s*\.\s*clipboard` — one spelling, not the API. `navigator['clipboard']`
+ * and `const { clipboard } = navigator` are ordinary code, each reaches the same object, and each
+ * walked past it: measured by planting all three in `CopyButton.vue` and watching this file stay
+ * green. So the scan reads the *reach* — a property, a bracket, or a destructure out of `navigator`.
+ *
+ * The word alone is not the rule: `import { copyText } from '@/lib/clipboard'` is correct code and
+ * contains it, which is why the import path is not a match here.
+ */
+const REACH = /navigator\s*(?:\.\s*clipboard|\[\s*['"`]clipboard['"`]\s*\])|\{[^}]*\bclipboard\b[^}]*\}\s*=\s*navigator/g
+
+/** Every place a source reaches the clipboard object, comments excluded. */
+function clipboardReaches(source: string): string[] {
+  return [...stripComments(source).matchAll(REACH)].map(match => match[0])
 }
 
 describe('the clipboard has one writer', () => {
@@ -31,6 +43,18 @@ describe('the clipboard has one writer', () => {
     const files = fs.readdirSync(srcDir, { recursive: true, withFileTypes: true })
       .filter(entry => entry.isFile() && /\.(?:ts|vue)$/.test(entry.name))
     expect(files.length).toBeGreaterThan(20)
+  })
+
+  /**
+   * Anti-vacuity for the matcher itself: the three spellings an author writes, and the two
+   * non-offences that would make this guard fail on correct code.
+   */
+  it('reaches the API in every spelling, or the matcher is decoration', () => {
+    expect(clipboardReaches('navigator.clipboard.writeText(t)'), 'the spelling it already caught').toHaveLength(1)
+    expect(clipboardReaches('navigator[\'clipboard\'].writeText(t)'), 'bracket access').toHaveLength(1)
+    expect(clipboardReaches('const { clipboard } = navigator\nclipboard?.writeText(t)'), 'a destructured alias').toHaveLength(1)
+    expect(clipboardReaches('// navigator.clipboard is absent on http, so copyText guards it'), 'a comment is not a call').toHaveLength(0)
+    expect(clipboardReaches('import { copyText } from \'@/lib/clipboard\''), 'the import path is not a reach').toHaveLength(0)
   })
 
   it('routes every clipboard write through the helper', () => {
@@ -43,8 +67,10 @@ describe('the clipboard has one writer', () => {
       // The helper itself is where the API belongs.
       if (relative === path.join('lib', 'clipboard.ts'))
         continue
-      const source = withoutComments(fs.readFileSync(file, 'utf8'))
-      for (const match of source.matchAll(/navigator\s*\.\s*clipboard/g)) {
+      // Comments stripped by a stripper that knows a `//` in a URL is not a comment: the helper's
+      // own docstring quotes `http://` addresses, and the old line-based strip truncated them.
+      const source = stripComments(fs.readFileSync(file, 'utf8'), entry.name)
+      for (const match of source.matchAll(REACH)) {
         const line = source.slice(0, match.index).split('\n').length
         offenders.push(`${relative}:${line}`)
       }

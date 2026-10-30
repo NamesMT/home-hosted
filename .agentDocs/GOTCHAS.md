@@ -506,6 +506,28 @@ line in `AGENTS.md` instead.
   needs a `confirm` in the identifier is defeated by calling the ref `asking`, which is a rename, not
   a fix.
 
+- **A source scan's matcher is a claim about every spelling, and its comment stripper is a claim
+  about the corpus.** Four guards here audited as decoration in one sitting, each for its own reason:
+  `test/shared/host-readings.test.ts` read only `{{ }}`, so a `?? 0` in a `:display` prop stayed green
+  — a fabricated `0 °C` in the tile that exists to warn about heat; `test/shared/ui-readings.test.ts`
+  read only `liveReadings(...)`/`live.` literally, so a reading destructured out
+  (`const { responseMs } = liveReadings(server)`) or reached through a second `computed` was invisible,
+  and `:title="`probe ${responseMs ?? 0} ms`"` stayed green; `test/shared/ui-parity.test.ts` claimed
+  "no string here contains `//`", which the corpus already contradicted — `uis/stock/src/i18n/index.ts`
+  holds `'../../i18n/generated/**/*.json'`, so its block pattern opened at that `/*` and closed at the
+  end of the *next* comment, deleting the `createI18n(...)` call between them, and a real
+  `structuredClone` planted there stayed green; `uis/stock/test/clipboard-source.test.ts` matched
+  `navigator.clipboard` literally, so `navigator['clipboard']` and `const { clipboard } = navigator`
+  both walked past it. Each was found the same way — **break the thing in the source and watch the
+  file** — and each fix reads the *reach* rather than a spelling: `test/helpers/template-render.ts`
+  collects every rendered expression (`{{ }}`, `:x`, `v-bind`, `v-text`, `v-html`) and leaves
+  `:style`/`:class` out because a bar's width is not a number on screen;
+  `test/helpers/strip-comments.ts` walks the source tracking code/string/template/regex, and reads a
+  `.vue` as markup plus `<script>` blocks, because `placeholder="http://10.0.0.5:8080"` in a template
+  made the line pattern truncate the rest of the line. A guard that reports a `:line` must keep the
+  line count while blanking comments — both helpers replace comment characters with spaces for that
+  reason.
+
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured
   `undefined` from `http://192.168.1.201:6181` and `object` from `http://127.0.0.1:6181` on the same
