@@ -457,6 +457,20 @@ line in `AGENTS.md` instead.
   `request failed with 409` in the toast while the card beside it printed the sentence in full. The
   CLI read `error` first and had always been right. One reader (`failureMessage`) plus a source scan,
   because a unit test cannot see a call site nobody has written yet.
+  **And the scan that was written read the sentence, not the defect.** Its pattern was
+  `.message ?? \`request failed with` — the wording of the one call site that was measured. Two
+  spellings of the same defect walked past it, both measured: the identical branch ending
+  `` \`request failed (${response.status})\` ``, and a payload destructured first
+  (`const { message } = payload ?? {}`) so no `.message ??` sits on the error at all. A phrase match
+  is a claim about one author's English; the rule is "a failed response is answered from the panel's
+  own sentence". So the scan reads the construct: a Response is whatever an `await fetch(...)` or
+  `await …$post(...)` bound, a failure is a branch testing that binding's `ok`, and a branch that
+  throws must answer through the helper; `response.status` rendered as text is refused on its own.
+  Two boundary notes, since they are what a future author needs. An unbraced branch ends at its own
+  line — reading to the next `)` ran into the *following* function, whose `failureMessage` call then
+  vouched for the broken branch, so that plant stayed green until the reader was bounded. And an
+  `ok`-bearing **delivery result** (`sendTelegramTest`) is not a Response and has no status to leak,
+  which is why the binding, not the field name, is what the scan follows.
 - **A lazily-loaded catalog must never block the mount.** It is a network fetch, and a rejection that
   skipped the mount is a blank page with no way back. English is bundled, so `main.ts` mounts in
   `finally` and the worst case is an English panel.

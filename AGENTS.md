@@ -246,7 +246,11 @@ workspace config guard, so a busy default port turns config tests red for the wr
   `request failed with 409` for the other, losing the only sentence that explains the refusal while
   the card beside it prints that sentence in full. Read both in **one** helper
   (`failureMessage`, `src/shared/api-client.ts`) and scan for the hand-rolled fallback — a unit test
-  cannot see a call site that has not been written yet.
+  cannot see a call site that has not been written yet. **The scan reads the construct, not the
+  sentence**: a phrase-match on `` `request failed with …` `` passed a branch that rewrote the wording
+  and one that destructured `message` before falling back. It reads the awaited `fetch`/`rpc.$post`
+  binding and the `!response.ok` branch, and refuses a refusal that throws without the helper or
+  renders `response.status` as text (`test/shared/action-failure-message.test.ts`).
 - **A state and the streak behind it are written together.** `health`, `healthFailures` and
   `unhealthySince` describe one process's run, so a path that resets one and leaves the others
   reports a duration that keeps counting while nothing is measured — measured as `status=crashed
