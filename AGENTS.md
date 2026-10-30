@@ -127,6 +127,16 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).
+- **A duration a person edits is in the unit its schema floor allows, on every surface.** A field whose
+  floor is a second or more has no sub-second value, so its box edits seconds and converts with
+  `msToSeconds`/`secondsToMs` (`src/shared/ui-format.ts`); below that (`health.intervalMs` 500,
+  `health.timeoutMs` 100) ms stays, because seconds would round the field's whole accepted range away.
+  `cooldownMs`' floor is `0` — the "off" sentinel — and every other value is whole seconds. **The guard
+  reads every UI's sources, not one UI's catalog**: this was announced as done for both UIs while
+  `noc-console` kept raw millisecond boxes, so one panel showed `120` where the other showed `120000`
+  for one setting (`test/shared/ms-fields-seconds.test.ts`). A field name is not a field — `intervalMs`
+  is declared four times with four floors — so a scan names the object a box reads through. An emptied
+  seconds box is `NaN`, never `0`, which would store "every 0 seconds" or silently disable the throttle.
 - **A reader that hangs up is a finished conversation, not a crash.** `treatClosedReaderAsDone()`
   (`src/cli/io.ts`) is installed **once** at the entry; only `EPIPE` is the reader leaving
   (`test/cli/epipe.test.ts`). Why not `SIGPIPE`: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).

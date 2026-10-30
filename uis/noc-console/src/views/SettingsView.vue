@@ -5,6 +5,7 @@ import type { Patch } from '@shared/patch-diff'
 import { ddnsConfigPatch, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges, diffFields, mergeReplacedList, replacedListConflicts } from '@shared/patch-diff'
+import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import DdnsPanel from '@/components/DdnsPanel.vue'
@@ -13,7 +14,7 @@ import { useControlPlane } from '@/composables/useControlPlane'
 import { changesOpen } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
-import { repairNumbers } from '@/lib/forms'
+import { repairNumbers, secondsOf } from '@/lib/forms'
 
 /**
  * The selected workspace's own groups: server defaults, log retention,
@@ -157,6 +158,21 @@ const POLICY_TOGGLES = [
 /** A row's own message (test result, token saved), by destination id. */
 const hookResults = ref<Record<string, string>>({})
 const hookError = ref<string | null>(null)
+
+/**
+ * The throttle, edited in seconds and stored in milliseconds.
+ *
+ * One helper for the general block and for a destination's own copy, because they are the same
+ * field twice: a fix in one binding is how the two drifted into different units. `0` is the "off"
+ * sentinel and survives the round trip; a cleared box reports `''`, whose `Number()` is `0` — a
+ * silent *disable* of the throttle — so it keeps the value that was there.
+ */
+function setCooldown(target: { cooldownMs: number }, event: Event): void {
+  const seconds = secondsOf(event)
+  if (Number.isNaN(seconds))
+    return
+  target.cooldownMs = secondsToMs(seconds)
+}
 
 function uniqueId(kind: DestinationDraft['kind']): string {
   const existing = new Set(form.notifications.destinations.map(entry => entry.id))
@@ -736,8 +752,10 @@ async function sendTest(): Promise<void> {
                 <span class="field__label">{{ toggle.label }}</span>
               </label>
               <label class="field">
-                <span class="field__label">cooldown (ms)</span>
-                <input v-model.number="form.notifications.policy.cooldownMs" inputmode="numeric">
+                <!-- Seconds, stored as ms: the floor is 0 (off), and every other value a person
+                     means is a whole second. A cleared box keeps the live value. -->
+                <span class="field__label">cooldown (s)</span>
+                <input :value="msToSeconds(form.notifications.policy.cooldownMs)" inputmode="numeric" @input="setCooldown(form.notifications.policy, $event)">
                 <span class="field__hint">per destination, server and reason</span>
               </label>
             </div>
@@ -801,8 +819,8 @@ async function sendTest(): Promise<void> {
                     <span class="field__label">{{ toggle.label }}</span>
                   </label>
                   <label class="field">
-                    <span class="field__label">cooldown (ms)</span>
-                    <input v-model.number="entry.cooldownMs" inputmode="numeric">
+                    <span class="field__label">cooldown (s)</span>
+                    <input :value="msToSeconds(entry.cooldownMs)" inputmode="numeric" @input="setCooldown(entry, $event)">
                   </label>
                 </template>
               </div>

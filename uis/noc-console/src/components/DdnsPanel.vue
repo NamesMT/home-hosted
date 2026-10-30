@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import type { DdnsConfig, DdnsProviderInfo, DdnsRecordState, DdnsRecordType } from '@shared/contracts'
 import type { DraftAccount, DraftConfig, DraftDomain } from '@shared/ddns-form'
-import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, toDdnsConfig } from '@shared/ddns-form'
+import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
+import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
 import { formatAgo } from '@/lib/format'
-import { repairNumbers } from '@/lib/forms'
+import { repairNumbers, secondsOf } from '@/lib/forms'
 
 /**
  * The policy rides the page's patch, so the settings Save writes it; only credentials
@@ -265,8 +266,11 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
           <span class="field__label">keep dynamic DNS updated</span>
         </label>
         <label class="field">
-          <span class="field__label">check every (ms)</span>
-          <input v-model.number="draft.intervalMs" inputmode="numeric" min="60000" step="60000">
+          <!-- Seconds, stored as ms: the floor is 60 s, so no sub-second value exists to lose.
+               A cleared box reports `''`, which `requiredDdnsNumber` turns back into the schema's
+               default rather than a `NaN` the whole workspace save is refused for. -->
+          <span class="field__label">check every (s)</span>
+          <input :value="msToSeconds(draft.intervalMs)" inputmode="numeric" min="60" step="60" @input="draft.intervalMs = requiredDdnsNumber(secondsToMs(secondsOf($event)), 'intervalMs')">
         </label>
         <label class="field">
           <span class="field__label">ttl (s, 1 = auto)</span>

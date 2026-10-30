@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { ddnsConfigSchema, settingsPatchSchema, workspaceSettingsPatchSchema } from '@shared/contracts'
 import { cloneDdnsConfig, ddnsConfigPatch, newDraftDomainKey } from '@shared/ddns-form'
 import { describe, expect, it } from 'vitest'
-import { detachConfig, isLiveConfigChange, repairNumbers } from '../src/lib/forms'
+import { detachConfig, isLiveConfigChange, repairNumbers, secondsOf } from '../src/lib/forms'
 
 /**
  * `v-model.number` writes an empty **string** when an `<input type="number">` is cleared —
@@ -222,5 +222,32 @@ describe('the DDNS patch', () => {
     draft.domains = draft.domains.map(domain => ({ ...domain, key: newDraftDomainKey() }))
 
     expect(ddnsConfigPatch(live, draft)).toBeNull()
+  })
+})
+
+/**
+ * A seconds box hands its value back as a number, and a cleared one as `NaN`.
+ *
+ * `Number('')` is `0`, so reading an emptied input naively stores "every 0 seconds" for a field
+ * whose floor is a minute, and silently *disables* the notification throttle whose off sentinel is
+ * also `0` — two different wrong answers from one empty box. `NaN` is the shape both callers
+ * already treat as "nothing was decided here".
+ */
+describe('secondsOf', () => {
+  const fromValue = (value: string): Event => ({ target: { value } }) as unknown as Event
+
+  it('reads the seconds a box reports', () => {
+    expect(secondsOf(fromValue('60'))).toBe(60)
+    expect(secondsOf(fromValue(' 120 '))).toBe(120)
+    expect(secondsOf(fromValue('0'))).toBe(0)
+  })
+
+  it('reports a cleared or blank box as NaN, never as zero', () => {
+    expect(secondsOf(fromValue(''))).toBeNaN()
+    expect(secondsOf(fromValue('   '))).toBeNaN()
+  })
+
+  it('reports text it cannot read as NaN, so the field keeps its value', () => {
+    expect(secondsOf(fromValue('soon'))).toBeNaN()
   })
 })

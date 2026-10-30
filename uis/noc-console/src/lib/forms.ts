@@ -85,3 +85,16 @@ export function isLiveConfigChange(next: unknown, snapshot: unknown): boolean {
 export function detachConfig<T>(config: T): T {
   return clonePlain(config)
 }
+
+/**
+ * The seconds an `<input>` reports, as a number.
+ *
+ * A box a person cleared reports `''`, and `Number('')` is `0` — which would store "every 0
+ * seconds" for a field whose floor is a minute. `NaN` is what both callers already treat as
+ * "nothing decided here": `repairNumbers` restores the live value, and `requiredDdnsNumber` falls
+ * back to the schema default.
+ */
+export function secondsOf(event: Event): number {
+  const raw = (event.target as HTMLInputElement).value.trim()
+  return raw.length === 0 ? Number.NaN : Number(raw)
+}

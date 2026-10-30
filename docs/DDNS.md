@@ -42,7 +42,7 @@ Header fields:
 | Field | Default | Notes |
 | --- | --- | --- |
 | `enabled` | `false` | Nothing runs until this is on. |
-| `intervalMs` | `300000` | How often the public address is re-checked. |
+| `intervalMs` | `300000` | How often the public address is re-checked. The settings box edits this in **seconds** (`60` is one minute) and writes milliseconds. |
 | `ipv4` / `ipv6` | on / off | Which families to detect. A family must be on for its record types. |
 | `ipv4.url` / `ipv6.url` | `""` | Override the detector with one endpoint. |
 | `ttl` | `1` | Default record TTL; `1` is automatic where supported. |
