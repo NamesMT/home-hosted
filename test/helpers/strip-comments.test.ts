@@ -255,3 +255,111 @@ describe('the `.vue` reader and a `>` inside a script attribute', () => {
     expect(stripped).not.toContain('gone')
   })
 })
+
+/**
+ * A `<!--` written as an **attribute value** is a character, not a comment.
+ *
+ * `:title="'<!--'"` is how a template shows that literal to a person, and the markup reader opened
+ * a comment at it and swallowed everything up to the next `-->`. Measured on the exact input a
+ * render scan reads: a template with that attribute followed by
+ * `{{ (host?.memoryUsedPercent ?? 0) }}` — the fabricated zero in the tile that exists to warn
+ * about heat — and the scan found **nothing**, while the same template without the attribute was
+ * seen. Text between tags is *not* quoted (`it's fine` holds an apostrophe), so the skip applies
+ * only inside a tag.
+ */
+describe('the `.vue` reader and a `<!--` in an attribute value', () => {
+  it('does not open a comment at a `<!--` inside an attribute', () => {
+    const vue = [
+      '<template>',
+      '  <p :title="\'<!--\'">a literal</p>',
+      '  <b>{{ (host?.memoryUsedPercent ?? 0) }}%</b>',
+      '</template>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'Attr.vue')
+    expect(stripped).toContain('(host?.memoryUsedPercent ?? 0)')
+    expect(stripped).toContain('a literal')
+  })
+
+  it('does not read an apostrophe between tags as the start of a value', () => {
+    // The mirror of the case above: text is not a context where a quote begins anything, so the
+    // real comment after it must still be blanked.
+    const vue = [
+      '<template>',
+      '  <p>it\'s fine</p>',
+      '  <!-- gone -->',
+      '  <b>{{ live }}</b>',
+      '</template>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'Text.vue')
+    expect(stripped).toContain('it\'s fine')
+    expect(stripped).not.toContain('gone')
+    expect(stripped).toContain('{{ live }}')
+  })
+
+  it('blanks a `<!--` in a `<style>` block, where it is not markup at all', () => {
+    // A `<style>` holds CSS and this reader never reads it for a value, but the block must not
+    // open a markup comment that runs over the template.
+    const vue = [
+      '<script setup lang="ts">',
+      'const x = 1',
+      '</script>',
+      '<template>',
+      '  <b>{{ x }}</b>',
+      '</template>',
+    ].join('\n')
+    expect(stripComments(vue, 'Style.vue')).toContain('{{ x }}')
+  })
+})
+
+/**
+ * A `<style>` block is CSS, and the reader used to read it as markup — wrong in **both** directions.
+ *
+ * Vue's own SFC parser accepts `<style>` before `<template>` (`errors: 0`), and in that order a
+ * `content: "<!--"` opened a markup comment that ran to the end of the file: measured, a planted
+ * `{{ (host?.memoryUsedPercent ?? 0) }}` in the template below was invisible to the render scan.
+ * The other direction failed loudly: a CSS comment naming `structuredClone` is prose, but markup has
+ * no comment syntax of its own, so it survived into `test/shared/ui-parity.test.ts` and failed that
+ * guard on a file with no call.
+ */
+describe('the `.vue` reader and a `<style>` block', () => {
+  it('reads a `<!--` in a style block as CSS content, not as a markup comment', () => {
+    const vue = [
+      '<script setup lang="ts">const x = 1</script>',
+      '<style scoped>',
+      '.probe::after { content: "<!--"; }',
+      '</style>',
+      '<template>',
+      '  <b>{{ (host?.memoryUsedPercent ?? 0) }}</b>',
+      '</template>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'Style.vue')
+    expect(stripped).toContain('(host?.memoryUsedPercent ?? 0)')
+    expect(stripped).toContain('.probe::after')
+  })
+
+  it('blanks a CSS comment in a style block, so its prose cannot fail a scan', () => {
+    const vue = [
+      '<template>',
+      '  <b>{{ x }}</b>',
+      '</template>',
+      '<style scoped>',
+      '/* the form detaches with structuredClone(toRaw(...)) — never do that */',
+      '.a { color: red }',
+      '</style>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'Note.vue')
+    expect(stripped).not.toContain('structuredClone')
+    expect(stripped).toContain('.a { color: red }')
+  })
+
+  it('leaves the markup around a style block alone, in either order', () => {
+    for (const blocks of [
+      ['<template>\n  <b>{{ x }}</b>\n</template>', '<style>\n.a { color: red }\n</style>'],
+      ['<style>\n.a { color: red }\n</style>', '<template>\n  <b>{{ x }}</b>\n</template>'],
+    ]) {
+      const stripped = stripComments(blocks.join('\n'), 'Order.vue')
+      expect(stripped).toContain('{{ x }}')
+      expect(stripped).toContain('.a { color: red }')
+    }
+  })
+})

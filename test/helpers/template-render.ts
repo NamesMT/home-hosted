@@ -9,7 +9,8 @@
  * past `test/shared/ui-readings.test.ts`.
  *
  * `:style` and `:class` are returned like every other binding; a caller decides whether a bar's
- * width counts, because that is a judgement about the surface, not about template syntax.
+ * width counts, because that is a judgement about the surface, not about template syntax. That
+ * decision is `isGeometry` below, and it reads the binding, not one spelling of it.
  */
 
 /** One expression a template renders, with the attribute it came through (`null` for `{{ }}`). */
@@ -42,7 +43,14 @@ export function renderedExpressions(template: string): RenderedExpression[] {
   return found
 }
 
-/** Whether a rendered expression decides geometry or a colour, rather than the text beside them. */
+/**
+ * Whether a rendered expression decides geometry or a colour, rather than the text beside them.
+ *
+ * `:style` and `v-bind:style` are one binding, so one predicate: Vue reads both the same way, and a
+ * scan that excused only the short spelling would read a bar's width written the long way as text a
+ * person reads. Both callers filter with this, so the two spellings had to agree here rather than at
+ * each scan.
+ */
 export function isGeometry(expression: RenderedExpression): boolean {
-  return expression.attribute !== null && /^:(?:style|class)\b/.test(expression.attribute)
+  return expression.attribute !== null && /^(?::|v-bind:)(?:style|class)\b/.test(expression.attribute)
 }

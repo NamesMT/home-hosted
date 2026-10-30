@@ -207,7 +207,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   **any** shape a template renders one — `{{ }}`, a bound attribute (`:value`, `:display`) or
   `v-text` — because reading only the interpolation missed a fabricated `0 °C` in a `:display` prop.
   The scan shares its template reader with `test/shared/ui-readings.test.ts`
-  (`test/helpers/template-render.ts`), so the two cannot drift apart again.
+  (`test/helpers/template-render.ts`), so the two cannot drift apart again. **A binding has two
+  spellings, and the scan must excuse both or neither**: `isGeometry` matches `:style`/`:class` and
+  `v-bind:style`/`v-bind:class`, because a short-only predicate read the long form as text a person
+  reads. The same rule for a scan's own matcher: **read the argument by its own delimiter, never by
+  forbidding quote characters** — a body that may not contain `'` or `"` cannot match
+  `toasts.failure("Couldn't rename the workspace")`, which is how an English toast stayed green
+  behind `uis/stock/test/toast-copy.test.ts`. The reasons are in
+  [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A reading is labelled with what it measured, and a fallback must measure the same thing.** The
   "CPU temp" tile took `Math.max` over every hwmon chip, so a box with an NVMe reported the **disk's**
   temperature as the CPU's — and fired the temperature alert on it. Pick the sensor *by name*

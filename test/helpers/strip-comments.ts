@@ -237,11 +237,29 @@ function stripCss(source: string): string {
   return out.join('')
 }
 
-/** The template half of a `.vue` file: `<!-- -->` blanked, attributes and text untouched. */
-function stripMarkup(source: string): string {
+/**
+ * The markup half of a `.vue` file: `<!-- -->` blanked, attributes and text untouched.
+ *
+ * A `<!--` inside a quoted attribute value is data, not a comment opener — `:title="'<!--'"`
+ * is how a template shows that literal — so the value is stepped over whole while the reader is
+ * inside a tag. Text between tags is *not* quoted: `it's fine` holds an apostrophe that is a
+ * character, and reading the rest of the template as a string would swallow the real comment
+ * after it. A `<style>` block is the other language here and is read by `stripCss`, never by this,
+ * so its span is stepped over whole rather than scanned for markup comments.
+ */
+function stripMarkup(source: string, opaque: Array<[number, number]> = []): string {
   const out = source.split('')
+  /** Inside an element's open or close tag, where a bare quote begins an attribute value. */
+  let inTag = false
   for (let index = 0; index < source.length; index += 1) {
-    if (source.startsWith('<!--', index)) {
+    const char = source[index]
+    // A region another language owns (`<style>`) has no markup comment in it.
+    const region = opaque.find(([from, to]) => index >= from && index < to)
+    if (region !== undefined) {
+      index = region[1] - 1
+      continue
+    }
+    if (!inTag && source.startsWith('<!--', index)) {
       const end = source.indexOf('-->', index + 4)
       const stop = end < 0 ? source.length : end + 2
       for (let blank = index; blank <= stop && blank < source.length; blank += 1) {
@@ -249,6 +267,21 @@ function stripMarkup(source: string): string {
           out[blank] = ' '
       }
       index = stop
+      continue
+    }
+    if (char === '<') {
+      // A tag starts at `<name` or `</name`; a `<` in prose or arithmetic closes nothing.
+      if (/[a-z/]/i.test(source[index + 1] ?? ''))
+        inTag = true
+      continue
+    }
+    if (char === '>' && inTag) {
+      inTag = false
+      continue
+    }
+    if (inTag && (char === '"' || char === '\'')) {
+      const close = source.indexOf(char, index + 1)
+      index = close < 0 ? source.length : close
     }
   }
   return out.join('')
@@ -312,13 +345,41 @@ function stripVue(source: string): string {
     // Resume after the close so a second block is found, and never re-open the one just read.
     opener.lastIndex = end
   }
-  // Everything outside a script block is markup: the template, plus any `<style>` (which has its
-  // own comment syntax this scan never needed — it holds no reading and no clipboard write).
-  const markup = stripMarkup(source)
+  // A `<style>` block is **CSS**, not markup, so it is read by the CSS reader and stepped over by
+  // the markup one.
+  //
+  // Read as markup it was wrong in both directions: `content: "<!--"` opened a markup comment that
+  // ran to the next `-->` — and with `<style>` before `<template>`, which Vue's own SFC parser
+  // accepts (`errors: 0`), that blanked the whole template, so a render scan found nothing. And a
+  // CSS comment (`/* … structuredClone(toRaw(x)) … */`) is a comment to every scan, but markup has no
+  // such syntax, so it survived and **failed `test/shared/ui-parity.test.ts`** on a file with no
+  // call — the false-positive direction, measured.
+  const styleRanges: Array<{ body: number, end: number }> = []
+  const styleOpener = /<style\b/g
+  for (let match = styleOpener.exec(source); match !== null; match = styleOpener.exec(source)) {
+    const tagClosed = tagEnd(match.index + match[0].length)
+    if (tagClosed < 0)
+      continue
+    const body = tagClosed + 1
+    const close = source.indexOf('</style>', body)
+    const end = close < 0 ? source.length : close
+    styleRanges.push({ body, end })
+    styleOpener.lastIndex = end
+  }
+  // Everything outside a script or style block is markup: the template, and any text around it.
+  // The block's body is passed as opaque, never its open tag: the tag is markup.
+  const markup = stripMarkup(source, styleRanges.map(range => [range.body, range.end]))
   for (let index = 0; index < out.length; index += 1) {
     if (scriptRanges.some(([from, to]) => index >= from && index < to))
       continue
     out[index] = markup[index]!
+  }
+  for (const { body, end } of styleRanges) {
+    // Only this block's span: `stripCss` returns the whole file with its own comments blanked, and
+    // copying all of it would undo the script and markup work around it.
+    const scanned = stripCss(source.slice(body, end))
+    for (let offset = 0; offset < scanned.length; offset += 1)
+      out[body + offset] = scanned[offset]!
   }
   return out.join('')
 }

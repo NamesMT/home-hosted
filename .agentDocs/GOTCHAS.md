@@ -532,8 +532,10 @@ line in `AGENTS.md` instead.
   `navigator.clipboard` literally, so `navigator['clipboard']` and `const { clipboard } = navigator`
   both walked past it. Each was found the same way — **break the thing in the source and watch the
   file** — and each fix reads the *reach* rather than a spelling: `test/helpers/template-render.ts`
-  collects every rendered expression (`{{ }}`, `:x`, `v-bind`, `v-text`, `v-html`) and leaves
-  `:style`/`:class` out because a bar's width is not a number on screen;
+  collects every rendered expression (`{{ }}`, `:x`, `v-bind[:x]`, `v-text`, `v-html`) and excuses
+  `:style`/`:class` **in either spelling** (`isGeometry`) because a bar's width is not a number on
+  screen — the short-only predicate read `v-bind:class` as text a person reads, so the same rule had
+  two answers depending on how it was written;
   `test/helpers/strip-comments.ts` walks the source tracking code/string/template/regex, and reads a
   `.vue` as markup plus `<script>` blocks, because `placeholder="http://10.0.0.5:8080"` in a template
   made the line pattern truncate the rest of the line. A guard that reports a `:line` must keep the
@@ -599,6 +601,30 @@ line in `AGENTS.md` instead.
   comments and unchanged leaf tokens — which runs clean on 458 `.ts`/`.mjs` and 115 `.vue` files.
   The `>` shape is not in the corpus, so the **language's** parser, not the corpus, is what says it
   is legal; a corpus-diff audit alone cannot find a shape nobody has written yet.
+
+- **A matcher that forbids quote characters forbids the most ordinary English sentence.** The toast
+  guard (`uis/stock/test/toast-copy.test.ts`) read its argument with
+  `(['"`])((?:[^'"`\\]|\\.)*)\1` — a body that may not contain *any* quote — so
+  `toasts.failure("Couldn't rename the workspace")`, written with the apostrophe in double quotes,
+  matched nothing and the guard stayed green over an English sentence on a translated panel. The
+  same shape sat in `isGeometry` (`test/helpers/template-render.ts`), whose short-only
+  `^:(?:style|class)\b` read `v-bind:class` as text a person reads, so the *excused* bindings
+  depended on the author's spelling. Both now read the construct, not one spelling: the toast scan takes the call's
+  whole argument (brackets balanced, literals stepped over, so a ternary or a second argument counts)
+  and every literal in it, and `isGeometry` matches `^(?::|v-bind:)…`. And the markup reader
+  (`stripMarkup`, `test/helpers/strip-comments.ts`) treated a `<!--` inside an attribute value
+  (`:title="'<!--'"`) as a comment opener, swallowing the template after it up to the next `-->`:
+  measured on the exact input `test/shared/host-readings.test.ts` reads, a planted
+  `{{ (host?.memoryUsedPercent ?? 0) }}` after that attribute was invisible. The skip is scoped to
+  **inside a tag**, because text between tags is not quoted — `it's fine` holds an apostrophe that
+  begins nothing. **And a `<style>` block is CSS, not markup**: read as markup it was wrong in both
+  directions at once — `content: "<!--"` opened a comment that blanked the template below it when
+  `<style>` came first (Vue's own SFC parser accepts that order, `errors: 0`), and a CSS comment
+  naming `structuredClone` survived as code and **failed** `test/shared/ui-parity.test.ts` on a file
+  with no call. Both directions are pinned now, and the block's body is handed to `stripCss` while
+  its open tag stays markup. A differential audit of the reader against HEAD over 485 files shows the
+  same leaf code; a corpus with no `<!--` in an attribute and no `<style>` before `<template>` is why
+  only a plant found these.
 
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured
