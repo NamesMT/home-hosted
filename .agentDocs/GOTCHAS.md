@@ -252,11 +252,24 @@ line in `AGENTS.md` instead.
   it stayed `--accent`, and the list row one click away agreed with the sparkline. Nothing failed,
   because the rule was correct in three places. The fix is `src/shared/cpu-scale.ts`
   (`cpuCapacity`/`cpuBand`), read by all four surfaces, and `test/shared/cpu-scale.test.ts` walks
-  every UI source for a restated `Math.max(100, …)` and for a cpu value compared against a literal
-  pair. Two cautions from doing it: an absent reading needs its **own band** (`unknown`), or the
-  helper quietly answers `ok` for a stopped entry; and the per-core thresholds are the same numbers
-  at one core, so a test asserting `40%` of one core is `ok` fails for the wrong reason — `40%` was
-  always the warn edge.
+  every UI source for a restated `Math.max(100, …)` and for a cpu band or ceiling measured against a
+  number written at the call site. Two cautions from doing it: an absent reading needs its **own
+  band** (`unknown`), or the helper quietly answers `ok` for a stopped entry; and the per-core
+  thresholds are the same numbers at one core, so a test asserting `40%` of one core is `ok` fails
+  for the wrong reason — `40%` was always the warn edge.
+  **The scan's first matcher was the same defect one spelling over**: it required *two* bare
+  literals, because the copy it was written for was `toneClass(cpuPercent, 40, 80)`, so a capacity
+  restated as **one** number — `cpuBand(cpuPercent.value, 100)`, `cpuCapacity(100)` — was green in
+  every source file, and the corpus has no such call site today, which is why only a plant found it.
+  `100` is exactly the per-core ceiling the module replaces, so the shape it could not read is the
+  one the rule names. The matcher now reads the **call** — callee plus arguments, brackets balanced
+  and literals stepped over — instead of one count of literals: a callee naming a scale (`band`,
+  `capacity`, `ceiling`, `tone`, `colour`) whose callee or first argument says `cpu` may carry no
+  bare number, because the machine's core count always arrives as a frame value. Two calls that
+  look similar are deliberately outside it, and both were measured as false positives before the
+  predicate was narrowed: a host 0–100 share (`clamp(cpuUsed ?? 0, 0, 100)`) is a percentage of the
+  whole machine, not a tree reading, and a `numberModel(…, 2)` writes a `loadPerCpu` **threshold**,
+  which is a number a person chose rather than a capacity.
 - **A process tree's CPU cannot be differenced as two sums.** The tree is not a fixed set of pids:
   a wrapper respawns its worker, so "sum the cumulative seconds over whatever is in the tree now"
   is not comparable with the previous sum. Measured against a wrapper respawning a 1.5 s worker,

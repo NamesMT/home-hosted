@@ -98,29 +98,172 @@ describe('the UIs read the cpu scale from one module', () => {
   })
 
   /**
-   * The stale shape, matched by **shape** rather than by spelling.
+   * The capacity a band or a ceiling is measured against is a **core count from the frame**, never a
+   * number written at the call site.
    *
-   * The defect was `toneClass(cpuPercent, 40, 80)`. A scan for that exact string would pass the
-   * moment someone renamed the helper — the trap `ui-readings.test.ts` already paid for — so this
-   * matches any cpu-named value followed by two bare literals, however it is called. The plant below
-   * proves the matcher still reaches the shape it claims to read.
+   * The first version of this scan required *two* bare literals — `toneClass(cpuPercent, 40, 80)` —
+   * so a capacity restated as one number walked past it: `cpuBand(cpuPercent.value, 100)` and
+   * `cpuCapacity(100)` were green, and so was the whole class where the rule is copied as a single
+   * ceiling. That is the same drift this module exists to end, one spelling over, so the matcher
+   * reads the **call** instead: the callee, or its first argument, says the reading is a cpu one,
+   * and then no argument may be a bare numeric literal. A core count arrives as
+   * `control.host.value?.cpus`; a literal is always a restatement.
    */
-  const PER_CORE_BAND = /\w*cpu\w*\.?\(?\s*,\s*\d{1,3}\s*,\s*\d{1,4}\b/gi
+  const RETIRED_TWO_LITERAL = /\w*cpu\w*\.?\(?\s*,\s*\d{1,3}\s*,\s*\d{1,4}\b/i
 
-  it('still reaches the shape it forbids, so the matcher cannot silently rot', () => {
-    const planted = ['toneClass(cpuPercent, 40, 80)', 'band(cpu, 40, 80)', 'cpuColor(cpuPercent, 80, 95)']
+  it('still reaches the shape it forbids, and names the hole the old one had', () => {
+    const planted = [
+      'toneClass(cpuPercent, 40, 80)',
+      'band(cpu, 40, 80)',
+      'cpuColor(cpuPercent, 80, 95)',
+      // One number: the shape the two-literal matcher could not see.
+      'cpuBand(cpuPercent.value, 100)',
+      'CPU_STROKE[cpuBand(liveReadings(server).cpuPercent, 100)]',
+      'cpuCapacity(100)',
+      'ceiling = cpuCapacity(2400)',
+    ]
     for (const line of planted)
-      expect([...line.matchAll(PER_CORE_BAND)].length, `the scan must see ${line}`).toBe(1)
-    // And it leaves a reading that is not a cpu band alone.
-    expect([...'toneClass(responseMs, 300, 1000)'.matchAll(PER_CORE_BAND)]).toHaveLength(0)
+      expect(restatedScaleCalls(line).length, `the scan must see ${line}`).toBe(1)
+    // The retired matcher is kept as evidence of the hole, not as a guard: it must stay blind to
+    // the one-number shape, or this test would be proving the wrong matcher.
+    expect(RETIRED_TWO_LITERAL.test('cpuBand(cpuPercent.value, 100)')).toBe(false)
+    expect(RETIRED_TWO_LITERAL.test('cpuCapacity(100)')).toBe(false)
+    // And it leaves calls that are not about a cpu scale alone.
+    expect(restatedScaleCalls('toneClass(responseMs, 300, 1000)')).toHaveLength(0)
+    expect(restatedScaleCalls('cpuCapacity(control.host.value?.cpus)')).toHaveLength(0)
+    expect(restatedScaleCalls('briefBytes(rssBytes, 2)')).toHaveLength(0)
   })
 
-  it('does not band a cpu reading against a per-core literal', () => {
+  it('does not measure a cpu band or ceiling against a number written here', () => {
     const offenders: string[] = []
     for (const source of sources()) {
-      for (const match of source.text.matchAll(PER_CORE_BAND))
-        offenders.push(`${source.rel}: ${match[0]}`)
+      for (const call of restatedScaleCalls(source.text))
+        offenders.push(`${source.rel}: ${call}`)
     }
     expect(offenders, 'a cpu band measured against a fixed number, not the machine').toEqual([])
   })
 })
+
+/** A call's callee and its arguments, read by balanced brackets rather than by a character class. */
+interface SourceCall {
+  callee: string
+  args: string[]
+}
+
+const LITERAL_QUOTES = new Set(['"', '\'', '`'])
+
+/** The index of the quote closing the literal that opens at `from`, escapes counted; -1 if none. */
+function endOfLiteral(text: string, from: number): number {
+  const quote = text[from]
+  for (let index = from + 1; index < text.length; index += 1) {
+    if (text[index] === '\\') {
+      index += 1
+      continue
+    }
+    if (text[index] === quote)
+      return index
+  }
+  return -1
+}
+
+/** The `)` matching the `(` at `open`, or -1 when the call is unbalanced. */
+function closeOf(text: string, open: number): number {
+  let depth = 0
+  for (let index = open; index < text.length; index += 1) {
+    const char = text[index]!
+    if (LITERAL_QUOTES.has(char)) {
+      const close = endOfLiteral(text, index)
+      if (close < 0)
+        return -1
+      index = close
+      continue
+    }
+    if (char === '(') {
+      depth += 1
+      continue
+    }
+    if (char === ')') {
+      depth -= 1
+      if (depth === 0)
+        return index
+    }
+  }
+  return -1
+}
+
+/** One argument list, split on the commas at its own depth. */
+function splitArgs(inner: string): string[] {
+  const args: string[] = []
+  let depth = 0
+  let from = 0
+  for (let index = 0; index < inner.length; index += 1) {
+    const char = inner[index]!
+    if (LITERAL_QUOTES.has(char)) {
+      const close = endOfLiteral(inner, index)
+      if (close < 0)
+        break
+      index = close
+      continue
+    }
+    if ('([{'.includes(char)) {
+      depth += 1
+      continue
+    }
+    if (')]}'.includes(char)) {
+      depth -= 1
+      continue
+    }
+    if (char === ',' && depth === 0) {
+      args.push(inner.slice(from, index))
+      from = index + 1
+    }
+  }
+  args.push(inner.slice(from))
+  return args.map(arg => arg.trim()).filter(arg => arg.length > 0)
+}
+
+/** Every call in a source, so a rule can be asked of the call rather than of a spelling. */
+function callsIn(text: string): SourceCall[] {
+  const found: SourceCall[] = []
+  for (const match of text.matchAll(/\b([A-Z_$][\w$]*)\s*\(/gi)) {
+    const open = match.index + match[0].length - 1
+    const close = closeOf(text, open)
+    if (close < 0)
+      continue
+    found.push({ callee: match[1]!, args: splitArgs(text.slice(open + 1, close)) })
+  }
+  return found
+}
+
+/** A bare number an author typed: `100`, `2400`, `0.8` — a restated capacity or threshold. */
+const BARE_NUMBER = /^[-+]?\d+(?:\.\d+)?$/
+
+/**
+ * A callee whose name decides a scale: a band, a ceiling, a tone or a colour for a reading.
+ *
+ * The word is matched anywhere in the name, not as a suffix and not in a fixed list — `toneClass`
+ * painted the stale per-core band, so a predicate that needed a `cpu` in the callee would have read
+ * the very defect this scan was built for as "not a cpu call". `clamp`/`numberModel` are
+ * deliberately outside it: a host 0–100 share is a percentage of the whole machine, and
+ * `loadPerCpu` is a threshold, so neither is a server reading banded against a capacity.
+ */
+const SCALE_CALLEE = /band|capacity|ceiling|scale|tone|colou?r/i
+
+/** Whether a call's callee or its own arguments name a cpu reading. */
+function isCpuScaleCall(call: SourceCall): boolean {
+  return SCALE_CALLEE.test(call.callee) && (/(?:^|[_a-z])cpu/i.test(call.callee) || /cpu/i.test(call.args[0] ?? ''))
+}
+
+/**
+ * The calls that restate the cpu scale, each rendered the way the source wrote it.
+ *
+ * A cpu value is summed over a process tree, so it counts cores: the capacity it is measured
+ * against is a **core count from the frame**. A bare number in such a call is that capacity or a
+ * band threshold written at the call site, and the machine's own count always arrives as a value.
+ */
+function restatedScaleCalls(text: string): string[] {
+  return callsIn(text)
+    .filter(isCpuScaleCall)
+    .filter(call => call.args.some(arg => BARE_NUMBER.test(arg)))
+    .map(call => `${call.callee}(${call.args.join(', ')})`)
+}

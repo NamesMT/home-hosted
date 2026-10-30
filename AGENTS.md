@@ -291,7 +291,11 @@ workspace config guard, so a busy default port turns config tests red for the wr
   the line's colour and the number's colour all come from `cpuCapacity`/`cpuBand`
   (`src/shared/cpu-scale.ts`), one home for the rule. Four surfaces restating it left the detail
   page's number on the old per-core bands, painting a sixth of a 24-core box red while its own
-  sparkline stayed accent; `test/shared/cpu-scale.test.ts` fails a restated copy. **A verdict is
+  sparkline stayed accent; `test/shared/cpu-scale.test.ts` fails a restated copy. **The capacity
+  arrives as a core count, never as a number written at the call site** — `cpuBand(x, 100)` and
+  `cpuCapacity(100)` restate it as surely as the retired `toneClass(cpu, 40, 80)` pair, and the scan
+  reads the *call* (callee plus arguments, brackets balanced), so needing two literals is exactly
+  the narrowing that missed them. **A verdict is
   measured against the threshold a person configured, and the frame has to carry it.** The band for
   a per-cpu load was the schema's *default* `2`/`1.4` written into two surfaces, so raising
   `host.loadPerCpu` painted a normal box `danger` for a notification that could never fire. The
