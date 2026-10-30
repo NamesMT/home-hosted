@@ -98,17 +98,19 @@ describe('readStateFile', () => {
 /**
  * The reads that must go through the decoder, kept honest by a scan.
  *
- * The rule is "every file this panel invites a person to hand-edit is JSON, and is read through
- * `readStateFile`" — but nothing enforced it, and three readers had drifted out of it: the installed
+ * The rule is "every file this panel invites a person to hand-edit is read through `readStateFile`"
+ * — but nothing enforced it, and three readers had drifted out of it: the installed
  * UI's `ui.json` (which the docs show a UI author writing), and `--print-config`'s two files. Each
  * failed the same way, silently: `null` instead of the config, which reads as "your file is broken".
+ * Most of these files are JSON, but not all: an entry's `envFile` is `KEY=value`, and the same mark
+ * turns every key into one carrying a NUL.
  *
  * The scan is a **list of files and the reason each is hand-editable**, not a blanket ban on
  * `readFileSync`: plenty of reads are of files this package alone writes (`run.json`, `package.json`,
  * `/proc/*`), where a BOM cannot appear. A new hand-editable file gets a line here — and if it is
- * read with `'utf8'`, this fails.
+ * read as UTF-8 in any spelling, this fails.
  */
-describe('hand-editable JSON goes through readStateFile', () => {
+describe('a hand-edited file goes through readStateFile', () => {
   /** Files a person or a UI author writes, and the file each is read in. */
   const HAND_EDITABLE: Array<{ file: string, why: string }> = [
     { file: 'src/services/ui.ts', why: 'ui.json is written by a UI author (docs/UI_CREATION.md)' },
@@ -117,10 +119,17 @@ describe('hand-editable JSON goes through readStateFile', () => {
     { file: 'src/config/store.ts', why: 'servers.config.json is hand-edited' },
     { file: 'src/config/workspaces.ts', why: 'workspaces.json is hand-edited' },
     { file: 'src/config/secrets.ts', why: '.control-secrets.json is hand-editable by hand' },
+    { file: 'src/helpers/env-file.ts', why: 'an entry\'s envFile is written by a person, not by this panel' },
   ]
 
   /**
-   * Every `readFileSync(…, 'utf8')` in a file, minus the ones that read this package's own output.
+   * Every read that decodes text as UTF-8, whichever spelling it uses.
+   *
+   * The matcher used to require `readFileSync(…, 'utf8')` exactly, and three other spellings of the
+   * same read walked past it: an options object (`{ encoding: 'utf8' }`), a chained
+   * `readFileSync(…).toString('utf8')`, and `readFileSync(…, 'utf-8')`. Each has already discarded
+   * the bytes that tell UTF-16 from UTF-8, which is the whole failure — measured by planting each in
+   * `ui.ts` and watching this file stay green.
    *
    * Anchored on the read rather than on an enclosing `JSON.parse`: the value is often handed to a
    * schema first (`uiMetaSchema(JSON.parse(…))`), and a matcher requiring `parse` to be outermost
@@ -132,7 +141,6 @@ describe('hand-editable JSON goes through readStateFile', () => {
     // `[^)]*?` cannot cross a nested call, so `readFileSync(path.join(...), 'utf8')` — the shape
     // every one of these actually has — walked straight past the first version of this matcher.
     // Balanced-paren scan instead: from each `readFileSync(`, find its own closing paren.
-    const target = (call: string): string => call.slice(0, call.lastIndexOf(',')).trim()
     const out: Array<{ target: string, at: number }> = []
     for (const start of source.matchAll(/readFileSync\(/g)) {
       const open = start.index! + start[0].length - 1
@@ -145,9 +153,15 @@ describe('hand-editable JSON goes through readStateFile', () => {
           break
       }
       const call = source.slice(open + 1, close)
-      if (!/,\s*'utf8'$/.test(call))
+      // The path is the first argument; a trailing `'utf8'`, `{ encoding: 'utf8' }` or a
+      // `.toString('utf8')` chained onto the call all mean the same thing. Split the argument at its
+      // own top-level comma — `path.join(dir, 'ui.json')` holds one — so the exclusion below still
+      // sees the whole path it is matching.
+      const target = firstArgument(call)
+      const chained = /\.toString\(\s*'utf-?8'\s*\)/.test(source.slice(close, close + 20))
+      if (!isUtf8Decoded(call, chained))
         continue
-      out.push({ target: target(call), at: open + 1 })
+      out.push({ target, at: open + 1 })
     }
     return out
       // `writeSchema`/`writeJsonSchema` re-read the `.schema.json` they are about to regenerate, to
@@ -157,6 +171,34 @@ describe('hand-editable JSON goes through readStateFile', () => {
       // editors; its BOM would be a bug in the release, not a Windows save.
       .filter(read => !/package\.json/.test(read.target))
       .map(read => read.target)
+  }
+
+  /** The first argument of a call, up to its own top-level comma. */
+  function firstArgument(call: string): string {
+    let depth = 0
+    for (let index = 0; index < call.length; index++) {
+      const character = call[index]
+      if (character === '(' || character === '[' || character === '{')
+        depth += 1
+      else if (character === ')' || character === ']' || character === '}')
+        depth -= 1
+      else if (character === ',' && depth === 0)
+        return call.slice(0, index).trim()
+    }
+    return call.trim()
+  }
+
+  /** Whether one `readFileSync(…)` call (or its own return) decodes the bytes as UTF-8. */
+  function isUtf8Decoded(call: string, chained: boolean): boolean {
+    // `readFileSync(file, 'utf8')` and `readFileSync(file, 'utf-8')`.
+    if (/,\s*'utf-?8'\s*$/.test(call))
+      return true
+    // `readFileSync(file, { encoding: 'utf8' })`, and the bare `{ encoding }` shorthand is not
+    // used here because the value would be a variable this scan cannot resolve.
+    if (/,\s*\{[\s\S]*\bencoding\s*:\s*'utf-?8'[\s\S]*\}\s*$/.test(call))
+      return true
+    // `readFileSync(file).toString('utf8')`.
+    return chained
   }
 
   /** Whether an offset sits inside a method that regenerates a `.schema.json` rather than reading a config. */
@@ -183,5 +225,27 @@ describe('hand-editable JSON goes through readStateFile', () => {
     const offenders = HAND_EDITABLE
       .flatMap(({ file, why }) => utf8ReadsOf(fs.readFileSync(path.join(root, file), 'utf8')).map(read => `${file} (${read}) — ${why}`))
     expect(offenders, 'a `utf8` read has already destroyed the bytes that tell UTF-16 from UTF-8').toEqual([])
+  })
+
+  /**
+   * The scanner must reach each spelling of the read it forbids, or the list of files above is the
+   * only thing it checks and a new spelling reopens the hole.
+   *
+   * Every one of these was planted in `ui.ts` — a listed file — and this test file stayed green
+   * before the matcher was widened: an options object, a chained `toString`, and `'utf-8'`.
+   */
+  it('still reaches every spelling of the read it forbids', () => {
+    const shapes = [
+      'const a = fs.readFileSync(file, \'utf8\')',
+      'const a = fs.readFileSync(file, \'utf-8\')',
+      'const a = fs.readFileSync(file, { encoding: \'utf8\' })',
+      'const a = fs.readFileSync(path.join(dir, \'ui.json\')).toString(\'utf8\')',
+    ]
+    for (const source of shapes)
+      expect(utf8ReadsOf(source), `the scan must see ${source}`).toHaveLength(1)
+
+    // And a read through the decoder, or one with no encoding at all, is left alone.
+    expect(utf8ReadsOf('const a = readStateFile(file)')).toEqual([])
+    expect(utf8ReadsOf('const a = fs.readFileSync(file)')).toEqual([])
   })
 })

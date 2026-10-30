@@ -1,5 +1,5 @@
-import fs from 'node:fs'
 import path from 'node:path'
+import { readStateFile } from '#src/helpers/config-text'
 import { errorMessage } from '#src/shared/error-message'
 
 /** `KEY=value` files, with optional `export `, `#` comments and quoted values. */
@@ -27,10 +27,17 @@ export function parseEnvFile(text: string): Record<string, string> {
   return env
 }
 
-/** Missing files are not an error: an env file is an optional override layer. */
+/**
+ * Missing files are not an error: an env file is an optional override layer.
+ *
+ * Read through `readStateFile`: an entry's `envFile` is written by a person, not by this panel, so a
+ * Windows editor's byte-order mark or UTF-16 save is the normal state of it. A `'utf8'` read made
+ * every key carry a NUL — dropped by `resolveSpawn` as "an environment key containing a null byte" —
+ * so the process started without the secret the file exists to keep out of the config.
+ */
 export function loadEnvFile(file: string): { env: Record<string, string>, path: string, error: string | null } {
   try {
-    return { env: parseEnvFile(fs.readFileSync(file, 'utf8')), path: file, error: null }
+    return { env: parseEnvFile(readStateFile(file)), path: file, error: null }
   }
   catch (error) {
     const code = (error as NodeJS.ErrnoException).code

@@ -1,4 +1,5 @@
 /* eslint-disable no-template-curly-in-string */
+import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -46,6 +47,35 @@ describe('loadEnvFile', () => {
     const missing = loadEnvFile(path.join(dir, 'nope.env'))
     expect(missing.env).toEqual({})
     expect(missing.error).toBeNull()
+  })
+
+  /**
+   * An env file is hand-edited, so it arrives with whatever mark the editor wrote.
+   *
+   * `docs/SERVERS.md` calls it the machine-local layer and the panel never writes one — a person
+   * writes it in Notepad or PowerShell. `Out-File`/`>` on Windows write **UTF-16LE** with `FF FE`,
+   * and reading that as `'utf8'` yields `"\uFFFD\u0000T\u0000O\u0000K\u0000E\u0000N\u0000"` for a
+   * key: every key carries a NUL, so `resolveSpawn` drops it as "an environment key containing a
+   * null byte" and the process starts without the secret the file exists to keep out of the config.
+   */
+  it('reads a file a Windows editor saved as UTF-16 or with a byte-order mark', async () => {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-env-'))
+    dirs.push(dir)
+
+    const utf16 = path.join(dir, 'utf16.env')
+    await fs.promises.writeFile(utf16, Buffer.concat([
+      Buffer.from([0xFF, 0xFE]),
+      Buffer.from('TOKEN=s3cret\nPORT=8080\n', 'utf16le'),
+    ]))
+    expect(loadEnvFile(utf16).env).toEqual({ TOKEN: 's3cret', PORT: '8080' })
+
+    // `Set-Content -Encoding UTF8` on PowerShell 5.1 prepends a UTF-8 mark.
+    const marked = path.join(dir, 'marked.env')
+    await fs.promises.writeFile(marked, Buffer.concat([
+      Buffer.from([0xEF, 0xBB, 0xBF]),
+      Buffer.from('TOKEN=s3cret\n', 'utf8'),
+    ]))
+    expect(loadEnvFile(marked).env).toEqual({ TOKEN: 's3cret' })
   })
 
   it('reads a real file and reports unreadable ones', async () => {

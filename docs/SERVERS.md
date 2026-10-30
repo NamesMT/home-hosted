@@ -61,7 +61,7 @@ platform cannot confirm is exactly what the rest of this file refuses to signal 
 | field | what it does |
 | --- | --- |
 | `command`, `args`, `cwd` | what to run. `{placeholders}` resolve in `args` only (`env`, `dataEnvs`, `backupPaths` and `bootstrap.args` too); `command`, `cwd` and `envFile` are used literally, so `cwd: "~/app"` is not a home directory. **`command` is a program, not a command line** — it is spawned with no shell, so `"node server.js"` asks for a program of that name; write `"command": "node", "args": ["server.js"]` |
-| `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config |
+| `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config. The env file is yours to write — `KEY=value`, one per line — and it is read whatever a Windows editor saved: a byte-order mark or UTF-16 is decoded, not refused |
 | `enabled` | `true` (default) starts it; `false` keeps the entry in the config but refuses to start it, stops it if it is running, and leaves a disabled `persistent` entry unattached at boot |
 | `port`, `bind` | enables the readiness wait, health checks and the conflict preflight; `local` keeps it on `127.0.0.1` |
 | `onPortConflict` | `block` (default), `warn`, `follow`, `reclaim`, or `kill` — see below |

@@ -43,6 +43,15 @@ line in `AGENTS.md` instead.
   `readStateFile` (`helpers/config-text.ts`), never `readFileSync(file, 'utf8')`: a `'utf8'` read has
   already destroyed the bytes that tell UTF-16 from UTF-8. A new hand-editable JSON file goes through
   it too — the decoder is one function, not a per-file fix.
+- **A hand-edited file is not always JSON, and the failure is quieter when it is not.** An entry's
+  `envFile` is `KEY=value`, written by the person and never by this panel, so a UTF-16 save was read
+  as `"\uFFFD\u0000T\u0000O\u0000K\u0000E\u0000N\u0000"` — the parser takes the text before the first
+  `=` as a key, so every key carried a NUL and `resolveSpawn` dropped it as "an environment key
+  containing a null byte". Nothing failed: the entry started with none of the secrets the file exists
+  to keep out of `servers.config.json`. The scan that lists hand-editable files missed this one *and*
+  matched only one spelling of the read — `{ encoding: 'utf8' }`, `.toString('utf8')` and `'utf-8'`
+  each walked a planted break straight past it, so a guard that named every listed file still could
+  not see the shape it forbade.
 - **`node_modules/.bin` holds a POSIX script *and* the Windows shims under the same stem.** `foo`,
   `foo.cmd` and `foo.ps1` are all written for one dependency; `foo` is a `#!/bin/sh` script Node cannot
   start on Windows. `resolveCommand` therefore searches the extensioned shims **first** and never falls

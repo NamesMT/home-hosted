@@ -453,7 +453,12 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   made the panel call an installed UI unnamed and `ui-update` print "the stock UI is in use", and
   `--print-config` printed `"settings": null` for a config that was fine; the scan in
   `test/helpers/config-text.test.ts` lists each hand-editable file with its reason, so a new one is a
-  line there rather than a reader nobody audits. A bare command found in `node_modules/.bin` must
+  line there rather than a reader nobody audits. **A hand-edited file is not always JSON**: an entry's
+  `envFile` is `KEY=value`, written by a person and never by this panel, so it goes through the same
+  decoder — a `'utf8'` read gave every key a NUL, which `resolveSpawn` then dropped, and the process
+  started without the secret the file exists to keep out of the config. The scan matches the
+  **spelling** of the read too (`{ encoding: 'utf8' }`, `.toString('utf8')`, `'utf-8'`), because a
+  matcher for one spelling let the others through. A bare command found in `node_modules/.bin` must
   resolve to a shim Windows can start, never the `#!/bin/sh` script written beside it
   (`resolveCommand`); and text printed **for a person to paste** is quoted for the shell it targets
   (`cdCommand`).
