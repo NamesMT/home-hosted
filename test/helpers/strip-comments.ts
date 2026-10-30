@@ -48,10 +48,17 @@ type Frame
  * after whitespace and after a keyword (`return`), because `= /^https?:\/\//` is how every regex in
  * this corpus is written and the character before the first `/` there is a space.
  */
-function stripJavaScript(source: string): string {
+/**
+ * Blank the comments in `source[start…]`, stopping at `stopAt` when it is given.
+ *
+ * `stopAt` is consulted only in code, so a `</script>` inside a string, template or regex is text
+ * rather than the end of the block. Returns the whole-file character array (offsets preserved) and
+ * the index the scan stopped at.
+ */
+function scanJavaScript(source: string, from = 0, stopAt?: (index: number) => boolean): { out: string[], end: number } {
   const out = source.split('')
-  const blank = (from: number, to: number): void => {
-    for (let at = from; at < to && at < source.length; at += 1) {
+  const blank = (start: number, to: number): void => {
+    for (let at = start; at < to && at < source.length; at += 1) {
       if (source[at] !== '\n')
         out[at] = ' '
     }
@@ -72,10 +79,13 @@ function stripJavaScript(source: string): string {
   const regexCanFollow = (): boolean =>
     lastCode === '' || REGEX_AFTER.has(lastCode) || REGEX_KEYWORDS.has(wordBefore())
 
-  let index = 0
+  let index = from
   while (index < source.length) {
     const char = source[index]!
     const frame = frames[frames.length - 1]!
+    // Only code asks the boundary: a `</script>` inside a string, template or regex is text.
+    if (frame.kind === 'code' && stopAt?.(index) === true)
+      break
 
     if (frame.kind === 'string') {
       if (char === '\\') {
@@ -190,7 +200,7 @@ function stripJavaScript(source: string): string {
     }
     index += 1
   }
-  return out.join('')
+  return { out, end: index }
 }
 
 /**
@@ -249,20 +259,33 @@ function stripMarkup(source: string): string {
  *
  * The regions are found by position and reassembled in order, so the result keeps the file's line
  * count and every offset — the same property `stripJavaScript` has on its own.
+ *
+ * The end of a block is decided by the *script* reader, not by a `</script>` in the text: a string
+ * may hold one (`const close = '</script>'`), and a lazy match ends the block there. Everything
+ * after it was then read as markup, so the line's real comment survived — and a `<!--` in the same
+ * string opened a "markup comment" that blanked the rest of the script. The close is the first one
+ * the reader meets in code, which is also what the Vue compiler does.
  */
 function stripVue(source: string): string {
   const out = source.split('')
-  const blocks = [...source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)]
-  for (const block of blocks) {
-    const start = block.index! + block[0].indexOf(block[1]!) - (block[1] === '' ? 0 : 0)
-    const body = stripJavaScript(block[1] ?? '')
-    for (let offset = 0; offset < body.length; offset += 1)
-      out[start + offset] = body[offset]!
+  const scriptRanges: Array<[number, number]> = []
+  const opener = /<script\b[^>]*>/g
+  for (let match = opener.exec(source); match !== null; match = opener.exec(source)) {
+    const start = match.index + match[0].length
+    const scanned = scanJavaScript(source, start, index => source.startsWith('</script>', index))
+    // Only this block's span: a later scan starts from a fresh copy of the source, so copying all of
+    // it would put an earlier block's comments back.
+    for (let offset = start; offset < scanned.end; offset += 1)
+      out[offset] = scanned.out[offset]!
+    const close = source.indexOf('</script>', scanned.end)
+    const end = close < 0 ? source.length : close + '</script>'.length
+    scriptRanges.push([match.index, end])
+    // Resume after the close so a second block is found, and never re-open the one just read.
+    opener.lastIndex = end
   }
   // Everything outside a script block is markup: the template, plus any `<style>` (which has its
-  // own comment syntax this scan has never needed — it holds no reading and no clipboard write).
+  // own comment syntax this scan never needed — it holds no reading and no clipboard write).
   const markup = stripMarkup(source)
-  const scriptRanges = blocks.map(block => [block.index!, block.index! + block[0].length] as const)
   for (let index = 0; index < out.length; index += 1) {
     if (scriptRanges.some(([from, to]) => index >= from && index < to))
       continue
@@ -275,7 +298,7 @@ function stripVue(source: string): string {
 export function stripComments(source: string, file = ''): string {
   if (file.endsWith('.css'))
     return stripCss(source)
-  return file.endsWith('.vue') ? stripVue(source) : stripJavaScript(source)
+  return file.endsWith('.vue') ? stripVue(source) : scanJavaScript(source).out.join('')
 }
 
 /** One CSS rule: the at-rule conditions it sits inside, its selector list and its body. */

@@ -555,10 +555,10 @@ line in `AGENTS.md` instead.
 
 - **A hand-written lexer is a claim about every shape the language allows, and the corpus keeps
   supplying the shape it missed.** The one reader every scan shares (`test/helpers/strip-comments.ts`)
-  was itself audited the round after it consolidated seven scans, and had three blind spots — each
+  was itself audited the round after it consolidated seven scans, and had four blind spots — each
   measured by diffing its output against the TypeScript parser's own trivia (blanked comments, leaf
-  tokens unchanged) over all 301 `.ts` source files, and each proven with a plant a dependent scan
-  could not explain away:
+  tokens unchanged) over all 301 `.ts` and 115 `.vue` source files, and each proven with a plant a
+  dependent scan could not explain away:
   - `regexCanFollow` tested the character *immediately* before the `/`, so `= /^https?:\/\//` — how
     every regex in this corpus is written — was not a regex: its `\/` pairs were read as code, the
     second opened a **line comment**, and the rest of the line vanished. `parseUpstream`
@@ -572,7 +572,14 @@ line in `AGENTS.md` instead.
   - CSS strings were closed at the first matching quote, so `content: "\""` — a valid escaped quote —
     ended the string on its **closing** quote; `cssRules` then met a `}` with no open and dropped
     every rule after it, and a `.btn--icon { min-width: 10px }` planted under the floor stayed green
-    in `test/shared/ui-tap-targets.test.ts`.
+    in `test/shared/ui-tap-targets.test.ts`;
+  - a `.vue` block was found with a lazy `/<script\b[^>]*>([\s\S]*?)<\/script>/`, so a string holding
+    `'</script>'` ended it early and the rest of the script was read as markup: a real comment on the
+    next line survived (**and was reported as a violation** — the false-positive direction, where a
+    comment merely *naming* `structuredClone` failed `test/shared/ui-parity.test.ts`), and a `'<!--'`
+    in the same string opened a markup comment that blanked real code after it. The block's end is
+    now the first `</script>` the *script* reader meets in code, which is also what the Vue compiler
+    does.
   The fix is a frame stack, not a longer state list: a `${}` pushes a nested `code` frame, and a `}`
   with no braces left pops it. A regex follows any character a value may begin after, or a keyword
   (`return`, `typeof`, `case`), never merely a delimiter. **When a helper is the single reader for

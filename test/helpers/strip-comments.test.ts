@@ -169,3 +169,53 @@ describe('the CSS reader and escaped quotes', () => {
     expect(cssRules(css).map(rule => rule.selectors)).toEqual([['.a::after'], ['.b']])
   })
 })
+
+/**
+ * A `.vue` script ends where the *script* ends, not at the first `</script>` in the text.
+ *
+ * The block was found with a lazy `/<script\b[^>]*>([\s\S]*?)<\/script>/`, so a string holding
+ * `'</script>'` truncated it. Everything after that string was read as markup: the real comment on
+ * the next line survived, and a `'<!--'` in the same string opened a markup comment that blanked
+ * the rest of the script — real code lost, in the file kind the render scans read most.
+ */
+describe('the `.vue` reader and `</script>` inside a script string', () => {
+  it('does not end the block at a `</script>` inside a string', () => {
+    const vue = [
+      '<template><b>{{ x }}</b></template>',
+      '<script setup lang="ts">',
+      'const close = \'</script>\'',
+      '// structuredClone(toRaw(form)) is the bug',
+      'const after = structuredClone({ a: 1 })',
+      '</script>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'X.vue')
+    expect(stripped).toContain('const after = structuredClone({ a: 1 })')
+    expect(stripped).not.toContain('toRaw(form)')
+  })
+
+  it('does not let a `<!--` in a script string blank the rest of the script', () => {
+    const vue = [
+      '<template><b>{{ x }}</b></template>',
+      '<script setup lang="ts">',
+      'const marker = \'<!--\'',
+      'const live = structuredClone({ a: 1 })',
+      '</script>',
+    ].join('\n')
+    expect(stripComments(vue, 'Y.vue')).toContain('const live = structuredClone({ a: 1 })')
+  })
+
+  it('still reads a second `<script>` block, and stops at its real end', () => {
+    const vue = [
+      '<script lang="ts">',
+      'export const a = 1 // gone',
+      '</script>',
+      '<script setup lang="ts">',
+      'const b = structuredClone({ c: 2 }) // gone too',
+      '</script>',
+    ].join('\n')
+    const stripped = stripComments(vue, 'Z.vue')
+    expect(stripped).toContain('export const a = 1')
+    expect(stripped).toContain('const b = structuredClone({ c: 2 })')
+    expect(stripped).not.toContain('gone')
+  })
+})
