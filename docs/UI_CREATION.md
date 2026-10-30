@@ -55,6 +55,9 @@ installed, and what lets it offer you the next version:
 | `repo` | `owner/name` the releases come from — the one field `ui-update` needs |
 | `asset` | the release asset name, when a release carries more than one UI |
 
+Save it with whatever editor you like: a byte-order mark (Notepad's "UTF-8 with BOM",
+PowerShell's `Set-Content -Encoding UTF8`) or UTF-16 is read the same as plain UTF-8.
+
 **`tag` and `unix` are not yours to write.** They describe the *build*, and the panel's own
 `build-uis.mjs` stamps them into `dist/ui.json` — a committed value would be a release behind by the
 time the zip is cut, which is what made `ui-update` reinstall the same UI on every boot. A UI built

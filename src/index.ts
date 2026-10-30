@@ -11,6 +11,7 @@ import { ensureLayout } from '#src/config/layout'
 import { SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceRegistry } from '#src/config/workspaces'
+import { readStateFile } from '#src/helpers/config-text'
 import { clearRuntime, newToken, readRuntime, runtimeIsAlive, runtimeIsGone, writeRuntime } from '#src/helpers/daemon'
 import { logger } from '#src/helpers/logger'
 import { openBrowser } from '#src/helpers/open'
@@ -450,7 +451,10 @@ function printEffectiveConfig(settings: GlobalSettingsStore, registry: Workspace
     const dir = path.join(hhDir, workspace.id)
     const read = (name: string): unknown => {
       try {
-        return JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
+        // `readStateFile`, not a `'utf8'` read: these are the two files people hand-edit, and a
+        // Windows editor puts a BOM on them — which would report `null` here, so `--print-config`
+        // printed a workspace with no settings rather than the config it was asked for.
+        return JSON.parse(readStateFile(path.join(dir, name)))
       }
       catch {
         return null

@@ -429,9 +429,14 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   behaviours no other runner here can exercise, so each is decided in **one shared helper** rather
   than at the call site: a state file hand-edited in a Windows editor carries a byte-order mark or is
   UTF-16, so it is read through `readStateFile` (`src/helpers/config-text.ts`) and never
-  `readFileSync(file, 'utf8')`; a bare command found in `node_modules/.bin` must resolve to a shim
-  Windows can start, never the `#!/bin/sh` script written beside it (`resolveCommand`); and text
-  printed **for a person to paste** is quoted for the shell it targets (`cdCommand`).
+  `readFileSync(file, 'utf8')`. **That includes the files a UI author writes** — a BOM'd `ui.json`
+  made the panel call an installed UI unnamed and `ui-update` print "the stock UI is in use", and
+  `--print-config` printed `"settings": null` for a config that was fine; the scan in
+  `test/helpers/config-text.test.ts` lists each hand-editable file with its reason, so a new one is a
+  line there rather than a reader nobody audits. A bare command found in `node_modules/.bin` must
+  resolve to a shim Windows can start, never the `#!/bin/sh` script written beside it
+  (`resolveCommand`); and text printed **for a person to paste** is quoted for the shell it targets
+  (`cdCommand`).
 - **Writes are atomic** (`writeFileAtomic`) and validated before commit.
 
 ## How to work here

@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
@@ -405,6 +406,43 @@ describe('status paths in both outputs', () => {
     }
     finally {
       runCli(['down', '--home', dir])
+    }
+  })
+})
+
+/**
+ * `--print-config` reads the two files people hand-edit, so it reads them the way their editor
+ * saved them.
+ *
+ * It used a plain `readFileSync(..., 'utf8')` inside a `try`, so a BOM — what PowerShell 5.1's
+ * `Set-Content -Encoding UTF8` and Notepad's "UTF-8 with BOM" both write — made `JSON.parse` throw
+ * and the handler return `null`. The command then printed `"settings": null` for a workspace whose
+ * file was perfectly good, which is the "cannot parse" misreading `readStateFile` exists to stop,
+ * said by the one command a person runs to ask what the panel actually read.
+ */
+describe('print-config reads hand-edited files', () => {
+  it('reports settings an editor saved with a byte-order mark', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-print-config-'))
+    const dir = path.join(home, '.hh')
+    try {
+      fs.mkdirSync(path.join(dir, 'default', '.state'), { recursive: true })
+      fs.writeFileSync(path.join(dir, 'workspaces.json'), JSON.stringify({ workspaces: [{ id: 'default', label: 'Default' }] }))
+      fs.writeFileSync(
+        path.join(dir, 'default', 'settings.json'),
+        Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(JSON.stringify({ logs: { keep: 3 } }))]),
+      )
+
+      const printed = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'up', '--print-config'], {
+        cwd: root,
+        encoding: 'utf8',
+        env: { ...process.env, HHOSTED_HOME: home, HHOSTED_PROJECT: home },
+      })
+      const config = JSON.parse(printed.stdout) as { workspaces: Array<{ settings: { logs?: { keep?: number } } | null }> }
+      expect(config.workspaces[0]!.settings, 'a BOM must not read as "no settings"').not.toBeNull()
+      expect(config.workspaces[0]!.settings!.logs?.keep).toBe(3)
+    }
+    finally {
+      fs.rmSync(home, { recursive: true, force: true })
     }
   })
 })

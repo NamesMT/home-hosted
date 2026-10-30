@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { decodeStateFile, readStateFile } from '#src/helpers/config-text'
 
@@ -16,6 +17,7 @@ import { decodeStateFile, readStateFile } from '#src/helpers/config-text'
  * `readFileSync(file, 'utf8')` reopens the defect, so the readers use `readStateFile`.
  */
 
+const root = fileURLToPath(new URL('../..', import.meta.url))
 const dirs: string[] = []
 
 afterEach(async () => {
@@ -90,5 +92,96 @@ describe('readStateFile', () => {
 
   it('still throws ENOENT for a missing file, which callers branch on', () => {
     expect(() => readStateFile(path.join(scratch(), 'absent.json'))).toThrow(/ENOENT/)
+  })
+})
+
+/**
+ * The reads that must go through the decoder, kept honest by a scan.
+ *
+ * The rule is "every file this panel invites a person to hand-edit is JSON, and is read through
+ * `readStateFile`" — but nothing enforced it, and three readers had drifted out of it: the installed
+ * UI's `ui.json` (which the docs show a UI author writing), and `--print-config`'s two files. Each
+ * failed the same way, silently: `null` instead of the config, which reads as "your file is broken".
+ *
+ * The scan is a **list of files and the reason each is hand-editable**, not a blanket ban on
+ * `readFileSync`: plenty of reads are of files this package alone writes (`run.json`, `package.json`,
+ * `/proc/*`), where a BOM cannot appear. A new hand-editable file gets a line here — and if it is
+ * read with `'utf8'`, this fails.
+ */
+describe('hand-editable JSON goes through readStateFile', () => {
+  /** Files a person or a UI author writes, and the file each is read in. */
+  const HAND_EDITABLE: Array<{ file: string, why: string }> = [
+    { file: 'src/services/ui.ts', why: 'ui.json is written by a UI author (docs/UI_CREATION.md)' },
+    { file: 'src/index.ts', why: '--print-config reads settings.json and servers.config.json' },
+    { file: 'src/config/settings.ts', why: 'settings.json is hand-edited' },
+    { file: 'src/config/store.ts', why: 'servers.config.json is hand-edited' },
+    { file: 'src/config/workspaces.ts', why: 'workspaces.json is hand-edited' },
+    { file: 'src/config/secrets.ts', why: '.control-secrets.json is hand-editable by hand' },
+  ]
+
+  /**
+   * Every `readFileSync(…, 'utf8')` in a file, minus the ones that read this package's own output.
+   *
+   * Anchored on the read rather than on an enclosing `JSON.parse`: the value is often handed to a
+   * schema first (`uiMetaSchema(JSON.parse(…))`), and a matcher requiring `parse` to be outermost
+   * passed while `ui.ts` was broken — measured, then corrected. The exclusion is the generated
+   * `settings.schema.json`, which this package writes for editor autocomplete and a person never
+   * edits, so no editor puts a BOM on it.
+   */
+  function utf8ReadsOf(source: string): string[] {
+    // `[^)]*?` cannot cross a nested call, so `readFileSync(path.join(...), 'utf8')` — the shape
+    // every one of these actually has — walked straight past the first version of this matcher.
+    // Balanced-paren scan instead: from each `readFileSync(`, find its own closing paren.
+    const target = (call: string): string => call.slice(0, call.lastIndexOf(',')).trim()
+    const out: Array<{ target: string, at: number }> = []
+    for (const start of source.matchAll(/readFileSync\(/g)) {
+      const open = start.index! + start[0].length - 1
+      let depth = 0
+      let close = open
+      for (; close < source.length; close++) {
+        if (source[close] === '(')
+          depth += 1
+        else if (source[close] === ')' && --depth === 0)
+          break
+      }
+      const call = source.slice(open + 1, close)
+      if (!/,\s*'utf8'$/.test(call))
+        continue
+      out.push({ target: target(call), at: open + 1 })
+    }
+    return out
+      // `writeSchema`/`writeJsonSchema` re-read the `.schema.json` they are about to regenerate, to
+      // skip a no-op write. That file is this package's own output, so no editor puts a BOM on it.
+      .filter(read => !inWriteSchema(source, read.at))
+      // The package manifest is this package's own file, not one a person edits in this checkout's
+      // editors; its BOM would be a bug in the release, not a Windows save.
+      .filter(read => !/package\.json/.test(read.target))
+      .map(read => read.target)
+  }
+
+  /** Whether an offset sits inside a method that regenerates a `.schema.json` rather than reading a config. */
+  function inWriteSchema(source: string, at: number): boolean {
+    const start = Math.max(source.lastIndexOf('writeSchema(', at), source.lastIndexOf('writeJsonSchema(', at))
+    if (start < 0)
+      return false
+    const end = source.indexOf('\n  }', start)
+    return end < 0 || at < end
+  }
+
+  it('finds every file it claims to check', () => {
+    for (const { file } of HAND_EDITABLE)
+      expect(fs.existsSync(path.join(root, file)), `${file} must exist`).toBe(true)
+  })
+
+  /**
+   * The shape that matters is `JSON.parse(readFileSync(…, 'utf8'))` — a *parse of hand-editable
+   * input* — not any `utf8` read at all. `settings.ts` also reads its own generated
+   * `settings.schema.json` to decide whether to rewrite it, and that file is this package's output,
+   * never a person's edit, so a BOM cannot appear in it.
+   */
+  it('never parses one from a raw `utf8` read', () => {
+    const offenders = HAND_EDITABLE
+      .flatMap(({ file, why }) => utf8ReadsOf(fs.readFileSync(path.join(root, file), 'utf8')).map(read => `${file} (${read}) — ${why}`))
+    expect(offenders, 'a `utf8` read has already destroyed the bytes that tell UTF-16 from UTF-8').toEqual([])
   })
 })

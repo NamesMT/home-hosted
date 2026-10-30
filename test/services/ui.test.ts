@@ -228,4 +228,33 @@ describe('ui service', () => {
     expect(meta).toMatchObject({ name: 'hand-made', version: '2.0.0', repo: 'someone/their-ui', asset: 'their-ui.zip' })
     expect(meta?.uploadedAt).toBeUndefined()
   })
+
+  /**
+   * And it is read the way a Windows editor saves it.
+   *
+   * `ui.json` is the one file this package asks a *UI author* to write, and `docs/UI_CREATION.md`
+   * shows the example. PowerShell's `Set-Content -Encoding UTF8` (5.1) and Notepad's "UTF-8 with
+   * BOM" both prepend `EF BB BF`, which `JSON.parse` refuses as `Unexpected token '\uFEFF'` — so
+   * `readMeta` answered `null`: Global settings showed the UI as **unnamed**, and `ui-update`
+   * printed "the stock UI is in use" and stopped, for a UI that was installed and had a repo.
+   */
+  it('reads a ui.json an editor saved with a byte-order mark', async () => {
+    const fixture = await makeFixture()
+    fs.mkdirSync(fixture.ui.directory, { recursive: true })
+    fs.writeFileSync(path.join(fixture.ui.directory, 'index.html'), '<title>hand</title>')
+    const written = JSON.stringify({ name: 'hand-made', version: '2.0.0', repo: 'someone/their-ui' })
+    fs.writeFileSync(path.join(fixture.ui.directory, 'ui.json'), Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(written)]))
+
+    expect(fixture.ui.readMeta()).toMatchObject({ name: 'hand-made', version: '2.0.0', repo: 'someone/their-ui' })
+  })
+
+  it('reads a ui.json saved as UTF-16LE, which is what `>` produces on Windows', async () => {
+    const fixture = await makeFixture()
+    fs.mkdirSync(fixture.ui.directory, { recursive: true })
+    fs.writeFileSync(path.join(fixture.ui.directory, 'index.html'), '<title>hand</title>')
+    const written = JSON.stringify({ name: 'utf16-ui', version: '1.0.0' })
+    fs.writeFileSync(path.join(fixture.ui.directory, 'ui.json'), Buffer.concat([Buffer.from([0xFF, 0xFE]), Buffer.from(written, 'utf16le')]))
+
+    expect(fixture.ui.readMeta()).toMatchObject({ name: 'utf16-ui', version: '1.0.0' })
+  })
 })

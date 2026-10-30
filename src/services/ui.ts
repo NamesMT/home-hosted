@@ -5,6 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { readStateFile } from '#src/helpers/config-text'
 import { extractZip, isZipArchive, listZip } from '#src/providers/archive'
 import { uiMetaSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
@@ -79,7 +80,10 @@ export class UiService {
 
   readMeta(): UiMeta | null {
     try {
-      const parsed = uiMetaSchema(JSON.parse(fs.readFileSync(path.join(this.directory, META), 'utf8')))
+      // Through `readStateFile`: `ui.json` is written by a UI author, and a Windows editor puts a
+      // BOM on it — which fails `JSON.parse` as `Unexpected token '\uFEFF'`, so the panel reported
+      // an installed UI as unnamed and `ui-update` claimed "the stock UI is in use".
+      const parsed = uiMetaSchema(JSON.parse(readStateFile(path.join(this.directory, META))))
       return parsed instanceof type.errors ? null : parsed
     }
     catch {
@@ -333,7 +337,7 @@ function resolveRoot(staging: string): string | null {
 
 function readManifest(root: string): typeof manifestSchema.infer | null {
   try {
-    const parsed = manifestSchema(JSON.parse(fs.readFileSync(path.join(root, META), 'utf8')))
+    const parsed = manifestSchema(JSON.parse(readStateFile(path.join(root, META))))
     return parsed instanceof type.errors ? null : parsed
   }
   catch {
