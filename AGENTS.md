@@ -35,11 +35,14 @@ Where knowledge lives, and when to reach for each:
 - **One home per fact.** State the rule here, keep the reasoning in `.agentDocs/` and link it — never both.
 - **A dead pointer is a bug.** If the target is gone, delete the pointer rather than leave it.
 - Move depth behind a pointer once a section outgrows a screen or two; keep the rule inline.
+  `test/scripts/agents-length.test.ts` caps a rule at 14 lines, so a section that grows has to move
+  its reasoning out or say it in fewer words.
 
 | file | what it covers |
 | --- | --- |
 | [`.agentDocs/ARCHITECTURE.md`](.agentDocs/ARCHITECTURE.md) | what each module owns and why; UI versioning |
 | [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md) | the traps this codebase already paid for, with causes |
+| [`.agentDocs/READINGS.md`](.agentDocs/READINGS.md) | why a reading's absence, band, scale and aggregate are each decided once |
 | [`.agentDocs/COMPATIBILITY.md`](.agentDocs/COMPATIBILITY.md) | config and UI compatibility, migrations |
 | [`.agentDocs/RELEASING.md`](.agentDocs/RELEASING.md) | how a release is cut, and which version to dispatch |
 | [`docs/SERVERS.md`](docs/SERVERS.md) | entries, presets, port conflicts, persistent entries |
@@ -102,20 +105,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   pins every boundary and the patch/schema parity — update it with any schema change.
 - **A single on/off setting is a `ToggleSwitch`**; `CheckField` is only for picking items out of a set.
 - **A destructive action one click away confirms in a popover**, never by arming the same button for a
-  second press — an impatient double click fires an armed button. Safe choice first in tab order.
-  `ConfirmButton` is that popover in both UIs; `test/shared/ui-destructive-confirm.test.ts` reads every
-  `.vue` for the armed shape — a label chosen by a flag, and the branch that arms on the first press
-  and acts on the second, whichever way the handler is written and whatever the flag is called — so a
-  new destructive control gets the rule from a red test rather than from review.
-  **And the popover must name what it costs — the right cost for that row.** A destination row bound
-  one kind's sentence for both kinds, so removing a webhook promised a bot token would go; the
-  webhook's own copy sat unused in all nine catalogs. `ConfirmButton` also *silently* accepts a prop
-  it does not declare (Vue puts it in `$attrs`), which is how `:question`/`:body` reached a component
-  that expects `title`/`hint` and the popover fell back to "Confirm remove?" — typechecking cannot see
-  a template, and a consequence scan asking only whether a `title` was present read the typo as
-  "untitled". `test/shared/ui-prop-contract.test.ts` pins the two copies to one prop set and fails a
-  call site that binds a name its own copy lacks. An exemption recorded for a row whose own text
-  already states the cost is fine; a missing string is not.
+  second press — a double click fires an armed button. Safe choice first in tab order. `ConfirmButton`
+  is that popover in both UIs. **It must name what it costs, the right cost for that row** — one row
+  bound a single kind's sentence for both kinds. It also silently accepts a prop it does not declare
+  (Vue puts it in `$attrs`), so a call site binding the wrong name gets the fallback copy without a
+  word; `test/shared/ui-prop-contract.test.ts` pins both copies to one prop set.
+  `test/shared/ui-destructive-confirm.test.ts` reads the armed shape in any handler form and any flag
+  name, so a new destructive control gets the rule from a red test. A row whose own text already
+  states the cost needs no repeated copy; a missing string does not.
 - **A numeric option is a whole decimal integer, never a prefix parse** (`src/cli/up.ts`): `--port 1e3`
   and `--port 8000x` are refused, not read as 1 and 8000. A flag the command cannot honour is refused
   too — `restart --workspace <id>` with no server id exits 1 before anything is attempted, because the
@@ -128,22 +125,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).
-- **A duration a person edits is in the unit its schema floor allows, on every surface.** A field whose
-  floor is a second or more has no sub-second value, so its box edits seconds and converts with
-  `msToSeconds`/`secondsToMs` (`src/shared/ui-format.ts`); below that (`health.intervalMs` 500,
-  `health.timeoutMs` 100) ms stays, because seconds would round the field's whole accepted range away.
-  `cooldownMs`' floor is `0` — the "off" sentinel — and every other value is whole seconds. **The guard
-  reads every UI's sources, not one UI's catalog**: this was announced as done for both UIs while
-  `noc-console` kept raw millisecond boxes, so one panel showed `120` where the other showed `120000`
-  for one setting (`test/shared/ms-fields-seconds.test.ts`). A field name is not a field — `intervalMs`
-  is declared four times with four floors — so a scan names the object a box reads through. An emptied
-  seconds box is `NaN`, never `0`, which would store "every 0 seconds" or silently disable the throttle.
-  **A seconds box is `:value`/`@input`, so its read-back is hand-written and a `v-model` scan cannot
-  see it**: three boxes read `secondsToMs(Number(value))`, where `''` is `0` — a *decided* value the
-  client schema then refused for the whole page (`sessionTtlMs must be at least 60000 (was 0)`), and
-  the stock cooldown guarded `null` against a control that reports `NaN`. `readSeconds` and
-  `secondsToMsOr` (`src/shared/ui-format.ts`) are the one read and the one conversion; the scan
-  matches the coercion, not the attribute.
+- **A duration a person edits is in the unit its schema floor allows, on every surface.** A floor of a
+  second or more means seconds (`msToSeconds`/`secondsToMs`); below that (`health.intervalMs` 500) ms
+  stays, because seconds would round its whole range away. `cooldownMs`' floor is `0` — the "off"
+  sentinel. Read and convert through `readSeconds`/`secondsToMsOr` (`src/shared/ui-format.ts`); a
+  seconds box is `:value`/`@input`, so its read-back is hand-written and a `v-model` scan cannot see
+  it — an emptied box is `NaN`, never `0`, which would store "every 0 seconds". A scan names the
+  object a box reads through, because `intervalMs` is declared four times with four floors, and reads
+  every UI's sources (`test/shared/ms-fields-seconds.test.ts`).
 - **A reader that hangs up is a finished conversation, not a crash.** `treatClosedReaderAsDone()`
   (`src/cli/io.ts`) is installed **once** at the entry; only `EPIPE` is the reader leaving
   (`test/cli/epipe.test.ts`). Why not `SIGPIPE`: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
@@ -176,45 +165,23 @@ workspace config guard, so a busy default port turns config tests red for the wr
   per request, so anything reading the host, the filesystem or the process table from a view builder
   is cached on its own clock, not merely memoised per call (`lanAddress`, `src/helpers/bind.ts`).
 - **What makes a frame "news" is derived from the block, never hand-picked out of it.** The signature
-  gate (`stateSignature`, `src/services/panel.ts`) only decides whether a built frame is *published*,
-  so a field it does not name is a change no client ever sees — and the field carrying a surface's
-  **empty state** is the easiest one to forget. `host.enabled` is the whole empty state of four host
-  surfaces, and the branch that writes it (`HostMonitor.tick` with sampling off) changes nothing else,
-  so a signature naming only `sampledAt` and `alerts` published **no frame at all** when sampling was
-  switched off, and a second tab kept drawing dials. Sign the whole view (`JSON.stringify(state.host)`)
-  rather than a list of its fields, so a field added to a view is published without anyone remembering;
-  a hand-picked list goes stale the next time a field earns a use. **A test for a transition must
-  publish the preceding state first**, or the change it claims to watch is still banked in the
-  signature and the test passes for the wrong reason
-  (`test/services/panel.test.ts`: "carries a switch of host sampling into a published frame"). Why this
-  keeps recurring: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
+  gate (`stateSignature`, `src/services/panel.ts`) decides whether a built frame is published, so a
+  field it does not name is a change no client sees — and the field carrying a surface's **empty
+  state** is the easiest to forget. Sign the whole view (`JSON.stringify(state.host)`); a hand-picked
+  field list goes stale the next time a field earns a use. **A test for a transition must publish the
+  preceding state first**, or the change is still banked in the signature and the test passes for the
+  wrong reason (`test/services/panel.test.ts`).
 - **A generated config says what it means for every branch, not just the one it names.** A name no
   policy names gets the engine's **default** (the public CA), not "no automation" — so every local
   name must be named in the internal policy too. A state describing something that has not happened
   is a promise: decide `local` from the leaf in the store, not the hostname's shape.
-- **A metric with no reading is absent, never zero.** A scrape has no page to qualify a number, so an
-  alerted-on gauge published as `0` from an unsampled view is indistinguishable from a healthy one
-  and silences the rule that exists to catch it. Omit the series (`src/api/metrics.ts`), and never
-  suffix `_total` a value that a user action resets — no series here is a counter, and
-  `test/api/panel.test.ts` enumerates the scrape and fails on a `_total` name or a `counter` type.
-  **The page a person reads has no page to qualify it either.** `emptyHostView()` is the all-zero
-  frame a panel boots with and the one it keeps for ever with host vitals switched off, and the
-  panel's own pages printed it — `0.0%` memory, `0.0%` swap, `0.00` load under a green `quiet` chip,
-  in the rail on every screen. One predicate decides a host's readings (`hostReadings`,
-  `src/shared/host-readings.ts`); a surface renders it, never the frame. The wire fields stay
-  `number` because an overridden older UI in `.hh/.ui` calls `.toFixed()` on them.
-  `test/shared/host-readings.test.ts` walks every `.vue` for a `?? 0` on one of those fields, in
-  **any** shape a template renders one — `{{ }}`, a bound attribute (`:value`, `:display`) or
-  `v-text` — because reading only the interpolation missed a fabricated `0 °C` in a `:display` prop.
-  The scan shares its template reader with `test/shared/ui-readings.test.ts`
-  (`test/helpers/template-render.ts`), so the two cannot drift apart again. **A binding has two
-  spellings, and the scan must excuse both or neither**: `isGeometry` matches `:style`/`:class` and
-  `v-bind:style`/`v-bind:class`, because a short-only predicate read the long form as text a person
-  reads. The same rule for a scan's own matcher: **read the argument by its own delimiter, never by
-  forbidding quote characters** — a body that may not contain `'` or `"` cannot match
-  `toasts.failure("Couldn't rename the workspace")`, which is how an English toast stayed green
-  behind `uis/stock/test/toast-copy.test.ts`. The reasons are in
-  [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
+- **A metric with no reading is absent, never zero.** Omit the series (`src/api/metrics.ts`) rather
+  than publish `0` — an alerted-on gauge reading zero is indistinguishable from a healthy one and
+  silences the rule that catches it. Never suffix `_total` a value a user action resets; no series
+  here is a counter, and `test/api/panel.test.ts` enumerates the scrape. **The page has no page to
+  qualify it either**: the panel's own surfaces printed the boot frame's zeros, so one predicate
+  decides a host's readings and a surface renders it, never the frame
+  ([`.agentDocs/READINGS.md`](.agentDocs/READINGS.md)).
 - **A reading is labelled with what it measured, and a fallback must measure the same thing.** The
   "CPU temp" tile took `Math.max` over every hwmon chip, so a box with an NVMe reported the **disk's**
   temperature as the CPU's — and fired the temperature alert on it. Pick the sensor *by name*
@@ -233,24 +200,15 @@ workspace config guard, so a busy default port turns config tests red for the wr
   (`test/services/notifications.test.ts`).
 - **Name the cause the fix follows, not the one the code path suggests.** Node reports a missing
   working directory and a missing program with the same `ENOENT`, so `describeSpawnError` checks the
-  resolved `cwd` **and** whether the field holds a whole command line before it blames the command —
-  otherwise a deploy under systemd reads "`node` is not installed" while `node` is fine and only the
-  launch directory is wrong, and a pasted `node server.js` reads the same way while `node` is
-  installed. The same rule decides which advice a refused start prints: a config that needs `migrate`
-  must say so rather than "install the release", and a file that cannot be parsed must not claim a
-  migration `migrate` cannot perform. Ask what the person will *do* with the sentence before choosing
-  it — and when a function's own docstring names the misreading it exists to prevent, that is a claim
-  to test, not a description of the code.
+  resolved `cwd` *and* whether the field holds a whole command line. A config that needs `migrate`
+  must say so rather than "install the release"; a file that cannot be parsed must not claim a
+  migration `migrate` cannot perform. Ask what the person will *do* with the sentence — and when a
+  docstring names the misreading it prevents, that is a claim to test, not a description.
 - **One envelope per reader.** This API answers `{ message, code, detail }` for a thrown error and
-  `{ ok: false, error }` for a refused lifecycle action. A client that reads one field shows
-  `request failed with 409` for the other, losing the only sentence that explains the refusal while
-  the card beside it prints that sentence in full. Read both in **one** helper
-  (`failureMessage`, `src/shared/api-client.ts`) and scan for the hand-rolled fallback — a unit test
-  cannot see a call site that has not been written yet. **The scan reads the construct, not the
-  sentence**: a phrase-match on `` `request failed with …` `` passed a branch that rewrote the wording
-  and one that destructured `message` before falling back. It reads the awaited `fetch`/`rpc.$post`
-  binding and the `!response.ok` branch, and refuses a refusal that throws without the helper or
-  renders `response.status` as text (`test/shared/action-failure-message.test.ts`).
+  `{ ok: false, error }` for a refused lifecycle action. Read both in **one** helper
+  (`failureMessage`, `src/shared/api-client.ts`) and scan for the hand-rolled fallback. The scan reads
+  the construct — the awaited binding and its `!response.ok` branch — never one sentence
+  (`test/shared/action-failure-message.test.ts`).
 - **A state and the streak behind it are written together.** `health`, `healthFailures` and
   `unhealthySince` describe one process's run, so a path that resets one and leaves the others
   reports a duration that keeps counting while nothing is measured — measured as `status=crashed
@@ -260,79 +218,16 @@ workspace config guard, so a busy default port turns config tests red for the wr
   and a scan fails a direct assignment. **A client cannot assume the server got there** — a newer
   UI is served against an older panel, so a UI rendering a *duration* gates it on the verdict it
   prints beside it, not on whether the timestamp is present.
-- **A measurement belongs to the process that produced it, and goes when that process does.**
-  `pid`, `responseMs` and `resources` are one run's numbers; a path that detaches the pid and keeps
-  them reports a stopped entry with a live CPU, RSS and probe (`Probe 2 Ms / RSS 64.2 MB / Procs 1`
-  beside `Stopped`, and `hh_server_cpu_percent` in the scrape). The two **exit** paths cleared them
-  and the explicit stop did not — and an **adopted** successor has no exit event at all, because the
-  panel is not its parent, so one helper (`endProcessReadings`) owns all four and a scan fails a
-  clear outside it. The rule is general: ask which **lifecycle** clears a field, not which function
-  happened to. `portState` is the deliberate exception — a port's occupancy outlives its process.
-  The client half is the same predicate as the paragraph above: both UIs read a reading through
-  `liveReadings` (`src/shared/server-readings.ts`), never off the frame, and never `?? 0` (a zero
-  is the value that looks like a measured idle process). The read is not the whole gate — the
-  *render* must carry the absence too: a percent goes through `pct`
-  (`uis/noc-console/src/lib/format.ts`), because `{{ (… ?? 0).toFixed(0) }}%` put a measured `0%`
-  on every stopped entry of the panel-wide overview, and `test/shared/ui-readings.test.ts` walks
-  every UI template for that shape — following the reading into whatever local it was *destructured*
-  or *derived* into, since `const { responseMs } = liveReadings(...)` and a second `computed` are the
-  same number on screen, and reading that local's own initializer, because a fallback inside a
-  `computed` never appears in the template. **An aggregate is a reading of the set**: `sumReadings`
-  (`src/shared/server-readings.ts`) answers `null` when any member has no reading, so a workspace
-  total is absent until every entry in it has a sample — summing with `?? 0` made a workspace whose
-  only server had just started print `0.0% cpu now`, the fabricated idle process in the one number
-  that summarises every entry at once. An empty list is a genuine `0`, and so is a measured one.
-  **A chart is the same render**: an absent point stays absent in
-  the series and the line breaks at it — `sparkSegments` (`uis/noc-console/src/lib/format.ts`) and
-  stock's `components/telemetry/Sparkline.vue` — because a zero vertex drew a stopped entry as a flat
-  line on the floor: a measured `0%` by eye, on every page the number beside it had already been
-  fixed on. A new chart reads this paragraph before it picks its geometry function. **And a chart's
-  scale is not the chart's alone**: `cpuPercent` sums a process tree, so it counts cores — the ceiling,
-  the line's colour and the number's colour all come from `cpuCapacity`/`cpuBand`
-  (`src/shared/cpu-scale.ts`), one home for the rule. Four surfaces restating it left the detail
-  page's number on the old per-core bands, painting a sixth of a 24-core box red while its own
-  sparkline stayed accent; `test/shared/cpu-scale.test.ts` fails a restated copy. **The capacity
-  arrives as a core count, never as a number written at the call site** — `cpuBand(x, 100)` and
-  `cpuCapacity(100)` restate it as surely as the retired `toneClass(cpu, 40, 80)` pair, and the scan
-  reads the *call* (callee plus arguments, brackets balanced), so needing two literals is exactly
-  the narrowing that missed them. **A verdict is
-  measured against the threshold a person configured, and the frame has to carry it.** The band for
-  a per-cpu load was the schema's *default* `2`/`1.4` written into two surfaces, so raising
-  `host.loadPerCpu` painted a normal box `danger` for a notification that could never fire. The
-  threshold travels on the frame (`host.loadAlertPerCpu`) and `loadBand`
-  (`src/shared/host-readings.ts`) decides the band once, for both UIs; `0` disables the alert, so it
-  cannot be breached, and a panel that sends no threshold gets the default it alerted on.
-  `test/shared/host-readings.test.ts` fails a load compared against a literal, or a load tone
-  computed outside the predicate. **The percentages are the same rule, and they were missed the first
-  time.** `memoryUsedPercent`, `swapUsedPercent` and `tempCelsius` carry their thresholds
-  (`…Alert`) and `percentageBand` bands them against those, because the literals contradicted the
-  panel's own notifications: `hostSchema` alerts on swap at **50**, and the rail painted 52% `warn`;
-  raising `host.tempCelsius` to 95 left a 90 °C box `danger`. **A disk is the same rule again, and it
-  is the one the second pass still missed.** `host.diskUsedPercent` travels as
-  `diskUsedPercentAlert`, and `hostReadings` puts a `band` on **each** disk rather than one beside the
-  frame, because the reading is per path and a frame carries several: with the alert lowered to 80 the
-  panel notified at 82% while `Gauge`/`Meter`'s `75`/`90` defaults and both noc-console helpers called
-  it `warn`. Both components now *require* a `tone` (`warnAt`/`dangerAt` are gone), so the fallback
-  that let a default stand in for a verdict cannot be reintroduced. So a host band always names the
-  field it is measured against — when the paragraph above
-  grows a new reading, check that the threshold is on the frame *and* that every surface reads the
-  predicate, on both UIs; a component default is a copy you cannot see. **A dial's *scale* is that
-  threshold too, and a band guard cannot see it.** There is no natural `100 °C`, so a temperature
-  dial is drawn full at the alert — which one stock surface took from the frame and the other kept
-  as `(tempCelsius / 85) * 100`, the schema's default. One frame at 60 °C against an alert of 95
-  therefore drew arcs of `101.19` and `113.10`, and noc-console's rail sized its bar by the °C value
-  itself. Every *colour* was right, so the tone tests stayed green while the needle disagreed —
-  `tempDialPercent` (`src/shared/host-readings.ts`) decides the fill once, and the scan in
-  `test/shared/host-readings.test.ts` fails a temperature divided, clamped or defaulted by a number.
-  **A reading with no alert still has one band, and it is a constant here.** `host.cpuUsedPercent` is
-  a share of the whole machine and `hostSchema` has no threshold for it, so there is nothing a person
-  chose — but the band was written *twice*: noc-console painted `70`/`90` and every stock dial
-  `80`/`95`, so one 75% reading came back `warn` on one page and `ok` on the other, each side
-  self-consistent and neither tested against its twin. `hostCpuBand`/`HOST_CPU_BAND` decide it, and
-  the scan fails a host surface that passes `warn-at`/`danger-at` to a dial. When a fixed band is a
-  real decision, make it one decision — a component's default is a copy you cannot see, and two
-  copies of a *fixed* number cannot even be caught by raising a config.
-  Why these copies survived: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
+- **A measurement belongs to the process that produced it, and goes when that process does.** One
+  helper clears it (`endProcessReadings`), because the exit paths, the explicit stop and an adopted
+  successor are four lifecycles and only three were handled. `portState` is the exception — occupancy
+  outlives its process. The client half is the same predicate: both UIs read a reading through
+  `liveReadings`/`pct`/`sparkSegments`, never off the frame and never `?? 0`, and an aggregate is a
+  reading of the set (`sumReadings`). **A verdict is measured against the threshold the person
+  configured, and the frame carries it** (`loadBand`/`percentageBand`/`hostCpuBand`, each with its
+  `…Alert` field; `Gauge`/`Meter` require a `tone`), and a dial's *scale* is that threshold too
+  (`tempDialPercent`). One home per reading, on both UIs. Depth, causes and the scans that enforce
+  each: [`.agentDocs/READINGS.md`](.agentDocs/READINGS.md).
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
   the page omits is worse than either alone. A stopped entry's card learned to say "not running"
@@ -356,23 +251,14 @@ workspace config guard, so a busy default port turns config tests red for the wr
   footer counts, and what the change list shows, is `ddnsConfigPatch` against the block the form was
   filled with; the wire body stays whole.
 - **A reactive value detaches by being rebuilt, never by `structuredClone(toRaw(...))`.** Reading a
-  reactive array hands back **proxies for its members**, so a list the form rebuilt
-  (`domains = domains.filter(...)`) stores them inside the raw array: `toRaw` on the parent unwraps
-  nothing below it and the clone throws `DataCloneError: #<Object> could not be cloned`. Measured on
-  the DDNS form, where removing one hostname left every later edit unable to publish a patch. One
-  helper (`clonePlain`, `src/shared/clone.ts`) rebuilds plain objects at every level and needs no Vue,
-  which is what lets the form logic live in `src/shared` rather than once per UI; a scan fails any UI
-  source that names `structuredClone`. **Every source scan reads through
-  `test/helpers/strip-comments.ts`; none strips comments by pattern.** A `/*` in a glob string or a
-  `content: '/*'` in CSS opens a "comment" that closes at the next real one and deletes the code
-  between them, so the scan goes green on the defect it exists to catch. `cssRules` parses a
-  stylesheet: ask a rule's selector list and its `@media` tier, never a text pattern.
-  **And a template is a region and a tag set, not a slice and a spelling.** `templateRegion` is the
-  one root-`<template>` reader (depth-counted over the blanked source, so a `</template>` in a string
-  or a nested `<template #slot>` cannot end it), and `openingTags` (`test/helpers/template-render.ts`)
-  is the one call-site reader — self-closing `<X … />` and paired `<X …></X>` are the same call
-  site, and a `>` inside a `:title` ternary is inside an attribute. `<MetricSpark …></MetricSpark>`
-  with its hint dropped, and a `:question` bound after a `>` in the tag, each left their scan green.
+  reactive array hands back proxies for its members, so a list the form rebuilt
+  (`domains = domains.filter(...)`) holds them inside the raw array and the clone throws. One helper
+  (`clonePlain`, `src/shared/clone.ts`) rebuilds plain objects at every level and needs no Vue, which
+  is what lets form logic live in `src/shared`; a scan fails a UI source that names `structuredClone`.
+  **Every source scan reads through `test/helpers/strip-comments.ts`** — a hand-rolled stripper eats
+  code at a `/*` inside a string and the scan then passes the defect it guards. Templates go through
+  `templateRegion`/`openingTags` (`test/helpers/template-render.ts`): a template is a region, and a
+  tag ends at the first `>` outside an attribute.
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank
@@ -485,22 +371,14 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
 
 - **Cross-platform is a hard requirement.** Linux/macOS/Windows: `/proc` vs `ps` vs Win32_Process,
   process groups vs `taskkill /T`, graceful fallbacks, no shell utilities assumed. Three Windows
-  behaviours no other runner here can exercise, so each is decided in **one shared helper** rather
-  than at the call site: a state file hand-edited in a Windows editor carries a byte-order mark or is
-  UTF-16, so it is read through `readStateFile` (`src/helpers/config-text.ts`) and never
-  `readFileSync(file, 'utf8')`. **That includes the files a UI author writes** — a BOM'd `ui.json`
-  made the panel call an installed UI unnamed and `ui-update` print "the stock UI is in use", and
-  `--print-config` printed `"settings": null` for a config that was fine; the scan in
-  `test/helpers/config-text.test.ts` lists each hand-editable file with its reason, so a new one is a
-  line there rather than a reader nobody audits. **A hand-edited file is not always JSON**: an entry's
-  `envFile` is `KEY=value`, written by a person and never by this panel, so it goes through the same
-  decoder — a `'utf8'` read gave every key a NUL, which `resolveSpawn` then dropped, and the process
-  started without the secret the file exists to keep out of the config. The scan matches the
-  **spelling** of the read too (`{ encoding: 'utf8' }`, `.toString('utf8')`, `'utf-8'`), because a
-  matcher for one spelling let the others through. A bare command found in `node_modules/.bin` must
-  resolve to a shim Windows can start, never the `#!/bin/sh` script written beside it
-  (`resolveCommand`); and text printed **for a person to paste** is quoted for the shell it targets
-  (`cdCommand`).
+  behaviours no other runner here exercises, so each is one shared helper, never a call site: a
+  hand-edited state file is read through `readStateFile` (`src/helpers/config-text.ts`), never
+  `readFileSync(f, 'utf8')` — a BOM or UTF-16 is what Windows editors write, and a `'utf8'` read has
+  already destroyed the bytes that tell them apart; a bare command in `node_modules/.bin` resolves
+  through `resolveCommand` to a shim Windows can start; text a person will paste is quoted for their
+  shell (`cdCommand`). A hand-edited file is not always JSON (`envFile` is `KEY=value`) and the scan
+  matches every spelling of the read, not one
+  (`test/helpers/config-text.test.ts`).
 - **Writes are atomic** (`writeFileAtomic`) and validated before commit.
 
 ## How to work here

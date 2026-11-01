@@ -17,11 +17,9 @@ line in `AGENTS.md` instead.
   `logs --follow` did the same — so `set -o pipefail`, the first line of most deploy scripts, turned a
   working panel into a failed step and put a traceback in the operator's log where the answer belonged.
   `treatClosedReaderAsDone()` (`src/cli/io.ts`) is installed **once** in `main()`, not per command:
-  there are 109 `process.stdout.write` sites and a per-site guard is exactly the shape that leaves the
-  next one broken. It exits **0** instead of dying of `SIGPIPE` (141, what `cat` and `git` do), because
-  the command did its work and only the reader stopped listening, so nothing was refused — `node --help`
-  and `python -c` exit 0 for the same reason. Only `EPIPE` is special-cased; `ENOSPC` and friends are
-  real failures and are rethrown (`test/cli/epipe.test.ts`, `test/cli/io.test.ts`).
+  there are 109 `process.stdout.write` sites, and a per-site guard leaves the next one broken. It exits
+  **0**, not `SIGPIPE`'s 141: the command did its work, nothing was refused. Only `EPIPE` is
+  special-cased — `ENOSPC` and friends are rethrown (`test/cli/epipe.test.ts`, `test/cli/io.test.ts`).
 - **A test spawns the CLI through `process.execPath`, never `node_modules/.bin/tsx`.** That file is a
   `#!/bin/sh` shim; Windows has `tsx.cmd`/`tsx.ps1` there instead, so `execFile` on the POSIX path
   starts nothing and the child's streams come back empty. Nothing throws: the assertion fails as
@@ -244,124 +242,15 @@ line in `AGENTS.md` instead.
   while the per-server figures read `400%` and the two looked like a contradiction. The dial is now
   CPU utilisation (`cpuUsedPercent`), load is a labelled number with its per-cpu value, and the
   per-server charts scale to `cpus × 100` rather than clipping at 100.
-- **A reading and its own chart are one verdict, and a fourth copy is what drifts.** `ServerDetail`'s
-  cpu chart was scaled to `cpus × 100`, and the **number directly above it** kept the fixed
-  `toneClass(cpuPercent, 40, 80)`; the helper's comment on the chart said the bands scaled with the
-  machine, so the drift sat inside a docstring that claimed otherwise. Measured on a 24-core host: a
-  server at `1000%` — a sixth of the box — painted its number `--danger` while the sparkline beneath
-  it stayed `--accent`, and the list row one click away agreed with the sparkline. Nothing failed,
-  because the rule was correct in three places. The fix is `src/shared/cpu-scale.ts`
-  (`cpuCapacity`/`cpuBand`), read by all four surfaces, and `test/shared/cpu-scale.test.ts` walks
-  every UI source for a restated `Math.max(100, …)` and for a cpu band or ceiling measured against a
-  number written at the call site. Two cautions from doing it: an absent reading needs its **own
-  band** (`unknown`), or the helper quietly answers `ok` for a stopped entry; and the per-core
-  thresholds are the same numbers at one core, so a test asserting `40%` of one core is `ok` fails
-  for the wrong reason — `40%` was always the warn edge.
-  **The scan's first matcher was the same defect one spelling over**: it required *two* bare
-  literals, because the copy it was written for was `toneClass(cpuPercent, 40, 80)`, so a capacity
-  restated as **one** number — `cpuBand(cpuPercent.value, 100)`, `cpuCapacity(100)` — was green in
-  every source file, and the corpus has no such call site today, which is why only a plant found it.
-  `100` is exactly the per-core ceiling the module replaces, so the shape it could not read is the
-  one the rule names. The matcher now reads the **call** — callee plus arguments, brackets balanced
-  and literals stepped over — instead of one count of literals: a callee naming a scale (`band`,
-  `capacity`, `ceiling`, `tone`, `colour`) whose callee or first argument says `cpu` may carry no
-  bare number, because the machine's core count always arrives as a frame value. Two calls that
-  look similar are deliberately outside it, and both were measured as false positives before the
-  predicate was narrowed: a host 0–100 share (`clamp(cpuUsed ?? 0, 0, 100)`) is a percentage of the
-  whole machine, not a tree reading, and a `numberModel(…, 2)` writes a `loadPerCpu` **threshold**,
-  which is a number a person chose rather than a capacity.
-- **A process tree's CPU cannot be differenced as two sums.** The tree is not a fixed set of pids:
-  a wrapper respawns its worker, so "sum the cumulative seconds over whatever is in the tree now"
-  is not comparable with the previous sum. Measured against a wrapper respawning a 1.5 s worker,
-  **two samples in three were discarded** because the child's exit made the sum drop and the
-  negative delta was thrown away — the gaps a user sees on a live server. The baseline is now the
-  **whole process table**, and `treeCpuUsedSeconds` sums only pids present in the new scan
-  (`test/providers/proc.test.ts` pins the arithmetic directly; a live scan cannot).
-- **A number the UI shows must be comparable with the numbers beside it.** A percentage tile next
-  to a count tile is a bug even when both are correct, because a person reads the shape, not the
-  label.
-- **A scrape is a reader with no page to qualify it, so an absent series is the only honest "no
-  reading".** `HostMonitor` starts from `emptyHostView()`, which answers `sampledAt: null` and every
-  value `0`; `/api/metrics` published those zeros, so a fresh panel — or one with host vitals
-  switched off — served `hh_host_memory_used_percent 0` and `hh_host_load1_per_cpu 0.000`. A
-  homelab alert rule (`memory > 90`) cannot tell that from a healthy idle box, and it stays silent
-  for ever. The host gauges are now published only once `sampledAt !== null`, which is the rule the
-  per-server ones already followed. The same round found the scrape had never published
-  `cpuUsedPercent` at all, so the **only** host CPU figure a dashboard could reach was the load
-  count — a different unit, which the UI section above had already fixed for the page.
-- **The rule was only ever enforced where it was written, so the pages kept printing the frame.** The
-  scrape was fixed and the UI was not: a never-sampled panel rendered memory `0.0%`, swap `0.0%`,
-  `0.00` load and a green `quiet` chip in noc-console's vitals page, and `mem 0%` / `swap 0%` in the
-  rail that is on every screen — the same fabricated zeros the route refused to publish, shown to
-  the person instead of the dashboard. Two tiles were already gated (`cpuUsedPercent`,
-  `tempCelsius`) and four were not, because "no reading" was a line in a route rather than a decision.
-  It is `hostReadings` (`src/shared/host-readings.ts`) now, and the four host surfaces across both
-  UIs read it. Two cautions: the frame's fields stay `number` on the wire, because an overridden
-  older UI under `.hh/.ui` calls `.toFixed()` on them — the absence is decided where it is rendered,
-  never by making the DTO nullable; and a **sampled** box honestly measuring `0%` must survive as
-  `0`, so the predicate gates on `sampledAt`, not on the value being zero. A scan walks every `.vue`
-  for `(host?.memoryUsedPercent ?? 0)` because the next surface is the one nobody declared.
-- **A docstring that describes the fix is a claim, and the body can still hold the old number.** The
-  per-cpu load bands were `2` and `1.4` in two noc-console surfaces. That is `hostSchema`'s
-  **default**, so the copy is invisible on a fresh config and wrong on any other: with
-  `host.loadPerCpu` at 4, `sampleHost` notifies at 4 and the tile painted `danger` from 2.5 —
-  a verdict on a threshold nobody chose, for an alert that could not fire. The docstring above one
-  of the two said "the bands now follow the configured alert threshold (default 2/cpu), which is the
-  number the panel itself notifies on", which was true of the *intent* and false of the code; the
-  default in the prose is what made a reader believe it. The frame carried no threshold at all, so
-  neither surface could have followed one — when a comment claims a value comes from config, check
-  that the value is reachable from where the code sits before trusting the sentence. The fix ships
-  `loadAlertPerCpu` on the view, `loadBand` beside `hostReadings`, and `LOAD_ALERT_PER_CPU_DEFAULT`
-  as the schema's default, so the number has one home. Three cautions: `0` disables the alert in
-  `sampleHost`, so nothing can breach it and the band is `ok` — not a colour a reader has to
-  interpret; an older panel sends no threshold, so it gets the default
-  it alerted on rather than `undefined` propagating into a comparison; and a `loadRatio ?? 0` that
-  sizes a **bar** is not this defect — it picks an empty bar, not a colour — so the scan matches
-  comparisons only.
-- **The fix that named the class still left one instance, and the reason is worth keeping.** After the
-  load and the three percentages got predicates, the **disk** bar kept `band(percent, 75, 90)` in both
-  noc-console surfaces, and the stock `Gauge`/`Meter` carried the same pair as *component defaults*
-  (`warnAt: 75, dangerAt: 90` — since removed: `tone` is now required on both, so a call site cannot
-  omit a verdict and the component cannot compute one). That is `hostSchema`'s default
-  `diskUsedPercent: 90`, so — exactly as
-  with the load — the copy is invisible on a fresh config and wrong on any other. Measured with the
-  alert at **80**: `sampleHost` notifies at 82% and every surface painted that number `warn`, on the
-  one reading where a late warning costs a full filesystem. Two things made it survive the round that
-  fixed its neighbours. First, `host.diskUsedPercent` had **never been put on the frame**, so no
-  surface *could* have followed it — the previous fix added three thresholds and did not audit the
-  fourth reading for one. Second, the copies were not literals beside a component call; they were the
-  component's own **defaults**, which read as "the component's business" rather than as a restated
-  rule, and a scan for a comparison against a number cannot see a default declared in another file.
-  So the band rides on **each disk** (`HostDiskReading.band`, `hostReadings`) rather than in one
-  `diskBand` beside `memoryBand`: the reading is per path and a frame carries several, and one
-  frame-level band would have answered for whichever path it happened to name. The general lesson is
-  the audit, not the fourth patch — when a paragraph in `AGENTS.md` claims a *set* of readings
-  follows a rule, enumerate the set against the frame and against every surface.
-- **The band and the scale are two decisions, and a guard on one hid the other.** The temperature
-  reading got a `tempBand` decided by the frame's `tempCelsiusAlert`, and the tests that pinned it
-  mounted the real components and read the `stroke-*` class each dial drew. So every *colour* was
-  right on both stock surfaces while the *needle* was not: `InstrumentCluster` scaled its dial by the
-  frame's threshold, and `HostVitalsPanel` still had `(readings.tempCelsius / 85) * 100` inline in its
-  template — `hostSchema`'s default. With the alert raised to 95, one frame at 60 °C drew arcs of
-  `101.19` on the rail and `113.10` on the card. noc-console's rail had a third shape: it sized its
-  bar by the °C value itself, `clamp(tempCelsius, 0, 100)`, which is a 0–100 °C scale and a share of
-  nothing. Three lessons. A colour assertion cannot see a geometry bug, so a dial needs one test that
-  reads the **arc** (`stroke-dasharray`) rather than the class. A percentage has a natural full scale
-  of 100 and a temperature does not, which is why only this reading grew a scale of its own — the
-  `percentageBand`/`tempBand` machinery was correct and simply does not answer "how full is the
-  dial". And the inline-template copy is the hardest to grep for: it sat in a `:value=` expression,
-  not in a `computed`, so a scan listing surface *helpers* would have found nothing. The successor is
-  `tempDialPercent` (`src/shared/host-readings.ts`), read by all three surfaces, and its scan matches
-  the arithmetic rather than the name.
-- **A `_total` that can go down is not a counter.** `hh_server_restarts_total` was the retry budget
-  spent on a server's *current* crash sequence, and a start someone asked for resets it to `0`
-  (measured: `2` → `0` on a manual start), so `rate()` saw a counter reset every time an operator
-  touched the entry; its HELP text had also claimed "since the control plane started", which was
-  never true. The name *was* the lie, so it went: the series is `hh_server_restarts` now, and the
-  HELP says a manual start resets it. The audit for the same defect found `hh_servers_total`, which
-  is the configured-entry **count** — adding or removing an entry moves it down — so it is
-  `hh_servers`. Nothing in `/api/metrics` is a counter: every value is a snapshot, which is why the
-  scrape test enumerates the names and fails any `_total` or `# TYPE … counter`.
+- **A reading's absence, band, scale and aggregate each need one home, and a guard on one cannot
+  see the others.** The full rules live in [`READINGS.md`](READINGS.md); what generalises beyond them:
+  four of these were found by breaking a surface and watching the *tone* test stay green, because a
+  colour assertion cannot see geometry and a template scan that reads `{{ }}` cannot see a prop. A
+  guard's own matcher is the next thing to suspect — the cpu-scale scan required two bare literals
+  because the copy it was written for had two, so a capacity restated as one number was green in
+  every file, and `100` is exactly the ceiling that module replaces. Read the **call** (callee plus
+  arguments, brackets balanced), not a count of literals.
+
 - **A compose stack is not a process tree, so a memory ceiling on one watched nothing.** `docker
   compose up` is a wrapper; the containers it starts are in another namespace, not among its
   descendants. Measured: a stack whose container burned 99% CPU / 20.7 MB reported `cpuPercent: 0,
@@ -545,122 +434,31 @@ line in `AGENTS.md` instead.
   needs a `confirm` in the identifier is defeated by calling the ref `asking`, which is a rename, not
   a fix.
 
-- **A source scan's matcher is a claim about every spelling, and its comment stripper is a claim
-  about the corpus.** Four guards here audited as decoration in one sitting, each for its own reason:
-  `test/shared/host-readings.test.ts` read only `{{ }}`, so a `?? 0` in a `:display` prop stayed green
-  — a fabricated `0 °C` in the tile that exists to warn about heat; `test/shared/ui-readings.test.ts`
-  read only `liveReadings(...)`/`live.` literally, so a reading destructured out
-  (`const { responseMs } = liveReadings(server)`) or reached through a second `computed` was invisible,
-  and `:title="`probe ${responseMs ?? 0} ms`"` stayed green; `test/shared/ui-parity.test.ts` claimed
-  "no string here contains `//`", which the corpus already contradicted — `uis/stock/src/i18n/index.ts`
-  holds `'../../i18n/generated/**/*.json'`, so its block pattern opened at that `/*` and closed at the
-  end of the *next* comment, deleting the `createI18n(...)` call between them, and a real
-  `structuredClone` planted there stayed green; `uis/stock/test/clipboard-source.test.ts` matched
-  `navigator.clipboard` literally, so `navigator['clipboard']` and `const { clipboard } = navigator`
-  both walked past it. Each was found the same way — **break the thing in the source and watch the
-  file** — and each fix reads the *reach* rather than a spelling: `test/helpers/template-render.ts`
-  collects every rendered expression (`{{ }}`, `:x`, `v-bind[:x]`, `v-text`, `v-html`) and excuses
-  `:style`/`:class` **in either spelling** (`isGeometry`) because a bar's width is not a number on
-  screen — the short-only predicate read `v-bind:class` as text a person reads, so the same rule had
-  two answers depending on how it was written;
-  `test/helpers/strip-comments.ts` walks the source tracking code/string/template/regex, and reads a
-  `.vue` as markup plus `<script>` blocks, because `placeholder="http://10.0.0.5:8080"` in a template
-  made the line pattern truncate the rest of the line. A guard that reports a `:line` must keep the
-  line count while blanking comments — both helpers replace comment characters with spaces for that
-  reason. **The same audit found the helper's own users had not replaced every copy.** Seven scans
-  still carried a local regex, and each was driven with a plant the round could not explain away:
-  six went green on a real violation. The shape is always the same — the corpus supplies an
-  *unclosed* opener (`'src/*.ts'`, or a `'/*'` in CSS `content`) that pairs with a later real
-  comment, or a `//` in a URL that the line pattern reads as a comment — and the statements in
-  between vanish. `test/shared/cpu-scale.test.ts`, `uis/stock/test/toast-copy.test.ts` and
-  `uis/stock/test/commands-in-copy.test.ts` each stayed green with a planted per-core band, a
-  planted English toast and a planted `pnpm run` under exactly that shape; `test/services/state.test.ts`
-  and `test/helpers/paths.test.ts` stayed green on a planted orphan export whose file began with the
-  glob; `test/shared/ui-tap-targets.test.ts` and `uis/noc-console/test/mobile-layout.test.ts` stayed
-  green on a rule pinned under the tap floor and on a `display: none` in the wrong tier. A CSS scan
-  needs a parser, not a stripper: `cssRules` returns each rule's selector list and the `@media`
-  tiers it sits in, so `ruleIn(rulesIn('(width <= 860px)'), '.nav')` cannot be fed a comment or a
-  quoted brace. **The markup half kept two local spellings after that audit.** A `<!--[\s\S]*?-->`
-  pattern reads a `<!--` inside a quoted attribute (`:title="'<!--'"`) as an opener and deletes
-  through the next real comment — measured green on an English text node planted beside it — so the
-  region now comes from `templateRegion`, which reuses the reader's own markup pass. And
-  `/<X\b([\s\S]*?)\/>/` reads `<MetricSpark … />` as a call site but `<MetricSpark …></MetricSpark>`
-  as none, so a dropped `:empty-hint` on the paired form was invisible; `openingTags` ends a tag at
-  the first `>` that is *not inside an attribute*, which also matters because `:title` ternaries
-  contain `>` and a lazy match ran on to a sibling's `/>`, reading that sibling's attributes as this
-  tag's.
-
-- **A hand-written lexer is a claim about every shape the language allows, and the corpus keeps
-  supplying the shape it missed.** The one reader every scan shares (`test/helpers/strip-comments.ts`)
-  was itself audited the round after it consolidated seven scans, and had four blind spots — each
-  measured by diffing its output against the TypeScript parser's own trivia (blanked comments, leaf
-  tokens unchanged) over all 301 `.ts` and 115 `.vue` source files, and each proven with a plant a
-  dependent scan could not explain away:
-  - `regexCanFollow` tested the character *immediately* before the `/`, so `= /^https?:\/\//` — how
-    every regex in this corpus is written — was not a regex: its `\/` pairs were read as code, the
-    second opened a **line comment**, and the rest of the line vanished. `parseUpstream`
-    (`src/services/proxy.ts:2054`) lost its `explicit !== null` branch, and a `structuredClone`
-    planted on that line after the regex stayed green in `test/shared/ui-parity.test.ts`;
-  - template literals were one flat state, but a `${}` interpolation is **code** and may hold a
-    template of its own: `` `  ${dim(`! the panel's listener changed`)}` `` (`src/cli/backup.ts:758`)
-    closed the outer literal at the inner backtick, and the apostrophe after it opened a string that
-    ran past the end of the line — leaving **39 of that file's 111 comments** in place, so a scan read
-    comment prose as code;
-  - CSS strings were closed at the first matching quote, so `content: "\""` — a valid escaped quote —
-    ended the string on its **closing** quote; `cssRules` then met a `}` with no open and dropped
-    every rule after it, and a `.btn--icon { min-width: 10px }` planted under the floor stayed green
-    in `test/shared/ui-tap-targets.test.ts`;
-  - a `.vue` block was found with a lazy `/<script\b[^>]*>([\s\S]*?)<\/script>/`, so a string holding
-    `'</script>'` ended it early and the rest of the script was read as markup: a real comment on the
-    next line survived (**and was reported as a violation** — the false-positive direction, where a
-    comment merely *naming* `structuredClone` failed `test/shared/ui-parity.test.ts`), and a `'<!--'`
-    in the same string opened a markup comment that blanked real code after it. The block's end is
-    now the first `</script>` the *script* reader meets in code, which is also what the Vue compiler
-    does;
-  - a block's **open tag** was found with `/<script\b[^>]*>/`, which stops at a `>` inside an
-    attribute value. `<script setup lang="ts" generic="T extends Record<string, unknown>">` is legal —
-    Vue's own SFC parser reads it and reports `errors: 0` — but the block then began at the `"` that
-    closes the attribute, inside a string that ran over the lines below, so **every comment in the
-    block survived**: a comment merely *naming* `structuredClone` failed `ui-parity` on a file with no
-    call. An open tag ends at the first `>` **outside** a quoted attribute, which is what the parser
-    does.
-  The fix is a frame stack, not a longer state list: a `${}` pushes a nested `code` frame, and a `}`
-  with no braces left pops it. A regex follows any character a value may begin after, or a keyword
-  (`return`, `typeof`, `case`), never merely a delimiter. **When a helper is the single reader for
-  every guard, its test is a syntax tour of the *language*, not of the inputs already seen** — each
-  case above is legal code this corpus contains today.
-  **The fifth cause was found by aiming the reader's own question back at it.** The four before it
-  were each a *token* read wrong; an open tag is not a token, it is markup, and the reader was
-  audited only on what came *after* the tag it found by pattern. What settles it is a differential
-  audit — the helper's output against the language's own parser over the whole corpus, blanked
-  comments and unchanged leaf tokens — which runs clean on 458 `.ts`/`.mjs` and 115 `.vue` files.
-  The `>` shape is not in the corpus, so the **language's** parser, not the corpus, is what says it
-  is legal; a corpus-diff audit alone cannot find a shape nobody has written yet.
-
-- **A matcher that forbids quote characters forbids the most ordinary English sentence.** The toast
-  guard (`uis/stock/test/toast-copy.test.ts`) read its argument with
-  `(['"`])((?:[^'"`\\]|\\.)*)\1` — a body that may not contain *any* quote — so
-  `toasts.failure("Couldn't rename the workspace")`, written with the apostrophe in double quotes,
-  matched nothing and the guard stayed green over an English sentence on a translated panel. The
-  same shape sat in `isGeometry` (`test/helpers/template-render.ts`), whose short-only
-  `^:(?:style|class)\b` read `v-bind:class` as text a person reads, so the *excused* bindings
-  depended on the author's spelling. Both now read the construct, not one spelling: the toast scan takes the call's
-  whole argument (brackets balanced, literals stepped over, so a ternary or a second argument counts)
-  and every literal in it, and `isGeometry` matches `^(?::|v-bind:)…`. And the markup reader
-  (`stripMarkup`, `test/helpers/strip-comments.ts`) treated a `<!--` inside an attribute value
-  (`:title="'<!--'"`) as a comment opener, swallowing the template after it up to the next `-->`:
-  measured on the exact input `test/shared/host-readings.test.ts` reads, a planted
-  `{{ (host?.memoryUsedPercent ?? 0) }}` after that attribute was invisible. The skip is scoped to
-  **inside a tag**, because text between tags is not quoted — `it's fine` holds an apostrophe that
-  begins nothing. **And a `<style>` block is CSS, not markup**: read as markup it was wrong in both
-  directions at once — `content: "<!--"` opened a comment that blanked the template below it when
-  `<style>` came first (Vue's own SFC parser accepts that order, `errors: 0`), and a CSS comment
-  naming `structuredClone` survived as code and **failed** `test/shared/ui-parity.test.ts` on a file
-  with no call. Both directions are pinned now, and the block's body is handed to `stripCss` while
-  its open tag stays markup. A differential audit of the reader against HEAD over 485 files shows the
-  same leaf code; a corpus with no `<!--` in an attribute and no `<style>` before `<template>` is why
-  only a plant found these.
-
+- **A source scan is a claim about every spelling of a rule.** Eleven guards here have audited as
+  decoration, each found the same way: break the thing in the source and watch the file still pass.
+  What they could not see — a `{{ }}`-only scan and a fabricated `0 °C` in a `:display` prop; a
+  `liveReadings(...)`-literal scan and a reading destructured out; `navigator.clipboard` and
+  `navigator['clipboard']`; `:style` excused in the short form only; a matcher forbidding quote
+  characters and the ordinary `toasts.failure("Couldn't …")`; a phrase-match and a reworded fallback;
+  two bare literals and a capacity restated as one; a self-closing `/>` and a paired `<X …></X>`; an
+  `indexOf('/>')` and any paired tag; a `[^>]*` and a `>` inside a `:title` ternary. **Read the
+  construct** — the call with its arguments, the tag to its own `>`, the region depth-counted — never
+  one spelling of it.
+- **A hand-rolled comment stripper deletes code, and the scan then guards nothing.** A `/*` in a glob
+  string or a CSS `content: '/*'` opens a "comment" that closes at the next real one. Seven scans
+  carried their own; six went green on a planted violation. Every scan reads through
+  `test/helpers/strip-comments.ts`, which is a frame stack (`${}` pushes a code frame, `}` pops it), and
+  `cssRules` parses a stylesheet rather than matching text.
+- **The one reader is the next claim to audit, and its test is a syntax tour of the language.** That
+  helper had five blind spots, each legal code this corpus contains: `regexCanFollow` tested the
+  character immediately before the `/`, so `/^https?:\/\//` opened a line comment; a `${}` may hold a
+  template, so a flat literal state ended the outer at the inner backtick; a CSS `content: "\""` ended
+  its string on the closing quote; a `<script>` block found by `/<script\b[^>]*>/` stops at a `>` in an
+  attribute, so the block began inside a string and every comment survived; and a lazy `</script>` let
+  a string containing `'</script>'` end it early. A corpus diff cannot find a shape nobody has
+  written, so a shape the corpus lacks is settled by `@vue/compiler-sfc` or the TypeScript parser —
+  the differential audit (helper output vs parser, blanked comments, unchanged leaf tokens) is what
+  proves the reader.
 - **A browser API that needs a secure context is absent on the origin the docs promise.** The panel
   is documented as a plain-`http://` LAN page, and `navigator.clipboard` does not exist there: measured
   `undefined` from `http://192.168.1.201:6181` and `object` from `http://127.0.0.1:6181` on the same
