@@ -64,7 +64,8 @@ time the zip is cut, which is what made `ui-update` reinstall the same UI on eve
 outside this repo sets neither and loses nothing: `ui-update` then compares against your release list.
 
 With those set, `home-hosted ui-update` lists the releases carrying your `asset` and installs the one
-you pick; `--old` lists older ones. A version bump in your own repo is enough — nothing about the
+you pick; `--old` lists older ones. `--asset <name>` installs a different asset from that release and
+wins over the one `ui.json` declares. A version bump in your own repo is enough — nothing about the
 panel is involved.
 
 > **Official UIs** (`repo: NamesMT/home-hosted`) follow the panel instead: the panel knows its own

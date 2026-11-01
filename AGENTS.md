@@ -123,7 +123,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   `setup-temp --download` exited 0 having done nothing, so a script read it as "installed"
   (`test/cli/setup-temp.test.ts`). **The same rule covers a promise made in the help text**:
   `--clear` says it deletes the helper, and the CLI cleared the setting while the script survived —
-  so `removeWslTemperatureScript` is one helper both callers use.
+  so `removeWslTemperatureScript` is one helper both callers use. It covers a flag read on one path
+  and outranked on another: `ui-update --asset` lost to the installed asset on every path but
+  `--tag` (`test/cli/ui-update.test.ts`). Decide a flag once, where the identity is read.
 - **A bounded read stays bounded.** `logs --lines 1e3` falls back to the default and `0x10` is not the
   "whole log" sentinel (`src/cli/logs.ts`); `--lines N` reads a tail, never the whole file
   (`test/cli/logs.test.ts`).

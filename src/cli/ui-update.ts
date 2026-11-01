@@ -171,15 +171,26 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
     installed.repo = repoSlug(repo)
   }
 
+  // `--asset` names the flavour to install, and it outranks the one the UI declared: a release
+  // can carry more than one UI, so "the asset in use" is the default, not the rule. Read here so
+  // every path below — `--check`, `--tag`, official and someone else's — asks the same question.
+  if (values.asset !== undefined) {
+    const named = values.asset.trim()
+    if (named.length === 0)
+      throw new Error('--asset is empty — name the release asset to install, or drop the flag')
+    installed.asset = named
+  }
+
   const order = values.old === true ? 'older' : 'newer'
   const repo = installed.repo === null ? null : parseRepoSlug(installed.repo)
 
   // A request to install cannot be honoured without a repo to install from: saying so
   // beats discarding the flag and printing the "does not say where it came from" notice.
-  if (values.tag !== undefined && repo === null) {
+  if ((values.tag !== undefined || values.asset !== undefined) && repo === null) {
+    const flag = values.tag !== undefined ? '--tag' : '--asset'
     throw new Error([
-      '--tag needs a repository to fetch from, and this UI does not declare one',
-      `  pass it: home-hosted ui-update --repo ${DEFAULT_REPO} --tag ${values.tag}`,
+      `${flag} needs a repository to fetch from, and this UI does not declare one`,
+      `  pass it: home-hosted ui-update --repo ${DEFAULT_REPO} ${flag} ${values[values.tag !== undefined ? 'tag' : 'asset']}`,
     ].join('\n'))
   }
 
@@ -199,7 +210,7 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
   }
 
   if (values.tag !== undefined && repo !== null) {
-    await installTag(repo, values.asset ?? installed.asset ?? null, values.tag, context)
+    await installTag(repo, installed.asset, values.tag, context)
     return
   }
 
@@ -222,7 +233,7 @@ export async function uiUpdate(argv: string[], io: { write: (text: string) => vo
     }
 
     io.write(`${io.style.bold(`${plan.identity.name} ${plan.identity.version ?? ''}`.trim())} is on ${plan.identity.tag ?? 'an unknown tag'}; this panel is ${plan.target} — updating\n`)
-    await installTag(repo!, plan.identity.asset ?? values.asset ?? null, plan.target, context)
+    await installTag(repo!, installed.asset, plan.target, context)
     return
   }
 

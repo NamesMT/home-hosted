@@ -466,7 +466,7 @@ describe('uiUpdate', () => {
     expect(installed.tag).toBe('v1.2.3')
   })
 
-  /** `--check` documents itself as installing nothing, so it has to outrank `--tag`. */
+  // `--check` documents itself as installing nothing, so it has to outrank `--tag`.
   it('installs nothing under --check, even when --tag names a release', async () => {
     const root = tempDir('hh-ui-cli-')
     process.env.HHOSTED_HOME = root
@@ -510,5 +510,148 @@ describe('uiUpdate', () => {
     const { uiUpdate } = await import('#src/cli/ui-update')
     // `prompt` is only wired up when stdin is a TTY; under vitest it is not.
     await expect(uiUpdate([], io)).rejects.toThrow(/run it in a terminal/)
+  })
+})
+
+/**
+ * `--asset` names what to install, so it must outrank what the UI happened to declare.
+ *
+ * The flag was read on the `--tag` path only; on an official or someone else's UI the
+ * installed asset won, so `ui-update --asset stock` reinstalled the flavour already
+ * there and said nothing. Measured on a home carrying `home-hosted-ui-noc-console.zip`,
+ * with both assets in the release: `--asset stock` installed noc-console again.
+ */
+describe('ui-update --asset', () => {
+  const savedHome = process.env.HHOSTED_HOME
+
+  afterEach(() => {
+    if (savedHome === undefined)
+      delete process.env.HHOSTED_HOME
+    else
+      process.env.HHOSTED_HOME = savedHome
+    vi.resetModules()
+  })
+
+  const io = {
+    write: () => {},
+    prompt: async () => '',
+    style: { bold: (text: string) => text, dim: (text: string) => text, green: (text: string) => text },
+  }
+
+  /**
+   * The home the CLI reads: `$HHOSTED_HOME/.hh/.ui`, which is not the path the direct
+   * `UiService` tests use — they hand it their own root as `dataRoot`.
+   */
+  function homeWithUi(meta: Record<string, unknown>): string {
+    const root = tempDir('hh-ui-asset-')
+    process.env.HHOSTED_HOME = root
+    const ui = path.join(root, '.hh', '.ui')
+    fs.mkdirSync(ui, { recursive: true })
+    fs.writeFileSync(path.join(ui, 'ui.json'), JSON.stringify(meta))
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>old</title>')
+    return root
+  }
+
+  /** The `ui.json` the CLI just wrote, at the path it actually uses. */
+  function cliInstalledMeta(root: string): Record<string, unknown> {
+    return JSON.parse(fs.readFileSync(path.join(root, '.hh', '.ui', 'ui.json'), 'utf8')) as Record<string, unknown>
+  }
+
+  /** One release carrying both official assets, each downloadable and a real zip. */
+  async function stubBothAssets(tag: string): Promise<Array<{ url: string }>> {
+    const stock = fs.readFileSync(await uiZip('home-hosted-ui-stock.zip'))
+    const calls: Array<{ url: string }> = []
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      const url = String(input)
+      calls.push({ url })
+      if (url.includes('/releases/')) {
+        return new Response(JSON.stringify({
+          tag_name: tag,
+          assets: [
+            { name: 'home-hosted-ui-stock.zip', url: 'https://api.github.com/asset/stock' },
+            { name: 'home-hosted-ui-noc-console.zip', url: 'https://api.github.com/asset/noc' },
+          ],
+        }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      return new Response(stock, { status: 200 })
+    })
+    return calls
+  }
+
+  it('installs the asset the flag names, not the one the UI declared', async () => {
+    const root = homeWithUi({ name: 'noc-console', repo: OWN_REPO, tag: 'v1.0.0', asset: 'home-hosted-ui-noc-console.zip' })
+    const calls = await stubBothAssets('v1.2.3')
+
+    vi.resetModules()
+    const { uiUpdate } = await import('#src/cli/ui-update')
+    await uiUpdate(['--asset', 'stock'], io)
+
+    // The release is this panel's, so the flag decides the file inside it.
+    expect(calls.map(call => call.url)).toContain('https://api.github.com/asset/stock')
+    expect(calls.map(call => call.url)).not.toContain('https://api.github.com/asset/noc')
+    expect(cliInstalledMeta(root).tag).toBe('v1.2.3')
+  })
+
+  it('offers the flagged asset when the UI is someone else\'s', async () => {
+    homeWithUi({ name: 'my-ui', repo: 'someone/their-ui', tag: 'v1.0.0', asset: 'my-ui.zip' })
+    const archive = fs.readFileSync(await uiZip('alt.zip'))
+    const calls: Array<{ url: string }> = []
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      const url = String(input)
+      calls.push({ url })
+      // Three calls in order: the release list, the release by tag, then the asset itself.
+      if (url.includes('?per_page='))
+        return new Response(JSON.stringify([{ tag_name: 'v2.0.0', assets: [{ name: 'alt.zip', url: 'https://api.github.com/asset/alt' }] }]), { status: 200, headers: { 'content-type': 'application/json' } })
+      if (url.includes('/releases/'))
+        return new Response(JSON.stringify({ tag_name: 'v2.0.0', assets: [{ name: 'alt.zip', url: 'https://api.github.com/asset/alt' }] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      return new Response(archive, { status: 200 })
+    })
+
+    vi.resetModules()
+    const { uiUpdate } = await import('#src/cli/ui-update')
+    await uiUpdate(['--asset', 'alt.zip'], io)
+
+    expect(calls.map(call => call.url)).toContain('https://api.github.com/asset/alt')
+  })
+
+  it('refuses an empty --asset instead of ignoring it', async () => {
+    homeWithUi({ name: 'noc-console', repo: OWN_REPO, tag: 'v1.0.0', asset: 'home-hosted-ui-noc-console.zip' })
+    await stubBothAssets('v1.2.3')
+
+    vi.resetModules()
+    const { uiUpdate } = await import('#src/cli/ui-update')
+    await expect(uiUpdate(['--asset', ''], io)).rejects.toThrow(/--asset is empty/)
+  })
+})
+
+// A flag that names something to install must not be discarded when there is nowhere to install
+// from. `--tag` already refused; `--asset` alone fell through to the "does not say where it came
+// from" notice and exited 0, so a script read a UI it never installed as done.
+describe('ui-update --asset with no repository', () => {
+  const savedHome = process.env.HHOSTED_HOME
+
+  afterEach(() => {
+    if (savedHome === undefined)
+      delete process.env.HHOSTED_HOME
+    else
+      process.env.HHOSTED_HOME = savedHome
+    vi.resetModules()
+  })
+
+  it('refuses, and names the flag and the repo that would make it work', async () => {
+    const root = tempDir('hh-ui-norepo-')
+    process.env.HHOSTED_HOME = root
+    const ui = path.join(root, '.hh', '.ui')
+    fs.mkdirSync(ui, { recursive: true })
+    fs.writeFileSync(path.join(ui, 'ui.json'), JSON.stringify({ name: 'mine' }))
+    fs.writeFileSync(path.join(ui, 'index.html'), '<!doctype html><title>mine</title>')
+
+    vi.resetModules()
+    const { uiUpdate } = await import('#src/cli/ui-update')
+    await expect(uiUpdate(['--asset', 'stock'], {
+      write: () => {},
+      prompt: async () => '',
+      style: { bold: (text: string) => text, dim: (text: string) => text, green: (text: string) => text },
+    })).rejects.toThrow(/--asset needs a repository.*--repo NamesMT\/home-hosted --asset stock/s)
   })
 })
