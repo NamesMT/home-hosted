@@ -569,14 +569,18 @@ function planRefusal(plan: RestoreOutcome | null): string | null {
 }
 
 /**
- * The plan's refusals and per-item skips, as lines a person can act on.
+ * A restore's per-item skips, as lines a person can act on.
  *
  * `skipped` is the same list the UI draws, and it is the only thing that says a piece of an
  * otherwise successful restore was left behind — an unreadable `servers.config.json`, a data path
- * whose declaration changed. Printing only the applied count reported such a restore as complete.
+ * whose declaration changed, a dump staged for an entry with no `load` hook. Printing only the
+ * applied count reported such a restore as complete.
+ *
+ * Read from the outcome of the run that is being reported: the plan and the apply answer different
+ * lists, because a skip such as a missing load hook is only known once the files have landed.
  */
-function restoreNotes(plan: RestoreOutcome | null): string[] {
-  return plan?.skipped ?? []
+function restoreNotes(outcome: RestoreOutcome | null): string[] {
+  return outcome?.skipped ?? []
 }
 
 export async function runBackupRestore(options: { name?: string, from?: string, password?: string, scope: Scope, exclude?: string[], confirm: boolean, json: boolean }): Promise<void> {
@@ -726,7 +730,9 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
 
     const applied = (outcome.items ?? []).filter(item => item.selected !== false)
     const hooks = (outcome.hooks ?? []).filter(hook => hook.action === 'load')
-    const notes = restoreNotes(plan)
+    // The **apply's** list, not the plan's: a dump staged for an entry with no `load` hook is only
+    // discovered here, and reporting the plan's list dropped that sentence from both outputs.
+    const notes = restoreNotes(outcome)
 
     if (options.json) {
       process.stdout.write(`${JSON.stringify({

@@ -272,12 +272,12 @@ workspace config guard, so a busy default port turns config tests red for the wr
   from that element — never from a search for its class text.
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
-  empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank
-  host — the one situation where nobody can check the result — is indistinguishable from a restore
-  that worked. Read `error`/`needsPassword` before anything else, exit non-zero, and print `skipped`
-  when an apply leaves pieces behind (`src/cli/backup.ts`). The same shape is why a scoped id is
-  checked against the plan in **both** directions: `--exclude` with a typo excludes nothing, and an
-  archive restored that way carries exactly the credentials the person meant to drop.
+  empty. A caller that reads only `items` reports "restored 0 items" with exit 0 — on a blank host,
+  where nobody can check, that reads as a restore that worked. Read `error`/`needsPassword` first,
+  exit non-zero, and print the **apply's** `skipped`, never the plan's: a skip only the apply can
+  make (a dump staged for an entry with no `load` hook) is absent from the plan's list
+  (`src/cli/backup.ts`). A scoped id is checked against the plan in **both** directions too:
+  `--exclude` with a typo excludes nothing, and that archive carries the credentials meant to drop.
 - **An archive outlives the release that wrote it.** Read a snapshot through the migrations `migrate`
   would run (`liftArchived`, `src/services/backups.ts`), write the **lifted** file, and stamp it with
   the release that wrote it; the newer direction stays a refusal from the manifest.

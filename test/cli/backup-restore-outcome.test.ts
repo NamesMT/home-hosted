@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { afterEach, describe, expect, it } from 'vitest'
+import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { createZip, extractZip, listZip } from '#src/providers/archive'
 import { runCli } from '../support/run-cli'
 
@@ -322,3 +323,69 @@ describe('restore --from', () => {
     expect(result.output).toContain(name)
   }, 90_000)
 })
+
+/**
+ * The notes a restore prints after an apply are the **apply's**, not the dry run's.
+ *
+ * The plan is asked for first and the apply afterwards, and the two answer different skip lists: a
+ * dump whose entry carries no `load` hook is only discovered once the files have landed. The CLI
+ * kept the plan's list, so that sentence — and the `skipped` array the JSON promises — said nothing
+ * about a dump the archive carried but nothing will replay.
+ *
+ * Measured on a restored home whose entry had a `dump` hook and no `load` hook:
+ *
+ *     $ home-hosted backup restore <name> --all --confirm
+ *     restored 7 items from <name>            # the dump was in `applied`, and was never loaded
+ *     $ ... --json | jq .skipped
+ *     []
+ */
+describe('the notes after an apply', () => {
+  it('names a dump the archive carried but no entry will load', () => {
+    const { home } = makeHome()
+    writeDumpingWorkspace(home)
+
+    const name = takeArchive(home)
+
+    const result = runCli(['backup', 'restore', name, '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
+    expect(result.status, result.output).toBe(0)
+    // The skip the *apply* found, in the words the service gave it.
+    expect(result.output).toContain('no load hook')
+  }, 90_000)
+
+  it('carries it in the `skipped` array a script reads', () => {
+    const { home } = makeHome()
+    writeDumpingWorkspace(home)
+
+    const name = takeArchive(home)
+
+    const result = runCli(['backup', 'restore', name, '--all', '--confirm', '--json'], { home, env: { NO_COLOR: '1' } })
+    expect(result.status, result.output).toBe(0)
+    const body = JSON.parse(result.stdout) as { apply: boolean, skipped: string[] }
+    expect(body.apply).toBe(true)
+    expect(body.skipped.join('\n')).toContain('no load hook')
+  }, 90_000)
+})
+
+/**
+ * One workspace whose entry declares `dump` and never `load`.
+ *
+ * That is the shape a real home has after someone adds a dump hook and forgets the load half: the
+ * archive carries a dump, and the restore stages one nothing will replay.
+ */
+function writeDumpingWorkspace(home: string): void {
+  const dir = path.join(home, '.hh', 'default')
+  fs.mkdirSync(dir, { recursive: true })
+  const stamp = { writtenBy: 'test', schema: CONFIG_SCHEMA }
+  fs.writeFileSync(path.join(home, '.hh', 'settings.json'), `${JSON.stringify({ meta: stamp, backups: { dir: '.backups', keep: 5, enabled: true } }, null, 2)}\n`)
+  fs.writeFileSync(path.join(home, '.hh', 'workspaces.json'), `${JSON.stringify({ workspaces: [{ id: 'default', label: 'Default' }] })}\n`)
+  fs.writeFileSync(path.join(dir, 'settings.json'), `${JSON.stringify({ meta: stamp, logs: {} }, null, 2)}\n`)
+  fs.writeFileSync(path.join(dir, 'servers.config.json'), `${JSON.stringify({
+    meta: stamp,
+    servers: [{
+      id: 'app',
+      command: process.execPath,
+      args: ['-e', 'process.exit(0)'],
+      dump: { command: process.execPath, args: ['-e', 'require("node:fs").writeFileSync(process.argv[1] + "/db.archive", "D")', '{dumpDir}'] },
+    }],
+  }, null, 2)}\n`)
+}

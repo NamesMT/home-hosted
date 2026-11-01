@@ -246,9 +246,11 @@ error written by home-hosted 0.8.0 (config schema 1); this release understands s
 ```
 
 A restore that applies **some** of an archive carries on and names every piece it had to leave
-behind, marked `!`, so a partial result never reads as a complete one. A mistyped `--include` or
-`--exclude` is refused before anything is written, naming the id — the dangerous direction being
-`--exclude`, where a typo would exclude nothing and apply the credentials you meant to drop.
+behind, marked `!`, so a partial result never reads as a complete one — including a dump staged for
+an entry with no `load` hook, which only the apply can discover and `--json` lists in `skipped`. A
+mistyped `--include` or `--exclude` is refused before anything is written, naming the id — the
+dangerous direction being `--exclude`, where a typo would exclude nothing and apply the credentials
+you meant to drop.
 
 Then the entry starts, and the database is read back:
 
