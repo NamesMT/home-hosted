@@ -1498,7 +1498,9 @@ describe('the port preflight and its own engine', () => {
       serverId: 'proxy',
       nannyPid: process.pid,
       childPid: process.pid,
-      startedAt: Date.now() - 60_000,
+      // This process stands in for the engine, so its own age is the only truthful stamp: a record
+      // older than the pid it names describes a recycled pid, which is not a live nanny.
+      startedAt: Date.now(),
       logFile: path.join(options.logDir ?? '', 'proxy.log'),
       // Fresh, which is the only evidence available once pid attribution is impossible.
       heartbeatAt: Date.now(),

@@ -151,8 +151,12 @@ line in `AGENTS.md` instead.
   `SIGKILL` and `killGroup: false` cannot be forwarded (which is why a self-restarting program
   belongs on `reclaim`). And its traps (`NANNY_TRAPPED_SIGNALS`) arm **before the child exists** and
   before that state file appears, so a stop that beats the spawn cannot orphan a child nobody has a
-  record of. Reattach is `nannyIsAlive` = live pid **and** a fresh heartbeat, plus the marker or the
-  argv — a live pid alone proves nothing, since pids are reused. `logs.persist: false` keeps that file
+  record of. Reattach is `nannyIsAlive` = a pid `processLiveness` does not call recycled or gone, **and**
+  a fresh heartbeat, plus the marker or the argv. The heartbeat alone was the whole identity check, and
+  it is written *into* the file, not by the process the file names: a record whose pid the OS had reused
+  read as running, so `down --with-persistent` signalled a stranger, `resumePersistent` adopted it, and
+  `ProxyService.stop()` killed it. `startedAt` closes it as `run.json` does — the nanny stamps its record
+  during its own boot, so a pid born later is somebody else. `logs.persist: false` keeps that file
   out of the Logs page but never stops it being written: it is the transport.
 - **Whether the nanny forwarded the stop follows the configured signal, never the terminator's
   label.** `down --with-persistent` signalled the child only when `terminatePid` returned

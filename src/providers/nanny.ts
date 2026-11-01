@@ -1,3 +1,4 @@
+import type { ProcessBirth } from '#src/providers/port'
 import type { NannyExit, NannySpec, NannyState } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -7,7 +8,7 @@ import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { NANNY_COMMAND } from '#src/helpers/runtime'
 import { processArgv } from '#src/providers/identity'
-import { isProcessAlive } from '#src/providers/port'
+import { processLiveness } from '#src/providers/port'
 import { processCarriesServerId } from '#src/providers/proc'
 import { findProgram } from '#src/providers/process'
 import { nannySpecSchema, nannyStateSchema } from '#src/shared/contracts'
@@ -252,12 +253,21 @@ function signalName(number: number): string | null {
 
 /**
  * Is the nanny this state describes still ours? A live pid proves nothing on its
- * own — pids are reused. A fresh heartbeat means a process is still rewriting the
- * file; the environment marker (Linux, macOS) or the argv we spawned it with answers
- * everywhere else, Windows included.
+ * own — pids are reused, and the heartbeat is written *into the file*, not by the
+ * process the file names, so a recycled pid with a recent write reads as running.
+ * `startedAt` settles that first (`processLiveness`), exactly as `run.json` uses it:
+ * the nanny stamps its record during its own boot, so its process is always born
+ * before the stamp. The environment marker (Linux, macOS) or the argv we spawned it
+ * with answers the rest, Windows included.
  */
-export async function nannyIsAlive(state: NannyState, id: string): Promise<boolean> {
-  if (state.nannyPid <= 0 || !isProcessAlive(state.nannyPid))
+export async function nannyIsAlive(state: NannyState, id: string, options: { readBirth?: (pid: number) => Promise<ProcessBirth | null> } = {}): Promise<boolean> {
+  if (state.nannyPid <= 0)
+    return false
+  // `'recycled'` is decisive and needs no threshold: a pid born after the record cannot be the
+  // nanny that wrote it. `'gone'` is the plain dead pid. `'live'` and `'unknown'` both carry on —
+  // a platform that cannot report a birth time must not have its running nanny dismissed.
+  const liveness = await processLiveness(state.nannyPid, state.startedAt, options)
+  if (liveness === 'gone' || liveness === 'recycled')
     return false
   if (Date.now() - state.heartbeatAt <= HEARTBEAT_STALE_MS)
     return true

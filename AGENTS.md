@@ -357,11 +357,13 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
 - **A port is only ever freed from a fresh lookup, never a quoted pid.** `free-port` re-lists the
   listeners and refuses any in `supervisedPids()` instead of killing it; a docker-published port has
   no pid this user may see, so the container docker reports publishing *that* port is stopped instead.
-- **A live pid is not the running panel.** Pids are recycled and a zombie still answers signal 0, so `up`/`status`/`down` decide
-  with `runtimeIsAlive`/`runtimeLiveness` (pid **plus** `run.json`'s own `startedAt`), never
-  `isProcessAlive` alone. Only `'gone'` deletes a record; `'unknown'` counts as alive, and `'recycled'`
-  blocks a **signal** but still allows the token-authenticated `/_hh/shutdown`, because the birth time is
-  wall-clock-derived.
+- **A live pid is not the running panel, and a heartbeat is not its identity.** Pids are recycled and a
+  zombie still answers signal 0, so `up`/`status`/`down` decide with `runtimeIsAlive`/`runtimeLiveness`
+  (pid **plus** `run.json`'s own `startedAt`), never `isProcessAlive` alone. Only `'gone'` deletes a
+  record; `'unknown'` counts as alive, and `'recycled'` blocks a **signal** but still allows the
+  token-authenticated `/_hh/shutdown`, because the birth time is wall-clock-derived. A process named by
+  a **record** is asked the same question with `processLiveness` before it is signalled or adopted —
+  `nannyIsAlive`'s heartbeat is written *into* the file, so it says nothing about the pid it names.
 - **Only `kill` ever touches a process the panel could not identify** — which is why it logs the pids
   it stopped. `follow` adopts this entry's own successor, `reclaim` replaces it; ownership is the
   entry's whole **tree**, and the panel's own tree is excluded.
