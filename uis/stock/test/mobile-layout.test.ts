@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { templateRegion } from '../../../test/helpers/strip-comments'
+import { templateElements } from '../../../test/helpers/template-render'
 
 /**
  * A phone is the page you check without walking to the desk, and it was unusable.
@@ -56,49 +57,6 @@ function templateOf(source: string): string {
   return templateRegion(source)
 }
 
-/**
- * One element's class list, from its opening tag.
- *
- * A `class` written as a string literal is checked; a bound one (`:class="cn(…)"`) is not, because
- * its value is assembled at render time and a scan would have to evaluate it. Every defect this
- * round found sat in a literal, which is also where a hand-written row starts.
- */
-function literalClasses(template: string): { tag: string, classes: string[] }[] {
-  const found: { tag: string, classes: string[] }[] = []
-  // Scanned by hand rather than by one regex: the tag name and the attribute run share the
-  // characters `[\w-]`, and any pattern that lets them both claim those backtracks
-  // polynomially on a minified template. `slice` cannot.
-  for (const chunk of template.split('<').slice(1)) {
-    const name = /^[a-z][a-z0-9-]*/.exec(chunk)?.[0]
-    if (name === undefined)
-      continue
-    // The attributes end at the first `>` outside a quoted value.
-    let end = name.length
-    let quote = ''
-    for (; end < chunk.length; end++) {
-      const char = chunk[end]!
-      if (quote !== '') {
-        if (char === quote)
-          quote = ''
-        continue
-      }
-      if (char === '"' || char === '\'') {
-        quote = char
-        continue
-      }
-      if (char === '>')
-        break
-    }
-    const attrs = chunk.slice(name.length, end)
-    // `(?<!:)` skips `:class`, so only a literal class list is read.
-    const classAttr = /(?<![\w:.-])class="([^"]*)"/.exec(attrs)
-    if (classAttr === null)
-      continue
-    found.push({ tag: name, classes: classAttr[1]!.split(/\s+/).filter(Boolean) })
-  }
-  return found
-}
-
 const has = (classes: string[], name: string): boolean => classes.includes(name)
 
 /** `sm:grid-cols-3` and friends: a column count that only applies above a breakpoint. */
@@ -115,7 +73,7 @@ describe('the layout survives a phone', () => {
   it('names a base column count whenever a grid has responsive ones', () => {
     const offenders: string[] = []
     for (const file of templateFiles()) {
-      for (const element of literalClasses(templateOf(fs.readFileSync(file, 'utf8')))) {
+      for (const element of templateElements(templateOf(fs.readFileSync(file, 'utf8')))) {
         if (!has(element.classes, 'grid'))
           continue
         const responsive = responsiveColumns(element.classes)
@@ -131,7 +89,7 @@ describe('the layout survives a phone', () => {
   it('never lets a wrapping row refuse to shrink', () => {
     const offenders: string[] = []
     for (const file of templateFiles()) {
-      for (const element of literalClasses(templateOf(fs.readFileSync(file, 'utf8')))) {
+      for (const element of templateElements(templateOf(fs.readFileSync(file, 'utf8')))) {
         if (has(element.classes, 'shrink-0') && has(element.classes, 'flex-wrap'))
           offenders.push(`${path.relative(srcDir, file)}: <${element.tag}> is both shrink-0 and flex-wrap`)
       }
@@ -152,15 +110,9 @@ describe('the layout survives a phone', () => {
     const SIZES = { 'size-4': 16, 'size-5': 20, 'size-6': 24, 'size-7': 28, 'size-8': 32, 'size-9': 36 }
     const offenders: string[] = []
     for (const file of templateFiles()) {
-      const template = templateOf(fs.readFileSync(file, 'utf8'))
-      for (const element of literalClasses(template)) {
-        // The element's tag must close with an `svg` and hold nothing else.
-        const close = template.indexOf(`</${element.tag}>`, template.indexOf(element.classes.join(' ')))
-        const opening = template.lastIndexOf('<', template.indexOf(element.classes.join(' ')))
-        if (close === -1 || opening === -1)
-          continue
-        const body = template.slice(opening, close)
-        const iconOnly = /<svg[\s>]|<[A-Z]\w*/.test(body) && !body.replace(/<[^>]*>|\s/g, '').includes('{{')
+      for (const element of templateElements(templateOf(fs.readFileSync(file, 'utf8')))) {
+        // The element's own body, so a sibling sharing this class list is a different element.
+        const iconOnly = /<svg[\s>]|<[A-Z]\w*/.test(element.body) && !element.body.replace(/<[^>]*>|\s/g, '').includes('{{')
         if (!iconOnly)
           continue
         const named = element.classes.map(name => SIZES[name as keyof typeof SIZES]).filter(value => value !== undefined)

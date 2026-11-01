@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { templateRegion } from '../../../test/helpers/strip-comments'
+import { templateElements } from '../../../test/helpers/template-render'
 
 /**
  * A fixed-width action cluster in the top bar is wider than a 320 px phone.
@@ -26,6 +27,7 @@ import { templateRegion } from '../../../test/helpers/strip-comments'
  */
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 const shellDir = path.join(root, 'src', 'components', 'shell')
+const has = (classes: string[], name: string): boolean => classes.includes(name)
 
 /** The component's template, comments blanked by the shared reader. */
 function source(name: string): string {
@@ -34,23 +36,28 @@ function source(name: string): string {
 
 describe('the top bar fits a 320 px phone', () => {
   it('lets the action cluster shrink rather than pinning its content width', () => {
-    const topBar = source('TopBar.vue')
     // The one cluster: the div that holds the palette, connection, theme and account controls.
-    const cluster = /<div class="([^"]*\bitems-center\b[^"]*)"/.exec(topBar)?.[1] ?? ''
-    expect(cluster).not.toBe('')
-    expect(cluster).toContain('min-w-0')
-    expect(cluster).toContain('shrink')
-    expect(cluster).not.toMatch(/(?:^|\s)shrink-0(?:\s|$)/)
+    // Read by its class *tokens*, not by the text `class="…"`, so a bound or reordered attribute is
+    // the same row. The innermost row holding the palette is the cluster, so a decoy or an enclosing
+    // wrapper is not mistaken for it.
+    const rows = templateElements(source('TopBar.vue'))
+      .filter(element => element.tag === 'div' && has(element.classes, 'items-center') && element.body.includes('topbar.search'))
+      .sort((a, b) => a.body.length - b.body.length)
+    expect(rows.length, 'the action cluster is there to measure').toBeGreaterThan(0)
+    const classes = rows[0]!.classes
+    expect(classes).toContain('min-w-0')
+    expect(classes).toContain('shrink')
+    expect(classes).not.toContain('shrink-0')
   })
 
   it('hides the workspace label below 360 px, so the trigger can give way', () => {
-    const picker = source('WorkspacePicker.vue')
     // The span carrying the workspace's name: it must be hidden by default and shown at 360px.
-    const label = /<span class="([^"]*)"[^>]*>\{\{ selected\?\.label/.exec(picker)?.[1] ?? ''
-    expect(label).not.toBe('')
-    expect(label).toContain('hidden')
-    expect(label).toMatch(/min-\[360px\]:inline/)
+    const labels = templateElements(source('WorkspacePicker.vue'))
+      .filter(element => element.tag === 'span' && element.body.includes('selected?.label'))
+    expect(labels, 'the workspace label is one span').toHaveLength(1)
+    expect(labels[0]!.classes).toContain('hidden')
+    expect(labels[0]!.classes).toContain('min-[360px]:inline')
     // Shown unconditionally again would re-create the 326 px row.
-    expect(label).not.toMatch(/(?:^|\s)inline(?:\s|$)/)
+    expect(labels[0]!.classes).not.toContain('inline')
   })
 })

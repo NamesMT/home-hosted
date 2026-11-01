@@ -74,6 +74,104 @@ export function openingTags(markup: string, component: string): string[] {
   return found
 }
 
+/** One element a template renders: its opening tag, its own body, and every class it applies. */
+export interface TemplateElement {
+  /** The tag name as written, lowercase for markup. */
+  tag: string
+  /** The opening tag alone, to its own `>` — attributes are what a caller reads. */
+  opening: string
+  /** Everything between the opening and its matching close tag; empty when self-closing. */
+  body: string
+  /** Class tokens from a literal `class` *and* from the string literals of a bound one. */
+  classes: string[]
+}
+
+/**
+ * Every lowercase element in a template, with its own body and its resolved class list.
+ *
+ * Two spellings a scan keeps missing, read once here:
+ *
+ *  - an element's body is the span to its **matching** close, counted by depth. A matcher that
+ *    slices from a class string's first occurrence, or takes the first `</div>`, reads a sibling's
+ *    or a parent's markup as this element's — measured: a second `<button class="grid size-4 …">`
+ *    planted beside the first left `mobile-layout.test.ts` green about its 16 px target;
+ *  - `class` is also written as `:class="cn('…')"` / `v-bind:class`, which this corpus uses in 60
+ *    places. A regex on `class="…"` reads neither, so a bound `flex flex-wrap shrink-0` was no row
+ *    at all — measured green on `uis/stock/test/mobile-layout.test.ts`.
+ */
+export function templateElements(markup: string): TemplateElement[] {
+  const found: TemplateElement[] = []
+  const opener = /<([a-z][a-z0-9-]*)(?=[\s/>])/g
+  // A `<div` inside a quoted attribute is data, so the walk skips past each tag it has read.
+  let consumed = 0
+  for (const match of markup.matchAll(opener)) {
+    const start = match.index
+    if (start < consumed)
+      continue
+    const tag = match[1]!
+    const end = tagEnd(markup, start + match[0].length)
+    if (end < 0)
+      break
+    consumed = end + 1
+    const opening = markup.slice(start, end + 1)
+    const attributes = opening.slice(match[0].length, -1).replace(/\/\s*$/, '')
+    const selfClosing = /\/\s*>$/.test(opening)
+    let body = ''
+    if (!selfClosing) {
+      const close = closeTag(markup, tag, end + 1)
+      if (close < 0)
+        continue
+      body = markup.slice(end + 1, close)
+    }
+    found.push({ tag, opening, body, classes: classTokens(attributes) })
+  }
+  return found
+}
+
+/**
+ * Every class an element applies, from either spelling of the attribute.
+ *
+ * A literal is split on whitespace; a bound one is an expression, so its **string literals** are the
+ * classes it can apply and everything else (`grid`, `focusRing`, `props.class`) is resolved at
+ * render time. Reading the literals is what sees `cn('flex flex-wrap shrink-0')`.
+ */
+function classTokens(attributes: string): string[] {
+  const tokens: string[] = []
+  for (const match of attributes.matchAll(/(?<![\w:.-])(:class|v-bind:class|class)\s*=\s*"([^"]*)"/g)) {
+    const [, attribute, value] = match
+    if (attribute === 'class') {
+      tokens.push(...value!.split(/\s+/))
+    }
+    else {
+      for (const literal of value!.matchAll(/'([^']*)'|"([^"]*)"/g))
+        tokens.push(...(literal[1] ?? literal[2] ?? '').split(/\s+/))
+    }
+  }
+  return [...new Set(tokens.filter(Boolean))]
+}
+
+/** The index of the `</tag>` matching an element whose body starts at `from`, counted by depth. */
+function closeTag(markup: string, tag: string, from: number): number {
+  const pattern = new RegExp(`<(/?)${tag}(?=[\\s/>])`, 'g')
+  pattern.lastIndex = from
+  let depth = 0
+  for (let match = pattern.exec(markup); match !== null; match = pattern.exec(markup)) {
+    const end = tagEnd(markup, match.index + match[0].length)
+    if (end < 0)
+      return -1
+    if (match[1] === '/') {
+      if (depth === 0)
+        return match.index
+      depth -= 1
+    }
+    else if (!/\/\s*>$/.test(markup.slice(match.index, end + 1))) {
+      depth += 1
+    }
+    pattern.lastIndex = end + 1
+  }
+  return -1
+}
+
 /**
  * The `>` that ends an opening tag, skipping any `>` inside a quoted attribute value.
  *

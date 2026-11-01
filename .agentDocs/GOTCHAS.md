@@ -338,6 +338,17 @@ line in `AGENTS.md` instead.
   `@/…` from the UI that asks, so each UI's tests import its own components; a single pinned target
   once resolved a `noc-console` test's `@/lib/proxy` to *stock's* differing copy without a murmur.
 
+- **A layout scan that finds an element by its class *text* reads the wrong element.** Both phone
+  scans did: `topbar-width.test.ts` matched `<div class="…">` for the one action cluster, and
+  `mobile-layout.test.ts` sliced a body from `template.indexOf(classes.join(' '))`. Measured green on
+  three defects: a bound `:class="cn('flex flex-wrap shrink-0')"` (the shape 60 elements in the corpus
+  already use, invisible to a `class="…"` regex), a decoy `<div class="flex shrink-0 items-center">`
+  planted above the real cluster (the regex read the decoy and passed), and a second
+  `<button class="grid size-4 …">` beside the first (the `indexOf` slice found the first element's
+  class text, then took the *second* element's body — a 16 px icon target under the 24 px floor, read
+  as its sibling's). So `templateElements` returns an element's own opening tag, its depth-counted
+  body, and its class tokens from both spellings; neither scan locates anything by text now.
+
 - **A UI cannot translate a string the panel already formatted.** The panel composes some display
   text itself — a backup entry ("Global settings"), why a restore skipped a row ("not selected").
   Sending only that English leaves it English in every language, which is how it was reported. The

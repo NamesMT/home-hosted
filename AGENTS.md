@@ -146,8 +146,10 @@ workspace config guard, so a busy default port turns config tests red for the wr
   fails any other file that reaches the clipboard object — `navigator.clipboard`,
   `navigator['clipboard']` and `const { clipboard } = navigator` are one rule, not three spellings.
 - **A row of chrome is measured at 320 px with the tap floor counted.** No mount can measure a
-  layout, so `uis/stock/test/topbar-width.test.ts` pins the declarations that keep the title from
-  collapsing to 0 px.
+  layout, so `uis/stock/test/topbar-width.test.ts` and `mobile-layout.test.ts` pin the declarations
+  that keep the title from collapsing to 0 px. Both read an element through `templateElements`, by
+  its own body and its class *tokens*: a bound `:class="cn(…)"` is a class list too, and two elements
+  sharing a class list are still two elements.
 - **A retention knob bounds the directory, not a loop.** Derive the set from the directory once
   (`ownedFiles`/`retained`, `src/services/log-files.ts`) so the list, the size and the tail agree with
   `readdir`, and prune inside `rotate` (`test/services/log-files.test.ts`).
@@ -263,8 +265,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   is what lets form logic live in `src/shared`; a scan fails a UI source that names `structuredClone`.
   **Every source scan reads through `test/helpers/strip-comments.ts`** — a hand-rolled stripper eats
   code at a `/*` inside a string and the scan then passes the defect it guards. Templates go through
-  `templateRegion`/`openingTags` (`test/helpers/template-render.ts`): a template is a region, and a
-  tag ends at the first `>` outside an attribute.
+  `templateRegion`/`openingTags`/`templateElements` (`test/helpers/template-render.ts`): a template is
+  a region, a tag ends at the first `>` outside an attribute, and an element's classes and body come
+  from that element — never from a search for its class text.
 - **A refused operation is a failure, never an empty success.** The backup service answers a *plan*
   for every archive, including ones it cannot read: `plan.error` carries the refusal and `items` is
   empty. A caller that reads only `items` reports "restored 0 items" with exit 0, which on a blank
