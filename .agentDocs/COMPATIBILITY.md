@@ -66,7 +66,7 @@ in the release notes and in `README.md`'s scrape section.
   write a config it cannot read, and needs consent: `--yes`, `HHOSTED_MIGRATE=allow`, or a person at
   a terminal.
 - **The pre-workspace relocation is gone as of 0.8.0.** `ensureLayout()` now **refuses** a 0.6.x
-  `$HHOSTED_HOME` instead of moving it — `AGENTS.md` states the rule, `src/config/layout.ts` the reason
+  `HHOSTED_HOME` instead of moving it — `AGENTS.md` states the rule, `src/config/layout.ts` the reason
   it is a refusal rather than a read-as-empty.
 - A secrets file that cannot be parsed is refused too, rather than read as a first boot — otherwise
   the default password written on an empty store replaces the password hash, the API token and every
