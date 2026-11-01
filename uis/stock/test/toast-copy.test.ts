@@ -27,8 +27,15 @@ import { stripComments } from '../../../test/helpers/strip-comments'
 const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
 const srcDir = path.join(root, 'src')
 
-/** Both toast surfaces: `useToasts()` and the shared `notifier` in `useControlPlane`. */
-const TOAST_CALL = /(?:notifier|toasts)\.(?:success|failure|info|warn)\(/g
+/**
+ * What `useToasts()` hands back: the methods that carry copy.
+ *
+ * The receiver is found from the binding, never from a list of names. `toasts` and `notifier` were
+ * both hardcoded here, so renaming one binding made every call under it invisible, and
+ * `const { success } = useToasts()` was invisible outright — measured green on
+ * `notice.success('Settings saved successfully')` and on the destructured form beside it.
+ */
+const TOAST_METHODS = ['push', 'success', 'failure', 'info', 'warn'] as const
 /**
  * The `{ title, success }` pair `run()` takes. This is the shape the control plane actually uses,
  * and it is why a plain "grep for toasts." guard would have found almost nothing.
@@ -119,21 +126,64 @@ function isCopy(text: string): boolean {
   return /[A-Z]/i.test(text) && (/\s/.test(text.trim()) || text.includes('${'))
 }
 
+/**
+ * Every receiver this file binds from `useToasts()`, and every method it destructures from one.
+ *
+ * A binding is a construct: `const notice = useToasts()` and `const { success } = useToasts()` are
+ * the same call site spelled two ways, and the second hands the method out under a bare name.
+ */
+function toastBindings(source: string): { receivers: string[], methods: string[] } {
+  const receivers: string[] = []
+  const methods: string[] = []
+  const isMethod = (name: string): boolean => (TOAST_METHODS as readonly string[]).includes(name)
+  // `const notice = useToasts()`
+  for (const match of source.matchAll(/\b(?:const|let)\s+(\w+)\s*=\s*useToasts\(\)/g))
+    receivers.push(match[1]!)
+  // `const { toasts, dismiss } = useToasts()` — `dismiss` closes a toast, it carries no copy.
+  for (const match of source.matchAll(/\b(?:const|let)\s*\{([^}]*)\}\s*=\s*useToasts\(\)/g)) {
+    for (const part of (match[1] ?? '').split(',')) {
+      // `success: ok` binds `ok`; a bare `success` binds itself.
+      const [key, alias] = part.split(':').map(piece => piece.trim())
+      if (key === undefined || !isMethod(key))
+        continue
+      const bound = alias !== undefined && alias.length > 0 ? alias : key
+      if (/^\w+$/.test(bound))
+        methods.push(bound)
+    }
+  }
+  return { receivers, methods }
+}
+
 /** Every English sentence a source hands to a toast, as `line: "text"`. */
 function copiedToasts(source: string): string[] {
   const found: string[] = []
-  const read = (from: number, untilComma: boolean): void => {
+  const read = (index: number, from: number, untilComma: boolean): void => {
     for (const text of literalsIn(expressionFrom(source, from, untilComma))) {
       if (!isCopy(text))
         continue
-      const line = source.slice(0, from).split('\n').length
-      found.push(`${line}: "${text.trim()}"`)
+      const line = source.slice(0, index).split('\n').length
+      const hit = `${line}: "${text.trim()}"`
+      if (!found.includes(hit)) {
+        found.push(hit)
+      }
     }
   }
-  for (const match of source.matchAll(TOAST_CALL))
-    read(match.index + match[0].length, false)
+  const { receivers, methods } = toastBindings(source)
+  for (const receiver of receivers) {
+    for (const method of TOAST_METHODS) {
+      // The whole argument list, not one object key: `push({ tone, description })` carries copy in
+      // any field, and a `title:`-only reader missed the description beside it.
+      for (const match of source.matchAll(new RegExp(`\\b${receiver}\\.${method}\\(`, 'g')))
+        read(match.index, match.index + match[0].length, false)
+    }
+  }
+  for (const method of methods) {
+    // A bare method name, never one reached through a receiver: `x.success(` is the shape above.
+    for (const match of source.matchAll(new RegExp(`(?<![\\w.])${method}\\(`, 'g')))
+      read(match.index, match.index + match[0].length, false)
+  }
   for (const match of source.matchAll(RUN_OPTION))
-    read(match.index + match[0].length, true)
+    read(match.index, match.index + match[0].length, true)
   return found
 }
 
@@ -144,23 +194,60 @@ describe('toast copy comes from the catalog', () => {
   })
 
   /**
+   * Anti-vacuity for the reader itself: the binding it resolves has to reach the calls in the
+   * corpus. An empty offender list means "clean" only while this count is non-zero — the widened
+   * reader replaced a hardcoded receiver list, so a regex that stops matching `useToasts()` would
+   * silently retire the whole guard.
+   */
+  it('resolves the toast bindings the corpus actually writes', () => {
+    let receivers = 0
+    let calls = 0
+    for (const file of sourceFiles()) {
+      const source = withoutComments(fs.readFileSync(file, 'utf8'), file)
+      const bound = toastBindings(source)
+      receivers += bound.receivers.length
+      for (const receiver of bound.receivers) {
+        for (const method of TOAST_METHODS)
+          calls += [...source.matchAll(new RegExp(`\\b${receiver}\\.${method}\\(`, 'g'))].length
+      }
+    }
+    expect(receivers, 'files binding `useToasts()` to a receiver').toBeGreaterThan(4)
+    expect(calls, 'toast calls reached through a resolved receiver').toBeGreaterThan(8)
+  })
+
+  /**
    * The matcher is a claim about every spelling of "a sentence reaches a toast", so each one is
-   * driven here. The first two are the defect that was measured: a double-quoted sentence holding
-   * an apostrophe matched nothing, because the body forbade every other quote character.
+   * driven here, each with its binding.
+   *
+   * The receiver comes from `useToasts()`, never from a fixed list: `toasts` and `notifier` were
+   * both hardcoded, so a file that bound the same composable to `notice` walked past every
+   * assertion below — measured green on `notice.success('Settings saved successfully')`, and on
+   * `const { success } = useToasts()` beside it.
    */
   it('still reaches every shape an English sentence is written in', () => {
     const planted: Array<[string, string]> = [
-      ['notifier.success("Couldn\'t add the server")', 'an apostrophe inside a double-quoted sentence'],
-      ['toasts.failure(\'Could not rename the workspace\')', 'a single-quoted sentence'],
+      ['const notifier = useToasts()\nnotifier.success("Couldn\'t add the server")', 'an apostrophe inside a double-quoted sentence'],
+      ['const toasts = useToasts()\ntoasts.failure(\'Could not rename the workspace\')', 'a single-quoted sentence'],
       // eslint-disable-next-line no-template-curly-in-string -- a template literal is the shape under test
-      ['toasts.info(`Could not save ${id}`)', 'a template literal'],
-      ['toasts.success(ok ? \'Server started\' : t(\'x.y\'))', 'a sentence behind a ternary'],
+      ['const toasts = useToasts()\ntoasts.info(`Could not save ${id}`)', 'a template literal'],
+      ['const toasts = useToasts()\ntoasts.success(ok ? \'Server started\' : t(\'x.y\'))', 'a sentence behind a ternary'],
+      ['const notice = useToasts()\nnotice.success(\'Settings saved successfully\')', 'a receiver the composable was bound to under another name'],
+      ['const { success } = useToasts()\nsuccess(\'Settings saved successfully\')', 'a destructured method'],
+      ['const { failure: fail } = useToasts()\nfail(\'Could not save the settings\')', 'a destructured method under another name'],
+      ['const toasts = useToasts()\ntoasts.push({ tone: \'ok\', description: \'Could not save the proxy settings\' })', 'a `push` whose copy is in the description, not the title'],
       ['run(action, { title: t(\'a.b\'), success: "Server started" })', 'the `success` option'],
     ]
     for (const [source, why] of planted)
       expect(copiedToasts(source).length, `the scan must see ${why}`).toBe(1)
-    // And a catalogs key is not copy, whichever quote it uses.
-    for (const clean of ['toasts.success(t(\'toast.workspaceRenamed\'))', 'toasts.success(status ?? t(\'a.b\'))', 'notifier.failure(options.title, message)'])
+    // And a catalog key is not copy, whichever quote it uses, and whichever name binds it.
+    for (const clean of [
+      'const toasts = useToasts()\ntoasts.success(t(\'toast.workspaceRenamed\'))',
+      'const toasts = useToasts()\ntoasts.success(status ?? t(\'a.b\'))',
+      'const notifier = useToasts()\nnotifier.failure(options.title, message)',
+      'const notice = useToasts()\nnotice.success(t(\'views.settings.savedToast\'))',
+      // `router.push` and `rows.push` are the same method name on a different receiver.
+      'const toasts = useToasts()\nvoid router.push(workspacePath(id, \'servers\', serverId))',
+    ])
       expect(copiedToasts(clean), clean).toHaveLength(0)
   })
 

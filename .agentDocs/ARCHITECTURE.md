@@ -193,9 +193,10 @@ object literal in a composable, and `useWorkspaces` calls `toasts.success(...)` 
 scan reads `.vue` markup only, and the composables are *mocked* by every page test, so the whole toast
 surface was invisible: a German panel answered a duplicate server id with `Could not add the server /
 server "ghost" already exists` — the shell translated, the one line explaining the refusal in
-English. `uis/stock/test/toast-copy.test.ts` scans both surfaces (the `toasts.*`/`notifier.*` call and
-the `{ title, success }` option literal) across `.ts` **and** `.vue`, naming the file and line of each
-offender.
+English. `uis/stock/test/toast-copy.test.ts` scans both surfaces (the call on whatever receiver `useToasts()`
+was bound to, and the `{ title, success }` option literal) across `.ts` **and** `.vue`, naming the file
+and line of each offender. The receiver comes from the binding, never a name list: a hardcoded
+`toasts`/`notifier` pair left `notice.success('…')` and `const { success } = useToasts()` invisible.
 
 ## How to test
 
