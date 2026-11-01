@@ -178,8 +178,14 @@ export async function processArgv(pid: number): Promise<string[] | null> {
   if (process.platform === 'linux') {
     try {
       const raw = await fs.promises.readFile(`/proc/${pid}/cmdline`)
-      const argv = raw.toString('utf8').split('\0').filter(part => part.length > 0)
-      return argv.length > 0 ? argv : null
+      // Every word is NUL-terminated, so the file ends with an empty element to drop — and only
+      // that one. An argument may itself be empty, which is two NULs, and filtering every empty
+      // string pulled the words after it into its place: the entry's own successor stopped
+      // matching its argv, and a stranger's did.
+      const words = raw.toString('utf8').split('\0')
+      if (words.at(-1) === '')
+        words.pop()
+      return words.length > 0 ? words : null
     }
     catch {
       return null

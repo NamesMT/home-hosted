@@ -68,7 +68,10 @@ line in `AGENTS.md` instead.
   `matchesSpawn` decides whether a process is *this entry's*, so the panel would adopt a stranger on
   `follow`, or remove one on `reclaim`/`kill`. The fallback is needed while one spelling is bare (the
   config says `node`, the process table says `/usr/bin/node`); it must not apply when both name a
-  directory.
+  directory. The argv it compares is read back the same way, and there an empty word is a word: an
+  argument may be `''`, so two NULs in a row are not a terminator. Dropping every empty element of
+  `/proc/<pid>/cmdline` shifted the words after one, so an entry's own successor stopped matching its
+  own argv and a stranger's matched one that did not (`processArgv`, `test/providers/identity.test.ts`).
 - `vite.server.config.ts` targets `node22` while `engines` requires >= 24 — deliberate margin.
 - **A bounded read must stay bounded.** `readLog` (`helpers/daemon-log.ts`) answers `logs --lines N`
   from the tail of the file, so peak allocation does not scale with a 10 MB pair; the test asserts

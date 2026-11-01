@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { identifyHolders, matchesSpawn, splitCommandLine } from '#src/providers/identity'
+import { identifyHolders, matchesSpawn, processArgv, splitCommandLine } from '#src/providers/identity'
 
 const cwd = process.cwd()
 const entrySpawn = { command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'], cwd }
@@ -192,5 +192,31 @@ describe('identifyHolders', () => {
     const first = await successorWithoutMarker()
     const second = await successorWithoutMarker()
     expect(await identifyHolders('web', entrySpawn, [first, second])).toEqual([first, second])
+  })
+
+  /**
+   * An argv is a list of words including empty ones, and the process table has to give back the
+   * same list.
+   *
+   * `/proc/<pid>/cmdline` ends every word with a NUL, so an argument of `''` is two adjacent NULs.
+   * Dropping every empty string read the trailing terminator away *and* every empty argument, so
+   * the words after one slid into its place: the entry's own successor no longer matched its own
+   * argv, and a stranger whose argv happened to hold an empty word matched an entry that did not
+   * (measured — `identifyHolders` returned the pid for an entry whose args had no empty word).
+   * `reclaim`/`follow` act on a match, so that is an adoption of a process the panel never started.
+   *
+   * Linux only: the readback is `/proc`. macOS asks `ps`, which cannot tell an empty word from a
+   * missing one.
+   */
+  it.runIf(process.platform === 'linux')('reads an empty argument back as a word, not as nothing', async () => {
+    const withEmpty = { ...entrySpawn, args: ['-e', 'setInterval(()=>{},1000)', ''] }
+    const own = await successorWithoutMarker(withEmpty.args)
+    expect(await processArgv(own)).toEqual([process.execPath, ...withEmpty.args])
+    expect(await identifyHolders('web', withEmpty, [own])).toEqual([own])
+
+    // The reverse: a different command line that matches only once an interior empty word is gone.
+    const stranger = await successorWithoutMarker(['-e', 'setInterval(()=>{},1000)', '--', '--name', '', 'x'])
+    const shorter = { ...entrySpawn, args: ['-e', 'setInterval(()=>{},1000)', '--', '--name', 'x'] }
+    expect(await identifyHolders('web', shorter, [stranger])).toEqual([])
   })
 })
