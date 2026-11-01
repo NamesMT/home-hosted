@@ -90,12 +90,51 @@ describe('the UIs read the cpu scale from one module', () => {
     expect(rels).toContain('uis/noc-console/src/components/ServerDetail.vue')
   })
 
+  /**
+   * A capacity is read from the frame, never written at the call site.
+   *
+   * It is spelled two ways by hand: a core count times `100` — `(cpus ?? 1) * 100`, the expression
+   * the original fix replaced, whatever wraps it, in a `computed` or a `:max` binding — and a
+   * `Math.max(100, …)` floor, which is the one-core capacity as a number. Only the floor was
+   * scanned, so both arithmetic shapes planted in `ServerCard.vue` left this file green.
+   */
+  const RESTATED_CAPACITY = [
+    /\b(?:cpus?|cores?)\b[^;,{}\n]{0,48}?\*\s*100\b/gi,
+    /\b100\s*\*[^;,\n]{0,24}?\b(?:cpus?|cores?)\b/gi,
+    /Math\.max\(\s*100\s*,/g,
+  ]
+
+  it('sees a capacity written by hand in either spelling', () => {
+    const planted = [
+      'const cpuCeiling = computed(() => (control.host.value?.cpus ?? 1) * 100)',
+      // A core count held in a local first: the multiplication is still the capacity.
+      'const cpuCeiling = computed(() => Math.max(1, cores.value) * 100)',
+      '<MetricSpark :max="(control.host.value?.cpus ?? 1) * 100" />',
+      'const capacity = Math.max(100, (control.host.value?.cpus ?? 1) * 100)',
+      'const ceiling = control.host.value!.cpus * 100',
+    ]
+    for (const line of planted)
+      expect(restatedCapacity(line), `the scan must see ${line}`).not.toEqual([])
+    // The old guard read only the floor, which is why the arithmetic walked past it.
+    expect(/Math\.max\(\s*100\s*,/.test('const cpuCeiling = computed(() => (control.host.value?.cpus ?? 1) * 100)')).toBe(false)
+    // A share of a fixed scale and a per-cpu load are not a capacity.
+    expect(restatedCapacity('const width = clamp((value / max) * 100, 0, 100)')).toEqual([])
+    expect(restatedCapacity('cpuCapacity(control.host.value?.cpus)')).toEqual([])
+  })
+
   it('declares no second copy of the capacity', () => {
-    const offenders = sources()
-      .filter(source => /Math\.max\(\s*100\s*,/.test(source.text))
-      .map(source => source.rel)
+    const offenders: string[] = []
+    for (const source of sources()) {
+      for (const found of restatedCapacity(source.text))
+        offenders.push(`${source.rel}: ${found}`)
+    }
     expect(offenders, 'a UI recalculating the machine capacity instead of importing cpuCapacity').toEqual([])
   })
+
+  /** Every hand-written capacity in a source, rendered the way the file wrote it. */
+  function restatedCapacity(text: string): string[] {
+    return [...new Set(RESTATED_CAPACITY.flatMap(shape => [...text.matchAll(shape)].map(match => match[0].trim())))]
+  }
 
   /**
    * The capacity a band or a ceiling is measured against is a **core count from the frame**, never a

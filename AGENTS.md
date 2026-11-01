@@ -226,7 +226,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   reading of the set (`sumReadings`). **A verdict is measured against the threshold the person
   configured, and the frame carries it** (`loadBand`/`percentageBand`/`hostCpuBand`, each with its
   `…Alert` field; `Gauge`/`Meter` require a `tone`), and a dial's *scale* is that threshold too
-  (`tempDialPercent`). One home per reading, on both UIs. Depth, causes and the scans that enforce
+  (`tempDialPercent`). **A capacity is a core count from the frame too**, never `(cpus ?? 1) * 100`
+  written at the call site; one predicate scans that and a `Math.max(100, …)` floor.
+  One home per reading, on both UIs. Depth, causes and the scans that enforce
   each: [`.agentDocs/READINGS.md`](.agentDocs/READINGS.md).
 - **A list card and its detail page answer the same question; fix both.** The card is a summary of a
   page someone opens *precisely because the summary was not enough* — so a fact the card states and
