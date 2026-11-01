@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import type { HealthState, ServerStatus, ServerView } from '@shared/contracts'
 import { cpuBand } from '@shared/cpu-scale'
+import { probeBand } from '@shared/probe-latency'
 import { liveReadings } from '@shared/server-readings'
 import Sparkline from '@/components/Sparkline.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { useUi } from '@/composables/useUi'
-import { CPU_STROKE } from '@/lib/cpu-tone'
 import { briefBytes, formatRatio, formatUptime } from '@/lib/format'
+import { CPU_STROKE, PROBE_CELL_CLASS } from '@/lib/tones'
 
 const props = defineProps<{
   servers: ServerView[]
@@ -164,7 +165,7 @@ function cpuColor(server: ServerView): string {
                 <span class="num mono">{{ briefBytes(liveReadings(server).rssBytes) }}</span>
               </span>
             </td>
-            <td class="num" :class="{ warn: (liveReadings(server).responseMs ?? 0) >= 1000 }">
+            <td class="num" :class="PROBE_CELL_CLASS[probeBand(liveReadings(server).responseMs)]">
               {{ probeText(server) }}
             </td>
             <td class="num">

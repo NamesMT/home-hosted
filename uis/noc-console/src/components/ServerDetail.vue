@@ -2,6 +2,7 @@
 import type { Bind, LogLine, ServerStatus, ServerView } from '@shared/contracts'
 import { parseBind } from '@shared/contracts'
 import { cpuBand } from '@shared/cpu-scale'
+import { probeBand } from '@shared/probe-latency'
 import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -14,7 +15,6 @@ import Sparkline from '@/components/Sparkline.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { unwatchLogs, useControlPlane, watchLogs } from '@/composables/useControlPlane'
 import { flash, useUi } from '@/composables/useUi'
-import { CPU_STROKE, CPU_VALUE_CLASS } from '@/lib/cpu-tone'
 import {
   briefBytes,
   formatAgo,
@@ -24,6 +24,7 @@ import {
   formatUptime,
   relativeFrom,
 } from '@/lib/format'
+import { CPU_STROKE, CPU_VALUE_CLASS, PROBE_STROKE, PROBE_VALUE_CLASS } from '@/lib/tones'
 import { workspacePath } from '@/router'
 
 const props = defineProps<{ server: ServerView, workspaceId: string, now: number }>()
@@ -92,24 +93,12 @@ function cpuColor(): string {
   return CPU_STROKE[cpuBand(cpuPercent.value, control.host.value?.cpus)]
 }
 
-function probeColor(): string {
-  const value = responseMs.value ?? 0
-  if (value >= 1000)
-    return 'var(--danger)'
-  if (value >= 300)
-    return 'var(--warn)'
-  return 'var(--ok)'
-}
-
-function toneClass(value: number | null, warn: number, danger: number): string {
-  if (value === null)
-    return 'metric__v--dim'
-  if (value >= danger)
-    return 'metric__v--danger'
-  if (value >= warn)
-    return 'metric__v--warn'
-  return ''
-}
+/**
+ * The probe's number and its sparkline are one reading, so both read `probeBand` — the same verdict
+ * `ServerList` paints its row with. A second copy of `300`/`1000` here made the tile disagree with
+ * the row, and `?? 0` painted a probe that never ran as a healthy one.
+ */
+const probeVerdict = computed(() => probeBand(responseMs.value))
 
 async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
   busy.value = true
@@ -293,10 +282,10 @@ function ledClass(status: ServerStatus): string {
         <div class="metric__k">
           probe
         </div>
-        <div class="metric__v" :class="toneClass(responseMs, 300, 1000)">
+        <div class="metric__v" :class="PROBE_VALUE_CLASS[probeVerdict]">
           {{ formatMs(responseMs) }}
         </div>
-        <Sparkline :values="series.probe" :color="probeColor()" :width="92" :height="16" />
+        <Sparkline :values="series.probe" :color="PROBE_STROKE[probeVerdict]" :width="92" :height="16" />
       </div>
       <div class="metric">
         <div class="metric__k">

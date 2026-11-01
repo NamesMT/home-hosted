@@ -238,7 +238,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   `disabled` chip; its detail page greyed out Start and Restart and said nothing, losing the only
   explanation on the way in. When you give a surface an empty state, a reason or a qualifier, grep
   for the other surface that renders the same field and land it there too — and prefer a shared
-  component or a scan test over two call sites remembering in parallel.
+  component or a scan test over two call sites remembering in parallel. **A reading painted beside
+  its own chart is the worst case**: a probe's number and the sparkline under it are one reading, so
+  one band decides both (`probeBand`), and neither may restate the thresholds.
 - **A replaced list is sent only when *this form* changed it, and merged against what it was
   filled with.** `destinations` and `routes` are lists a patch replaces, so a save writes the
   sender's whole view — including entries it never saw. Deciding that against live state makes

@@ -1,8 +1,8 @@
 # Readings — one home per number
 
 **Goal:** why a reading's absence, band, scale and aggregate are each decided once.
-**Scope:** `src/shared/host-readings.ts`, `src/shared/server-readings.ts`, `src/shared/cpu-scale.ts`
-and the surfaces that render them. The rules are in `AGENTS.md`; this is the reasoning.
+**Scope:** `src/shared/host-readings.ts`, `src/shared/server-readings.ts`, `src/shared/cpu-scale.ts`,
+`src/shared/probe-latency.ts` and the surfaces that render them. The rules are in `AGENTS.md`; this is the reasoning.
 
 ## A reading's absence is decided where it is rendered, not on the wire
 
@@ -29,6 +29,12 @@ that predates the field still parses), and a band predicate reads it:
 - `hostCpuBand` — the host's CPU share has no configurable alert, so the band is a fixed constant.
   It was written twice (70/90 and 80/95), and two copies of a *fixed* number cannot be caught by
   raising a config.
+- `probeBand` — the same shape for a health probe's latency. `healthSchema` has no latency field,
+  so `300`/`1000` is fixed too, and it was painted three ways: the detail tile's number via
+  `toneClass(responseMs, 300, 1000)`, the sparkline under it via a `probeColor()` holding its own
+  copy of the same pair, and the list row's `>= 1000` alone. A `1500 ms` reading was `danger` in the
+  pane and `warn` in the row; a probe that never ran was `--ok`, because the sparkline read
+  `responseMs ?? 0`.
 
 `0` disables an alert in `sampleHost`, so nothing can breach it and the band is `ok`. A panel that
 sends no threshold gets `HOST_ALERT_DEFAULTS`, which is what the older panel alerted on —
@@ -63,6 +69,11 @@ through `test/helpers/template-render.ts`:
 - a reading followed into whatever local it was destructured or derived into, and that local's own
   initializer — a fallback inside a `computed` never appears in the template;
 - `sumReadings` used for a total rather than a hand-rolled loop.
+
+`test/shared/probe-band.test.ts` pins `probeBand` and scans every UI source for a probe latency
+compared against a literal — the fourth copy, in a file no surface test mounts. The rendered half is
+`uis/noc-console/test/probe-tile-agrees.test.ts`, which mounts the tile and the list row and reads the
+class and stroke off both.
 
 `test/shared/cpu-scale.test.ts` reads every UI source for a capacity written by hand. It carried the
 same narrowing twice: the first matcher wanted *two* bare literals, because the copy it was written
