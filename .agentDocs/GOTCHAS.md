@@ -146,11 +146,19 @@ line in `AGENTS.md` instead.
   child** — an inherited pipe would keep it alive and the panel would report a healthy entry whose
   server is a detached stranger. A stop reaches the child **by pid from the state file**, because
   `SIGKILL` and `killGroup: false` cannot be forwarded (which is why a self-restarting program
-  belongs on `reclaim`). And its `SIGTERM`/`SIGINT` traps arm **before the child exists** and before
-  that state file appears, so a stop that beats the spawn cannot orphan a child nobody has a record
-  of. Reattach is `nannyIsAlive` = live pid **and** a fresh heartbeat, plus the marker or the argv —
-  a live pid alone proves nothing, since pids are reused. `logs.persist: false` keeps that file out of
-  the Logs page but never stops it being written: it is the transport.
+  belongs on `reclaim`). And its traps (`NANNY_TRAPPED_SIGNALS`) arm **before the child exists** and
+  before that state file appears, so a stop that beats the spawn cannot orphan a child nobody has a
+  record of. Reattach is `nannyIsAlive` = live pid **and** a fresh heartbeat, plus the marker or the
+  argv — a live pid alone proves nothing, since pids are reused. `logs.persist: false` keeps that file
+  out of the Logs page but never stops it being written: it is the transport.
+- **Whether the nanny forwarded the stop follows the configured signal, never the terminator's
+  label.** `down --with-persistent` signalled the child only when `terminatePid` returned
+  `'force-killed'` — but `SIGKILL` *always* comes back that way, since nothing can trap it, while a
+  nanny killed by a signal it does trap may still have forwarded. `stop.signal: SIGKILL` is a
+  selectable policy, so a real entry's server was left serving while the CLI printed "stopped
+  persistent" and deleted the state file that was its only handle. The set has one home,
+  `NANNY_TRAPPED_SIGNALS`, which the nanny registers its handlers from; the sweep reads it and
+  signals the child when the signal is outside it *or* the stop had to escalate.
 - **`stop.killPortHolders` frees a port only from a *listener* that is not our own process tree.**
   Broad `lsof -ti:<port>` sweeps and pid-as-text parses have killed supervisors in the field; do not
   add one. `free-port` reuses the same lookup and adds the supervisor's own pid set on top.

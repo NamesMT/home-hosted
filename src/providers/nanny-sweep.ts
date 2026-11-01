@@ -1,7 +1,7 @@
 import type { NannyState, StopConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
-import { nannyIsAlive, nannySpecPath, nannyStatePath, readNannyState, SPEC_SUFFIX } from '#src/providers/nanny'
+import { NANNY_TRAPPED_SIGNALS, nannyIsAlive, nannySpecPath, nannyStatePath, readNannyState, SPEC_SUFFIX } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
 import { terminatePid } from '#src/providers/process'
 import { stopSchema } from '#src/shared/contracts'
@@ -127,11 +127,17 @@ export async function stopPersistentEntries(
       continue
     }
 
-    // A nanny stops its child on the graceful path. `SIGKILL` cannot be trapped, and with
-    // `killGroup: false` the group signal never reached the child either, so the pid in the
-    // state file is the only handle left on a server that would otherwise keep serving.
-    if (!stop.killGroup && nanny === 'force-killed' && state.childPid !== null && state.childPid > 0)
-      await terminate(state.childPid, { signal: 'SIGKILL', killGroup: false, graceMs: 0 })
+    // A nanny stops its child on the graceful path. A signal it does not trap — `SIGKILL` above
+    // all — ends it outright, so nothing was forwarded; and with `killGroup: false` the group
+    // signal never reached the child either. The pid in the state file is then the only handle on
+    // a server that would otherwise keep serving. The configured signal decides this, never the
+    // terminator's own label: `SIGKILL` always reports `force-killed`, which says nothing about
+    // whether the nanny had a chance to pass the stop on.
+    const orphaned = state.childPid !== null && state.childPid > 0
+      && !stop.killGroup
+      && (!NANNY_TRAPPED_SIGNALS.has(stop.signal) || nanny === 'force-killed')
+    if (orphaned)
+      await terminate(state.childPid!, { signal: 'SIGKILL', killGroup: false, graceMs: 0 })
 
     consumeRecord(dir, serverId)
     results.push({ handle, stopped: true, error: null })

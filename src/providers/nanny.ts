@@ -28,6 +28,12 @@ const SPEC_MODE = 0o600
 /** Suffix of a spawn spec, so a sweep and the state reader can tell them apart. */
 export const SPEC_SUFFIX = '.spec.json'
 
+/**
+ * The signals a nanny traps and forwards to its child. Any other signal ends the nanny outright,
+ * so nothing was forwarded — see `stopPersistentEntries`, which then signals the child directly.
+ */
+export const NANNY_TRAPPED_SIGNALS: ReadonlySet<NodeJS.Signals> = new Set(['SIGTERM', 'SIGINT'])
+
 /** How often a nanny rewrites its state file. */
 export const NANNY_HEARTBEAT_MS = 5000
 

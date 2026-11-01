@@ -364,8 +364,9 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   entry's whole **tree**, and the panel's own tree is excluded.
 - **A persistent entry is run by its own nanny** (`src/services/nanny.ts`), which owns the pipes and
   mirrors the exit — the only arrangement that outlives the panel *and* keeps logging. The nanny never
-  restarts anything: retries and health stay the supervisor's. Three lifetimes are pinned (see
-  [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md)).
+  restarts anything: retries and health stay the supervisor's. It traps only `NANNY_TRAPPED_SIGNALS`, so
+  the configured signal decides whether the stop was forwarded, and whoever signals it stops the child
+  too. Three lifetimes are pinned (see [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md)).
 - **The reverse proxy's engine is a process the panel owns, not a server entry.** Its config is applied
   through the engine's admin API (atomic, never hand-edited), it runs under the same nanny a
   `persistent: true` entry uses, and its admin endpoint stays panel-side.

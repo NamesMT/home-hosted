@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process'
 import type { LogStream, NannyExit, NannySpec, NannyState } from '#src/shared/contracts'
 import process from 'node:process'
-import { describeNannyExit, describeSpawnError, NANNY_HEARTBEAT_MS, nannyLogFile, writeNannyState } from '#src/providers/nanny'
+import { describeNannyExit, describeSpawnError, NANNY_HEARTBEAT_MS, NANNY_TRAPPED_SIGNALS, nannyLogFile, writeNannyState } from '#src/providers/nanny'
 import { spawnManaged, terminate } from '#src/providers/process'
 import { LineSplitter } from '#src/services/log-buffer'
 import { LogFiles } from '#src/services/log-files'
@@ -73,8 +73,10 @@ export async function runNanny(spec: NannySpec, statePath: string): Promise<void
       stopChild(spawned, signal)
   }
 
-  process.on('SIGTERM', () => onSignal('SIGTERM'))
-  process.on('SIGINT', () => onSignal('SIGINT'))
+  // The same set `stopPersistentEntries` reads: a signal outside it ends this process without
+  // forwarding anything, so the sweep has to signal the child itself.
+  for (const signal of NANNY_TRAPPED_SIGNALS)
+    process.on(signal, () => onSignal(signal))
 
   // Not detached: the child shares this nanny's process group, which is the group the
   // panel signals — one `kill(-pid)` still reaches the whole tree.

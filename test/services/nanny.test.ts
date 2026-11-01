@@ -132,7 +132,9 @@ describe('nanny', () => {
    * The signal traps must be up before the child exists, and the block between them must stay
    * synchronous.
    *
-   * `runNanny` installs its SIGTERM/SIGINT handlers, then spawns. The `pending` slot exists for a
+   * `runNanny` installs a handler for every signal in `NANNY_TRAPPED_SIGNALS` — the same set
+   * `stopPersistentEntries` reads to decide whether a nanny forwarded the stop — and then spawns.
+   * The `pending` slot exists for a
    * signal landing in between — but nothing in that block awaits, and Node delivers a signal handler
    * only *between* synchronous runs, so `spawned` is always already set by the time a handler runs.
    * Both halves measured: a handler raised during a busy-loop never ran until the loop yielded, and
@@ -144,9 +146,9 @@ describe('nanny', () => {
    */
   it('installs its traps before spawning, with no await in between', () => {
     const source = fs.readFileSync(fileURLToPath(new URL('../../src/services/nanny.ts', import.meta.url)), 'utf8')
-    const traps = source.indexOf('process.on(\'SIGTERM\'')
+    const traps = source.indexOf('for (const signal of NANNY_TRAPPED_SIGNALS)')
     const spawn = source.indexOf('spawnManaged(')
-    expect(traps, 'the SIGTERM trap must be installed').toBeGreaterThan(-1)
+    expect(traps, 'the traps must be installed from the shared set').toBeGreaterThan(-1)
     expect(spawn, 'the spawn must be there').toBeGreaterThan(-1)
     expect(traps, 'traps before the child exists').toBeLessThan(spawn)
 
