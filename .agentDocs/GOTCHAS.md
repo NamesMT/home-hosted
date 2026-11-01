@@ -432,7 +432,19 @@ line in `AGENTS.md` instead.
   `if (!flag.value) { flag.value = true; …; return }` followed by the action on the next press — needs
   no name at all, and it catches the pre-`c83a9e6` armed revert under any rename. A detector that
   needs a `confirm` in the identifier is defeated by calling the ref `asking`, which is a rename, not
-  a fix.
+  a fix. **The consequence half had the same problem, twice over.** It lived in two per-UI files, and
+  each read one directory (`src/components/settings/` in stock, `src/views/` plus the top level of
+  `src/components/` in noc-console) — so a confirmation in any other file was invisible, measured
+  with a nested `src/components/panels/` and with a `title` dropped in `stock/src/views/`. Stock's
+  matcher was `/<ConfirmButton[\s\S]{0,900}?\/>/`, so a paired `<ConfirmButton …></ConfirmButton>`,
+  which Vue accepts, was no call site at all; and the slice ran to the *next* `/>`, so a sibling's
+  `:title` satisfied the button before it. Its exemption was keyed to a whole **file**
+  (`BackupsSection.vue`), so a second confirmation added there was excused too. The console's
+  plain-control half matched the literal word after `<button>`, so the `{{ t('common.remove') }}`
+  every UI writes was not a control. One shared file now reads every `.vue` in both UIs through
+  `openingTags`, keys each exemption to the *label and handler* it was written for, and decides a
+  plain control by its handler: a click that only raises state is a trigger, a click that calls is the
+  act.
 
 - **A source scan is a claim about every spelling of a rule.** Eleven guards here have audited as
   decoration, each found the same way: break the thing in the source and watch the file still pass.

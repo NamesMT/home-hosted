@@ -14,7 +14,7 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
  * `title` and `hint` — the names `noc-console`'s copy uses. Vue puts an undeclared prop in `$attrs`
  * without a word: the popover asked only **"Confirm remove?"**, and the two strings written for it
  * (`settings.destination.removeBody`, `settings.telegram.removeTokenHint`) were rendered nowhere.
- * `confirm-consequence.test.ts` reads the same buttons from the other side — it asks whether a
+ * `ui-confirm-consequence.test.ts` reads the same buttons from the other side — it asks whether a
  * `title` is *present* — so the wrong name read as "untitled" and was then excused by the
  * contextual exemption. Typechecking cannot see it either: the caller is a template.
  *

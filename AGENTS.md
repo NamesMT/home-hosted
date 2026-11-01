@@ -111,8 +111,10 @@ workspace config guard, so a busy default port turns config tests red for the wr
   (Vue puts it in `$attrs`), so a call site binding the wrong name gets the fallback copy without a
   word; `test/shared/ui-prop-contract.test.ts` pins both copies to one prop set.
   `test/shared/ui-destructive-confirm.test.ts` reads the armed shape in any handler form and any flag
-  name, so a new destructive control gets the rule from a red test. A row whose own text already
-  states the cost needs no repeated copy; a missing string does not.
+  name, so a new destructive control gets the rule from a red test. `test/shared/ui-confirm-consequence.test.ts`
+  reads every `.vue` in both UIs: a confirmation without a `title` fails, and so does a plain control
+  whose click acts. A row whose own text already states the cost needs no repeated copy; a missing
+  string does not, and an exemption is keyed to one label rather than a file.
 - **A numeric option is a whole decimal integer, never a prefix parse** (`src/cli/up.ts`): `--port 1e3`
   and `--port 8000x` are refused, not read as 1 and 8000. A flag the command cannot honour is refused
   too — `restart --workspace <id>` with no server id exits 1 before anything is attempted, because the
