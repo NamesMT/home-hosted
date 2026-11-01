@@ -13,6 +13,9 @@ import { forgetWslPaths, isWsl, LHM_RELEASE, LHM_SUBDIR, lhmDirectoryWindows, lh
  *
  * So the *translation* is what these cases pin, not the string concatenation.
  */
+/** Decided once: a guest is a guest for the whole file. */
+const onWsl = isWsl()
+
 describe('the WSL temperature bridge', () => {
   it('translates a /mnt path to the Windows path powershell.exe needs', () => {
     expect(windowsScriptPath('/mnt/c/Tools/home-hosted/cpu-temp.ps1')).toBe('C:\\Tools\\home-hosted\\cpu-temp.ps1')
@@ -33,16 +36,22 @@ describe('the WSL temperature bridge', () => {
     )
   })
 
-  it('writes the helper under /mnt/c on this WSL guest, and nowhere else', () => {
-    if (!isWsl()) {
-      // The rest of the suite runs on Linux CI and macOS; the path decision is WSL-only.
-      expect(wslScriptPath()).toBeNull()
-      return
-    }
+  /**
+   * The path decision is WSL-only, so each platform gets its own case.
+   *
+   * An early `return` here reported a **pass** on Linux CI for a case that never ran — the shape
+   * `.agentDocs/RELEASING.md` warns about. `it.runIf` over a condition computed once at module load
+   * says "skipped", which is the truth.
+   */
+  it.runIf(onWsl)('writes the helper under /mnt/c on a WSL guest', () => {
     const target = wslScriptPath()
     expect(target).not.toBeNull()
     // The whole point: powershell.exe must be able to read it.
     expect(target!.startsWith('/mnt/')).toBe(true)
+  })
+
+  it.runIf(!onWsl)('answers null where there is no Windows drive to write to', () => {
+    expect(wslScriptPath()).toBeNull()
   })
 })
 
@@ -167,7 +176,9 @@ describe('the Windows path is read once, not per request', () => {
       wslTemperatureStatus(wslScriptPath(), '')
 
     expect(windows.calls()).toBe(1)
-    expect(wslScriptPath()).toBe('/mnt/c/ProgramData/home-hosted/cpu-temp.ps1')
+    // The path itself is a WSL-only translation; the *count* above is the rule this pins.
+    if (onWsl)
+      expect(wslScriptPath()).toBe('/mnt/c/ProgramData/home-hosted/cpu-temp.ps1')
   })
 
   it('keeps the answer `lhmInstalled` shares, so a status read spawns nothing at all', () => {
@@ -183,8 +194,9 @@ describe('the Windows path is read once, not per request', () => {
     lhmDirectoryWindows()
 
     expect(windows.calls()).toBe(callsAfterFirst)
-    expect(wslScriptPath()).toBe('/mnt/d/ProgramData/home-hosted/cpu-temp.ps1')
-    expect(first.supported).toBe(isWsl())
+    if (onWsl)
+      expect(wslScriptPath()).toBe('/mnt/d/ProgramData/home-hosted/cpu-temp.ps1')
+    expect(first.supported).toBe(onWsl)
   })
 
   it('does not cache a failed read, so one interop hiccup is not permanent', () => {
