@@ -135,9 +135,9 @@ export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean, down
     // claimed a source was configured — the one state a person has no way to diagnose.
     const probe = await probeWslTemperature(command, 5000)
     if (probe.celsius === null) {
-      process.stdout.write(`${fail('not set up')} — the helper did not answer: ${probe.error ?? 'unknown reason'}\n`)
-      process.stdout.write(`${dim(`the script is at ${scriptPath}; the config was left unchanged`)}\n`)
-      return
+      // One refusal, whole, on stderr. It used to be built as `${fail('not set up')} — …`, and
+      // `fail()` exits before the template is finished, so the reason the probe gave was lost.
+      fail(`not set up — the helper did not answer: ${probe.error ?? 'unknown reason'}\n  the script is at ${scriptPath}; the config was left unchanged`)
     }
 
     store.updateHost({ tempCommand: command, tempCommandTimeoutMs: 5000 })
@@ -168,10 +168,8 @@ async function offerLibreHardwareMonitor(flags: { download?: boolean }): Promise
   }
 
   const result = await installLibreHardwareMonitor({ onProgress: message => process.stdout.write(`  ${dim(message)}\n`) })
-  if (result.error !== null) {
-    process.stdout.write(`${fail('the download did not install')} — ${result.error}\n`)
-    return
-  }
+  if (result.error !== null)
+    fail(`the download did not install — ${result.error}`)
   process.stdout.write(`  library ${green('installed')} in ${result.dir}\n`)
 }
 

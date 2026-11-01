@@ -141,7 +141,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
   (`src/cli/io.ts`) is installed **once** at the entry; only `EPIPE` is the reader leaving
   (`test/cli/epipe.test.ts`). Why not `SIGPIPE`: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **One refusal is one message on one stream.** A refusal's whole text goes to stderr, including any
-  list it exists to explain; stdout carries only an answer (`test/cli/backup-args.test.ts`).
+  list it exists to explain; stdout carries only an answer (`test/cli/backup-args.test.ts`). `fail()`
+  never returns, so it is a statement: `` `${fail('x')} — ${why}` `` exits before `${why}` exists and
+  the reason is lost (`test/cli/setup-temp-refusal.test.ts`).
 - **A browser API that needs a secure context is absent on the origin the docs promise.** Guard the
   feature, not the call: `copyText` (`uis/stock/src/lib/clipboard.ts`) falls back to `execCommand` and
   returns a verdict, or a button is dead on a LAN page; `uis/stock/test/clipboard-source.test.ts`
