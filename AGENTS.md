@@ -172,6 +172,9 @@ workspace config guard, so a busy default port turns config tests red for the wr
 - **A per-frame path may not call a syscall per server.** The frame is built once a second and once
   per request, so anything reading the host, the filesystem or the process table from a view builder
   is cached on its own clock, not merely memoised per call (`lanAddress`, `src/helpers/bind.ts`).
+  **A route is the same, and a *synchronous* spawn is worse**: `execFileSync` stops the event loop, so
+  a settings read that spawned `powershell.exe` twice blocked every in-flight response for ~720 ms
+  (`wslTemperatureStatus`). Cache the success; never cache a failure.
 - **What makes a frame "news" is derived from the block, never hand-picked out of it.** The signature
   gate (`stateSignature`, `src/services/panel.ts`) decides whether a built frame is published, so a
   field it does not name is a change no client sees — and the field carrying a surface's **empty

@@ -1,6 +1,6 @@
 import type { WslTemperatureStatus } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
-import { execFile, execFileSync } from 'node:child_process'
+import cp from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,7 +8,7 @@ import process from 'node:process'
 import { promisify } from 'node:util'
 import { logger } from '#src/helpers/logger'
 
-const execFileAsync = promisify(execFile)
+const execFileAsync = promisify(cp.execFile)
 
 /**
  * The WSL2 temperature bridge: a PowerShell helper that becomes `host.tempCommand`.
@@ -26,15 +26,50 @@ const SCRIPT_NAME = 'cpu-temp.ps1'
  */
 export const LHM_SUBDIR = 'home-hosted\\LibreHardwareMonitor'
 
-/** The install directory in Windows terms, read from the environment (the system drive may not be `C:`). */
-export function lhmDirectoryWindows(): string | null {
+/**
+ * The last successful read of the Windows side, kept for this process's life.
+ *
+ * A **success** is permanent because `%ProgramData%` is a property of the host and cannot move under
+ * a running panel. A failure is never stored: `powershell.exe` missing from this process's `PATH`, or
+ * a transient interop hiccup, says nothing about the machine, and caching it would make one bad
+ * moment permanent. A failed read costs an `ENOENT` — the 360 ms is the successful spawn.
+ */
+let windowsBase: string | null = null
+
+/**
+ * `$env:ProgramData` from the Windows side, read **once**.
+ *
+ * `powershell.exe` across the 9p mount measured ~360 ms here, and this is a **synchronous** spawn: it
+ * stops the whole event loop, so the tick, the SSE hub and every in-flight request wait behind it.
+ * Every bridge-state read did it twice — once for the install directory, once for the library — which
+ * made `GET /api/host/temperature` block the panel for ~720 ms, on a route the settings page calls
+ * whenever it opens. Same rule as `lanAddress()`: a host read on a request path is cached, never
+ * paid per call.
+ */
+function windowsProgramData(): string | null {
+  if (windowsBase !== null)
+    return windowsBase
+
   try {
-    const base = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$env:ProgramData'], { timeout: 10_000, windowsHide: true, encoding: 'utf8' }).trim()
-    return base.length === 0 ? null : path.win32.join(base, LHM_SUBDIR)
+    const base = cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '$env:ProgramData'], { timeout: 10_000, windowsHide: true, encoding: 'utf8' }).trim()
+    if (base.length > 0)
+      windowsBase = base
   }
   catch {
-    return null
+    // Not cached: see above.
   }
+  return windowsBase
+}
+
+/** The install directory in Windows terms, read from the environment (the system drive may not be `C:`). */
+export function lhmDirectoryWindows(): string | null {
+  const base = windowsProgramData()
+  return base === null ? null : path.win32.join(base, LHM_SUBDIR)
+}
+
+/** Forgets the cached Windows path. A test that simulates the Windows side calls this first. */
+export function forgetWslPaths(): void {
+  windowsBase = null
 }
 
 /** A Windows path as a path this process can read: `C:\x` -> `/mnt/c/x`. */

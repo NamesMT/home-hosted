@@ -174,6 +174,17 @@ line in `AGENTS.md` instead.
   state, so "we only publish on change" is not a performance argument. Cache the host read on its own
   clock (`lanAddress`, `src/helpers/bind.ts`) and cost a new view-builder call at the entry count,
   never at one entry.
+- **A route pays the same cost, and a synchronous spawn stops everything, not just itself.**
+  `lhmDirectoryWindows()` ran `execFileSync('powershell.exe', …)` to read `$env:ProgramData`, and a
+  bridge-state read called it twice (the directory, then `lhmInstalled`). Measured on this WSL2 guest:
+  one `GET /api/host/temperature` cost **719 ms and 2 spawns**, and a timer set to fire every 20 ms
+  fired **0 times** across a single spawn — the tick, the SSE hub and every in-flight response wait
+  behind it. `lanAddress()` is merely slow; this freezes the panel. `%ProgramData%` cannot move under
+  a running process, so the success is cached for the process's life (`windowsProgramData`): 51 reads
+  now cost 1 spawn and 0 ms of stall. A **failure** is never cached — `powershell.exe` missing from
+  `PATH` or a transient interop hiccup says nothing about the host, and caching it would make one bad
+  moment permanent; it also costs only an `ENOENT`, since the 360 ms is the successful spawn.
+  `forgetWslPaths()` is the seam a test uses, as `forgetLanAddress()` already is.
 - **A hand-picked signature publishes nothing for the field it forgot, and the empty state is what it
   forgets.** `stateSignature` joins one string per thing a UI redraws from, and the host block was
   two of its fields: `sampledAt` and `alerts`. `HostMonitor.tick` with sampling off writes **neither**

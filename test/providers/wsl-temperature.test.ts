@@ -1,6 +1,7 @@
+import cp from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
-import { isWsl, LHM_RELEASE, LHM_SUBDIR, tempCommandFor, toGuestPath, windowsScriptPath, wslScriptPath } from '#src/providers/wsl-temperature'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { forgetWslPaths, isWsl, LHM_RELEASE, LHM_SUBDIR, lhmDirectoryWindows, lhmInstalled, tempCommandFor, toGuestPath, windowsScriptPath, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
 
 /**
  * The WSL2 temperature bridge.
@@ -124,5 +125,92 @@ describe('the LibreHardwareMonitor install', () => {
     expect(toGuestPath('D:\\ProgramData\\x')).toBe('/mnt/d/ProgramData/x')
     // A UNC path has no `/mnt` equivalent, so it is refused rather than guessed.
     expect(toGuestPath('\\\\server\\share\\x')).toBeNull()
+  })
+})
+
+/**
+ * The Windows side is read once, not once per request.
+ *
+ * Reaching it means spawning `powershell.exe` across the 9p mount — measured at ~360 ms here, and
+ * spent **synchronously**, so the whole event loop stops: the tick, the SSE hub and every in-flight
+ * response wait behind it. A bridge-state read did it twice, once for the install directory and once
+ * inside `lhmInstalled`, so `GET /api/host/temperature` — a route the settings page calls whenever it
+ * opens — blocked the panel for ~720 ms. Measured on this guest: 2 spawns, 719 ms, one request.
+ *
+ * This is the `lanAddress()` rule applied to a worse call: cache the host read on its own clock. The
+ * counter is the seam, because no test can time a syscall reliably, but a spawn count is exact.
+ */
+describe('the Windows path is read once, not per request', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    forgetWslPaths()
+  })
+
+  /** Counts `execFileSync` calls and answers the fake Windows side. */
+  function installWindows(programData: string | null): { calls: () => number } {
+    let calls = 0
+    vi.spyOn(cp, 'execFileSync').mockImplementation((() => {
+      calls += 1
+      if (programData === null)
+        throw new Error('powershell.exe is not available')
+      return programData
+    }) as never)
+    return { calls: () => calls }
+  }
+
+  it('reads %ProgramData% once however many times the status is asked for', () => {
+    forgetWslPaths()
+    const windows = installWindows('C:\\ProgramData')
+
+    // A settings page load, a sample, and a second page load: one read between them.
+    for (let index = 0; index < 20; index++)
+      wslTemperatureStatus(wslScriptPath(), '')
+
+    expect(windows.calls()).toBe(1)
+    expect(wslScriptPath()).toBe('/mnt/c/ProgramData/home-hosted/cpu-temp.ps1')
+  })
+
+  it('keeps the answer `lhmInstalled` shares, so a status read spawns nothing at all', () => {
+    forgetWslPaths()
+    const windows = installWindows('D:\\ProgramData')
+
+    const first = wslTemperatureStatus(wslScriptPath(), '')
+    const callsAfterFirst = windows.calls()
+
+    // Everything a second request does, including the library check the status reads.
+    wslTemperatureStatus(wslScriptPath(), '')
+    lhmInstalled()
+    lhmDirectoryWindows()
+
+    expect(windows.calls()).toBe(callsAfterFirst)
+    expect(wslScriptPath()).toBe('/mnt/d/ProgramData/home-hosted/cpu-temp.ps1')
+    expect(first.supported).toBe(isWsl())
+  })
+
+  it('does not cache a failed read, so one interop hiccup is not permanent', () => {
+    forgetWslPaths()
+    // A first failure: `powershell.exe` was not on PATH for this process.
+    let calls = 0
+    vi.spyOn(cp, 'execFileSync').mockImplementation((() => {
+      calls += 1
+      if (calls === 1)
+        throw new Error('spawnSync powershell.exe ENOENT')
+      return 'C:\\ProgramData'
+    }) as never)
+
+    expect(lhmDirectoryWindows()).toBeNull()
+    // The retry is what makes a transient failure survivable: `%ProgramData%` never changes, so a
+    // cached *success* is safe forever, but a cached failure would outlive its cause.
+    expect(lhmDirectoryWindows()).toBe('C:\\ProgramData\\home-hosted\\LibreHardwareMonitor')
+    expect(calls).toBe(2)
+  })
+
+  it('reports no library when the Windows side cannot be reached', () => {
+    forgetWslPaths()
+    installWindows(null)
+    // A guest with no `powershell.exe` on PATH is a real state (interop disabled), and `n/a` is the
+    // honest answer rather than a throw from a settings route.
+    expect(lhmDirectoryWindows()).toBeNull()
+    expect(lhmInstalled()).toBe(false)
   })
 })
