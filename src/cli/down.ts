@@ -106,7 +106,20 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
 
   process.stdout.write(`${dim('it did not stop in time — forcing')}\n`)
   forceStop(runtime.pid)
-  await waitForExit(runtime.pid, 5000)
+  // The forced stop's outcome decides the report, the exit code **and** whether the record may go.
+  //
+  // `forceStop` cannot report its own failure: `signal` swallows every error and `taskkill`'s exit
+  // status is never read. This line used to discard `waitForExit`'s answer, `clearRuntime()` ran
+  // regardless, and the command printed "stopped (forced)" and exited 0 — for a panel that was
+  // still alive and still holding its port. Deleting run.json then destroyed the only record of it,
+  // so `down && up` in a deploy script proceeded against a live panel. The graceful branch above
+  // already asks this question before it clears; the forced branch is the one path that skipped it.
+  if (!await waitForExit(runtime.pid, 5000)) {
+    process.stdout.write(`${paint('31', 'error')} could not stop pid ${runtime.pid} — it is still running, and its record was kept\n`)
+    process.stdout.write(`${dim(`stop it yourself with \`kill -9 ${runtime.pid}\` (Windows: \`taskkill /PID ${runtime.pid} /T /F\`), then run \`down\` again`)}\n`)
+    process.exitCode = 1
+    return finish()
+  }
   clearRuntime()
   reportStopped(true)
   return finish()

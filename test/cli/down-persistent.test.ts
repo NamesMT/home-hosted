@@ -284,4 +284,64 @@ describe('down --with-persistent', () => {
     expect(exitCodeForStops([{ stopped: true }])).toBe(0)
     expect(exitCodeForStops([{ stopped: true }, { stopped: false }])).toBe(1)
   })
+
+  /**
+   * A forced stop that does not work is a failure, not a quiet success.
+   *
+   * The forced branch printed "stopped (forced)", exited 0 and then `clearRuntime()` deleted the
+   * record — for a panel that was still alive and still holding its port, so `down && up` in a
+   * deploy script carried on against it. `forceStop` cannot report its own failure (`signal`
+   * swallows every error, `taskkill`'s status is never read), and the branch discarded
+   * `waitForExit`'s answer. The graceful branch above already asked before clearing; this pins the
+   * forced one.
+   *
+   * pid 1 is the only safe unsignalable process on a test host: `kill -9 1` is EPERM for every
+   * non-root user, which is exactly the state the bug needed, and signalling it cannot harm
+   * anything. The record names it with its real start time, so `runtimeLiveness` reads `live`
+   * rather than `recycled` — that is what makes `down` take the signal path at all.
+   */
+  it('reports a forced stop that failed, keeps the record, and exits 1', async () => {
+    const runFile = path.join(home, '.hh', 'run.json')
+
+    /** A live, unsignalable pid with the start time the record has to agree with. */
+    function pidOneStartedAt(): number {
+      const ticks = Number(fs.readFileSync('/proc/1/stat', 'utf8').split(') ')[1]!.split(' ')[19])
+      const hz = 100
+      const bootSeconds = Number(/^btime (\d+)$/m.exec(fs.readFileSync('/proc/stat', 'utf8'))![1])
+      return bootSeconds * 1000 + (ticks * 1000) / hz
+    }
+
+    const started = pidOneStartedAt()
+    fs.mkdirSync(path.dirname(runFile), { recursive: true })
+    fs.writeFileSync(runFile, JSON.stringify({
+      version: '0.10.0',
+      pid: 1,
+      url: 'http://127.0.0.1:1',
+      probeUrl: 'http://127.0.0.1:1',
+      protocol: 'http',
+      port: 1,
+      bindHost: '127.0.0.1',
+      startedAt: started,
+      projectDir: home,
+      dataRoot: home,
+      configPath: path.join(home, '.hh', 'default', 'servers.config.json'),
+      logFile: path.join(home, '.hh', '.logs', 'home-hosted.log'),
+      token: 'local-token',
+    }))
+
+    try {
+      const result = await runCli(['down'])
+
+      expect(result.status, 'a stop that failed must not exit 0').toBe(1)
+      expect(result.stderr + result.stdout).toContain('could not stop pid 1')
+      // The claim has to be withdrawn: no "stopped" on the success path.
+      expect(result.stdout).not.toContain('stopped (forced)')
+      // The record is the only handle on a panel that is still alive — deleting it was the harm.
+      expect(fs.existsSync(runFile), 'the record of a live panel must be kept').toBe(true)
+      expect(isProcessAlive(1), 'pid 1 was never killable, so it is still alive').toBe(true)
+    }
+    finally {
+      fs.rmSync(runFile, { force: true })
+    }
+  })
 })

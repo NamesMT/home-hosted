@@ -164,6 +164,51 @@ describe('runLogs', () => {
     expect(await printed('all')).toBe(200)
   })
 
+  /**
+   * `--follow` must show the same opening lines its one-shot form does.
+   *
+   * The follow branch rewrote the `0` that `all`/a negative parses to back into `DEFAULT_LINES`, so
+   * `logs --lines all --follow` printed 50 lines of a 200-line log — while the synopsis and the help
+   * both advertise `[--lines <n>] [--follow]` as composable and document `all` as "everything". A
+   * diagnostic command that silently shows a quarter of the answer is the worst failure mode there
+   * is, because the output looks complete. The follow tests never passed a count that reached 0, so
+   * nothing pinned it; `--follow --json` ignoring `--json` was the same class, already fixed.
+   */
+  it('the follow form shows the same opening lines as the one-shot form', async () => {
+    const root = home(`${Array.from({ length: 200 }, (_, i) => `line-${i}`).join('\n')}\n`)
+
+    /** The opening burst: `followLog` polls until interrupted, so the signal ends it. */
+    async function opening(input: { lines?: string }): Promise<number> {
+      const written: string[] = []
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation(((chunk: string) => {
+        written.push(String(chunk))
+        return true
+      }) as never)
+
+      try {
+        process.env.HHOSTED_HOME = root
+        vi.resetModules()
+        const { runLogs } = await import('#src/cli/logs')
+        const running = runLogs({ ...input, follow: true })
+        // `followLog` writes its opening burst before its first poll, so this only has to outlast
+        // that — the same 600 ms the `--follow --json` case above uses.
+        await new Promise(resolve => setTimeout(resolve, 600))
+        process.emit('SIGINT')
+        await running
+      }
+      finally {
+        spy.mockRestore()
+      }
+
+      return written.join('').split('\n').filter(line => line.startsWith('line-')).length
+    }
+
+    expect(await opening({ lines: 'all' }), '`all` means everything, in either form').toBe(200)
+    expect(await opening({ lines: '-1' }), 'a negative is the same sentinel').toBe(200)
+    expect(await opening({ lines: '150' }), 'a real count is honoured').toBe(150)
+    expect(await opening({}), 'and the default is still the default').toBe(50)
+  })
+
   it('accepts surrounding whitespace on a real count', async () => {
     // A shell can hand over a padded value; that is still the number it looks like. Asserted as a
     // *count* on a file longer than the default (50): the previous version used a 3-line file and

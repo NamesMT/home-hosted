@@ -64,9 +64,14 @@ export async function runLogs(input: { lines?: string, follow?: boolean, json?: 
 
   if (input.follow === true) {
     const { followLog } = await import('#src/helpers/daemon-log')
-    const count = lines === 0 ? DEFAULT_LINES : lines
+    // `lines` goes through unchanged: `readLog` already reads `0` as "the whole log", which is what
+    // `--lines all` (and a negative, the same sentinel) parsed to. This used to rewrite 0 to
+    // `DEFAULT_LINES`, so `logs --lines all --follow` printed 50 lines of a 200-line log while the
+    // help and synopsis advertise `[--lines <n>] [--follow]` as composable — the worst failure
+    // for a diagnostic command, since the answer looked complete. Same class as `--follow --json`
+    // ignoring `--json`, which the branch below already fixed.
     if (input.json !== true) {
-      await followLog(daemonLogPath, count, chunk => process.stdout.write(chunk))
+      await followLog(daemonLogPath, lines, chunk => process.stdout.write(chunk))
       return
     }
     // `--follow --json` used to ignore `--json` and print raw text, which the synopsis
@@ -79,7 +84,7 @@ export async function runLogs(input: { lines?: string, follow?: boolean, json?: 
     }
     // A chunk can end mid-line, so lines are only emitted once their newline has arrived.
     let pending = ''
-    await followLog(daemonLogPath, count, (chunk) => {
+    await followLog(daemonLogPath, lines, (chunk) => {
       pending += chunk
       const parts = pending.split('\n')
       pending = parts.pop() ?? ''
