@@ -128,6 +128,27 @@ export const bootstrapSchema = type({
 export const bootstrapOrNullSchema = bootstrapSchema.or(type('null'))
 
 /**
+ * The `bootstrap` group as a patch carries it: every field optional, and **no defaults**.
+ *
+ * A patch must not fill a default in (`AGENTS.md`), and it could not here for a second reason.
+ * `bootstrap` is not in `SERVER_MERGE_KEYS`, so `applyPatch` **replaces** the whole group; the
+ * defaults on `bootstrapSchema` used to arrive with the patch, so sending one changed field
+ * wrote a group with the other four reset. Measured on `PATCH /api/servers/db` with
+ * `{"bootstrap":{"command":"next.sh"}}`: stored `args: ["--ci"]` became `[]`, `runOnce: false`
+ * became `true` — re-arming a one-shot bootstrap to run on every `up` — and `timeoutMs: 5000`
+ * became `120000`. The group is still replaced, so a caller sends the fields it means to keep;
+ * what changes is that the panel no longer invents the ones it did not send.
+ */
+export const bootstrapPatchSchema = type({
+  command: 'string >= 1?',
+  args: 'string[]?',
+  env: 'Record<string, string>?',
+  timeoutMs: 'number >= 1000?',
+  runOnce: 'boolean?',
+}).onUndeclaredKey('reject')
+export const bootstrapPatchOrNullSchema = bootstrapPatchSchema.or(type('null'))
+
+/**
  * A command run around a backup, for engines that need one to produce a consistent copy.
  *
  * `mongodump` is the reason this exists: copying `dbPath` while the server writes gives a torn copy,
@@ -156,6 +177,23 @@ export const backupHookSchema = type({
   waitMs: 'number >= 0 = 2000',
 }).onUndeclaredKey('reject')
 export const backupHookOrNullSchema = backupHookSchema.or(type('null'))
+
+/**
+ * The `dump`/`load` group as a patch carries it: every field optional, and **no defaults**.
+ *
+ * The same defect `bootstrapPatchSchema` exists for, in the same `editableFields`: both hooks are
+ * replaced rather than merged, so the group's defaults used to arrive with a one-field edit and
+ * reset `args`, `env`, `timeoutMs` and `waitMs` to values nobody sent. `waitMs` is the one that
+ * bites hardest — a `load` waiting on a slow database would silently drop back to 2 s.
+ */
+export const backupHookPatchSchema = type({
+  command: 'string >= 1?',
+  args: 'string[]?',
+  env: 'Record<string, string>?',
+  timeoutMs: 'number >= 1000?',
+  waitMs: 'number >= 0?',
+}).onUndeclaredKey('reject')
+export const backupHookPatchOrNullSchema = backupHookPatchSchema.or(type('null'))
 
 export type BackupHookConfig = typeof backupHookSchema.infer
 
@@ -563,7 +601,7 @@ export const ddnsViewSchema = type({
   providers: ddnsProviderInfoSchema.array(),
   /** Account ids whose credentials are stored. */
   credentials: type('string[]'),
-})
+}).onDeepUndeclaredKey('ignore')
 export type DdnsView = typeof ddnsViewSchema.infer
 
 /**
@@ -839,9 +877,9 @@ const editableFields = {
   cwd: 'string?',
   env: 'Record<string, string>?',
   dataEnvs: 'Record<string, string>?',
-  bootstrap: bootstrapOrNullSchema.optional(),
-  dump: backupHookOrNullSchema.optional(),
-  load: backupHookOrNullSchema.optional(),
+  bootstrap: bootstrapPatchOrNullSchema.optional(),
+  dump: backupHookPatchOrNullSchema.optional(),
+  load: backupHookPatchOrNullSchema.optional(),
   port: portSchema.optional(),
   bind: bindSchema.optional(),
   onPortConflict: onPortConflictSchema.optional(),
@@ -1148,7 +1186,7 @@ export const proxyRouteViewSchema = type({
      */
     'retryInMinutes?': 'number',
   }),
-})
+}).onDeepUndeclaredKey('ignore')
 export type ProxyRouteView = typeof proxyRouteViewSchema.infer
 
 export const proxyRunStateSchema = type.enumerated('off', 'stopped', 'starting', 'running', 'error', 'unsupported')
@@ -1212,7 +1250,7 @@ export const proxyViewSchema = type({
   'certificates': proxyCertificateViewSchema.array(),
   /** Every DNS account a route may name. Optional: an older panel omits it. */
   'dnsAccounts?': proxyDnsAccountViewSchema.array(),
-})
+}).onDeepUndeclaredKey('ignore')
 export type ProxyView = typeof proxyViewSchema.infer
 
 /**
@@ -1782,7 +1820,7 @@ export const serverViewSchema = type({
   /** Last health probe latency (TCP connect or HTTP request). */
   'responseMs': 'number | null',
   'resources': processResourcesSchema.or(type('null')),
-})
+}).onDeepUndeclaredKey('ignore')
 // `config` is emitted normalized (port is always `number | null`, never absent),
 // while the schema accepts both forms so a hand-written payload still validates.
 export type ServerView = Omit<typeof serverViewSchema.infer, 'config'> & { config: ServerConfig }
@@ -1895,7 +1933,7 @@ export const workspaceViewSchema = type({
    */
   'orphans?': serverOrphanSchema.array(),
   'servers': serverViewSchema.array(),
-})
+}).onDeepUndeclaredKey('ignore')
 export type WorkspaceView = typeof workspaceViewSchema.infer
 
 /**
@@ -1916,7 +1954,7 @@ export const appStateSchema = type({
   'dataRoot': 'string',
   /** The release this panel is running. Optional: an older panel does not send one. */
   'version?': 'string',
-})
+}).onDeepUndeclaredKey('ignore')
 export type AppState = typeof appStateSchema.infer
 
 export const sseMessageSchema = type({
@@ -1927,7 +1965,7 @@ export const sseMessageSchema = type({
   'state': appStateSchema.optional(),
   'server': serverViewSchema.optional(),
   'lines': logLineSchema.array().optional(),
-})
+}).onDeepUndeclaredKey('ignore')
 export type SseMessage = typeof sseMessageSchema.infer
 
 export const logQuerySchema = type({
@@ -2008,14 +2046,35 @@ export const backupCreatedResponseSchema = type({
 })
 
 /** Buffered or persisted log lines, the shape every log-reading route returns. */
+/**
+ * `GET /api/servers/:id/logs` — the **buffered** lines, straight from memory.
+ *
+ * It is not the disk history below: this route has no window, no rotation and no search, so it
+ * answers `{ lines }` and nothing else. The schema used to be a copy of the disk shape
+ * (`serverId`/`enabled`/`sizeBytes`/`files`/`searched`), so the documented response named five
+ * fields the handler never sent — and `searched` was declared as an array here while the disk route
+ * sends a number. `test/api/panel.test.ts` only walks routes it can reach with a live fixture and
+ * skipped this one, so nothing caught it.
+ */
+export const bufferedLogsResponseSchema = type({
+  lines: logLineSchema.array(),
+})
+export type BufferedLogsResponse = typeof bufferedLogsResponseSchema.infer
+
+/**
+ * `GET /api/logs/:id` — one entry's log **from disk**, with its rotation and its search window.
+ *
+ * This is the shape the UIs parse (`logHistoryViewSchema` below is the same thing with its own
+ * name for the client side), and it is what `logLinesResponseSchema` should always have been.
+ */
 export const logLinesResponseSchema = type({
   serverId: 'string',
   enabled: 'boolean',
   sizeBytes: 'number',
   /** The rotated files this entry has, newest first. */
   files: 'string[]',
-  /** The whole search window, or null when the request carried no `search`. */
-  searched: logLineSchema.array().or(type('null')),
+  /** How many lines the search looked at, or null when the request carried no `search`. */
+  searched: 'number | null',
   lines: logLineSchema.array(),
 })
 
@@ -2137,7 +2196,7 @@ export const settingsViewSchema = type({
   host: hostSchema,
   backups: backupsViewSchema,
   ui: uiStatusSchema,
-})
+}).onDeepUndeclaredKey('ignore')
 export type SettingsView = typeof settingsViewSchema.infer
 
 /** `PATCH /api/settings` answers with the saved view, plus where the listener lands. */
@@ -2162,7 +2221,7 @@ export const workspaceSettingsViewSchema = type({
   defaults: defaultsSchema,
   logs: logsSchema,
   notifications: notificationViewSchema,
-})
+}).onDeepUndeclaredKey('ignore')
 export type WorkspaceSettingsView = typeof workspaceSettingsViewSchema.infer
 
 export const workspaceSettingsSavedSchema = workspaceSettingsViewSchema

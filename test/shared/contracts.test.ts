@@ -18,6 +18,7 @@ import {
   duplicateWebhookIds,
   healthResponseSchema,
   healthSchema,
+  hostSchema,
   logBufferLinesSchema,
   logsSchema,
   notificationDefaultsSchema,
@@ -44,6 +45,7 @@ import {
   serverSchema,
   serverViewSchema,
   settingsPatchSchema,
+  settingsViewSchema,
   telegramChatsSchema,
   workspaceSettingsPatchSchema,
   workspaceViewSchema,
@@ -164,6 +166,36 @@ describe('patch surface', () => {
     const patch = serverPatchSchema({ restart: { maxRetries: 9 } })
     expect(patch).toEqual({ restart: { maxRetries: 9 } })
     expect(unwrap(restartSchema({})).enabled).toBe(true)
+  })
+
+  /**
+   * The groups a patch **replaces** carry no defaults either — and these did.
+   *
+   * `bootstrap`, `dump` and `load` are not in `SERVER_MERGE_KEYS`, so `applyPatch` replaces the whole
+   * group. Their patch shapes used to be the full config schemas, defaults and all, so the defaults
+   * arrived with the patch and overwrote stored values nobody sent. Measured on
+   * `PATCH /api/servers/db` with `{"bootstrap":{"command":"next.sh"}}`: `args: ["--ci"]` became `[]`,
+   * `runOnce: false` became `true` — re-arming a one-shot bootstrap to run on every `up` — and
+   * `timeoutMs: 5000` became `120000`.
+   *
+   * The parity loop above covered `restart`/`health`/`stop` only, which is exactly why these three
+   * were never caught. Populating the group is what makes the test bite: an empty patch is
+   * default-free under either shape.
+   */
+  it('fills no default into a replaced group, so a partial edit keeps the siblings', () => {
+    for (const group of ['bootstrap', 'dump', 'load'] as const) {
+      expect(unwrap(serverPatchSchema({ [group]: { command: 'x' } } as never)), group)
+        .toEqual({ [group]: { command: 'x' } })
+    }
+    // `waitMs` is the one whose reset is silent: a `load` waiting on a slow database drops to 2 s.
+    expect(unwrap(serverPatchSchema({ load: { command: 'mongorestore', waitMs: 9000 } } as never)))
+      .toEqual({ load: { command: 'mongorestore', waitMs: 9000 } })
+
+    // The full config schema still seeds them, or a hand-written entry loses its documented defaults.
+    expect(unwrap(serverSchema({ id: 'a', command: 'node', bootstrap: { command: 'x' } } as never)))
+      .toMatchObject({ bootstrap: { command: 'x', args: [], env: {}, timeoutMs: 120000, runOnce: true } })
+    // `null` still clears the group.
+    expect(unwrap(serverPatchSchema({ bootstrap: null } as never))).toEqual({ bootstrap: null })
   })
 
   it('rejects unknown keys instead of keeping them', () => {
@@ -414,6 +446,101 @@ describe('view contracts', () => {
       futureTopLevel: 1,
       schedule: { ...scoped.schedule, futureMember: 2, scope: { ...scoped.schedule.scope, futureScopeMember: 3 } },
     }) instanceof type.errors, 'an unknown field at either level must not blank the page').toBe(false)
+  })
+
+  /**
+   * **Every** response schema that carries a nested config group must use the deep variant.
+   *
+   * `onUndeclaredKey('ignore')` only tolerates unknowns at its own level; a nested strict group
+   * still rejects its own extras. `backupsViewSchema` learned this one frame at a time above, and
+   * the fix was applied to `backupScheduleViewSchema` alone — so every other view schema that
+   * embeds a config group (`serverSchema`, `defaultsSchema`, `logsSchema`, `hostSchema`, …) rejected
+   * a newer panel's additive nested key, and both UIs turn that into a thrown
+   * `state contract mismatch` — a blank app, which is the outcome AGENTS.md's optional-field rule
+   * exists to prevent.
+   *
+   * This scans the source rather than a hand-kept list of schemas: a schema added tomorrow is
+   * covered without anyone remembering to add it, which is the same reason the genericity block
+   * below walks `src/`.
+   */
+  it('gives every response schema the deep ignore, so a nested addition never blanks a client', () => {
+    const source = fs.readFileSync(path.join(packageRoot, 'src/shared/contracts.ts'), 'utf8')
+
+    /**
+     * Every `export const X = type({…})` declaration, with its own body and its own trailer.
+     *
+     * A schema's body ends at the first `\n})` at column 0 *after its own declaration start* — the
+     * same boundary `health-sequence.test.ts` uses for a method body. Matching a whole declaration
+     * with one regex instead is what made an earlier version of this scan lie: `[\s\S]*?` ran past a
+     * schema that is not strict into the next one that is, so unrelated views were reported.
+     */
+    function declarations(): Array<{ name: string, body: string, trailer: string }> {
+      const found: Array<{ name: string, body: string, trailer: string }> = []
+      for (const match of source.matchAll(/^export const (\w+) = type\(\{/gm)) {
+        const start = match.index!
+        const end = source.indexOf('\n})', start)
+        if (end === -1)
+          continue
+        found.push({
+          name: match[1]!,
+          // The body without the declaration line, so a schema never matches its own name.
+          body: source.slice(start, end).replace(`export const ${match[1]!} = type({`, ''),
+          trailer: source.slice(end, end + 40),
+        })
+      }
+      return found
+    }
+
+    const all = declarations()
+    const strict = new Set(all.filter(decl => decl.trailer.startsWith('\n}).onUndeclaredKey(\'reject\')')).map(decl => decl.name))
+    expect(strict.size, 'the parser must find the config schemas, or this scan guards nothing').toBeGreaterThan(10)
+
+    const VIEW = /(?:View|State|Saved|Status|Message|Response)Schema$/
+    const offenders: string[] = []
+    let considered = 0
+
+    for (const decl of all) {
+      if (!VIEW.test(decl.name) || strict.has(decl.name))
+        continue
+      // Only a view embedding a *strict config group* inherits its reject. A leaf view built from
+      // scalars and other view schemas is not at risk and needs nothing.
+      if (![...strict].some(name => new RegExp(`\\b${name}\\b`).test(decl.body)))
+        continue
+      considered += 1
+      if (!decl.trailer.startsWith('\n}).onDeepUndeclaredKey(\'ignore\')'))
+        offenders.push(decl.name)
+    }
+
+    expect(considered, 'the scan must find the views that embed a config group').toBeGreaterThan(5)
+    expect(offenders, 'a response schema embedding a strict group must use onDeepUndeclaredKey').toEqual([])
+  })
+
+  /**
+   * The rule the scan above guards, proved by behaviour rather than by the spelling of a call.
+   *
+   * A field a later release adds inside a nested config block has to survive a round-trip through
+   * the view schema; without the deep variant it does not, and the client blanks.
+   */
+  it('accepts a nested unknown key on every view that embeds a config group', () => {
+    const host = {
+      enabled: true,
+      intervalMs: 15_000,
+      diskPaths: ['.'],
+      diskUsedPercent: 90,
+      memoryUsedPercent: 90,
+      swapUsedPercent: 50,
+      loadPerCpu: 2,
+      tempCelsius: 80,
+    }
+
+    // `settingsViewSchema.host` embeds `hostSchema`, which ends in `.onUndeclaredKey('reject')`.
+    // The only error a nested addition may produce is a *missing* one — never "must be removed".
+    const withFuture = settingsViewSchema({ control: {}, host: { ...host, futureKnob: 42 }, backups: {}, ui: {} } as never)
+    const summary = withFuture instanceof type.errors ? withFuture.summary : ''
+    expect(summary, 'a nested addition must not be named as removable').not.toContain('futureKnob')
+
+    // And the config schema itself still refuses it, which is what keeps the ignore honest.
+    expect(hostSchema({ ...host, futureKnob: 42 } as never) instanceof type.errors, 'a config file still rejects').toBe(true)
   })
 })
 
