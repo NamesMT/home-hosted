@@ -10,8 +10,12 @@ name: Release
 #   * the commit and tag are pushed, a GitHub release is created from the changelog section,
 #     and the UI bundles are attached to it
 #   * the package is published to npm with trusted publishing (OIDC — no token)
+#   * optionally, last, `docs/media` is re-rendered and committed — `regenerate-media`
 #
 # A `dry-run` dispatch runs the gate too and stops before pushing, releasing and publishing.
+# `regenerate-media` is off by default: it is worth the minutes and the extra commit only when the
+# UI moved or the tour is stale, not for a patch that changes one function. It runs *after* the
+# publish because the README's media is served from GitHub, not shipped in the npm tarball.
 #
 # One-time setup before the first run:
 #   * publish the package once by hand: npm only lets you configure a trusted publisher for a
@@ -35,6 +39,11 @@ on:
         default: false
       dry-run:
         description: Stop before pushing, releasing and publishing
+        required: false
+        type: boolean
+        default: false
+      regenerate-media:
+        description: Regenerate docs/media and push it after the publish. Off for a small patch; on when the UI changed or the media is stale.
         required: false
         type: boolean
         default: false
@@ -160,6 +169,58 @@ jobs:
           # it spent five minutes of every release (and more, when it was slow enough to warn).
           npm publish --access public --provenance
           echo "published $VERSION — the registry may take a few minutes to show it"
+
+      # Optional, and last on purpose: the media is a build artifact the README references at its
+      # GitHub URL (`docs/media/tour.gif`), never a file in the npm tarball — `docs/media/*.png` is
+      # gitignored and `files` does not include the directory. So this cannot affect what was just
+      # published, and a failure here cannot invalidate a good release.
+      #
+      # Off by default. A small patch does not move the UI, and re-rendering the tour just to get an
+      # identical GIF back would add minutes and a commit to every release.
+      - name: Regenerate the README media
+        if: ${{ inputs.regenerate-media == true && inputs.dry-run != true }}
+        run: |
+          # `capture-media.mjs uis` drives a real panel and a real Chromium against the built UIs,
+          # so it needs both: the browser binary is a separate download, and the CLI it spawns is
+          # `dist/cli.js` — already built above.
+          pnpm exec playwright install --with-deps chromium
+          # Tee the log so `WEAK RENDER` can be promoted to a failure below.
+          pnpm run media 2>&1 | tee /tmp/media.log
+          # The script prints `WEAK RENDER` instead of failing when a screen rendered tofu boxes or
+          # a collapsed page: locally that is a hint to install fonts, but a bad frame committed to
+          # the README is not recoverable by advice. So CI treats it as an error.
+          if grep -q 'WEAK RENDER' /tmp/media.log; then
+            echo "::error::a screen rendered weakly (fonts or layout) — see the log above"
+            grep 'WEAK RENDER' /tmp/media.log
+            exit 1
+          fi
+          # Only `tour.gif` is tracked; the PNGs are gitignored, so this shows one path or none.
+          git status --porcelain -- docs/media | sed 's/^/  /'
+
+      - name: Commit and push the regenerated media
+        if: ${{ inputs.regenerate-media == true && inputs.dry-run != true }}
+        run: |
+          # Only `tour.gif` is tracked — `docs/media/*.png` is gitignored, so the PNGs a render
+          # leaves behind must not be force-added here.
+          #
+          # The release commit is already pushed, so this is a follow-up commit on main. If the
+          # render produced an identical GIF, `git diff --cached --quiet` is true and there is
+          # nothing to push: a no-op is a success, not a reason to fail the release.
+          git add docs/media/tour.gif
+          if git diff --cached --quiet; then
+            echo "::notice::the media is byte-identical — nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs(media): refresh the README media for $TAG"
+          for attempt in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            echo "push rejected (attempt $attempt) — rebasing on origin/main"
+            git pull --rebase --quiet origin main
+          done
+          echo "::error::could not push the regenerated media" >&2
+          exit 1
 
       - name: Summary
         run: |

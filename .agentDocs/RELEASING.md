@@ -15,6 +15,27 @@ by hand.
 gh workflow run release.yml -f version=<version>
 ```
 
+## The README media is a separate, optional step
+
+`-f regenerate-media=true` adds a final step after the publish: it re-renders `docs/media` (the
+mockups, both UIs served by a real panel, and `tour.gif`), then commits and pushes the result to
+`main`. It is **off by default**, and that is the point — a patch that changes one function should
+not pay minutes and a follow-up commit to reproduce the same GIF. Turn it on when the UI moved, or
+when the tour is simply stale.
+
+Two reasons it runs *after* the publish rather than before:
+
+- **Nothing it produces ships.** `docs/media/*.png` is gitignored and `package.json#files` does not
+  include the directory; only `tour.gif` is committed, and the README references it at its GitHub
+  path, which npm rewrites to the repository URL. The published tarball cannot be affected, so a
+  failure here cannot invalidate a release that already succeeded.
+- **A failure is its own red step.** A weak render (tofu boxes) or a push conflict is reported
+  after `npm publish` has already answered.
+
+The step runs `playwright install --with-deps chromium` first: the script drives a real Chromium
+against `dist/cli.js`, and neither the browser binary nor its system libraries come with
+`pnpm install`.
+
 Four workflows, and the split is deliberate:
 
 | workflow | runs on | what it proves |
