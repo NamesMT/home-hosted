@@ -7,6 +7,27 @@ do about them.
 Keep each entry to what someone must *change*, not what was added. If a release has nothing a person
 must act on, it needs no section here at all.
 
+## 0.11.0
+
+**Nothing to do if you run the shipped panel.** It serves the UI it ships with, and both move
+together. This section is for something you built yourself against the API.
+
+**`entries` and `files` are no longer in the state frame.** `GET /api/state`, the SSE `state` frames
+and `GET`/`PATCH /api/settings` used to carry the backup capture tree and the archive list. Reading
+them there meant every frame read the global *and every workspace's* `.secrets.json` and stat'd every
+archive — on a path rebuilt about thirteen times a second.
+
+They moved to `GET /api/backups`, which answers `{ dir, entries, files }`:
+
+- The UI fetches it when the settings page mounts, not per frame. If you poll `/api/state` for the
+  archive list, poll `/api/backups` instead — it is cheaper by design, not merely slower.
+- The fields stay **optional** in the response schema, so an older client parsing a newer panel
+  still accepts them. A client that *requires* them is the case that breaks: a UI built before this
+  release, served by this panel, renders an empty capture tree.
+
+`GET /api/backups` already existed and had no caller — both UIs declared `fetchBackups()` and never
+used it. Its shape did not change.
+
 ## 0.10.0
 
 Two changes are outside the config, so `home-hosted migrate` cannot fix them.
