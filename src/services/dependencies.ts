@@ -48,7 +48,13 @@ export function dependenciesOf(server: ServerConfig, servers: ServerConfig[]): S
         continue
       seen.add(dependency)
       const target = byId.get(dependency)
-      if (!target)
+      // The walk starts at `server`, so a cycle leads back to it — and a config may name it
+      // directly (`a -> a`). Either way it is not its own dependency: `startDependencies` would
+      // find `this.entries.get(that.id)` to be the entry it is starting, log
+      // `starting dependency "a" first`, and then wait the full `health.startTimeoutMs`
+      // (20 s by default) for the entry that is itself still starting. A cycle is a warning,
+      // not a refusal (`validateCrossField`), so it does reach here.
+      if (!target || target.id === server.id)
         continue
       walk(target)
       found.push(target)

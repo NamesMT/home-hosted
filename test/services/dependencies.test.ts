@@ -33,6 +33,31 @@ describe('dependency ordering', () => {
   })
 
   /**
+   * A server is never its own dependency, even when a cycle says it is.
+   *
+   * A cycle is reported as a config **warning**, not a refusal (`validateCrossField`), so it reaches
+   * `startDependencies`. The walk starts at the server asked about, so a cycle leads back to it —
+   * `a -> b -> a` returned `['a', 'b']` for `a`. `startDependencies` then found the entry it was
+   * starting as its first dependency, logged `starting dependency "a" first`, and sat in
+   * `while (!isReady() …)` for the whole `health.startTimeoutMs` — 20 s by default — waiting for a
+   * server that could not report ready until the wait it was blocking finished.
+   */
+  it('never reports the server itself as its own dependency', () => {
+    const list = servers([['a', ['b']], ['b', ['a']]])
+    const a = list.find(entry => entry.id === 'a')!
+    const b = list.find(entry => entry.id === 'b')!
+
+    expect(names(dependenciesOf(a, list)), 'a cycle must not make a depend on a').not.toContain('a')
+    expect(names(dependenciesOf(b, list)), 'nor b on b').not.toContain('b')
+    // The other side of the cycle is still a real dependency, and keeps its order.
+    expect(names(dependenciesOf(a, list))).toEqual(['b'])
+
+    // A self-reference is the same defect in its shortest form.
+    const self = servers([['solo', ['solo']]])
+    expect(names(dependenciesOf(self[0]!, self))).toEqual([])
+  })
+
+  /**
    * **Deepest first**, because that is the order they have to be *started* in.
    *
    * This asserted `['db', 'disk']`, which is not topological: `db` depends on `disk`, so starting `db`
