@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { BackupScope, BackupsView } from '@shared/contracts'
+import type { BackupScope, BackupSelection } from '@shared/contracts'
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import { nextTick } from 'vue'
@@ -13,13 +13,8 @@ import ScheduleScope from '../src/components/settings/ScheduleScope.vue'
  * page and pressing Save narrows an automatic backup — with nothing on screen to show it.
  */
 
-const state: BackupsView = {
-  enabled: true,
+const selection: BackupSelection = {
   dir: '/tmp/.backups',
-  keep: 5,
-  schedule: { intervalMs: 3_600_000, keep: 7 },
-  lastAutomaticAt: null,
-  includePaths: [],
   entries: [
     { id: 'global:settings', label: 'Panel settings', kind: 'settings', note: null, items: [] },
     { id: 'global:secrets', label: 'Secrets', kind: 'secrets', note: null, items: [] },
@@ -43,17 +38,17 @@ const stubs = { Modal: { template: '<div><slot /><slot name="footer" /></div>' }
 
 describe('the automatic backup scope dialog', () => {
   it('says the whole default scope until one is chosen', () => {
-    const wrapper = mount(ScheduleScope, { props: { scope: null, state }, global: { stubs } })
+    const wrapper = mount(ScheduleScope, { props: { scope: null, selection }, global: { stubs } })
     expect(wrapper.text()).toContain('Everything')
   })
 
   it('says what is saved, so the schedule is readable without opening the dialog', () => {
     // The summary is the only place the choice is visible on the page; a blank or wrong one hides
     // that a scheduled backup is narrower than "everything".
-    const except = mount(ScheduleScope, { props: { scope: { mode: 'except', ids: ['global:secrets'] }, state }, global: { stubs } })
+    const except = mount(ScheduleScope, { props: { scope: { mode: 'except', ids: ['global:secrets'] }, selection }, global: { stubs } })
     expect(except.text()).toContain('Everything except 1')
 
-    const only = mount(ScheduleScope, { props: { scope: { mode: 'only', ids: ['global:settings', 'global:tls'] }, state }, global: { stubs } })
+    const only = mount(ScheduleScope, { props: { scope: { mode: 'only', ids: ['global:settings', 'global:tls'] }, selection }, global: { stubs } })
     expect(only.text()).toContain('Only 2 selected')
   })
 
@@ -65,7 +60,7 @@ describe('the automatic backup scope dialog', () => {
     const wrapper = mount(ScheduleScope, {
       props: {
         'scope': { mode: 'except', ids: ['global:secrets'] },
-        'state': state,
+        'selection': selection,
         // `defineModel('scope')` emits `update:scope`, so the listener prop has to be spelled that
         // way; the quoted keys keep the object consistent with the one that needs them.
         'onUpdate:scope': (value: BackupScope | null) => { written = value },
@@ -97,7 +92,7 @@ describe('the automatic backup scope dialog', () => {
     const wrapper = mount(ScheduleScope, {
       props: {
         'scope': { mode: 'only', ids: ['global:settings'] },
-        'state': state,
+        'selection': selection,
         'onUpdate:scope': (value: BackupScope | null) => { written = value },
       },
       global: { stubs },

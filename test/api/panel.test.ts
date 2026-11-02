@@ -535,6 +535,48 @@ function restorePlan(overrides: Partial<RestorePlan> = {}): RestorePlan {
  * archive without a browser session. These call the same `BackupService` the `/api/backups` routes
  * do, so the archive shape and the allowlist have one implementation.
  */
+/**
+ * The selection model is fetched, not framed.
+ *
+ * `getState()` builds on every tick and on every request, and it used to carry `entries` — a
+ * `readFileSync` of the global *and every workspace's* `.secrets.json` — plus `files`, a `statSync`
+ * per archive. That made the frame's cost scale with workspaces × archives on a path rebuilt ~13×/s
+ * (measured: 396 secrets reads in 8 s). They are `GET /api/backups` now, which a dialog asks for
+ * when it opens.
+ *
+ * Asserted on the response body rather than on a call count, because the count is what a future
+ * refactor changes; the wire shape is what a person pays for.
+ */
+describe('the state frame carries no backup selection model', () => {
+  it('omits `entries` and `files`, and still carries the policy', async () => {
+    const created = await fixture()
+    const state = await (await created.app.request('/api/state')).json() as {
+      backups: Record<string, unknown>
+    }
+
+    expect(state.backups).not.toHaveProperty('entries')
+    expect(state.backups).not.toHaveProperty('files')
+    // The policy half stays: the settings page renders from the frame.
+    expect(state.backups).toMatchObject({ enabled: expect.any(Boolean), keep: expect.any(Number) })
+    expect(state.backups).toHaveProperty('includePaths')
+  })
+
+  it('serves both halves from the dedicated route', async () => {
+    const created = await fixture()
+    const selection = await (await created.app.request('/api/backups')).json() as {
+      dir: string
+      entries: unknown[]
+      files: unknown[]
+    }
+
+    expect(selection.entries.length).toBeGreaterThan(0)
+    expect(Array.isArray(selection.files)).toBe(true)
+    expect(typeof selection.dir).toBe('string')
+    // …and it is not the policy: a dialog does not read `enabled` from here.
+    expect(selection).not.toHaveProperty('enabled')
+  })
+})
+
 describe('/_hh/backups', () => {
   const token = { 'x-home-hosted-token': 'runtime-token' }
 

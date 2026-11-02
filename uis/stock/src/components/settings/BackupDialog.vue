@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BackupsView } from '@shared/contracts'
+import type { BackupSelection } from '@shared/contracts'
 import type { EntryChoice } from '@/components/settings/backupSelection'
 import { errorMessage } from '@shared/error-message'
 import { computed, ref, watch } from 'vue'
@@ -12,7 +12,7 @@ import TextField from '@/components/ui/TextField.vue'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
 
-const props = defineProps<{ state: BackupsView | null }>()
+const props = defineProps<{ selection: BackupSelection | null }>()
 const emit = defineEmits<{ created: [message: string] }>()
 
 const open = defineModel<boolean>('open', { default: false })
@@ -23,12 +23,12 @@ const password = ref('')
 const choices = ref<EntryChoice[]>([])
 
 function rebuild(preserve: boolean): void {
-  choices.value = captureEntries(props.state?.entries ?? [], preserve ? choices.value : [])
+  choices.value = captureEntries(props.selection?.entries ?? [], preserve ? choices.value : [])
 }
 
 const counts = computed(() => selectionCount(choices.value))
 const includesSettings = computed(() => choices.value.some(entry => entry.id === 'global:settings' && entry.selected))
-const canCreate = computed(() => props.state !== null && counts.value.leaves > 0 && !busy.value)
+const canCreate = computed(() => props.selection !== null && counts.value.leaves > 0 && !busy.value)
 
 watch(open, (isOpen) => {
   if (!isOpen)
@@ -39,7 +39,7 @@ watch(open, (isOpen) => {
 }, { immediate: true })
 
 // The declared paths land after the first frame; keep whatever the person already ticked.
-watch(() => props.state, () => {
+watch(() => props.selection, () => {
   if (open.value)
     rebuild(true)
 })

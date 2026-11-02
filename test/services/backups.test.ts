@@ -273,27 +273,28 @@ describe('backup service', () => {
   it('exposes the three global leaves and the default workspace tree', async () => {
     const fixture = await makeFixture()
     const view = fixture.service.view()
+    const entries = fixture.service.selection().entries
 
     expect(view.includePaths).toEqual([])
-    expect(view.entries.map(entry => entry.id)).toEqual([
+    expect(entries.map(entry => entry.id)).toEqual([
       'global:settings',
       'global:secrets',
       'global:tls',
       'workspace:default',
     ])
-    expect(view.entries.slice(0, 3).map(entry => entry.kind)).toEqual(['settings', 'secrets', 'tls'])
+    expect(entries.slice(0, 3).map(entry => entry.kind)).toEqual(['settings', 'secrets', 'tls'])
     // `global:secrets` always lists the slots this release knows, set or not, so a person can see
     // that an API token is a thing the panel has and is simply not set here. The other two carry no
     // leaves: a settings file and a TLS pair are one item each.
-    expect(view.entries[0]!.items).toEqual([])
-    expect(view.entries[2]!.items).toEqual([])
-    expect(view.entries[1]!.items.map(item => item.id)).toEqual([
+    expect(entries[0]!.items).toEqual([])
+    expect(entries[2]!.items).toEqual([])
+    expect(entries[1]!.items.map(item => item.id)).toEqual([
       'global:secrets:password',
       'global:secrets:apiToken',
     ])
-    expect(view.entries[1]!.items.every(item => item.included === false)).toBe(true)
+    expect(entries[1]!.items.every(item => item.included === false)).toBe(true)
 
-    const workspace = view.entries.find(entry => entry.id === 'workspace:default')!
+    const workspace = entries.find(entry => entry.id === 'workspace:default')!
     expect(workspace).toMatchObject({ kind: 'workspace', workspaceId: 'default' })
     expect(workspace.items.map(item => item.id)).toEqual([
       'workspace:default:settings',
@@ -315,7 +316,7 @@ describe('backup service', () => {
 
     const view = fixture.service.view()
     expect(view.includePaths).toEqual([extra])
-    const data = view.entries.find(entry => entry.id === 'workspace:default')!.items.filter(item => item.kind === 'data')
+    const data = fixture.service.selection().entries.find(entry => entry.id === 'workspace:default')!.items.filter(item => item.kind === 'data')
     expect(data.map(item => item.origin).sort()).toEqual(['app:DATA_DIR', 'global'])
     expect(data.find(item => item.origin === 'global')).toMatchObject({ path: extra, included: true })
   })
@@ -365,8 +366,7 @@ describe('backup service', () => {
 
     // The path is listed but not included, which is what stops the copy — assert that first, so a
     // failure says "the rule changed" rather than "the archive looks odd".
-    const view = fixture.service.view()
-    const asData = view.entries.flatMap(entry => entry.items).find(item => item.path === fixture.dataRoot)
+    const asData = fixture.service.selection().entries.flatMap(entry => entry.items).find(item => item.path === fixture.dataRoot)
     expect(asData, 'the state root is offered as a data leaf').toMatchObject({ included: false, note: 'contains the backup directory' })
 
     const result = await fixture.service.create()
@@ -484,7 +484,7 @@ describe('backup service', () => {
       getSources: () => sources,
     })
 
-    const workspace = service.view().entries.find(entry => entry.id === 'workspace:default')!
+    const workspace = service.selection().entries.find(entry => entry.id === 'workspace:default')!
     expect(workspace.items.find(item => item.path === fixture.root))
       .toMatchObject({ included: false, note: 'contains the backup directory' })
 
@@ -1870,14 +1870,13 @@ describe('secrets as separate slices', () => {
 
   it('offers one leaf per secret, beside the whole-file leaf', async () => {
     const fixture = await withSecrets()
-    const view = fixture.service.view()
-
-    const global = view.entries.find(entry => entry.id === 'global:secrets')!
+    const entries = fixture.service.selection().entries
+    const global = entries.find(entry => entry.id === 'global:secrets')!
     expect(global.items.map(item => item.id)).toEqual(['global:secrets:password', 'global:secrets:apiToken'])
     expect(global.items.every(item => item.kind === 'secrets')).toBe(true)
     expect(global.items.map(item => item.secret)).toEqual(['password', 'apiToken'])
 
-    const workspace = view.entries.find(entry => entry.id === 'workspace:default')!
+    const workspace = entries.find(entry => entry.id === 'workspace:default')!
     const ids = workspace.items.map(item => item.id)
     expect(ids).toContain('workspace:default:secrets')
     expect(ids).toContain('workspace:default:secrets:telegram')
@@ -1888,7 +1887,7 @@ describe('secrets as separate slices', () => {
     const fixture = await withSecrets()
     fs.writeFileSync(fixture.globalSecretsPath, `${JSON.stringify({ password: { hash: 'P' }, webhookSecret: 'FUTURE' })}\n`, { mode: 0o600 })
 
-    const global = fixture.service.view().entries.find(entry => entry.id === 'global:secrets')!
+    const global = fixture.service.selection().entries.find(entry => entry.id === 'global:secrets')!
     const unknown = global.items.find(item => item.secret === 'webhookSecret')
     expect(unknown?.id).toBe('global:secrets:webhookSecret')
     // No catalog key exists for it, so it reads as its own name rather than as a raw key.

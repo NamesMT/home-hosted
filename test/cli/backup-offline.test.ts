@@ -37,8 +37,7 @@ describe('the offline backup service', () => {
     const { service } = createOfflineBackup({ hhDir: path.join(home, '.hh'), settingsPath: path.join(home, '.hh', 'settings.json') })
     await service.warm()
 
-    const view = service.view()
-    const ids = view.entries.map(entry => entry.id)
+    const ids = service.selection().entries.map(entry => entry.id)
     expect(ids).toContain('global:settings')
     // The workspace and its leaves come from the registry on disk, not from a runtime.
     expect(ids).toContain('workspace:default')

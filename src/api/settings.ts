@@ -133,7 +133,7 @@ export function createSettingsRoute(deps: AppDeps) {
       // was meant to be left out, and nobody is watching the pass that does it.
       const scope = patch.backups?.schedule?.scope
       if (scope !== undefined && scope !== null) {
-        const unknown = unknownBackupIds(scope.ids, deps.backups.view().entries)
+        const unknown = unknownBackupIds(scope.ids, deps.backups.selection().entries)
         if (unknown.length > 0) {
           throw new DetailedError(
             `the automatic backup scope names ${unknown.map(id => `"${id}"`).join(', ')}, which this panel cannot capture`,

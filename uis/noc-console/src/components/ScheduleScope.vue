@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ScopeChoice } from '@shared/backup-scope'
-import type { BackupScope, BackupsView } from '@shared/contracts'
+import type { BackupScope, BackupSelection } from '@shared/contracts'
 import type { CaptureChoice } from '@/lib/backupSelection'
 import { scopeOf } from '@shared/backup-scope'
 import { computed, ref, watch } from 'vue'
@@ -20,7 +20,7 @@ import { captureItems } from '@/lib/backupSelection'
  * The ticks are a draft inside the panel, applied on "apply": binding them to the stored scope
  * directly would re-seed the list from the value the list just produced.
  */
-const props = defineProps<{ open: boolean, state: BackupsView | null }>()
+const props = defineProps<{ open: boolean, selection: BackupSelection | null }>()
 const emit = defineEmits<{ close: [] }>()
 const scope = defineModel<BackupScope | null>('scope', { required: true })
 
@@ -31,7 +31,7 @@ const mode = ref<BackupScope['mode']>('only')
 
 /** Applies a saved scope to the fresh list, using the coarse-id rule the panel captures with. */
 function seed(saved: BackupScope | null): CaptureChoice[] {
-  const items = captureItems(props.state).map(item => ({ ...item, selected: true }))
+  const items = captureItems(props.selection).map(item => ({ ...item, selected: true }))
   if (saved === null)
     return items
   const covers = (id: string): boolean => saved.ids.some(entry => id === entry || id.startsWith(`${entry}:`))

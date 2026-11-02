@@ -552,12 +552,16 @@ describe('logs route', () => {
 })
 
 describe('backups route', () => {
-  it('answers the backup view', async () => {
+  it('answers the selection model, not the policy', async () => {
     const created = await fixture()
     const response = await request(created.app, '/api/backups')
 
     expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ enabled: expect.any(Boolean) })
+    const body = await response.json() as Record<string, unknown>
+    // The selection model is entries + files; the policy (enabled/keep/schedule) stays in the frame.
+    expect(body).toMatchObject({ dir: expect.any(String), entries: expect.any(Array), files: expect.any(Array) })
+    expect(body.entries).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'global:settings' })]))
+    expect(body).not.toHaveProperty('enabled')
   })
 
   it('turns a failed create into a 400 rather than a server fault', async () => {

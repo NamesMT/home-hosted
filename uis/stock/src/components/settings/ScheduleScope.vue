@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BackupScope, BackupsView } from '@shared/contracts'
+import type { BackupScope, BackupSelection } from '@shared/contracts'
 import type { EntryChoice } from '@/components/settings/backupSelection'
 import { scopeOf } from '@shared/backup-scope'
 import { computed, ref, watch } from 'vue'
@@ -25,8 +25,8 @@ import { t } from '@/i18n'
  * between the ticks and the stored scope would re-seed the tree from the value the tree produced.
  */
 const props = defineProps<{
-  /** The panel's capture tree; empty until `/api/backups` lands. */
-  state: BackupsView | null
+  /** The panel's capture tree; null until `/api/backups` lands, which is not the same as empty. */
+  selection: BackupSelection | null
 }>()
 
 const scope = defineModel<BackupScope | null>('scope', { required: true })
@@ -37,7 +37,7 @@ const mode = ref<BackupScope['mode']>('only')
 
 /** Applies a saved scope to a fresh tree, using the coarse-id rule the panel captures with. */
 function seed(saved: BackupScope | null): EntryChoice[] {
-  const tree = captureEntries(props.state?.entries ?? [])
+  const tree = captureEntries(props.selection?.entries ?? [])
   if (saved === null)
     return tree
   // An id covers itself and everything under it, in both modes: `workspace:default` is every leaf,
@@ -92,7 +92,7 @@ function apply(): void {
           {{ summary }}
         </p>
       </div>
-      <AppButton size="xs" variant="secondary" :disabled="props.state === null" @click="open = true">
+      <AppButton size="xs" variant="secondary" :disabled="props.selection === null" @click="open = true">
         {{ t('settings.backups.scopeChoose') }}
       </AppButton>
     </div>
