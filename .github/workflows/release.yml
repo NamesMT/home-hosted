@@ -177,8 +177,12 @@ jobs:
       #
       # Off by default. A small patch does not move the UI, and re-rendering the tour just to get an
       # identical GIF back would add minutes and a commit to every release.
+      # A dry run renders this too. Rendering is the half with the unwritten assumptions — a
+      # browser, its system libraries, a panel that starts — so skipping it under `dry-run` would
+      # rehearse everything except the part most likely to fail on a real release. A dry run
+      # renders and discards; only the commit below is gated on not being a dry run.
       - name: Regenerate the README media
-        if: ${{ inputs.regenerate-media == true && inputs.dry-run != true }}
+        if: ${{ inputs.regenerate-media == true }}
         run: |
           # `capture-media.mjs uis` drives a real panel and a real Chromium against the built UIs,
           # so it needs both: the browser binary is a separate download, and the CLI it spawns is
