@@ -930,7 +930,7 @@ plus types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
 | get Telegram or webhook alerts working end to end | [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) |
 | expose the stack behind one hostname, with HTTPS | [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
 | build a UI against the API | [UI_CREATION.md](./docs/UI_CREATION.md) |
-| change the internals: architecture and the rules | [AGENTS.md](./AGENTS.md) |
+| change the internals: architecture and the rules | [AGENTS.md](https://github.com/NamesMT/home-hosted/blob/main/AGENTS.md) |
 | poke the live API on your own panel | [/openapi/ui](http://127.0.0.1:3999/openapi/ui) |
 
 </details>

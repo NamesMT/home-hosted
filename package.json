@@ -52,7 +52,6 @@
     "hh": "bin/home-hosted.mjs"
   },
   "files": [
-    "AGENTS.md",
     "LICENSE",
     "README.md",
     "bin",

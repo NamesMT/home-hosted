@@ -143,30 +143,27 @@ workspace config guard, so a busy default port turns config tests red for the wr
   never returns, so it is a statement: `` `${fail('x')} — ${why}` `` exits before `${why}` exists and
   the reason is lost (`test/cli/setup-temp-refusal.test.ts`).
 - **A browser API that needs a secure context is absent on the origin the docs promise.** Guard the
-  feature, not the call: `copyText` (`uis/stock/src/lib/clipboard.ts`) falls back to `execCommand` and
-  returns a verdict, or a button is dead on a LAN page; `uis/stock/test/clipboard-source.test.ts`
-  fails any other file that reaches the clipboard object — `navigator.clipboard`,
-  `navigator['clipboard']` and `const { clipboard } = navigator` are one rule, not three spellings.
+  feature, not the call, and return a verdict the button can render; one helper owns the fallback and
+  a scan fails any other file that reaches the API, in every spelling. What it cost:
+  [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A row of chrome is measured at 320 px with the tap floor counted.** No mount can measure a
   layout, so `uis/stock/test/topbar-width.test.ts` and `mobile-layout.test.ts` pin the declarations
   that keep the title from collapsing to 0 px. Both read an element through `templateElements`, by
   its own body and its class *tokens*: a bound `:class="cn(…)"` is a class list too, and two elements
   sharing a class list are still two elements.
-- **A retention knob bounds the directory, not a loop.** Derive the set from the directory once
-  (`ownedFiles`/`retained`, `src/services/log-files.ts`) so the list, the size and the tail agree with
-  `readdir`, and prune inside `rotate` (`test/services/log-files.test.ts`).
+- **A retention knob bounds the directory, not a loop.** One derivation feeds the list, the size and
+  the tail. Which failure taught it: [`.agentDocs/GOTCHAS.md`](.agentDocs/GOTCHAS.md).
 - **A file a route hands back is streamed, and the bound decides how much it matters.** `logs.maxBytes`
-  allows 100 MB per rotation, so `createReadStream` + `stat` for `Content-Length`, in both routes. A
-  schema ceiling is not a reason to buffer: it is the size a person downloads at.
+  allows 100 MB per rotation, so a stream plus `stat` for `Content-Length`, never a buffer. A schema
+  ceiling is not a reason to buffer: it is the size a person downloads at.
 - **A page the panel serves must not be blank without a CDN.** Render real content from
   `spec.json` first (`src/openapi-reference.ts`), then load any richer browser as optional
   enhancement, **pinned** — an unpinned `import` from a CDN is a third party that can break the
   panel's page. Before blaming a library for being online-only, drive its self-hosted build offline:
   the claim is usually about the integration, not the library.
-- **An entry's server is not always the process the panel spawned.** A compose entry's containers
-  outlive their wrapper, so resolve what the entry *declares it runs* (`composeTarget`), stop that,
-  and decide from a **fresh listing** — never the signal or `docker stop`'s exit code, which is 0 for
-  a container it could not end. A survivor is a `conflict` naming it (`src/providers/docker.ts`).
+- **An entry's server is not always the process the panel spawned.** Resolve what an entry *declares
+  it runs*, stop that, and decide from a **fresh listing** — never the signal or `docker stop`'s exit
+  code, which is 0 for a container it could not end. A survivor is a `conflict` naming it.
 - **A per-frame path may not call a syscall per server.** The frame is built once a second and once
   per request, so anything reading the host, the filesystem or the process table from a view builder
   is cached on its own clock, not merely memoised per call (`lanAddress`, `src/helpers/bind.ts`).
