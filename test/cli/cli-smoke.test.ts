@@ -173,6 +173,26 @@ describe('cli smoke', () => {
     }
   })
 
+  /**
+   * A command that takes no options refuses the ones it is given.
+   *
+   * `ui-revert` declared no `args` at all, and `rejectUnknownFlags` read that as "parses its own
+   * argv" — true of `ui-switch`, which calls `parseArgs`, and false here, where nothing parsed
+   * anything. Every flag was therefore dropped before citty saw it: `ui-revert --dry-run` printed
+   * "custom UI removed" and **deleted the installed UI**, exiting 0. Its definition is empty now,
+   * which states that it takes nothing rather than leaving that unsaid.
+   */
+  it('refuses any flag or stray word on a command that takes no options', () => {
+    for (const argv of [['ui-revert', '--dry-run'], ['ui-revert', '--bogus'], ['ui-revert', 'nonsense']]) {
+      const result = runCli(argv)
+      expect(result.status, argv.join(' ')).toBe(1)
+      expect(result.stderr, argv.join(' ')).toMatch(/Unknown option|Unexpected argument/)
+    }
+    // With no argument it still does its one job, and says so.
+    const plain = runCli(['ui-revert'])
+    expect(plain.status).toBe(0)
+  })
+
   it('an unknown command exits 1 with the usage and the old wording', () => {
     const result = runCli(['nonsense'])
     expect(result.status).toBe(1)

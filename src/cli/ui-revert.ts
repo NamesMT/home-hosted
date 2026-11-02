@@ -19,6 +19,12 @@ export async function runUiRevert(): Promise<void> {
 
 export const uiRevertCommand = defineCommand({
   meta: { name: 'ui-revert' },
+  // Declared **empty** on purpose. `rejectUnknownFlags` refuses every flag and bare word for a
+  // command whose definition is empty, and that is the whole point here: this command used to
+  // declare nothing at all, which reads as "parses my own argv" — and it parses nothing. So
+  // `ui-revert --dry-run` printed "custom UI removed" and deleted the installed UI, exiting 0,
+  // because nothing ever looked at the flag. A command that takes no options now says so.
+  args: {},
   run: async () => {
     await runUiRevert()
   },

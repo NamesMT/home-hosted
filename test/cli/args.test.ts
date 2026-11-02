@@ -220,7 +220,20 @@ describe('rejectUnknownFlags', () => {
 
   it('leaves a command that declares no arguments to its own parser', () => {
     expect(rejectUnknownFlags(['--anything', 'x'], undefined)).toBeNull()
-    expect(rejectUnknownFlags(['--anything'], {})).toBeNull()
+  })
+
+  /**
+   * An **empty** definition is a statement, not an absence: this command takes nothing.
+   *
+   * Both forms used to answer `null`, so `ui-revert` — which declares no `args` and parses none
+   * either — accepted and discarded every flag: `ui-revert --dry-run` deleted the installed UI and
+   * exited 0. `ui-switch` is the one that really does parse its own argv (via `node:util`'s
+   * `parseArgs`), and it declares no `args` key at all, which stays `undefined`.
+   */
+  it('refuses everything for a command whose definition is empty', () => {
+    expect(rejectUnknownFlags(['--anything'], {})).not.toBeNull()
+    expect(rejectUnknownFlags(['stray'], {})).not.toBeNull()
+    expect(rejectUnknownFlags([], {})).toBeNull()
   })
 
   /**

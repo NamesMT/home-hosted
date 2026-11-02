@@ -238,6 +238,58 @@ describe('restart, for one server or the panel', () => {
     expect(created.seen.path, 'the control channel must not be touched').toBeUndefined()
     expect(result.stderr).toContain('needs a server id')
   })
+
+  /**
+   * `restart <id>` takes no panel option, and says so instead of dropping it.
+   *
+   * The command spreads `up`'s whole flag set, because the **bare** form really does forward it —
+   * `restart --print-config` is how the panel path is observable, pinned above. The id form is a
+   * different command: it asks the panel to restart one entry over `/_hh` and never runs `down` or
+   * `up`, so a panel-level flag has nothing to act on. They were parsed and discarded, which is how
+   * `restart web --print-config` came to restart a live server while reading as "show me the
+   * config". `--with-persistent` already had this guard; these six did not.
+   */
+  it('refuses a panel-level flag on `restart <id>`, and names it', async () => {
+    const cases = [
+      ['--port', '5000'],
+      ['--host', 'lan'],
+      ['--no-autostart'],
+      ['--open'],
+      ['--foreground'],
+      ['--print-config'],
+    ] as const
+
+    for (const extra of cases) {
+      const created = await panel(200, JSON.stringify({ ok: true }))
+      writeRuntime(created.url)
+
+      const result = await runCli(['restart', 'web', ...extra])
+
+      expect(result.status, extra.join(' ')).toBe(1)
+      expect(result.stderr, extra.join(' ')).toContain('takes no panel option')
+      // It names the flag, so the reader does not have to work out which one was dropped.
+      expect(result.stderr, extra.join(' ')).toContain(extra[0])
+      // And nothing reached the panel: a refusal must not restart the entry on its way out.
+      expect(created.seen.path, extra.join(' ')).toBeUndefined()
+    }
+
+    // `--port=5000` is one token, and must be refused the same way.
+    const created = await panel(200, JSON.stringify({ ok: true }))
+    writeRuntime(created.url)
+    const equals = await runCli(['restart', 'web', '--port=5000'])
+    expect(equals.status).toBe(1)
+    expect(equals.stderr).toContain('takes no panel option')
+
+    // The bare form still forwards it — the flag is not wrong, only wrong *here*.
+    //
+    // With **no** run.json: the fixture's pid is this very process, and bare `restart` runs `down`,
+    // which would signal it. The sibling test above carries the same warning; this is the second
+    // time it has been earned.
+    fs.rmSync(path.join(home, '.hh', 'run.json'), { force: true })
+    const bare = await runCli(['restart', '--print-config'])
+    expect(bare.status, 'a bare restart still honours --print-config').toBe(0)
+    expect(bare.stdout).toContain('servers')
+  })
 })
 
 describe('start/stop against a live panel', () => {

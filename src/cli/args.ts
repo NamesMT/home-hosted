@@ -165,11 +165,17 @@ function findArg(argsDef: ArgsDef, name: string): ArgsDef[string] | undefined {
  * with the wrong policy. This keeps the refusal the command line always had, from
  * citty's own definitions rather than a second list.
  *
- * A command that declares no arguments parses its own argv (and rejects its own
- * unknown flags), so it is left alone. Returns the message to print, or null.
+ * `undefined` means the command parses its own argv — `ui-switch` calls `node:util`'s
+ * `parseArgs` with its own options, which is strict already — so it is left alone. An
+ * **empty** definition is different: it declares that this command takes nothing, so
+ * every flag and every bare word is refused here. Reading `{}` as "parses its own argv"
+ * is what let `ui-revert`, which has no parser at all, accept and discard anything:
+ * `ui-revert --dry-run` deleted the installed UI and exited 0.
+ *
+ * Returns the message to print, or null.
  */
 export function rejectUnknownFlags(argv: string[], argsDef: ArgsDef | undefined): string | null {
-  if (argsDef === undefined || Object.keys(argsDef).length === 0)
+  if (argsDef === undefined)
     return null
 
   // Declared positionals are the only bare arguments a command accepts, and they
