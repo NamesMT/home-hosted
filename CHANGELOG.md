@@ -1,6 +1,97 @@
 # Changelog
 
 
+## v0.11.0
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.10.3...v0.11.0)
+
+### 🚀 Enhancements
+
+- **backups:** ⚠️  Move the selection model out of the state frame ([f6ff6ae](https://github.com/NamesMT/home-hosted/commit/f6ff6ae))
+- **release:** Optionally regenerate the README media after a publish ([cb563e6](https://github.com/NamesMT/home-hosted/commit/cb563e6))
+
+### 🩹 Fixes
+
+- **uis:** Count the DDNS diff, and detach a rebuilt list by rebuilding it ([16de1bd](https://github.com/NamesMT/home-hosted/commit/16de1bd))
+- **uis:** A stopped entry's cpu reads unknown, not a measured zero ([ca05918](https://github.com/NamesMT/home-hosted/commit/ca05918))
+- **test:** The shared-predicate scan reads every file it claims to ([e075dc8](https://github.com/NamesMT/home-hosted/commit/e075dc8))
+- **uis:** A stopped entry's chart breaks, not draws a zero ([3fd04e6](https://github.com/NamesMT/home-hosted/commit/3fd04e6))
+- **stock:** Reverting the UI confirms in a popover, not on the next click ([c83a9e6](https://github.com/NamesMT/home-hosted/commit/c83a9e6))
+- **uis:** The cpu number and its chart share one scale ([23a3263](https://github.com/NamesMT/home-hosted/commit/23a3263))
+- **uis:** An unsampled host shows no reading, on the page as well as the scrape ([6da4eed](https://github.com/NamesMT/home-hosted/commit/6da4eed))
+- **stock:** A webhook's removal names its own cost, and the props it was given exist ([5a446be](https://github.com/NamesMT/home-hosted/commit/5a446be))
+- **panel:** A switched-off sampler publishes its frame, and the host view is signed whole ([999a3b4](https://github.com/NamesMT/home-hosted/commit/999a3b4))
+- **uis:** The load band follows the threshold the panel notifies on ([bb568e7](https://github.com/NamesMT/home-hosted/commit/bb568e7))
+- **uis:** Every host band follows the alert it belongs to, not a literal ([194a192](https://github.com/NamesMT/home-hosted/commit/194a192))
+- **uis:** A disk is banded against the alert the panel notifies on ([3f8eed2](https://github.com/NamesMT/home-hosted/commit/3f8eed2))
+- **uis:** A temperature dial is drawn on the alert, not on 85 ([d1e1647](https://github.com/NamesMT/home-hosted/commit/d1e1647))
+- **uis:** The cpu share has one band, not one per UI ([2466eab](https://github.com/NamesMT/home-hosted/commit/2466eab))
+- **config:** The files a person writes are read the way their editor saved them ([1a4486d](https://github.com/NamesMT/home-hosted/commit/1a4486d))
+- **setup-temp:** A flag the command cannot honour is refused, and clear deletes the helper ([92ddac1](https://github.com/NamesMT/home-hosted/commit/92ddac1))
+- **noc-console:** A duration is edited in the unit its floor allows, here too ([d4a0cd1](https://github.com/NamesMT/home-hosted/commit/d4a0cd1))
+- **uis:** A cleared seconds box keeps its value, never stores a zero ([b6aacfa](https://github.com/NamesMT/home-hosted/commit/b6aacfa))
+- **config:** An env file a Windows editor saved is read, not silently emptied ([c7d66b7](https://github.com/NamesMT/home-hosted/commit/c7d66b7))
+- **uis:** A workspace total is a reading of the set, not a zero ([0ac2f8f](https://github.com/NamesMT/home-hosted/commit/0ac2f8f))
+- **test:** The one comment reader reads the shapes the corpus writes ([58a0aa6](https://github.com/NamesMT/home-hosted/commit/58a0aa6))
+- **test:** A .vue script ends where the script ends, not at a `</script>` in a string ([1b75888](https://github.com/NamesMT/home-hosted/commit/1b75888))
+- **test:** A .vue script starts where the open tag ends, not at a `>` in an attribute ([b152eef](https://github.com/NamesMT/home-hosted/commit/b152eef))
+- **test:** A matcher reads the construct, not one spelling of it ([05ae5ed](https://github.com/NamesMT/home-hosted/commit/05ae5ed))
+- **test:** The refusal scan reads the response, not one English sentence ([7ab9174](https://github.com/NamesMT/home-hosted/commit/7ab9174))
+- **noc-console:** The probe latency has one band, not three ([685ec56](https://github.com/NamesMT/home-hosted/commit/685ec56))
+- **cli:** Ui-update honours --asset on every path, not just --tag ([ae3075e](https://github.com/NamesMT/home-hosted/commit/ae3075e))
+- **cli:** A restore reports the apply's skips, not the dry run's ([59ad924](https://github.com/NamesMT/home-hosted/commit/59ad924))
+- **cli:** A refusal is a statement, so its reason survives ([e2722c2](https://github.com/NamesMT/home-hosted/commit/e2722c2))
+- **providers:** A persistent stop signals the child when the nanny could not forward ([a4c53db](https://github.com/NamesMT/home-hosted/commit/a4c53db))
+- **providers:** An empty argv word is a word, not a terminator ([046edc5](https://github.com/NamesMT/home-hosted/commit/046edc5))
+- **providers:** The WSL bridge state is read once, not on every request ([a6ba8ff](https://github.com/NamesMT/home-hosted/commit/a6ba8ff))
+- **providers:** A fresh heartbeat is not proof the pid is the nanny ([0fae62c](https://github.com/NamesMT/home-hosted/commit/0fae62c))
+- **contracts:** A patch fills no default into a replaced group ([dd11ce1](https://github.com/NamesMT/home-hosted/commit/dd11ce1))
+- **cli:** Refuse a flag a command cannot honour, instead of discarding it ([3151d6e](https://github.com/NamesMT/home-hosted/commit/3151d6e))
+- **cli:** A failed forced stop is a failure, and follow shows what it was asked for ([4536fdc](https://github.com/NamesMT/home-hosted/commit/4536fdc))
+- **api:** Document the bodies the routes actually send ([f14cf8f](https://github.com/NamesMT/home-hosted/commit/f14cf8f))
+- **supervisor:** A server is never its own dependency ([8ac4e4f](https://github.com/NamesMT/home-hosted/commit/8ac4e4f))
+- **test:** Gate the forced-stop fixture to Linux ([e6a7350](https://github.com/NamesMT/home-hosted/commit/e6a7350))
+- **release:** A dry run rehearses the media render, not just its gating ([696c64a](https://github.com/NamesMT/home-hosted/commit/696c64a))
+
+### 💅 Refactors
+
+- **shared:** The route-draft helpers move in, and the exception loses its reason ([87d7e05](https://github.com/NamesMT/home-hosted/commit/87d7e05))
+- **shared:** One home for the host alert defaults ([679a598](https://github.com/NamesMT/home-hosted/commit/679a598))
+- **stock:** A dial takes a verdict, never a threshold pair ([35ace8c](https://github.com/NamesMT/home-hosted/commit/35ace8c))
+
+### 📖 Documentation
+
+- **media:** Recapture the tour with a real CPU temperature ([a0391f7](https://github.com/NamesMT/home-hosted/commit/a0391f7))
+- **agents:** A confirmation names the cost, and a prop it was never given ([0b6f43b](https://github.com/NamesMT/home-hosted/commit/0b6f43b))
+- **agentdocs:** The dial no longer carries a threshold pair ([250dc8e](https://github.com/NamesMT/home-hosted/commit/250dc8e))
+- Cut AGENTS.md and GOTCHAS back to the guardrails they claim to be ([ee2347d](https://github.com/NamesMT/home-hosted/commit/ee2347d))
+- An env var takes `$` as a value, bare as a name ([3877b0c](https://github.com/NamesMT/home-hosted/commit/3877b0c))
+- Stop shipping AGENTS.md, and check the links of the docs we keep ([568ccf9](https://github.com/NamesMT/home-hosted/commit/568ccf9))
+- **contracts:** Put each doc block back on the declaration it describes ([29935c2](https://github.com/NamesMT/home-hosted/commit/29935c2))
+- The 0.11.0 migration, and drop the stale waiting-branches table ([3389ee1](https://github.com/NamesMT/home-hosted/commit/3389ee1))
+
+### ✅ Tests
+
+- **setup-temp:** The WSL2 cases are gated on WSL, not silently passing off it ([4fd2ffb](https://github.com/NamesMT/home-hosted/commit/4fd2ffb))
+- **ui:** The armed-button guard reads the shape an author writes, not one spelling ([1600200](https://github.com/NamesMT/home-hosted/commit/1600200))
+- **guards:** Four source scans read the shape, not one spelling of it ([8614b60](https://github.com/NamesMT/home-hosted/commit/8614b60))
+- **guards:** Seven source scans read through the one comment reader ([fc0d25f](https://github.com/NamesMT/home-hosted/commit/fc0d25f))
+- **guards:** The cpu scale scan reads the call, not two literals ([bfa301d](https://github.com/NamesMT/home-hosted/commit/bfa301d))
+- **guards:** A template scan reads the region and the tag, not a slice and a spelling ([76360eb](https://github.com/NamesMT/home-hosted/commit/76360eb))
+- **guards:** The toast copy scan finds the receiver, not its name ([169b18e](https://github.com/NamesMT/home-hosted/commit/169b18e))
+- **guards:** The cpu capacity scan reads the arithmetic, not one floor ([8ebaa38](https://github.com/NamesMT/home-hosted/commit/8ebaa38))
+- **guards:** The confirmation scan reads every UI file and every call site ([f5a3dc3](https://github.com/NamesMT/home-hosted/commit/f5a3dc3))
+- **guards:** A layout scan reads its element and its classes, not a class string ([18fbdf4](https://github.com/NamesMT/home-hosted/commit/18fbdf4))
+- **wsl:** The platform cases are gated, so Linux CI runs the rule ([aaf6f0c](https://github.com/NamesMT/home-hosted/commit/aaf6f0c))
+
+#### ⚠️ Breaking Changes
+
+- **backups:** ⚠️  Move the selection model out of the state frame ([f6ff6ae](https://github.com/NamesMT/home-hosted/commit/f6ff6ae))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.10.3
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.10.2...v0.10.3)
