@@ -300,7 +300,23 @@ describe('down --with-persistent', () => {
    * anything. The record names it with its real start time, so `runtimeLiveness` reads `live`
    * rather than `recycled` — that is what makes `down` take the signal path at all.
    */
-  it('reports a forced stop that failed, keeps the record, and exits 1', async () => {
+  /**
+   * A forced stop that does not work is a failure, not a quiet success.
+   *
+   * The forced branch printed "stopped (forced)", exited 0 and then `clearRuntime()` deleted the
+   * record — for a panel that was still alive and still holding its port, so `down && up` in a
+   * deploy script carried on against it. `forceStop` cannot report its own failure (`signal`
+   * swallows every error, `taskkill`'s status is never read), and the branch discarded
+   * `waitForExit`'s answer. The graceful branch above already asked before clearing; this pins the
+   * forced one.
+   *
+   * Linux only, because the *fixture* is: pid 1 is the one process a non-root user can never signal
+   * (`kill -9 1` is EPERM), and the birth time the record must agree with comes from
+   * `/proc/1/stat`. There is no portable equivalent — on macOS pid 1 is `launchd`, which this user
+   * also cannot signal, but its start time needs `sysctl` or `ps`; on Windows there is no pid 1.
+   * The branch under test is not platform-specific, so the guard is the fixture's, not the fix's.
+   */
+  it.runIf(process.platform === 'linux')('reports a forced stop that failed, keeps the record, and exits 1', async () => {
     const runFile = path.join(home, '.hh', 'run.json')
 
     /** A live, unsignalable pid with the start time the record has to agree with. */
