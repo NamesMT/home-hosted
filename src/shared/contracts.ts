@@ -381,14 +381,6 @@ export const webhookTargetSchema = type({
 }).onUndeclaredKey('reject')
 export type WebhookTarget = typeof webhookTargetSchema.infer
 
-/**
- * The target list.
- *
- * `id` is the list key — the per-target cooldown and last-result record are keyed by it — so a
- * duplicate would make two targets throttle and report as one. Uniqueness is checked by
- * `duplicateWebhookIds` rather than a schema `narrow`: a predicate cannot be rendered to JSON
- * Schema, and every route's `toJsonSchema()` (the OpenAPI document) would throw.
- */
 /** A destination is one of the kinds this build can deliver to. */
 export const notificationTargetSchema = telegramDestinationSchema.or(webhookTargetSchema)
 export type NotificationTarget = typeof notificationTargetSchema.infer
@@ -1223,7 +1215,6 @@ export const proxyCertificateViewSchema = type({
 })
 export type ProxyCertificateView = typeof proxyCertificateViewSchema.infer
 
-/** `GET /api/proxy`: the policy, the engine, the live state and the resolved routes. */
 /**
  * A DNS account the route table may name, flattened across workspaces so the proxy
  * page can offer one list. The account itself stays in its workspace.
@@ -1240,6 +1231,7 @@ export const proxyDnsAccountViewSchema = type({
 })
 export type ProxyDnsAccountView = typeof proxyDnsAccountViewSchema.infer
 
+/** `GET /api/proxy`: the policy, the engine, the live state and the resolved routes. */
 export const proxyViewSchema = type({
   'config': proxyConfigSchema,
   'engine': proxyEngineStatusSchema,
@@ -1973,11 +1965,6 @@ export const logQuerySchema = type({
 })
 
 /**
- * What a `free-port` attempt did. The pids are reported so the UI can say which
- * process left, and which listeners were deliberately left alone because this
- * panel supervises them.
- */
-/**
  * What a per-server lifecycle action answers with.
  *
  * `ok`/`error` are what the panel returns and every UI already reads; `code` was added so a
@@ -2078,6 +2065,11 @@ export const logLinesResponseSchema = type({
   lines: logLineSchema.array(),
 })
 
+/**
+ * What a `free-port` attempt did. The pids are reported so the UI can say which
+ * process left, and which listeners were deliberately left alone because this
+ * panel supervises them.
+ */
 export const freePortResultSchema = type({
   ok: 'boolean',
   port: 'number | null',
@@ -2140,13 +2132,6 @@ export const notificationActionSchema = type({
 }).onUndeclaredKey('reject')
 
 /**
- * `POST /api/notifications/test-webhook`: the webhook to try, as a draft or by id.
- *
- * The target travels whole because the page tests what is in its form, which may not be saved yet —
- * and the request schema rejects undeclared keys, so the webhook shape is reused rather than a
- * second DTO that could drift from it.
- */
-/**
  * The `:id` path parameter of a destination route.
  *
  * Validated, because the id is not only a lookup key: it also keys a bot token in the secrets file.
@@ -2158,6 +2143,13 @@ export const destinationIdParamSchema = type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
 })
 
+/**
+ * `POST /api/notifications/test-webhook`: the webhook to try, as a draft or by id.
+ *
+ * The target travels whole because the page tests what is in its form, which may not be saved yet —
+ * and the request schema rejects undeclared keys, so the webhook shape is reused rather than a
+ * second DTO that could drift from it.
+ */
 export const destinationTestSchema = type({
   target: webhookTargetSchema.omit('kind', 'id').and(type({ id: 'string?', kind: '"webhook"?' })),
   /** Echoed so the result is recorded against the right row; absent for a draft. */
