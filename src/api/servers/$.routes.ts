@@ -11,7 +11,7 @@ import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
-import { actionResultSchema, freePortResultSchema, logLinesResponseSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
 
 const idParam = type({ id: 'string >= 1' })
 /** Pending SSE writes per connection; log frames are dropped past it, state is not. */
@@ -188,7 +188,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .get(
       '/:id/logs',
-      describeRoute({ tags: ['servers'], summary: 'Buffered log lines from memory', responses: { 200: { description: 'Lines', content: jsonBody(logLinesResponseSchema) }, 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Buffered log lines from memory', responses: { 200: { description: 'Lines', content: jsonBody(bufferedLogsResponseSchema) }, 404: ERROR_RESPONSES[404] } }),
       validate('query', bufferedLogsQuery),
       validate('param', idParam),
       (c) => {

@@ -1,5 +1,6 @@
 import { openAPIRouteHandler } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
+import { ERROR_RESPONSES } from '#src/helpers/openapi'
 import { appVersion } from '#src/helpers/version'
 import { openApiReferencePage } from '#src/openapi-reference'
 
@@ -17,6 +18,37 @@ export function setupOpenAPI(app: Parameters<typeof openAPIRouteHandler>[0]) {
     .get(
       `${PREFIX}/spec.json`,
       openAPIRouteHandler(app, {
+        /**
+         * The `400` every validated route gets, written as this server's own envelope.
+         *
+         * hono-openapi injects its own default on any operation that has a validator and does not
+         * name a `400`: `{ success: false, error: [], data }`. This API has never sent that shape —
+         * `src/helpers/error.ts` maps every failure through one `DetailedError` envelope,
+         * `{ message, code, detail }`, which is what AGENTS.md promises and what a client parses.
+         * Measured on 29 operations: `GET /api/servers`, `POST /api/servers/{id}/start`, every
+         * `/_hh` lifecycle route, `GET /api/logs/{id}`. The document described a body no successful
+         * client would ever see, and every generated client was typed against it.
+         *
+         * Spelled as a resolved JSON schema rather than `ERROR_RESPONSES[400]`: this option takes
+         * an OpenAPI response object, not a Standard Schema, and `apiErrorSchema` is what that
+         * envelope is defined by (`test/api/panel.test.ts` pins the two together).
+         */
+        defaultValidationErrorResponse: {
+          description: ERROR_RESPONSES[400].description,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  message: { type: 'string' },
+                  code: { type: 'string' },
+                  detail: {},
+                },
+                required: ['message', 'code'],
+              },
+            },
+          },
+        },
         documentation: {
           info: {
             title: 'home-hosted',

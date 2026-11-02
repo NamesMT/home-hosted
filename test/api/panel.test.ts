@@ -1015,6 +1015,45 @@ describe('openapi document', () => {
   })
 
   /**
+   * The `400` the document declares is the `400` this server actually sends.
+   *
+   * hono-openapi injects its own default on any operation with a validator that does not name a
+   * `400`: `{ success: false, error: [], data }`. This API has never sent that shape — every failure
+   * is one `DetailedError` envelope, `{ message, code, detail }` (`src/helpers/error.ts`), which is
+   * what AGENTS.md promises and what a client parses. Measured before the fix on **29 operations**
+   * (`GET /api/servers`, every `/_hh` lifecycle route, `GET /api/logs/{id}`, …); the wire body was
+   * always right, so this was a documentation defect that every generated client inherited.
+   *
+   * Walked over every operation rather than sampled, because the default is applied per operation
+   * and a route added tomorrow must not reintroduce it.
+   */
+  it('declares this API’s own error envelope for every 400, not the library default', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      paths: Record<string, Record<string, { responses?: Record<string, { content?: Record<string, { schema?: { properties?: Record<string, unknown>, required?: string[] } }> }> } | undefined>>
+    }
+
+    const wrong: string[] = []
+    let checked = 0
+    for (const [path, methods] of Object.entries(spec.paths)) {
+      for (const [method, operation] of Object.entries(methods)) {
+        const schema = operation?.responses?.['400']?.content?.['application/json']?.schema
+        if (schema === undefined)
+          continue
+        checked += 1
+        const keys = Object.keys(schema.properties ?? {})
+        // The library default is recognizable by `success`/`data`; this API's envelope by
+        // `message`/`code`. Either names the right shape or it is the wrong one.
+        if (!keys.includes('message') || !keys.includes('code') || keys.includes('success'))
+          wrong.push(`${method.toUpperCase()} ${path}: ${keys.join(',')}`)
+      }
+    }
+
+    expect(checked, 'the document must declare 400s for this to guard anything').toBeGreaterThan(10)
+    expect(wrong, 'these operations document an envelope the server never sends').toEqual([])
+  })
+
+  /**
    * Every tag an operation uses has to be declared, or a docs renderer dumps it in an
    * uncategorised bucket. Three (`ddns`, `proxy`, `workspaces`) were used but never listed.
    */
@@ -1183,6 +1222,20 @@ describe('openapi document', () => {
     expect(logs.status, 'the fixture must reach the route, or this guard checks nothing').toBe(200)
     const logsBody = await logs.json() as Record<string, unknown>
     expect(await declaredKeys('/api/logs/{id}', 'get'), 'GET /api/logs/{id}').toEqual(Object.keys(logsBody).sort())
+
+    /**
+     * The **buffered** log route is the other half, and it was the one still wrong.
+     *
+     * `GET /api/servers/{id}/logs` answers `{ lines }` — no window, no rotation, no search — but it
+     * declared `logLinesResponseSchema`, a copy of the disk shape. So the document promised five
+     * fields the handler never sent, and declared `searched` as an array where the disk route sends
+     * a number. This guard only walked `/api/logs/{id}`, so the sibling was never checked.
+     */
+    const buffered = await withServer.app.request('/api/servers/web/logs')
+    expect(buffered.status, 'the fixture must reach the route, or this guard checks nothing').toBe(200)
+    const bufferedBody = await buffered.json() as Record<string, unknown>
+    expect(await declaredKeys('/api/servers/{id}/logs', 'get'), 'GET /api/servers/{id}/logs')
+      .toEqual(Object.keys(bufferedBody).sort())
 
     const ui = await created.app.request('/api/settings/ui', { method: 'DELETE' })
     expect(ui.status, 'the fixture must reach the route, or this guard checks nothing').toBe(200)
