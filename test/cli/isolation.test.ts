@@ -31,7 +31,9 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
 const PURE_SYMBOLS: Record<string, Set<string>> = {
   'down': new Set(['persistentLabel', 'exitCodeForStops']),
   'restart': new Set(),
-  'up': new Set(['buildDaemonArgv', 'toUpFlags']),
+  // `alreadyRunningConflict` reads its two arguments and `invocation()` (argv/env); every path in
+  // `up.ts` is behind a dynamic import, so nothing in its static graph resolves `$HHOSTED_HOME`.
+  'up': new Set(['buildDaemonArgv', 'toUpFlags', 'alreadyRunningConflict']),
   'server': new Set(),
   'status': new Set(),
   'logs': new Set(),
