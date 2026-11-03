@@ -900,6 +900,71 @@ describe('supervisor', () => {
     expect(stopped.resources, 'a stopped entry must not keep the CPU and RSS of the process it stopped').toBeNull()
   })
 
+  /**
+   * The memory ceiling must fire on an **adopted** process, which is the one case it silently
+   * skipped.
+   *
+   * `enforceMemoryLimit` required `entry.child !== null`, and an adopted successor has no child
+   * of ours — `adoptEntry` and the persistent reattach both leave it null. So `follow` adopted a
+   * leaking server and `resources.maxRssBytes` never acted on it, while the same entry under
+   * `reclaim` (a child we spawned) would have restarted. Measured on the built panel: an adopted
+   * successor holding 148 MB beside a 40 MB ceiling stayed `running` with `restarts: 0` for the
+   * whole observation. The other half is that sampling already measures an adopted entry
+   * (`child !== null || adopted`), so the reading was there and only the action was missing.
+   */
+  it('restarts an adopted successor that exceeds its memory ceiling', async () => {
+    const port = await freePort()
+    const harness = await makeSupervisor([httpServerConfig(port, {
+      onPortConflict: 'follow',
+      // Above the plain node process this spawns, far below what it holds below.
+      resources: { maxRssBytes: 8 * 1024 * 1024 },
+      restart: { maxRetries: 3, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+    })])
+
+    const sent: string[] = []
+    const original = harness.notifications.notify.bind(harness.notifications)
+    vi.spyOn(harness.notifications, 'notify').mockImplementation((event) => {
+      sent.push(event.reason)
+      original(event)
+    })
+
+    // A real successor of this entry that holds ~64 MB: the reading has to be genuinely over the
+    // limit, so a fixture that never allocated cannot pass this by accident.
+    const successor = spawn(process.execPath, [
+      '-e',
+      'const hold = []; for (let i = 0; i < 64; i++) hold.push(Buffer.alloc(1024 * 1024, i));'
+      + 'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")',
+    ], {
+      env: { ...process.env, PORT: String(port), HHOSTED_SERVER_ID: 'web' },
+      stdio: 'ignore',
+    })
+    const successorPid = successor.pid
+    if (successorPid === undefined)
+      throw new Error('no successor pid')
+    cleanups.push(() => {
+      try {
+        process.kill(successorPid, 'SIGKILL')
+      }
+      catch {
+        // already gone
+      }
+    })
+    while (!(await portAccepts(port)))
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+    await harness.supervisor.start('web')
+    // The precondition, so a fixture that was never adopted cannot prove anything: this is the
+    // entry the ceiling used to skip.
+    expect(view(harness.supervisor, 'web').adopted).toBe(true)
+
+    await waitFor(() => sent.includes('rss'), 40000)
+    const logged = harness.supervisor.logLines('web').map(line => line.text).join('\n')
+    expect(logged, 'the message must name what was measured').toContain('process tree use')
+    // Restarting is the action, not just the sentence: the adopted successor is replaced by a
+    // process of our own, which is what `restart()` does here too.
+    await waitFor(() => view(harness.supervisor, 'web').pid !== successorPid, 20000)
+  }, 120000)
+
   // macOS cannot answer this one: its argv reading goes through `ps -o command=`, which
   // joins the arguments with spaces and quotes none of them, so this entry's `-e` script
   // (which contains spaces) cannot be told from several arguments. That case blocks by

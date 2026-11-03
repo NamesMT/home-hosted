@@ -277,6 +277,15 @@ line in `AGENTS.md` instead.
   every file, and `100` is exactly the ceiling that module replaces. Read the **call** (callee plus
   arguments, brackets balanced), not a count of literals.
 
+- **A guard that asks "did we spawn it?" skips every process we adopted.** `enforceMemoryLimit` required
+  `entry.child !== null`, and an adopted entry has no child by construction — `adoptEntry` and the
+  persistent reattach both leave it null. So `follow` adopted a leaking server beside a
+  `resources.maxRssBytes` ceiling and the ceiling never acted, while the same entry under `reclaim` (a
+  child of ours) restarted: measured on the built panel, 148 MB against a 40 MB limit, `running`,
+  `restarts: 0`, for as long as it was watched. The tell was in the file already — `sampleResources()`
+  asks `child !== null || adopted`, so the *reading* covered adoption and only the action did not.
+  Liveness is the predicate (`child !== null || (adopted && pid !== null)`), never how the entry came
+  to be ours.
 - **A compose stack is not a process tree, so a memory ceiling on one watched nothing.** `docker
   compose up` is a wrapper; the containers it starts are in another namespace, not among its
   descendants. Measured: a stack whose container burned 99% CPU / 20.7 MB reported `cpuPercent: 0,

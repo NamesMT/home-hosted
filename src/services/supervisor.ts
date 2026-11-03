@@ -2343,11 +2343,19 @@ export class Supervisor {
    * their growth — the wrapper never grows, which is why the check could never fire for a leaking
    * container before. The sentence names what was measured, because "process tree" would send
    * someone to `ps` for a figure that lives in `docker stats`.
+   *
+   * It asks the same question sampling asks — "does this entry have a live process?" — and not
+   * "did we spawn it". An adopted successor has no child (`adoptEntry` and the persistent reattach
+   * both leave `child` null) and is sampled anyway, so requiring a child meant `follow` adopted a
+   * leaking server and this ceiling never acted on it, while `reclaim` of the same entry — a child
+   * we spawned — would have restarted. Measured on the built panel: 148 MB against a 40 MB limit,
+   * `running`, `restarts: 0`, for as long as it was watched.
    */
   private async enforceMemoryLimit(entry: Entry): Promise<boolean> {
     const limit = entry.config.resources.maxRssBytes
     const rss = entry.resources?.rssBytes ?? null
-    if (limit <= 0 || rss === null || entry.child === null || entry.status !== 'running' || rss <= limit)
+    const live = entry.child !== null || (entry.adopted && entry.pid !== null)
+    if (limit <= 0 || rss === null || !live || entry.status !== 'running' || rss <= limit)
       return false
 
     const measured = entry.compose === null ? 'process tree' : 'containers'
