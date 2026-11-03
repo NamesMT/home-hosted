@@ -453,11 +453,13 @@ is fine (the panel has already booted, so there is nothing to honour).
 <summary><b>🧭 Upgrading, and why the panel sometimes refuses to start</b></summary>
 
 ```bash
-home-hosted migrate --dry-run   # print the steps, write nothing
-home-hosted migrate             # ask, then write — keeps a .bak beside each rewritten file
+home-hosted migrate --dry-run   # print what it would do, write nothing
+home-hosted migrate             # ask before a schema step, then write — keeps a .bak beside each rewritten file
 ```
 
-Unattended, consent comes from `--yes` or `HHOSTED_MIGRATE=allow`; without it the command stops.
+Unattended, consent comes from `--yes` or `HHOSTED_MIGRATE=allow`; without it a schema step stops.
+Restamping a file whose shape is already current is not a schema step — it only records the release
+that last wrote it — so that happens without a prompt, and still leaves a `.bak`.
 
 Each config records what wrote it: `meta.writtenBy` (the release) and `meta.schema` (the shape). That
 buys two guarantees:

@@ -90,6 +90,8 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
   const consented = yes || (process.env.HHOSTED_MIGRATE ?? '').toLowerCase() === 'allow'
   let stampOnly = 0
   let lifted = 0
+  /** Files whose schema has steps, counted for `--dry-run` — which writes none of them. */
+  let needsLift = 0
 
   for (const target of existing) {
     let raw: Record<string, unknown>
@@ -134,12 +136,29 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
 
     if (plan.steps.length === 0) {
       const stamped = stampConfig(raw)
-      if (JSON.stringify(stamped) !== JSON.stringify(raw))
+      const changes = JSON.stringify(stamped) !== JSON.stringify(raw)
+      if (changes)
         stampOnly += 1
-      if (!dryRun)
+      // A dry run has to *say* what it would stamp. It used to stay silent and then close with
+      // "nothing was written (--dry-run)", so an upgrader rehearsing the one command they were told
+      // to rehearse saw an empty report while the real run rewrote three files and printed
+      // "3 file(s) stamped" — the plan a person reads to decide did not describe the run it plans.
+      if (changes && dryRun)
+        process.stdout.write(`stamping ${target.label}: meta.writtenBy → home-hosted ${appVersion()} (schema ${plan.to}, no steps)\n`)
+      // `docs/` and `README.md` promise a `.bak` beside **each** file this command rewrites, and this
+      // branch rewrites one too — it only restamps it. Keeping no backup here made the promise
+      // conditional on which path the file took, and a hand-formatted `servers.config.json` came back
+      // reindented with no copy of what the person wrote. No consent is asked for a restamp: it
+      // changes `meta.writtenBy` and nothing else, so there is no decision to make — unlike a schema
+      // step, which is why the two branches differ on that and not on the backup.
+      if (changes && !dryRun) {
+        fs.copyFileSync(target.file, `${target.file}.bak`)
         writeFileAtomic(target.file, `${JSON.stringify(stamped, null, 2)}\n`)
+      }
       continue
     }
+
+    needsLift += 1
 
     process.stdout.write(`migrating ${target.label}: config schema ${from} → ${plan.to}\n`)
     for (const [index, step] of plan.steps.entries())
@@ -170,15 +189,28 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
     process.stdout.write(`  ${dim(`previous file kept at ${target.file}.bak`)}\n`)
   }
 
+  // "nothing to migrate" has to mean nothing happened: a run that lifted three files printed it
+  // anyway, because only the stamp-only path counted. The line a person reads to decide whether to
+  // re-run has to agree with the lines above it.
+  //
+  // A dry run answers the same question in the same words, in the tense of a plan: it is the run a
+  // person rehearses *before* letting a migration touch state they cannot easily restore, so its
+  // closing line may not contradict the work it just described.
+  const done: string[] = []
   if (dryRun) {
+    if (needsLift > 0)
+      done.push(green(`${needsLift} file(s) would be migrated`))
+    if (stampOnly > 0)
+      done.push(green(`${stampOnly} file(s) would be stamped`))
+    process.stdout.write(
+      done.length === 0
+        ? `every file is already what home-hosted ${appVersion()} understands — nothing to migrate\n`
+        : `${done.join(', ')} to what home-hosted ${appVersion()} understands\n`,
+    )
     process.stdout.write(`${dim('nothing was written (--dry-run)')}\n`)
     return
   }
 
-  // "nothing to migrate" has to mean nothing happened: a run that lifted three files printed it
-  // anyway, because only the stamp-only path counted. The line a person reads to decide whether to
-  // re-run has to agree with the lines above it.
-  const done: string[] = []
   if (lifted > 0)
     done.push(green(`${lifted} file(s) migrated`))
   if (stampOnly > 0)

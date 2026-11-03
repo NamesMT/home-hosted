@@ -74,9 +74,12 @@ in the release notes and in `README.md`'s scrape section.
 
 - They **ship inside the package** (`src/config/migrations.ts`), are ordered, idempotent and
   described in one line each.
-- `home-hosted migrate` prints the plan, keeps a `.bak` beside each file it rewrites, refuses to
-  write a config it cannot read, and needs consent: `--yes`, `HHOSTED_MIGRATE=allow`, or a person at
-  a terminal.
+- `home-hosted migrate` prints the plan, keeps a `.bak` beside each file it rewrites — restamping
+  included — refuses to write a config it cannot read, and asks for consent before a **schema step**:
+  `--yes`, `HHOSTED_MIGRATE=allow`, or a person at a terminal. A restamp takes none, because it
+  changes `meta.writtenBy` and nothing else, and a prompt for that trains the answer out of the person
+  who has to read the real one. `--dry-run` describes both kinds of work in the tense of a plan and
+  writes neither.
 - **The pre-workspace relocation is gone as of 0.8.0.** `ensureLayout()` now **refuses** a 0.6.x
   `HHOSTED_HOME` instead of moving it — `AGENTS.md` states the rule, `src/config/layout.ts` the reason
   it is a refusal rather than a read-as-empty.
