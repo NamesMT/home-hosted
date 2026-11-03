@@ -324,6 +324,102 @@ describe('servers route', () => {
     // The same id in another workspace is that workspace's server, not this one's.
     expect((await request(created.app, '/api/servers/api')).status).toBe(404)
   })
+
+  /**
+   * A misspelt `?workspace` must be refused, never applied to the default workspace.
+   *
+   * `workspaceQuerySchema` was `type({ 'workspace?': 'string' })` with no `onUndeclaredKey`, and
+   * ArkType is permissive by default — so the key was silently dropped and the request ran against
+   * `default`. Measured on the built panel with a `staging` workspace present:
+   * `POST /api/servers/<id>/stop?worspace=staging` answered `200 {"ok":true}` and stopped that
+   * entry in **default**. One transposed letter in a deploy script turned a targeted restart into a
+   * stop somewhere else, and nothing in the answer named the typo.
+   *
+   * Walked over every workspace-scoped route rather than the one that was measured, because the
+   * permissiveness was a property of the shared schema: a route added tomorrow inherits it unless
+   * the guard reads the whole surface. The list is spelled out rather than discovered, so adding a
+   * workspace-scoped route is a line here — which is the same trade `test/shared/contracts.test.ts`
+   * makes for its own enumerations.
+   */
+  it('refuses a misspelt workspace on every workspace-scoped route', async () => {
+    const created = await fixture({
+      views: [makeView('web')],
+      workspaces: [{ id: 'staging', label: 'Staging', servers: [{ id: 'api', command: 'node' }] }],
+      workspaceViews: { staging: [makeView('api')] },
+    })
+
+    const ROUTES: Array<[method: string, path: string]> = [
+      ['GET', '/api/servers'],
+      ['POST', '/api/servers/start-all'],
+      ['POST', '/api/servers/stop-all'],
+      ['GET', '/api/servers/web'],
+      ['GET', '/api/servers/web/logs'],
+      ['POST', '/api/servers/web/start'],
+      ['POST', '/api/servers/web/stop'],
+      ['POST', '/api/servers/web/restart'],
+      ['POST', '/api/servers/web/free-port'],
+      ['POST', '/api/servers/web/clear-logs'],
+      ['GET', '/api/logs'],
+      ['GET', '/api/logs/web'],
+      ['GET', '/api/logs/web/download'],
+      ['GET', '/api/settings/workspace'],
+      ['PATCH', '/api/settings/workspace'],
+      ['GET', '/api/ddns'],
+      ['POST', '/api/ddns/check'],
+      ['PUT', '/api/notifications/destinations/tg/token'],
+      ['POST', '/api/notifications/destinations/tg/test'],
+      ['POST', '/api/notifications/test-webhook'],
+    ]
+
+    const accepted: string[] = []
+    for (const [method, path] of ROUTES) {
+      const separator = path.includes('?') ? '&' : '?'
+      const response = await request(created.app, `${path}${separator}worspace=staging`, method)
+      // 400 + the field named: a refusal a script can act on, not merely "not 200".
+      if (response.status !== 400)
+        accepted.push(`${method} ${path} → ${response.status}`)
+    }
+    expect(accepted, 'a typo\'d workspace key was accepted on these routes').toEqual([])
+
+    // And the guard proves nothing about the spelling it *should* accept: the same request with
+    // the key spelt right still resolves the named workspace, so strictness did not break scoping.
+    const correct = await request(created.app, '/api/servers/api?workspace=staging')
+    expect(correct.status).toBe(200)
+    expect(await correct.json()).toMatchObject({ server: { id: 'api' } })
+  })
+
+  /**
+   * The refusal names the key, so a person reading the panel's own error sees the transposition.
+   * A bare `400` would leave them re-reading a script that "looks right".
+   */
+  it('names the misspelt workspace key it refuses', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    const response = await request(created.app, '/api/servers?worspace=staging')
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as { code?: string, detail?: Array<{ path?: string }> }
+    expect(body.code).toBe('INVALID_INPUT')
+    expect(body.detail?.map(issue => issue.path)).toContain('worspace')
+  })
+
+  /**
+   * `stop-all` reads `withPersistent`, so strictness had to give the route a schema naming it —
+   * and the flag has to keep working, or the fix for the typo broke the feature.
+   */
+  it('still accepts `withPersistent` on stop-all, and refuses a misspelling of it', async () => {
+    const created = await withServer({ views: [makeView('web')] })
+    const seen: Array<{ withPersistent?: boolean } | undefined> = []
+    created.supervisor.stopAll = async (options?: { withPersistent?: boolean }) => {
+      seen.push(options)
+    }
+
+    expect((await request(created.app, '/api/servers/stop-all?withPersistent=true', 'POST')).status).toBe(200)
+    expect(seen.at(-1)).toMatchObject({ withPersistent: true })
+
+    expect((await request(created.app, '/api/servers/stop-all?withPersistant=true', 'POST')).status).toBe(400)
+    // Refused before the supervisor ran, so nothing was stopped by the typo.
+    expect(seen).toHaveLength(1)
+  })
 })
 
 describe('workspaces route', () => {

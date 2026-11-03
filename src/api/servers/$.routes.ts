@@ -26,6 +26,16 @@ const serversResponse = type({ servers: serverViewSchema.array() })
  */
 const storedServerResponse = type({ server: serverSchema })
 const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
+/**
+ * `stop-all`'s own query: the workspace, plus `withPersistent`.
+ *
+ * Declared rather than read with `c.req.query('withPersistent')`, because `workspaceQuerySchema`
+ * refuses a key it does not name — so the raw read would have been a `400` for the flag the route
+ * exists to accept. The workspace schema is the **argument** of the merge, which is the side whose
+ * `onUndeclaredKey` the result carries: `workspaceQuerySchema.merge(extra)` would have lost the
+ * rejection and this route's typo rule with it.
+ */
+const stopAllQuery = type({ 'withPersistent?': 'string' }).merge(workspaceQuerySchema)
 
 export function createServersRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -161,12 +171,12 @@ export function createServersRoute(deps: AppDeps) {
         summary: 'Stop every server in a workspace, persistent entries included if asked',
         responses: { 200: { description: 'The servers', content: jsonBody(serversResponse) } },
       }),
-      validate('query', workspaceQuerySchema),
+      validate('query', stopAllQuery),
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        // Read as a raw query, not a validated schema field: `withPersistent` is an optional
-        // spelling and a client that omits it must keep the behaviour it has always had.
-        await runtime.supervisor.stopAll({ withPersistent: c.req.query('withPersistent') === 'true' })
+        // A client that omits `withPersistent` keeps the behaviour it has always had: the flag is
+        // optional, and `=== 'true'` is the only spelling that asks for it.
+        await runtime.supervisor.stopAll({ withPersistent: c.req.valid('query').withPersistent === 'true' })
         return c.json({ servers: runtime.supervisor.views() })
       },
     )

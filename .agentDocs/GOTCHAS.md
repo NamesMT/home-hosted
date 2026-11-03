@@ -728,3 +728,15 @@ line in `AGENTS.md` instead.
   gave 0 typecheck errors and 0 test failures. **Count the errors a removal produces, and note where
   they come from** — a guard made of test literals is not the same as one made of production code.
 
+- **A query schema is a request schema, and ArkType is permissive by default.** `workspaceQuerySchema`
+  was `type({ 'workspace?': 'string' })` with no `onUndeclaredKey('reject')`, so every key it did not
+  name was silently dropped. Measured on the built panel with a `staging` workspace present:
+  `POST /api/servers/<id>/stop?worspace=staging` answered `200 {"ok":true}` and stopped that entry in
+  **default** — one transposed letter in a deploy script, aimed at one workspace, acting on another,
+  with nothing in the answer naming the typo. It was 20 routes at once because the schema is shared.
+  **`merge` keeps the *argument's* `onUndeclaredKey`, not the callee's**: `extra.merge(strict)` stays
+  strict and `strict.merge(extra)` does not, which is the opposite of what the call reads like, so a
+  route with a second query key has to put the workspace schema last. `stop-all` read
+  `c.req.query('withPersistent')` raw, which strictness would have turned into a `400` for the flag
+  the route exists to accept — the fix for the typo would have broken the feature, so that route
+  declares the key instead.

@@ -146,7 +146,9 @@ responses at runtime. Either style is fine.
 ### Endpoints you will actually use
 
 Workspace-scoped routes take `?workspace=<id>`. Omitting it means the panel's default workspace;
-naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fallback.
+naming one that does not exist is a `404 UNKNOWN_WORKSPACE`, never a silent fallback. Any other query
+key is refused (`400 INVALID_INPUT`, the key named in `detail`), so a misspelt `?worspace=staging` is
+an error rather than a request that quietly ran against the default workspace.
 
 | endpoint | what it gives you |
 | --- | --- |

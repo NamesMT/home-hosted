@@ -18,6 +18,10 @@ const MAX_TAIL = 5000
 const DEFAULT_TAIL = 500
 
 const idParam = type({ id: 'string >= 1' })
+// The workspace schema is the **argument** in both, and that is what keeps these strict: `merge`
+// takes the argument's `onUndeclaredKey`, so `extra.merge(workspaceQuerySchema)` refuses a
+// misspelt key while `workspaceQuerySchema.merge(extra)` would have lost the rejection and run the
+// request against the default workspace.
 const downloadQuery = type({ 'file?': 'string' }).merge(workspaceQuerySchema)
 const historyQuery = logHistoryQuerySchema.merge(workspaceQuerySchema)
 
