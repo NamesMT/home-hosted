@@ -738,14 +738,13 @@ export class Supervisor {
    * `owners` carries the `workspace/id` behind each of ours, so a refusal can name the server to
    * stop rather than only the pid that holds the port.
    */
-  private async portHolders(port: number): Promise<{ ours: number[], foreign: number[], owners: Map<number, string>, siblings: SiblingServer[] }> {
-    const { pids: supervised, owners, siblings } = await this.supervisedPids()
+  private async portHolders(port: number): Promise<{ ours: number[], foreign: number[], owners: Map<number, string> }> {
+    const { pids: supervised, owners } = await this.supervisedPids()
     const holders = await listPortHolders(port)
     return {
       ours: holders.filter(pid => supervised.has(pid)),
       foreign: holders.filter(pid => !supervised.has(pid)),
       owners,
-      siblings,
     }
   }
 
@@ -779,7 +778,7 @@ export class Supervisor {
    * server owns, or anything the panel happened to spawn would be unkillable and
    * unattributable.
    */
-  private async supervisedPids(): Promise<{ pids: Set<number>, owners: Map<number, string>, siblings: SiblingServer[] }> {
+  private async supervisedPids(): Promise<{ pids: Set<number>, owners: Map<number, string> }> {
     const roots: number[] = []
     const labels = new Map<number, string>()
     const own = (pid: number, label: string): void => {
@@ -812,7 +811,7 @@ export class Supervisor {
         owners.set(pid, label)
     }
     tree.set(process.pid, process.pid)
-    return { pids: new Set(tree.keys()), owners, siblings }
+    return { pids: new Set(tree.keys()), owners }
   }
 
   /** The port's own answer, with the same short recheck the preflight uses. */
