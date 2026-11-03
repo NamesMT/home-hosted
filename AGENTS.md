@@ -43,6 +43,7 @@ Where knowledge lives, and when to reach for each:
 | [`.agentDocs/READINGS.md`](.agentDocs/READINGS.md) | why a reading's absence, band, scale and aggregate are each decided once |
 | [`.agentDocs/COMPATIBILITY.md`](.agentDocs/COMPATIBILITY.md) | config and UI compatibility, migrations |
 | [`.agentDocs/RELEASING.md`](.agentDocs/RELEASING.md) | how a release is cut, and which version to dispatch |
+| [`.agentDocs/REVIEW-LOG.md`](.agentDocs/REVIEW-LOG.md) | end-user review ideas: what shipped, what is still open, what was verified good |
 | [`docs/SERVERS.md`](docs/SERVERS.md) | entries, presets, port conflicts, persistent entries |
 | [`docs/NOTIFICATIONS.md`](docs/NOTIFICATIONS.md) | notification destinations: Telegram, webhooks, shared defaults |
 | [`docs/DDNS.md`](docs/DDNS.md) | dynamic-DNS providers and hostnames |
