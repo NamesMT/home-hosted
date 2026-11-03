@@ -55,7 +55,7 @@ describe('up --port', () => {
  * answer.
  */
 describe('up on a running panel', () => {
-  const runtime = { url: 'http://127.0.0.1:3999', port: 3999 }
+  const runtime = { url: 'http://127.0.0.1:3999', port: 3999, bindHost: '127.0.0.1' }
   const flags = { autostart: true, open: false, foreground: false, printConfig: false } as const
 
   it('says nothing when the flags agree with the live panel', () => {
@@ -64,6 +64,31 @@ describe('up on a running panel', () => {
     expect(alreadyRunningConflict({ ...flags }, runtime)).toBeNull()
     expect(alreadyRunningConflict({ ...flags, port: 3999 }, runtime)).toBeNull()
     expect(alreadyRunningConflict({ ...flags, autostart: false }, runtime)).toBeNull()
+  })
+
+  /**
+   * A `--host` that names the live bind is the same request as `--port` naming the live port.
+   *
+   * `--host` used to be refused whenever it was passed at all, so re-running the *identical* command
+   * against a panel it had just started exited 1 with "--host lan was not honoured" — while the panel
+   * was on `lan`. That broke the idempotent re-run this command exists for, the one thing `up` on a
+   * live panel is documented to support.
+   *
+   * The comparison cannot be textual: the record stores the **address** that was bound, so a
+   * `--host lan` panel reads `bindHost: '0.0.0.0'`.
+   */
+  it('lets a --host through when it names the bind the panel already has', () => {
+    const onLan = { url: 'http://192.168.1.201:3999', port: 3999, bindHost: '0.0.0.0' }
+
+    expect(alreadyRunningConflict({ ...flags, host: 'lan' }, onLan)).toBeNull()
+    // An explicit address naming the same bind is the same request.
+    expect(alreadyRunningConflict({ ...flags, host: '0.0.0.0' }, onLan)).toBeNull()
+    // …and `local` is still refused against it, because that is a different bind.
+    expect(alreadyRunningConflict({ ...flags, host: 'local' }, onLan)).toContain('--host local was not honoured')
+
+    // The loopback fixture agrees with `local` and with its own address.
+    expect(alreadyRunningConflict({ ...flags, host: 'local' }, runtime)).toBeNull()
+    expect(alreadyRunningConflict({ ...flags, host: '127.0.0.1' }, runtime)).toBeNull()
   })
 
   it('names a flag the live panel contradicts, and what to do about it', () => {

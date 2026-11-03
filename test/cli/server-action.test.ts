@@ -148,6 +148,67 @@ function freeDevPort(from = 6600, to = 6699): Promise<number> {
   })
 }
 
+/**
+ * `up` on a live panel, driven end to end.
+ *
+ * The unit tests in `up-flags.test.ts` pin the sentence `alreadyRunningConflict` produces, and that
+ * is not the same thing as `up` *calling* it: deleting the whole call site left all seven of them
+ * green, which is how a regression where `--host` refused an agreeing bind shipped. These run the
+ * real command against a real `run.json`, so the wiring is what is under test.
+ */
+describe('up against a live panel', () => {
+  /** A run.json the CLI accepts, bound to `bindHost` on `port`. */
+  function writeLiveRuntime(port: number, bindHost: string): void {
+    const file = path.join(home, '.hh', 'run.json')
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, `${JSON.stringify({
+      version: '0.11.0',
+      pid: process.pid,
+      url: `http://127.0.0.1:${port}`,
+      probeUrl: `http://127.0.0.1:${port}`,
+      protocol: 'http',
+      port,
+      bindHost,
+      startedAt: Date.now(),
+      projectDir: home,
+      dataRoot: home,
+      configPath: path.join(home, '.hh', 'default', 'servers.config.json'),
+      logFile: path.join(home, '.hh', '.logs', 'home-hosted.log'),
+      token: 'local-token',
+    }, null, 2)}\n`)
+  }
+
+  afterEach(() => {
+    fs.rmSync(path.join(home, '.hh', 'run.json'), { force: true })
+  })
+
+  it('exits 0 and says nothing about a flag that agrees, including --host', async () => {
+    writeLiveRuntime(3999, '127.0.0.1')
+    // `--host local` resolves to 127.0.0.1, which is the bind the record already has.
+    const result = await runCli(['up', '--port', '3999', '--host', 'local'])
+    expect(result.stderr, 'an agreeing re-run must not refuse').toBe('')
+    expect(result.status).toBe(0)
+    expect(result.stdout).toContain('already running')
+  })
+
+  it('refuses a --host that names a different bind, and says where the panel is', async () => {
+    writeLiveRuntime(3999, '0.0.0.0')
+    // `local` against a panel bound to 0.0.0.0 is a real move, so it is refused.
+    const result = await runCli(['up', '--host', 'local'])
+    expect(result.status, 'a contradicted flag must exit 1').toBe(1)
+    expect(result.stderr).toContain('--host local was not honoured')
+    // stdout stays empty, so nothing reads as a success line for a move that did not happen.
+    expect(result.stdout).not.toContain('already running')
+  })
+
+  it('lets an explicit address through when it is the live bind', async () => {
+    writeLiveRuntime(3999, '0.0.0.0')
+    const result = await runCli(['up', '--host', '0.0.0.0'])
+    expect(result.stderr).toBe('')
+    expect(result.status).toBe(0)
+  })
+})
+
 describe('restart, for one server or the panel', () => {
   /**
    * `restart <id>` is the shell's counterpart to the UI's per-server Restart button, which

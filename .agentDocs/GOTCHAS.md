@@ -756,3 +756,19 @@ line in `AGENTS.md` instead.
   **`--no-autostart` is the exception and must stay accepted**: it expresses a wish about a boot this
   command is not performing, so there is nothing to honour or refuse, and refusing it would break the
   retry loop `up --no-autostart` exists for.
+
+  **A flag is refused only when it *disagrees*, and the first version compared `--host` not at all.**
+  It refused whenever the flag was passed, so re-running the identical `up --port N --host lan`
+  against the panel it had just started exited 1 with "--host lan was not honoured" — on a panel
+  bound to `lan`. It also cannot be a text compare: the record stores the **address** that was bound,
+  so `--host lan` reads `bindHost: '0.0.0.0'`, and both sides go through `bindAddress()`.
+  **A pure-function test does not pin the wiring**: all seven tests over `alreadyRunningConflict`
+  stayed green with the entire three-line call site in `runUp` deleted, which is how that regression
+  shipped. The guard that would have caught it runs the real `up` against a real `run.json`
+  (`test/cli/server-action.test.ts`).
+- **"Changes nothing" is a claim to check against the filesystem.** `up --print-config` promised it
+  and still wrote `.hh/settings.json`, `.hh/settings.schema.json` and `.hh/workspaces.json` on an
+  empty home: `GlobalSettingsStore.load()` and the workspace registry both seed on ENOENT, and
+  `writeJsonSchema()` runs before the `printConfig` return. What it stopped doing — arming
+  `.control-secrets.json` with the default `hh`, and refusing a live panel — is the part that
+  mattered; the help text now says that rather than "changing nothing".

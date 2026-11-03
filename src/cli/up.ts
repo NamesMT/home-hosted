@@ -57,6 +57,17 @@ export function toUpFlags(args: RawUpArgs): UpFlags {
 }
 
 /**
+ * A bind value as the address it resolves to.
+ *
+ * Deliberately local and dependency-free: this module must stay importable without a state graph
+ * (`test/cli/isolation`), and `helpers/bind.ts` caches `os.networkInterfaces()`, which a pure
+ * comparison has no business triggering.
+ */
+function bindAddress(bind: string): string {
+  return bind === 'local' ? '127.0.0.1' : bind === 'lan' ? '0.0.0.0' : bind
+}
+
+/**
  * Which `up` flags the live panel contradicts, as one sentence — or `null` when it agrees.
  *
  * `up` on a live panel reports "already running" and exits 0, which is right: the common use is
@@ -72,11 +83,15 @@ export function toUpFlags(args: RawUpArgs): UpFlags {
  * so there is nothing to honour or refuse. Refusing it would break `up --no-autostart` in a retry
  * loop, which is the one spelling a script uses to keep its hands off the entries.
  */
-export function alreadyRunningConflict(flags: UpFlags, runtime: { url: string, port: number }): string | null {
+export function alreadyRunningConflict(flags: UpFlags, runtime: { url: string, port: number, bindHost: string }): string | null {
   const asked: string[] = []
   if (flags.port !== undefined && flags.port !== runtime.port)
     asked.push(`--port ${flags.port}`)
-  if (flags.host !== undefined)
+  // Compared through `bindHost`, never as text: the record stores the address that was bound, so a
+  // panel started with `--host lan` reads `bindHost: '0.0.0.0'` and the same flag compared raw would
+  // always look unhonoured — refusing the idempotent re-run this command exists for. `--host` naming
+  // the live bind is the same request as `--port` naming the live port, which is already let through.
+  if (flags.host !== undefined && bindAddress(flags.host) !== runtime.bindHost)
     asked.push(`--host ${flags.host}`)
   if (flags.open)
     asked.push('--open')

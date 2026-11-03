@@ -96,7 +96,7 @@ const UP_SECTION: OptionSection = {
     ['--open', 'open the panel in a browser once it is up'],
     ['--no-autostart', 'do not start the entries marked autostart'],
     ['--foreground', 'run in this process instead of detaching (systemd/docker)'],
-    ['--print-config', 'print the effective config and exit, changing nothing'],
+    ['--print-config', 'print the effective config and exit — starts nothing, sets no password'],
   ],
 }
 
