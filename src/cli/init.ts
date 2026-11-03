@@ -3,7 +3,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, confirm, dim, fail, green, paint, prompt } from '#src/cli/io'
-import { cdCommand, detectPackageManager, installArgs, PACKAGE_MANAGERS, runCommand, scaffold } from '#src/services/init'
+import { cdCommand, detectPackageManager, installArgs, nextSteps, PACKAGE_MANAGERS, scaffold } from '#src/services/init'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -81,9 +81,15 @@ export async function runInit(options: { dir?: string, name?: string, pm?: strin
   const where = relative.length === 0 || relative.startsWith('..') ? target : relative
   const cd = relative.length === 0 ? '' : cdCommand(where)
   process.stdout.write(`\nNext:\n`)
-  process.stdout.write(`  ${bold(`${cd}${runCommand(pm as never, 'up')}`)}     start the panel (default password \`hh\`)\n`)
-  process.stdout.write(`  ${dim('then change that password under Settings → Authentication, and add your servers')}\n`)
-  process.stdout.write(`  ${dim(`${runCommand(pm as never, 'set-token')} --generate    for scripts and agents`)}\n`)
+  for (const step of nextSteps(pm as never, install, cd)) {
+    if (step.command === null) {
+      process.stdout.write(`  ${dim(step.text)}\n`)
+      continue
+    }
+    // The command is the bold half; the line's own explanation keeps its place beside it.
+    const padding = ' '.repeat(5)
+    process.stdout.write(`  ${bold(step.command)}${padding}${step.text}\n`)
+  }
 }
 
 export const initCommand = defineCommand({

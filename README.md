@@ -133,6 +133,8 @@ Commit the project and it *is* the setup. `init` scaffolds it:
 npx home-hosted init            # or: pnpm dlx home-hosted init
 #   project directory, package name, package manager, install, git — every step has a default
 #   `--yes` takes them all, for an agent or a CI job
+#   `--no-install` writes the files only, and then prints the install step first: the project's
+#     scripts resolve `home-hosted` from `node_modules/.bin`, so without it they exit 127
 ```
 
 It writes a manifest whose scripts all pass `--home ./state`:
@@ -506,7 +508,8 @@ the move on its first run; 0.8.0 then starts against the result.
 
 | `liveness` | Means |
 | --- | --- |
-| `alive` | the recorded pid is this panel |
+| `live` | the recorded pid is this panel, born when the record says |
+| `unknown` | the pid is alive but this platform will not report its birth time. Counted as running rather than dismissed |
 | `gone` | it is not running; the record is stale and may be cleared |
 | `recycled` | the OS has handed the recorded pid to **another** process. The record is stale, but a signal would hit a stranger, so only the token-authenticated shutdown touches it |
 

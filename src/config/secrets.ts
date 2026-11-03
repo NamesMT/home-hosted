@@ -329,7 +329,7 @@ export class SecretsStore {
 
   /**
    * Re-reads whenever the file changes on disk, so a password set by
-   * `pnpm run set-password` (or another process) takes effect without
+   * `home-hosted set-password` (or another process) takes effect without
    * restarting `up`.
    */
   load(): SecretsFile {

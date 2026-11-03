@@ -30,7 +30,7 @@ export function checkExposure(control: ControlConfig, passwordSet: boolean, usin
   if (!passwordSet) {
     return {
       exposed,
-      blockedReason: `the control panel is bound to ${control.host} but no password is set (run \`pnpm run set-password\`)`,
+      blockedReason: `the control panel is bound to ${control.host} but no password is set (run \`home-hosted set-password\`)`,
     }
   }
   if (usingDefaultPassword) {

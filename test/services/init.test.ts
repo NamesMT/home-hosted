@@ -10,7 +10,10 @@ import {
   cdCommand,
   detectPackageManager,
   installArgs,
+  installCommand,
   isEmptyDir,
+  nextSteps,
+  PACKAGE_MANAGERS,
   projectGitignore,
   projectManifest,
   projectScripts,
@@ -120,6 +123,81 @@ describe('scaffold contents', () => {
     expect(installArgs('npm')).toEqual(['install'])
     // `yarn` installs with no argument at all.
     expect(installArgs('yarn')).toEqual([])
+  })
+
+  /**
+   * Installing is a package-manager verb, not one of the project's scripts.
+   *
+   * Routing it through `runCommand` produced `npm run install`, which asks npm for a script named
+   * `install` that this manifest does not declare — and only `yarn` is spelled without an argument.
+   * The two helpers are separate for exactly this reason; asserted over every manager so a new one
+   * cannot inherit the wrong shape by default.
+   */
+  it('spells the install command as a package-manager command, not a script', () => {
+    expect(installCommand('pnpm')).toBe('pnpm install')
+    expect(installCommand('npm')).toBe('npm install')
+    // `yarn install` works, but the bare form is what `installArgs` returns and what the docs show.
+    expect(installCommand('yarn')).toBe('yarn')
+    expect(installCommand('bun')).toBe('bun install')
+    for (const pm of PACKAGE_MANAGERS)
+      expect(installCommand(pm), pm).not.toContain('run')
+  })
+})
+
+/**
+ * The "Next:" block is the handover — the whole reason `init` exists — and both of its steps were
+ * wrong in a way that only a person following them one at a time would find.
+ *
+ * `--no-install` left no `node_modules/.bin`, so the very next line (`<pm> run up`) answered
+ * `home-hosted: command not found`: exit 127 under npm, and pnpm's opaque
+ * `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL`. And the password hint sent the reader to
+ * "Settings → Authentication", while the sidebar entry is **Global settings** — there is no page
+ * called Settings, so the instruction named a place they could not find.
+ *
+ * Asserted as structure (`nextSteps`) rather than by grepping the printed text, so a new step cannot
+ * be added to the prose and skipped by the guard.
+ */
+describe('the Next block init hands over', () => {
+  it('installs before it asks anyone to run a project script', () => {
+    const steps = nextSteps('pnpm', false, `cd 'proj' && `)
+    const install = steps.findIndex(step => step.command !== null && step.command.includes('pnpm install'))
+    const up = steps.findIndex(step => step.command !== null && step.command.endsWith('pnpm run up'))
+
+    expect(install, 'the install step must exist when nothing was installed').toBeGreaterThanOrEqual(0)
+    // Order is the point: the script cannot resolve until the dependency is linked.
+    expect(install, 'installing must come before running a script').toBeLessThan(up)
+    // And the install is a package-manager command, not `pnpm run install`.
+    expect(steps[install]!.command).not.toContain('run install')
+  })
+
+  it('omits the install step when the caller already installed', () => {
+    const steps = nextSteps('pnpm', true, `cd 'proj' && `)
+    expect(steps.some(step => step.command !== null && step.command.includes('install'))).toBe(false)
+    // Anti-vacuity: the rest of the block is still there.
+    expect(steps.filter(step => step.command !== null).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('names the page the panel actually has, not one invented here', () => {
+    for (const install of [true, false]) {
+      const prose = nextSteps('npm', install, '').filter(step => step.command === null).map(step => step.text)
+      const hint = prose.find(text => text.includes('password'))
+      expect(hint, 'the password hint must survive').toBeDefined()
+      expect(hint).toContain('Global settings')
+      // The defect: a page label nothing in the UI uses.
+      expect(hint, 'there is no page called Settings').not.toMatch(/(^|[^l]) Settings/)
+    }
+  })
+
+  it('reaches the project on the first step, and does not repeat the cd', () => {
+    const cd = `cd 'my dir' && `
+    const commands = nextSteps('npm', false, cd).filter(step => step.command !== null).map(step => step.command!)
+
+    // The block is a sequence a person walks down: you arrive in the directory once and stay there.
+    expect(commands[0]!.startsWith(cd), 'the first step must get you there').toBe(true)
+    for (const command of commands.slice(1))
+      expect(command, 'the cd is not repeated down the list').not.toContain('cd ')
+    // Anti-vacuity: there really is more than one command to check.
+    expect(commands.length).toBeGreaterThan(1)
   })
 })
 

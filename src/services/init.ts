@@ -135,6 +135,42 @@ export function runCommand(pm: PackageManager, script: string): string {
 }
 
 /**
+ * One line of `init`'s "Next:" block. A step is either a command to type or a prose line beneath
+ * the one above it, and the two are kept apart so the block can be asserted without a terminal.
+ */
+export interface NextStep {
+  /** The command, already `cd`-prefixed; `null` when the line is prose about the step above. */
+  command: string | null
+  /** What the command does, or the prose itself. */
+  text: string
+}
+
+/**
+ * What `init` hands the person once the project is written.
+ *
+ * Built here rather than printed inline for two reasons, both measured. The install step was
+ * missing under `--no-install`, so the scripts it went on to name answered `home-hosted: command
+ * not found` (npm exits 127) — the one sequence the scaffold exists to hand over, broken at step
+ * one. And the password hint named a page the UI does not have: the sidebar entry is **Global
+ * settings**, and "Settings → Authentication" names nothing a person can click.
+ */
+export function nextSteps(pm: PackageManager, install: boolean, cd: string): NextStep[] {
+  // The block is a sequence a person walks down, so `cd` belongs on the first command only: the
+  // reader arrives in the project once and every later line runs from there.
+  const steps: NextStep[] = []
+  const lead = (command: string): string => (steps.length === 0 ? `${cd}${command}` : command)
+
+  // The dependency has to exist before any of the project's scripts resolve: `pnpm run up` shells
+  // out to `node_modules/.bin/home-hosted`, which `--no-install` deliberately leaves absent.
+  if (!install)
+    steps.push({ command: lead(installCommand(pm)), text: 'install the dependency' })
+  steps.push({ command: lead(runCommand(pm, 'up')), text: 'start the panel (default password `hh`)' })
+  steps.push({ command: null, text: 'then change that password under Global settings → Authentication, and add your servers' })
+  steps.push({ command: `${runCommand(pm, 'set-token')} --generate`, text: 'for scripts and agents' })
+  return steps
+}
+
+/**
  * The `cd` that reaches a scaffolded project, quoted for the shell it will be pasted into.
  *
  * The directory is the person's choice, and a space in it is ordinary — `C:\Users\Ann Lee`,
@@ -158,4 +194,14 @@ export function cdCommand(where: string): string {
 /** Install arguments for a scaffolded project (the manifest already lists the dependency). */
 export function installArgs(pm: PackageManager): string[] {
   return pm === 'yarn' ? [] : ['install']
+}
+
+/**
+ * The install command as a person types it — `pnpm install`, `yarn` with no argument.
+ *
+ * Distinct from `runCommand`, which runs one of the project's **scripts**: `npm run install` is not
+ * an install, it is a script named `install` that this manifest does not declare.
+ */
+export function installCommand(pm: PackageManager): string {
+  return [pm, ...installArgs(pm)].join(' ')
 }

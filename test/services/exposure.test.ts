@@ -72,6 +72,18 @@ describe('control panel exposure', () => {
     expect(checkExposure(control('lan', { enabled: false }), false).blockedReason).toContain('authentication is disabled')
   })
 
+  /**
+   * The sentence a person reads on their own settings page tells them what to do, so it has to name
+   * a command that exists. It said `pnpm run set-password`, which is this *repository's* shorthand:
+   * `pnpm run set-password` answers `ERR_PNPM_NO_SCRIPT` (measured), and a person who installed the
+   * package has no such script at all — the bin is `home-hosted`, with `hh` as its alias.
+   */
+  it('tells the person a command that exists', () => {
+    const reason = checkExposure(control('lan', { enabled: true }), false).blockedReason!
+    expect(reason).toContain('home-hosted set-password')
+    expect(reason, 'a repository script is not a command a user has').not.toContain('pnpm run')
+  })
+
   it('defaults to a local bind with authentication on', () => {
     const parsed = controlSchema({})
     expect(parsed instanceof type.errors).toBe(false)
