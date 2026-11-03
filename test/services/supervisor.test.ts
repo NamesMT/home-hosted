@@ -649,6 +649,36 @@ describe('supervisor', () => {
     expect(view(supervisor, 'twin').status).toBe('conflict')
   })
 
+  /**
+   * The refusal names the server to stop, not only the pid that holds the port.
+   *
+   * Measured on the built panel with 14 entries: `port 7101 is held by pid 135113, which this panel
+   * supervises — stop that server instead`. True, and not actionable: nothing in the sentence says
+   * which of the 14 rows to stop, and the person reading it is on one workspace page. The
+   * attribution comes from the same tree walk that decided the holder was ours, so a wrapper's
+   * descendant is credited to the entry that owns it.
+   */
+  it('names the server that owns a supervised port holder', async () => {
+    const port = await freePort()
+    const { supervisor } = await makeSupervisor([
+      httpServerConfig(port, { id: 'owner' }),
+      httpServerConfig(port, { id: 'twin' }),
+    ])
+
+    await supervisor.start('owner')
+    await waitForStatus(supervisor, 'owner', 'running')
+
+    const blocked = await supervisor.start('twin')
+    expect(blocked.ok).toBe(false)
+    expect(blocked.error, 'the sentence must name the entry to stop').toContain('/owner')
+    // And it must not name the entry that is asking, which would send the person in a circle.
+    expect(blocked.error).not.toContain('/twin')
+
+    const freed = await supervisor.freePort('twin')
+    expect(freed.ok).toBe(false)
+    expect(freed.error, 'free-port says the same thing').toContain('/owner')
+  })
+
   it('says so when there is nothing to free', async () => {
     const port = await freePort()
     const { supervisor } = await makeSupervisor([httpServerConfig(port, { onPortConflict: 'block' })])

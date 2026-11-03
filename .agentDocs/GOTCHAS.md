@@ -286,6 +286,11 @@ line in `AGENTS.md` instead.
   asks `child !== null || adopted`, so the *reading* covered adoption and only the action did not.
   Liveness is the predicate (`child !== null || (adopted && pid !== null)`), never how the entry came
   to be ours.
+- **A refusal that names a pid does not name what to do.** "held by pid 135113, which this panel
+  supervises — stop that server instead" was printed on a panel supervising 14 entries: true, and not
+  actionable, because nothing said which row. The attribution has to come from the walk that decided
+  the holder was ours (`processTreeOwners`) — a second scan could disagree with it, and the holder is
+  often a descendant (a nanny's child, a wrapper's real server) rather than the pid the panel records.
 - **A compose stack is not a process tree, so a memory ceiling on one watched nothing.** `docker
   compose up` is a wrapper; the containers it starts are in another namespace, not among its
   descendants. Measured: a stack whose container burned 99% CPU / 20.7 MB reported `cpuPercent: 0,

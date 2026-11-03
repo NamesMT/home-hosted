@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { processCarriesServerId, ProcessSampler, processTreePids, treeCpuUsedSeconds } from '#src/providers/proc'
+import { processCarriesServerId, ProcessSampler, processTreeOwners, processTreePids, treeCpuUsedSeconds } from '#src/providers/proc'
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -142,6 +142,37 @@ describe('processTreePids', () => {
     expect(pids.has(parent.pid)).toBe(true)
     expect(pids.has(grandchild)).toBe(true)
     expect(pids.has(process.pid)).toBe(false)
+  })
+
+  /**
+   * The walk also answers *whose* process each pid is, which is what a refusal names.
+   *
+   * The sentence used to be "held by pid 135113, which this panel supervises — stop that server
+   * instead" on a panel supervising 14 entries: true, and useless, because a pid does not say
+   * which row to stop. The attribution comes from the same scan (`processTreeOwners`), so the
+   * descendant — the process that actually holds a wrapped entry's port — is credited to the
+   * entry's root rather than to nobody.
+   */
+  it('attributes a grandchild to the root that owns it', async () => {
+    const parent = spawn(process.execPath, [
+      '-e',
+      'const { spawn } = require("node:child_process");const c = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });console.log(c.pid);setInterval(() => {}, 1000)',
+    ], { stdio: ['ignore', 'pipe', 'ignore'] })
+    children.push(parent)
+    if (parent.pid === undefined)
+      throw new Error('no pid')
+
+    const grandchild = await new Promise<number>((resolve, reject) => {
+      parent.stdout!.once('data', (chunk: { toString: () => string }) => resolve(Number.parseInt(chunk.toString().trim(), 10)))
+      parent.once('error', reject)
+    })
+    children.push({ kill: () => process.kill(grandchild, 'SIGKILL') } as unknown as ReturnType<typeof spawn>)
+
+    const owners = await processTreeOwners([parent.pid])
+    expect(owners.get(parent.pid)).toBe(parent.pid)
+    expect(owners.get(grandchild), 'the descendant that holds the port belongs to this root').toBe(parent.pid)
+    // And the pid set is the same answer, from the same walk.
+    expect([...owners.keys()].sort()).toEqual([...await processTreePids([parent.pid])].sort())
   })
 })
 

@@ -259,9 +259,28 @@ export function treeCpuUsedSeconds(
  * narrower behaviour rather than a wrong one.
  */
 export async function processTreePids(roots: number[]): Promise<Set<number>> {
-  const pids = new Set<number>(roots)
+  return new Set((await processTreeOwners(roots)).keys())
+}
+
+/**
+ * The same walk, keeping *which root* each pid belongs to.
+ *
+ * A refusal has to name the server to go and stop, and a pid on its own is not that: the panel
+ * supervised 14 entries and told the operator "held by pid 135113, which this panel supervises —
+ * stop that server instead", with no way to tell which of the 14 it meant. The tree loses that
+ * fact, so the attribution is collected here, where the walk already happens, rather than by a
+ * second scan.
+ *
+ * When two roots are nested, the ancestor keeps the pid: it is the older claim and still true.
+ */
+export async function processTreeOwners(roots: number[]): Promise<Map<number, number>> {
+  const owners = new Map<number, number>()
+  for (const root of roots) {
+    if (!owners.has(root))
+      owners.set(root, root)
+  }
   if (roots.length === 0)
-    return pids
+    return owners
 
   try {
     const rows = await readProcesses()
@@ -272,14 +291,17 @@ export async function processTreePids(roots: number[]): Promise<Set<number>> {
       children.set(row.ppid, siblings)
     }
     for (const root of roots) {
-      for (const pid of collectTree(root, children)) pids.add(pid)
+      for (const pid of collectTree(root, children)) {
+        if (!owners.has(pid))
+          owners.set(pid, root)
+      }
     }
   }
   catch {
     // Sampling already treats an unreadable table as "nothing to say".
   }
 
-  return pids
+  return owners
 }
 
 /**
