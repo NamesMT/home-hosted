@@ -747,3 +747,12 @@ line in `AGENTS.md` instead.
   stdout`), so the assertion passed whichever one carried the text, and the `logs` capture spied only
   on stdout, so moving the line to stderr made its guard fail on the fix rather than on a regression.
   A test for "which stream" has to keep the two apart and assert the other one is *empty*.
+- **A flag dropped on the "already done" path is the same defect as one parsed and ignored.** `up` on
+  a live panel printed "already running" and exited 0 — correct for its common use, "make sure it is
+  running" — but it dropped `--port`, `--host` and `--open` on the way: measured on the built CLI
+  with a panel live on 6611, `up --port 4800` exited 0 with the panel still on 6611, so a deploy
+  script branching on `$?` concluded the move happened. The decision is a pure function
+  (`alreadyRunningConflict`) rather than a spawned daemon, so the sentence is pinned without one.
+  **`--no-autostart` is the exception and must stay accepted**: it expresses a wish about a boot this
+  command is not performing, so there is nothing to honour or refuse, and refusing it would break the
+  retry loop `up --no-autostart` exists for.

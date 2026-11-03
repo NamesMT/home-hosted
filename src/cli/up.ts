@@ -56,6 +56,41 @@ export function toUpFlags(args: RawUpArgs): UpFlags {
   }
 }
 
+/**
+ * Which `up` flags the live panel contradicts, as one sentence — or `null` when it agrees.
+ *
+ * `up` on a live panel reports "already running" and exits 0, which is right: the common use is
+ * "make sure it is running". But it used to swallow `--port`, `--host` and `--open` on that path,
+ * so `up --port 4800` against a panel on 3999 printed a success line and exited 0 having changed
+ * nothing — a deploy script reading `$?` concluded the port move worked. AGENTS.md settles the
+ * direction: a flag the command cannot honour is refused, and `restart --workspace` without an id
+ * already exits 1 for the same reason. `--open` is refused too, because it is not "make sure it is
+ * running" either — it asks for a browser, and none opens on a panel this command did not start.
+ *
+ * `--no-autostart` is deliberately **not** here. It is not contradicted by the live panel: it
+ * expresses a wish about a boot this command is not performing, and the panel has already booted,
+ * so there is nothing to honour or refuse. Refusing it would break `up --no-autostart` in a retry
+ * loop, which is the one spelling a script uses to keep its hands off the entries.
+ */
+export function alreadyRunningConflict(flags: UpFlags, runtime: { url: string, port: number }): string | null {
+  const asked: string[] = []
+  if (flags.port !== undefined && flags.port !== runtime.port)
+    asked.push(`--port ${flags.port}`)
+  if (flags.host !== undefined)
+    asked.push(`--host ${flags.host}`)
+  if (flags.open)
+    asked.push('--open')
+
+  if (asked.length === 0)
+    return null
+
+  const what = asked.join(' and ')
+  // "so --port 4800 it was not honoured" is not English: one flag reads "was not", several "were
+  // not", and the flag names are the subject either way.
+  const clause = asked.length === 1 ? `${what} was not honoured` : `${what} were not honoured`
+  return `home-hosted is already running at ${runtime.url} — ${clause}. Stop it and start it again with those flags, or use \`${invocation()} restart\` to move it.`
+}
+
 export async function runUp(flags: UpFlags, entry: string): Promise<void> {
   // `--print-config` reports the effective config and returns; it never detaches,
   // because there would be a daemon left with nothing to serve.
@@ -78,6 +113,14 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
 
   const existing = readRuntime()
   if (existing !== null && await runtimeIsAlive(existing)) {
+    // A flag this path cannot honour is refused, and a refusal is one message on one stream: the
+    // whole thing — where the panel is, which flag was dropped, what to run — goes to stderr, so
+    // stdout stays empty and a script reading it does not see a success line for a move that did
+    // not happen.
+    const conflict = alreadyRunningConflict(flags, existing)
+    if (conflict !== null)
+      fail(conflict)
+
     process.stdout.write(`${green('already running')} home-hosted ${existing.version} (pid ${existing.pid}) at ${existing.url}\n`)
     const note = versionMismatchNote(existing.version)
     if (note !== null)

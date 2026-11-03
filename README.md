@@ -442,6 +442,11 @@ A misspelled command or option names the one you meant — `home-hosted restar` 
 `did you mean \`restart\`?`, and `up --prt 4000` answers `did you mean \`--port\`?`. Both stay quiet
 when nothing is close, rather than guessing.
 
+`up` on a panel that is already running says where it is and exits 0 — the common use is "make sure
+it is running". A flag that panel contradicts is refused instead, because it would otherwise be
+parsed and dropped: `up --port 4800` against a panel on 3999 exits 1 saying so, and `up --no-autostart`
+is fine (the panel has already booted, so there is nothing to honour).
+
 </details>
 
 <details>
