@@ -22,19 +22,65 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-/** Binds port 0 so the OS picks, then waits for the port to be genuinely free again. */
+/** Ports this file has already handed out, so a parallel test cannot be given the same one. */
+const handedOut = new Set<number>()
+
+/**
+ * Binds port 0 so the OS picks, then waits for the port to be genuinely free again.
+ *
+ * Two tests running in parallel can be handed the *same* ephemeral port a moment apart, which is
+ * how `reports a restart failure…` failed under the full suite with `EADDRINUSE` while passing
+ * alone. The kernel offers no way to reserve a port for later, so this keeps the ports this file
+ * used and asks again on a collision — a fresh `listen(0)` each time, plus the 150 ms drain the
+ * just-closed listener needs.
+ */
 async function freePort(): Promise<number> {
-  const port = await new Promise<number>((resolve, reject) => {
-    const server = net.createServer()
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address() as net.AddressInfo
-      server.close(() => resolve(address.port))
+  for (let tries = 0; tries < 10; tries++) {
+    const port = await new Promise<number>((resolve, reject) => {
+      const server = net.createServer()
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address() as net.AddressInfo
+        server.close(() => resolve(address.port))
+      })
     })
+    // A just-closed listener can still complete a handshake for a moment.
+    await new Promise(resolve => setTimeout(resolve, 150))
+    if (handedOut.has(port))
+      continue
+    // Bound-then-closed is also a moment where another process may already hold it.
+    if (!await canBind(port))
+      continue
+    handedOut.add(port)
+    return port
+  }
+  throw new Error('could not find a free, unused port in 10 attempts')
+}
+
+/** Whether a listener can actually bind this port right now. */
+async function canBind(port: number): Promise<boolean> {
+  return await new Promise<boolean>((resolve) => {
+    const probe = net.createServer()
+    probe.once('error', () => resolve(false))
+    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)))
   })
-  // A just-closed listener can still complete a handshake for a moment.
-  await new Promise(resolve => setTimeout(resolve, 150))
-  return port
+}
+
+/** Listens on `port`, retrying with a fresh one when a parallel test took it first. */
+async function listenRetrying(make: (port: number) => net.Server, port: number): Promise<{ server: net.Server, port: number }> {
+  let attempt = port
+  for (let tries = 0; tries < 5; tries++) {
+    const server = make(attempt)
+    const bound = await new Promise<boolean>((resolve) => {
+      server.once('error', () => resolve(false))
+      server.listen(attempt, '127.0.0.1', () => resolve(true))
+    })
+    if (bound)
+      return { server, port: attempt }
+    server.close()
+    attempt = await freePort()
+  }
+  throw new Error(`no free port after 5 attempts, last tried ${port}`)
 }
 
 interface Probe {
@@ -214,14 +260,10 @@ describe('control server', () => {
     await server.start()
 
     // Steal the port while nobody is listening on it, then ask for a restart.
-    const squatter = net.createServer()
-    cleanups.push(async () => {
-      await new Promise<void>(resolve => squatter.close(() => resolve()))
-    })
     await server.close()
-    await new Promise<void>((resolve, reject) => {
-      squatter.once('error', reject)
-      squatter.listen(port, '127.0.0.1', () => resolve())
+    const squatter = await listenRetrying(() => net.createServer(), port)
+    cleanups.push(async () => {
+      await new Promise<void>(resolve => squatter.server.close(() => resolve()))
     })
 
     const result = await server.restart()
