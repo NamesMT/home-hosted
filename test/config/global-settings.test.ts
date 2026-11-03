@@ -193,6 +193,45 @@ describe('globalSettingsStore', () => {
     expect(store.pendingMigrations).toEqual([])
   })
 
+  /**
+   * A file that is not JSON has no schema to migrate.
+   *
+   * The startup guard prints `pendingMigrations` as "run migrate", and `migrate` refuses a file it
+   * cannot read — so a broken file must not reach that list, or the person is sent to the one
+   * command guaranteed not to help. It read as a migration candidate because a failed read leaves
+   * `schemaVersion` at `UNSTAMPED_SCHEMA`, which always has a step to run, while only the message
+   * was kept. The workspace pair got this rule in 5e92629; the global file, which the startup guard
+   * reads *first*, kept the old shape.
+   *
+   * The file is broken **before** the store is built: a store that read a good file first carries
+   * that read's `schemaVersion`, and the defect is invisible.
+   */
+  it('does not claim a migration for a file that cannot be parsed', async () => {
+    const dir = await tempDir()
+    const file = path.join(dir, 'settings.json')
+    await fs.promises.writeFile(file, '{ nope')
+    const store = new GlobalSettingsStore(file)
+    store.load()
+
+    expect(store.configError).toContain('cannot parse')
+    expect(store.pendingMigrations, '`migrate` cannot lift a file it cannot read').toEqual([])
+  })
+
+  it('clears the parse verdict once the file reads again', async () => {
+    const dir = await tempDir()
+    const file = path.join(dir, 'settings.json')
+    await fs.promises.writeFile(file, '{ nope')
+    const store = new GlobalSettingsStore(file)
+    store.load()
+    expect(store.pendingMigrations).toEqual([])
+
+    await fs.promises.writeFile(file, configJson({ control: { port: 4100 } }))
+    store.load()
+
+    expect(store.configError).toBeNull()
+    expect(store.pendingMigrations).toEqual([])
+  })
+
   it('reads a settings file written before the proxy existed', async () => {
     const { store } = await makeStore({ control: { port: 3999 } })
 

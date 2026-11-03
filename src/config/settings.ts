@@ -38,6 +38,8 @@ export class GlobalSettingsStore {
   private lastText: string | null = null
   private resolvedConfig!: ResolvedGlobalConfig
   private error: string | null = null
+  /** A JSON parse failure, kept apart from a schema problem so `apply()` cannot clear it. */
+  private parseError: string | null = null
   private warnings: string[] = []
   private schemaVersion = UNSTAMPED_SCHEMA
   private readonly listeners = new Set<() => void>()
@@ -81,8 +83,19 @@ export class GlobalSettingsStore {
     return this.schemaVersion
   }
 
-  /** Steps that would have to run before this release could use the file. */
+  /**
+   * Steps that would have to run before this release could use the file.
+   *
+   * A file that cannot be **parsed** has no schema to plan from, and `migrate` refuses one it
+   * cannot read rather than lifting it — so claiming a migration here sends the person to the one
+   * command guaranteed not to help. Measured: a truncated `.hh/settings.json` made `up` say
+   * "needs 1 migration(s)" and `migrate` answer "cannot read … Unexpected end of JSON input". The
+   * workspace pair already excluded the parse failure (`WorkspaceStore.pendingMigrations`); this is
+   * the same rule on the global file, which is the one the startup guard reads first.
+   */
   get pendingMigrations() {
+    if (this.parseError !== null)
+      return []
     return planConfigMigrations(this.schemaVersion).steps
   }
 
@@ -124,6 +137,9 @@ export class GlobalSettingsStore {
   }
 
   private read(): void {
+    // Cleared up front so both branches answer the same question: a file that reads cleanly now is
+    // not still "unparseable" from the read before it.
+    this.parseError = null
     if (!fs.existsSync(this.file)) {
       const seed = stampConfig(structuredClone(this.seed))
       const text = `${JSON.stringify(seed, null, 2)}\n`
@@ -142,6 +158,7 @@ export class GlobalSettingsStore {
     }
     catch (error) {
       this.error = `cannot parse ${path.basename(this.file)}: ${(error as Error).message}`
+      this.parseError = this.error
       if (this.resolvedConfig === undefined) {
         this.raw = {}
         this.resolvedConfig = this.resolveFallback()
