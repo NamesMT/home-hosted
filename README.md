@@ -165,6 +165,8 @@ data/                                   # per-server data directories, declared 
 ```
 
 One clone, `pnpm install --frozen-lockfile`, `pnpm run up` — the setup is up on any machine with Node.
+A project scaffolded with `--no-install` has no lockfile to freeze against (`init` writes one only
+when it installs), so there `pnpm install` is the command that creates it.
 Worked example, with per-server data inside the project:
 **[hhosted-ai-pack](https://github.com/NamesMT/hhosted-ai-pack)**.
 
@@ -528,6 +530,12 @@ and any refusal's sentence, plus any list it explains, goes to stderr. A non-zer
 on stdout is not a contradiction: `status --json` answers `{"running": false, …}` and exits 1 because
 that *is* the answer to "is it running", and `backup restore --json` prints a plan carrying its
 refusal in `error` so a script can read either. Branch on the exit code, then on the document.
+
+**`status` answers "is the process there", not "is it serving".** A panel wedged on a stopped kernel
+thread still exists: it reports `running: true` with `"answering": false` and exits **0**. Anything
+that waits for the panel to *serve* must read `answering`, or accept `"liveness": "live"` as
+liveness only. `running: false` exits 1 and carries `liveness` — `gone` for a dead pid, `recycled`
+for a number the OS gave to something else.
 
 </details>
 

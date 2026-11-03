@@ -159,7 +159,7 @@ an error rather than a request that quietly ran against the default workspace.
 | `POST /api/servers/:id/{start,stop,restart}`, `/api/servers/{start-all,stop-all}` | lifecycle (workspace-scoped) |
 | `POST /api/servers/:id/free-port` | ask whatever holds that server's port to stop (`409` when nothing can be freed — a supervised listener is refused, never killed) |
 | `POST /api/servers/:id/clear-logs` | forget the buffered lines; the file on disk is cleared separately through `DELETE /api/logs/:id` |
-| `GET` / `POST /api/servers`, `PATCH` / `DELETE /api/servers/:id` | the entries themselves, in one workspace |
+| `GET` / `POST /api/servers`, `PATCH` / `PUT` / `DELETE /api/servers/:id` | the entries themselves, in one workspace. `PUT` is create-or-replace (201 then 200) and is the idempotent form a convergence script wants; **it writes the config only**, so replacing a *running* entry's `command`/`args` leaves the old process running — call `POST /api/servers/:id/restart` for that. `PUT` also takes a full body, unlike `PATCH` |
 | `GET /api/logs`, `/api/logs/:id?tail=&search=`, `/api/logs/:id/download?file=` | persisted logs, for one workspace |
 | `GET` / `PATCH /api/settings` | the panel-wide settings (`control.label`, host thresholds, backups, UI). `backups.schedule.scope` is what an automatic archive captures — `{ mode: 'only', ids }` or `{ mode: 'except', ids }`; **absent means the whole default scope**, so read a missing one as everything and send `null` to clear it |
 | `GET` / `PATCH /api/settings/workspace` | one workspace's settings: server defaults, log retention, notifications |
