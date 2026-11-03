@@ -349,7 +349,11 @@ describe('down --with-persistent', () => {
       const result = await runCli(['down'])
 
       expect(result.status, 'a stop that failed must not exit 0').toBe(1)
-      expect(result.stderr + result.stdout).toContain('could not stop pid 1')
+      // The refusal and its remedy are one message on one stream, and that stream is stderr.
+      // Printed to stdout, a script reading `down`'s output saw the failure where success goes.
+      expect(result.stderr, 'the refusal belongs on stderr').toContain('could not stop pid 1')
+      expect(result.stderr, 'the remedy is part of the refusal').toContain('kill -9 1')
+      expect(result.stdout, 'stdout carries only an answer, and this is not one').not.toContain('could not stop pid 1')
       // The claim has to be withdrawn: no "stopped" on the success path.
       expect(result.stdout).not.toContain('stopped (forced)')
       // The record is the only handle on a panel that is still alive — deleting it was the harm.

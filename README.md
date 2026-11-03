@@ -516,8 +516,11 @@ the move on its first run; 0.8.0 then starts against the result.
 Piping a command into `head`, `grep -q` or anything that stops reading early is ordinary shell and it
 works: the command exits **0**, not with a broken-pipe error, so `set -o pipefail` stays happy.
 
-`--json` writes one document to stdout on success and nothing to stdout on a refusal — the reason, and
-any list it explains, go to stderr, so a script can parse stdout without filtering prose out of it.
+`--json` writes **one JSON document to stdout, or nothing** — never prose a parser would choke on —
+and any refusal's sentence, plus any list it explains, goes to stderr. A non-zero exit with a document
+on stdout is not a contradiction: `status --json` answers `{"running": false, …}` and exits 1 because
+that *is* the answer to "is it running", and `backup restore --json` prints a plan carrying its
+refusal in `error` so a script can read either. Branch on the exit code, then on the document.
 
 </details>
 

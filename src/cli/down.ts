@@ -3,7 +3,7 @@ import type { StopConfig } from '#src/shared/contracts'
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { delay, dim, green, paint } from '#src/cli/io'
+import { delay, dim, green, paint, refusal } from '#src/cli/io'
 import { versionMismatchNote } from '#src/helpers/version'
 
 /**
@@ -115,8 +115,11 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
   // so `down && up` in a deploy script proceeded against a live panel. The graceful branch above
   // already asks this question before it clears; the forced branch is the one path that skipped it.
   if (!await waitForExit(runtime.pid, 5000)) {
-    process.stdout.write(`${paint('31', 'error')} could not stop pid ${runtime.pid} — it is still running, and its record was kept\n`)
-    process.stdout.write(`${dim(`stop it yourself with \`kill -9 ${runtime.pid}\` (Windows: \`taskkill /PID ${runtime.pid} /T /F\`), then run \`down\` again`)}\n`)
+    // Both lines are the refusal, and a refusal is one message on one stream (stderr): the remedy
+    // is part of the reason. Printed to stdout it read as the command's answer, so a `down` in a
+    // script — where stdout is the record — showed the failure in the same place success goes.
+    refusal(`could not stop pid ${runtime.pid} — it is still running, and its record was kept`)
+    process.stderr.write(`${dim(`stop it yourself with \`kill -9 ${runtime.pid}\` (Windows: \`taskkill /PID ${runtime.pid} /T /F\`), then run \`down\` again`)}\n`)
     process.exitCode = 1
     return finish()
   }

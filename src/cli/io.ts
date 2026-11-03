@@ -94,6 +94,20 @@ export function fail(message: string): never {
   process.exit(1)
 }
 
+/**
+ * The same red `error <message>` line on stderr, for a refusal that still has something to do
+ * afterwards — `logs --json` has already written its document, and `down` has a persistent sweep to
+ * report. `fail()` cannot serve those because it exits.
+ *
+ * **Every refusal goes to stderr**, whether or not the command has more to say: a `--json` caller
+ * parses stdout, so a refusal written there makes stdout not-a-document — a script sees prose where
+ * it expected JSON. `logs` printed its unreadable-file refusal on stdout while the exit code said 1,
+ * and `down` printed "could not stop pid N" there too. Both go through here now.
+ */
+export function refusal(message: string): void {
+  process.stderr.write(`${paint('31', 'error')} ${message}\n`)
+}
+
 export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }

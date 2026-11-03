@@ -80,22 +80,37 @@ describe('runLogs', () => {
     vi.resetModules()
   })
 
-  async function capture(home: string, input: { lines?: string, json?: boolean }): Promise<string> {
+  /**
+   * Both streams, kept apart: which one a refusal lands on is part of the contract, so a capture
+   * that folds them together cannot see the bug this suite exists to catch. `capture` returns
+   * stdout as it always did; `captureStreams` is for the cases where the split is the assertion.
+   */
+  async function captureStreams(home: string, input: { lines?: string, json?: boolean }): Promise<{ stdout: string, stderr: string }> {
     process.env.HHOSTED_HOME = home
     vi.resetModules()
     const { runLogs } = await import('#src/cli/logs')
-    const wrote: string[] = []
-    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
-      wrote.push(String(chunk))
+    const out: string[] = []
+    const err: string[] = []
+    const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      out.push(String(chunk))
+      return true
+    })
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      err.push(String(chunk))
       return true
     })
     try {
       await runLogs(input)
     }
     finally {
-      spy.mockRestore()
+      outSpy.mockRestore()
+      errSpy.mockRestore()
     }
-    return wrote.join('')
+    return { stdout: out.join(''), stderr: err.join('') }
+  }
+
+  async function capture(home: string, input: { lines?: string, json?: boolean }): Promise<string> {
+    return (await captureStreams(home, input)).stdout
   }
 
   function home(contents: string | null, rotated: string | null = null): string {
@@ -236,13 +251,17 @@ describe('runLogs', () => {
 
     fs.chmodSync(file, 0o000)
     try {
-      const output = await capture(root, {})
-      expect(output, 'an unreadable log must not read as "no output yet"').not.toContain('no output yet')
-      expect(output).toContain('cannot read')
-      expect(output).toContain(file)
+      const { stdout, stderr } = await captureStreams(root, {})
+      // A refusal is one message on one stream: stdout is the answer, so the reason and the path
+      // it is about go to stderr. Written to stdout, a script reading this command's output could
+      // not tell a permission problem from a line of the log it asked for.
+      expect(stderr, 'the refusal belongs on stderr, not in the answer').toContain('cannot read')
+      expect(stderr).toContain(file)
+      expect(stdout, 'stdout carries only an answer, and there is none to give').toBe('')
 
       // `--json` must agree. It used to answer `{ lines: [] }` because the check sat below that
-      // branch, so the two forms of one command disagreed about the same file.
+      // branch, so the two forms of one command disagreed about the same file. The document stays
+      // on stdout here: `error` is the key a JSON consumer reads.
       const json = JSON.parse(await capture(root, { json: true })) as { lines?: unknown[], error?: string }
       expect(json.error, 'the JSON form must report the refusal, not an empty log').toBe('unreadable')
       expect(json.lines).toBeUndefined()

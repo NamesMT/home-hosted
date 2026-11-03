@@ -740,3 +740,10 @@ line in `AGENTS.md` instead.
   `c.req.query('withPersistent')` raw, which strictness would have turned into a `400` for the flag
   the route exists to accept — the fix for the typo would have broken the feature, so that route
   declares the key instead.
+- **A refusal that has more to say still belongs on stderr.** `logs` printed its unreadable-file
+  refusal with `process.stdout.write('error cannot read …')` while exiting 1, and `down` printed
+  "could not stop pid N" — plus the remedy — there too. Both go through `refusal()` (`src/cli/io.ts`)
+  now. The shape that hides this: the test captured **both** streams and joined them (`stderr +
+  stdout`), so the assertion passed whichever one carried the text, and the `logs` capture spied only
+  on stdout, so moving the line to stderr made its guard fail on the fix rather than on a regression.
+  A test for "which stream" has to keep the two apart and assert the other one is *empty*.

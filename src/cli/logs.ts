@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, fail, paint } from '#src/cli/io'
+import { bold, dim, fail, refusal } from '#src/cli/io'
 import { errorMessage } from '#src/shared/error-message'
 
 /** `logs` answers "what has the panel been saying" — the file `up` redirects it into. */
@@ -108,7 +108,11 @@ export async function runLogs(input: { lines?: string, follow?: boolean, json?: 
       process.stdout.write(`${JSON.stringify({ path: daemonLogPath, error: 'unreadable' }, null, 2)}\n`)
     }
     else {
-      process.stdout.write(`${paint('31', 'error')} cannot read ${daemonLogPath} — check its permissions\n`)
+      // The refusal goes to **stderr**: stdout is the answer, and a script reading a diagnostic
+      // command's output must not have to tell a permission problem from a line of the log. The
+      // `--json` branch above keeps its document on stdout because that *is* the answer — `error`
+      // is the key a JSON consumer reads there.
+      refusal(`cannot read ${daemonLogPath} — check its permissions`)
     }
     process.exitCode = 1
     return
