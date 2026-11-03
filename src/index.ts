@@ -98,7 +98,12 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   const existing = readRuntime()
   // A live pid is not proof the panel is up: the OS recycles pids, and a stale record's own
   // `startedAt` is what tells this daemon from whatever inherited the number.
-  if (existing !== null && existing.pid !== process.pid && await runtimeIsAlive(existing)) {
+  //
+  // `--print-config` starts nothing, so it is not the second panel this guard exists to stop: it
+  // answers "already running" on the one home a person most wants to inspect — the live one — and
+  // exited 1 there while `up --print-config` promises only to print and exit. Every other guard
+  // below still runs, so a config this release would refuse is still reported.
+  if (!options.printConfig && existing !== null && existing.pid !== process.pid && await runtimeIsAlive(existing)) {
     logger.error(`already running (pid ${existing.pid}) at ${existing.url} — run \`home-hosted down\` first`)
     process.exit(1)
   }
@@ -186,6 +191,20 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     { host: intended.host, port: intended.port, tls: settings.control.tls.enabled },
   )
 
+  // `--print-config` prints what the panel would read and starts nothing. It returns *here*, before
+  // the branch below arms a boot password: "show me my config" on a fresh home used to write
+  // `.control-secrets.json` with the default `hh` in it, so a command that promises to print and
+  // exit left a credential behind and made the next real `up` start on the boot password.
+  // A listener this release would refuse is reported as a warning rather than a refusal, because the
+  // config is exactly what the person asked to see.
+  if (options.printConfig) {
+    const planned = checkExposure({ ...configured, host: intended.host }, auth.passwordSet, auth.usingDefaultPassword)
+    if (planned.blockedReason !== null)
+      logger.warn(`this config would be refused at startup: ${planned.blockedReason}`)
+    printEffectiveConfig(settings, registry)
+    return
+  }
+
   // Auth is on by default, so a first boot needs *a* password; the default is
   // deliberately weak and flagged, which keeps LAN/exposure binding blocked (and
   // is announced on the login page) until it is changed.
@@ -206,11 +225,6 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   const trustWarning = proxyTrustWarning({ ...configured, host: intended.host })
   if (trustWarning !== null)
     logger.warn(trustWarning)
-
-  if (options.printConfig) {
-    printEffectiveConfig(settings, registry)
-    return
-  }
 
   if (!(await isPortFree(intended.port))) {
     // The question this used to ask — "is another home-hosted running?" — is answerable from what
