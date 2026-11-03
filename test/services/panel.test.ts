@@ -950,6 +950,46 @@ describe('panelService', () => {
   })
 
   /**
+   * A hand edit that lowers `logs.keep` must delete the rotations above it, exactly as the settings
+   * page does.
+   *
+   * Both surfaces edit the same file — the panel writes it, a person writes it — and the docs say
+   * lowering `keep` deletes the rotations above the new ceiling. Only the HTTP route called
+   * `prune()`; `handleConfigChange` reloaded the store and never did, so a person who lowered the
+   * ceiling by editing `settings.json` (the way the same page's docs invite) kept every rotation
+   * until the entry next filled a file, which on a quiet server can be days. Measured: `keep` 5 -> 2
+   * in `settings.json`, `.3`…`.5` still on disk after the watcher had reloaded.
+   */
+  it('prunes the rotations a hand-lowered `keep` no longer covers', async () => {
+    const { panel, dispose } = await makeHarness()
+
+    try {
+      const runtime = panel.requireWorkspace('default')
+      const logsDir = runtime.logsDir
+      fs.mkdirSync(logsDir, { recursive: true })
+      for (let index = 1; index <= 5; index++)
+        fs.writeFileSync(path.join(logsDir, `web.log.${index}`), '{}\n')
+      fs.writeFileSync(path.join(logsDir, 'web.log'), '{}\n')
+
+      // The ceiling as a person lowering it by hand writes it.
+      fs.writeFileSync(runtime.store.settingsPath, JSON.stringify({
+        $schema: './settings.schema.json',
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
+        logs: { persist: true, maxBytes: 10000, keep: 2 },
+      }, null, 2))
+
+      // What the watcher does on the next poll.
+      panel.reloadAll()
+
+      const left = fs.readdirSync(logsDir).filter(name => name.startsWith('web.log.')).sort()
+      expect(left, `rotations left after a hand edit: ${left.join(', ')}`).toEqual(['web.log.1', 'web.log.2'])
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  /**
    * A restore ends with `reloadAll()`, and `store.load()` resets the byte baseline the
    * config watcher compares against. The poll that follows therefore reports "no change",
    * so the autostart pass in `handleConfigChange` never ran and a restored entry stayed

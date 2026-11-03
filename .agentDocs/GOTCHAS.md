@@ -672,6 +672,12 @@ line in `AGENTS.md` instead.
   to the server and falls back to http with a warning. `status()` reports the mismatch as an `error`
   too, or `keyMatches: false` with a null error reads as "enabled and fine".
 
+- **A retention knob has one promise and two writers.** "Lowering it deletes the ones above it" was
+  true only of the HTTP settings route, which calls `prune()` at save; `handleConfigChange` and
+  `reloadAll` reloaded the store and stopped there, so a `settings.json` hand edit left `.3`…`.5`
+  under a `keep: 2` — measured on the built panel, files untouched after the watcher had reloaded.
+  The doc invites both ways of editing the same file, so the prune belongs on every path that can
+  lower the ceiling (`pruneLogs`), not on the one surface that was written first.
 - **A retention knob bounds the directory, not the number a loop renames to.** `keep` is how many
   rotations a person agreed to store, so three readers must agree with `readdir`: the list, the size
   and the tail. `rotate` only renames *up* to the ceiling, so lowering it left `.5`…`.10` on disk

@@ -428,6 +428,9 @@ restart needed:
   exact path and the running config is left alone. Fix it and it reloads on its own — a typo never
   stops a server.
 
+- **A lowered `logs.keep`** deletes the rotations above it on the next reload, the same as saving it
+  in the panel. Both edit one file, so both mean the same thing.
+
 A save from the panel's own UI is the panel's write: it replaces the file, so hand-edits made while
 it runs are lost by that next save. Edit, then let the panel read it back, before using the UI.
 

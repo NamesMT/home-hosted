@@ -379,10 +379,31 @@ export class PanelService {
       const before = new Set(runtime.store.servers.map(server => server.id))
       runtime.store.load()
       runtime.history.load()
+      this.pruneLogs(runtime)
       this.reportWorkspaceErrors(runtime.id)
       this.startRestored(runtime, before)
     }
     this.scheduleState()
+  }
+
+  /**
+   * Applies a lowered `logs.keep` to the files already on disk, after any reload.
+   *
+   * `keep` bounds the directory, not the next rotation — and a quiet entry may not fill a file for
+   * days, so "I lowered it" must not mean "eventually". The HTTP settings route always did this;
+   * the hand-edit paths (`handleConfigChange`, `reloadAll`) reloaded the store and stopped there, so
+   * a `settings.json` edit left `.3`…`.5` sitting under a `keep: 2` that the same docs invite a
+   * person to write. One derivation, called from every path that can lower it, because pruning is
+   * idempotent and cheap: it is one `readdir` per workspace.
+   */
+  private pruneLogs(runtime: WorkspaceRuntime): void {
+    try {
+      runtime.logFiles.prune()
+    }
+    catch (error) {
+      // A directory that cannot be listed is reported by the Logs page, not by a reload.
+      logger.warn(`workspace "${runtime.id}": could not prune the log rotations: ${errorMessage(error)}`)
+    }
   }
 
   /** Starts the autostart entries a reload just revealed, exactly as a hand edit would. */
@@ -536,6 +557,10 @@ export class PanelService {
       this.scheduleState()
       return
     }
+
+    // A hand edit can lower `logs.keep`; the settings route prunes at save, and this is the same
+    // intent arriving through the file instead.
+    this.pruneLogs(runtime)
 
     const added = runtime.store.servers.filter(server => !before.has(server.id))
     const removed = [...before].filter(serverId => !runtime.store.getServer(serverId))
