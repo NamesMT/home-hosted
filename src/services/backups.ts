@@ -20,6 +20,7 @@ import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
+import { isProcessAlive } from '#src/providers/port'
 import { serverTemplateVars } from '#src/services/supervisor'
 import { scopeSelection, selectionOf } from '#src/shared/backup-scope'
 import { workspaceIdSchema } from '#src/shared/contracts'
@@ -45,6 +46,32 @@ const PENDING_LOAD = 'pending-load'
 const AUTO_PREFIX = 'auto'
 /** A workspace leaf that carries state the panel re-reads after a restore. */
 const RELOADABLE = /^global:settings$|^workspace:[^:]+:(?:settings|servers)$/
+
+/**
+ * A staging tree's name, carrying the pid that owns it.
+ *
+ * The timestamp keeps two runs in one process apart; the pid is what lets a later run tell a dead
+ * one's debris from a live one's capture (see `sweepStaging`). `kind` names which tree it is, so a
+ * capture and a restore left by the same pid are two directories rather than one.
+ */
+function stagingDirName(kind: 'staging' | 'restore'): string {
+  return `.${kind}-${process.pid}-${Date.now()}`
+}
+
+/**
+ * The pid a staging directory belongs to, or null for any other name.
+ *
+ * A name with no pid in it is deliberately **not** guessed at: `.staging-1793809562025` is what
+ * this release wrote before the owner was recorded, and an age is not proof its writer is gone.
+ * Leaving it is the honest answer, and it is why a name that carries no owner is left alone.
+ */
+function stagingOwner(name: string): number | null {
+  const match = /^\.[a-z]+-(\d+)-\d+$/.exec(name)
+  if (match === null)
+    return null
+  const pid = Number.parseInt(match[1]!, 10)
+  return Number.isInteger(pid) && pid > 0 ? pid : null
+}
 
 /**
  * The English wording and catalog key of each known secret. A key missing here is still
@@ -748,7 +775,10 @@ export class BackupService {
 
     const dir = this.resolveDir()
     const sources = this.options.getSources()
-    const staging = path.join(dir, `.staging-${Date.now()}`)
+    // The pid is what makes a leftover reclaimable: a `SIGKILL` during the copy returns nothing, so
+    // the `catch` below never runs and its tree survives. Naming the owner is the only durable way
+    // for a later run to tell debris from another run's live capture.
+    const staging = path.join(dir, stagingDirName('staging'))
     const createdAt = Date.now()
     // Milliseconds matter: two backups in the same second must not collide.
     const prefix = options.automatic === true ? AUTO_PREFIX : 'backup'
@@ -896,6 +926,8 @@ export class BackupService {
 
       fs.rmSync(staging, { recursive: true, force: true })
       this.prune()
+      // A successful run is the one moment this service knows a dead run's tree is not in use.
+      this.sweepStaging()
 
       const stats = fs.statSync(destination)
       this.flags.set(name, { key: `${stats.size}:${Math.round(stats.mtimeMs)}`, encrypted: password !== null })
@@ -968,7 +1000,7 @@ export class BackupService {
       return { ...plan, error: admitted.error }
     const entries = admitted.entries
 
-    const staging = path.join(this.resolveDir(), `.restore-${Date.now()}`)
+    const staging = path.join(this.resolveDir(), stagingDirName('restore'))
 
     try {
       plan.encrypted = entries.some(entry => entry.encrypted)
@@ -1499,6 +1531,9 @@ export class BackupService {
     }
     finally {
       fs.rmSync(staging, { recursive: true, force: true })
+      // Same reason as `create`'s: a killed restore leaves an unpacked archive behind, and this is
+      // the next moment the directory is known not to be in use.
+      this.sweepStaging()
     }
   }
 
@@ -1631,6 +1666,47 @@ export class BackupService {
         ? path.dirname(path.resolve(this.options.dataRoot))
         : String(serverTemplateVars(first).dataRoot ?? projectDir),
       home: os.homedir(),
+    }
+  }
+
+  /**
+   * Reclaims the staging trees a killed backup left behind.
+   *
+   * `create()` removes its staging on success and in a `catch`, which covers every failure it can
+   * observe — but a `SIGKILL`, a power cut or a container stop never returns to run the `catch`.
+   * Measured on a real home with a 60 MB data path: two interrupted runs left two `.staging-*`
+   * trees, **121 MB** beside a single 184 B archive. `scan()` filters on `.zip` and `prune()` walks
+   * `list()`, so nothing listed them and nothing removed them — the debris of a failed attempt
+   * holding the free space the next one needs, on the disk that already filled.
+   *
+   * The owner's pid decides it, never an age: another run sharing this directory is *live*, not
+   * stale, and deleting its tree would destroy a capture in progress. `isProcessAlive` is the same
+   * predicate every other liveness question here asks.
+   *
+   * Both trees this service stages are swept — a capture and a restore — because the leak is the
+   * shape, not one call site. A restore's tree holds an unpacked copy of an archive, so it is the
+   * larger of the two.
+   */
+  private sweepStaging(): void {
+    const dir = this.resolveDir()
+    let names: string[]
+    try {
+      names = fs.readdirSync(dir)
+    }
+    catch {
+      return
+    }
+
+    for (const name of names) {
+      const owner = stagingOwner(name)
+      if (owner === null || owner === process.pid || isProcessAlive(owner))
+        continue
+      try {
+        fs.rmSync(path.join(dir, name), { recursive: true, force: true })
+      }
+      catch {
+        // A tree this process may not remove is the next run's attempt, not a backup failure.
+      }
     }
   }
 

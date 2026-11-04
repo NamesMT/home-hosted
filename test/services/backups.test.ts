@@ -1,9 +1,11 @@
 import type { BackupSources } from '#src/services/backups'
 import type { BackupsConfig, BackupScope } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import process from 'node:process'
 import { Uint8ArrayReader, Uint8ArrayWriter, ZipWriter } from '@zip.js/zip.js'
 import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -55,6 +57,27 @@ interface Fixture {
   dataDir: string
   config: BackupsConfig
   sources: BackupSources
+}
+
+/**
+ * A staging directory named the way `create()` names one, for a stated owner.
+ *
+ * `stamp` is a fixed number rather than `Date.now()`, so a fixture cannot land on the millisecond a
+ * `create()` in the same test is using and be mistaken for it. The pid is the part that matters: it
+ * is what makes a leftover sweepable, so a test that spelled the name itself would pin the wrong
+ * thing.
+ */
+function stagingName(pid: number, stamp = 1): string {
+  return `.staging-${pid}-${stamp}`
+}
+
+/** A pid the OS has already reaped, so `isProcessAlive` answers false for it on every platform. */
+function reapedPid(): Promise<number> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['-e', '0'], { stdio: 'ignore' })
+    const pid = child.pid!
+    child.once('exit', () => resolve(pid))
+  })
 }
 
 /** An archive built by hand, in the layout the service writes. */
@@ -1254,6 +1277,104 @@ describe('excluding a selection', () => {
     const names = (await listZip(path.join(fixture.dataRoot, '.backups', created.file!.name))).map(entry => entry.name)
     expect(names).not.toContain('workspaces/default/servers.config.json')
     expect(names, 'its siblings are still captured').toContain('workspaces/default/settings.json')
+  })
+
+  /**
+   * A backup killed mid-copy leaves a full staging tree, and nothing ever reclaimed it.
+   *
+   * `create()` removes its staging in a `catch` and on success, which covers every failure it can
+   * observe — but a `SIGKILL`, a power cut or a container stop never returns, so the `catch` never
+   * runs. Measured on a real home with a 60 MB data path: two interrupted `backup create` runs left
+   * two `.staging-*` trees, **121 MB** in a `.backups` directory whose only archive was 184 B.
+   * `scan()` filters on `.zip`, so nothing listed them; `prune()` walks `list()`, so nothing removed
+   * them. This is the failure a person whose disk already filled up cannot afford: the next attempt
+   * needs free space, and the debris of the last one is holding it.
+   *
+   * The sweep runs where a successful backup already prunes, because that is the next moment this
+   * service knows it has the directory to itself — and it is the same shape `UiService.recover()`
+   * uses for a half-finished UI swap.
+   */
+  it('sweeps the staging a killed backup left behind, on the next successful run', async () => {
+    const fixture = await makeFixture()
+    const backupsDir = path.join(fixture.dataRoot, '.backups')
+    fs.mkdirSync(backupsDir, { recursive: true })
+
+    // A pid that has certainly exited, so the sweep reads its owner as dead rather than guessing.
+    const deadPid = await reapedPid()
+    const orphan = path.join(backupsDir, stagingName(deadPid))
+    fs.mkdirSync(path.join(orphan, 'global'), { recursive: true })
+    fs.writeFileSync(path.join(orphan, 'global', 'settings.json'), 'x'.repeat(4096))
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    expect(fs.existsSync(orphan), 'the dead staging tree must not outlive a successful backup').toBe(false)
+    // The archive it just wrote is still there — this sweeps debris, never a backup.
+    expect(fixture.service.list().map(file => file.name)).toEqual([created.file!.name])
+  })
+
+  /**
+   * The other half of the same rule: a staging tree whose owner is **still running** is not debris.
+   *
+   * Two panels, or the CLI beside the panel, can share one `backups.dir`, so deleting every name but
+   * its own would destroy a capture in progress. The owner's pid decides it — the same predicate
+   * `isProcessAlive` answers everywhere else — rather than an age, which is a guess about who is busy.
+   */
+  it('leaves a staging tree whose owner is still running', async () => {
+    const fixture = await makeFixture()
+    const backupsDir = path.join(fixture.dataRoot, '.backups')
+    fs.mkdirSync(backupsDir, { recursive: true })
+
+    // Our own pid is the one process this test is certain is alive.
+    const live = path.join(backupsDir, stagingName(process.pid))
+    fs.mkdirSync(live, { recursive: true })
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    expect(fs.existsSync(live), 'a staging tree owned by a live process is somebody\'s capture').toBe(true)
+  })
+
+  /**
+   * The restore's tree leaks the same way, and it is the larger of the two: it holds an unpacked
+   * copy of the whole archive. `applyRestore` removes it in a `finally`, which a kill never reaches.
+   */
+  it('sweeps a restore tree a killed restore left behind', async () => {
+    const fixture = await makeFixture()
+    const backupsDir = path.join(fixture.dataRoot, '.backups')
+    fs.mkdirSync(backupsDir, { recursive: true })
+
+    const deadPid = await reapedPid()
+    const orphan = path.join(backupsDir, `.restore-${deadPid}-1`)
+    fs.mkdirSync(path.join(orphan, 'global'), { recursive: true })
+    fs.writeFileSync(path.join(orphan, 'global', 'settings.json'), 'x'.repeat(2048))
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    expect(fs.existsSync(orphan), 'a killed restore\'s unpacked archive must be reclaimed too').toBe(false)
+  })
+
+  /**
+   * A name that carries no owner is left alone, and that is the deliberate answer rather than a gap.
+   *
+   * `.staging-1793809562025` is what 0.11.0 wrote before the pid was recorded. An age is not proof
+   * its writer is gone — a slow backup on a big data path can hold one for a long time — so guessing
+   * would be the very thing this service refuses everywhere else. New trees carry their owner, so
+   * the debris is bounded by one release rather than growing forever.
+   */
+  it('never guesses that an ownerless staging name is dead', async () => {
+    const fixture = await makeFixture()
+    const backupsDir = path.join(fixture.dataRoot, '.backups')
+    fs.mkdirSync(backupsDir, { recursive: true })
+
+    const legacy = path.join(backupsDir, `.staging-${Date.now() - 3_600_000}`)
+    fs.mkdirSync(legacy, { recursive: true })
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    expect(fs.existsSync(legacy), 'a name with no owner in it is not evidence of a dead run').toBe(true)
   })
 
   it('does not restore an item the exclusion drops', async () => {

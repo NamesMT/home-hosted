@@ -562,6 +562,23 @@ line in `AGENTS.md` instead.
 
 ## Data
 
+- **A cleanup in `catch`/`finally` does not cover a kill, and a full disk is where that costs most.**
+  `BackupService.create()` and `applyRestore()` each removed their staging tree on success and in a
+  `catch`/`finally` — every failure the process can *observe*. A `SIGKILL`, a power cut or a stopped
+  container returns to nothing, so the tree survived, and nothing else knew it existed: `scan()`
+  filters on `.zip` and `prune()` walks `list()`, so a `.backups` directory could hold any number of
+  them forever. Measured on a real home with a 60 MB data path: two interrupted `backup create` runs
+  left **121 MB** of staged copies beside a single 184 B archive, in the one state — a disk that has
+  already filled — where the next attempt needs exactly the space the debris is holding.
+  `sweepStaging()` now runs on both paths that touch the directory, and the owner's **pid** decides a
+  tree: `isProcessAlive` is the same predicate every other liveness question asks, and it is the only
+  discriminator that does not guess. An age would delete a slow capture on a large data path that is
+  still running; another panel or the CLI can share one `backups.dir`. A name written before the pid
+  was recorded (`.staging-1793809562025`) carries no owner, so it is left alone rather than guessed
+  at — bounded to one release's debris, never growing. Same shape as `UiService.recover()`'s
+  `sweepJunk`, and the general rule: **when a temp directory is the only artifact a crashed run
+  leaves, give it the owner's pid, or nothing will ever be able to tell it from a live one.**
+
 - **A restore must never match an archived data path against another workspace's declaration.**
   `matchTarget` fell back from "this workspace declares this origin" to "some workspace declares this
   origin" and then to "this absolute path matches", so an archive naming a workspace the target lacked
