@@ -71,11 +71,66 @@ function label(id: string, workspace?: string): string {
   return workspace === undefined ? id : `${workspace}/${id}`
 }
 
+/**
+ * How long `start` watches the entry before it reports.
+ *
+ * `start` on the panel returns the instant the process is spawned — right for a click, wrong for a
+ * script: an entry whose command exits immediately printed "started" and exited 0, while it was
+ * already in its crash-restart loop, so `start x && curl x` raced every boot. One second covers a
+ * process that dies on startup without making a healthy start feel hung.
+ */
+const START_SETTLE_MS = 1000
+
+/** The view fields `start` reads back to decide whether the entry actually survived. */
+interface StartedView {
+  status?: string
+  lastError?: string | null
+  restarts?: number
+}
+
 export async function runServerAction(action: ServerAction, id: string, workspace?: string): Promise<void> {
   await callServerAction(action, id, workspace)
+
+  // Both spawn, so both are verified: `restart <id>` is the same process-start path as `start`, and
+  // an entry that dies on boot reports `ok` from either one.
+  if (action === 'start' || action === 'restart')
+    await confirmStillRunning(id, workspace)
+
   // The past tense is the verb: `restart` says "restarted", not "stopped".
   const verb = action === 'start' ? 'started' : action === 'stop' ? 'stopped' : 'restarted'
   process.stdout.write(`${green(verb)} ${label(id, workspace)}\n`)
+}
+
+/**
+ * Says so when a just-started entry is already gone.
+ *
+ * `start` answers on spawn, so a command that exits straight away is reported as started. Reading
+ * the entry back is the only honest answer, and it is a **refusal** rather than a success line: a
+ * deploy chain that continues against a dead process is the failure this exists to stop.
+ */
+async function confirmStillRunning(id: string, workspace?: string): Promise<void> {
+  const { readRuntime, requestControl } = await import('#src/helpers/daemon')
+  const runtime = readRuntime()
+  if (runtime === null)
+    return
+
+  await new Promise(resolve => setTimeout(resolve, START_SETTLE_MS))
+
+  const query = workspace === undefined || workspace.length === 0 ? '' : `?workspace=${encodeURIComponent(workspace)}`
+  const answer = await requestControl(runtime, `/_hh/servers/${encodeURIComponent(id)}${query}`, 15_000, 'GET')
+  if (answer === null || answer.status !== 200)
+    return
+
+  const view = (answer.body ?? {}) as StartedView
+  // `running` and `starting` are both alive; `backoff` means it exited and is waiting to retry,
+  // which is the case that used to read as success.
+  if (view.status === 'running' || view.status === 'starting')
+    return
+
+  const why = view.lastError === null || view.lastError === undefined || view.lastError.length === 0
+    ? `status is ${view.status ?? 'unknown'}`
+    : view.lastError
+  fail(`server "${label(id, workspace)}" did not stay up — ${why}. It was spawned; check \`${invocation()} logs ${id}\``)
 }
 
 /**

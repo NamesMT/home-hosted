@@ -67,15 +67,27 @@ afterAll(async () => {
 
 interface Panel {
   url: string
-  seen: { path?: string, token?: string }
+  /** The last **action** request — never the read-back `start` now makes. */
+  seen: { path?: string, token?: string, readBack?: string }
 }
 
 /** A throwaway panel that answers one status and body, and records what it was asked. */
 async function panel(status: number, body: string, contentType = 'application/json'): Promise<Panel> {
   const seen: Panel['seen'] = {}
   const server = http.createServer((req, res) => {
-    seen.path = req.url
     seen.token = req.headers['x-home-hosted-token'] as string | undefined
+    // A real panel answers a read-back as well as the action, and `start` now asks for one: a stub
+    // that replays the action's `{ ok: true }` for every request describes an entry with no
+    // `status`, which is exactly the shape `start` refuses. The read-back is recorded apart, so a
+    // test that asserts which *action* was sent still reads the action.
+    if (req.method === 'GET' && req.url?.startsWith('/_hh/servers/')) {
+      seen.readBack = req.url
+      res.statusCode = 200
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ id: 'web', status: 'running', lastError: null }))
+      return
+    }
+    seen.path = req.url
     res.statusCode = status
     res.setHeader('content-type', contentType)
     res.end(body)
@@ -604,6 +616,15 @@ describe('free-port, and start --free-port', () => {
     // because a real panel says this to the free-port call and *then* starts the entry.
     const seen: string[] = []
     const server = http.createServer((req, res) => {
+      // `start` reads the entry back after spawning, so that request is not one of the two calls
+      // this test is about — answered apart rather than recorded, so the `seen` list stays exactly
+      // the free-port/start pair.
+      if (req.method === 'GET') {
+        res.statusCode = 200
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ id: 'web', status: 'running', lastError: null }))
+        return
+      }
       seen.push(req.url ?? '')
       const isFreePort = (req.url ?? '').includes('free-port')
       res.statusCode = isFreePort ? 409 : 200
