@@ -56,6 +56,28 @@ a **Stop it** button. The state file is left alone until the process is actually
 of `SIGKILL` is still findable on the next boot. There is no automatic kill — a pid whose identity the
 platform cannot confirm is exactly what the rest of this file refuses to signal on a guess.
 
+## `PATH`, and the program an entry runs
+
+`command` resolves against the environment the **panel** was started with, not your shell's. Under
+systemd, a container, or a `sudo` that reset the environment, that `PATH` is often shorter than the
+one you tested with — so every entry fails at once with:
+
+```text
+`node` was not found — is it installed, and is it on PATH for the user running the panel?
+```
+
+The panel itself always has Node (it *is* Node), but a child inherits `PATH`, not that fact. Three
+ways out, in order of preference:
+
+- **Point `command` at an absolute path** — `/usr/bin/node`, or a version manager's shim. The most
+  portable answer, and the one that survives a unit file you did not write.
+- **Set `PATH` in `env`** for the entries that need it — that entry's scope, which is usually honest.
+- **Fix the unit or container** — systemd takes `Environment=PATH=…`, docker takes `ENV PATH=…`. The
+  right fix when *everything* fails, because the next entry will hit it too.
+
+A whole command line in `command` is a different mistake with its own message: `"node server.js"`
+asks for a program of that name, because `command` is spawned with no shell.
+
 ## Field reference
 
 | field | what it does |
