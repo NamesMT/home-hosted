@@ -116,12 +116,34 @@ export interface RuntimeProbe {
   reachable: boolean
   /** It answered, but reports a crashed autostart server (`/healthz` is 503). */
   degraded: boolean
+  /**
+   * How many entries it supervises, and how many are up — `null` when the panel answered without
+   * a count (an older panel, or one that did not accept the token).
+   */
+  servers: { total: number, running: number } | null
 }
 
 /** A degraded panel is still answering: a 503 must not read as "not running". */
 export async function probeRuntime(runtime: Runtime, timeoutMs = 2500): Promise<RuntimeProbe> {
-  const answer = await localCall(runtime, '/healthz', 'GET', undefined, timeoutMs)
-  return { reachable: answer !== null, degraded: answer?.status === 503 }
+  // The token is what makes `/healthz` include the per-server counts instead of only the public
+  // status line. `usage` was already reading the same numbers over `/_hh`; `status` not doing so was
+  // this call passing no token, not the data being unavailable.
+  const answer = await localCall(runtime, '/healthz', 'GET', runtime.token, timeoutMs)
+  return { reachable: answer !== null, degraded: answer?.status === 503, servers: readServerCounts(answer?.body) }
+}
+
+/** The `servers` block of a `/healthz` answer, or `null` when it did not carry one. */
+function readServerCounts(body: string | undefined): RuntimeProbe['servers'] {
+  if (body === undefined)
+    return null
+  try {
+    const parsed = JSON.parse(body) as { servers?: { total?: unknown, running?: unknown } }
+    const { total, running } = parsed.servers ?? {}
+    return typeof total === 'number' && typeof running === 'number' ? { total, running } : null
+  }
+  catch {
+    return null
+  }
 }
 
 /**

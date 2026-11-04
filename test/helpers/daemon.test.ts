@@ -61,13 +61,14 @@ function validRuntime(overrides: Partial<Runtime> = {}): Runtime {
 }
 
 /** A throwaway listener that answers everything with one status. */
-async function listener(status: number, options: { hang?: boolean, onRequest?: (req: http.IncomingMessage) => void } = {}): Promise<string> {
+async function listener(status: number, options: { hang?: boolean, body?: string, onRequest?: (req: http.IncomingMessage) => void } = {}): Promise<string> {
   const server = http.createServer((req, res) => {
     options.onRequest?.(req)
     if (options.hang === true)
       return
     res.statusCode = status
-    res.end('x')
+    res.setHeader('content-type', 'application/json')
+    res.end(options.body ?? 'x')
   })
   servers.push(server)
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -151,25 +152,42 @@ describe('isProcessAlive', () => {
 describe('probeRuntime', () => {
   it('reports a reachable panel as up and not degraded', async () => {
     const probeUrl = await listener(200)
-    expect(await probeRuntime(validRuntime({ probeUrl }))).toEqual({ reachable: true, degraded: false })
+    expect(await probeRuntime(validRuntime({ probeUrl }))).toMatchObject({ reachable: true, degraded: false })
   })
 
   it('reads a 503 as reachable but degraded — a crashed autostart server is still serving', async () => {
     const probeUrl = await listener(503)
-    expect(await probeRuntime(validRuntime({ probeUrl }))).toEqual({ reachable: true, degraded: true })
+    expect(await probeRuntime(validRuntime({ probeUrl }))).toMatchObject({ reachable: true, degraded: true })
   })
 
   it('reports an unreachable port as down', async () => {
     // Port 1 is privileged and nothing listens there for a test runner.
     const probe = await probeRuntime(validRuntime({ probeUrl: 'http://127.0.0.1:1' }), 500)
-    expect(probe).toEqual({ reachable: false, degraded: false })
+    expect(probe).toMatchObject({ reachable: false, degraded: false })
   })
 
   it('gives up on a listener that accepts but never answers', async () => {
     const probeUrl = await listener(200, { hang: true })
     const started = Date.now()
-    expect(await probeRuntime(validRuntime({ probeUrl }), 300)).toEqual({ reachable: false, degraded: false })
+    expect(await probeRuntime(validRuntime({ probeUrl }), 300)).toMatchObject({ reachable: false, degraded: false })
     expect(Date.now() - started).toBeLessThan(5000)
+  })
+
+  /**
+   * The inventory `status` needs. `usage` could always read it over `/_hh` while `status` could only
+   * see `degraded`, because this call passed no token and `/healthz` answers the public status line
+   * alone to a caller it cannot identify. The token is what unlocks the counts.
+   */
+  it('carries the server count when the panel answers with one', async () => {
+    const body = JSON.stringify({ status: 'ok', uptimeMs: 1, servers: { total: 3, running: 2 } })
+    const probeUrl = await listener(200, { body })
+    expect(await probeRuntime(validRuntime({ probeUrl }))).toMatchObject({ servers: { total: 3, running: 2 } })
+  })
+
+  /** An older panel, or one that refused the token: no count, and `null` rather than a zero. */
+  it('reports no count rather than zero when the panel did not send one', async () => {
+    const probeUrl = await listener(200, { body: JSON.stringify({ status: 'ok', uptimeMs: 1 }) })
+    expect(await probeRuntime(validRuntime({ probeUrl }))).toMatchObject({ servers: null })
   })
 })
 

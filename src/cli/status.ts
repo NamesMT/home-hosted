@@ -73,7 +73,7 @@ export async function runStatus(json: boolean): Promise<void> {
   // `startedAt` decides whether the process behind it is still this daemon.
   const liveness = await runtimeLiveness(runtime)
   const running = isLiveLiveness(liveness)
-  const probe = running ? await probeRuntime(runtime) : { reachable: false, degraded: false }
+  const probe = running ? await probeRuntime(runtime) : { reachable: false, degraded: false, servers: null }
 
   // Read once, above both outputs, so they cannot disagree about which UI is installed — the text
   // form prints it as a row and a script asking for JSON needs it just as much.
@@ -93,6 +93,10 @@ export async function runStatus(json: boolean): Promise<void> {
       liveness,
       answering: probe.reachable,
       degraded: probe.degraded,
+      // "Did everything come back after the reboot" is what `running` cannot answer: a panel up with
+      // every entry stopped reads exactly like a healthy one. `null` rather than `0` when the panel
+      // did not report a count, so an older panel is not shown as supervising nothing.
+      servers: probe.servers,
       // A record still here whose process is not is the other half of the question: nobody stopped
       // this panel, so it died. Reported as a fact rather than inferred from a leftover `pid`.
       exitedCleanly: false,
@@ -118,6 +122,9 @@ export async function runStatus(json: boolean): Promise<void> {
 
   const rows: Array<[string, string]> = [
     ['status', state],
+    // The inventory: a reboot script's whole question is "3 of 3 came back". Shown only while the
+    // panel is up, and `n/a` when it answered without a count rather than claiming zero entries.
+    ...(running ? [['servers', serversRow(probe.servers)] as [string, string]] : []),
     ['pid', running ? `${runtime.pid} · up ${uptime}` : String(runtime.pid)],
     ['url', `${runtime.url} ${dim(`(${runtime.protocol})`)}`],
     ['version', runtime.version],
@@ -144,6 +151,22 @@ export async function runStatus(json: boolean): Promise<void> {
     process.stdout.write(`  ${dim(label.padEnd(width))} ${value}\n`)
   if (!running)
     process.exitCode = 1
+}
+
+/**
+ * "3 of 3 up" — the inventory row, or `n/a` when the panel answered without a count.
+ *
+ * A stopped entry is not a failure (an operator stops what they do not need), so this reads as
+ * neutral; the *degraded* sentence on the status row is what marks something broken.
+ */
+function serversRow(counts: { total: number, running: number } | null): string {
+  if (counts === null)
+    return dim('n/a (the panel did not report a count)')
+  if (counts.total === 0)
+    return 'none configured'
+  return counts.running === counts.total
+    ? green(`${counts.running} of ${counts.total} up`)
+    : `${counts.running} of ${counts.total} up`
 }
 
 function formatDuration(ms: number): string {

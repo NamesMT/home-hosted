@@ -1666,3 +1666,32 @@ describe('/_hh/usage', () => {
     expect(body.servers[0]).not.toHaveProperty('cpuPercent')
   })
 })
+
+/**
+ * `/healthz` answers its detail to a caller that can prove it belongs here, and "belongs here"
+ * includes the local channel's token — the secret `run.json` hands the CLI.
+ *
+ * Without that, `status` saw `degraded` but not the count while `usage` read the same numbers over
+ * `/_hh`: the gap was `status` using a channel that refused it, not the data being unavailable.
+ * The status line itself stays public, which is the whole point of a monitor endpoint.
+ */
+describe('/healthz detail for the local channel', () => {
+  const local = { 'x-home-hosted-token': 'runtime-token' }
+
+  it('answers the counts to the local token', async () => {
+    const created = await fixture({ views: [makeView('web', { status: 'running' }), makeView('api')] })
+    const body = await (await created.app.request('/healthz', { headers: local })).json() as { servers?: { total: number, running: number } }
+    expect(body.servers).toEqual({ total: 2, running: 1, crashed: 0, unhealthy: 0 } as never)
+  })
+
+  it('refuses the counts to a wrong token, and to no token', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+
+    const wrong = await (await created.app.request('/healthz', { headers: { 'x-home-hosted-token': 'nope' } })).json()
+    expect(wrong, 'a wrong token must not unlock the detail').not.toHaveProperty('servers')
+
+    const anonymous = await (await created.app.request('/healthz')).json()
+    expect(anonymous, 'the status line stays public').toHaveProperty('status')
+    expect(anonymous).not.toHaveProperty('servers')
+  })
+})

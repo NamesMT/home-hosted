@@ -1,8 +1,10 @@
+import type { Context } from 'hono'
 import type { AppDeps } from '#src/app'
 import process from 'node:process'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { jsonBody } from '#src/helpers/openapi'
+import { secretEqual } from '#src/helpers/secret-compare'
 import { requestIdentity } from '#src/middleware/auth'
 import { healthResponseSchema } from '#src/shared/contracts'
 import { needsAttention } from '#src/shared/server-attention'
@@ -35,9 +37,14 @@ export function createHealthRoute(deps: AppDeps) {
         // One predicate, shared with the UIs, so this endpoint and the pages cannot disagree about
         // what "broken" means — they had, in both directions. See `#src/shared/server-attention`.
         const broken = servers.filter(needsAttention)
-        // Detail is for a signed-in browser or an API token; the status line itself
-        // stays public, which is the whole point of a monitor endpoint.
-        const authenticated = requestIdentity(c, deps.auth).authenticated
+        // Detail is for a signed-in browser, an API token, or the local channel's token. The status
+        // line stays public, which is the whole point of a monitor endpoint.
+        //
+        // The local token is a **different secret** from the API bearer token, and it is the one
+        // `run.json` hands the CLI. Without it here `status` could see "degraded" but not the count,
+        // while `usage` read the same numbers over `/_hh` — the gap was `status` using a channel that
+        // refused it, not the data being unavailable.
+        const authenticated = requestIdentity(c, deps.auth).authenticated || localTokenValid(c, deps)
 
         return c.json({
           status: broken.length > 0 ? 'degraded' : 'ok',
@@ -56,4 +63,16 @@ export function createHealthRoute(deps: AppDeps) {
         }, broken.length > 0 ? 503 : 200)
       },
     )
+}
+
+/**
+ * Whether the caller proved itself with the local channel's token.
+ *
+ * The same secret `assertLocalCall` reads, checked the same constant-time way — it means "a process
+ * that can read this home's `run.json`", which is exactly the trust the CLI already has. Loopback
+ * alone is deliberately not enough: any local user could reach the port.
+ */
+function localTokenValid(c: Context, deps: AppDeps): boolean {
+  const token = c.req.header('x-home-hosted-token')
+  return token !== undefined && secretEqual(token, deps.runtimeToken)
 }

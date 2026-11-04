@@ -519,6 +519,12 @@ the move on its first run; 0.8.0 then starts against the result.
 `home-hosted status` prints the panel's console path *and* the per-server log directory, naming the
 `<id>.log` convention once logs exist.
 
+While the panel is up it also prints a `servers` row — `2 of 3 up` — because "did everything come back
+after the reboot" is the question an operator actually has, and a panel up with every entry stopped
+reads exactly like a healthy one. `--json` carries the same numbers as `servers: { total, running }`
+(`null` when the panel did not report a count, so an older panel is never shown as supervising
+nothing).
+
 `--json` is for scripts. It always carries `running` and `liveness` — a script should not have to
 branch on whether a record exists. A stopped panel answers `{ running: false, initialised, liveness }`,
 where `initialised: false` means nothing was ever set up in this state directory:

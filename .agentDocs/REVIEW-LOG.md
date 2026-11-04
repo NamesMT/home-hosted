@@ -5,10 +5,7 @@ either still open or a rule future work must not re-break.
 
 ## Open
 
-| # | Item | Why it is open |
-| --- | --- | --- |
-| 19 | A panel started without `node` on `PATH` fails every entry | Correct behaviour — the panel has Node (`process.execPath`), children inherit `PATH`, and `describeSpawnError` names the cause. A systemd/docker user hits it fleet-wide, so a docs note may be worth one line. No code change. |
-| 43 | `status` cannot say "did everything come back after the reboot" | Measured: a panel up with every entry stopped prints `running`, exit 0. The *failure* states are covered — `crashed`/`conflict`/`stoppedByPanel` print `running — a server needs attention` and set `degraded: true`. The count lives in `/healthz`, but that only includes it for an **authenticated** caller, and the local channel's token (`x-home-hosted-token`) is a different secret from the API bearer token — so `status` cannot read it without a new route or touching secrets. Deliberately not done; `usage` answers it today. |
+Nothing — every item found so far is fixed, or recorded below as a rule.
 
 ## Rules these rounds established
 
@@ -33,6 +30,11 @@ Each cost a real defect. Re-breaking one is a regression.
 - **A test that leaks a temp directory fails no assertion.** Sweep it; a full run leaked ~290.
 - **A guard earns its place only if a plausible change could violate it.** Two were deleted for
   restating a static fact.
+- **"The command cannot see it" usually means "this call asked wrong".** `status` reported that it
+  was "impossible" to show a server count because `/healthz` gates its detail behind auth — while
+  `usage` read the same numbers over `/_hh` with the token `run.json` already hands both commands. The
+  obstacle was the channel chosen, not the data. Check what a neighbouring command does before
+  concluding a capability is missing.
 
 ## Verified good — recorded so nobody "fixes" them
 
