@@ -441,8 +441,10 @@ env vars          HHOSTED_PASSWORD, HHOSTED_MIGRATE=allow, HHOSTED_TOKEN, GITHUB
 
 `up` and `restart` share the same flags: bare `restart` is `down`, then `up` with exactly what it was
 given. Given a server id — `restart web` — it restarts only that entry, and the panel keeps running.
-A workspace's entries always come from its own `servers.config.json`. `start`/`stop` omit
-`--workspace` to act in the panel's default workspace.
+A workspace's entries always come from its own `servers.config.json`. `start`/`stop`/`restart <id>` and
+`logs <id>` all omit `--workspace` to act in the panel's default workspace: the one called `default`
+if the panel declares it, otherwise the first one it lists — the same rule the API applies to an
+omitted `?workspace=`, so the CLI and the panel never name different workspaces for one id.
 
 A misspelled command or option names the one you meant — `home-hosted restar` answers
 `did you mean \`restart\`?`, and `up --prt 4000` answers `did you mean \`--port\`?`. Both stay quiet

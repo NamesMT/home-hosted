@@ -105,6 +105,37 @@ describe('logs <id>', () => {
     expect(stdout).toContain('from staging')
     expect(stdout).not.toContain('from default')
   })
+
+  /**
+   * With no `--workspace`, the workspace is the panel's default — the **registry's** rule
+   * (`default`, or the first it lists), not the literal id `default`.
+   *
+   * A host that declares `["media"]` — a colleague's panel, or one whose `default` was removed —
+   * resolves an omitted `?workspace` to `media` in the panel, so `start sonarr` reached
+   * `media/sonarr` while `logs sonarr` looked in `.hh/default/.logs/sonarr.log`. Measured on a live
+   * panel of that shape: `logs` answered "no output yet" and exited 0 for a log that was on disk,
+   * on the first command a diagnostic session runs. The two commands disagreed about what
+   * "default" means.
+   */
+  it('defaults to the workspace the panel defaults to, not the literal `default`', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-cli-surface-'))
+    dirs.push(home)
+    fs.mkdirSync(path.join(home, '.hh', 'media', '.logs'), { recursive: true })
+    fs.writeFileSync(
+      path.join(home, '.hh', 'media', '.logs', 'sonarr.log'),
+      '{"ts":1,"stream":"stdout","text":"the real log"}\n',
+    )
+    fs.writeFileSync(
+      path.join(home, '.hh', 'workspaces.json'),
+      `${JSON.stringify({ meta: { writtenBy: '0.11.0', schema: 1 }, workspaces: [{ id: 'media', label: 'Media' }] }, null, 2)}\n`,
+    )
+
+    const { stdout, stderr } = await captureLogs(home, { id: 'sonarr' })
+
+    expect(stderr).toBe('')
+    expect(stdout).toContain('the real log')
+    expect(stdout).not.toContain(path.join('.hh', 'default', '.logs', 'sonarr.log'))
+  })
 })
 
 describe('status --json liveness', () => {

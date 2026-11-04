@@ -72,19 +72,33 @@ export interface LogTarget {
  * A server's log is JSONL on disk (`<id>.log`, plus `.log.N` rotations) and is readable with no
  * session, no token and no answering panel — the same property that makes `panel.console` a
  * first-class diagnostic. The workspace is explicit because a server id is only unique inside one.
+ *
+ * An omitted `--workspace` resolves through `defaultWorkspaceId` — the same rule the panel uses for
+ * an omitted `?workspace` — because reading `DEFAULT_WORKSPACE_ID` literally here made `logs`
+ * disagree with `start`/`stop` on a host that does not declare a `default` workspace.
  */
 async function resolveTarget(input: { id?: string, lines: number, workspace?: string }): Promise<LogTarget> {
-  const { daemonLogPath, DEFAULT_WORKSPACE_ID, workspaceLogsDir } = await import('#src/helpers/paths')
+  const { daemonLogPath, workspaceLogsDir, workspacesPath } = await import('#src/helpers/paths')
   if (input.id === undefined || input.id.length === 0)
     return { file: daemonLogPath, lines: input.lines }
 
   const id = input.id.trim()
-  const workspace = input.workspace === undefined || input.workspace.length === 0
-    ? DEFAULT_WORKSPACE_ID
-    : input.workspace.trim()
+  const explicit = input.workspace !== undefined && input.workspace.length > 0
+  // `readDefaultWorkspaceId`, not `DEFAULT_WORKSPACE_ID`: "which one is the default" is the panel's
+  // own rule (`default` if declared, else the first listed), and reading the literal id here made
+  // `logs` name a workspace that `start`/`stop` would not act in. Read only when it is needed.
+  if (!explicit)
+    return { file: await serverLogFile(workspacesPath, id), lines: input.lines }
   // Refused rather than guessed: an id is only unique inside a workspace, and reading the default
   // one for a server that lives elsewhere would print another server's output under this name.
-  return { file: path.join(workspaceLogsDir(workspace), `${id}.log`), lines: input.lines }
+  return { file: path.join(workspaceLogsDir(input.workspace!.trim()), `${id}.log`), lines: input.lines }
+}
+
+/** The file one server's log is in, inside the workspace this host treats as the default. */
+async function serverLogFile(registryFile: string, id: string): Promise<string> {
+  const { workspaceLogsDir } = await import('#src/helpers/paths')
+  const { readDefaultWorkspaceId } = await import('#src/config/workspaces')
+  return path.join(workspaceLogsDir(readDefaultWorkspaceId(registryFile)), `${id}.log`)
 }
 
 export async function runLogs(input: { id?: string, lines?: string, follow?: boolean, json?: boolean, workspace?: string }): Promise<void> {

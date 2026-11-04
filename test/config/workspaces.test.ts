@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { slugifyWorkspaceId, WorkspaceError, WorkspaceRegistry } from '#src/config/workspaces'
+import { readDefaultWorkspaceId, slugifyWorkspaceId, WorkspaceError, WorkspaceRegistry } from '#src/config/workspaces'
 
 const dirs: string[] = []
 
@@ -51,6 +51,38 @@ describe('workspace registry', () => {
   it('falls back to the first workspace when there is no `default`', async () => {
     const { registry } = await loaded({ workspaces: [{ id: 'alpha', label: 'Alpha' }, { id: 'beta', label: 'Beta' }] })
     expect(registry.defaultId).toBe('alpha')
+  })
+
+  /**
+   * The same rule, for a caller that has a registry file and no panel.
+   *
+   * `logs` and `status` name a workspace when none was given, and both read the registry directly
+   * because they must work with no panel running. They had re-derived it as the literal
+   * `DEFAULT_WORKSPACE_ID`, so on a host declaring `["media"]` they named `.hh/default/.logs`,
+   * while the panel resolved the same omission to `media`. `readDefaultWorkspaceId` is the one
+   * answer; the fallbacks below are what keeps a diagnostic command working over a broken registry
+   * the panel itself would refuse to start on.
+   */
+  it('answers the same way from a registry file as from the loaded registry', async () => {
+    const { file } = await loaded({ workspaces: [{ id: 'media', label: 'Media' }] })
+    expect(readDefaultWorkspaceId(file)).toBe('media')
+
+    const withDefault = await loaded({ workspaces: [{ id: 'alpha', label: 'Alpha' }, { id: 'default', label: 'Default' }] })
+    expect(readDefaultWorkspaceId(withDefault.file)).toBe('default')
+  })
+
+  it('falls back to `default` for a registry it cannot read', async () => {
+    const missing = path.join(os.tmpdir(), 'hh-workspaces-missing', 'workspaces.json')
+    expect(readDefaultWorkspaceId(missing)).toBe('default')
+
+    const broken = await tempFile()
+    await fs.promises.writeFile(broken, '{ not json')
+    expect(readDefaultWorkspaceId(broken)).toBe('default')
+
+    // An empty registry is refused at startup; a read of one log must not fail over it.
+    const empty = await tempFile()
+    await fs.promises.writeFile(empty, JSON.stringify({ workspaces: [] }))
+    expect(readDefaultWorkspaceId(empty)).toBe('default')
   })
 
   it('creates a workspace, deriving the id from the label', async () => {

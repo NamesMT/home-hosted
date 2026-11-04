@@ -13,8 +13,14 @@ export const statusArgs = {
 export async function runStatus(json: boolean): Promise<void> {
   const { isLiveLiveness, probeRuntime, readRuntime, runtimeLiveness } = await import('#src/helpers/daemon')
   const { UiService } = await import('#src/services/ui')
-  const { hhDir: dataRoot, workspaceDir, DEFAULT_WORKSPACE_ID, workspacesPath } = await import('#src/helpers/paths')
+  const { hhDir: dataRoot, workspaceDir, workspacesPath } = await import('#src/helpers/paths')
   const { readLastStop } = await import('#src/helpers/last-stop')
+  // The per-server log directory is the **default workspace's**, and "which one is the default" is
+  // the panel's own rule (`defaultWorkspaceId`), not the `default` id: a host that declares only
+  // `["media"]` writes `.hh/media/.logs/<id>.log`, and the literal path printed here named a
+  // directory that never existed. Measured against a live panel of that shape, in both outputs.
+  const { readDefaultWorkspaceId } = await import('#src/config/workspaces')
+  const serverLogsDir = path.join(workspaceDir(readDefaultWorkspaceId(workspacesPath)), '.logs')
   const runtime = readRuntime()
 
   if (runtime === null) {
@@ -78,7 +84,7 @@ export async function runStatus(json: boolean): Promise<void> {
       // this panel, so it died. Reported as a fact rather than inferred from a leftover `pid`.
       exitedCleanly: false,
       ...safe,
-      logsDir: path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs'),
+      logsDir: serverLogsDir,
       ui: { custom: ui.custom, name: uiLabel, version: uiMeta?.version ?? null },
     }, null, 2)}\n`)
     if (!running)
@@ -113,10 +119,7 @@ export async function runStatus(json: boolean): Promise<void> {
     // reads the *panel's* console, not a server's, so there is otherwise no CLI hint at all.
     // Shown only when the directory exists, because naming a convention for logs never written
     // would send someone looking for a file that is not there.
-    ['serverlogs', (() => {
-      const dir = path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs')
-      return fs.existsSync(dir) ? `${dir} (one file per server: <id>.log)` : dir
-    })()],
+    ['serverlogs', fs.existsSync(serverLogsDir) ? `${serverLogsDir} (one file per server: <id>.log)` : serverLogsDir],
     ['ui', ui.custom ? `custom — ${uiLabel} (revert with \`${invocation()} ui-revert\`)` : 'stock'],
   ]
 

@@ -25,6 +25,45 @@ export const workspacesFileSchema = type({
  */
 export type WorkspaceErrorCode = 'UNKNOWN_WORKSPACE' | 'WORKSPACE_EXISTS'
 
+/**
+ * The workspace a command acts in when none was named: `default` if the host declares it, else the
+ * first one it declares.
+ *
+ * **The panel already answers this question, and the CLI was answering a different one.** Every
+ * workspace-scoped `/api` and `/_hh` route resolves an omitted `?workspace` through
+ * `PanelService.requireWorkspace` → `WorkspaceRegistry.defaultId`, i.e. this rule. The two CLI
+ * commands that take a workspace id read `DEFAULT_WORKSPACE_ID` literally instead — so on a host
+ * whose registry lists one workspace that is not called `default` (a colleague's panel, or one
+ * where `default` was removed), `start <id>` reached that workspace while `logs <id>` looked in
+ * `.hh/default/.logs/`, a directory that does not exist. Measured: `logs` answered "no output yet"
+ * and exited 0 for a log that was on disk, on the one command a diagnostic session starts with.
+ *
+ * One function, called by every surface that asks, so a third caller cannot re-derive it.
+ */
+export function defaultWorkspaceId(workspaces: ReadonlyArray<Readonly<{ id: string }>>): string {
+  return workspaces.find(entry => entry.id === DEFAULT_WORKSPACE_ID)?.id ?? workspaces[0]?.id ?? DEFAULT_WORKSPACE_ID
+}
+
+/**
+ * `defaultWorkspaceId`, for a command that has a registry file and no panel.
+ *
+ * Tolerant for the same reason the panel's own startup guard is the one that refuses a broken
+ * registry: a diagnostic command reading one log must not be the thing that fails loudly about a
+ * file it only needed one id from. Missing, unparseable or empty falls back to `default`, which is
+ * what the seed declares.
+ */
+export function readDefaultWorkspaceId(file: string): string {
+  try {
+    const parsed = workspacesFileSchema(JSON.parse(readStateFile(file)) as unknown)
+    if (parsed instanceof type.errors || parsed.workspaces.length === 0)
+      return DEFAULT_WORKSPACE_ID
+    return defaultWorkspaceId(parsed.workspaces)
+  }
+  catch {
+    return DEFAULT_WORKSPACE_ID
+  }
+}
+
 export class WorkspaceError extends Error {
   override name = 'WorkspaceError'
   readonly code: WorkspaceErrorCode | undefined
@@ -86,7 +125,7 @@ export class WorkspaceRegistry {
 
   /** The id a workspace-scoped request resolves to when none is given. */
   get defaultId(): string {
-    return this.list.find(entry => entry.id === DEFAULT_WORKSPACE_ID)?.id ?? this.list[0]?.id ?? DEFAULT_WORKSPACE_ID
+    return defaultWorkspaceId(this.list)
   }
 
   onChange(listener: () => void): () => void {
