@@ -1,6 +1,6 @@
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { describeNannyExit, describeSpawnError } from '#src/providers/nanny'
 
 /**
@@ -71,7 +71,36 @@ describe('describeSpawnError', () => {
     const denied = Object.assign(new Error('spawn ./run.sh EACCES'), { code: 'EACCES' })
     const message = describeSpawnError(denied as NodeJS.ErrnoException, './run.sh')
     expect(message).toContain('not executable')
-    expect(message).toContain('chmod')
+    // Only on a platform that has the command: the sentence below is what a Windows reader gets.
+    if (process.platform !== 'win32')
+      expect(message).toContain('chmod')
+  })
+
+  /**
+   * `EACCES` is the same errno everywhere, but it is not the same instruction.
+   *
+   * The message ended `(chmod +x)` unconditionally, so a Windows home server — the platform this
+   * package is required to support — was told to run a program Windows does not have. `cmd.exe`
+   * answers `'chmod' is not recognized…`, a second dead end on the one line that exists to offer a
+   * way out. `process.platform` is read at call time and is overridable, so the Win32 branch is
+   * exercised on this runner instead of waiting for the Windows gate.
+   */
+  describe('the permission message on Windows', () => {
+    const saved = process.platform
+
+    afterEach(() => {
+      Object.defineProperty(process, 'platform', { value: saved, configurable: true })
+    })
+
+    it('names no POSIX command, and keeps the actionable half', () => {
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+      const denied = Object.assign(new Error('spawn C:\\app\\run.cmd EACCES'), { code: 'EACCES' })
+      const message = describeSpawnError(denied as NodeJS.ErrnoException, 'C:\\app\\run.cmd')
+      expect(message).not.toContain('chmod')
+      expect(message).toContain('C:\\app\\run.cmd')
+      // The errno still has to be explained; dropping the hint would be worse than the wrong one.
+      expect(message).toMatch(/permission/i)
+    })
   })
 
   it('falls back to the original message for anything else', () => {

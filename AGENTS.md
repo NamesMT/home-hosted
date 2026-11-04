@@ -404,6 +404,11 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   matches every spelling of the read (`test/helpers/config-text.test.ts`). **A process-table readback
   is a word list where an empty argument is a word**: `/proc/<pid>/cmdline` NUL-terminates every word,
   so dropping every empty element shifted the rest (`processArgv`, `test/providers/identity.test.ts`).
+  **A message that names a program must name one this platform has.** One errno is not one
+  instruction: `EACCES` ended `(chmod +x)` on every platform, so a Windows reader was sent to a
+  command `cmd.exe` does not have — a second dead end on the line that exists to offer a way out.
+  `notExecutableHint` (`src/providers/nanny.ts`) decides it from the platform, as `shellQuote` does
+  for quoting, and a test drives the Win32 branch on this runner.
 - **Writes are atomic** (`writeFileAtomic`) and validated before commit.
 
 ## How to work here

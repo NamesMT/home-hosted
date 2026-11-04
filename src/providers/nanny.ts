@@ -201,8 +201,23 @@ export function describeSpawnError(error: NodeJS.ErrnoException, command: string
       : `\`${command}\` was not found — is it installed, and is it on PATH for the user running the panel?`
   }
   if (error.code === 'EACCES')
-    return `\`${command}\` exists but is not executable — check its permissions (chmod +x)`
+    return `\`${command}\` exists but is not executable — ${notExecutableHint()}`
   return `${error.message} (while running \`${command}\`)`
+}
+
+/**
+ * What to do about `EACCES`, in the shell of the platform the panel is running on.
+ *
+ * `chmod +x` is not a Windows program: `cmd.exe` answers `'chmod' is not recognized…`, so the one
+ * line that exists to offer a way out sent the reader to a second dead end. The platform is the
+ * only signal available, exactly as it is for `shellQuote` (`helpers/shell.ts`); one function so a
+ * second `EACCES` message cannot be written with the POSIX half alone.
+ */
+function notExecutableHint(): string {
+  return process.platform === 'win32'
+    // Windows has no executable bit: `EACCES` there means an ACL or a blocked file, not a mode.
+    ? 'check its permissions (Windows has no executable bit — look at the file\'s Security tab for a denied account)'
+    : 'check its permissions (chmod +x)'
 }
 
 /**
