@@ -525,6 +525,17 @@ where `initialised: false` means nothing was ever set up in this state directory
 | `gone` | nothing is running. Either the record is stale and may be cleared, or there is no record at all |
 | `recycled` | the OS has handed the recorded pid to **another** process. The record is stale, but a signal would hit a stranger, so only the token-authenticated shutdown touches it |
 
+`liveness` says whether the *process* is there; `exitedCleanly` says whether you stopped it. A clean
+`down` deletes `run.json`, and so does `up` when it finds a record with nothing behind the pid — so
+absence alone cannot tell "I stopped it" from "it died". Only a deliberate stop records the fact:
+
+| what happened | no `run.json` | `exitedCleanly` |
+| --- | --- | --- |
+| `home-hosted down` | yes | `true`, with `lastStopAt` |
+| killed, then `up` tidied the record | yes | `false` |
+| killed and not tidied | no — the stale record is still there | `false` |
+| never started here | yes | `false` |
+
 Piping a command into `head`, `grep -q` or anything that stops reading early is ordinary shell and it
 works: the command exits **0**, not with a broken-pipe error, so `set -o pipefail` stays happy.
 

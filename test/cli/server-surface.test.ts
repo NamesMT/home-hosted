@@ -141,3 +141,48 @@ describe('status --json liveness', () => {
     expect(parsed.liveness, 'liveness is part of the documented contract').toBe('gone')
   })
 })
+
+describe('status --json exitedCleanly', () => {
+  /**
+   * A clean `down` and a crash both leave no `run.json`, because `up` tidies the record a crash left
+   * behind. So absence could not tell "I stopped it" from "it died", and a script had to infer it
+   * from which keys happened to be missing. A deliberate stop records `exitedCleanly` instead.
+   */
+  it('reports a deliberate stop as clean, and a tidied crash as not', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-exited-cleanly-'))
+    dirs.push(home)
+    fs.mkdirSync(path.join(home, '.hh'), { recursive: true })
+    fs.writeFileSync(path.join(home, '.hh', 'workspaces.json'), '{"meta":{},"workspaces":[]}\n')
+
+    const read = async (): Promise<{ exitedCleanly?: boolean, lastStopAt?: number }> => {
+      process.env.HHOSTED_HOME = home
+      vi.resetModules()
+      const { runStatus } = await import('#src/cli/status')
+      const out: string[] = []
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+        out.push(String(chunk))
+        return true
+      })
+      try {
+        await runStatus(true)
+      }
+      finally {
+        spy.mockRestore()
+      }
+      return JSON.parse(out.join('')) as { exitedCleanly?: boolean, lastStopAt?: number }
+    }
+
+    // Nothing has ever stopped this panel.
+    expect((await read()).exitedCleanly).toBe(false)
+    expect((await read()).lastStopAt).toBeUndefined()
+
+    // A deliberate stop records it.
+    const { recordCleanStop } = await import('#src/helpers/last-stop')
+    recordCleanStop(1_700_000_000_000)
+    const clean = await read()
+    expect(clean.exitedCleanly).toBe(true)
+    expect(clean.lastStopAt).toBe(1_700_000_000_000)
+
+    fs.rmSync(path.join(home, '.hh', '.last-stop.json'), { force: true })
+  })
+})

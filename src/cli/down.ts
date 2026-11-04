@@ -5,6 +5,7 @@ import process from 'node:process'
 import { type } from 'arktype'
 import { defineCommand } from 'citty'
 import { delay, dim, green, invocation, paint, refusal } from '#src/cli/io'
+import { recordCleanStop } from '#src/helpers/last-stop'
 import { versionMismatchNote } from '#src/helpers/version'
 
 /**
@@ -110,11 +111,13 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     }
     process.stdout.write(`stopped the panel on ${runtime.url} (its pid in run.json, ${runtime.pid}, was another process and was left alone)\n`)
     clearRuntime()
+    recordCleanStop()
     return finish()
   }
 
   if (await waitForExit(runtime.pid, 20000)) {
     clearRuntime()
+    recordCleanStop()
     reportStopped(false)
     return finish()
   }
@@ -139,6 +142,7 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     return finish()
   }
   clearRuntime()
+  recordCleanStop()
   reportStopped(true)
   return finish()
 }

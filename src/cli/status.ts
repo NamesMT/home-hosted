@@ -14,6 +14,7 @@ export async function runStatus(json: boolean): Promise<void> {
   const { isLiveLiveness, probeRuntime, readRuntime, runtimeLiveness } = await import('#src/helpers/daemon')
   const { UiService } = await import('#src/services/ui')
   const { hhDir: dataRoot, workspaceDir, DEFAULT_WORKSPACE_ID, workspacesPath } = await import('#src/helpers/paths')
+  const { readLastStop } = await import('#src/helpers/last-stop')
   const runtime = readRuntime()
 
   if (runtime === null) {
@@ -21,11 +22,23 @@ export async function runStatus(json: boolean): Promise<void> {
     // second says there is nothing here yet. `workspaces.json` is what tells them apart — it is
     // written by the first successful `up`/`init`, so its absence means nothing was ever created.
     const initialised = fs.existsSync(workspacesPath)
+    // "You stopped it" and "it died" both leave no record: `down` deletes the record a clean stop
+    // ends, and `up` deletes the one a crash left behind. Only a deliberate stop writes
+    // `.last-stop.json`, so that file is the difference — reported as a field rather than left for
+    // a script to infer from which keys happen to be missing.
+    const lastStop = readLastStop()
     if (json) {
       // `liveness` is always present, because the contract says so and a script should not have to
       // branch on whether a record exists. No `run.json` is not "unknown": nothing is behind the
       // pid, which is exactly `gone` — a fact, not an omission.
-      process.stdout.write(`${JSON.stringify({ running: false, initialised, liveness: 'gone' }, null, 2)}\n`)
+      process.stdout.write(`${JSON.stringify({
+        running: false,
+        initialised,
+        liveness: 'gone',
+        // True only when a `down` recorded it. A crash writes no marker, so this stays false.
+        exitedCleanly: lastStop !== null,
+        ...(lastStop === null ? {} : { lastStopAt: lastStop.at }),
+      }, null, 2)}\n`)
     }
     else if (initialised) {
       process.stdout.write(`home-hosted is not running — start it with \`${invocation()} up\`\n`)
@@ -61,6 +74,9 @@ export async function runStatus(json: boolean): Promise<void> {
       liveness,
       answering: probe.reachable,
       degraded: probe.degraded,
+      // A record still here whose process is not is the other half of the question: nobody stopped
+      // this panel, so it died. Reported as a fact rather than inferred from a leftover `pid`.
+      exitedCleanly: false,
       ...safe,
       logsDir: path.join(workspaceDir(DEFAULT_WORKSPACE_ID), '.logs'),
       ui: { custom: ui.custom, name: uiLabel, version: uiMeta?.version ?? null },
