@@ -405,7 +405,7 @@ defineExpose({ reload: load })
               <div class="w-44 shrink-0">
                 <SelectField v-model="domain.account" :label="t('settings.ddns.account')" :options="accountOptions" />
               </div>
-              <CheckField v-model="domain.enabled" :label="t('common.enabled')" />
+              <ToggleSwitch v-model="domain.enabled" :label="t('common.enabled')" sr-only />
               <AppButton size="xs" variant="danger-ghost" @click="removeDomain(domain)">
                 {{ t('common.remove') }}
               </AppButton>
