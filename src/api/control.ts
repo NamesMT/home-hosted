@@ -14,7 +14,7 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 
 import { selectionOf } from '#src/shared/backup-scope'
-import { backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema } from '#src/shared/contracts'
+import { backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 
 /**
  * The local control channel used by `home-hosted down` and `home-hosted start|stop`.
@@ -70,6 +70,33 @@ export function createControlRoute(deps: AppDeps) {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.start(c.req.param('id'), { actor: 'user' })
         return c.json(result, statusForAction(result))
+      },
+    )
+
+    /**
+     * One server's live view, over the local channel.
+     *
+     * A read, like `GET /_hh/usage`: `start` returns the moment the process is spawned, which is
+     * right for the panel but wrong for a script — `start x && curl x` raced every boot, and an
+     * entry whose command exits immediately still reported "started". The CLI asks this a moment
+     * later and tells the truth, rather than re-deriving the state from a second source.
+     */
+    .get(
+      '/servers/:id',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'One server\'s live state, without a session (local token required)',
+        responses: { 200: { description: 'The view', content: jsonBody(serverViewSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
+      }),
+      validate('query', workspaceQuerySchema),
+      (c) => {
+        assertLocalCall(c, 'read one server')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const id = c.req.param('id')
+        const view = runtime.supervisor.views().find(entry => entry.id === id)
+        if (view === undefined)
+          throw new DetailedError(`unknown server "${id}"`, { statusCode: 404, code: 'UNKNOWN_SERVER' })
+        return c.json(view)
       },
     )
 
@@ -150,6 +177,30 @@ export function createControlRoute(deps: AppDeps) {
       (c) => {
         assertLocalCall(c, 'list backups')
         return c.json(deps.backups.selection())
+      },
+    )
+
+    /**
+     * Every server's live resource reading, over the local channel.
+     *
+     * A read, like `GET /_hh/backups`: `home-hosted usage` is the operator's "which of my twelve
+     * services is eating memory" question, and the answer already exists on every view. Putting it
+     * on `/_hh` keeps the CLI on its own token-plus-loopback channel instead of opening an `/api`
+     * route or inventing a browser session.
+     *
+     * Absent readings stay absent — a stopped entry sends no `cpuPercent`/`rssBytes` rather than a
+     * zero, which is the same rule the metrics scrape follows.
+     */
+    .get(
+      '/usage',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Every server\'s live CPU and memory (local token required)',
+        responses: { 200: { description: 'The readings', content: jsonBody(usageViewSchema) }, 403: { description: 'Bad token, or not a local caller' } },
+      }),
+      (c) => {
+        assertLocalCall(c, 'read resource usage')
+        return c.json(buildUsage(deps))
       },
     )
 
@@ -242,4 +293,32 @@ export function createControlRoute(deps: AppDeps) {
         return c.json(await deps.backups.restore(from, { confirm, password: c.req.query('password'), include, exclude }))
       },
     )
+}
+
+/**
+ * Every server's live reading, flattened across workspaces.
+ *
+ * Built from the same views the state frame publishes, so the CLI and the page cannot disagree
+ * about what a server is using. A reading is copied as a **value**: an entry with no sample omits
+ * the key rather than sending `0`, because a `0` on a CPU gauge reads as "idle" and hides a server
+ * the sampler is not measuring at all.
+ */
+function buildUsage(deps: AppDeps): { servers: Array<Record<string, unknown>>, sampledAt?: number } {
+  const state = deps.panel.getState()
+  const servers = state.workspaces.flatMap(workspace => workspace.servers.map((server) => {
+    const resources = server.resources
+    return {
+      id: server.id,
+      workspaceId: server.workspaceId ?? workspace.id,
+      label: server.config.label ?? server.id,
+      status: server.status,
+      ...(resources?.cpuPercent == null ? {} : { cpuPercent: resources.cpuPercent }),
+      ...(resources?.rssBytes == null ? {} : { rssBytes: resources.rssBytes }),
+      ...(resources == null ? {} : { processes: resources.processes, sampledAt: resources.sampledAt }),
+    }
+  }))
+  return {
+    servers,
+    ...(state.host.sampledAt == null ? {} : { sampledAt: state.host.sampledAt }),
+  }
 }

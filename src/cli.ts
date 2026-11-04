@@ -41,7 +41,8 @@ const SYNOPSIS: Record<string, string> = {
   'down': 'home-hosted down [--with-persistent]',
   'restart': 'home-hosted restart [<id>] [options]',
   'status': 'home-hosted status [--json]',
-  'logs': 'home-hosted logs [--lines <n>] [--follow] [--json]',
+  'logs': 'home-hosted logs [<id>] [--lines <n>] [--follow] [--json] [--workspace <id>]',
+  'usage': 'home-hosted usage [--json]',
   'backup': 'home-hosted backup [list|create|restore] [options]',
   'start': 'home-hosted start <id> [--workspace <id>] [--free-port]',
   'stop': 'home-hosted stop <id> [--workspace <id>]',
@@ -61,7 +62,8 @@ const SUMMARIES: Record<string, string> = {
   'down': 'stop it, and everything it supervises',
   'restart': 'down then up — or one server, given an id',
   'status': 'is it running, where, and how to reach it',
-  'logs': 'show the panel\'s own console output',
+  'logs': 'show the panel\'s console, or one server\'s own log with an id',
+  'usage': 'live CPU and memory per server, loudest first',
   'backup': 'list, create or restore a backup archive',
   'start': 'start one server, leaving the panel up',
   'stop': 'stop one server, leaving the panel up',
@@ -110,9 +112,18 @@ const STATUS_SECTION: OptionSection = {
 const LOGS_SECTION: OptionSection = {
   heading: 'Options for logs',
   lines: [
+    ['<id>', 'one server\'s own log instead of the panel console (optional)'],
     ['--lines <n>', 'how many lines to show (default 50, `all` for everything)'],
     ['--follow', 'keep printing as the panel writes (like tail -f)'],
     ['--json', 'print machine-readable JSON (one object per line with --follow)'],
+    ['-w, --workspace <id>', 'the workspace the server is in (default: the panel\'s default)'],
+  ],
+}
+
+const USAGE_SECTION: OptionSection = {
+  heading: 'Options for usage',
+  lines: [
+    ['--json', 'print machine-readable JSON'],
   ],
 }
 
@@ -342,6 +353,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'down': DOWN_SECTION,
   'status': STATUS_SECTION,
   'logs': LOGS_SECTION,
+  'usage': USAGE_SECTION,
   'backup': BACKUP_SECTION,
   'restart': RESTART_SECTION,
   'start': START_SECTION,
@@ -394,6 +406,7 @@ const COMMANDS = {
   'restart': () => import('#src/cli/restart').then(module => module.restartCommand(CLI_ENTRY)),
   'status': () => import('#src/cli/status').then(module => module.statusCommand),
   'logs': () => import('#src/cli/logs').then(module => module.logsCommand),
+  'usage': () => import('#src/cli/usage').then(module => module.usageCommand),
   'start': () => import('#src/cli/server').then(module => module.startCommand),
   'stop': () => import('#src/cli/server').then(module => module.stopCommand),
   'free-port': () => import('#src/cli/server').then(module => module.freePortCommand),

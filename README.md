@@ -399,7 +399,8 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 | `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
 | `home-hosted free-port <id>` | ask whatever holds that server's port to stop — the panel's **Free port** button. Anything this panel supervises is refused, not signalled (`--workspace <id>`) |
 | `home-hosted restart <id>` | restart one server, nothing else (`--workspace <id>`) — the same as the panel's per-server Restart |
-| `home-hosted logs` | read the panel's own console output — the file `up` redirects it into (`--lines`, `--follow`, `--json`) |
+| `home-hosted logs [<id>]` | the panel's own console, or one server's log with an id (`--lines`, `--follow`, `--json`, `--workspace <id>`) |
+| `home-hosted usage` | live CPU and memory per server, loudest first — the fastest answer to "what is eating the machine" (`--json`) |
 | `home-hosted backup` | list, create or restore an archive — **without the panel running** (`--password`, `--include`, `--exclude`). See [Backups](#-backups) and [RESTORE_DEMO.md](./docs/RESTORE_DEMO.md) |
 | `home-hosted set-password` | set the panel password without opening a browser; a running panel picks it up at once and signs every existing session out |
 | `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
@@ -419,7 +420,8 @@ up                -p/--port --host --open --no-autostart --foreground --print-co
 
 down              --with-persistent
 status            --json
-logs              --lines <n> --follow --json
+logs              [<id>] --lines <n> --follow --json [-w/--workspace <id>]
+usage             --json
 backup            [list|create|restore] [<name> | --from <path>] (--include <ids> | --all) [--exclude <ids>] --password --confirm --json
 start, stop       <id> [-w/--workspace <id>]   (both need the panel up)
 restart           [<id>] [-w/--workspace <id>] [--with-persistent]  (no id: the panel; with one: that server)
@@ -512,14 +514,15 @@ the move on its first run; 0.8.0 then starts against the result.
 `home-hosted status` prints the panel's console path *and* the per-server log directory, naming the
 `<id>.log` convention once logs exist.
 
-`--json` is for scripts. A stopped panel answers `{ running: false, initialised }` —
-`initialised: false` means nothing was ever set up in this state directory — plus `liveness`:
+`--json` is for scripts. It always carries `running` and `liveness` — a script should not have to
+branch on whether a record exists. A stopped panel answers `{ running: false, initialised, liveness }`,
+where `initialised: false` means nothing was ever set up in this state directory:
 
 | `liveness` | Means |
 | --- | --- |
 | `live` | the recorded pid is this panel, born when the record says |
 | `unknown` | the pid is alive but this platform will not report its birth time. Counted as running rather than dismissed |
-| `gone` | it is not running; the record is stale and may be cleared |
+| `gone` | nothing is running. Either the record is stale and may be cleared, or there is no record at all |
 | `recycled` | the OS has handed the recorded pid to **another** process. The record is stale, but a signal would hit a stranger, so only the token-authenticated shutdown touches it |
 
 Piping a command into `head`, `grep -q` or anything that stops reading early is ordinary shell and it
@@ -824,10 +827,25 @@ home-hosted logs              # the last 50 lines
 home-hosted logs --follow     # keep printing, like tail -f
 home-hosted logs --lines all  # the whole thing, including the rotation
 home-hosted logs --json       # { path, lines } — or one object per line with --follow
+home-hosted logs web          # one server's own log, rendered as text
+home-hosted logs api -w staging   # the server in another workspace
 ```
 
 It reads the same file `status` names, and needs no session or API token — a panel answering badly is
 exactly when you cannot get one. `up` prints the tail when the panel fails to start.
+
+With an id, it reads that server's log instead, and `-w/--workspace` picks which workspace's server
+you mean — an id is only unique inside one, so the default workspace is assumed otherwise.
+
+`home-hosted usage` answers the other question an operator opens a terminal for:
+
+```bash
+home-hosted usage             # live CPU and memory per server, loudest first
+home-hosted usage --json      # { servers: [{ id, workspaceId, status, cpuPercent, rssBytes, ... }] }
+```
+
+A stopped server has no reading and shows a dash, never `0` — a zero on a CPU column reads as "idle"
+and would hide a server nothing is measuring.
 
 </details>
 

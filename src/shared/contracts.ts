@@ -2090,6 +2090,32 @@ export const logLinesResponseSchema = type({
 })
 
 /**
+ * One server's live resource reading, for `home-hosted usage`.
+ *
+ * `cpuPercent` and `rssBytes` are `number | null` because a reading can be absent — a process the
+ * sampler has not seen yet, or one that just exited. Absent is **not** zero: a `0` here would read as
+ * "idle" and hide a server that is not being measured at all.
+ */
+export const usageEntrySchema = type({
+  'id': 'string',
+  'workspaceId': 'string',
+  'label': 'string',
+  'status': serverStatusSchema,
+  /** Absent when nothing is running or the sampler has no sample yet. */
+  'cpuPercent?': 'number',
+  'rssBytes?': 'number',
+  /** Processes in this entry's tree, including an adopted successor's. */
+  'processes?': 'number',
+  'sampledAt?': 'number',
+})
+
+export const usageViewSchema = type({
+  'servers': usageEntrySchema.array(),
+  /** When the host-level sample was taken, so a caller can tell live numbers from a frozen frame. */
+  'sampledAt?': 'number',
+})
+
+/**
  * What a `free-port` attempt did. The pids are reported so the UI can say which
  * process left, and which listeners were deliberately left alone because this
  * panel supervises them.
