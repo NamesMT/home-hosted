@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { needsAttention } from '@shared/server-attention'
 import { liveReadings } from '@shared/server-readings'
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
@@ -24,8 +25,7 @@ const router = useRouter()
 const groups = computed(() => control.workspaces.value)
 const all = computed(() => control.allServers.value.map(entry => entry.server))
 const running = computed(() => all.value.filter(server => server.status === 'running'))
-const attention = computed(() => all.value.filter(server =>
-  server.status === 'crashed' || server.status === 'conflict' || server.health === 'unhealthy'))
+const attention = computed(() => all.value.filter(needsAttention))
 
 function openWorkspace(id: string): void {
   workspace.select(id)

@@ -176,7 +176,7 @@ per route are in `GET /openapi/spec.json`; a route that declares none accepts on
 | `GET` / `PUT /api/ddns`, `PUT` / `DELETE /api/ddns/credentials/:id`, `POST /api/ddns/check` | dynamic DNS, per workspace: the policy plus live per-record state, one account's sealed credentials (write-only — the view exposes ids and whether each is set, never the values), and a pass run now |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout` | the session |
 | `GET` / `POST` / `DELETE /api/host/temperature` | the WSL2 temperature bridge, panel-wide: read whether a helper is installed, install one and point `host.tempCommand` at it, or remove both. `supported` is false off WSL, so hide the control rather than offering a button that cannot work |
-| `GET /healthz` | liveness — **no session**, and `503` when a server has crashed, when the panel stopped one because it could not serve, or while a running one is failing its health check |
+| `GET /healthz` | liveness — **no session**, and `503` while any entry `needsAttention`: crashed, `conflict` (its port is held), stopped by the panel because it could not serve, or running and failing its own health check |
 | `GET /api/metrics` | Prometheus text (needs a session) |
 
 `GET /healthz` and `GET /openapi/*` are the only unauthenticated reads; the SPA shell itself is

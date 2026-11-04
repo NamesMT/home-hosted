@@ -290,6 +290,25 @@ describe('healthz', () => {
   })
 
   /**
+   * A `conflict` entry is a server that is down, and `/healthz` answered `ok` for it.
+   *
+   * The filter named `crashed`, `stoppedByPanel` and a running-unhealthy entry, but not the status
+   * that means "this entry cannot start because something else holds its port". Measured on a panel
+   * whose only entry was blocked: `GET /healthz` → `200 {"status":"ok"}` while `GET /_hh/usage`
+   * answered `web conflict` and the card drew it in red — so a monitor watching the one endpoint
+   * built for it reported a healthy home with a server down.
+   */
+  it('reports degraded for an entry blocked on its port', async () => {
+    const created = await fixture({
+      views: [makeView('web', { status: 'conflict', config: { id: 'web', command: 'node', autostart: true } as never })],
+    })
+
+    const response = await created.app.request('/healthz')
+    expect(response.status).toBe(503)
+    expect(await response.json()).toMatchObject({ status: 'degraded' })
+  })
+
+  /**
    * The declared schema must describe **both** answers, not just the 200.
    *
    * `healthz` builds its 200 schema inline in the route, and `/openapi/spec.json` publishes it — but

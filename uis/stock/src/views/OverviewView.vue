@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Activity, CircleAlert, Play, Plus, Server as ServerIcon, Timer } from '@lucide/vue'
+import { needsAttention } from '@shared/server-attention'
 import { sumReadings } from '@shared/server-readings'
 import { computed, ref } from 'vue'
 import ActivityFeed from '@/components/server/ActivityFeed.vue'
@@ -36,8 +37,7 @@ const label = computed(() => workspace.selected.value?.label ?? t('nav.workspace
 
 const running = computed(() => servers.value.filter(server => server.status === 'running'))
 const stopped = computed(() => servers.value.filter(server => ['stopped', 'stopping'].includes(server.status)))
-const attention = computed(() => servers.value.filter(server =>
-  server.status === 'crashed' || server.status === 'conflict' || server.health === 'unhealthy'))
+const attention = computed(() => servers.value.filter(needsAttention))
 
 const totalRss = computed(() => sumReadings(running.value, 'rssBytes'))
 

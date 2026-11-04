@@ -84,8 +84,10 @@ environment you give it. A preset can fill that in for you, and you can change e
 
 <sub>Manage them from the panel, `home-hosted start|stop <id>` from a shell, `home-hosted status --json`,
 or `GET /api/state`; `GET /healthz` is the same status line for your own monitor, no session needed —
-`503` when a server has crashed, when the panel stopped one because it could not serve, or while
-a running one is failing its health check.</sub>
+`503` while any entry needs attention: crashed, blocked because something else holds its port
+(`conflict`), stopped by the panel because it could not serve, or running and failing its own health
+check. That is the rule the panel's own "needs a look" counts use too, so a monitor and the page
+cannot disagree about what is broken.</sub>
 
 ---
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Play, Plus, Search, Server as ServerIcon, X } from '@lucide/vue'
+import { needsAttention } from '@shared/server-attention'
 import { computed, ref } from 'vue'
 import AddServerDialog from '@/components/server/AddServerDialog.vue'
 import ServerCard from '@/components/server/ServerCard.vue'
@@ -47,10 +48,8 @@ const visible = computed(() => {
       return false
     if (filter.value === 'disabled' && server.config.enabled)
       return false
-    if (filter.value === 'attention'
-      && !(server.status === 'crashed' || server.status === 'conflict' || server.health === 'unhealthy')) {
+    if (filter.value === 'attention' && !needsAttention(server))
       return false
-    }
     if (needle.length === 0)
       return true
     const haystack = `${server.id} ${server.config.label ?? ''} ${server.config.command} ${server.config.port ?? ''}`.toLowerCase()
@@ -61,8 +60,7 @@ const visible = computed(() => {
 const counts = computed(() => ({
   all: servers.value.length,
   running: servers.value.filter(server => server.status === 'running').length,
-  attention: servers.value.filter(server =>
-    server.status === 'crashed' || server.status === 'conflict' || server.health === 'unhealthy').length,
+  attention: servers.value.filter(needsAttention).length,
 }))
 
 /** The count rides the label, and only where there is one to show. */

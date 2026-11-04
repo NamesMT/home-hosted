@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Activity, CircleAlert, Cpu, Layers, Plus, Server as ServerIcon } from '@lucide/vue'
+import { needsAttention } from '@shared/server-attention'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import HostVitalsPanel from '@/components/host/HostVitalsPanel.vue'
@@ -36,8 +37,7 @@ const groups = computed(() => control.workspaces.value)
 const all = computed(() => control.allServers.value.map(entry => entry.server))
 
 const running = computed(() => all.value.filter(server => server.status === 'running'))
-const attention = computed(() => all.value.filter(server =>
-  server.status === 'crashed' || server.status === 'conflict' || server.health === 'unhealthy'))
+const attention = computed(() => all.value.filter(needsAttention))
 
 const host = computed(() => control.host.value)
 const panelUptime = computed(() => (panel.startedAt.value === null ? '—' : formatDuration(control.now.value - panel.startedAt.value)))
@@ -129,7 +129,7 @@ onMounted(async () => {
         </p>
         <p class="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-2xs text-danger">
           <button
-            v-for="entry in control.allServers.value.filter(e => e.server.status === 'crashed' || e.server.status === 'conflict' || e.server.health === 'unhealthy')"
+            v-for="entry in control.allServers.value.filter(e => needsAttention(e.server))"
             :key="`${entry.workspace.id}:${entry.server.id}`"
             type="button"
             class="font-mono underline decoration-danger/40 underline-offset-2 hover:decoration-danger"
