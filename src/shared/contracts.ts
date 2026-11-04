@@ -2107,6 +2107,15 @@ export const usageEntrySchema = type({
   /** Processes in this entry's tree, including an adopted successor's. */
   'processes?': 'number',
   'sampledAt?': 'number',
+  /**
+   * How the entry has behaved over the panel's history window, so `usage` can answer "is this
+   * restarting every few minutes" and not only "what is it using right now". Copied from the same
+   * `ServerView.history` the page reads; absent when nothing is known yet.
+   */
+  'restarts?': 'number',
+  'crashes?': 'number',
+  'uptimeRatio?': 'number',
+  'lastExitAt?': 'number',
 })
 
 export const usageViewSchema = type({

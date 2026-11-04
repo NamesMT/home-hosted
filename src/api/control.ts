@@ -307,6 +307,10 @@ function buildUsage(deps: AppDeps): { servers: Array<Record<string, unknown>>, s
   const state = deps.panel.getState()
   const servers = state.workspaces.flatMap(workspace => workspace.servers.map((server) => {
     const resources = server.resources
+    // The window's behaviour, from the same `ServerView.history` the page reads — a live snapshot
+    // cannot say "this has restarted nine times in the last hour", which is what a flapping entry
+    // looks like from a terminal.
+    const history = server.history
     return {
       id: server.id,
       workspaceId: server.workspaceId ?? workspace.id,
@@ -315,6 +319,14 @@ function buildUsage(deps: AppDeps): { servers: Array<Record<string, unknown>>, s
       ...(resources?.cpuPercent == null ? {} : { cpuPercent: resources.cpuPercent }),
       ...(resources?.rssBytes == null ? {} : { rssBytes: resources.rssBytes }),
       ...(resources == null ? {} : { processes: resources.processes, sampledAt: resources.sampledAt }),
+      ...(history == null
+        ? {}
+        : {
+            restarts: history.restarts,
+            crashes: history.crashes,
+            ...(history.uptimeRatio == null ? {} : { uptimeRatio: history.uptimeRatio }),
+            ...(history.lastExitAt == null ? {} : { lastExitAt: history.lastExitAt }),
+          }),
     }
   }))
   return {

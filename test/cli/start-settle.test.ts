@@ -197,4 +197,38 @@ describe('usage', () => {
     expect(lines[3]).toContain('—')
     expect(lines[3]).not.toMatch(/\b0\.0%/)
   })
+
+  /**
+   * A live snapshot cannot say "this has restarted nine times in the last hour", which is exactly
+   * what a flapping entry looks like from a terminal — it uses almost nothing at any one sample and
+   * is still the thing worth fixing. The window's numbers come from the same `ServerView.history`
+   * the page reads.
+   */
+  it('shows the history window, so a flapping entry is visible without a browser', async () => {
+    writeRuntime(await panel(
+      { status: 200, body: { ok: true } },
+      {
+        status: 200,
+        body: {
+          servers: [
+            { id: 'steady', workspaceId: 'default', label: 'steady', status: 'running', cpuPercent: 0.4, rssBytes: 40 * 1024 * 1024, processes: 1, crashes: 0, uptimeRatio: 1 },
+            { id: 'flaps', workspaceId: 'default', label: 'flaps', status: 'crashed', crashes: 9, uptimeRatio: 0.25 },
+          ],
+          sampledAt: Date.now(),
+        },
+      },
+    ))
+
+    const result = await runCli(['usage'])
+
+    expect(result.status).toBe(0)
+    const lines = result.stdout.trim().split('\n')
+    expect(lines[0]).toContain('CRASH')
+    // Ranked by memory, so the running entry leads and the crashed one follows.
+    expect(lines[1]).toContain('steady')
+    expect(lines[2]).toContain('flaps')
+    // The flapping entry's crash count and share of the window are why it is worth a look.
+    expect(lines[2]).toMatch(/\b9\b/)
+    expect(lines[2]).toContain('25%')
+  })
 })

@@ -1,6 +1,6 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, fail } from '#src/cli/io'
+import { bold, dim, fail, paint } from '#src/cli/io'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -24,6 +24,10 @@ interface UsageEntry {
   cpuPercent?: number
   rssBytes?: number
   processes?: number
+  /** Behaviour over the panel's history window; absent when nothing is known yet. */
+  restarts?: number
+  crashes?: number
+  uptimeRatio?: number
 }
 
 /** Bytes as a short human figure; `MB`/`GB` with one decimal, the unit an operator reads. */
@@ -76,9 +80,13 @@ export async function runUsage(input: { json?: boolean }): Promise<void> {
     cell(entry.cpuPercent, value => `${value.toFixed(1)}%`),
     cell(entry.rssBytes, formatBytes),
     cell(entry.processes, value => String(value)),
+    // The window, not the instant: a flapping entry uses almost nothing at any sample and is
+    // still the one thing on this list worth fixing.
+    cell(entry.crashes, value => (value === 0 ? dim('0') : paint('31', String(value)))),
+    cell(entry.uptimeRatio, value => `${Math.round(value * 100)}%`),
   ])
 
-  const headers = ['SERVER', 'STATUS', 'CPU', 'MEMORY', 'PROCS']
+  const headers = ['SERVER', 'STATUS', 'CPU', 'MEMORY', 'PROCS', 'CRASH', 'UP']
   const widths = headers.map((header, index) =>
     Math.max(header.length, ...rows.map(row => (row[index] ?? '').length)))
   const line = (columns: string[]): string =>

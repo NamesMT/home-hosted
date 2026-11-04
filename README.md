@@ -868,12 +868,15 @@ you want); a note says the entry is gone.
 `home-hosted usage` answers the other question an operator opens a terminal for:
 
 ```bash
-home-hosted usage             # live CPU and memory per server, loudest first
-home-hosted usage --json      # { servers: [{ id, workspaceId, status, cpuPercent, rssBytes, ... }] }
+home-hosted usage             # live CPU and memory per server, loudest first, plus the last window
+home-hosted usage --json      # { servers: [{ id, workspaceId, status, cpuPercent, rssBytes, crashes, uptimeRatio, ... }] }
 ```
 
 A stopped server has no reading and shows a dash, never `0` — a zero on a CPU column reads as "idle"
 and would hide a server nothing is measuring.
+
+The `CRASH` and `UP` columns come from the panel's history window, not the current sample: an entry
+restarting every few minutes uses almost no CPU at any instant and is still the thing to fix.
 
 </details>
 

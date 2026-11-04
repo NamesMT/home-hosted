@@ -1637,3 +1637,32 @@ describe('/_hh/backups plan mode', () => {
     expect(body.entries?.map(entry => entry.id)).toEqual(['global:settings'])
   })
 })
+
+/**
+ * `/_hh/usage` is what `home-hosted usage` prints, so the history it carries is the only way a
+ * terminal can tell a flapping entry from a quiet one — a live CPU reading is nearly zero for both.
+ *
+ * Tested at the route rather than through the CLI: the CLI's own test stubs the panel's answer, so
+ * it pins the table's shape and says nothing about whether this builder fills it. The first version
+ * of this test was written against the stub and passed with the history block deleted.
+ */
+describe('/_hh/usage', () => {
+  const token = { 'x-home-hosted-token': 'runtime-token' }
+
+  it('carries the history window beside the live readings', async () => {
+    const created = await fixture({
+      views: [makeView('web', {
+        status: 'crashed',
+        history: { windowMs: 3_600_000, uptimeRatio: 0.25, restarts: 4, crashes: 9, forcedRestarts: 0, lastCrashAt: null, lastExitAt: 1_700_000_000_000, lastRuntimeMs: null, events: [] },
+      })],
+    })
+
+    const response = await created.app.request('/_hh/usage', { headers: token })
+    expect(response.status).toBe(200)
+    const body = await response.json() as { servers: Array<Record<string, unknown>> }
+
+    expect(body.servers[0]).toMatchObject({ id: 'web', crashes: 9, restarts: 4, uptimeRatio: 0.25 })
+    // A reading that was never taken stays absent — `0` on a CPU column reads as "idle".
+    expect(body.servers[0]).not.toHaveProperty('cpuPercent')
+  })
+})
