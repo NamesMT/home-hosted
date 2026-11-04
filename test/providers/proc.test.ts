@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import process from 'node:process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { processCarriesServerId, ProcessSampler, processTreeOwners, processTreePids, treeCpuUsedSeconds } from '#src/providers/proc'
+import { processCarriesServerId, ProcessSampler, processTreeOwners, treeCpuUsedSeconds } from '#src/providers/proc'
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -108,7 +108,7 @@ describe('processCarriesServerId', () => {
   })
 })
 
-describe('processTreePids', () => {
+describe('processTreeOwners', () => {
   const children: ReturnType<typeof spawn>[] = []
 
   afterEach(() => {
@@ -138,10 +138,10 @@ describe('processTreePids', () => {
     })
     children.push({ kill: () => process.kill(grandchild, 'SIGKILL') } as unknown as ReturnType<typeof spawn>)
 
-    const pids = await processTreePids([parent.pid])
-    expect(pids.has(parent.pid)).toBe(true)
-    expect(pids.has(grandchild)).toBe(true)
-    expect(pids.has(process.pid)).toBe(false)
+    const owners = await processTreeOwners([parent.pid])
+    expect(owners.has(parent.pid)).toBe(true)
+    expect(owners.has(grandchild)).toBe(true)
+    expect(owners.has(process.pid)).toBe(false)
   })
 
   /**
@@ -171,8 +171,6 @@ describe('processTreePids', () => {
     const owners = await processTreeOwners([parent.pid])
     expect(owners.get(parent.pid)).toBe(parent.pid)
     expect(owners.get(grandchild), 'the descendant that holds the port belongs to this root').toBe(parent.pid)
-    // And the pid set is the same answer, from the same walk.
-    expect([...owners.keys()].sort()).toEqual([...await processTreePids([parent.pid])].sort())
   })
 })
 

@@ -247,22 +247,6 @@ export function treeCpuUsedSeconds(
 }
 
 /**
- * The roots and every descendant of theirs, from one scan of the process table.
- *
- * Ownership has to mean the *tree*: a persistent entry runs under a nanny, and a
- * wrapper entry spawns the real server one generation down. Both keep the pid the
- * panel recorded, but the process holding the port is a descendant of it — and a
- * descendant classified as a stranger is one `kill`/`free-port` away from stopping
- * a server this panel is responsible for.
- *
- * A backend that cannot run answers with the roots alone, which is the old,
- * narrower behaviour rather than a wrong one.
- */
-export async function processTreePids(roots: number[]): Promise<Set<number>> {
-  return new Set((await processTreeOwners(roots)).keys())
-}
-
-/**
  * The same walk, keeping *which root* each pid belongs to.
  *
  * A refusal has to name the server to go and stop, and a pid on its own is not that: the panel
@@ -270,6 +254,14 @@ export async function processTreePids(roots: number[]): Promise<Set<number>> {
  * stop that server instead", with no way to tell which of the 14 it meant. The tree loses that
  * fact, so the attribution is collected here, where the walk already happens, rather than by a
  * second scan.
+ *
+ * Ownership has to mean the *tree*: a persistent entry runs under a nanny, and a wrapper entry
+ * spawns the real server one generation down. Both keep the pid the panel recorded, but the process
+ * holding the port is a descendant of it — and a descendant classified as a stranger is one
+ * `kill`/`free-port` away from stopping a server this panel is responsible for.
+ *
+ * A backend that cannot run answers with the roots alone, which is the old, narrower behaviour
+ * rather than a wrong one.
  *
  * When two roots are nested, the ancestor keeps the pid: it is the older claim and still true.
  */

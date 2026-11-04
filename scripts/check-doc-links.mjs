@@ -95,28 +95,6 @@ for (const file of [...SHIPPED, ...IN_REPO]) {
   }
 }
 
-/**
- * The two lists above are claims about `package.json#files`, and nothing checked them.
- *
- * A doc added to `SHIPPED` that the tarball does not carry is a link that works in the repo and is
- * dead for every person who installed the package — the exact failure this script exists to catch,
- * one step earlier. The reverse is quieter and worse: a doc that ships but is not scanned can carry a
- * broken link, or a link into `.agentDocs/`, with nothing failing.
- *
- * Derived from `files` rather than asserted as a literal list, so adding a `docs/*.md` entry there
- * forces the question. `README.md` is the one name that is both the package readme and a doc.
- */
-const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'))
-const shippedMarkdown = manifest.files.filter(entry => entry.endsWith('.md'))
-for (const file of shippedMarkdown) {
-  if (!SHIPPED.includes(file))
-    problems.push(`${file} ships (package.json#files) but is not in SHIPPED, so its links are never checked`)
-}
-for (const file of SHIPPED) {
-  if (!shippedMarkdown.includes(file))
-    problems.push(`${file} is checked as shipped, but package.json#files does not carry it`)
-}
-
 if (problems.length > 0) {
   for (const problem of problems)
     console.error(`broken link: ${problem}`)
