@@ -425,6 +425,17 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   confident one that is wrong.
 - **Missing recall of this repo?** Read this file, `.agentDocs/` and `git log` before acting, then ask
   1–3 focused questions rather than guessing at intent.
+- **A command that answers on spawn reports a lie when the process dies.** `start` and `restart <id>`
+  return `ok` the moment the child is spawned, so an entry whose command exits immediately printed
+  "started" and exited 0 while already in its crash-restart loop, and `start x && curl x` raced every
+  boot. The CLI reads the entry back (`GET /_hh/servers/:id`) and refuses when it is gone. **`start`
+  reporting on spawn is right for the panel and wrong for a script** — the decision belongs to the
+  caller that knows which it is.
+- **"Not running" is a claim about the machine, not about the record.** With `run.json` gone but a
+  panel still listening, `down` printed "not running" and exited 0, so `down && up` proceeded against
+  a live panel holding its port. It now probes the port its own `settings.json` names and **refuses**,
+  naming where the answer came from — and signals nothing, because without a record there is no pid
+  it can prove it owns.
 - **One guard here looked like the one that runs and was not**: `declaredData` marks a path
   `included: false` so the copy never starts, while the check inside `copyInto` is a second line that
   route does not reach.

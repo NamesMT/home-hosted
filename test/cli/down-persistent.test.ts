@@ -1,9 +1,10 @@
 import type { ChildProcess } from 'node:child_process'
-import type net from 'node:net'
+import type { AddressInfo } from 'node:net'
 import type { NannyState } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -54,6 +55,21 @@ function spawnStub(): number {
   return child.pid!
 }
 
+/** Listeners a test opened, closed afterwards. */
+const listening: net.Server[] = []
+
+/** Removes the record a previous test may have left, so it cannot answer for this one. */
+function zshHome(): void {
+  fs.rmSync(path.join(home, '.hh', 'run.json'), { force: true })
+}
+
+/** A settings.json naming `port` — the only record left once run.json is gone. */
+function writeSettings(port: number): void {
+  const settings = { meta: { writtenBy: '0.11.0', schema: CONFIG_SCHEMA }, control: { port, host: 'local' } }
+  fs.mkdirSync(path.join(home, '.hh'), { recursive: true })
+  fs.writeFileSync(path.join(home, '.hh', 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`)
+}
+
 /**
  * A workspace whose `.state` describes one running persistent entry.
  *
@@ -91,7 +107,7 @@ function writePersistent(
   return file
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const child of spawned.splice(0)) {
     if (child.pid !== undefined && isProcessAlive(child.pid)) {
       try {
@@ -102,6 +118,8 @@ afterEach(() => {
       }
     }
   }
+  for (const server of listening.splice(0))
+    await new Promise<void>(resolve => server.close(() => resolve()))
 })
 
 describe('down --with-persistent', () => {
@@ -362,6 +380,61 @@ describe('down --with-persistent', () => {
     }
     finally {
       fs.rmSync(runFile, { force: true })
+    }
+  })
+})
+
+/**
+ * "Not running" is a claim about the machine, not about the record.
+ *
+ * With `run.json` gone but a panel still listening, `down` printed "home-hosted is not running" and
+ * exited 0 — so `down && up` in a deploy script proceeded against a live panel that then held its
+ * port. It now probes the port its own `settings.json` names and refuses, naming where the answer
+ * came from. It signals nothing: without a record there is no pid it can prove it owns.
+ */
+describe('down with no run.json but a panel still answering', () => {
+  it('refuses, names the address, and touches nothing', async () => {
+    zshHome()
+    const server = net.createServer()
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    listening.push(server)
+
+    // The state root a panel that lost its record would leave behind: settings naming the port, and
+    // no run.json at all.
+    writeSettings(port)
+    fs.rmSync(path.join(home, '.hh', 'run.json'), { force: true })
+
+    try {
+      const result = await runCli(['down'])
+
+      expect(result.status, 'a live panel is not a successful stop').toBe(1)
+      expect(result.stderr).toContain(`127.0.0.1:${port}`)
+      expect(result.stdout, 'no success line for a panel that is still there').not.toContain('is not running')
+      // It reports; it never signals. The listener is still up.
+      expect(server.listening, 'down must not touch a process it cannot identify').toBe(true)
+    }
+    finally {
+      fs.rmSync(path.join(home, '.hh', 'settings.json'), { force: true })
+    }
+  })
+
+  it('still says "not running" when nothing answers on the configured port', async () => {
+    zshHome()
+    // A port nothing is on: bind, read the number, close it again.
+    const probe = net.createServer()
+    await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve))
+    const { port } = probe.address() as AddressInfo
+    await new Promise<void>(resolve => probe.close(() => resolve()))
+    writeSettings(port)
+
+    try {
+      const result = await runCli(['down'])
+      expect(result.status).toBe(0)
+      expect(result.stdout).toContain('home-hosted is not running')
+    }
+    finally {
+      fs.rmSync(path.join(home, '.hh', 'settings.json'), { force: true })
     }
   })
 })

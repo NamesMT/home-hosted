@@ -21,12 +21,18 @@ export async function runStatus(json: boolean): Promise<void> {
     // second says there is nothing here yet. `workspaces.json` is what tells them apart — it is
     // written by the first successful `up`/`init`, so its absence means nothing was ever created.
     const initialised = fs.existsSync(workspacesPath)
-    if (json)
-      process.stdout.write(`${JSON.stringify({ running: false, initialised }, null, 2)}\n`)
-    else if (initialised)
+    if (json) {
+      // `liveness` is always present, because the contract says so and a script should not have to
+      // branch on whether a record exists. No `run.json` is not "unknown": nothing is behind the
+      // pid, which is exactly `gone` — a fact, not an omission.
+      process.stdout.write(`${JSON.stringify({ running: false, initialised, liveness: 'gone' }, null, 2)}\n`)
+    }
+    else if (initialised) {
       process.stdout.write(`home-hosted is not running — start it with \`${invocation()} up\`\n`)
-    else
+    }
+    else {
       process.stdout.write(`home-hosted is not running — nothing is set up here yet; \`${invocation()} init\` creates a project, \`${invocation()} up\` starts one here\n`)
+    }
     process.exitCode = 1
     return
   }

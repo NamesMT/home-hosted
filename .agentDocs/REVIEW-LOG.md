@@ -18,11 +18,11 @@ changed (needs a decision) · `verified good` = exercised and found correct, rec
 | 2 | `init --no-install` printed `<pm> run up` first, which exits 127 because nothing installed `home-hosted` | implemented `53de057` |
 | 3 | The password hint named a page the UI does not have ("Settings → Authentication") | implemented `53de057` |
 | 4 | An exposure refusal told the user to run a command they do not have | implemented `53de057` |
-| 5 | README documented a `liveness` value the code never emits | logged |
+| 5 | `status --json` omitted `liveness` entirely when there was no `run.json` | implemented |
 | 6 | `up` printed "already running" and exited 0 while ignoring `--port`/`--host` | implemented `2950d5e`, corrected in `1b33cb5` |
 | 7 | `status --json` says `"running": false` with no reason for a clean stop | logged — `initialised` covers it; a shape change touches a documented contract |
 | 8 | `up` on a busy control port exits 0 from the shell wrapper | logged |
-| 9 | Nothing warns that the scaffold's `.gitignore` keeps schemas out of the repo | logged |
+| 9 | Claimed the scaffold's `.gitignore` kept schemas out of the repo | verified good — it tracks config and ignores secrets, logs, TLS, backups, proxy and the generated `.schema.json` files |
 | 10 | README's `pnpm install --frozen-lockfile` cannot run in a `--no-install` project (no lockfile exists) | implemented `c1a518e` |
 | 11 | A broken `servers.config.json` keeps running servers and says so | verified good |
 
@@ -33,9 +33,9 @@ changed (needs a decision) · `verified good` = exercised and found correct, rec
 | 12 | `resources.maxRssBytes` never fired on an *adopted* process (`enforceMemoryLimit` required `entry.child !== null`) | implemented `cfcf868` |
 | 13 | A supervised port clash named a pid, not which of 14 rows to stop | implemented `2317f6e` |
 | 14 | A hand-lowered `logs.keep` in `settings.json` did not prune rotations above it | implemented `23b6d43` |
-| 15 | No CLI surface for per-server resource usage | logged — a new command is a product decision |
-| 16 | `start` reports success for an entry that is already dead | logged |
-| 17 | `logs` reads only the panel console; `status` is the only hint about per-server logs | logged — same decision as 15 |
+| 15 | No CLI surface for per-server resource usage | implemented — `home-hosted usage` |
+| 16 | `start` reports success for an entry that is already dead | implemented — verified on read-back |
+| 17 | `logs` reads only the panel console | implemented — `logs <id>` with `-w/--workspace` |
 | 18 | The crash retry budget survives a panel restart | verified good |
 | 19 | A panel started without `node` on PATH marks every entry failed | verified good — the message names the cause correctly |
 
@@ -47,8 +47,8 @@ changed (needs a decision) · `verified good` = exercised and found correct, rec
 | 21 | `logs` and `down` printed a refusal on stdout while exiting 1 | implemented `bd8b241` |
 | 22 | README's blanket "nothing to stdout on a refusal" was contradicted by four commands | implemented `bd8b241` |
 | 23 | `up` dropped `--port`/`--host`/`--open` on a live panel and exited 0 | implemented `2950d5e` |
-| 24 | `start` exits 0 for an entry that is already dying | logged — needs a `--wait` decision |
-| 25 | `down` says "not running" and exits 0 while a panel it started is still listening | logged |
+| 24 | `start` exits 0 for an entry that is already dying | implemented — same fix as 16, and `restart <id>` too |
+| 25 | `down` says "not running" and exits 0 while a panel it started is still listening | implemented — probes the configured port, refuses, signals nothing |
 | 26 | A wedged panel makes `status --json` say `running: true, answering: false` and exit 0 | implemented as docs `c1a518e` — the exit code is defensible, so the contract is documented |
 | 27 | `PUT /api/servers/:id` writes config only, silently leaving the old process serving | implemented as docs `c1a518e` |
 | 28 | `--help`, `--version`, unknown commands and idempotency | verified good |
