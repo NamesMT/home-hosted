@@ -102,13 +102,17 @@ describe('the notifications migration', () => {
    */
   it('gives the migrated destination the id the stored token is read under', () => {
     const id = migrate(schema1).notifications.destinations.find((entry: any) => entry.kind === 'telegram').id
-    const legacy = new SecretsStore(path.join(os.tmpdir(), `hh-${Date.now()}`, 'secrets.json'), undefined, 'workspace')
+    // A real directory, swept with the test: this used to be `hh-${Date.now()}`, which no
+    // assertion could miss and nothing removed.
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-legacy-secrets-'))
+    const legacy = new SecretsStore(path.join(scratch, 'secrets.json'), undefined, 'workspace')
 
     // A pre-list secrets file stores the token under the legacy id; the reader must find it there.
     fs.mkdirSync(path.dirname(legacy.path), { recursive: true })
     fs.writeFileSync(legacy.path, JSON.stringify({ telegram: { botToken: 'TOKEN' } }), { mode: 0o600 })
     expect(legacy.telegramTokenIds).toEqual([id])
     expect(legacy.telegramToken(id)).toBe('TOKEN')
+    fs.rmSync(scratch, { recursive: true, force: true })
   })
 
   it('stamps the schema it reached, so the result is readable by this release', () => {

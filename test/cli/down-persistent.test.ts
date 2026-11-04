@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
@@ -25,6 +25,12 @@ import { isProcessAlive } from '#src/providers/port'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-down-persistent-'))
+
+/** This file's scratch home: a leaked temp dir fails no assertion, so it is swept here. */
+afterAll(() => {
+  fs.rmSync(home, { recursive: true, force: true })
+})
+
 const spawned: ChildProcess[] = []
 
 function runCli(args: string[]): Promise<{ status: number | null, stdout: string, stderr: string }> {

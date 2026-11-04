@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 /**
  * The flag rules that guard a destructive command, checked without a panel.
@@ -16,6 +16,11 @@ import { describe, expect, it } from 'vitest'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-backup-args-'))
+
+/** This file's scratch home; a leaked temp dir fails no assertion, so it is swept here. */
+afterAll(() => {
+  fs.rmSync(home, { recursive: true, force: true })
+})
 
 function run(args: string[]): { status: number | null, output: string } {
   const result = spawnSync(process.execPath, ['--import=tsx', path.join(root, 'src/cli.ts'), ...args, '--home', home], {

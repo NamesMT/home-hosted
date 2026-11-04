@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 
 /**
  * One cheap spawned-process guard: the curated `--help` still lists every
@@ -17,6 +17,11 @@ import { describe, expect, it } from 'vitest'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-cli-smoke-'))
+
+/** This file's scratch home; a leaked temp dir fails no assertion, so it is swept here. */
+afterAll(() => {
+  fs.rmSync(home, { recursive: true, force: true })
+})
 
 /**
  * A free control port in the dev range, never handed out twice to this file.
@@ -251,6 +256,8 @@ describe('cli smoke', () => {
  */
 describe('status paths', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-status-'))
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
 
   it('prints the workspace log directory, aligned, with no running panel', () => {
     const result = runCli(['status', '--home', dir])
@@ -374,6 +381,8 @@ describe('status paths', () => {
  */
 describe('status paths in both outputs', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-status-json-'))
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }))
 
   it('names the per-server log directory in text and in JSON', async () => {
     const started = runCli(['up', '--home', dir, '--port', String(await freeDevPort()), '--no-autostart'])

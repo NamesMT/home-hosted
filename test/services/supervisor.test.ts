@@ -28,6 +28,13 @@ import { TlsStore } from '#src/services/tls'
 
 const cleanups: Array<() => Promise<void> | void> = []
 
+/** A scratch dir swept after the test — the `hh-load`/`hh-dump` homes had no cleanup at all. */
+async function scratchDir(prefix: string): Promise<string> {
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), prefix))
+  cleanups.push(() => fs.promises.rm(dir, { recursive: true, force: true }))
+  return dir
+}
+
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
@@ -275,9 +282,9 @@ describe('supervisor', () => {
    */
   it('loads a staged dump once, even when start is called twice', async () => {
     const port = await freePort()
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-load2-'))
+    const dir = await scratchDir('hh-load2-')
     const marker = path.join(dir, 'runs.txt')
-    const dumpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dump2-'))
+    const dumpDir = await scratchDir('hh-dump2-')
     await fs.promises.writeFile(path.join(dumpDir, 'db.archive'), 'X')
 
     const { supervisor } = await makeSupervisor([{
@@ -307,9 +314,9 @@ describe('supervisor', () => {
    */
   it('loads a dump staged while the entry is already running', async () => {
     const port = await freePort()
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-load4-'))
+    const dir = await scratchDir('hh-load4-')
     const marker = path.join(dir, 'loaded.txt')
-    const dumpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dump4-'))
+    const dumpDir = await scratchDir('hh-dump4-')
     await fs.promises.writeFile(path.join(dumpDir, 'db.archive'), 'LATE')
 
     const { supervisor } = await makeSupervisor([{
@@ -338,7 +345,7 @@ describe('supervisor', () => {
    */
   it('drops a staged dump when the entry has no load hook', async () => {
     const port = await freePort()
-    const dumpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dump3-'))
+    const dumpDir = await scratchDir('hh-dump3-')
     const { supervisor } = await makeSupervisor([httpServerConfig(port)])
 
     supervisor.stagePendingLoad('web', dumpDir)
@@ -353,8 +360,8 @@ describe('supervisor', () => {
 
   it('runs a staged load once the entry is up, and clears it', async () => {
     const port = await freePort()
-    const marker = path.join(await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-load-')), 'loaded.txt')
-    const dumpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dump-'))
+    const marker = path.join(await scratchDir('hh-load-'), 'loaded.txt')
+    const dumpDir = await scratchDir('hh-dump-')
     await fs.promises.writeFile(path.join(dumpDir, 'db.archive'), 'FROM-DUMP')
 
     const { supervisor } = await makeSupervisor([{
