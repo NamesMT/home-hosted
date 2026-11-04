@@ -324,6 +324,7 @@ describe('cli io — delay', () => {
 describe('invocation', () => {
   const originalArgv = process.argv[1]
   const originalOverride = process.env.HHOSTED_INVOCATION
+  const originalHome = process.env.HHOSTED_HOME
 
   afterEach(() => {
     process.argv[1] = originalArgv as string
@@ -331,6 +332,10 @@ describe('invocation', () => {
       delete process.env.HHOSTED_INVOCATION
     else
       process.env.HHOSTED_INVOCATION = originalOverride
+    if (originalHome === undefined)
+      delete process.env.HHOSTED_HOME
+    else
+      process.env.HHOSTED_HOME = originalHome
   })
 
   it('names `npx` when the entry is a package-manager cache', () => {
@@ -355,5 +360,41 @@ describe('invocation', () => {
   it('lets a wrapper override it', () => {
     process.env.HHOSTED_INVOCATION = 'hh'
     expect(invocation()).toBe('hh')
+  })
+
+  /**
+   * The state directory travels with the program, or the hint drives a different home.
+   *
+   * Measured: `pnpm run cli backup list` — the documented way to try anything in this repo, which
+   * passes `--home .dev-state` — printed "`pnpm exec tsx src/cli.ts backup create --all` takes one".
+   * Running that verbatim created `~/.home-hosted` beside the state directory it had just read, so
+   * the command the person was told to run was pointed at somebody else's home. Every project `init`
+   * scaffolds has the same shape, because all its scripts pass `--home ./state`.
+   */
+  it('carries the state directory it was given, quoted for the shell', () => {
+    process.argv[1] = '/home/mt/mine/home-hosted/src/cli.ts'
+    process.env.HHOSTED_HOME = '/home/mt/mine/home-hosted/.dev-state'
+    if (process.platform === 'win32')
+      expect(invocation()).toBe('pnpm exec tsx src/cli.ts --home "/home/mt/mine/home-hosted/.dev-state"')
+    else
+      expect(invocation()).toBe('pnpm exec tsx src/cli.ts --home \'/home/mt/mine/home-hosted/.dev-state\'')
+
+    // No state directory was chosen, so the hint stays the bare command — a flag this process was
+    // not given would be advice to move the home, which is not what the hint is about.
+    delete process.env.HHOSTED_HOME
+    expect(invocation()).toBe('pnpm exec tsx src/cli.ts')
+  })
+
+  /**
+   * A directory with a space or a quote is ordinary, and the hint is pasted into a shell.
+   *
+   * The quoting rule is `cdCommand`'s, extracted so both use one implementation; this pins the
+   * value that reaches a hint, and the shell-level proof is in `test/services/init.test.ts`.
+   */
+  it('quotes a directory a shell would otherwise split', () => {
+    process.argv[1] = '/usr/local/bin/home-hosted'
+    process.env.HHOSTED_HOME = '/srv/my state'
+    if (process.platform !== 'win32')
+      expect(invocation()).toBe('home-hosted --home \'/srv/my state\'')
   })
 })

@@ -395,7 +395,12 @@ These prevent defects if broken. The *why* for the non-obvious ones is in
   `readFileSync(f, 'utf8')` — a BOM or UTF-16 is what Windows editors write, and a `'utf8'` read has
   already destroyed the bytes that tell them apart; a bare command in `node_modules/.bin` resolves
   through `resolveCommand` to a shim Windows can start; text a person will paste is quoted for their
-  shell (`cdCommand`). A hand-edited file is not always JSON (`envFile` is `KEY=value`) and the scan
+  shell (`shellQuote`, `src/helpers/shell.ts` — one rule, so a `cd` and a hint cannot disagree). **A
+  hint carries the state directory it was given**: a command run with `--home` that prints
+  `run \`… up\`` sends the reader to the default home, and `pnpm run cli` (the documented way to try
+  anything here) passes `--home .dev-state`, so pasting its own hint created `~/.home-hosted` beside
+  the state it had just read. `invocation()` (`src/cli/io.ts`) is the one place that builds it.
+  A hand-edited file is not always JSON (`envFile` is `KEY=value`) and the scan
   matches every spelling of the read (`test/helpers/config-text.test.ts`). **A process-table readback
   is a word list where an empty argument is a word**: `/proc/<pid>/cmdline` NUL-terminates every word,
   so dropping every empty element shifted the rest (`processArgv`, `test/providers/identity.test.ts`).

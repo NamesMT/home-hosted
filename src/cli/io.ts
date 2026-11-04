@@ -1,11 +1,14 @@
 import process from 'node:process'
 import readline from 'node:readline'
+import { shellQuote } from '#src/helpers/shell'
 
 /**
  * The bits every command shares: the colours, the failure shape, and the one
  * place readline is set up. Imported by `src/cli.ts` and by the command modules
- * it loads lazily, so it may not read the state directories — the only imports
- * here are node builtins.
+ * it loads lazily, so it may not read the state directories. Its only imports are
+ * node builtins and `helpers/shell.ts`, which reads neither the filesystem nor
+ * `helpers/paths.ts` — the two ways a `#src` import here would pull the state
+ * graph in before citty is even asked anything.
  */
 
 export const isTty = (): boolean => process.stdout.isTTY === true
@@ -27,8 +30,26 @@ export const style = { bold, dim, green }
  * `npx home-hosted` leaves no `home-hosted` on `PATH`, so a hard-coded "run `home-hosted down`"
  * fails with `command not found`. A package-manager cache path means npx/dlx; `cli.ts` means a
  * source checkout. A string to print, not a parser. `HHOSTED_INVOCATION` overrides it.
+ *
+ * **The state directory travels with it.** A command that was told `--home` (or inherited
+ * `HHOSTED_HOME`) prints hints about *that* home, and a hint without the flag reaches the default
+ * one instead: measured, `pnpm run cli backup list` — the documented way to try anything in this
+ * repo — printed "`pnpm exec tsx src/cli.ts backup create --all` takes one", and running that
+ * verbatim created `~/.home-hosted` beside the `.dev-state/` it was asked about. The same shape hits
+ * every project `init` scaffolds, because its scripts all pass `--home ./state`. So the flag is part
+ * of the invocation whenever a state directory was chosen, quoted for the shell that will run it.
+ *
+ * `HHOSTED_INVOCATION` overrides the *program*, never the state: a wrapper that sets it still wants
+ * its hints pointed at the home it is driving.
  */
 export function invocation(): string {
+  const program = invocationProgram()
+  const home = process.env.HHOSTED_HOME?.trim()
+  return home === undefined || home.length === 0 ? program : `${program} --home ${shellQuote(home)}`
+}
+
+/** The program alone — what a hint would say if every home were the default one. */
+function invocationProgram(): string {
   const override = process.env.HHOSTED_INVOCATION?.trim()
   if (override !== undefined && override.length > 0)
     return override

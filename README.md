@@ -176,7 +176,8 @@ Worked example, with per-server data inside the project:
 
 <sub>Working **on** this repo? Its own scripts keep state in `.dev-state/`, so trying a change cannot
 touch an installed panel: `pnpm run up|down|status|restart` are shorthand, and `pnpm run cli <command>`
-runs anything else the CLI takes — `pnpm run cli backup list`.</sub>
+runs anything else the CLI takes — `pnpm run cli backup list`. A hint it prints carries the same
+`--home`, so pasting one back reaches the state you were just reading rather than `~/.home-hosted`.</sub>
 
 > [!TIP]
 > Recommended to give a project its own panel port (`control.port`, e.g. `4399`), to avoid port conflict
