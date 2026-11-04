@@ -40,6 +40,7 @@ Real, verified, and blocked on a product decision rather than on code.
 | 39 | Unknown query keys now 400 on ~20 workspace routes — documented in `UPGRADING.md` for 0.11.1 |
 | 41 | `GET /healthz` answered `200 ok` for a `conflict` entry, while `usage` and the card read `web conflict` — measured on a panel whose only entry was blocked on its port. "Is anything broken" was seven hand-picked disjunctions; it is now `needsAttention`, and the same scan fails a call site that re-derives it |
 | 42 | An entry the panel gave up on (`stoppedByPanel`) counted as an ordinary `stopped` on every UI page — the one status the rule treats as fine — while `/healthz` answered 503 about it |
+| 46 | `logs <id>` and `status` resolved "the default workspace" as the literal id `default`, while the panel resolves an omitted `?workspace` to `defaultWorkspaceId` (`default`, else the first listed). Measured on a live panel declaring one workspace not called `default`: `start <id>` reached it, `logs <id>` printed "no output yet" and exited 0 for a log that was on disk, and `status` named a log directory that never existed, in both its text and `--json` forms. One `defaultWorkspaceId`/`readDefaultWorkspaceId` now answers for all of them — ac859b1 |
 
 ## Verified good — recorded so nobody "fixes" them
 
