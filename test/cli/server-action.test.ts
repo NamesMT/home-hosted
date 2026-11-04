@@ -23,6 +23,28 @@ import { isProcessAlive } from '#src/providers/port'
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-server-cmd-'))
 
+/**
+ * A control port nothing else can be holding.
+ *
+ * The fixture's `settings.json` is seeded by the first `--print-config` run, naming the default
+ * 3999 — so a developer with a panel on 3999 made `down`'s `configuredPanelAddress` probe find it and
+ * refuse, and this file failed against a perfectly good CLI. Pinned here so the test owns a port
+ * instead of assuming the machine is idle.
+ */
+const controlPort = await new Promise<number>((resolve) => {
+  const probe = createServer()
+  probe.listen(0, '127.0.0.1', () => {
+    const address = probe.address()
+    const port = typeof address === 'object' && address !== null ? address.port : 0
+    probe.close(() => resolve(port))
+  })
+})
+fs.mkdirSync(path.join(home, '.hh'), { recursive: true })
+fs.writeFileSync(path.join(home, '.hh', 'settings.json'), JSON.stringify({
+  meta: { writtenBy: '0.11.0', schema: 2 },
+  control: { port: controlPort, host: 'local' },
+}, null, 2))
+
 function runCli(args: string[]): Promise<{ status: number | null, stdout: string, stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), ...args], {
