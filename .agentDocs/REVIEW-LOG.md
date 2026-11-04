@@ -14,6 +14,7 @@ Real, verified, and blocked on a product decision rather than on code.
 | 15, 17 | A `usage` command and per-server `logs` | **Done** — `home-hosted usage` and `logs <id> -w <workspace>`. Kept listed only because 15's remaining half (a per-server *resource history*, not a snapshot) is still unbuilt. |
 | 19 | A panel started without `node` on PATH marks every entry failed | Verified correct: the panel has Node by definition (`process.execPath`), children inherit `PATH`, and `describeSpawnError` names the cause. A systemd/docker user hits it fleet-wide, so a docs note may be worth it. No code change justified. |
 | 40 | `processTreePids` has no production caller | It is a tested provider API superseded by `processTreeOwners`. Removing it is a judgement call, not a defect. |
+| 43 | `status` names no server, so "did everything come back after the reboot" needs a second command | Measured: a panel running with every entry `stopped` prints `status running`, exit 0, and lists nothing — `home-hosted usage` is the only surface that says so. Not a correctness gap any more (a crash, a port `conflict`, a give-up and a running-unhealthy entry each degrade `status` and `/healthz`), but an operator who wants "3 of 3 came back" has to know to run `usage`. Whether `status` should grow an inventory row, and how it reads counts (`/_hh/usage`, which needs the token it already has, or `--json` only) is a product call about what the command is for — it is documented as "is it running, where, and how to reach it". |
 
 ## Shipped — one line each, the commit carries the reasoning
 
@@ -35,6 +36,8 @@ Real, verified, and blocked on a product decision rather than on code.
 | 34, 35, 36 | `up --host` refused even when it agreed; the guard could not fail; `--print-config` claimed "changing nothing" |
 | 37, 38 | Dead `siblings` plumbing; two tests racing for one ephemeral port |
 | 39 | Unknown query keys now 400 on ~20 workspace routes — documented in `UPGRADING.md` for 0.11.1 |
+| 41 | `GET /healthz` answered `200 ok` for a `conflict` entry, while `usage` and the card read `web conflict` — measured on a panel whose only entry was blocked on its port. "Is anything broken" was seven hand-picked disjunctions; it is now `needsAttention`, and the same scan fails a call site that re-derives it |
+| 42 | An entry the panel gave up on (`stoppedByPanel`) counted as an ordinary `stopped` on every UI page — the one status the rule treats as fine — while `/healthz` answered 503 about it |
 
 ## Verified good — recorded so nobody "fixes" them
 
