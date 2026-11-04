@@ -42,6 +42,49 @@ describe('readLog', () => {
     expect(readLog(file, 0)).toEqual(['old-1', 'old-2', 'new-1', 'new-2'])
   })
 
+  /**
+   * A **server's** log is rotated by the panel to `.log.<keep>`, three deep by default, while the
+   * panel console keeps one `.1`. Both read through this function, so it walked `.1` only and
+   * printed the newest third of a server's log that the same panel's Logs page served whole —
+   * measured on a live panel at 114 of 258 lines, with a first line that was not the log's first.
+   */
+  it('reads every rotation a server log has, not only `.1`', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-rotations-'))
+    dirs.push(dir)
+    const file = path.join(dir, 'web.log')
+    // Three rotations plus the current file: the panel's default `keep`, written oldest last.
+    for (const index of [3, 2, 1]) {
+      const lines = Array.from({ length: 5 }, (_, i) => `r${index}-${i}`)
+      fs.writeFileSync(`${file}.${index}`, `${lines.join('\n')}\n`)
+    }
+    fs.writeFileSync(file, `${Array.from({ length: 2 }, (_, i) => `cur-${i}`).join('\n')}\n`)
+
+    const all = readLog(file, 0)
+    expect(all).toHaveLength(17)
+    // Oldest first: `.3` is the furthest back, so its first line leads.
+    expect(all[0]).toBe('r3-0')
+    expect(all.at(-1)).toBe('cur-1')
+    // A bounded tail still reaches past `.1` when it has to: the last 8 of 17 lines start inside
+    // `.2`, not inside the current file or `.1`.
+    expect(readLog(file, 8).at(-1)).toBe('cur-1')
+    expect(readLog(file, 8)[0]).toBe('r2-4')
+  })
+
+  /**
+   * `.10` sorts before `.2` as text, and `keep` allows ten rotations — so numeric order is the
+   * only one that puts the oldest file first.
+   */
+  it('orders rotations numerically, not as text', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-rotations-sort-'))
+    dirs.push(dir)
+    const file = path.join(dir, 'x.log')
+    for (const index of [1, 2, 9, 10])
+      fs.writeFileSync(`${file}.${index}`, `r${index}\n`)
+    fs.writeFileSync(file, 'cur\n')
+
+    expect(readLog(file, 0)).toEqual(['r10', 'r9', 'r2', 'r1', 'cur'])
+  })
+
   it('does not invent a trailing blank line', () => {
     // A file ends with a newline; splitting on it leaves one empty entry behind.
     expect(readLog(tempLog('only\n'), 0)).toEqual(['only'])
