@@ -87,7 +87,7 @@ function invocationProgram(): string {
  * "does this error say the reader went away"; a full disk or an EIO still ends the process.
  *
  * Installed once at the entry so every command shares it. A per-command copy is the shape that leaves
- * the next command broken, and there are 109 write sites.
+ * the next command broken, and every release adds more write sites.
  */
 const READER_GONE = /^(?:EPIPE|ERR_STREAM_DESTROYED|ERR_STREAM_WRITE_AFTER_END|ECONNRESET)$/
 

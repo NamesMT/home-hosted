@@ -17,7 +17,8 @@ line in `AGENTS.md` instead.
   `logs --follow` did the same — so `set -o pipefail`, the first line of most deploy scripts, turned a
   working panel into a failed step and put a traceback in the operator's log where the answer belonged.
   `treatClosedReaderAsDone()` (`src/cli/io.ts`) is installed **once** in `main()`, not per command:
-  there are 109 `process.stdout.write` sites, and a per-site guard leaves the next one broken. It exits
+  there were over a hundred `process.stdout.write` sites when this was written and every release adds
+  more, so a per-site guard leaves the next one broken. It exits
   **0**, not `SIGPIPE`'s 141: the command did its work, nothing was refused. Only `EPIPE` is
   special-cased — `ENOSPC` and friends are rethrown (`test/cli/epipe.test.ts`, `test/cli/io.test.ts`).
 - **A test spawns the CLI through `process.execPath`, never `node_modules/.bin/tsx`.** That file is a

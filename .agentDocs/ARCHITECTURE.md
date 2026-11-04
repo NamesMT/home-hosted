@@ -169,9 +169,9 @@ returned whole by a single read — 1264 lines is under a reader's page limit �
 for one wording fix, and its three largest areas alone were 20–42K each. A sheet is named after the
 key's own prefix (`settings.ddns.csv`), which makes "where does this string live" a property of the
 key rather than a choice; `settings`/`proxy`/`views` shard one level deeper because they are large.
-`test/i18n-catalog.test.ts` enforces the home, a per-file size budget, and — because multiple sheets
-now merge, and the library's merge keeps the *last* definition silently — that no key is defined
-twice.
+`uis/stock/test/i18n-catalog.test.ts` enforces the home, a per-file size budget, and — because
+multiple sheets now merge, and the library's merge keeps the *last* definition silently — that no key
+is defined twice.
 
 A plural is one row per CLDR category (`key[one]`, `key[few]`, …), which `spreadsheet-i18n` cannot
 fold back itself — it writes flat strings — so `build-locales.mjs` does. The generated JSON is
