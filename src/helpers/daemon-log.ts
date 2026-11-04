@@ -74,6 +74,18 @@ export function readLog(file: string, lines: number): string[] {
 }
 
 /**
+ * Does this log exist at all — the current file or any rotation of it?
+ *
+ * Distinct from "has it lines", which is what `readLog` answers: a log the panel opened and has
+ * not yet written to is a real log, and a caller deciding "this entry has never run" must not read
+ * an empty file as absence. Rotations count on their own because `rotateLog` renames the current
+ * file away, so a log that has just rotated has no current file until the next write.
+ */
+export function logExists(file: string): boolean {
+  return rotationFiles(file).length > 0
+}
+
+/**
  * The last `lines` lines of one file, as text — read backwards in blocks, stopping as soon as
  * enough line separators have been seen. `''` when there is nothing to contribute, `null` when
  * the file cannot be read at all (which the caller answers by reading everything).

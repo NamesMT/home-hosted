@@ -2,7 +2,6 @@ import type { PersistentHandle } from '#src/providers/nanny-sweep'
 import type { StopConfig } from '#src/shared/contracts'
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
-import { type } from 'arktype'
 import { defineCommand } from 'citty'
 import { delay, dim, green, invocation, paint, refusal } from '#src/cli/io'
 import { recordCleanStop } from '#src/helpers/last-stop'
@@ -28,7 +27,7 @@ export interface DownResult {
 }
 
 export async function runDown(options: DownOptions = {}): Promise<DownResult> {
-  const { clearRuntime, isLiveLiveness, readRuntime, requestShutdown, runtimeLiveness } = await import('#src/helpers/daemon')
+  const { clearRuntime, configuredPanelAddress, isLiveLiveness, readRuntime, requestShutdown, runtimeLiveness } = await import('#src/helpers/daemon')
 
   const result: DownResult = { stoppedPersistent: [] }
   // What was running before this command did anything. The panel ends the entries itself when
@@ -48,7 +47,7 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     // running" over it made `down && up` in a deploy script proceed against a live panel that then
     // held its port. Nothing here can *prove* ownership of a pid, so this only reports: it never
     // signals what it cannot identify.
-    const leftover = await configuredPanelListening()
+    const leftover = await configuredPanelAddress()
     if (leftover !== null) {
       // Refused, not a success line: a deploy chain that continues here starts a second panel
       // against a live one. It says where and what to do, and signals nothing.
@@ -274,38 +273,6 @@ async function reportPersistent(options: DownOptions, before: PersistentHandle[]
     stopped.push({ workspaceId: handle.workspaceId, serverId: handle.serverId })
   }
   return stopped
-}
-
-/**
- * Where a panel is answering, when no `run.json` says it should be — or `null`.
- *
- * The port comes from the state root's own `settings.json`, because that is the only record left
- * once `run.json` is gone; a settings file that cannot be read is not evidence either way, so this
- * reports nothing rather than guessing. It probes, and never signals: without a record there is no
- * pid this command can prove it owns.
- */
-async function configuredPanelListening(): Promise<string | null> {
-  const { globalSettingsPath } = await import('#src/helpers/paths')
-  const { readStateFile } = await import('#src/helpers/config-text')
-  const { probePort } = await import('#src/providers/port')
-  const { globalSettingsSchema } = await import('#src/config/schema')
-
-  let port: number | null = null
-  try {
-    const parsed = globalSettingsSchema(JSON.parse(readStateFile(globalSettingsPath)) as unknown)
-    // `instanceof type.errors` is the only honest test — ArkType's errors are not `Error`s, so
-    // `instanceof Error` is false for a valid *and* an invalid payload.
-    if (parsed instanceof type.errors)
-      return null
-    port = parsed.control.port
-  }
-  catch {
-    // No settings file, or one that does not parse: there is nothing to probe, and inventing a
-    // port to test would report a stranger's service as this panel.
-    return null
-  }
-
-  return port !== null && await probePort('127.0.0.1', port) ? `http://127.0.0.1:${port}` : null
 }
 
 async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {

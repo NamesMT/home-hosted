@@ -11,7 +11,7 @@ export const statusArgs = {
 } as const
 
 export async function runStatus(json: boolean): Promise<void> {
-  const { isLiveLiveness, probeRuntime, readRuntime, runtimeLiveness } = await import('#src/helpers/daemon')
+  const { configuredPanelAddress, isLiveLiveness, probeRuntime, readRuntime, runtimeLiveness } = await import('#src/helpers/daemon')
   const { UiService } = await import('#src/services/ui')
   const { hhDir: dataRoot, workspaceDir, workspacesPath } = await import('#src/helpers/paths')
   const { readLastStop } = await import('#src/helpers/last-stop')
@@ -33,10 +33,19 @@ export async function runStatus(json: boolean): Promise<void> {
     // `.last-stop.json`, so that file is the difference — reported as a field rather than left for
     // a script to infer from which keys happen to be missing.
     const lastStop = readLastStop()
+    // A record is not the machine. With `run.json` gone, this branch printed "home-hosted is not
+    // running" while the panel on the port its own `settings.json` names answered `GET /healthz`
+    // with 200 — so a `status` in a diagnostic session denied the very panel being diagnosed.
+    // `down` already probes for this shape (it refuses rather than let `down && up` start a second
+    // panel over a live one); the same probe answers here, and nothing is signalled — without a
+    // record there is no pid this command can prove it owns, so no pid is reported either.
+    const answering = await configuredPanelAddress()
     if (json) {
       // `liveness` is always present, because the contract says so and a script should not have to
       // branch on whether a record exists. No `run.json` is not "unknown": nothing is behind the
-      // pid, which is exactly `gone` — a fact, not an omission.
+      // pid, which is exactly `gone` — a fact, not an omission. `answering` is what tells the two
+      // situations apart: a stopped panel and one still serving without its record both read
+      // `running: false`, and only this field separates them.
       process.stdout.write(`${JSON.stringify({
         running: false,
         initialised,
@@ -44,7 +53,11 @@ export async function runStatus(json: boolean): Promise<void> {
         // True only when a `down` recorded it. A crash writes no marker, so this stays false.
         exitedCleanly: lastStop !== null,
         ...(lastStop === null ? {} : { lastStopAt: lastStop.at }),
+        ...(answering === null ? {} : { answeringWithoutRecord: answering }),
       }, null, 2)}\n`)
+    }
+    else if (answering !== null) {
+      process.stdout.write(`home-hosted is not running, but something is answering on ${answering} — no run.json records which process owns it, so this cannot name or signal a pid; stop it yourself, or free that port, then run \`${invocation()} up\`\n`)
     }
     else if (initialised) {
       process.stdout.write(`home-hosted is not running — start it with \`${invocation()} up\`\n`)

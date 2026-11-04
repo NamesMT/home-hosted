@@ -549,6 +549,12 @@ on stdout is not a contradiction: `status --json` answers `{"running": false, �
 that *is* the answer to "is it running", and `backup restore --json` prints a plan carrying its
 refusal in `error` so a script can read either. Branch on the exit code, then on the document.
 
+**No record does not mean nothing is running.** With `run.json` deleted, `status` probes the port its
+own `settings.json` names: a panel still answering there is reported as `answeringWithoutRecord` (the
+URL), the sentence says so instead of "not running", and the exit code stays 1 — nothing is signalled
+and no pid is named, because without a record there is no process `status` can prove it owns. `down`
+refuses that same shape, for the same reason.
+
 **`status` answers "is the process there", not "is it serving".** A panel wedged on a stopped kernel
 thread still exists: it reports `running: true` with `"answering": false` and exits **0**. Anything
 that waits for the panel to *serve* must read `answering`, or accept `"liveness": "live"` as
@@ -851,6 +857,12 @@ exactly when you cannot get one. `up` prints the tail when the panel fails to st
 
 With an id, it reads that server's log instead, and `-w/--workspace` picks which workspace's server
 you mean — an id is only unique inside one, so the default workspace is assumed otherwise.
+
+An id the workspace's `servers.config.json` does not declare is **refused** — exit 1, `unknown server
+"webx" in workspace "default" — did you mean \`web\`?` — rather than answered with "no output yet". A
+typo used to read as an empty log, so `home-hosted logs webx | grep -q error` was a silently empty
+pipeline. A log file still on disk is always read, even after its entry was removed (usually the log
+you want); a note says the entry is gone.
 
 `home-hosted usage` answers the other question an operator opens a terminal for:
 

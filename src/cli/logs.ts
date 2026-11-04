@@ -63,7 +63,10 @@ function parseLines(raw: string | undefined): number {
 export interface LogTarget {
   /** The file the lines come from, for the header and for `--json`'s `path`. */
   file: string
-  lines: number
+  /** The workspace the file is in, when the target is one server's log. */
+  workspaceId?: string
+  /** The id asked for, when the target is one server's log. */
+  serverId?: string
 }
 
 /**
@@ -77,37 +80,103 @@ export interface LogTarget {
  * an omitted `?workspace` — because reading `DEFAULT_WORKSPACE_ID` literally here made `logs`
  * disagree with `start`/`stop` on a host that does not declare a `default` workspace.
  */
-async function resolveTarget(input: { id?: string, lines: number, workspace?: string }): Promise<LogTarget> {
+async function resolveTarget(input: { id?: string, workspace?: string }): Promise<LogTarget> {
   const { daemonLogPath, workspaceLogsDir, workspacesPath } = await import('#src/helpers/paths')
   if (input.id === undefined || input.id.length === 0)
-    return { file: daemonLogPath, lines: input.lines }
+    return { file: daemonLogPath }
 
   const id = input.id.trim()
   const explicit = input.workspace !== undefined && input.workspace.length > 0
   // `readDefaultWorkspaceId`, not `DEFAULT_WORKSPACE_ID`: "which one is the default" is the panel's
   // own rule (`default` if declared, else the first listed), and reading the literal id here made
   // `logs` name a workspace that `start`/`stop` would not act in. Read only when it is needed.
-  if (!explicit)
-    return { file: await serverLogFile(workspacesPath, id), lines: input.lines }
+  if (!explicit) {
+    const workspaceId = await defaultWorkspace(workspacesPath)
+    return { file: path.join(workspaceLogsDir(workspaceId), `${id}.log`), workspaceId, serverId: id }
+  }
   // Refused rather than guessed: an id is only unique inside a workspace, and reading the default
   // one for a server that lives elsewhere would print another server's output under this name.
-  return { file: path.join(workspaceLogsDir(input.workspace!.trim()), `${id}.log`), lines: input.lines }
+  const workspaceId = input.workspace!.trim()
+  return { file: path.join(workspaceLogsDir(workspaceId), `${id}.log`), workspaceId, serverId: id }
 }
 
-/** The file one server's log is in, inside the workspace this host treats as the default. */
-async function serverLogFile(registryFile: string, id: string): Promise<string> {
-  const { workspaceLogsDir } = await import('#src/helpers/paths')
+/** The workspace this host treats as the default — the panel's own rule, read from the registry. */
+async function defaultWorkspace(registryFile: string): Promise<string> {
   const { readDefaultWorkspaceId } = await import('#src/config/workspaces')
-  return path.join(workspaceLogsDir(readDefaultWorkspaceId(registryFile)), `${id}.log`)
+  return readDefaultWorkspaceId(registryFile)
+}
+
+/**
+ * Refuses an id this workspace's `servers.config.json` does not declare, **unless a log for it is
+ * on disk** — returns whether it refused, so the caller stops before printing an answer.
+ *
+ * `logs webx` printed `no output yet — …/webx.log` and exited 0, so a diagnostic session's first
+ * command agreed with a typo, and `logs webx | grep -q error` was a silently empty pipeline that
+ * reads as "no errors". `start webx`/`stop webx` refuse the same id over the same config, so the
+ * two commands now agree.
+ *
+ * The log's own existence is the exception, on purpose: a file outlives the entry that wrote it,
+ * so refusing on the config alone would make the log of a **removed** server unreadable — the one
+ * log a person is most likely to want. It is read as before, and a note says the entry is gone.
+ *
+ * "I cannot tell" (no config, an unparseable one) is not "there is no such entry", so it answers as
+ * it did before. So does the panel console, which is not a server at all.
+ *
+ * `refusal()` plus an exit code rather than `fail()`, the same shape as the unreadable-file branch
+ * in `runLogs`: `fail()` ends the process, and a command module that can be called in-process
+ * should leave that decision where the answer is decided. One refusal is still one message on one
+ * stream.
+ */
+async function refuseUnknownServer(target: LogTarget, json: boolean): Promise<boolean> {
+  const { serverId, workspaceId } = target
+  if (serverId === undefined || workspaceId === undefined)
+    return false
+
+  const { workspaceServersPath } = await import('#src/helpers/paths')
+  const { readDeclaredServerIds } = await import('#src/config/server-ids')
+  const { logExists } = await import('#src/helpers/daemon-log')
+  const { nearestWord } = await import('#src/cli/nearest')
+
+  const declared = readDeclaredServerIds(workspaceServersPath(workspaceId))
+  if (declared === null || declared.includes(serverId))
+    return false
+
+  // The log is the reason this command exists, so a file on disk is always read. Saying the entry
+  // is gone is the part that stops "this server has written nothing" from being the conclusion.
+  if (logExists(target.file)) {
+    if (!json)
+      process.stderr.write(`${dim(`${workspaceId}/${serverId} is not in servers.config.json any more — reading the log it left behind`)}\n`)
+    return false
+  }
+
+  const suggestion = nearestWord(serverId, declared)
+  // The hint names the config file, not `usage`: that command needs an answering panel, and the
+  // person reading this is most often holding a panel that is why they are here. The file is
+  // readable either way, and it is the same source this refusal just read.
+  const hint = suggestion === null
+    ? `it is not in ${workspaceServersPath(workspaceId)}`
+    : `did you mean \`${suggestion}\`? (${workspaceServersPath(workspaceId)})`
+  // One refusal, one message, one stream: stdout carries only an answer, and there is none to give.
+  // The `--json` form answers nothing either, because `{ lines: [] }` is the empty success this
+  // refusal exists to stop.
+  refusal(`unknown server "${serverId}" in workspace "${workspaceId}" — ${hint}`)
+  process.exitCode = 1
+  return true
 }
 
 export async function runLogs(input: { id?: string, lines?: string, follow?: boolean, json?: boolean, workspace?: string }): Promise<void> {
   const { readLog } = await import('#src/helpers/daemon-log')
   const lines = parseLines(input.lines)
-  const { file: logPath } = await resolveTarget({ id: input.id, lines, workspace: input.workspace })
+  const target = await resolveTarget({ id: input.id, workspace: input.workspace })
+  const logPath = target.file
   // A server's log is JSONL, the panel console is text. `--json` must still hand back the **stored**
   // record, so only the human form is rendered.
-  const isServerLog = input.id !== undefined && input.id.length > 0
+  const isServerLog = target.serverId !== undefined
+
+  // A typo agrees with an empty log unless the entry's own config is consulted — see
+  // `refuseUnknownServer` for why this is a refusal and not a silence.
+  if (await refuseUnknownServer(target, input.json === true))
+    return
 
   if (input.follow === true) {
     const { followLog } = await import('#src/helpers/daemon-log')

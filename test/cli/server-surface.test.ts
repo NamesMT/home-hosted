@@ -1,4 +1,6 @@
+import type { AddressInfo } from 'node:net'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -13,9 +15,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
  */
 
 const dirs: string[] = []
+/** Real listeners a test opened — closed afterwards, whatever the assertions did. */
+const listeners: http.Server[] = []
 
 /** A state root with one workspace and one entry whose log is already on disk. */
-function stateRoot(options: { workspace?: string, serverId?: string, logLines?: string[] } = {}): { home: string, logPath: string } {
+function stateRoot(options: {
+  workspace?: string
+  serverId?: string
+  logLines?: string[]
+  /** The entries `servers.config.json` declares; `null` writes no config file at all. */
+  declares?: string[] | null
+} = {}): { home: string, logPath: string } {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-cli-surface-'))
   dirs.push(home)
   const workspace = options.workspace ?? 'default'
@@ -24,10 +34,21 @@ function stateRoot(options: { workspace?: string, serverId?: string, logLines?: 
   fs.mkdirSync(logsDir, { recursive: true })
   const logPath = path.join(logsDir, `${id}.log`)
   fs.writeFileSync(logPath, `${(options.logLines ?? []).join('\n')}\n`)
+  const declares = options.declares === undefined ? [id] : options.declares
+  if (declares !== null) {
+    fs.writeFileSync(
+      path.join(home, '.hh', workspace, 'servers.config.json'),
+      `${JSON.stringify({ meta: { writtenBy: 'test', schema: 2 }, servers: declares.map(entry => ({ id: entry, command: 'node' })) }, null, 2)}\n`,
+    )
+  }
   return { home, logPath }
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(listeners.splice(0).map(server => new Promise<void>((resolve) => {
+    server.closeAllConnections()
+    server.close(() => resolve())
+  })))
   for (const dir of dirs.splice(0))
     fs.rmSync(dir, { recursive: true, force: true })
 })
@@ -136,6 +157,72 @@ describe('logs <id>', () => {
     expect(stdout).toContain('the real log')
     expect(stdout).not.toContain(path.join('.hh', 'default', '.logs', 'sonarr.log'))
   })
+
+  /**
+   * A typo must not answer like an empty log.
+   *
+   * Measured on a running panel, a typo and a live id side by side: `logs webx` printed
+   * `no output yet — …/webx.log` and exited **0**, while `start webx`/`stop webx` refused the same
+   * id. So a diagnostic session's first command agreed with a typo, and `logs webx | grep -q error`
+   * was a silently empty pipeline that reads as "no errors".
+   *
+   * The refusal belongs on stderr with a non-zero exit, like every other refusal here. `--json` gets
+   * no document at all: `{ lines: [] }` is exactly the empty success this guards against.
+   */
+  it('refuses an id the workspace does not declare, instead of reporting an empty log', async () => {
+    const { home } = stateRoot({ serverId: 'web', logLines: ['{"ts":1,"stream":"stdout","text":"hi"}'] })
+
+    const { stdout, stderr } = await captureLogs(home, { id: 'webx' })
+
+    expect(process.exitCode, 'a refusal that keeps its answer would still be a success').toBe(1)
+    expect(stdout, 'stdout carries only an answer, and there is none').toBe('')
+    expect(stderr).toContain('unknown server "webx"')
+    // It names the near miss, which is the whole point of reading the config for this.
+    expect(stderr).toContain('web')
+
+    const json = await captureLogs(home, { id: 'webx', json: true })
+    expect(json.stdout, '`{ lines: [] }` is the empty success this refusal exists to stop').toBe('')
+
+    process.exitCode = 0
+  })
+
+  /**
+   * A log outlives the entry that wrote it, and reading it is the one case the config cannot decide.
+   *
+   * This is why the row was open rather than a one-line fix: refusing on the config alone would make
+   * the log of a removed server unreadable — the log a person is most likely to want. The file is
+   * read as before; the note on stderr stops "this server has written nothing" from being the
+   * conclusion.
+   */
+  it('still reads the log of a removed entry, saying the entry is gone', async () => {
+    const { home, logPath } = stateRoot({ serverId: 'web', logLines: ['{"ts":1,"stream":"stdout","text":"left behind"}'], declares: [] })
+
+    const { stdout, stderr } = await captureLogs(home, { id: 'web' })
+
+    expect(process.exitCode).toBe(0)
+    expect(stdout).toContain('left behind')
+    expect(stdout).toContain(logPath)
+    expect(stderr).toContain('not in servers.config.json')
+  })
+
+  /**
+   * "I cannot tell" is not "there is no such entry".
+   *
+   * A config this release cannot parse, or a home that has none, is exactly what a diagnostic
+   * command meets. Refusing there would turn a readable log into an error, so the command answers as
+   * it always did — and reading a log never writes a seed config into the home it was reading.
+   */
+  it('answers as before when the workspace config cannot say', async () => {
+    const noConfig = stateRoot({ serverId: 'web', declares: null })
+    expect((await captureLogs(noConfig.home, { id: 'anything' })).stdout).toContain('no output yet')
+    expect(fs.existsSync(path.join(noConfig.home, '.hh', 'default', 'servers.config.json')), 'reading a log must not seed a config').toBe(false)
+
+    const broken = stateRoot({ serverId: 'web' })
+    fs.writeFileSync(path.join(broken.home, '.hh', 'default', 'servers.config.json'), '{ broken')
+    const answer = await captureLogs(broken.home, { id: 'anything' })
+    expect(answer.stdout).toContain('no output yet')
+    expect(answer.stderr).toBe('')
+  })
 })
 
 describe('status --json liveness', () => {
@@ -215,5 +302,81 @@ describe('status --json exitedCleanly', () => {
     expect(clean.lastStopAt).toBe(1_700_000_000_000)
 
     fs.rmSync(path.join(home, '.hh', '.last-stop.json'), { force: true })
+  })
+})
+
+describe('status with no run.json but a panel still answering', () => {
+  /**
+   * A record is not the machine, and `status` is the command that forgot it.
+   *
+   * Measured on a live panel: deleting `.hh/run.json` made `status` print "home-hosted is not
+   * running" and exit 1 while `GET /healthz` on the very port it names in `settings.json` answered
+   * 200 — so a diagnostic session's first command denied the panel being diagnosed. `down` had
+   * already learned this shape and refuses; the same probe answers here.
+   *
+   * It must stay a probe: no pid is reported and nothing is signalled, because without a record
+   * there is no process this command can prove it owns.
+   */
+  it('says something is answering, and refuses to pretend it knows what', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-status-answering-'))
+    dirs.push(home)
+    // A real listener, because the claim under test is about the machine: a stub would only prove
+    // that `probePort` was called.
+    const server = http.createServer((_req, res) => {
+      res.end('{"status":"ok"}')
+    })
+    listeners.push(server)
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    fs.mkdirSync(path.join(home, '.hh'), { recursive: true })
+    fs.writeFileSync(path.join(home, '.hh', 'workspaces.json'), '{"meta":{},"workspaces":[]}\n')
+    fs.writeFileSync(
+      path.join(home, '.hh', 'settings.json'),
+      `${JSON.stringify({ meta: { writtenBy: 'test', schema: 2 }, control: { port, host: 'local' } }, null, 2)}\n`,
+    )
+
+    const read = async (json: boolean): Promise<{ stdout: string, stderr: string }> => {
+      process.env.HHOSTED_HOME = home
+      vi.resetModules()
+      const { runStatus } = await import('#src/cli/status')
+      const out: string[] = []
+      const err: string[] = []
+      const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+        out.push(String(chunk))
+        return true
+      })
+      const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+        err.push(String(chunk))
+        return true
+      })
+      try {
+        await runStatus(json)
+      }
+      finally {
+        outSpy.mockRestore()
+        errSpy.mockRestore()
+      }
+      return { stdout: out.join(''), stderr: err.join('') }
+    }
+
+    const text = await read(false)
+    // Exit 1 still: `running` is a claim about the record, and there is no record.
+    expect(process.exitCode, 'no record, so `running: false` and exit 1').toBe(1)
+    expect(text.stdout, 'the sentence must not deny a panel that is serving').not.toMatch(/is not running —/)
+    expect(text.stdout).toContain(`127.0.0.1:${port}`)
+    // Nothing is named that this command cannot prove, and nothing is signalled.
+    expect(text.stdout).not.toMatch(/pid \d/)
+
+    const json = JSON.parse((await read(true)).stdout) as { running: boolean, answeringWithoutRecord?: string }
+    expect(json.running).toBe(false)
+    expect(json.answeringWithoutRecord).toBe(`http://127.0.0.1:${port}`)
+    expect(server.listening, 'status probes; it never signals').toBe(true)
+
+    // And with nothing on that port, the original sentence is unchanged.
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    process.exitCode = 0
+    const quiet = await read(true)
+    expect(JSON.parse(quiet.stdout).answeringWithoutRecord).toBeUndefined()
   })
 })

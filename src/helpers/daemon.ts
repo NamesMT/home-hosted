@@ -125,6 +125,43 @@ export async function probeRuntime(runtime: Runtime, timeoutMs = 2500): Promise<
 }
 
 /**
+ * Where a panel is answering, when no `run.json` says it should be — or `null`.
+ *
+ * Every command that answers "is it running" has to consult this, not the record alone: with
+ * `run.json` deleted, `status` printed "home-hosted is not running" while `GET /healthz` on the
+ * same port answered `200`, and `down` had already learned the same lesson (it refuses instead of
+ * letting `down && up` start a second panel over a live one). The port comes from the state root's
+ * own `settings.json`, because that is the only record left once `run.json` is gone.
+ *
+ * It **probes, and never signals**: without a record there is no pid this process can prove it
+ * owns. A settings file that is missing or does not parse is not evidence either way, so this
+ * reports nothing rather than inventing a port to test — a stranger's service on 3999 must not be
+ * reported as this panel.
+ */
+export async function configuredPanelAddress(): Promise<string | null> {
+  const { readStateFile } = await import('#src/helpers/config-text')
+  const { globalSettingsPath } = await import('#src/helpers/paths')
+  const { probePort } = await import('#src/providers/port')
+  const { globalSettingsSchema } = await import('#src/config/schema')
+
+  let port: number | null = null
+  try {
+    const parsed = globalSettingsSchema(JSON.parse(readStateFile(globalSettingsPath)) as unknown)
+    // `instanceof type.errors` is the only honest test — ArkType's errors are not `Error`s, so
+    // `instanceof Error` is false for a valid *and* an invalid payload.
+    if (parsed instanceof type.errors)
+      return null
+    port = parsed.control.port
+  }
+  catch {
+    // No settings file, or one that does not parse: there is nothing to probe.
+    return null
+  }
+
+  return port !== null && await probePort('127.0.0.1', port) ? `http://127.0.0.1:${port}` : null
+}
+
+/**
  * Asks the daemon to stop through its own endpoint, so supervised servers are
  * shut down cleanly on every platform (a bare signal is not graceful on Windows).
  */
