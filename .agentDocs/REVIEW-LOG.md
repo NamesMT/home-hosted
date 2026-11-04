@@ -1,59 +1,44 @@
-# home-hosted — end-user review log
+# home-hosted — review log
 
-Ideas found by wearing different users' hats, each verified by exercising the real CLI, panel or
-docs. This file keeps what is **still actionable**; the work that shipped is in `git log` and the
-one-line record below, so it is not repeated here.
+What review rounds found, still worth knowing. **Shipped work lives in `git log`** — a row here is
+either still open or a rule future work must not re-break.
 
 ## Open
 
-Real, verified, and blocked on a product decision rather than on code.
-
-| # | Idea | Why it is open |
+| # | Item | Why it is open |
 | --- | --- | --- |
-| 8 | `up` on a busy control port exits 0 from the shell wrapper | The direct CLI and a correctly-invoked wrapper both exit 1. What remains is npm's own `[ELIFECYCLE]` chatter around the one sentence that matters, printed twice. Arguably correct — it *is* npm reporting its child failed — but a script parsing stderr sees noise. Needs a decision on whether to suppress it. |
-| 15, 17 | A `usage` command and per-server `logs` | **Done** — `home-hosted usage` and `logs <id> -w <workspace>`. Kept listed only because 15's remaining half (a per-server *resource history*, not a snapshot) is still unbuilt. |
-| 19 | A panel started without `node` on PATH marks every entry failed | Verified correct: the panel has Node by definition (`process.execPath`), children inherit `PATH`, and `describeSpawnError` names the cause. A systemd/docker user hits it fleet-wide, so a docs note may be worth it. No code change justified. |
-| 43 | `status` names no server, so "did everything come back after the reboot" needs a second command | Measured: a panel running with every entry `stopped` prints `status running`, exit 0, and lists nothing — `home-hosted usage` is the only surface that says so. The failure states are covered (`crashed`, `conflict`, `stoppedByPanel` and running-unhealthy each print `running — a server needs attention` and set `"degraded": true`; verified post-fix for `conflict`), but the exit code stays 0 there by design — the README ties exit 1 to `running: false`, and a wedged panel is the same shape. So an operator who wants "3 of 3 came back", or a reboot script that wants a non-zero exit for "up but incomplete", has to know to run `usage` or read `degraded`. Whether `status` should grow an inventory row — and whether it reads `/_hh/usage`, which needs the token it already has — is a product call about what the command is for: it is documented as "is it running, where, and how to reach it". |
-| 47 | `test/services/supervisor.test.ts` is flaky under full-suite load, in two different tests | Two full-suite runs failed on different tests in this file: `reclaims the port from a detached successor, for a fully supervised process` (`start` returned `ok: false`) and `does not keep a healthy verdict after the process is gone` (`status: crashed, health: healthy`). Both pass 3/3 and 5/5 in isolation, and the pristine tree passes a full run. I hypothesised the one-shot 300 ms port-release recheck (`stopPortHolders`, `waitForPortRelease`) and built a slow-release test — but it **passed against the old code too**, and 6 parallel copies passed both with and without the change, so the hypothesis is unproven and the change was reverted rather than shipped. Someone should reproduce it under deliberate load (or capture which assertion fails with the harness instrumented) before touching the timing. Not fixed: an unverified timing change to the supervisor is worse than a known flake. |
-| 54 | `AGENTS.md` says a single on/off setting is a `ToggleSwitch` and `CheckField` is only for picking items out of a set, but `uis/stock/src/components/settings/DdnsSection.vue` binds `v-model="domain.enabled"` to a `CheckField`, and `DdnsDomain.enabled` (`src/shared/contracts.ts`) is one boolean. The rule is not stale and the code is not right: it is one call site in a per-row grid where a switch reads differently from the checkboxes beside it (the row already pairs `types.includes('A')`/`'AAAA'` checkboxes with it), so which way it should go is a visual decision, not a mechanical one. Changing it also ships a UI, which per `AGENTS.md` moves every UI under `uis/` and raises `uis/stock/public/ui.json` (2.25.18) — too much blast radius to fold into a review round that was auditing the docs. `noc-console` has the same row as a bare `<input type="checkbox">`, so a decision would want both. |
-| 55 | Six more test files left their scratch trees in `os.tmpdir()`, including two `describe`-level homes in `cli-smoke.test.ts`, seven `hh-load`/`hh-dump` dirs in `supervisor.test.ts`, and one `Date.now()`-named dir in `migrations.test.ts`. A full run leaked ~290 directories; it now leaks **none**, verified by counting `/tmp/hh-*` before and after. Fixed with `afterAll` sweeps and one `scratchDir` helper; `supervisor.test.ts` had a `cleanups` mechanism the seven dirs simply never used. |
-| 55 | Six more test files left their scratch trees in `os.tmpdir()`, including two `describe`-level homes in `cli-smoke.test.ts`, seven `hh-load`/`hh-dump` dirs in `supervisor.test.ts`, and one `Date.now()`-named dir in `migrations.test.ts`. A full run leaked ~290 directories; it now leaks **none**, verified by counting `/tmp/hh-*` before and after. Fixed with `afterAll` sweeps and one `scratchDir` helper; `supervisor.test.ts` had a `cleanups` mechanism the seven dirs simply never used. |
+| 19 | A panel started without `node` on `PATH` fails every entry | Correct behaviour — the panel has Node (`process.execPath`), children inherit `PATH`, and `describeSpawnError` names the cause. A systemd/docker user hits it fleet-wide, so a docs note may be worth one line. No code change. |
+| 43 | `status` cannot say "did everything come back after the reboot" | Measured: a panel up with every entry stopped prints `running`, exit 0. The *failure* states are covered — `crashed`/`conflict`/`stoppedByPanel` print `running — a server needs attention` and set `degraded: true`. The count lives in `/healthz`, but that only includes it for an **authenticated** caller, and the local channel's token (`x-home-hosted-token`) is a different secret from the API bearer token — so `status` cannot read it without a new route or touching secrets. Deliberately not done; `usage` answers it today. |
 
-## Shipped — one line each, the commit carries the reasoning
+## Rules these rounds established
 
-| # | What was wrong |
-| --- | --- |
-| 1, 2, 3, 4 | `up --print-config` armed a default password and refused a live panel; `init --no-install` led with a step that exits 127; a hint named a UI page that does not exist; an exposure refusal named a command the user lacks |
-| 5 | `status --json` omitted `liveness` when there was no `run.json` |
-| 6, 23 | `up` dropped `--port`/`--host`/`--open` on a live panel and exited 0 |
-| 7 | A clean stop and a crash were separable only by inferring from absent keys — now `exitedCleanly` |
-| 9 | The scaffold's `.gitignore`, claimed unsafe, is correct: config tracked; secrets, logs, TLS, backups, proxy and generated schemas ignored |
-| 10 | `--frozen-lockfile` cannot run in a `--no-install` project |
-| 12, 13, 14 | Memory ceiling never fired on an *adopted* process; a port clash named a pid rather than the row to stop; a hand-lowered `logs.keep` did not prune |
-| 16, 24 | `start`/`restart <id>` reported success for an entry already in its crash loop |
-| 20 | A misspelt `?workspace=` ran a **destructive** request against the default workspace |
-| 21, 22 | Refusals printed to stdout while exiting 1; the README overstated the `--json` promise |
-| 25 | `down` said "not running" and exited 0 while a panel still listened |
-| 26, 27 | A wedged panel passed a readiness gate; `PUT` wrote config and left the old process serving — both now documented contracts |
-| 29, 30, 31 | A truncated `settings.json` sent the upgrader to `migrate`, which could not read it; `migrate --dry-run` printed nothing about work the real run did; `migrate` kept no `.bak` |
-| 34, 35, 36 | `up --host` refused even when it agreed; the guard could not fail; `--print-config` claimed "changing nothing" |
-| 37, 38 | Dead `siblings` plumbing; two tests racing for one ephemeral port |
-| 39 | Unknown query keys now 400 on ~20 workspace routes — documented in `UPGRADING.md` for 0.11.1 |
-| 41 | `GET /healthz` answered `200 ok` for a `conflict` entry, while `usage` and the card read `web conflict` — measured on a panel whose only entry was blocked on its port. "Is anything broken" was seven hand-picked disjunctions; it is now `needsAttention`, and the same scan fails a call site that re-derives it |
-| 42 | An entry the panel gave up on (`stoppedByPanel`) counted as an ordinary `stopped` on every UI page — the one status the rule treats as fine — while `/healthz` answered 503 about it |
-| 46 | `logs <id>` and `status` resolved "the default workspace" as the literal id `default`, while the panel resolves an omitted `?workspace` to `defaultWorkspaceId` (`default`, else the first listed). Measured on a live panel declaring one workspace not called `default`: `start <id>` reached it, `logs <id>` printed "no output yet" and exited 0 for a log that was on disk, and `status` named a log directory that never existed, in both its text and `--json` forms. One `defaultWorkspaceId`/`readDefaultWorkspaceId` now answers for all of them — ac859b1 |
-| 44, 45 | `logs <id>` answered "no output yet" and exited 0 for an id the workspace does not declare, where `start`/`stop` refuse it; and `status` said "home-hosted is not running" while the panel on the port its own `settings.json` names answered `GET /healthz` 200, because a deleted `run.json` was read as the machine. `logs` now refuses with the near miss named, still reading a log whose entry was removed (the file outlives the config, and that is the log a person wants); the probe that answers both is one helper (`configuredPanelAddress`), so `status` reports `answeringWithoutRecord` and names the URL without pretending to own a pid. Measured with a real listener and a live panel whose record was deleted — c52bf96 |
-| 48 | A command run with `--home` printed hints without it, so the command a hint named drove a different state directory — the documented `pnpm run cli` passes `--home .dev-state`, and pasting its own hint created `~/.home-hosted` beside the state it had just read (every `init` project has the same shape, its scripts all passing `--home ./state`). `invocation()` now appends the flag, quoted through one shared rule (`shellQuote`) that `cdCommand` had privately — be15e45 |
-| 49 | `.agentDocs/RELEASING.md` named "the five user-facing `docs/*.md`" (there are six) and said `files` carries `AGENTS.md` (it does not) — and `scripts/check-doc-links.mjs` said "keep in step with `package.json#files`" with nothing enforcing it. The `AGENTS.md` half matters beyond a typo: the same paragraph explains `.agentDocs/` is unpublished, and `AGENTS.md` is unpublished for the same reason, so a pointer from it into `.agentDocs/` is dead in an installed copy. Verified with `npm pack --dry-run`, not by reading `files`. The script now derives the shipped set from the manifest and fails both ways — a doc checked as shipped that the tarball omits, and one that ships unscanned; both broken deliberately and watched to fail — 13bb03b |
-| 50 | Two guards checked a claim nothing depended on: `check-doc-links.mjs` derived the shipped-doc list from `package.json#files`, but the two were already identical and the defect it was written for was prose in `RELEASING.md`, which that script never reads; and `processTreePids` had no production caller, so its implementation and its parity test only tested each other. Both removed, the grandchild test repointed at `processTreeOwners`. Test count unchanged at 2626 — neither pinned anything. |
-| 51 | A Windows entry that failed to spawn with `EACCES` was told to run `chmod +x` — a program Windows does not have, so `cmd.exe` answers `'chmod' is not recognized…` and the one line that exists to offer a way out becomes a second dead end. `notExecutableHint` (`src/providers/nanny.ts`) decides the remedy from `process.platform`, as `shellQuote` already does for quoting: POSIX keeps `chmod +x`, Windows points at the file's Security tab, because Windows has no executable bit for `EACCES` to be about. The test drives the Win32 branch by overriding `process.platform` on this runner, and was watched to fail against the old one-line message — e927ccb |
-| 52 | A backup or restore killed mid-run leaked its staging tree forever: `create()` and `applyRestore()` removed it in a `catch`/`finally`, which a `SIGKILL`, a power cut or a stopped container never reaches, and nothing else knew the tree existed — `scan()` filters on `.zip` and `prune()` walks `list()`. Measured on a real home with a 60 MB declared data path: two interrupted `backup create` runs left **121 MB** of staged copies beside a single 184 B archive, in the one state where the next attempt needs exactly the space the debris holds. The staging name now carries the owner pid and `sweepStaging()` reclaims a tree whose owner is gone, on both paths that touch the directory; `isProcessAlive` decides it, never an age, because another panel or the CLI can share one `backups.dir` and a slow capture is live, not stale. A name with no owner in it (`.staging-1793809562025`, what 0.11.0 wrote) is left alone rather than guessed at, which bounds the debris to one release instead of growing it. Verified end to end — a killed run's tree is reclaimed by the next successful one, the ownerless ones are kept, and breaking the sweep turns both tests red — 821cfde |
-| 53 | Round 3, reading the rule set as its maintainer: `.agentDocs/ARCHITECTURE.md` named `test/i18n-catalog.test.ts`, but the file is under `uis/stock/test/` — a dead pointer, which `AGENTS.md` calls a bug. Every concrete path in `AGENTS.md`, `.agentDocs/*.md` and the user docs now resolves, checked mechanically rather than by eye. And `GOTCHAS.md` and `src/cli/io.ts` both pinned "109 `process.stdout.write` sites": recounted with `git grep` at the commit that wrote the number it was 110, and at HEAD it is 136. A count nobody re-derives is a stale doc with a timer on it, so both now say what stays true — every release adds more, so a per-site guard leaves the next one broken — and the number is gone — 87b9830 |
-| 54 | `test/cli/backup-plan-format.test.ts` collected its scratch homes in a `dirs` array and never drained it, so every run left ~3 trees in `os.tmpdir()` — 138 had accumulated before anyone looked. No assertion can fail for a leaked temp directory, which is why it survived. Now swept in `afterAll`, verified by counting `/tmp/hh-plan-*` before and after a run. |
+Each cost a real defect. Re-breaking one is a regression.
+
+- **A command that answers on spawn lies when the process dies.** `start`/`restart <id>` read the
+  entry back over `/_hh` and refuse when it is gone; the panel answers on spawn by design, the caller
+  decides.
+- **"Not running" is a claim about the machine, not the record.** With `run.json` gone, `down`
+  probes the port its own `settings.json` names and refuses, signalling nothing.
+- **`exitedCleanly` distinguishes a stop from a crash** — absence of `run.json` cannot, because `up`
+  tidies a crashed record too. Only a deliberate stop writes the marker.
+- **One `needsAttention` decides "broken"** for `/healthz`, both UIs and `usage`. It was seven
+  hand-picked disjunctions and they disagreed in both directions.
+- **The default workspace is `defaultWorkspaceId`, not the literal `default`** — the panel falls back
+  to the first listed. The CLI re-derived it and read a directory that never existed.
+- **A port frees after the process is reaped, not when the kill returns.**
+- **Windows has no `chmod`.** Any platform-specific remedy comes from `process.platform`, as
+  `shellQuote` already does.
+- **A response field is optional (`'x?'`) and read defensively**; a required one blanks an older UI.
+- **A missing reading is absent, never `0`.** A zero on a CPU column reads as "idle".
+- **A test that leaks a temp directory fails no assertion.** Sweep it; a full run leaked ~290.
+- **A guard earns its place only if a plausible change could violate it.** Two were deleted for
+  restating a static fact.
 
 ## Verified good — recorded so nobody "fixes" them
 
 Broken `servers.config.json` keeps running servers and says so · the crash retry budget survives a
-panel restart · a panel without `node` on PATH fails with the right message · `--help`, `--version`,
-unknown commands and idempotency · crash recovery and the 0.9→0.11 upgrade surface · restamping a live
-panel's configs reloads it without touching a running entry.
+panel restart · a panel without `node` on `PATH` fails with the right message · `--help`, `--version`,
+unknown commands and idempotency · the 0.9→0.11 upgrade surface · restamping a live panel's configs
+reloads it without touching a running entry · the scaffold's `.gitignore` is correct (config tracked;
+secrets, logs, TLS, backups, proxy and generated schemas ignored) · `--frozen-lockfile` cannot run in
+a `--no-install` project, by design.
