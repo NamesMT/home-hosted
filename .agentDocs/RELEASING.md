@@ -98,8 +98,13 @@ stays visible in the run log rather than looking like a slip.
 ## What the package ships
 
 `pnpm pack` runs `prepack` (a full build) and ships the `files` list in `package.json`: `bin/`,
-`dist/`, `uis/stock/dist`, `README.md`, the five user-facing `docs/*.md`, `AGENTS.md` and `LICENSE`.
-`.agentDocs/` is deliberately not published — it is for agents working in this repo, not for people
-installing the package, so a pointer from `AGENTS.md` into it is dead in an installed copy. The bin
-falls back to tsx so `pnpm link` works before a build; `vue`/`vue-router` are devDependencies because
-the UIs are prebuilt.
+`dist/`, `uis/stock/dist`, `README.md`, the six user-facing `docs/*.md` (`DDNS`, `NOTIFICATIONS`,
+`RESTORE_DEMO`, `REVERSE_PROXY`, `SERVERS`, `UI_CREATION`), the three `docs/branding` and
+`docs/demo` assets, and `LICENSE`. **`AGENTS.md` is not in that list** — the `files` array omits it,
+so it is repo-only like `.agentDocs/`, even though it is not gitignored. Neither is published: both
+are for agents working in this repo, so a pointer from `AGENTS.md` into `.agentDocs/` is dead in an
+installed copy, and a reader who installs the package never sees either one.
+Verify a claim about the tarball with `npm pack --dry-run`, which prints the real contents, rather
+than by reading the `files` array: an entry there can name a directory whose contents are narrower
+than it looks. The bin falls back to tsx so `pnpm link` works before a build; `vue`/`vue-router` are
+devDependencies because the UIs are prebuilt.
