@@ -1,95 +1,44 @@
 # home-hosted — end-user review log
 
 Ideas found by wearing different users' hats, each verified by exercising the real CLI, panel or
-docs. Rebuilt after the original working copy was lost; every "implemented" row names the commit
-that shipped it, and every claim below was measured rather than assumed.
+docs. This file keeps what is **still actionable**; the work that shipped is in `git log` and the
+one-line record below, so it is not repeated here.
 
-**Status key:** `implemented` = shipped and pinned by a test · `logged` = real, deliberately not
-changed (needs a decision) · `verified good` = exercised and found correct, recorded so nobody
-"fixes" it.
+## Open
 
----
+Real, verified, and blocked on a product decision rather than on code.
 
-## Round 1 — a first-time user who found this on GitHub
+| # | Idea | Why it is open |
+| --- | --- | --- |
+| 8 | `up` on a busy control port exits 0 from the shell wrapper | The direct CLI and a correctly-invoked wrapper both exit 1. What remains is npm's own `[ELIFECYCLE]` chatter around the one sentence that matters, printed twice. Arguably correct — it *is* npm reporting its child failed — but a script parsing stderr sees noise. Needs a decision on whether to suppress it. |
+| 15, 17 | A `usage` command and per-server `logs` | **Done** — `home-hosted usage` and `logs <id> -w <workspace>`. Kept listed only because 15's remaining half (a per-server *resource history*, not a snapshot) is still unbuilt. |
+| 19 | A panel started without `node` on PATH marks every entry failed | Verified correct: the panel has Node by definition (`process.execPath`), children inherit `PATH`, and `describeSpawnError` names the cause. A systemd/docker user hits it fleet-wide, so a docs note may be worth it. No code change justified. |
+| 40 | `processTreePids` has no production caller | It is a tested provider API superseded by `processTreeOwners`. Removing it is a judgement call, not a defect. |
 
-| # | Idea | Status |
-|---|---|---|
-| 1 | `up --print-config` armed a default password (`.control-secrets.json`) and refused a live panel | implemented `a172242` |
-| 2 | `init --no-install` printed `<pm> run up` first, which exits 127 because nothing installed `home-hosted` | implemented `53de057` |
-| 3 | The password hint named a page the UI does not have ("Settings → Authentication") | implemented `53de057` |
-| 4 | An exposure refusal told the user to run a command they do not have | implemented `53de057` |
-| 5 | `status --json` omitted `liveness` entirely when there was no `run.json` | implemented |
-| 6 | `up` printed "already running" and exited 0 while ignoring `--port`/`--host` | implemented `2950d5e`, corrected in `1b33cb5` |
-| 7 | `status --json` says `"running": false` with no reason for a clean stop | logged — `initialised` covers it; a shape change touches a documented contract |
-| 8 | `up` on a busy control port exits 0 from the shell wrapper | logged |
-| 9 | Claimed the scaffold's `.gitignore` kept schemas out of the repo | verified good — it tracks config and ignores secrets, logs, TLS, backups, proxy and the generated `.schema.json` files |
-| 10 | README's `pnpm install --frozen-lockfile` cannot run in a `--no-install` project (no lockfile exists) | implemented `c1a518e` |
-| 11 | A broken `servers.config.json` keeps running servers and says so | verified good |
+## Shipped — one line each, the commit carries the reasoning
 
-## Round 2 — a homelab operator running 12 services
+| # | What was wrong |
+| --- | --- |
+| 1, 2, 3, 4 | `up --print-config` armed a default password and refused a live panel; `init --no-install` led with a step that exits 127; a hint named a UI page that does not exist; an exposure refusal named a command the user lacks |
+| 5 | `status --json` omitted `liveness` when there was no `run.json` |
+| 6, 23 | `up` dropped `--port`/`--host`/`--open` on a live panel and exited 0 |
+| 7 | A clean stop and a crash were separable only by inferring from absent keys — now `exitedCleanly` |
+| 9 | The scaffold's `.gitignore`, claimed unsafe, is correct: config tracked; secrets, logs, TLS, backups, proxy and generated schemas ignored |
+| 10 | `--frozen-lockfile` cannot run in a `--no-install` project |
+| 12, 13, 14 | Memory ceiling never fired on an *adopted* process; a port clash named a pid rather than the row to stop; a hand-lowered `logs.keep` did not prune |
+| 16, 24 | `start`/`restart <id>` reported success for an entry already in its crash loop |
+| 20 | A misspelt `?workspace=` ran a **destructive** request against the default workspace |
+| 21, 22 | Refusals printed to stdout while exiting 1; the README overstated the `--json` promise |
+| 25 | `down` said "not running" and exited 0 while a panel still listened |
+| 26, 27 | A wedged panel passed a readiness gate; `PUT` wrote config and left the old process serving — both now documented contracts |
+| 29, 30, 31 | A truncated `settings.json` sent the upgrader to `migrate`, which could not read it; `migrate --dry-run` printed nothing about work the real run did; `migrate` kept no `.bak` |
+| 34, 35, 36 | `up --host` refused even when it agreed; the guard could not fail; `--print-config` claimed "changing nothing" |
+| 37, 38 | Dead `siblings` plumbing; two tests racing for one ephemeral port |
+| 39 | Unknown query keys now 400 on ~20 workspace routes — documented in `UPGRADING.md` for 0.11.1 |
 
-| # | Idea | Status |
-|---|---|---|
-| 12 | `resources.maxRssBytes` never fired on an *adopted* process (`enforceMemoryLimit` required `entry.child !== null`) | implemented `cfcf868` |
-| 13 | A supervised port clash named a pid, not which of 14 rows to stop | implemented `2317f6e` |
-| 14 | A hand-lowered `logs.keep` in `settings.json` did not prune rotations above it | implemented `23b6d43` |
-| 15 | No CLI surface for per-server resource usage | implemented — `home-hosted usage` |
-| 16 | `start` reports success for an entry that is already dead | implemented — verified on read-back |
-| 17 | `logs` reads only the panel console | implemented — `logs <id>` with `-w/--workspace` |
-| 18 | The crash retry budget survives a panel restart | verified good |
-| 19 | A panel started without `node` on PATH marks every entry failed | verified good — the message names the cause correctly |
+## Verified good — recorded so nobody "fixes" them
 
-## Round 3 — an agent/script author driving the CLI and API
-
-| # | Idea | Status |
-|---|---|---|
-| 20 | A misspelt `?workspace=` ran a **destructive** request against the default workspace | implemented `4150276` |
-| 21 | `logs` and `down` printed a refusal on stdout while exiting 1 | implemented `bd8b241` |
-| 22 | README's blanket "nothing to stdout on a refusal" was contradicted by four commands | implemented `bd8b241` |
-| 23 | `up` dropped `--port`/`--host`/`--open` on a live panel and exited 0 | implemented `2950d5e` |
-| 24 | `start` exits 0 for an entry that is already dying | implemented — same fix as 16, and `restart <id>` too |
-| 25 | `down` says "not running" and exits 0 while a panel it started is still listening | implemented — probes the configured port, refuses, signals nothing |
-| 26 | A wedged panel makes `status --json` say `running: true, answering: false` and exit 0 | implemented as docs `c1a518e` — the exit code is defensible, so the contract is documented |
-| 27 | `PUT /api/servers/:id` writes config only, silently leaving the old process serving | implemented as docs `c1a518e` |
-| 28 | `--help`, `--version`, unknown commands and idempotency | verified good |
-
-## Round 4 — upgrading 0.9.x → 0.11.0, and crash recovery
-
-| # | Idea | Status |
-|---|---|---|
-| 29 | A truncated `settings.json` sent the upgrader to `migrate`, which then could not read it | implemented `7c84f6c` |
-| 30 | `migrate --dry-run` printed nothing about the restamping the real run does | implemented `a1cdc93` |
-| 31 | `migrate` rewrote a file keeping no `.bak`, contradicting README and COMPATIBILITY | implemented `a1cdc93` |
-| 32 | Crash recovery and the remaining upgrade surface | verified good |
-| 33 | Restamping a **live** panel's configs reloads it; running entries untouched | verified good |
-
----
-
-## Found by the independent QA review (after the rounds)
-
-| # | Idea | Status |
-|---|---|---|
-| 34 | `up --host` refused even when it named the live bind, breaking the idempotent re-run | implemented `1b33cb5` |
-| 35 | The `up`-conflict guard could not fail: deleting the call site left all 7 tests green | implemented `1b33cb5` |
-| 36 | `--print-config` claimed "changing nothing" but writes 3 seeded files | implemented `1b33cb5` |
-| 37 | Dead `siblings` field returned by `supervisedPids`/`portHolders` | implemented `eb2fa84` |
-| 38 | `control-server.test.ts` could hand two parallel tests the same ephemeral port | implemented `0a470a6` |
-| 39 | Unknown query keys now 400 on ~20 workspace routes — a breaking change for external clients | **open — needs a release note** |
-| 40 | `processTreePids` has no production caller (superseded by `processTreeOwners`) | logged — it is a tested provider API; removing it is a judgement call |
-
----
-
-## Still-valuable ideas needing a decision
-
-These are the `logged` rows worth a second look. Each is real, verified, and blocked on a product
-choice rather than on code:
-
-- **15 / 17** — a `home-hosted usage` command, and per-server log access from the CLI. Both are the
-  operator's most common question, and neither exists.
-- **24** — `start x && curl x` races every boot; needs `--wait`/`--wait-ready` or a distinct exit code.
-- **25** — `down` exits 0 while an ownerless panel still listens; needs a decision on whether `down`
-  may search for one at all.
-- **19** — a systemd/docker user hits this as a fleet-wide failure with a correct message. No code
-  change; possibly a doc note.
-- **39** — the one with external exposure. Either an `UPGRADING.md` entry or narrow the strictness to
-  `workspace`-like keys only.
+Broken `servers.config.json` keeps running servers and says so · the crash retry budget survives a
+panel restart · a panel without `node` on PATH fails with the right message · `--help`, `--version`,
+unknown commands and idempotency · crash recovery and the 0.9→0.11 upgrade surface · restamping a live
+panel's configs reloads it without touching a running entry.

@@ -389,6 +389,28 @@ describe('servers route', () => {
   })
 
   /**
+   * The strictness is not only about typos: an *innocent* extra key is refused too.
+   *
+   * That is the part a client upgrades into, and the part the release note has to say. A
+   * cache-buster is not a mistake, and neither is a caller's own version tag — both are keys this
+   * route does not declare, so both are 400 now where they were 200 before. Pinned so the scope of
+   * the change is a fact rather than a claim in a doc.
+   */
+  it('refuses an extra key that is not a typo, not only a misspelt workspace', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+
+    for (const extra of ['_=1730000000', 'v=2', 'withPersistant=true']) {
+      const separator = '?'
+      const response = await request(created.app, `/api/servers${separator}${extra}`, 'GET')
+      expect(response.status, `an extra \`${extra}\` must be refused`).toBe(400)
+    }
+
+    // The declared key still works, so the rule is "declared or nothing", not "no parameters".
+    const declared = await request(created.app, '/api/servers?workspace=default', 'GET')
+    expect(declared.status).toBe(200)
+  })
+
+  /**
    * The refusal names the key, so a person reading the panel's own error sees the transposition.
    * A bare `400` would leave them re-reading a script that "looks right".
    */

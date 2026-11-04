@@ -7,6 +7,35 @@ do about them.
 Keep each entry to what someone must *change*, not what was added. If a release has nothing a person
 must act on, it needs no section here at all.
 
+## 0.11.1
+
+**A workspace-scoped route now refuses a query key it does not declare.** This is the one thing to
+check before upgrading.
+
+Every such route already took `?workspace=<id>`. What changed is that a *different* key is now a
+`400 INVALID_INPUT` naming it, instead of being silently dropped. The reason: ArkType is permissive
+by default, so `POST /api/servers/<id>/stop?worspace=staging` answered `200 {"ok":true}` having
+stopped that entry in the **default** workspace — one transposed letter in a deploy script, aimed at
+one workspace, acting on another, with nothing in the answer naming the typo.
+
+The rule now spans every workspace-scoped route, so anything that appends an extra query parameter
+will fail where it used to work. The realistic cases:
+
+| what you send | before | now |
+| --- | --- | --- |
+| `?workspace=staging` (declared) | 200 | 200 |
+| `?worspace=staging` (typo) | 200, against **default** | 400 |
+| `?workspace=a&_=1730…` (cache-buster) | 200 | 400 |
+| `?workspace=a&v=2` (your own version tag) | 200 | 400 |
+| `?workspace=a&withPersistant=true` (typo) | 200, flag ignored | 400 |
+
+**What to change:** drop the extra parameter, or send it on a route that declares it. The keys each
+route accepts are in `GET /openapi/spec.json` — a route that declares nothing rejects everything but
+`workspace`. Nothing else about these routes changed: the id resolution, the `404
+UNKNOWN_WORKSPACE` for a name that does not exist, and every response shape are as they were.
+
+The shipped UIs need no change; both send only declared keys.
+
 ## 0.11.0
 
 **Nothing to do if you run the shipped panel.** It serves the UI it ships with, and both move
