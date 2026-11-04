@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { runCli } from '../support/run-cli'
 
 /**
@@ -13,6 +13,18 @@ import { runCli } from '../support/run-cli'
  */
 
 const dirs: string[] = []
+
+/**
+ * Removes the homes this file created.
+ *
+ * `dirs` was collected and never drained, so every run left its scratch trees in `os.tmpdir()` —
+ * 138 had accumulated before anyone noticed, and nothing reported it because a leaked temp
+ * directory breaks no assertion.
+ */
+afterAll(() => {
+  for (const dir of dirs.splice(0))
+    fs.rmSync(dir, { recursive: true, force: true })
+})
 
 function makeHome(): string {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-plan-'))
