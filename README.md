@@ -19,7 +19,7 @@ them, watches them, restarts what dies, and shows you one page of what is going 
 [![License](https://img.shields.io/npm/l/home-hosted.svg)](./LICENSE)
 [![Node](https://img.shields.io/node/v/home-hosted.svg)](https://nodejs.org)
 
-[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🔀 Reverse proxy](./docs/REVERSE_PROXY.md) · [🎨 BYOU](#-bring-your-own-ui-byou)
+[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🌐 Dynamic DNS](./docs/DDNS.md) · [💾 Backups](#-backups) · [🔀 Reverse proxy](./docs/REVERSE_PROXY.md) · [🔐 Security](#-security) · [🎨 BYOU](#-bring-your-own-ui-byou) · [❓ FAQ](#-faq)
 
 </div>
 
