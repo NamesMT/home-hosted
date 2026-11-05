@@ -8,10 +8,10 @@
 
 <sub>The harness for your servers.</sub>
 
-Point it at the things you run — a gateway, a media server, a bot, a database — and it starts
-them, watches them, restarts what dies, and shows you one page of what is going on. Split them into
-[workspaces](#-workspaces) when one panel holds more than one setup. And
-[BYOU](#-bring-your-own-ui-byou), for a specialized UI that fits you exactly.
+Point it at the things you run — a gateway, a media server, a bot, a database — and it starts them,
+watches them, restarts what dies, and shows you one page of what is going on. Split them into
+[workspaces](#-workspaces) when one panel holds more than one setup, and
+[bring your own UI](#-bring-your-own-ui-byou) when you want one that fits you exactly.
 
 [![npm](https://img.shields.io/npm/v/home-hosted.svg)](https://www.npmjs.com/package/home-hosted)
 [![Downloads](https://img.shields.io/npm/dm/home-hosted.svg)](https://www.npmjs.com/package/home-hosted)
@@ -19,7 +19,7 @@ them, watches them, restarts what dies, and shows you one page of what is going 
 [![License](https://img.shields.io/npm/l/home-hosted.svg)](./LICENSE)
 [![Node](https://img.shields.io/node/v/home-hosted.svg)](https://nodejs.org)
 
-[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [🤖 Agents & API](#-agents-scripts-and-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🌐 Dynamic DNS](./docs/DDNS.md) · [💾 Backups](#-backups) · [🔀 Reverse proxy](./docs/REVERSE_PROXY.md) · [🔐 Security](#-security) · [🎨 BYOU](#-bring-your-own-ui-byou) · [❓ FAQ](#-faq)
+[🚀 Quick start](#-quick-start) · [🗂 Workspaces](#-workspaces) · [🧩 Servers](./docs/SERVERS.md) · [🤖 Agents & API](#-agents-scripts-and-your-own-tools) · [✨ Features](#-features) · [🛠 CLI](#-cli) · [🔔 Notifications](./docs/NOTIFICATIONS.md) · [🌐 Dynamic DNS](./docs/DDNS.md) · [💾 Backups](#-backups) · [🔀 Reverse proxy](./docs/REVERSE_PROXY.md) · [🔐 Security](#-security) · [🎨 BYOU](#-bring-your-own-ui-byou) · [❓ FAQ](#-faq)
 
 </div>
 
@@ -27,11 +27,10 @@ them, watches them, restarts what dies, and shows you one page of what is going 
 
 <div align="center">
 
-![Eight views of the panel: the stock UI and its reverse proxy, the NOC-console, and UI examples](docs/media/tour.gif)
+![Eight views of the panel: the stock UI and its reverse proxy, the NOC console, and UI examples](docs/media/tour.gif)
 
-<sub>The stock panel, the [NOC-console](./uis/noc-console) that ships alongside it (for TUI and
-shortcuts wizards), and UI directions you could build yourself —
-<a href="#-bring-your-own-ui-byou">BYOU</a>.</sub>
+<sub>The stock panel, the [NOC console](./uis/noc-console) that ships alongside it, and UI directions
+you could build yourself — <a href="#-bring-your-own-ui-byou">BYOU</a>.</sub>
 
 </div>
 
@@ -40,17 +39,17 @@ shortcuts wizards), and UI directions you could build yourself —
 ## 🤔 Why?
 
 You run a handful of services at home. The usual choices are extremes — 🧟 `tmux` sessions you
-forget about, 📜 a hand-written systemd unit per service (times six), or 🐳 a whole docker/k8s
-stack??? - too extreme! — plus 😩 monitoring, rebooting and changing the host machine, yuck!
+forget about, 📜 a hand-written systemd unit per service, or 🐳 a whole container orchestrator — plus
+😩 the monitoring, the reboots and the day you move to a new machine.
 
-🙂✨ home-hosted enhances on top: a panel/supervisor that starts them, watches them, restarts what
-dies, and puts the whole stack on one page, with deep backup support — whether a server is a plain
-command or a `docker compose` stack.
+🙂✨ home-hosted sits in between: declare a server once, and it is started, watched, restarted,
+alerted on, backed up and shown on one page — whether it is a plain command or a `docker compose`
+stack.
 
 ```text
                    ┌──────────────────────────────────────┐
-   your browser ──▶│  home-hosted  ·  127.0.0.1:3999      │
-                   │  your UI + JSON API + SSE logs       │
+   your browser ──▶│  home-hosted  ·  127.0.0.1:3999      │◀── scripts, agents, your own UI
+                   │  UI + JSON API + live events (SSE)   │    (Bearer token, OpenAPI)
                    └───────────────┬──────────────────────┘
                                    │  supervises
         ┌──────────────────────────┼──────────────────────────┐
@@ -59,257 +58,161 @@ command or a `docker compose` stack.
    │ gateway │               │ files   │                │ bot     │
    │ :4000   │               │ :4010   │                │  ...    │
    └────┬────┘               └─────────┘                └─────────┘
-        │ compose up
+        │ compose up                        restarts ↻ · health ✓ · logs · alerts
         ▼
    ┌────────────┬────────────┬────────────┐
-   │  gateway   │  postgres  │   redis    │          restarts ↻
+   │  gateway   │  postgres  │   redis    │     + backups · DDNS · reverse proxy (HTTPS)
    └────────────┴────────────┴────────────┘
-     health ✓ (the published port is the probe)
 ```
 
 |  |  |
 | --- | --- |
-| ❌ **"Is it still running?"** | Health, CPU/mem, uptime and live logs per server — no `ps`, no `curl`, no hope |
-| ❌ **Silent deaths** | Restarted automatically, and the panel or Telegram notifies |
+| ❌ **"Is it still running?"** | Health, CPU/memory, uptime and live logs per server |
+| ❌ **Silent deaths** | Restarted automatically, and you are told — in the panel, Telegram or a webhook |
 | ❌ **Fragile reboots** | `autostart` brings the stack back; one `down` stops it all cleanly |
-| ❌ **"Move it to the new box"** | One archive: config **and** data, restored on a blank host |
-| ✅ **home-hosted** | Declare it once, watch it forever, one command to stop it all |
+| ❌ **"Move it to the new box"** | One archive — config **and** data — restored on a blank host |
+| ✅ **home-hosted** | Declare it once, watch it forever |
 
-It ships with **no servers configured**: what you run is a command, some arguments, and the
-environment you give it. A preset can fill that in for you, and you can change every field after:
+It ships with **no servers configured**: a server is a command, its arguments and its environment.
 
 ```json
 { "id": "gateway", "command": "node", "args": ["server.js"], "port": 4000, "autostart": true }
 ```
-
-<sub>Manage them from the panel, `home-hosted start|stop <id>` from a shell, `home-hosted status --json`,
-or `GET /api/state`; `GET /healthz` is the same status line for your own monitor, no session needed —
-`503` while any entry needs attention: crashed, blocked because something else holds its port
-(`conflict`), stopped by the panel because it could not serve, or running and failing its own health
-check. That is the rule the panel's own "needs a look" counts use too, so a monitor and the page
-cannot disagree about what is broken.</sub>
 
 ---
 
 ## ⚡ Quick start
 
 ```bash
-npx home-hosted            # start it — detached, it stays running
-npx home-hosted status     # where is it, is it healthy
-# pnpm instead of npx: `pnpm dlx home-hosted …`
+npx home-hosted            # start it — detached, it keeps running — and print the first-run password
+npx home-hosted status     # where it is, what is running, the first-run password until you change it
+npx home-hosted down       # stop the panel *and* everything it started
 ```
 
-That is it. The panel is on **<http://127.0.0.1:3999>** and keeps running after the terminal
-closes. <sub>Needs Node 24 or newer.</sub> Stop it whenever you like:
-
-```bash
-npx home-hosted down       # stops the panel *and* everything it started
-```
-
-> [!NOTE]
-> The first boot writes a default password (`hh`) so the panel is never unprotected. Change
-> it under **Global settings → Authentication** — binding beyond `127.0.0.1` stays refused until you do.
+Open **<http://127.0.0.1:3999>**, sign in with the printed password, and change it under **Global
+settings → Authentication**. <sub>Needs Node 24+. `pnpm dlx home-hosted …` works too.</sub>
 
 <details>
 <summary><b>📦 Install it instead of npx-ing it</b></summary>
 
 ```bash
 npm install -g home-hosted      # or: pnpm add -g home-hosted
-home-hosted up                  # `hh up` does the same
+hh up                           # `hh` is the short name for `home-hosted`
 ```
 
-Everything it owns — workspaces, settings, secrets, logs, TLS, backups — lives under
-`$HHOSTED_HOME/.hh`, default `~/.home-hosted/.hh`. Delete that and nothing of yours is left behind.
-
-<sub>An installed home-hosted answers to **`hh`** too — `hh up`, `hh status`, `hh down`. Only the
-installed form gets it; npx stays `npx home-hosted …`.</sub>
+Everything it owns lives under `$HHOSTED_HOME/.hh` (default `~/.home-hosted/.hh`). Delete that and
+nothing of it is left behind.
 
 </details>
 
 <details>
-<summary><b>📁 Keep a whole setup in a project you can take anywhere</b></summary>
-
-Commit the project and it *is* the setup. `init` scaffolds it:
+<summary><b>📁 Keep a whole setup in a git repository</b></summary>
 
 ```bash
-npx home-hosted init            # or: pnpm dlx home-hosted init
-#   project directory, package name, package manager, install, git — every step has a default
-#   `--yes` takes them all, for an agent or a CI job
-#   `--no-install` writes the files only, and then prints the install step first: the project's
-#     scripts resolve `home-hosted` from `node_modules/.bin`, so without it they exit 127
+npx home-hosted init            # every step has a default; --yes takes them all
 ```
 
-It writes a manifest whose scripts all pass `--home ./state`:
+The project's scripts all pass `--home ./state`, and its `.gitignore` commits the server
+definitions while keeping secrets, logs, TLS keys and archives local:
 
 ```jsonc
 // package.json
-{
-  "scripts": {
-    "up": "home-hosted up --home ./state",
-    "down": "home-hosted down --home ./state",
-    "status": "home-hosted status --home ./state"
-    // …and restart, set-password, set-token, migrate
-  }
-}
+{ "scripts": { "up": "home-hosted up --home ./state", "down": "home-hosted down --home ./state", "status": "home-hosted status --home ./state" } }
 ```
 
-```gitignore
-node_modules/
-state/.hh/*                             # secrets, logs, TLS keys and archives stay local…
-!state/.hh/settings.json                 # …but the workspace definitions are committed
-!state/.hh/workspaces.json
-state/.hh/*/*
-!state/.hh/*/                           # git will not descend into an excluded directory,
-                                        #   so the directories must be un-ignored first
-!state/.hh/*/settings.json
-!state/.hh/*/servers.config.json
-data/                                   # per-server data directories, declared through dataEnvs
-```
-
-One clone, `pnpm install --frozen-lockfile`, `pnpm run up` — the setup is up on any machine with Node.
-A project scaffolded with `--no-install` has no lockfile to freeze against (`init` writes one only
-when it installs), so there `pnpm install` is the command that creates it.
-Worked example, with per-server data inside the project:
+Clone, `pnpm install`, `pnpm run up` — the same setup on any machine with Node. Give each project its
+own panel port (`control.port`, e.g. `4399`) so two can run side by side. Call it `pnpm run up`:
+`pnpm up` is pnpm's own update command. Worked example:
 **[hhosted-ai-pack](https://github.com/NamesMT/hhosted-ai-pack)**.
-
-<sub>Call them as `pnpm run up` — `pnpm up` is pnpm's own update, not your script.</sub>
-
-<sub>Working **on** this repo? Its own scripts keep state in `.dev-state/`, so trying a change cannot
-touch an installed panel: `pnpm run up|down|status|restart` are shorthand, and `pnpm run cli <command>`
-runs anything else the CLI takes — `pnpm run cli backup list`. A hint it prints carries the same
-`--home`, so pasting one back reaches the state you were just reading rather than `~/.home-hosted`.</sub>
-
-> [!TIP]
-> Recommended to give a project its own panel port (`control.port`, e.g. `4399`), to avoid port conflict
-> with other projects.
 
 </details>
 
 <details>
-<summary><b>🧰 Run it under systemd or Docker</b></summary>
-
-```bash
-home-hosted up --foreground     # stays in the foreground, logs to stderr
-```
+<summary><b>🧰 Start it at boot: systemd or Docker</b></summary>
 
 ```ini
 [Unit]
 Description=home-hosted
+After=network-online.target
+
 [Service]
-User=$YOUR_USER
+User=youruser
 WorkingDirectory=/srv/home-hosted
-ExecStart=/usr/local/bin/home-hosted up --foreground
 Environment=HHOSTED_HOME=/srv/home-hosted
+ExecStart=/usr/local/bin/home-hosted up --foreground
 Restart=always
+
 [Install]
 WantedBy=multi-user.target
 ```
+
 > [!CAUTION]
-> **`WorkingDirectory` is not optional.** Relative entry paths — a server's `cwd`, a
-> `{projectDir}` placeholder, a relative `dataEnvs` — resolve against the directory the panel is
-> started from. systemd starts a unit in `/` unless told otherwise, so without it every relative
-> path in your `servers.config.json` points somewhere under `/` and the entries fail to start.
-> Docker does the same unless you pass `-w`. Set it to the directory holding the config you run
-> from, or pin it explicitly with `Environment=HHOSTED_PROJECT=/srv/home-hosted`.
->
-> Note: change `$YOUR_USER` to your actual user account, or remove for `root`.
-> You could also change `/srv/home-hosted` to change where the data stores.
+> **Set `WorkingDirectory`.** Relative paths in your servers (`cwd`, `{projectDir}`, `dataEnvs`)
+> resolve against the directory the panel starts in, and systemd starts in `/`. Docker does the same
+> without `-w`. Or pin it with `HHOSTED_PROJECT`.
 
 </details>
 
 ---
 
-## 🤖 Agents, scripts and tools
+## 🤖 Agents, scripts and your own tools
 
-Everything the panel does, a script or an agent can do: the API takes a **long-lived token** in place
-of the browser cookie. One command for a credential, then plain HTTP to start, stop, inspect, restart
-and read logs.
+Everything the panel does goes through one HTTP API — the stock UI is just one client of it. Get a
+token, then plain HTTP:
 
 ```bash
-home-hosted set-token --generate
-#   hh_9uA2…                     (printed once; only its hash is kept, mode 0600)
+home-hosted set-token --generate        # hh_9uA2… — printed once, only its hash is kept
+                                        #   (or Global settings → Authentication → Generate token)
 
-curl -H "Authorization: Bearer hh_9uA2…" http://127.0.0.1:3999/api/state
-curl -H "Authorization: Bearer hh_9uA2…" -X POST 'http://127.0.0.1:3999/api/servers/omniroute/restart?workspace=default'
-curl -N -H "Authorization: Bearer hh_9uA2…" 'http://127.0.0.1:3999/api/servers/omniroute/stream?workspace=default'   # SSE
-home-hosted status --json        # machine-readable: running, liveness, degraded, pid, url, paths
+curl -H "Authorization: Bearer hh_…" http://127.0.0.1:3999/api/state
+curl -H "Authorization: Bearer hh_…" -X POST 'http://127.0.0.1:3999/api/servers/gateway/restart?workspace=default'
+curl -N -H "Authorization: Bearer hh_…" http://127.0.0.1:3999/api/events            # live SSE
+home-hosted status --json                                                            # where everything is
 ```
 
-A token has the same authority as a signed-in browser and outlives restarts, with two exceptions:
-it may not clear the panel password, and it may not restore an archive that carries the panel's own
-credentials — both of which would end with the panel armed by whoever holds the token. Treat a token
-as a password: rotate it with `set-token --generate` if it may have leaked, and see
-[Security](#-security) for the rest. Workspace-scoped routes take `?workspace=<id>`; omitting it
-means the panel's default workspace.
+Building in TypeScript? `import { createClient } from 'home-hosted/client'` — a ~3 KB client typed
+from the panel's own routes, with the live event stream ([API.md](./docs/API.md#the-typescript-client)).
+Any other language: `GET /openapi/spec.json` describes all of it (browse at `/openapi/ui`), so an
+OpenAPI generator gives you a typed client. `GET /healthz` needs no credential and is `503` while any server needs attention —
+point your uptime monitor at it.
+
+> [!WARNING]
+> **A token is full admin.** It can create and start server entries, which run commands as the
+> panel's user. Keep it like a password; rotate with `set-token --generate`.
 
 <details>
 <summary><b>🌐 The endpoints worth knowing</b></summary>
 
-| | | `?workspace` |
+✅ takes `?workspace=<id>` (omitted = the default workspace); ❌ is panel-wide.
+
+| | | |
 | --- | --- | --- |
-| `GET /api/state` | the full snapshot: global settings, every workspace with its servers, host vitals | ❌ |
-| `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the registry: list, create, rename, remove | ❌ |
-| `GET /api/events` | SSE: the live state, plus logs (`?logs=0`, `?serverId=…`; a `server` payload carries its `workspaceId`) | ❌ |
-| `GET`/`POST /api/servers`, `POST /api/servers/start-all`, `POST /api/servers/stop-all` | that workspace's entries, and its lifecycle for all of them (`?withPersistent=true` ends the entries that outlive the panel) | ✅ |
-| `GET`/`PATCH`/`DELETE /api/servers/:id`, `PUT /api/servers/:id` | one entry — `PUT` creates or replaces it, so a re-run converges | ✅ |
-| `POST /api/servers/:id/{start,stop,restart}`, `POST /api/servers/:id/free-port` | one entry's lifecycle, and freeing its port | ✅ |
-| `GET /api/servers/:id/logs`, `GET /api/servers/:id/stream` | that entry's buffered lines, and its SSE | ✅ |
-| `GET /api/logs` | persisted history and files | ✅ |
-| `GET`/`PUT /api/ddns`, `/api/ddns/credentials/:id`, `/api/ddns/check` | that workspace's Dynamic DNS policy, credentials and a check | ✅ |
-| `PUT`/`DELETE /api/notifications/destinations/:id/token`, `POST /api/notifications/destinations/:id/{test,detect-chats}`, `POST /api/notifications/test-webhook` | one destination's bot credential, and a test send | ✅ |
-| `GET`/`PATCH /api/settings/workspace` | server defaults, logs, notifications | ✅ |
-| `GET`/`PATCH /api/settings` | panel-wide: listener, authentication, TLS, host vitals, backups | ❌ |
-| `GET`/`POST /api/backups`, restore | archives; a create or restore body selects with `include` and/or `exclude` | ❌ |
-| `GET`/`PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `PUT`/`DELETE /api/proxy/certificates/:id` | the reverse proxy: its engine, its route table, and its uploaded certificates | ❌ |
-| `GET /healthz` | no session needed — the one an external monitor wants (its per-server detail needs a credential) | ❌ |
-| `GET /api/metrics` | Prometheus text (needs a token or session, like every `/api` route) — scrape it with a bearer token | ❌ |
+| `GET /api/state` | the full snapshot: settings, every workspace and server, host vitals | ❌ |
+| `GET /api/events` | SSE: `hello` (full state), then `state`, `server`, `log`, `ping` | optional |
+| `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the workspace registry | ❌ |
+| `GET`/`POST /api/servers`, `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | entries — `PUT` is create-or-replace, so a re-run converges | ✅ |
+| `POST /api/servers/:id/{start,stop,restart,free-port}`, `/api/servers/{start-all,stop-all}` | lifecycle | ✅ |
+| `GET /api/servers/:id/logs`, `/api/servers/:id/stream`, `/api/logs/:id` | buffered lines, one server's SSE, files on disk | ✅ |
+| `GET`/`PATCH /api/settings`, `GET`/`PATCH /api/settings/workspace` | panel-wide / per-workspace settings | ❌ / ✅ |
+| `/api/backups`, `/api/proxy`, `/api/ddns`, `/api/notifications/…` | backups, reverse proxy, dynamic DNS, alerts | ❌ ❌ ✅ ✅ |
+| `GET /api/metrics` | Prometheus text, with a bearer token | ❌ |
+| `GET /healthz` | no credential needed — for your monitor | ❌ |
 
-✅ takes `?workspace=<id>`; ❌ is panel-wide. Omitting `?workspace` means `default` workspace is used.
-
-**Scraping it.** Point your scraper at `/api/metrics` with the token from `home-hosted set-token
---generate` as `Authorization: Bearer …`, because it lives under `/api` like every other route.
-`hh_host_cpu_used_percent` is the machine's own CPU share (0–100) — the figure to alert on.
-`hh_host_load1_per_cpu` beside it is a **count of runnable tasks per core**, not a percentage:
-`1.0` means one core's worth of work waiting, so it is fine on a busy box and not comparable with the
-percentage above. A host gauge appears only once the host has been sampled, so a series that is
-*absent* means "no reading", never "zero": do not let a dashboard fill that in. `hh_server_restarts`
-counts the retry attempts spent on a server's **current** crash sequence and drops back to `0` when
-someone starts it, so it is a state, not a counter to `rate()` — `hh_server_crashes_24h` is the one
-that only grows within its window. No series here is a Prometheus counter: every one is a snapshot a
-stop, a delete or a manual start can lower, so no name ends in `_total`.
-
-> **Upgrading from 0.9.x — a dashboard needs one edit.** The series formerly named
-> `hh_server_restarts_total` is now `hh_server_restarts` (a gauge, unchanged in meaning and labels).
-> It was never a valid counter: a start you asked for reset it to `0`, so `rate()` reported a phantom
-> counter reset. Replace every query on `hh_server_restarts_total` with `hh_server_restarts`, and use
-> the gauge directly (`hh_server_restarts > 2`) rather than `rate()`/`increase()`. The count series
-> `hh_servers_total` is now `hh_servers` for the same reason. Old dashboards will show *no data*
-> for those two series after the upgrade — the panel publishes neither old name.
-
-`GET /openapi/spec.json` describes all of it, `/openapi/ui` is the browsable version, and every error
-comes back as one envelope (`{ message, code, detail }`) with a stable `code` a tool can branch on. The
-document declares its own `securitySchemes` (`bearerAuth`), every documented 2xx carries a schema, and
-each operation is tagged — so `openapi-typescript`, `openapi-generator` or a docs renderer can generate
-a working client without hand-written glue. `/openapi/ui` builds its route index from the spec itself, so
-it stays readable on a box with no internet; the richer interactive browser it also offers is fetched
-from a **version-pinned** CDN and is optional — the plain index is what you get when that CDN is
-unreachable. Scalar's bundle does render offline when self-hosted, but it is 4.9 MB, so the index is the
-cheaper trade for a panel that ships no other web assets.
+Every error is one envelope — `{ "message", "code", "detail"? }` — with a stable `code` to branch on.
+Undeclared query keys are refused (`400`), so a typo like `?worspace=` never acts on the default
+workspace. Full reference, SSE frames, metrics and compatibility rules: **[API.md](./docs/API.md)**.
 
 </details>
 
 <details>
-<summary><b>🧑‍💻 Pointing an agent at it</b></summary>
+<summary><b>🧑‍💻 Pointing an AI agent at it</b></summary>
 
-Give the agent four things and it can run your home server without guessing:
+Give it four things and it can run your home server without guessing:
 
 1. the token (`home-hosted set-token --generate`),
 2. `http://127.0.0.1:3999/openapi/spec.json` — the API it may call,
 3. `home-hosted status --json` — where things are,
-4. [SERVERS.md](./docs/SERVERS.md) — how an entry is declared when it needs a new server.
-
-For a UI rather than the API, [UI_CREATION.md](./docs/UI_CREATION.md) is the whole contract, and the panel
-can be told what to be: *"Help me build a UI for home-hosted: nostalgic game theme, including …"*.
+4. [SERVERS.md](./docs/SERVERS.md) — how a server is declared.
 
 </details>
 
@@ -319,49 +222,46 @@ can be told what to be: *"Help me build a UI for home-hosted: nostalgic game the
 
 | | |
 | --- | --- |
-| 🗂 **Workspaces** | One panel, many scopes. A workspace owns its servers, secrets, logs and settings; listener, auth, backups, TLS and UI stay panel-wide in **Global settings**. |
-| 🚦 **Lifecycle** | Start, stop, restart from the panel or the API; `autostart` entries come up with it. A process left behind by a renamed or removed entry is listed on **Servers** with a stop button, instead of running invisible. |
-| 📝 **Hand edits welcome** | Edit `servers.config.json` in an editor or a `git checkout` — the panel notices in seconds, no restart. A file it cannot read is reported, and running servers are left alone. |
-| ♻️ **Auto-restart** | Exponential backoff on crash, with the counter reset once a process stays up. The budget is remembered across a restart of the panel. |
-| 🩺 **Health that acts** | TCP or HTTP probes per server: warn, then force a restart — bounded by the same retry budget as a crash, so a sick entry stops instead of looping. Ports are checked before starting, and a program that [restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed or replaced. |
-| 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy* — not merely spawned. `stop-all`/`down` stop dependents before their dependencies; stopping one server names the dependents it leaves running. [SERVERS.md](./docs/SERVERS.md#field-reference) |
-| 📜 **Logs** | Live per-server stream, buffer plus rotated files on disk, search, filter to one stream, download, one click to clear. `Keep rotated files` in **Workspace Settings** bounds the directory, and the search reads every rotation it keeps — lowering it deletes the extras. |
-| 📈 **Resources** | CPU and RSS per process tree — the summed containers for a compose entry — with an optional memory ceiling that restarts the entry. Stopping a compose entry stops its containers even when the wrapper is gone, and says so if one survives. [SERVERS.md](./docs/SERVERS.md#docker-and-compose) |
-| 🌡️ **Host vitals** | CPU usage, memory, swap, disk and CPU temperature, plus the load average as a per-cpu count, with thresholds that notify once and again on recovery. Where the OS exposes no sensor — a WSL2 guest above all — the tile says `n/a`; [`setup-temp --wsl`](./docs/SERVERS.md#cpu-temperature-where-the-os-exposes-none) bridges to the Windows host. |
-| 🤖 **Token API** | Scripts and agents drive it with `Authorization: Bearer` — no browser, no session. [↑](#-agents-scripts-and-tools) |
-| 🔔 **Notifications** | Telegram and webhooks (ntfy, Discord, Slack, anything) on crash, unhealthy, recovery, host thresholds and DNS changes. Toggles and throttle set once; each destination inherits or overrides. [Setup](./docs/NOTIFICATIONS.md). |
-| 🌐 **Dynamic DNS** | Keep hostnames pointed at your public IP — Cloudflare, Namecheap, Spaceship, Porkbun, GoDaddy, Gandi and more. [DDNS.md](./docs/DDNS.md) |
-| 🔀 **Reverse proxy** | One Caddy engine in front of everything, with automatic HTTPS: `git.example.com` → a Gitea entry, `panel.example.com` → the panel itself. Installed and supervised by it. [Details](./docs/REVERSE_PROXY.md) |
-| 💾 **Backups** | One `.zip` of the panel and the workspaces you pick — plain or AES-256, picked per item, from the panel or the CLI. [Details](#-backups). |
-| 🌍 **Translated UI** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French and German — picked on the login page or in **Global settings → Language**, kept per browser. Action toasts included. The NOC console ships English-only on purpose; its density is the point. |
-| 🎨 **BYOU — Bring Your Own UI** | Upload a static build, `ui-update` to follow its releases, `ui-revert` to go back. [UI_CREATION.md](./docs/UI_CREATION.md) |
-| 🔐 **Security** | Cookie sessions, API tokens, scrypt hashes, per-IP lockout, optional TLS, and a refusal to expose itself without a password. |
-| 🧩 **Bring any program** | A server is a `command`, its args and a working directory — plus optional `dataEnvs`, `dependsOn` and `dump`/`load` hooks. Presets fill the form; nothing requires one. [Fields](./docs/SERVERS.md) |
-| 🖥 **Cross-platform** | Linux, macOS and Windows: `/proc`, `ps` or Win32_Process, process groups or `taskkill /T`, no shell dependencies. |
+| 🗂 **Workspaces** | One panel, many setups. Each owns its servers, secrets, logs and settings; listener, auth, backups, TLS and UI stay panel-wide |
+| 🚦 **Lifecycle** | Start, stop, restart from the panel, the CLI or the API; `autostart` entries come up with it. A process left behind by a renamed entry is listed with a stop button |
+| 📝 **Hand edits welcome** | Edit `servers.config.json` in an editor or `git checkout` — picked up in seconds. A file it cannot read is reported, and running servers are left alone |
+| ♻️ **Auto-restart** | Exponential backoff on crash, with a retry budget that survives a panel restart |
+| 🩺 **Health that acts** | TCP or HTTP probes: warn, then force a restart. Ports checked before starting; a program that restarts itself can be [followed](./docs/SERVERS.md#when-a-program-restarts-itself) |
+| 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy*, not just spawned; `down` stops dependents first |
+| ♾️ **Persistent entries** | A server that keeps running — and logging — while the panel restarts or upgrades |
+| 📜 **Logs** | Live stream, rotated files, search, download, clear |
+| 📈 **Resources** | CPU and memory per process tree (summed containers for compose), with an optional memory ceiling |
+| 🌡️ **Host vitals** | CPU, memory, swap, disk, temperature and load, with thresholds that alert once and again on recovery |
+| 🔔 **Notifications** | Telegram and webhooks (ntfy, Discord, Slack, …) on crash, unhealthy, recovery, host thresholds and DNS changes |
+| 🌐 **Dynamic DNS** | Keep hostnames on your public IP — Cloudflare, Namecheap, Porkbun, GoDaddy, Gandi, deSEC, DuckDNS, No-IP and more |
+| 🔀 **Reverse proxy** | One Caddy engine with automatic HTTPS: `git.example.com` → a Gitea entry, `panel.example.com` → the panel |
+| 💾 **Backups** | Config, secrets and data in one zip — plain or AES-256, scheduled or manual, restorable on a blank host |
+| 🤖 **API first** | Bearer tokens, OpenAPI, SSE — scripts, agents, TUIs and desktop apps get everything the UI gets |
+| 🎨 **Bring your own UI** | Upload a static build; `ui-update` follows its releases, `ui-revert` goes back |
+| 🌍 **Translated** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French, German |
+| 🖥 **Cross-platform** | Linux, macOS and Windows — no shell utilities assumed |
 
 ---
 
 ## 🗂 Workspaces
 
-A workspace is the ownership boundary: its own servers, secrets, logs, states and settings.
-The first boot creates a `default` workspace.
+A workspace is the ownership boundary: its own servers, secrets, logs and settings. The first boot
+creates `default`. A server id is unique only inside its workspace.
 
 | page | url | scope |
 | --- | --- | --- |
-| **Overview** | `/w/<workspace>` | the selected workspace: its servers, counts and live status |
-| **Servers** · **Logs** · **Workspace settings** | `/w/<workspace>/servers` · `/w/<workspace>/logs` · `/w/<workspace>/settings` | the selected workspace |
-| **One server** | `/w/<workspace>/servers/<id>` | that entry: config, live logs, resources |
-| **Global Overview** | `/global/overview` | host vitals plus every server from every workspace |
-| **Global settings** | `/global/settings` | Listener, Authentication, Host vitals, Backups, TLS, Interface, Paths |
-| **Reverse Proxy** | `/proxy` | panel-wide: one engine, every workspace's servers ([REVERSE_PROXY.md](./docs/REVERSE_PROXY.md)) |
+| **Overview** · **Servers** · **Logs** · **Settings** | `/w/<workspace>` · `…/servers` · `…/logs` · `…/settings` | one workspace |
+| **One server** | `/w/<workspace>/servers/<id>` | config, live logs, resources |
+| **Global overview** · **Global settings** | `/global/overview` · `/global/settings` | every workspace; listener, auth, backups, TLS, UI |
+| **Reverse proxy** | `/proxy` | panel-wide |
 
 <details>
 <summary><b>🗂 What lives where</b></summary>
 
 | | |
 | --- | --- |
-| global — `$HHOSTED_HOME/.hh/` | `settings.json` (listener, auth, TLS, host vitals, backups), `workspaces.json`, `.control-secrets.json` (password + API token, 0600), `.tls/`, `.ui/`, `.backups/`, `.logs/`, `.proxy/` (the reverse proxy's engine, its config and state), `run.json` |
-| workspace — `.hh/<id>/` | `settings.json` (server defaults, logs, notifications, DDNS), `servers.config.json`, `.secrets.json` (Telegram + DDNS credentials, 0600), `.logs/`, `.state/` |
+| panel-wide — `$HHOSTED_HOME/.hh/` | `settings.json` (listener, auth, TLS, host vitals, backups, proxy), `workspaces.json`, `.control-secrets.json` (password + token hashes, 0600), `.tls/`, `.ui/`, `.backups/`, `.logs/`, `.proxy/` (the engine and its state), `run.json` (the live panel, 0600) |
+| per workspace — `.hh/<id>/` | `settings.json` (server defaults, logs, notifications, DDNS), `servers.config.json`, `.secrets.json` (0600), `.logs/<id>.log`, `.state/` |
 
 </details>
 
@@ -369,24 +269,30 @@ The first boot creates a `default` workspace.
 
 ## 🧩 Servers
 
-An entry is a few lines. Add one with **➕ Add server**, or write it into the selected workspace's
-`servers.config.json` (`$HHOSTED_HOME/.hh/<workspace>/servers.config.json`):
+Add one with **➕ Add server** — presets for Node, Python, Jellyfin, Minecraft, Gitea, MongoDB, Docker
+Compose and more fill the form — or write it into the workspace's `servers.config.json`:
 
 ```json
 {
-  "id": "myapp",
+  "id": "blog",
   "command": "node",
-  "args": ["server.js"],
+  "args": ["server.js", "--port", "{port}"],
+  "cwd": "./apps/blog",
   "port": 8080,
+  "bind": "lan",
   "autostart": true,
-  "dataEnvs": { "DATA_DIR": "{projectDir}/data/myapp" }
+  "dataEnvs": { "DATA_DIR": "{projectDir}/data/blog" }
 }
 ```
 
-`dataEnvs` declares a data directory once: it is exported to the process *and* picked up by Backups.
+- `command` is a **program, not a shell line** — `"node server.js"` looks for a program of that name.
+- `port` turns on the readiness wait, health checks and port-conflict detection.
+- `bind` is `local` (`127.0.0.1`), `lan` (`0.0.0.0`) or one of this machine's IPv4 addresses; the
+  program reads it as `{host}`.
+- `dataEnvs` sets an environment variable *and* marks that directory for backups.
 
-**Every field, every placeholder, the port-conflict policies (including adopting a server that
-restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.md).**
+**Every field, placeholder and port-conflict policy, plus Docker Compose and persistent entries:
+[SERVERS.md](./docs/SERVERS.md).**
 
 ---
 
@@ -394,67 +300,55 @@ restarts itself), and how hand-edits are validated: [SERVERS.md](./docs/SERVERS.
 
 | command | |
 | --- | --- |
-| `home-hosted up` | start the panel detached, and keep it alive in the background |
-| `home-hosted down` | stop it cleanly — supervised processes included, [persistent entries](./docs/SERVERS.md#persistent-entries) left running (`--with-persistent` stops those too) |
-| `home-hosted restart` | `down`, then `up` — or `restart <id>` to restart one server, leaving the panel up (`--with-persistent` restarts the persistent entries as well) |
-| `home-hosted status` | pid, URL, health, uptime, state and log paths (`--json` for scripts). Edge cases are under [what `status` tells you](#-cli). |
-| `home-hosted start <id>` | start one server in the default workspace — and anything it `dependsOn` (`--workspace <id>`). `--free-port` frees the port first, then starts |
-| `home-hosted stop <id>` | stop one server, nothing else (`--workspace <id>`) |
-| `home-hosted free-port <id>` | ask whatever holds that server's port to stop — the panel's **Free port** button. Anything this panel supervises is refused, not signalled (`--workspace <id>`) |
-| `home-hosted restart <id>` | restart one server, nothing else (`--workspace <id>`) — the same as the panel's per-server Restart |
-| `home-hosted logs [<id>]` | the panel's own console, or one server's log with an id (`--lines`, `--follow`, `--json`, `--workspace <id>`) |
-| `home-hosted usage` | live CPU and memory per server, loudest first — the fastest answer to "what is eating the machine" (`--json`) |
-| `home-hosted backup` | list, create or restore an archive — **without the panel running** (`--password`, `--include`, `--exclude`). See [Backups](#-backups) and [RESTORE_DEMO.md](./docs/RESTORE_DEMO.md) |
-| `home-hosted set-password` | set the panel password without opening a browser; a running panel picks it up at once and signs every existing session out |
-| `home-hosted set-token` | set the API token scripts and agents use (`--generate`, `--clear`) |
-| `home-hosted migrate` | bring every config up to the schema this release understands (`--dry-run`, `--yes`) |
-| `home-hosted init` | scaffold a self-contained project, whose scripts keep state in the repo (`--home ./state`) |
-| `home-hosted ui-switch` | install a UI from a release asset, a zip file or a URL (interactive) |
-| `home-hosted ui-update` | bring an installed UI up to date automatically (official UI) or pick a release (`--old`, `--check`) |
-| `home-hosted ui-revert` | go back to the stock panel UI after uploading your own |
+| `home-hosted up` | start the panel detached (already running? says where, exits 0) |
+| `home-hosted down` | stop it and everything it started — persistent entries stay unless `--with-persistent` |
+| `home-hosted restart [<id>]` | the panel (`down` then `up`), or just one server, leaving the panel up |
+| `home-hosted status` | running? where? how many servers up? every path (`--json`) |
+| `home-hosted start <id>` / `stop <id>` | one server, and what it `dependsOn` (`-w <workspace>`, `--free-port`) |
+| `home-hosted free-port <id>` | ask whatever holds that server's port to stop; supervised holders are refused |
+| `home-hosted logs [<id>]` | the panel's console, or one server's log (`--lines`, `--follow`, `--json`) |
+| `home-hosted usage` | CPU and memory per server, loudest first |
+| `home-hosted backup` | `list`, `create`, `restore` — works with the panel stopped |
+| `home-hosted set-password` / `set-token` | credentials, without a browser |
+| `home-hosted migrate` | bring configs up to this release's schema (`--dry-run`) |
+| `home-hosted init` | scaffold a self-contained project |
+| `home-hosted ui-switch` / `ui-update` / `ui-revert` | install, update or remove a custom UI |
+| `home-hosted setup-temp --wsl` | read the CPU temperature through the Windows host on WSL2 |
 
 <details>
-<summary><b>⚙️ Flags</b></summary>
-
-`home-hosted <command> --help` prints what that command takes.
+<summary><b>⚙️ Every command and its flags</b></summary>
 
 ```text
-up                -p/--port --host --open --no-autostart --foreground --print-config
-
+up                -p/--port <port> --host <local|lan|ipv4> --open --no-autostart --foreground --print-config
 down              --with-persistent
+restart           (no id) down, then up: up's flags plus --with-persistent
+restart <id>      one server through the panel: [-w/--workspace <id>] — up's flags are refused here
 status            --json
-logs              [<id>] --lines <n> --follow --json [-w/--workspace <id>]
+start <id>        [-w/--workspace <id>] [--free-port]
+stop <id>         [-w/--workspace <id>]
+free-port <id>    [-w/--workspace <id>]
+logs [<id>]       --lines <n|all> --follow --json [-w/--workspace <id>]
 usage             --json
-backup            [list|create|restore] [<name> | --from <path>] (--include <ids> | --all) [--exclude <ids>] --password --confirm --json
-start, stop       <id> [-w/--workspace <id>]   (both need the panel up)
-restart           [<id>] [-w/--workspace <id>] [--with-persistent]  (no id: the panel; with one: that server)
-init              --dir --name --pm --no-install -y/--yes
-set-password      --clear
-set-token         --generate --clear
-migrate           --dry-run -y/--yes
-ui-switch         --repo --tag --asset --file --list --token -y/--yes
-ui-update         --check --tag --asset --old --repo --token -y/--yes
+backup            [list|create|restore] [<name> | --from <path>] (--include <ids> | --all) [--exclude <ids>]
+                  --password <text> --confirm --json
+init              --dir <dir> --name <name> --pm <pnpm|npm|yarn|bun> --no-install -y/--yes
+set-password      --clear                      (HHOSTED_PASSWORD for a script)
+set-token         --generate --clear           (HHOSTED_TOKEN for a script)
+migrate           --dry-run -y/--yes           (HHOSTED_MIGRATE=allow for a script)
+ui-switch         --repo <owner/name> --tag <tag> --asset <name> --file <path|url> --list --token <token> -y/--yes
+ui-update         --check --tag <tag> --asset <name> --old --repo <owner/name> --token <token> -y/--yes
 ui-revert         (no flags)
+setup-temp        --wsl [--download | --no-download] | --clear
 
-every command     --home <dir> --project <dir>       (or $HHOSTED_HOME, $HHOSTED_PROJECT)
-env vars          HHOSTED_PASSWORD, HHOSTED_MIGRATE=allow, HHOSTED_TOKEN, GITHUB_TOKEN or GH_TOKEN
+every command     --home <dir> --project <dir> -h/--help -v/--version   (or $HHOSTED_HOME, $HHOSTED_PROJECT)
+environment       HHOSTED_PASSWORD, HHOSTED_TOKEN, HHOSTED_MIGRATE=allow, HHOSTED_DDNS_SECRET,
+                  GITHUB_TOKEN / GH_TOKEN (ui-switch, ui-update)
 ```
 
-`up` and `restart` share the same flags: bare `restart` is `down`, then `up` with exactly what it was
-given. Given a server id — `restart web` — it restarts only that entry, and the panel keeps running.
-A workspace's entries always come from its own `servers.config.json`. `start`/`stop`/`restart <id>` and
-`logs <id>` all omit `--workspace` to act in the panel's default workspace: the one called `default`
-if the panel declares it, otherwise the first one it lists — the same rule the API applies to an
-omitted `?workspace=`, so the CLI and the panel never name different workspaces for one id.
-
-A misspelled command or option names the one you meant — `home-hosted restar` answers
-`did you mean \`restart\`?`, and `up --prt 4000` answers `did you mean \`--port\`?`. Both stay quiet
-when nothing is close, rather than guessing.
-
-`up` on a panel that is already running says where it is and exits 0 — the common use is "make sure
-it is running". A flag that panel contradicts is refused instead, because it would otherwise be
-parsed and dropped: `up --port 4800` against a panel on 3999 exits 1 saying so, and `up --no-autostart`
-is fine (the panel has already booted, so there is nothing to honour).
+- `--json` prints one document on stdout or nothing; refusals go to stderr. Branch on the exit code.
+- Piping into `head`/`grep -q` exits 0, so `set -o pipefail` is safe.
+- `start web && curl …` works: `start` waits to confirm the process stayed up.
+- A misspelled command or flag suggests the one you meant.
 
 </details>
 
@@ -462,111 +356,24 @@ is fine (the panel has already booted, so there is nothing to honour).
 <summary><b>🧭 Upgrading, and why the panel sometimes refuses to start</b></summary>
 
 ```bash
-home-hosted migrate --dry-run   # print what it would do, write nothing
-home-hosted migrate             # ask before a schema step, then write — keeps a .bak beside each rewritten file
+home-hosted migrate --dry-run   # what would change
+home-hosted migrate             # asks before each schema step, keeps a .bak beside each file
 ```
 
-Unattended, consent comes from `--yes` or `HHOSTED_MIGRATE=allow`; without it a schema step stops.
-Restamping a file whose shape is already current is not a schema step — it only records the release
-that last wrote it — so that happens without a prompt, and still leaves a `.bak`.
-
-Each config records what wrote it: `meta.writtenBy` (the release) and `meta.schema` (the shape). That
-buys two guarantees:
-
-- **A newer home-hosted always reads an older config** — every existing key keeps its meaning.
-- **Keys a newer release added are ignored, not fatal.** The panel names them in its log, leaves them
-  in the file, and never resets the settings around them.
-
-What it will not do is run a config it cannot read. A wrong value, a duplicate id, an unreadable file
-or a config whose schema is newer than the running release stops `up` with the exact problem, rather
-than starting with defaults that quietly differ from your file. Fix the file, or install the release
-that wrote it.
-
-### Two things `migrate` cannot fix
-
-`migrate` moves a config file. Two changes in this release are *outside* the config, so read these
-before upgrading — a stale one fails quietly, which is the worst way to fail.
-
-**A dashboard on `/api/metrics`.** Two series were renamed in the release that made every metric
-honest about being a gauge: `hh_server_restarts_total` is now `hh_server_restarts`, and
-`hh_servers_total` is now `hh_servers`. The old names are not published, so a query still on one
-shows *no data* rather than a stale number. Compare the gauge directly (`hh_server_restarts > 2`);
-do not wrap it in `rate()`/`increase()`, because a start you asked for resets it.
-
-**A script that holds only an API token.** Three operations now require a signed-in session, because
-each would otherwise let a stolen token end up holding the panel: clearing the password, switching
-authentication off, and restoring an archive that carries `global:secrets`. Each answers 403
-`SESSION_REQUIRED`. Scripts should either sign in first, pass `--exclude global:secrets` to a
-restore, or run the command on the machine (`home-hosted set-password --clear`,
-`home-hosted backup restore`, which both go through the local channel).
-
-### Coming from 0.6.x
-
-**Install the latest 0.7.x first, and run it once.** 0.7.0 moved all state from `$HHOSTED_HOME` itself
-into `$HHOSTED_HOME/.hh`, splitting the old all-in-one `servers.config.json` into global settings, a
-`default` workspace, and that workspace's servers — and it did the move automatically on its first
-run. 0.8.0 dropped that relocation.
-
-So a home that is still on the 0.6.x layout is not read: `up` stops and names the file it found,
-rather than starting against an empty state directory beside a config it never opened. 0.7.x does
-the move on its first run; 0.8.0 then starts against the result.
+A newer release always reads an older config, and unknown keys are kept and reported, never reset.
+What it will not do is run a config it cannot read — a wrong value, a duplicate id, a newer schema —
+so `up` stops with the exact problem instead of starting on defaults. Release notes say what each
+upgrade needs from you. **Coming from 0.6.x:** run the latest 0.7.x once first.
 
 </details>
 
 <details>
-<summary><b>🤔 What <code>status</code> tells you when things are not simple</b></summary>
+<summary><b>🤔 What <code>status --json</code> tells you</b></summary>
 
-`home-hosted status` prints the panel's console path *and* the per-server log directory, naming the
-`<id>.log` convention once logs exist.
-
-While the panel is up it also prints a `servers` row — `2 of 3 up` — because "did everything come back
-after the reboot" is the question an operator actually has, and a panel up with every entry stopped
-reads exactly like a healthy one. `--json` carries the same numbers as `servers: { total, running }`
-(`null` when the panel did not report a count, so an older panel is never shown as supervising
-nothing).
-
-`--json` is for scripts. It always carries `running` and `liveness` — a script should not have to
-branch on whether a record exists. A stopped panel answers `{ running: false, initialised, liveness }`,
-where `initialised: false` means nothing was ever set up in this state directory:
-
-| `liveness` | Means |
-| --- | --- |
-| `live` | the recorded pid is this panel, born when the record says |
-| `unknown` | the pid is alive but this platform will not report its birth time. Counted as running rather than dismissed |
-| `gone` | nothing is running. Either the record is stale and may be cleared, or there is no record at all |
-| `recycled` | the OS has handed the recorded pid to **another** process. The record is stale, but a signal would hit a stranger, so only the token-authenticated shutdown touches it |
-
-`liveness` says whether the *process* is there; `exitedCleanly` says whether you stopped it. A clean
-`down` deletes `run.json`, and so does `up` when it finds a record with nothing behind the pid — so
-absence alone cannot tell "I stopped it" from "it died". Only a deliberate stop records the fact:
-
-| what happened | no `run.json` | `exitedCleanly` |
-| --- | --- | --- |
-| `home-hosted down` | yes | `true`, with `lastStopAt` |
-| killed, then `up` tidied the record | yes | `false` |
-| killed and not tidied | no — the stale record is still there | `false` |
-| never started here | yes | `false` |
-
-Piping a command into `head`, `grep -q` or anything that stops reading early is ordinary shell and it
-works: the command exits **0**, not with a broken-pipe error, so `set -o pipefail` stays happy.
-
-`--json` writes **one JSON document to stdout, or nothing** — never prose a parser would choke on —
-and any refusal's sentence, plus any list it explains, goes to stderr. A non-zero exit with a document
-on stdout is not a contradiction: `status --json` answers `{"running": false, …}` and exits 1 because
-that *is* the answer to "is it running", and `backup restore --json` prints a plan carrying its
-refusal in `error` so a script can read either. Branch on the exit code, then on the document.
-
-**No record does not mean nothing is running.** With `run.json` deleted, `status` probes the port its
-own `settings.json` names: a panel still answering there is reported as `answeringWithoutRecord` (the
-URL), the sentence says so instead of "not running", and the exit code stays 1 — nothing is signalled
-and no pid is named, because without a record there is no process `status` can prove it owns. `down`
-refuses that same shape, for the same reason.
-
-**`status` answers "is the process there", not "is it serving".** A panel wedged on a stopped kernel
-thread still exists: it reports `running: true` with `"answering": false` and exits **0**. Anything
-that waits for the panel to *serve* must read `answering`, or accept `"liveness": "live"` as
-liveness only. `running: false` exits 1 and carries `liveness` — `gone` for a dead pid, `recycled`
-for a number the OS gave to something else.
+It always carries `running` and `liveness`: `live` (it is this panel), `unknown` (alive, start time
+unavailable — counted as running), `gone`, or `recycled` (the pid now belongs to another process —
+nothing is signalled). `answering: false` means the process exists but does not respond;
+`exitedCleanly` says whether someone ran `down` or it died. More: [CLI.md](./docs/CLI.md).
 
 </details>
 
@@ -574,269 +381,113 @@ for a number the OS gave to something else.
 
 ## 🔐 Security
 
-**Safe out of the box.** The panel answers on `127.0.0.1` only. It will not listen anywhere else —
-not while the password is still the default one, not without a password, not with authentication
-switched off — and a proxy route pointing back at the panel answers to the same rule. Nothing is
-exposed until you decide it should be.
-
-One setting only warns: turning on **trust a proxy from any peer** while the panel is also exposed
-weakens the login lockout, and the panel says so at startup rather than refusing, because a proxy on
-another machine is a legitimate setup.
+**Safe out of the box.** The panel listens on `127.0.0.1` only, behind a password generated on first
+start. It refuses to listen anywhere else — or to be served through its own reverse proxy — until you
+set your own password.
 
 <details>
 <summary><b>🛡️ The three things you actually have to do</b></summary>
 
-1. **Set your own password before you expose it.** Change it, then bind to `lan` — in the UI, in the
-   config, or with `--host lan`. All three go through the same check.
-2. **Treat an API token like the password.** It works as you, it survives restarts, and changing the
-   password does *not* revoke it. If one may have leaked, rotate it: `set-token --generate`.
-3. **If you forget the password, clear it from the machine.** `home-hosted set-password --clear`
-   edits the secrets file directly, so it needs no login — that is the way back in. Signed in, the
-   same thing is *Global settings → Authentication → Clear password*.
+1. **Set your own password before exposing it**, then bind to `lan` (UI, config, or `up --host lan`).
+2. **Treat an API token as the account it runs as** — changing the password does *not* revoke it.
+3. **Forgot the password?** `home-hosted set-password --clear` on the machine; no login needed.
 
 </details>
 
 <details>
-<summary><b>🔍 The details — sessions, tokens, secrets on disk, proxies</b></summary>
+<summary><b>🔍 How a request is trusted</b></summary>
 
-**Sessions.** Kept in memory only, never on disk. The cookie is `HttpOnly` and `SameSite=Strict`, and
-it is an **idle** timeout: every request slides both the session and the cookie, so a panel in regular
-use stays signed in while one left alone signs out. Repeated login failures lock out per IP — see
-*behind a proxy* below for when that is advisory.
-
-**Tokens.** `home-hosted set-token --generate` prints one once and stores only its SHA-256 hash;
-`set-token --clear` revokes it. Three operations need a signed-in session rather than a token, because
-each would otherwise let a stolen token end up holding the panel:
-
-| Operation | Instead |
+| Check | Rule |
 | --- | --- |
-| clearing the password | sign in, or `set-password --clear` on the machine |
-| switching authentication off | sign in |
-| restoring an archive carrying `global:secrets` | `--exclude global:secrets`, or the CLI on the machine |
+| **Host** | an IP, `localhost`, a local name (`.local`, `.lan`, `homeserver`, …), a panel proxy route, or listed in `control.allowedHosts` — otherwise `421`. This blocks DNS-rebinding attacks from web pages you visit |
+| **Origin** | a cookie-authenticated write must be same-origin; bearer-token requests are exempt (browsers never attach one by themselves) |
+| **"This machine"** | a loopback peer with **no** forwarding header — so nothing relayed by a proxy, the panel's own included, gets local trust |
+| **Lockout** | repeated failures lock out per client address; `trustProxy: "loopback"` (default) reads the real address from a proxy on this machine |
 
-All three answer `403 SESSION_REQUIRED`. Commands run on the machine use the local channel, so they
-need no session.
-
-**Where secrets live.** Never in a config file — every one of these is mode `0600`:
-
-| What | Where |
-| --- | --- |
-| panel password hash, API token hash | `.hh/.control-secrets.json` |
-| each workspace's notification tokens and DDNS credentials | `.hh/<workspace>/.secrets.json` |
-| TLS certificate and key | `.hh/.tls/` |
-
-DDNS credentials are sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET` (default `hh` — set your
-own) because they are the one thing replayed to a third party.
-
-**Behind a proxy.** Choose how far to trust it; `cookieSecure: auto` adds `Secure` on https, or upload
-a PEM pair and let home-hosted terminate TLS itself.
-
-| Setting | Trusts `x-forwarded-*` from | Use when |
-| --- | --- | --- |
-| `loopback` | this machine only | a proxy on the same host — real client address in logs and lockout, forged headers ignored |
-| `on` | any peer | the proxy is the only way in. **The client address is then the caller's own header**, so the per-IP lockout counts per *forged* address and stops throttling brute force; the panel warns at startup if that panel is exposed |
-| `off` | nobody | nothing in front, or the proxy sets no header |
-
-**A plain-`http://` LAN address is not a secure context.** Browsers withhold some APIs from it, and the
-panel works around the one it uses: **Copy** (the archive directory, the logs directory, the TLS
-fingerprint, a server's JSON config) falls back to the legacy clipboard call, so it still works from
-`http://192.168.1.201:3999`. Where even that is refused, the button says *Could not copy* instead of
-doing nothing.
-
-**Port conflicts.** A busy port is named — `port 4010 is already in use (pid 4242)` — and can be
-resolved from a confirmation popover. The holder is looked up again at that moment, never taken from
-the message, and anything the panel supervises is refused rather than killed. A server that
-[restarts itself](./docs/SERVERS.md#when-a-program-restarts-itself) can be followed, or replaced with
-a supervised copy.
+Secrets never go in a config file: every secret file is `0600`, the state directory `0700`. DDNS
+credentials are also sealed under `HHOSTED_DDNS_SECRET` — set your own if you commit or share `.hh/`.
+Details: [SECURITY.md](./docs/SECURITY.md).
 
 </details>
-
 
 ---
 
 ## 🔔 Notifications
 
 A message when something happens while you are not looking: a server that gave up restarting, a
-failing health check, a forced restart, a recovery, a host threshold (disk, memory, swap, load,
-temperature), or a dynamic DNS change.
-
-Every alert goes to a list of **destinations** — a Telegram chat, a webhook, or several of each. The
-event toggles and the throttle are set **once**, and each destination either inherits them or carries
-its own. Rate-limited per destination, server *and* reason. Bot tokens and webhook credentials stay in
-the secrets file, never in a config. **Two minutes of setup:
-[NOTIFICATIONS.md](./docs/NOTIFICATIONS.md).**
-
----
+failing health check, a forced restart, a recovery, a host threshold, a DNS change. Alerts go to
+**destinations** — Telegram chats and webhooks — with event toggles and a throttle set once and
+inherited or overridden per destination. **Two minutes of setup: [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md).**
 
 ## 🌐 Dynamic DNS
 
-**Workspace Settings → Dynamic DNS** keeps a list of hostnames pointed at this machine's public IP —
-add an account, paste its credentials, add hostnames. The panel checks the address on an interval and
-calls a provider only when it actually changed, and the last confirmed address survives a restart.
-Provider tokens stay in the workspace's secrets file. **Providers and the config shape:
-[DDNS.md](./docs/DDNS.md).**
+**Workspace settings → Dynamic DNS** keeps hostnames pointed at this machine's public IP: add an
+account, paste credentials, add hostnames. A provider is called only when the address changed, and a
+permanent refusal (bad credentials) stops retrying until you fix it. **[DDNS.md](./docs/DDNS.md).**
+
+## 🔀 Reverse proxy
+
+One Caddy engine in front of everything, installed and supervised by the panel, with automatic HTTPS
+(or your own certificates): route a hostname to any server, to an external address, or to the panel.
+**[REVERSE_PROXY.md](./docs/REVERSE_PROXY.md).**
 
 ---
 
 ## 💾 Backups
 
 **Global settings → Backups** takes one `.zip` of the panel and the workspaces you pick — settings,
-servers, secrets, declared data — and puts it back. Plain, or AES-256 with a password.
-
-Both directions are **two-level**: pick whole workspaces, or open one and drop any single piece (its
-settings, servers, secrets, or one data directory). Each secret has its own tick.
+servers, secrets, declared data — plain or AES-256, and puts it back.
 
 ```bash
-home-hosted backup create --all --confirm          # everything
+home-hosted backup create --all --confirm
 home-hosted backup create --all --exclude global:secrets --confirm
-home-hosted backup restore <name> --all --confirm  # see `backup list`
+home-hosted backup restore <name> --all --confirm
 home-hosted backup restore --from /media/usb/x.zip --all --confirm
 ```
 
-Both work with the panel **stopped**, which is when you actually need them.
-
-<details>
-<summary><b>⏱️ Automatic backups, and choosing what they contain</b></summary>
-
-A schedule writes one archive every N hours, with its own retention (`Keep automatic`). The two counts
-are independent: `Keep` bounds the ones you take by hand, and a scheduled pass never prunes yours to
-make room. Automatic archives are named `auto-…` so you can tell them apart.
-
-**What it contains** is yours to choose, in the same two-level dialog, saved into the schedule as
-`scope`:
-
-| Mode | Carries | CLI spelling |
-| --- | --- | --- |
-| **Everything** *(default)* | every workspace, plus `includePaths` | *no flag* |
-| **Only these** | only what you tick | `--include <ids>` |
-| **Everything except** | everything but what you tick, **including workspaces you add later** | `--all --exclude <ids>` |
-
-Only **Everything** follows a workspace you add tomorrow — a stored list names today's ids. Ticking
-everything in the dialog is therefore saved as *no scope*, not as the list it currently amounts to.
-An empty selection is refused, because it cannot be told apart from "everything" in the file.
-
-Generated directories (`node_modules`, `dist`, `.next`, framework caches) are skipped per entry;
-`backupIgnoreGenerated: false` captures them anyway.
-
-</details>
-
-<details>
-<summary><b>🔑 Restoring a secret, and what not to restore</b></summary>
-
-An archive records the release and config schema that wrote it. A restore refuses a **newer** schema
-outright rather than restoring the parts it recognizes, and **lifts an older one** through the same
-migrations `home-hosted migrate` would run — the archive you take before an upgrade is the one you
-reach for afterwards, so its configs are brought to this release's shape as they are written back.
-
-Ticking a **single secret** merges by field — restoring the Telegram token leaves the DDNS
-credentials alone. Ticking the whole **Secrets** entry replaces that file with the archive's copy.
-
-Two things to know before restoring onto a machine already in use:
-
-- **The password hash and API token hash are secrets too.** Restoring them reinstates the old
-  machine's password and long-lived token, so whoever holds that token keeps access. Leave them
-  unticked, or rotate afterwards.
-- **`HHOSTED_DDNS_SECRET` is not in the archive.** DDNS credentials travel sealed under it, so a host
-  with a different value cannot open them. Supply the same secret, or re-enter the credentials.
-
-</details>
+Both work with the panel **stopped**, which is when you usually need them.
 
 <details>
 <summary><b>🚚 One archive is a whole setup</b></summary>
 
-Start a **blank** home-hosted anywhere — another machine, another user, a fresh container — upload the
-archive and restore. Definitions come back, workspaces the target has never heard of are created with
-their labels, data lands where *this* machine's config says, and `autostart` entries come up
-immediately.
-
-Path matching is by **declaration** (`omniroute:DATA_DIR`), not by an absolute path from the source
-machine. A declaration using `{projectDir}`, `{dataRoot}` or `{home}` follows the restoring panel; a
-literal absolute path is restored to that same path.
-
-**A restore never writes where no config declares, and never across workspaces.** A data path is only
-placed under a workspace the archive says it belongs to — if that workspace's `servers.config.json` is
-not part of the restore, its data is reported as skipped rather than guessed at.
-
-**A declared path is the capture boundary.** A symlink *inside* a declared directory that resolves
-outside it is left out of the archive rather than followed, so a `media -> /mnt/nas` link does not
-silently pull a share you never declared into every backup. A link that stays inside is captured once,
-under the first name the walk reaches it by, and a declared path that is *itself* a symlink is
-captured through. File permission bits travel: a `0600` key comes back `0600`, a `0700` directory
-`0700`, a `0755` script executable — a backup must not widen access to what it was taken to protect.
+Start a **blank** home-hosted anywhere, upload the archive, restore: workspaces come back, data lands
+where *this* machine's config says (`{projectDir}`, `{home}` follow the new host), and `autostart`
+entries come up. A restore never writes where no config declares. Older archives are migrated on the
+way in; archives from a newer release are refused.
 
 </details>
 
 <details>
-<summary><b>✅ What comes back, and what is still yours to do</b></summary>
+<summary><b>⏱️ Schedules, and what not to restore</b></summary>
 
-| | Restored | Still yours to do |
-| --- | --- | --- |
-| Panel settings, listener, host vitals, backups policy | ✅ | Restart the panel if the listener or TLS policy changed (the plan says so) |
-| Workspaces, their order and labels | ✅ | — |
-| `servers.config.json`, server defaults, log retention | ✅ | `autostart` entries start by themselves; the rest are one *Start* away |
-| Data directories each entry declares | ✅ | Nothing — but see the consistency note below |
-| Telegram bots and chats, webhook targets | ✅ | Send a test from *Notifications* if the chat id came from another account |
-| DDNS hostnames and their accounts | ✅ | Credentials only open under the same `HHOSTED_DDNS_SECRET`; otherwise re-enter them |
-| Panel password and API token | ⬜ ticked per secret | Leave unticked, or rotate with `home-hosted set-token --generate` |
-| Reverse-proxy routes | ✅ | Automatic HTTPS certificates are reissued on the new host. A pair **you uploaded** for a `tls: "manual"` route is not in the archive — re-upload it |
-| Reverse-proxy engine binary | ❌ | Installed again from *Global settings → Reverse proxy* |
-| Server logs, crash history, nanny state | ❌ | These describe the old box; the new one starts a fresh history |
-| A server's `envFile` | ❌ not archived | It is the machine-local layer by design — copy it yourself, or declare its directory in `backupPaths` |
-| Environment variables the panel runs with | ❌ | `HHOSTED_*`, `HHOSTED_DDNS_SECRET`, and anything a `${ENV}` placeholder needs |
+- A schedule writes an `auto-…` archive every N hours with its own retention; it never prunes your
+  manual ones, nor zips the panel did not write.
+- Pick per item: whole workspaces, or one secret, one data directory.
+- **The password and token hashes are secrets too** — restoring them reinstates the old machine's
+  credentials. Leave `global:secrets` unticked, or rotate afterwards.
+- **A live database copied file by file can be torn.** Stop it around the backup, or declare
+  `dump`/`load` hooks so the engine writes the backup itself.
+
+Everything else — what comes back, what does not: [BACKUPS.md](./docs/BACKUPS.md).
 
 </details>
-
-<details>
-<summary><b>⚠️ A backup of a running database may not be restorable</b></summary>
-
-Data directories are copied file by file while your servers keep running — the panel does not stop or
-freeze anything, because that would mean a backup could take your services down.
-
-Fine for files, uploads and most app data. **Not** a consistent snapshot of a live database: SQLite
-mid-transaction, a Postgres data directory, or a WAL mid-write can be captured torn, and the copy will
-look complete while failing to open.
-
-For anything with a real database, do one of these first:
-
-- **Quiesce it** — stop that entry, take the backup, start it again; or
-- **dump it properly** (`sqlite3 app.db ".backup out.db"`, `pg_dump`, `mysqldump`) into a directory you
-  declare in `backupPaths`, so the archive carries the dump rather than the live files.
-
-**Restoring** has the mirror-image hazard, and the plan names it: a data path copied over while its
-server is running is replaced under a live process, which keeps its old view and loses what it wrote
-since. The restore reports those entries — `Data was replaced under a running server` — and the fix is
-to stop them before applying, or stop and start each one.
-
-</details>
-
 
 ---
 
 ## 🎨 Bring your own UI (BYOU)
 
-The panel is a static site: `$HHOSTED_HOME/.hh/.ui` overrides the packaged one, and **Global
-settings → Interface** takes a zip. No restart, no fork — and `home-hosted ui-revert` brings back the
-stock panel if yours breaks.
-
-Two ship in this repo: `uis/stock`, and `uis/noc-console` for TUI and shortcuts wizards; a release
-attaches both as `home-hosted-ui-<name>.zip`. Yours can be anything that compiles to static files —
-the server never cares what built it.
-
-<sub>Install a UI from the CLI: `home-hosted ui-switch --asset noc-console` selects a UI directly, and
-with no flags it lists the official assets to pick from. An official UI is switched to the version
-that matches your panel when you update `home-hosted`. For unofficial UIs, `home-hosted ui-update`
-offers their newer releases — or `--old` for older ones (the author sets up `ui.json` and GitHub
-releases).</sub>
+The panel serves whatever static site is in `$HHOSTED_HOME/.hh/.ui`. **Global settings → Interface**
+takes a zip, `home-hosted ui-switch --asset noc-console` installs the NOC console from a release, and
+`home-hosted ui-revert` brings back the stock UI if yours breaks.
 
 <details>
-<summary><b>🤖 Or have an agent build the UI you actually want</b></summary>
+<summary><b>🤖 Have an agent build the UI you actually want</b></summary>
 
-The whole contract fits in one file, so a coding agent can do this. Point it at this repo and be
-specific:
+> Help me build a UI for `home-hosted`: a nostalgic game theme — servers as a party menu, health as HP
+> bars, logs in a text box. Follow `docs/UI_CREATION.md` and `docs/API.md`.
 
-> Help me build a UI for `home-hosted`: nostalgic game theme, including … features.
-
-[UI_CREATION.md](./docs/UI_CREATION.md) has the endpoints, the SSE frames, the auth rules and a checklist.
+[UI_CREATION.md](./docs/UI_CREATION.md) is the contract: install, `ui.json`, the rules of the road and
+a checklist.
 
 </details>
 
@@ -845,134 +496,63 @@ specific:
 ## ❓ FAQ
 
 <details>
-<summary><b>The panel is up but something is wrong — where do I look?</b></summary>
-
-`home-hosted logs` prints the panel's own console output — what it is doing, and anything it could
-not finish:
+<summary><b>Something is wrong — where do I look?</b></summary>
 
 ```bash
-home-hosted logs              # the last 50 lines
-home-hosted logs --follow     # keep printing, like tail -f
-home-hosted logs --lines all  # the whole thing, including the rotation
-home-hosted logs --json       # { path, lines } — or one object per line with --follow
-home-hosted logs web          # one server's own log, rendered as text
-home-hosted logs api -w staging   # the server in another workspace
+home-hosted status            # the overview
+home-hosted logs --follow     # the panel's own console — works even when the panel is wedged
+home-hosted logs web          # one server's log (-w <workspace> for another workspace)
+home-hosted usage             # what is eating the machine
 ```
-
-It reads the same file `status` names, and needs no session or API token — a panel answering badly is
-exactly when you cannot get one. `up` prints the tail when the panel fails to start.
-
-With an id, it reads that server's log instead, and `-w/--workspace` picks which workspace's server
-you mean — an id is only unique inside one, so the default workspace is assumed otherwise.
-
-An id the workspace's `servers.config.json` does not declare is **refused** — exit 1, `unknown server
-"webx" in workspace "default" — did you mean \`web\`?` — rather than answered with "no output yet". A
-typo used to read as an empty log, so `home-hosted logs webx | grep -q error` was a silently empty
-pipeline. A log file still on disk is always read, even after its entry was removed (usually the log
-you want); a note says the entry is gone.
-
-`home-hosted usage` answers the other question an operator opens a terminal for:
-
-```bash
-home-hosted usage             # live CPU and memory per server, loudest first, plus the last window
-home-hosted usage --json      # { servers: [{ id, workspaceId, status, cpuPercent, rssBytes, crashes, uptimeRatio, ... }] }
-```
-
-A stopped server has no reading and shows a dash, never `0` — a zero on a CPU column reads as "idle"
-and would hide a server nothing is measuring.
-
-The `CRASH` and `UP` columns come from the panel's history window, not the current sample: an entry
-restarting every few minutes uses almost no CPU at any instant and is still the thing to fix.
-
-</details>
-
-<details>
-<summary><b>Is it a systemd replacement?</b></summary>
-
-No — it is a friendlier layer for the handful of things you run yourself. Keep systemd for the
-panel itself (`--foreground`) and for system services; use home-hosted for the rest.
 
 </details>
 
 <details>
 <summary><b>What happens to my servers when the panel stops?</b></summary>
 
-`home-hosted down` stops them — that is the point of the command. `SIGTERM`/`SIGINT` are handled
-the same way: every supervised process tree is stopped before the panel exits.
-
-An entry marked `persistent` is the exception, and `down` names it instead of stopping it: it runs
-under its own nanny process, keeps logging, and is reattached by the next panel
-([SERVERS.md](./docs/SERVERS.md#persistent-entries)). Add `--with-persistent` to stop those too —
-with the panel up or after it has already gone, since each nanny's state file is enough.
+`down`, `SIGTERM` and `SIGINT` stop every server the panel started. `persistent` entries keep running
+under their own small supervisor and are re-attached by the next panel; `down --with-persistent`
+stops them too.
 
 </details>
 
 <details>
-<summary><b>Nothing starts and the port is busy</b></summary>
+<summary><b>Is it a systemd replacement?</b></summary>
 
-A supervised server whose port is taken is reported rather than started over — the panel names the
-holder and offers to free it, and a program that restarts itself can be followed or reclaimed instead
-([SERVERS.md](./docs/SERVERS.md#a-busy-port)). The control port itself is checked before the listener is
-opened.
-
-</details>
-
-<details>
-<summary><b>Where is my state?</b></summary>
-
-`$HHOSTED_HOME/.hh`, default `~/.home-hosted/.hh`. Global files at the top level, one directory per
-workspace:
-
-```text
-settings.json                panel-wide: listener, auth, TLS policy, host vitals, backups
-workspaces.json              the registry: ids and labels, in selector order
-.control-secrets.json        password hash + API token hash (mode 0600)
-.tls/                        an uploaded PEM pair
-.ui/                         an installed custom UI
-.backups/                    zip archives
-.logs/                       the panel's own console log
-.proxy/                      the reverse proxy's engine, its config and state
-run.json                     the running panel (pid, url, token, mode 0600)
-
-<workspace>/settings.json    server defaults, log retention, notifications, DDNS
-<workspace>/servers.config.json  your servers, plus meta: which release and schema wrote it
-<workspace>/.secrets.json    Telegram token + DDNS credentials (mode 0600)
-<workspace>/.logs/           per-server logs: <id>.log, rotated to <id>.log.1 … (newest first)
-<workspace>/.state/          nanny state, the last detached child (<id>.run.json) and ddns.json
-```
-
-`home-hosted status` prints the paths.
+No — keep systemd for the panel itself and for system services; use home-hosted for what you run
+yourself.
 
 </details>
 
 <details>
 <summary><b>Which ports does it use?</b></summary>
 
-The control panel, `3999` by default. Supervised servers use the ports you give them. The reverse
-proxy is the one panel-wide listener, and only when you switch it on: `80`/`443` for automatic HTTPS,
-or `4480`/`4443` unprivileged with your router forwarding to them
-([REVERSE_PROXY.md](./docs/REVERSE_PROXY.md#ports)).
+The panel: `3999` (`--port` or `control.port`). Your servers: the ports you give them. The reverse
+proxy, only when enabled: `80`/`443`, or `4480`/`4443` unprivileged with your router forwarding.
 
-**If that port is taken, `up` names the pid holding it** when the OS will say — rather than only
-reporting the number — and exits, so a second panel never starts beside the first. A `follow` entry
-adopts the process that replaced it; an unrelated listener is never signalled
-([SERVERS.md](./docs/SERVERS.md#a-busy-port)).
+</details>
+
+<details>
+<summary><b>I reach the panel through Cloudflare Tunnel / nginx on a public name and get <code>421</code></b></summary>
+
+Add that name to `control.allowedHosts` in `.hh/settings.json` (or **Global settings → Listener**,
+reached by IP). IPs and local names never need it.
+
+</details>
+
+<details>
+<summary><b>Where is my state?</b></summary>
+
+`~/.home-hosted/.hh` (or `$HHOSTED_HOME/.hh`) — see [What lives where](#-workspaces). `home-hosted status`
+prints every path.
 
 </details>
 
 <details>
 <summary><b>Windows support, really?</b></summary>
 
-Yes. Process trees are sampled from Win32_Process, termination uses `taskkill /T`, and the shipped
-examples avoid POSIX-only commands. CPU temperature and swap are best-effort where the OS does not
-expose them to an unprivileged process. Adopting a self-restarted process works on Windows too, off
-its argv instead of the environment marker; a launcher whose real process is a `.cmd` shim is the one
-case it cannot see through, and `kill` is the answer there.
-
-A config edited in Notepad or PowerShell is read as it is: the byte-order mark Notepad's "UTF-8 with
-BOM" adds, and the UTF-16 that `>` and `Out-File` write, are both understood. A `command` naming a
-project dependency resolves to the `.cmd`/`.exe` shim under `node_modules/.bin` rather than the
-`#!/bin/sh` script beside it.
+Yes: process trees from Win32_Process, `taskkill` for stopping, `.cmd` shims resolved in
+`node_modules/.bin`, and configs saved by Notepad or PowerShell (BOM, UTF-16) read as-is.
 
 </details>
 
@@ -980,46 +560,34 @@ project dependency resolves to the `.cmd`/`.exe` shim under `node_modules/.bin` 
 
 ## 🗂 Working on it
 
-```text
-src/            control plane: config, supervisor, API, providers, services
-src/cli.ts      the command line; one file per command under src/cli/
-src/index.ts    the control plane itself, used by `up --foreground`
-uis/            UIs: `stock` (shipped in the package) and alternatives — any framework, static output
-bin/            the published entry point
-docs/branding/  logo, icons and the social preview; the SVGs are the source, `pnpm run brand` renders them
-docs/           topic docs, UI examples and the README's media
-scripts/        builds, typechecks, media capture, release helpers
-test/           the vitest suite
+```bash
+pnpm install
+pnpm dev            # panel :6000 + stock UI dev server :6001, state in .dev-state/ (password: dev)
+pnpm run check      # lint, types, doc links and the full test suite
 ```
 
-`pnpm dev` runs the panel with `tsx watch` plus one UI's dev server on the 6xxx range — panel `6000`,
-UI `6001` (`pnpm dev --ui noc-console`), state in `.dev-state/` — so a dev instance never fights an
-installed panel's 3999. `pnpm build` produces `dist/` and `uis/stock/dist/`; `pnpm quickcheck` is lint
-plus types; `pnpm test` is vitest; `pnpm run media` regenerates the GIF above.
-
-<details>
-<summary><b>📚 Which doc do I need?</b></summary>
+```text
+src/        the panel: cli/, api/ (routes), services/ (stateful), providers/ (OS/vendor leaves),
+            config/, middleware/, shared/ (schemas + client code the UIs import too)
+uis/        stock (ships in the package) and noc-console — Vite + Vue, static output
+docs/       user docs, mockups and media          test/   vitest
+```
 
 | if you want to… | read |
 | --- | --- |
 | declare a server: every field, placeholders, port conflicts | [SERVERS.md](./docs/SERVERS.md) |
-| get Telegram or webhook alerts working end to end | [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) |
-| expose the stack behind one hostname, with HTTPS | [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) |
-| build a UI against the API | [UI_CREATION.md](./docs/UI_CREATION.md) |
-| change the internals: architecture and the rules | [AGENTS.md](https://github.com/NamesMT/home-hosted/blob/main/AGENTS.md) |
-| poke the live API on your own panel | [/openapi/ui](http://127.0.0.1:3999/openapi/ui) |
+| drive it from code: endpoints, SSE, errors, metrics | [API.md](./docs/API.md) |
+| every CLI command and what `status` means | [CLI.md](./docs/CLI.md) |
+| backups and restores in depth | [BACKUPS.md](./docs/BACKUPS.md) · [RESTORE_DEMO.md](./docs/RESTORE_DEMO.md) |
+| hostnames and HTTPS | [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) · [DDNS.md](./docs/DDNS.md) |
+| alerts | [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) |
+| the security model | [SECURITY.md](./docs/SECURITY.md) |
+| build a UI | [UI_CREATION.md](./docs/UI_CREATION.md) |
+| change the internals | [AGENTS.md](https://github.com/NamesMT/home-hosted/blob/main/AGENTS.md) |
 
-</details>
-
----
-
-><b>🔗 Interesting resources</b>
-
-- [dsh-home-hosted](https://github.com/NamesMT/dsh-home-hosted) — home-hosted servers management with boot autostart from inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
-
-<sub><i>+ PR to add yours</i></sub>
-
----
+**Built on home-hosted:** [dsh-home-hosted](https://github.com/NamesMT/dsh-home-hosted) — server
+management with boot autostart inside [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
+<sub>PRs to add yours are welcome.</sub>
 
 <div align="center">
 

@@ -3,6 +3,7 @@ import type { DefaultsForm } from '@/components/settings/settingsForm'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
 import { numberModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
+import BindField from '@/components/ui/BindField.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
@@ -31,14 +32,7 @@ const logBufferLines = numberModel(() => defaults.value.logBufferLines, value =>
 
     <ToggleSwitch v-model="defaults.enabled" :label="t('common.enabled')" :hint="t('settings.defaults.enabledHint')" wide />
     <ToggleSwitch v-model="defaults.autostart" :label="t('settings.defaults.autostart')" />
-    <SelectField
-      v-model="defaults.bind"
-      :label="t('settings.defaults.bind')"
-      :options="[
-        { value: 'local', label: t('settings.defaults.bindLocal') },
-        { value: 'lan', label: t('settings.defaults.bindLan') },
-      ]"
-    />
+    <BindField v-model="defaults.bind" :label="t('settings.defaults.bind')" />
     <SelectField
       v-model="defaults.onPortConflict"
       :label="t('settings.defaults.onPortConflict')"

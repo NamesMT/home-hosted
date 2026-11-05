@@ -94,7 +94,15 @@ describe('history store', () => {
     history.record('web', { type: 'start', detail: 'run' }, now - 2 * HOUR)
 
     const summary = history.summarize('web', 24 * HOUR, now, now - 2 * HOUR)
-    expect(summary.uptimeRatio).toBeCloseTo(8 / 24, 2)
+    // First seen 20h ago, so the ratio is over those 20h, not the whole day.
+    expect(summary.uptimeRatio).toBeCloseTo(8 / 20, 2)
+  })
+
+  it('reports a new server that has been up all along as fully up', async () => {
+    const { history } = await makeHistory()
+    const now = Date.now()
+    history.record('web', { type: 'start', detail: 'run' }, now - 10 * 60_000)
+    expect(history.summarize('web', 24 * HOUR, now, now - 10 * 60_000).uptimeRatio).toBeCloseTo(1, 2)
   })
 
   it('reports uptime as unknown before anything is recorded', async () => {

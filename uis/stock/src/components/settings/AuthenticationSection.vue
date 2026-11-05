@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import type { ControlView } from '@shared/contracts'
 import type { AuthForm } from '@/components/settings/settingsForm'
+import { generateApiToken, revokeApiToken } from '@shared/api-client'
+import { errorMessage } from '@shared/error-message'
 import { computed, ref } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import { numberModel, secondsModel } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
+import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SelectField from '@/components/ui/SelectField.vue'
@@ -72,6 +75,33 @@ async function submitPassword(): Promise<void> {
   finally {
     passwordSaving.value = false
   }
+}
+
+/** A freshly minted token, held only until the person leaves the page — the panel keeps its hash. */
+const newToken = ref<string | null>(null)
+const tokenBusy = ref(false)
+const tokenError = ref<string | null>(null)
+
+async function runTokenAction(action: () => Promise<string | null>): Promise<void> {
+  tokenBusy.value = true
+  tokenError.value = null
+  try {
+    newToken.value = await action()
+  }
+  catch (caught) {
+    tokenError.value = errorMessage(caught)
+  }
+  finally {
+    tokenBusy.value = false
+  }
+}
+
+const mintToken = (): Promise<void> => runTokenAction(async () => (await generateApiToken()).token)
+function dropToken(): Promise<void> {
+  return runTokenAction(async () => {
+    await revokeApiToken()
+    return null
+  })
 }
 
 async function clearPasswordValue(): Promise<void> {
@@ -150,6 +180,40 @@ async function clearPasswordValue(): Promise<void> {
           </template>
         </TransText>
       </p>
+      <div v-if="newToken" class="mt-2 flex min-w-0 flex-col gap-1">
+        <span class="text-2xs font-medium text-warn">{{ t('settings.auth.tokenShownOnce') }}</span>
+        <div class="flex min-w-0 items-center gap-1.5 rounded-control border border-line bg-page/60 px-2.5 py-1.5">
+          <code class="min-w-0 flex-1 truncate font-mono text-xs">{{ newToken }}</code>
+          <CopyButton :value="newToken" />
+        </div>
+      </div>
+      <p v-if="tokenError" class="mt-1 text-2xs text-danger">
+        {{ tokenError }}
+      </p>
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        <AppButton v-if="!apiTokenSet" size="xs" variant="secondary" :loading="tokenBusy" @click="mintToken">
+          {{ t('settings.auth.generateToken') }}
+        </AppButton>
+        <template v-else>
+          <ConfirmButton
+            :label="t('settings.auth.regenerateToken')"
+            :confirm-label="t('settings.auth.regenerateToken')"
+            :title="t('settings.auth.regenerateTokenTitle')"
+            variant="ghost"
+            size="xs"
+            :disabled="tokenBusy"
+            @confirm="mintToken"
+          />
+          <ConfirmButton
+            :label="t('settings.auth.revokeToken')"
+            :confirm-label="t('settings.auth.revokeToken')"
+            :title="t('settings.auth.revokeTokenTitle')"
+            size="xs"
+            :disabled="tokenBusy"
+            @confirm="dropToken"
+          />
+        </template>
+      </div>
     </Notice>
     <Notice v-if="usingDefault" tone="warn" :title="t('settings.auth.defaultPasswordTitle')">
       <TransText k="settings.auth.defaultPasswordText">

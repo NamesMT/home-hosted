@@ -28,9 +28,11 @@ interface Harness {
   statePath: string
 }
 
-async function harness(config: DdnsConfig, options: { credentials?: Record<string, Record<string, string>>, record?: string, fail?: boolean } = {}): Promise<Harness> {
+async function harness(config: DdnsConfig, options: { credentials?: Record<string, Record<string, string>>, record?: string, fail?: boolean, state?: unknown } = {}): Promise<Harness> {
   const dir = await tempDir()
   const statePath = path.join(dir, 'ddns.json')
+  if (options.state !== undefined)
+    fs.writeFileSync(statePath, JSON.stringify(options.state))
   const calls: string[] = []
   const notify = vi.fn()
   let current = options.record ?? '198.51.100.1'
@@ -38,7 +40,7 @@ async function harness(config: DdnsConfig, options: { credentials?: Record<strin
   const fetchImpl: DdnsFetch = async (url, init) => {
     calls.push(`${init?.method ?? 'GET'} ${url}`)
     if (url.includes('ipify.org'))
-      return new Response('203.0.113.7')
+      return new Response('93.184.216.7')
     if (url.includes('/zones?name='))
       return new Response(JSON.stringify({ success: true, result: [{ id: 'zone1', name: 'example.com' }] }), { status: 200 })
     if (init?.method === 'PATCH') {
@@ -82,9 +84,9 @@ describe('ddnsService', () => {
     const status = await service.run()
 
     expect(status.records).toEqual([
-      expect.objectContaining({ host: 'home.example.com', type: 'A', state: 'ok', ip: '203.0.113.7' }),
+      expect.objectContaining({ host: 'home.example.com', type: 'A', state: 'ok', ip: '93.184.216.7' }),
     ])
-    expect(status.ipv4).toBe('203.0.113.7')
+    expect(status.ipv4).toBe('93.184.216.7')
     expect(status.lastResult).toContain('1 updated')
   })
 
@@ -112,7 +114,7 @@ describe('ddnsService', () => {
     await service.run()
 
     const saved = JSON.parse(fs.readFileSync(statePath, 'utf8')) as { records: Record<string, { ip: string }> }
-    expect(saved.records['home.example.com|A']?.ip).toBe('203.0.113.7')
+    expect(saved.records['home.example.com|A|cf|cloudflare']?.ip).toBe('93.184.216.7')
   })
 
   it('reports a provider failure and notifies once', async () => {
@@ -191,12 +193,90 @@ describe('ddnsService', () => {
     const { service, calls } = await harness(baseConfig({
       accounts: [{ id: 'nc', provider: 'namecheap-api' }],
       domains: [{ host: 'home.example.com', account: 'nc', types: ['A'] }],
-    }), { credentials: { nc: { apiUser: 'me', apiKey: 'k', clientIp: '203.0.113.7' } } })
+    }), { credentials: { nc: { apiUser: 'me', apiKey: 'k', clientIp: '93.184.216.7' } } })
 
     const status = await service.run()
 
     expect(status.records[0]).toMatchObject({ state: 'skipped' })
     expect(status.records[0]?.message).toContain('does not update addresses')
     expect(calls.some(call => call.includes('api.namecheap.com'))).toBe(false)
+  })
+
+  it('reads a cache entry keyed the old way as a miss, not a crash', async () => {
+    const state = { version: 1, updatedAt: 1, records: { 'home.example.com|A': { ip: '93.184.216.7', updatedAt: 1 } } }
+    const { service, calls } = await harness(baseConfig(), { state })
+
+    const status = await service.run()
+    expect(status.records[0]?.state).toBe('ok')
+    expect(providerCalls(calls).length).toBeGreaterThan(0)
+  })
+
+  it('re-sends a hostname moved to another account, and after its account\'s credentials change', async () => {
+    const config = baseConfig({ accounts: [{ id: 'cf', provider: 'cloudflare' }, { id: 'cf2', provider: 'cloudflare' }] })
+    const { service, calls } = await harness(config, { credentials: { cf: { apiToken: 'a' }, cf2: { apiToken: 'b' } } })
+    await service.run()
+    let before = providerCalls(calls).length
+
+    // Same host and type, another account: what `cf` confirmed says nothing about `cf2`.
+    config.domains[0]!.account = 'cf2'
+    expect((await service.run()).records[0]?.state).toBe('ok')
+    expect(providerCalls(calls).length).toBeGreaterThan(before)
+
+    before = providerCalls(calls).length
+    service.refresh({ account: 'cf2' })
+    await service.run()
+    expect(providerCalls(calls).length, 'new credentials may reach another provider account').toBeGreaterThan(before)
+  })
+})
+
+describe('a permanent provider refusal', () => {
+  async function noip(reply: string): Promise<{ service: DdnsService, updates: () => number, config: DdnsConfig, credentials: Record<string, Record<string, string>> }> {
+    const dir = await tempDir()
+    let updates = 0
+    const config = baseConfig({ accounts: [{ id: 'ip', provider: 'noip' }], domains: [{ host: 'home.example.com', account: 'ip', types: ['A'] }] })
+    const credentials: Record<string, Record<string, string>> = { ip: { username: 'me', password: 'wrong' } }
+    const service = new DdnsService({
+      getConfig: () => config,
+      getCredentials: id => credentials[id] ?? null,
+      notifications: { notify: vi.fn() } as unknown as NotificationService,
+      statePath: path.join(dir, 'ddns.json'),
+      fetchImpl: async (url) => {
+        if (url.includes('ipify.org'))
+          return new Response('93.184.216.7')
+        updates += 1
+        return new Response(reply)
+      },
+    })
+    return { service, updates: () => updates, config, credentials }
+  }
+
+  it('stops retrying badauth until the credentials change or a check is asked for', async () => {
+    const { service, updates, credentials } = await noip('badauth')
+    expect((await service.run()).records[0]).toMatchObject({ state: 'error' })
+    expect(updates()).toBe(1)
+
+    const again = await service.run()
+    expect(updates(), 'the same credentials get the same refusal').toBe(1)
+    expect(again.records[0]).toMatchObject({ state: 'error', stopped: true })
+    expect(again.records[0]?.message).toContain('rejected the credentials')
+
+    credentials.ip = { username: 'me', password: 'right' }
+    await service.run()
+    expect(updates(), 'new credentials are worth one more try').toBe(2)
+
+    await service.run({ force: true })
+    expect(updates(), 'an explicit check always asks').toBe(3)
+
+    service.refresh()
+    await service.run()
+    expect(updates(), 'a save lifts the stop').toBe(4)
+  })
+
+  it('keeps retrying a transient refusal', async () => {
+    const { service, updates } = await noip('911')
+    await service.run()
+    const second = await service.run()
+    expect(updates()).toBe(2)
+    expect(second.records[0]?.stopped).toBeUndefined()
   })
 })

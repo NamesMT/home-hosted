@@ -3,6 +3,8 @@ import type { AppDeps } from '#src/app'
 import type { LoginRequest, PasswordRequest } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
+import { bodyLimit } from 'hono/body-limit'
+import { generateApiToken } from '#src/config/secrets'
 import { secureCookieFor, serializeCookie } from '#src/helpers/cookies'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
@@ -10,7 +12,7 @@ import { validate } from '#src/helpers/validator'
 import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middleware/auth'
 import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
-import { loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchema, sessionViewSchema } from '#src/shared/contracts'
+import { apiTokenCreatedSchema, loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchema, sessionViewSchema } from '#src/shared/contracts'
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
 function secureCookie(c: Context, deps: AppDeps): boolean {
@@ -38,6 +40,13 @@ export function createAuthRoute(deps: AppDeps) {
           200: { description: 'Signed in', content: jsonBody(sessionViewSchema) },
           400: ERROR_RESPONSES[400],
           401: { description: 'Wrong password, or locked out (see `Retry-After`)' },
+        },
+      }),
+      // Unauthenticated by nature, so the body is bounded before it is parsed.
+      bodyLimit({
+        maxSize: 4096,
+        onError: () => {
+          throw new DetailedError('the login request is too large', { statusCode: 413, code: 'PAYLOAD_TOO_LARGE' })
         },
       }),
       validate('json', loginSchema),
@@ -127,6 +136,39 @@ export function createAuthRoute(deps: AppDeps) {
       },
     )
 
+    /**
+     * Mint (or rotate) the API token from a signed-in browser, so a remote person can hand a script,
+     * TUI or desktop app a credential without a shell on the machine. Session only: a token minting
+     * its own successor would make a leaked one impossible to revoke from the panel.
+     */
+    .post(
+      '/auth/token',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Generate a new API token, replacing any existing one (signed-in session required)',
+        responses: { 200: { description: 'The token, shown once', content: jsonBody(apiTokenCreatedSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not mint a token' } },
+      }),
+      (c) => {
+        requireSession(c, deps, 'generating an API token')
+        const token = generateApiToken()
+        deps.secrets.setApiToken(token)
+        return c.json({ token, hint: deps.secrets.apiTokenHint ?? token.slice(0, 8) })
+      },
+    )
+
+    .delete(
+      '/auth/token',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Revoke the API token',
+        responses: { 200: { description: 'Revoked', content: jsonBody(okResponseSchema) } },
+      }),
+      (c) => {
+        deps.secrets.clearApiToken()
+        return c.json({ ok: true })
+      },
+    )
+
     .delete(
       '/auth/password',
       describeRoute({
@@ -175,4 +217,13 @@ export function createAuthRoute(deps: AppDeps) {
         return c.json({ ok: true })
       },
     )
+}
+
+/** Refuses anything but a signed-in browser session, naming what needed one. */
+function requireSession(c: Context, deps: AppDeps, what: string): void {
+  const identity = requestIdentity(c, deps.auth)
+  if (!identity.authenticated)
+    throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
+  if (identity.method !== 'cookie')
+    throw new DetailedError(`${what} needs a signed-in session, not an API token — sign in at the panel, or run \`home-hosted set-token --generate\` on the machine`, { statusCode: 403, code: 'SESSION_REQUIRED' })
 }

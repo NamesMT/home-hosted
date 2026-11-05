@@ -13,7 +13,7 @@ const password = ref('')
 const submitting = ref(false)
 
 const firstRun = computed(() => session.value?.passwordSet === false)
-const defaultPassword = computed(() => (session.value?.usingDefaultPassword === true ? session.value.defaultPassword : null))
+const usingDefault = computed(() => session.value?.usingDefaultPassword === true)
 const noAuth = computed(() => session.value !== null && !session.value.authRequired)
 const exposed = computed(() => control.control.value?.auth.exposed === true)
 const blockedReason = computed(() => control.control.value?.auth.blockedReason ?? null)
@@ -61,9 +61,9 @@ async function submit(): Promise<void> {
           Authentication is off or has no password to check — the panel is not asking for one.
         </p>
 
-        <p v-if="defaultPassword" class="note note--warn">
-          The panel is still using the default password <code>{{ defaultPassword }}</code>.
-          Change it under Settings once you are in.
+        <p v-if="usingDefault" class="note note--warn">
+          The panel is still on its first-run password — <code>home-hosted status</code> shows it on
+          the machine. Change it under Settings once you are in.
         </p>
 
         <p v-if="blockedReason" class="note note--error">

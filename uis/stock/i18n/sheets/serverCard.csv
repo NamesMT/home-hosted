@@ -13,7 +13,7 @@ serverCard.pid,PID,PID,PID,PID,PID,PID,PID,PID,PID
 serverCard.rss,RSS,RSS,RSS,RSS,RSS,RSS,RSS,RSS,RSS
 serverCard.procs,Procs,Tiến trình,进程数,プロセス数,Procesos,프로세스,Процессы,Processus,Prozesse
 serverCard.portFree,free,trống,空闲,空き,libre,사용 가능,свободен,libre,frei
-serverCard.portInUse,in-use,đang dùng,占用中,使用中,en uso,사용 중,занят,occupé,belegt
+serverCard.portInUse,in use,đang dùng,占用中,使用中,en uso,사용 중,занят,occupé,belegt
 serverCard.uptime24h,24h up,24 giờ hoạt động,24 小时在线,24 時間稼働,24 h activo,24시간 가동,24 ч работы,24 h actif,24 h Laufzeit
 serverCard.probe,Probe,Kiểm tra,探测,プローブ,Sonda,검사,Проверка,Sonde,Prüfung
 serverCard.crashes24h,24h crashes,sự cố trong 24 giờ,24 小时崩溃,24 時間のクラッシュ,bloqueos en 24 h,24시간 충돌,Аварии за 24 ч,plantages sur 24 h,Abstürze 24 h

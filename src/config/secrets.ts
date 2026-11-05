@@ -22,6 +22,11 @@ export interface PasswordRecord {
   updatedAt: number
   /** Set for the boot-time default, so the UI can say so and exposure stays blocked. */
   isDefault?: boolean
+  /**
+   * The generated first-run password, kept in this 0600 file only while it is still in use so
+   * `up`/`status` can show it on the machine. Never sent over the API; gone with the first change.
+   */
+  initial?: string
 }
 
 /**
@@ -109,7 +114,7 @@ export function deriveKey(password: string, salt: Buffer, cost: ScryptCost, keyl
   return crypto.scryptSync(password.normalize('NFKC'), salt, keylen, { ...cost })
 }
 
-export function hashPassword(password: string, options: { now?: number, isDefault?: boolean } = {}): PasswordRecord {
+export function hashPassword(password: string, options: { now?: number, isDefault?: boolean, initial?: boolean } = {}): PasswordRecord {
   const salt = crypto.randomBytes(SALT_BYTES)
   return {
     algo: 'scrypt',
@@ -119,7 +124,19 @@ export function hashPassword(password: string, options: { now?: number, isDefaul
     cost: { ...COST },
     updatedAt: options.now ?? Date.now(),
     ...(options.isDefault === true ? { isDefault: true } : {}),
+    ...(options.isDefault === true && options.initial === true ? { initial: password } : {}),
   }
+}
+
+/** The pre-0.12 boot password every install shared. Still recognised, never created. */
+export const LEGACY_DEFAULT_PASSWORD = 'hh'
+
+/** A random first-run password: 12 characters from an unambiguous alphabet, ~60 bits. */
+export function generateInitialPassword(): string {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+  const bytes = crypto.randomBytes(12)
+  const chars = [...bytes].map(byte => alphabet[byte % alphabet.length])
+  return [chars.slice(0, 4), chars.slice(4, 8), chars.slice(8)].map(group => group.join('')).join('-')
 }
 
 export function verifyPassword(password: string, record: PasswordRecord): boolean {
@@ -395,17 +412,30 @@ export class SecretsStore {
     return Object.keys(this.load().telegram).sort()
   }
 
-  setPassword(password: string, options: { isDefault?: boolean } = {}): PasswordRecord {
+  /**
+   * The first-run password while it is still the one in use, for a person on this machine.
+   * A home from before 0.12 still on the shared default reports that one.
+   */
+  get initialPassword(): string | null {
+    const record = this.password
+    if (record?.isDefault !== true)
+      return null
+    if (typeof record.initial === 'string' && record.initial.length > 0)
+      return record.initial
+    return verifyPassword(LEGACY_DEFAULT_PASSWORD, record) ? LEGACY_DEFAULT_PASSWORD : null
+  }
+
+  setPassword(password: string, options: { isDefault?: boolean, initial?: boolean } = {}): PasswordRecord {
     const record = hashPassword(password, options)
     this.save({ ...this.load(), password: record })
     return record
   }
 
-  /** Creates the default password only when none exists yet. */
+  /** Creates the first-run password only when none exists yet. */
   ensureDefaultPassword(password: string): PasswordRecord | null {
     if (this.passwordSet)
       return null
-    return this.setPassword(password, { isDefault: true })
+    return this.setPassword(password, { isDefault: true, initial: true })
   }
 
   clearPassword(): void {

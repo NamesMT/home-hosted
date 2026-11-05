@@ -134,6 +134,8 @@ export interface TerminateOptions {
   signal: NodeJS.Signals
   killGroup: boolean
   graceMs: number
+  /** The SIGKILL escalation reaches the group even when the graceful signal went to the pid alone. */
+  escalateGroup?: boolean
 }
 
 /** SIGTERM (default) to the child, escalating to SIGKILL after the grace period. */
@@ -147,7 +149,7 @@ export async function terminate(child: ChildProcess, options: TerminateOptions):
   if (await exited)
     return 'exited'
 
-  signalChild(child, 'SIGKILL', options.killGroup)
+  signalChild(child, 'SIGKILL', options.escalateGroup ?? options.killGroup)
   await waitForExit(child, 2000)
   return 'force-killed'
 }
@@ -227,7 +229,7 @@ export async function terminatePid(pid: number, options: TerminateOptions): Prom
   if (!isProcessAlive(pid))
     return 'exited'
 
-  signalPid(pid, 'SIGKILL', options.killGroup)
+  signalPid(pid, 'SIGKILL', options.escalateGroup ?? options.killGroup)
   const hardDeadline = Date.now() + 2000
   while (Date.now() < hardDeadline && isProcessAlive(pid))
     await delay(50)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseNetstatListeners, parsePids } from '#src/providers/port'
+import { NETSTAT_LISTENER_ARGS, parseNetstatListeners, parsePids } from '#src/providers/port'
 import { parsePsOutput, parseWindowsCsv } from '#src/providers/proc'
 
 describe('posix ps parsing', () => {
@@ -67,6 +67,24 @@ describe('windows netstat parsing', () => {
     expect(parseNetstatListeners(output, 4010)).toEqual([4242])
     expect(parseNetstatListeners(output, 3999)).toEqual([1111])
     expect(parseNetstatListeners(output, 6000)).toEqual([])
+  })
+
+  /** Node's default `listen()` binds `[::]`, so the query must list TCPv6 too, and the parser keep it. */
+  it('finds a listener bound only on IPv6, and skips UDP rows', () => {
+    expect(NETSTAT_LISTENER_ARGS, '`-p tcp` lists IPv4 only').not.toContain('-p')
+    const output = [
+      'Active Connections',
+      '',
+      '  Proto  Local Address          Foreign Address        State           PID',
+      '  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1000',
+      '  TCP    [::]:6100              [::]:0                 LISTENING       5150',
+      '  TCP    [::1]:6200             [::]:0                 LISTENING       5250',
+      '  UDP    0.0.0.0:6100           *:*                                    7777',
+      '  UDP    [::]:6100              *:*                    LISTENING       7778',
+    ].join('\r\n')
+
+    expect(parseNetstatListeners(output, 6100)).toEqual([5150])
+    expect(parseNetstatListeners(output, 6200)).toEqual([5250])
   })
 })
 

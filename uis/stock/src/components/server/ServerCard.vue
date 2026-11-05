@@ -337,7 +337,7 @@ function openDetail(): void {
         <dt class="truncate text-2xs text-faint">
           {{ row.label }}
         </dt>
-        <dd class="truncate font-mono text-xs tabular-nums text-ink capitalize">
+        <dd class="truncate font-mono text-xs tabular-nums text-ink">
           {{ row.value }}
         </dd>
       </div>

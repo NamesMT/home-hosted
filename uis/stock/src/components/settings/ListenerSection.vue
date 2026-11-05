@@ -9,6 +9,7 @@ import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import NumberField from '@/components/ui/NumberField.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+import TextAreaField from '@/components/ui/TextAreaField.vue'
 import TextField from '@/components/ui/TextField.vue'
 import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import ToneBadge from '@/components/ui/ToneBadge.vue'
@@ -96,6 +97,15 @@ const bindHint = computed(() => {
       :hint="t('settings.listener.ipv4Hint')"
     />
     <ToggleSwitch v-model="control.openBrowser" :label="t('settings.listener.openBrowser')" wide />
+    <TextAreaField
+      v-model="control.allowedHosts"
+      class="sm:col-span-2"
+      :label="t('settings.listener.allowedHosts')"
+      :hint="t('settings.listener.allowedHostsHint')"
+      placeholder="panel.example.com"
+      :rows="2"
+      mono
+    />
 
     <div class="flex min-w-0 flex-col gap-1 sm:col-span-2">
       <span class="text-xs font-medium text-muted">{{ t('settings.listener.liveAddress') }}</span>

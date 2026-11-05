@@ -23,7 +23,7 @@ async function makeApp(workspaces: Array<{ id: string }> = []): Promise<Fixture>
     workspaces,
     ddnsFetch: async (url) => {
       if (url.includes('ipify.org'))
-        return new Response('203.0.113.7')
+        return new Response('93.184.216.7')
       if (url.includes('/zones?name='))
         return new Response(JSON.stringify({ success: true, result: [{ id: 'z', name: 'example.com' }] }), { status: 200 })
       return new Response(JSON.stringify({ success: true, result: [{ id: 'r', content: '9.9.9.9', ttl: 300, proxied: false }] }), { status: 200 })
@@ -215,9 +215,9 @@ describe('pOST /api/ddns/check', () => {
 
     const view = await body<DdnsBody>(response)
     expect(view.status.records).toEqual([
-      expect.objectContaining({ host: 'home.example.com', type: 'A', state: 'ok', ip: '203.0.113.7' }),
+      expect.objectContaining({ host: 'home.example.com', type: 'A', state: 'ok', ip: '93.184.216.7' }),
     ])
-    expect(view.status.ipv4).toBe('203.0.113.7')
+    expect(view.status.ipv4).toBe('93.184.216.7')
   })
 
   it('only runs against the workspace it names', async () => {

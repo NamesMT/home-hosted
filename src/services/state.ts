@@ -47,6 +47,7 @@ export function buildControlView(
     url: control.url,
     protocol: control.protocol,
     openBrowser: config.openBrowser,
+    allowedHosts: config.allowedHosts,
     restartRequired: control.port !== config.port || control.host !== config.host,
     auth: {
       enabled: config.auth.enabled,

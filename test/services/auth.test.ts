@@ -81,26 +81,23 @@ describe('auth service', () => {
     expect(auth.isRequired()).toBe(true)
   })
 
-  /**
-   * The boot password stops being handed out the moment it is replaced.
-   *
-   * A panel that has never had its password changed serves the session view with the literal
-   * `DEFAULT_PASSWORD` so the person can log in at all — a deliberate exposure. What must never
-   * happen is that it keeps being served after a real password is set, because `defaultPassword`
-   * travels to the browser in that response. Nothing asserted the gate.
-   */
-  it('stops exposing the boot password once a real one is set', async () => {
+  it('never sends the first-run password over the API, and drops it once replaced', async () => {
     const { auth, secrets } = await makeAuth({ enabled: true })
 
-    // Fresh state: no password at all, so nothing is exposed either.
-    secrets.setPassword('hh', { isDefault: true })
+    secrets.ensureDefaultPassword('abcd-efgh-jkmn')
     expect(auth.usingDefaultPassword).toBe(true)
-    expect(auth.sessionView(false).defaultPassword, 'the boot password is served while it is the one in use').toBe('hh')
+    expect(auth.sessionView(false).defaultPassword).toBeNull()
+    expect(secrets.initialPassword, 'the machine can still read it back').toBe('abcd-efgh-jkmn')
 
-    // A real password replaces it, and the flag goes with it.
     auth.setPassword('a-real-password')
     expect(auth.usingDefaultPassword).toBe(false)
-    expect(auth.sessionView(false).defaultPassword, 'the boot password must not outlive its use').toBeNull()
+    expect(secrets.initialPassword).toBeNull()
+  })
+
+  it('still recognises a home on the pre-0.12 shared default', async () => {
+    const { secrets } = await makeAuth({ enabled: true })
+    secrets.setPassword('hh', { isDefault: true })
+    expect(secrets.initialPassword).toBe('hh')
   })
 
   it('logs in, validates the session and signs out', async () => {

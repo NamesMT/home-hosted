@@ -1000,6 +1000,29 @@ describe('static UI', () => {
 })
 
 describe('openapi document', () => {
+  it('names the credential each route really takes, and a body on every error', async () => {
+    const created = await fixture()
+    interface Operation { security?: unknown[], responses: Record<string, { content?: unknown }> }
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as { paths: Record<string, Record<string, Operation>> }
+
+    expect(spec.paths['/healthz']!.get!.security).toEqual([])
+    expect(spec.paths['/api/auth/login']!.post!.security).toEqual([])
+    expect(spec.paths['/_hh/shutdown']!.post!.security).toEqual([{ localToken: [] }])
+    expect(Object.keys(spec.paths).some(route => route.startsWith('/_acme')), 'internal plumbing is not API').toBe(false)
+
+    const start = spec.paths['/api/servers/{id}/start']!.post!
+    expect(start.responses['409']!.content).toBeDefined()
+    expect(start.responses['401']).toBeDefined()
+    for (const [route, methods] of Object.entries(spec.paths)) {
+      for (const [method, operation] of Object.entries(methods)) {
+        for (const [status, response] of Object.entries(operation.responses)) {
+          if (Number(status) >= 400)
+            expect(response.content, `${method} ${route} ${status}`).toBeDefined()
+        }
+      }
+    }
+  })
+
   it('is generated from the live route table', async () => {
     const created = await fixture()
     const response = await created.app.request('/openapi/spec.json')
@@ -1391,6 +1414,22 @@ describe('panel event stream', () => {
     expect(rest).toContain('event: server')
     expect(rest).not.toContain('event: log')
     expect(rest).not.toContain('too chatty')
+  })
+
+  it('narrows server and log frames to the workspace a client named', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    const response = await created.app.request(`/api/events?workspace=${created.defaultId}`)
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+
+    const hello = await readFrames(reader, decoder, '', text => text.includes('event: hello'), 2000)
+    created.hub.publish({ type: 'log', ts: Date.now(), workspaceId: 'elsewhere', serverId: 'web', lines: [{ ts: 1, stream: 'stdout', text: 'not mine' }] })
+    created.hub.publish({ type: 'log', ts: Date.now(), workspaceId: created.defaultId, serverId: 'web', lines: [{ ts: 1, stream: 'stdout', text: 'mine' }] })
+
+    const rest = await readFrames(reader, decoder, hello, text => text.includes('"mine"'))
+    await reader.cancel().catch(() => {})
+    expect(rest).toContain('"mine"')
+    expect(rest).not.toContain('not mine')
   })
 
   it('forwards log frames by default', async () => {

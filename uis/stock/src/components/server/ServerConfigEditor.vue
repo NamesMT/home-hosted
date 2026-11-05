@@ -9,6 +9,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
 import { cloneHealth } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
+import BindField from '@/components/ui/BindField.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import Modal from '@/components/ui/Modal.vue'
 import NumberField from '@/components/ui/NumberField.vue'
@@ -127,17 +128,6 @@ const restart = ref<RestartConfig>({ ...props.config.restart })
 // A shallow copy would still alias the live `health.http`, which the frame guard compares against.
 const health = ref<HealthConfig>(cloneHealth(props.config.health))
 const stop = ref<StopConfig>({ ...props.config.stop })
-
-/** An explicit IPv4 the config already carries is kept selectable rather than dropped. */
-const bindOptions = computed(() => {
-  const options = [
-    { value: 'local', label: t('bind.local') },
-    { value: 'lan', label: t('bind.lan') },
-  ]
-  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(props.config.bind))
-    options.push({ value: props.config.bind, label: t('bind.explicit', { bind: props.config.bind }) })
-  return options
-})
 
 function buildPayload(): Record<string, unknown> {
   // A non-nullable NumberField yields NaN while it is being cleared; the log
@@ -371,12 +361,7 @@ async function save(): Promise<void> {
         :columns="2"
       >
         <NumberField v-model="form.port" :label="t('common.port')" nullable :min="1" :max="65535" :hint="t('serverForm.portHint')" />
-        <SelectField
-          v-model="form.bind"
-          :label="t('serverForm.bindAddress')"
-          :options="bindOptions"
-          :hint="t('editor.bindHint')"
-        />
+        <BindField v-model="form.bind" :label="t('serverForm.bindAddress')" :hint="t('editor.bindHint')" />
         <SelectField
           v-model="form.onPortConflict"
           :label="t('serverForm.onPortConflict')"

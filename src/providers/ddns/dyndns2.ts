@@ -44,7 +44,7 @@ export function describeDyndnsReply(body: string, provider: string): DdnsResult 
     return failed(`${provider} answered "${(body.trim() || 'an empty body').slice(0, 120)}"`)
   if (known.ok)
     return succeeded(`${known.message}${detail.length === 0 ? '' : ` (${detail})`}`, known.changed)
-  return failed(`${known.message}${detail.length === 0 ? '' : `: ${detail}`}`)
+  return failed(`${known.message}${detail.length === 0 ? '' : `: ${detail}`}`, known.permanent)
 }
 
 /**

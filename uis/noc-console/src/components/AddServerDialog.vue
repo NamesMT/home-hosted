@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ServerDefaults } from '@shared/contracts'
-import { serverCreateSchema } from '@shared/contracts'
+import { parseBind, serverCreateSchema } from '@shared/contracts'
 import { diffFields } from '@shared/patch-diff'
 import { type } from 'arktype'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
@@ -30,6 +30,8 @@ function blank(defaults: ServerDefaults | null = workspace.defaults.value) {
   return {
     id: '',
     ...blankSharedForm('sheet', defaults),
+    // A defaults bind that names one address opens on `custom` with that address filled in.
+    ...(defaults?.bind !== undefined && defaults.bind !== 'local' && defaults.bind !== 'lan' ? { bind: 'custom', customBind: defaults.bind } : { customBind: '' }),
     restart: { ...(defaults?.restart ?? SCHEMA_RESTART) },
     health: cloneHealth(defaults?.health ?? SCHEMA_HEALTH),
     stop: { ...(defaults?.stop ?? SCHEMA_STOP) },
@@ -77,7 +79,7 @@ function buildPayload(): Record<string, unknown> {
     backupIgnoreGenerated: form.backupIgnoreGenerated,
     resources: { maxRssBytes: rssBytesFromForm(form.maxRssMb) },
     onPortConflict: form.onPortConflict,
-    bind: form.bind,
+    bind: form.bind === 'custom' ? form.customBind.trim() : form.bind,
     enabled: form.enabled,
     autostart: form.autostart,
     persistent: form.persistent,
@@ -140,6 +142,10 @@ async function submit(): Promise<void> {
   }
   if (form.command.trim().length === 0) {
     error.value = 'a command is required'
+    return
+  }
+  if (form.bind === 'custom' && parseBind(form.customBind.trim()) === null) {
+    error.value = 'a custom bind must be an IPv4 address, e.g. 192.168.1.20'
     return
   }
   if (form.bootstrapEnabled && form.bootstrapCommand.trim().length === 0) {

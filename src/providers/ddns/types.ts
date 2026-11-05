@@ -38,6 +38,8 @@ export interface DdnsResult {
   changed: boolean
   message: string
   error?: string
+  /** The provider refused in a way retrying cannot fix (bad credentials, unknown host, abuse block). */
+  permanent?: boolean
   /** Provider ids worth remembering, so the next pass skips a lookup. */
   cache?: DdnsRecordCache
 }
@@ -90,8 +92,8 @@ export function succeeded(message: string, changed: boolean): DdnsResult {
   return { ok: true, changed, message }
 }
 
-export function failed(error: string): DdnsResult {
-  return { ok: false, changed: false, message: error, error }
+export function failed(error: string, permanent = false): DdnsResult {
+  return { ok: false, changed: false, message: error, error, ...(permanent ? { permanent: true } : {}) }
 }
 
 /**

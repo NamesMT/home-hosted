@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import process from 'node:process'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { resolveCwd } from '#src/providers/process'
-import { serverTemplateVars } from '#src/services/supervisor'
+import { serverTemplateVars } from '#src/providers/server-vars'
 
 /**
  * Runs one backup hook (`dump` before capture, `load` after restore).

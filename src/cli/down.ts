@@ -1,11 +1,13 @@
 import type { PersistentHandle } from '#src/providers/nanny-sweep'
-import type { StopConfig } from '#src/shared/contracts'
+import type { ServerConfig, StopConfig } from '#src/shared/contracts'
 import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { delay, dim, green, invocation, paint, refusal } from '#src/cli/io'
 import { recordCleanStop } from '#src/helpers/last-stop'
 import { versionMismatchNote } from '#src/helpers/version'
+import { isComposeCommand } from '#src/providers/docker'
 
 /**
  * `down` stops the panel and everything it supervises.
@@ -80,6 +82,8 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
   }
 
   let answered = false
+  // A graceful stop is under way only when the panel accepted the request or received SIGTERM.
+  let stopping = true
   if (isLiveLiveness(liveness)) {
     process.stdout.write(`stopping pid ${runtime.pid}…\n`)
     // The panel's own endpoint stops supervised servers cleanly on every platform; a signal is the
@@ -89,7 +93,7 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     // record the stop (log line, history, health) and consume the state file in order.
     answered = await requestShutdown(runtime, 4000, { withPersistent: options.withPersistent === true })
     if (!answered)
-      signal(runtime.pid, 'SIGTERM')
+      stopping = signal(runtime.pid, 'SIGTERM')
   }
   else {
     /**
@@ -114,7 +118,9 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     return finish()
   }
 
-  if (await waitForExit(runtime.pid, 20000)) {
+  // Nothing told the process to stop, so there is nothing to wait out; go straight to the forced stop.
+  const budget = stopping ? shutdownBudgetMs(await configuredServers(), options.withPersistent === true) : 0
+  if (await waitForExit(runtime.pid, budget)) {
     clearRuntime()
     recordCleanStop()
     reportStopped(false)
@@ -136,7 +142,7 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     // is part of the reason. Printed to stdout it read as the command's answer, so a `down` in a
     // script — where stdout is the record — showed the failure in the same place success goes.
     refusal(`could not stop pid ${runtime.pid} — it is still running, and its record was kept`)
-    process.stderr.write(`${dim(`stop it yourself with \`kill -9 ${runtime.pid}\` (Windows: \`taskkill /PID ${runtime.pid} /T /F\`), then run \`down\` again`)}\n`)
+    process.stderr.write(`${dim(`stop it yourself with \`kill -9 ${runtime.pid}\` (Windows: \`taskkill /PID ${runtime.pid} /F\`), then run \`down\` again`)}\n`)
     process.exitCode = 1
     return finish()
   }
@@ -216,28 +222,78 @@ export function exitCodeForStops(results: ReadonlyArray<Readonly<{ stopped: bool
  * back to the defaults — the host is being brought down either way.
  */
 async function stopPolicyLookup(): Promise<(handle: PersistentHandle) => StopConfig> {
-  const { WorkspaceStore } = await import('#src/config/store')
-  const { workspaceServersPath, workspaceSettingsPath } = await import('#src/helpers/paths')
   const { stopSchema } = await import('#src/shared/contracts')
+  const read = await serversReader()
   const policies = new Map<string, Map<string, StopConfig>>()
 
   return (handle) => {
     let byId = policies.get(handle.workspaceId)
     if (byId === undefined) {
-      byId = new Map()
-      try {
-        const store = new WorkspaceStore(handle.workspaceId, workspaceSettingsPath(handle.workspaceId), workspaceServersPath(handle.workspaceId))
-        store.load()
-        for (const server of store.servers)
-          byId.set(server.id, server.stop)
-      }
-      catch {
-        // A config this CLI cannot read still leaves its nanny to be stopped.
-      }
+      byId = new Map(read(handle.workspaceId).map(server => [server.id, server.stop]))
       policies.set(handle.workspaceId, byId)
     }
     return byId.get(handle.serverId) ?? stopSchema.assert({})
   }
+}
+
+/** Reads one workspace's entries; a config this CLI cannot read yields none, and the host still goes down. */
+async function serversReader(): Promise<(workspaceId: string) => ServerConfig[]> {
+  const { WorkspaceStore } = await import('#src/config/store')
+  const { workspaceServersPath, workspaceSettingsPath } = await import('#src/helpers/paths')
+  return (workspaceId) => {
+    try {
+      const store = new WorkspaceStore(workspaceId, workspaceSettingsPath(workspaceId), workspaceServersPath(workspaceId))
+      store.load()
+      return store.servers
+    }
+    catch {
+      return []
+    }
+  }
+}
+
+/** Every workspace's entries, read without writing anything: a missing registry is the default workspace. */
+async function configuredServers(): Promise<ServerConfig[]> {
+  const { WorkspaceRegistry } = await import('#src/config/workspaces')
+  const { DEFAULT_WORKSPACE_ID, workspacesPath } = await import('#src/helpers/paths')
+  let ids = [DEFAULT_WORKSPACE_ID]
+  if (fs.existsSync(workspacesPath)) {
+    const registry = new WorkspaceRegistry(workspacesPath)
+    registry.load()
+    if (registry.configError === null)
+      ids = registry.all().map(workspace => workspace.id)
+  }
+  return ids.flatMap(await serversReader())
+}
+
+const SHUTDOWN_FLOOR_MS = 20_000
+const SHUTDOWN_CEILING_MS = 10 * 60_000
+/** `stopComposeContainers`' own `docker stop` timeout, plus its two listings. */
+const COMPOSE_STOP_MS = 130_000
+
+/**
+ * How long the panel may take to stop what it supervises before `down` forces it.
+ *
+ * The panel stops every entry concurrently, so this is the slowest entry's stop — its grace, the
+ * SIGKILL wait after it, a second round for a persistent child signalled alone, and a compose stack's
+ * `docker stop` — plus a margin. A fixed wait force-killed a panel still inside a configured grace.
+ */
+export function shutdownBudgetMs(servers: ReadonlyArray<Pick<ServerConfig, 'command' | 'args' | 'persistent' | 'stop'>>, withPersistent: boolean): number {
+  let slowest = 0
+  for (const server of servers) {
+    if (server.persistent && !withPersistent)
+      continue
+    const round = server.stop.graceMs + 2000
+    let ms = round
+    if (server.persistent && !server.stop.killGroup)
+      ms += round
+    if (server.stop.killPortHolders)
+      ms += round
+    if (isComposeCommand(server.command, server.args))
+      ms += COMPOSE_STOP_MS
+    slowest = Math.max(slowest, ms)
+  }
+  return Math.min(SHUTDOWN_CEILING_MS, Math.max(SHUTDOWN_FLOOR_MS, slowest + 10_000))
 }
 
 /**
@@ -287,19 +343,29 @@ async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
   return !isProcessAlive(pid)
 }
 
-function signal(pid: number, name: NodeJS.Signals): void {
+/** Whether the signal was delivered; `false` for a pid that is gone or not ours to signal (EPERM). */
+function signal(pid: number, name: NodeJS.Signals): boolean {
   try {
     process.kill(pid, name)
+    return true
   }
   catch {
-    // already gone
+    return false
   }
 }
 
-/** Windows cannot deliver a graceful signal, so the whole tree is killed. */
+/**
+ * Only the panel's own pid, as SIGKILL is on POSIX: `taskkill /T` follows parent pids, which a
+ * detached spawn keeps on Windows, so it also killed every persistent entry's nanny.
+ */
+export function forceStopCommand(pid: number, platform: NodeJS.Platform = process.platform): [string, string[]] | null {
+  return platform === 'win32' ? ['taskkill', ['/PID', String(pid), '/F']] : null
+}
+
 function forceStop(pid: number): void {
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true })
+  const command = forceStopCommand(pid)
+  if (command !== null) {
+    spawnSync(command[0], command[1], { windowsHide: true })
     return
   }
   signal(pid, 'SIGKILL')

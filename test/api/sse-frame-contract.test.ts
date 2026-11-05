@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { supervisorSources } from '../helpers/supervisor-source'
 
 /**
  * Every `server` and `log` frame must carry `workspaceId`, and the UI contract must say so.
@@ -13,7 +14,7 @@ import { describe, expect, it } from 'vitest'
  * not know to handle it, and a server id is unique only inside its workspace.
  */
 const root = fileURLToPath(new URL('../..', import.meta.url))
-const SUPERVISOR = fs.readFileSync(path.join(root, 'src/services/supervisor.ts'), 'utf8')
+const SUPERVISOR = supervisorSources()
 
 /** A `hub.publish({ … })` body for one of the frame types that names a server. */
 function publishBodies(type: string): string[] {
@@ -34,7 +35,7 @@ describe('server-scoped SSE frames', () => {
   })
 
   it('and the UI contract names it in the frame table', () => {
-    const doc = fs.readFileSync(path.join(root, 'docs/UI_CREATION.md'), 'utf8')
+    const doc = fs.readFileSync(path.join(root, 'docs/API.md'), 'utf8')
     for (const type of ['server', 'log']) {
       const row = doc.split('\n').find(line => line.startsWith(`| \`${type}\``))
       expect(row, `the '${type}' row must exist`).toBeDefined()

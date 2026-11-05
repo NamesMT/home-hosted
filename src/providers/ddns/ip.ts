@@ -22,14 +22,17 @@ export const DEFAULT_IPV6_ENDPOINTS = [
   'https://cloudflare.com/cdn-cgi/trace',
 ]
 
-/** RFC1918, loopback, link-local and CGNAT are never a public DNS target. */
+/** RFC1918, loopback, link-local, CGNAT, documentation, benchmarking and multicast/reserved are never a public DNS target. */
 export function isPublicAddress(ip: string, family: 'A' | 'AAAA'): boolean {
   if (family === 'A') {
     const parts = ip.split('.').map(part => Number.parseInt(part, 10))
     if (parts.length !== 4 || parts.some(part => !Number.isInteger(part) || part < 0 || part > 255))
       return false
-    const [a, b] = parts as [number, number, number, number]
-    return !(a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127))
+    const [a, b, c] = parts as [number, number, number, number]
+    const documentation = (a === 192 && b === 0 && c === 2) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113)
+    const benchmarking = a === 198 && (b === 18 || b === 19)
+    // `224.0.0.0/3`: multicast, then the reserved block up to broadcast.
+    return !(a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || documentation || benchmarking || a >= 224)
   }
 
   const words = ipv6Words(ip)
@@ -143,6 +146,9 @@ export function parseAddressResponse(text: string, family: 'A' | 'AAAA'): string
   return null
 }
 
+/** One address lookup; the pass's own deadline still bounds the whole list. */
+export const DETECT_TIMEOUT_MS = 10_000
+
 export interface DetectResult {
   ip: string | null
   error: string | null
@@ -158,6 +164,7 @@ export async function detectPublicAddress(
   overrideUrl: string,
   fetchImpl: DdnsFetch,
   signal?: AbortSignal,
+  timeoutMs = DETECT_TIMEOUT_MS,
 ): Promise<DetectResult> {
   const configured = overrideUrl.trim()
   const endpoints = configured.length > 0
@@ -166,8 +173,12 @@ export async function detectPublicAddress(
 
   let lastError: string | null = null
   for (const endpoint of endpoints) {
+    if (signal?.aborted === true)
+      break
+    // Per endpoint, so one that never answers costs its own budget and not the whole pass's.
+    const deadline = AbortSignal.timeout(timeoutMs)
     try {
-      const response = await fetchImpl(endpoint, { signal, headers: { Accept: 'text/plain, application/json' } })
+      const response = await fetchImpl(endpoint, { signal: signal === undefined ? deadline : AbortSignal.any([signal, deadline]), headers: { Accept: 'text/plain, application/json' } })
       if (!response.ok) {
         lastError = `${endpoint} answered ${response.status}`
         continue

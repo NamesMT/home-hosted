@@ -118,7 +118,7 @@ export function createDdnsRoute(deps: AppDeps) {
           throw new DetailedError(`${provider.label}: ${problem}`, { statusCode: 400, code: 'INVALID_DDNS_CREDENTIALS' })
 
         runtime.secrets.setDdnsCredentials(id, providerId, credentials)
-        runtime.ddns.refresh()
+        runtime.ddns.refresh({ account: id })
         return c.json(view(runtime))
       },
     )
@@ -134,8 +134,9 @@ export function createDdnsRoute(deps: AppDeps) {
       validate('param', accountParam),
       (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        runtime.secrets.clearDdnsCredentials(c.req.valid('param').id)
-        runtime.ddns.refresh()
+        const { id } = c.req.valid('param')
+        runtime.secrets.clearDdnsCredentials(id)
+        runtime.ddns.refresh({ account: id })
         return c.json(view(runtime))
       },
     )

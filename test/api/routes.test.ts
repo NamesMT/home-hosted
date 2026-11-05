@@ -1367,3 +1367,32 @@ describe('backups route: archives', () => {
 afterAll(async () => {
   // The fixture directories are removed per test; nothing else to sweep here.
 })
+
+describe('the API token, from the panel', () => {
+  it('mints a working token for a signed-in session, and revokes it', async () => {
+    const created = await fixture({ password: 'a-good-password' })
+    const cookie = await signIn(created, 'a-good-password')
+
+    const minted = await created.app.request('/api/auth/token', { method: 'POST', headers: { cookie } })
+    expect(minted.status).toBe(200)
+    const { token, hint } = await minted.json() as { token: string, hint: string }
+    expect(token.startsWith(hint)).toBe(true)
+
+    const used = await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })
+    expect(used.status, 'the minted token authenticates').toBe(200)
+
+    const revoked = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { cookie } })
+    expect(revoked.status).toBe(200)
+    const after = await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })
+    expect(after.status, 'a revoked token stops working at once').toBe(401)
+  })
+
+  it('refuses to let a token mint its own successor', async () => {
+    const created = await fixture({ password: 'a-good-password' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+    const response = await created.app.request('/api/auth/token', { method: 'POST', headers: { authorization: `Bearer ${token}` } })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
+  })
+})

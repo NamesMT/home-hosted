@@ -73,7 +73,7 @@ reported without a pid.
 | `host` | The public hostname. A local-only name (`gitea.lan`, `box`, an IP) gets the engine's own CA instead of a public certificate. |
 | `enabled` | A disabled route stays configured but is not served. |
 | `target` | `server` (a supervised entry), `panel` (this control panel), `external` (any `host:port`). |
-| `workspace` + `server` | For `target: "server"` — an id is only unique inside its workspace. The upstream address is resolved live; a stopped entry leaves the hostname dark and the page says so. |
+| `workspace` + `server` | For `target: "server"` — an id is only unique inside its workspace. The upstream address is resolved live; a stopped entry leaves the hostname dark and the page says so, and the engine is re-applied when the entry comes up or goes down. |
 | `url` | For `target: "external"`, e.g. `http://10.0.0.5:8080`. The port is optional: without one the scheme's own default is used (`:80` for `http:`, `:443` for `https:`). An `https://` upstream is dialled with TLS, and **its certificate is not verified** — a homelab upstream behind a self-signed certificate works, and so does an impostor. |
 | `path` | Optional prefix, so one hostname can serve several apps. |
 | `tls` | `auto` (default), `off`, `manual`. |
@@ -245,7 +245,7 @@ rather than adding a 151st record to a zone already at the limit.
 | Verified against | **Caddy 2.11.6.** That is the release this build was tested with; a newer one is installed anyway, and the panel reports the version that actually arrived. A release that changes the JSON schema may need a panel update first. |
 | Carries | The `acmeproxy` DNS provider, compiled in for every install so the binary does not depend on a setting. `DNS-01` is offered because of it; an engine installed by an older release is refused with *update the engine* rather than failing inside Caddy. |
 | Installed at | `.hh/.proxy/bin/hh-caddy` + `engine.json` (version, URL, size, when). |
-| Replaceable | Drop any `hh-caddy` build at that path and the panel runs it: it reports *a path configured by hand* and probes no version. Installing or updating is refused while the engine is up — **Stop** it first, because the binary is replaced on disk. |
+| Replaceable | Drop any `hh-caddy` build at that path and the panel runs it: it reports *a path configured by hand* and probes no version. Installing or updating is refused while the engine is up — **Stop** it first, because the binary is replaced on disk. A download that does not report a version is discarded and the installed binary kept. |
 | Runs as | A child of the panel's own nanny, exactly like a `persistent: true` entry. |
 | Supervised by | The panel. The admin API is opened on the panel side only: a unix socket in a `0700` directory (loopback TCP plus Caddy's origin check on Windows). |
 | Reloaded by | `POST /load` — atomic, and the revision that applied is kept on disk so a change can be reverted in one click (the first one has nothing to go back to). A reload onto a port a stranger holds is refused before the engine is touched, naming the pid when the OS will tell it and saying so when it will not, and the panel keeps reporting the ports the engine is really on. |

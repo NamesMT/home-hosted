@@ -235,7 +235,7 @@ export class ProxyService {
   /** Why the engine's nanny could not be spawned, cleared on the next start. */
   private nannyError: string | null = null
   private certCache: { at: number, key: string, days: number | null, issued: Map<string, { notAfter: number, issuer: string }>, local: Map<string, { notAfter: number, lifetimeMs: number }>, views: ProxyCertificateView[] } | null = null
-  /** The certificate state the last apply was built from, so a change re-applies once. */
+  /** What the last apply was built from — certificates and upstreams — so a change re-applies once. */
   private certificateSignature: string | null = null
 
   constructor(private readonly options: ProxyServiceOptions) {}
@@ -253,6 +253,11 @@ export class ProxyService {
 
   get enginePath(): string {
     return path.join(this.options.binDir, this.engine.binaryName(process.platform))
+  }
+
+  /** The hostnames an enabled route serves the panel itself on. */
+  panelHosts(): string[] {
+    return this.config.routes.filter(route => route.enabled && route.target === 'panel').map(route => route.host)
   }
 
   /**
@@ -998,9 +1003,22 @@ export class ProxyService {
         { statusCode: 409, code: 'PROXY_CERT_RETRY_LAST_ROUTE' },
       )
     }
+    const servedText = fs.existsSync(this.options.configPath) ? fs.readFileSync(this.options.configPath, 'utf8') : null
     await this.loadIntoEngine(staged)
     this.forgetCertificates(route.host)
-    await this.apply({ force: true })
+    try {
+      await this.apply({ force: true })
+    }
+    catch (error) {
+      // The engine is still on the staged config, which leaves this name dark: put back what it
+      // served before. Its stored pair is already gone, so the engine still asks the CA again.
+      if (servedText !== null) {
+        await this.loadIntoEngine(JSON.parse(servedText) as Record<string, unknown>).catch((restoreError: unknown) => {
+          logger.error(`proxy:    could not restore the configuration after a failed certificate retry: ${errorMessage(restoreError)}`)
+        })
+      }
+      throw error
+    }
   }
 
   /** Removes the engine's stored certificates for one name, and nothing else. */
@@ -1039,9 +1057,11 @@ export class ProxyService {
       this.admin = stillThere
     }
 
+    const signature = this.syncSignature()
     const rendered = this.render()
     const text = `${JSON.stringify(rendered, null, 2)}\n`
     if (options.force !== true && fs.existsSync(this.options.configPath) && fs.readFileSync(this.options.configPath, 'utf8') === text) {
+      this.certificateSignature = signature
       this.lastError = null
       return
     }
@@ -1056,6 +1076,7 @@ export class ProxyService {
     // hold a revision it refused.
     this.rememberConfig(text)
     this.recordApplied(rendered)
+    this.certificateSignature = signature
     // The reload is also what makes the engine forget a name it no longer serves, so
     // this is the moment its stored certificate for that name is safe to drop.
     const swept = this.sweepUnroutedCertificates()
@@ -1187,17 +1208,25 @@ export class ProxyService {
     return this.bestCover(host) !== null
   }
 
+  /** Everything `render()` reads that moves without a config save: certificate state and live upstreams. */
+  private syncSignature(): string {
+    return this.resolveRoutes()
+      .map(({ route, status, upstream, upstreamTls }) => `${route.id}:${this.certificateFor(route).state}:${status}:${upstream ?? ''}:${upstreamTls}`)
+      .join('|')
+  }
+
   /**
-   * Re-applies the configuration when the certificate situation changed — a name that
-   * just obtained its certificate stops being served the "not ready" page, and one
-   * that lost it starts. Cheap enough for the panel's tick: the store read is cached.
+   * Re-applies the configuration when what it was built from moved — a name that just
+   * obtained its certificate, or a `server` route whose entry came up or went down (the
+   * boot apply runs before any entry has started). Cheap enough for the panel's tick:
+   * the store read is cached.
    */
   async sync(): Promise<void> {
     if (!this.config.enabled || !this.installed())
       return
     if (this.status().state !== 'running')
       return
-    const signature = this.routeViews().map(view => `${view.route.id}:${view.certificate?.state ?? ''}`).join('|')
+    const signature = this.syncSignature()
     if (signature === this.certificateSignature)
       return
     const first = this.certificateSignature === null
@@ -1224,7 +1253,7 @@ export class ProxyService {
       // floods the log nor goes quiet.
       if (message !== this.lastSyncError) {
         this.lastSyncError = message
-        logger.warn(`proxy:    could not re-apply after a certificate change: ${message}`)
+        logger.warn(`proxy:    could not re-apply after a certificate or upstream change: ${message}`)
       }
       if (this.lastError !== message)
         this.recordError(message)
@@ -1481,7 +1510,8 @@ export class ProxyService {
     }
 
     fs.mkdirSync(this.options.binDir, { recursive: true, mode: 0o700 })
-    const target = `${this.enginePath}.download`
+    // Keeps the binary's own extension, because it is run before the swap and Windows starts a `.exe`.
+    const target = path.join(path.dirname(this.enginePath), `download-${path.basename(this.enginePath)}`)
     fs.rmSync(target, { force: true })
 
     const response = await fetch(download.url, { redirect: 'follow', signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) })
@@ -1508,19 +1538,20 @@ export class ProxyService {
 
     if (process.platform !== 'win32')
       fs.chmodSync(target, 0o755)
+
+    // Probed before the swap: a build that cannot run must not replace one that can. And what
+    // the binary says it is, not what was asked for — the build service answers a request for
+    // a version (or plugins) it does not have with its current release.
+    const probed = await this.probeEngineVersion(target)
+    if (probed === null) {
+      fs.rmSync(target, { force: true })
+      throw new DetailedError(`the downloaded ${engine.info.label} build did not report a version, so the installed engine was kept`, { statusCode: 502, code: 'ENGINE_DOWNLOAD_FAILED' })
+    }
     fs.renameSync(target, this.enginePath)
 
-    if (process.platform !== 'win32')
-      fs.chmodSync(this.enginePath, 0o755)
-
-    // What the binary says it is, not what was asked for: the build service answers
-    // a request for a version it does not have with its default release.
-    // What the binary says it is. Nothing is assumed from the URL: a request that
-    // names plugins is answered with the build service's current release.
-    const probed = await this.probeEngineVersion()
     const record: EngineRecord = {
       engine: engine.info.id,
-      version: probed ?? (download.version.length > 0 ? download.version : 'unknown'),
+      version: probed,
       source: 'downloaded',
       url: download.url,
       bytes,
@@ -1539,11 +1570,11 @@ export class ProxyService {
    * — a replaced or wrapped binary that never exits must not hang `start()` or the
    * request that triggered it, so a timeout kills it and reads as "no answer".
    */
-  private runEngine(args: string[], timeoutMs: number): Promise<string | null> {
-    if (!this.installed())
+  private runEngine(args: string[], timeoutMs: number, binary = this.enginePath): Promise<string | null> {
+    if (binary === this.enginePath && !this.installed())
       return Promise.resolve(null)
     return new Promise<string | null>((resolve) => {
-      const child = spawn(this.enginePath, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+      const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
       let output = ''
       let settled = false
       let timer: NodeJS.Timeout | undefined
@@ -1588,9 +1619,9 @@ export class ProxyService {
     })
   }
 
-  /** Runs `version` once and reports what the binary actually is. */
-  async probeEngineVersion(): Promise<string | null> {
-    const output = await this.runEngine(['version'], this.options.engineCommandTimeoutMs ?? ENGINE_COMMAND_TIMEOUT_MS)
+  /** Runs `version` once and reports what the binary — the installed one unless named — actually is. */
+  async probeEngineVersion(binary = this.enginePath): Promise<string | null> {
+    const output = await this.runEngine(['version'], this.options.engineCommandTimeoutMs ?? ENGINE_COMMAND_TIMEOUT_MS, binary)
     return output === null ? null : this.engine.parseVersion(output)
   }
 
@@ -1662,6 +1693,7 @@ export class ProxyService {
     if (invalid !== undefined)
       throw new DetailedError(invalid.message ?? 'a route cannot be built', { statusCode: 400, code: 'PROXY_ROUTE_INVALID' })
 
+    const signature = this.syncSignature()
     const routes = this.engineRoutes()
     const rendered = renderCaddyConfig({
       config,
@@ -1733,6 +1765,7 @@ export class ProxyService {
       throw new DetailedError(failure, { statusCode: 502, code: 'ENGINE_NOT_READY' })
     }
     this.recordApplied(rendered)
+    this.certificateSignature = signature
     this.lastError = null
     logger.info(`proxy:    ${this.engine.info.label} serving on :${this.config.httpPort} and :${this.config.httpsPort}`)
     this.options.onStateChange()

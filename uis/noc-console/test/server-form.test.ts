@@ -215,7 +215,7 @@ describe('the field catalogue', () => {
     expect(fieldSpec('page', 'args').label).toBe('args — one per line, placeholders allowed')
     expect(fieldSpec('sheet', 'args').control).toBe('text')
     expect(fieldSpec('page', 'args').control).toBe('textarea')
-    expect(fieldSpec('sheet', 'bind').options?.map(option => option.value)).toEqual(['local', 'lan'])
+    expect(fieldSpec('sheet', 'bind').options?.map(option => option.value)).toEqual(['local', 'lan', 'custom'])
     expect(fieldSpec('page', 'bind').options?.map(option => option.value)).toEqual(['local', 'lan', 'custom'])
     expect(fieldSpec('sheet', 'persistent').hint).toContain('`down` reports it instead of stopping it')
     expect(fieldSpec('page', 'persistent').hint).toBe('keeps running when the panel stops; stop it explicitly to end it')

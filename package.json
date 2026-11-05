@@ -40,10 +40,15 @@
   "imports": {
     "#src/*": "./src/*",
     "#src/providers/ddns": "./src/providers/ddns/index.ts",
-    "#src/providers/proxy": "./src/providers/proxy/index.ts"
+    "#src/providers/proxy": "./src/providers/proxy/index.ts",
+    "#src/services/supervisor": "./src/services/supervisor.ts"
   },
   "exports": {
     ".": "./dist/cli.js",
+    "./client": {
+      "types": "./dist/types/client.d.ts",
+      "import": "./dist/client.js"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/cli.js",
@@ -56,10 +61,14 @@
     "README.md",
     "bin",
     "dist",
+    "docs/API.md",
+    "docs/BACKUPS.md",
+    "docs/CLI.md",
     "docs/DDNS.md",
     "docs/NOTIFICATIONS.md",
     "docs/RESTORE_DEMO.md",
     "docs/REVERSE_PROXY.md",
+    "docs/SECURITY.md",
     "docs/SERVERS.md",
     "docs/UI_CREATION.md",
     "docs/branding/logo.svg",
@@ -78,8 +87,9 @@
     "restart": "tsx src/cli.ts --home .dev-state restart",
     "start": "tsx src/cli.ts --home .dev-state up --foreground",
     "dev": "node scripts/dev.mjs",
-    "build": "pnpm run build:ui && pnpm run build:server",
+    "build": "pnpm run build:ui && pnpm run build:server && pnpm run build:client",
     "build:server": "vite build --config vite.server.config.ts",
+    "build:client": "vite build --config vite.client.config.ts && node scripts/build-types.mjs",
     "lint": "eslint .",
     "test:docs": "node scripts/check-doc-links.mjs",
     "test": "vitest",

@@ -62,11 +62,16 @@ export function formatDuration(ms: number, words: DurationWords = ENGLISH_DURATI
     return words.span(seconds, 's', null)
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60)
-    return words.span(minutes, 'm', { value: seconds % 60, unit: 's' })
+    return words.span(minutes, 'm', remainder(seconds % 60, 's'))
   const hours = Math.floor(minutes / 60)
   if (hours < 24)
-    return words.span(hours, 'h', { value: minutes % 60, unit: 'm' })
-  return words.span(Math.floor(hours / 24), 'd', { value: hours % 24, unit: 'h' })
+    return words.span(hours, 'h', remainder(minutes % 60, 'm'))
+  return words.span(Math.floor(hours / 24), 'd', remainder(hours % 24, 'h'))
+}
+
+/** A zero second unit says nothing: "7d", not "7d 0h". */
+function remainder<U extends string>(value: number, unit: U): { value: number, unit: U } | null {
+  return value === 0 ? null : { value, unit }
 }
 
 /** A **forward** countdown to an expiry: a moment already past clamps to `now`, never negative. */

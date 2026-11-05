@@ -38,8 +38,8 @@ describe('transText', () => {
 
   it('prefers the slot when a param of the same name is also passed', () => {
     const html = render(
-      { k: 'login.defaultPasswordWarning', params: { password: 'PLAIN' } },
-      { password: () => h('code', {}, 'MARKED') },
+      { k: 'login.defaultPasswordWarning', params: { command: 'PLAIN' } },
+      { command: () => h('code', {}, 'MARKED') },
     ).html()
     expect(html, 'the markup must win over a same-named param').toContain('MARKED')
     expect(html).not.toContain('PLAIN')

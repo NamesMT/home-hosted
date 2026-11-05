@@ -11,6 +11,7 @@ import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { projectDir } from '#src/helpers/paths'
+import { acquireRestoreLock } from '#src/helpers/restore-lock'
 import { appVersion } from '#src/helpers/version'
 import * as archive from '#src/providers/archive'
 import { createZip as createZipFile, extractZip, isZipArchive, listZip } from '#src/providers/archive'
@@ -2172,7 +2173,7 @@ describe('the backup schedule', () => {
 
     // Four automatic and two manual archives, oldest first by name, written directly so the
     // test does not depend on how long a real archive takes.
-    const stamp = (index: number): string => `2026-01-0${index + 1}T00-00-00-000`
+    const stamp = (index: number): string => `2026-01-0${index + 1}-00-00-00-0`
     for (let index = 0; index < 4; index += 1)
       fs.writeFileSync(path.join(dir, `auto-${stamp(index)}.zip`), 'auto')
     for (let index = 0; index < 2; index += 1)
@@ -2359,5 +2360,136 @@ describe('the backup schedule', () => {
     await vi.waitFor(() => expect(fixture.service.view().scheduleError).toBeDefined(), { timeout: 15_000 })
     expect(fixture.service.view().scheduleError?.message).toContain('nothing was selected')
     expect(fixture.service.list(), 'nothing was written').toHaveLength(0)
+  })
+})
+
+describe('backup and restore defects', () => {
+  it('keeps an excluded workspace secret and restores the rest', async () => {
+    const fixture = await makeFixture({ workspaceSecrets: `${JSON.stringify({ telegram: { botToken: 'ARCHIVE-TG' }, ddns: { sealed: 'ARCHIVE-DDNS' } })}\n` })
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+
+    fs.writeFileSync(fixture.workspaceSecretsPath, `${JSON.stringify({ telegram: { botToken: 'LOCAL-TG' }, ddns: { sealed: 'LOCAL-DDNS' } })}\n`, { mode: 0o600 })
+    const archive = path.join(fixture.service.directory, created.file!.name)
+    const plan = await fixture.service.restore(archive, { confirm: true, exclude: ['workspace:default:secrets:telegram'] })
+    expect(plan.error, plan.error).toBeUndefined()
+
+    const after = JSON.parse(fs.readFileSync(fixture.workspaceSecretsPath, 'utf8')) as Record<string, Record<string, string>>
+    expect(after.telegram?.botToken, 'the excluded secret keeps this host value').toBe('LOCAL-TG')
+    expect(after.ddns?.sealed, 'the rest is restored').toBe('ARCHIVE-DDNS')
+  })
+
+  it('never prunes a zip the panel did not write', async () => {
+    const fixture = await makeFixture({ keep: 1, schedule: { intervalMs: 60_000, keep: 1 } })
+    const dir = fixture.service.directory
+    fs.mkdirSync(dir, { recursive: true })
+    const old = Date.now() / 1000 - 3600
+    for (const name of ['photos.zip', 'backup-export.zip', 'auto-copy.zip']) {
+      fs.writeFileSync(path.join(dir, name), 'foreign')
+      fs.utimesSync(path.join(dir, name), old, old)
+    }
+
+    expect((await fixture.service.create()).ok).toBe(true)
+    expect((await fixture.service.create()).ok).toBe(true)
+    expect((await fixture.service.create({ automatic: true })).ok).toBe(true)
+
+    const names = fs.readdirSync(dir).filter(name => name.endsWith('.zip'))
+    for (const name of ['photos.zip', 'backup-export.zip', 'auto-copy.zip'])
+      expect(names, `${name} is not the panel's to delete`).toContain(name)
+    expect(names.filter(name => /^backup-\d/.test(name)), '`keep` still bounds the panel\'s own').toHaveLength(1)
+  })
+
+  it('sweeps a partial archive an interrupted write left behind, but not a fresh one', async () => {
+    const fixture = await makeFixture()
+    const dir = fixture.service.directory
+    fs.mkdirSync(dir, { recursive: true })
+    const stale = path.join(dir, '.backup-2026-01-01-00-00-00-000.zip.partial')
+    const fresh = path.join(dir, '.backup-2026-01-02-00-00-00-000.zip.partial')
+    fs.writeFileSync(stale, 'torn')
+    fs.writeFileSync(fresh, 'still writing')
+    const old = Date.now() / 1000 - 2 * 3600
+    fs.utimesSync(stale, old, old)
+
+    expect((await fixture.service.create()).ok).toBe(true)
+    expect(fs.existsSync(stale), 'an abandoned partial is swept').toBe(false)
+    expect(fs.existsSync(fresh), 'a write that may still be in progress is left alone').toBe(true)
+  })
+
+  it('reloads what a restore wrote before it failed, and says what landed', async () => {
+    let reloaded = 0
+    const fixture = await makeFixture({ onRestored: () => { reloaded++ } })
+    const created = await fixture.service.create()
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    // A file where the archive's data directory goes: the data copy fails after the configs landed.
+    fs.rmSync(fixture.dataDir, { recursive: true, force: true })
+    fs.writeFileSync(fixture.dataDir, 'in the way')
+
+    const plan = await fixture.service.restore(archive, { confirm: true })
+    expect(plan.error, 'the failure is reported').toBeDefined()
+    expect(plan.error).toContain('already applied')
+    expect(plan.appliedIds).toContain('workspace:default:servers')
+    expect(plan.appliedIds).not.toContain(`workspace:default:data:${fixture.dataDir}`)
+    expect(reloaded, 'the settings already written are re-read').toBe(1)
+    expect(plan.reloaded).toBe(true)
+  })
+
+  it('refuses a manifest whose dump ids are not ids', async () => {
+    const fixture = await makeFixture()
+    for (const dump of [{ workspaceId: '../..', serverId: 'app' }, { workspaceId: 'default', serverId: '../../x' }]) {
+      const archive = path.join(fixture.root, 'bad-dump.zip')
+      await makeZip(archive, {
+        'manifest.json': JSON.stringify({ version: 1, createdAt: Date.now(), hostname: 'elsewhere', schema: CONFIG_SCHEMA, data: [], dumps: [dump] }),
+        'workspaces/default/settings.json': fs.readFileSync(fixture.workspaceSettingsPath, 'utf8'),
+      })
+      const plan = await fixture.service.restore(archive, { confirm: false })
+      expect(plan.error, JSON.stringify(dump)).toMatch(/invalid workspace or server id/)
+    }
+  })
+
+  it('lets the event loop run while it copies a data tree', async () => {
+    const fixture = await makeFixture()
+    // Every slice is over budget, so a copy that yields at all yields between entries.
+    let clock = performance.now()
+    vi.spyOn(performance, 'now').mockImplementation(() => clock += 1000)
+    let turns = 0
+    let turn = setImmediate(function spin() {
+      turns++
+      turn = setImmediate(spin)
+    })
+    const seen: number[] = []
+    const cpSync = fs.cpSync
+    vi.spyOn(fs, 'cpSync').mockImplementation(((source: string, ...rest: unknown[]) => {
+      if (isInside(fixture.dataDir, source))
+        seen.push(turns)
+      return (cpSync as (...args: unknown[]) => unknown)(source, ...rest)
+    }) as never)
+    try {
+      expect((await fixture.service.create()).ok).toBe(true)
+    }
+    finally {
+      clearImmediate(turn)
+      vi.restoreAllMocks()
+    }
+    expect(new Set(seen).size, 'a data tree copied in one synchronous run stalls the panel').toBeGreaterThan(1)
+  })
+
+  it('defers a scheduled pass while a restore holds the lock, without spending the attempt', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7 } })
+    const lock = acquireRestoreLock(fixture.dataRoot)
+    if ('heldBy' in lock)
+      throw new Error('the lock was already held')
+    const now = Date.now()
+    try {
+      fixture.service.tick(now)
+      await new Promise(resolve => setTimeout(resolve, 300))
+      expect(fixture.service.list(), 'no archive of a half-restored tree').toHaveLength(0)
+    }
+    finally {
+      lock.release()
+    }
+
+    fixture.service.tick(now + 1000)
+    await vi.waitFor(() => expect(fixture.service.list()).toHaveLength(1), { timeout: 15_000 })
   })
 })

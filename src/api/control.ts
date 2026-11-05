@@ -2,6 +2,7 @@ import type { Context } from 'hono'
 import type { AppDeps } from '#src/app'
 import path from 'node:path'
 import { DetailedError } from '@namesmt/utils'
+import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { statusForAction } from '#src/helpers/action-result'
 import { afterResponse } from '#src/helpers/deferred'
@@ -11,8 +12,8 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { secretEqual } from '#src/helpers/secret-compare'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
-import { isLoopbackRequest } from '#src/middleware/loopback'
 
+import { isLoopbackRequest } from '#src/middleware/loopback'
 import { selectionOf } from '#src/shared/backup-scope'
 import { backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 
@@ -23,6 +24,11 @@ import { backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchem
  * token that only the owner of `run.json` can read, plus a loopback check: a
  * different local user, or anyone on the network, gets nothing.
  */
+/** The local channel's query keys, declared so a typo is refused and the spec names them. */
+const shutdownQuery = type({ 'withPersistent?': 'string' }).onUndeclaredKey('reject')
+const backupQuery = type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string' }).onUndeclaredKey('reject')
+const restoreQuery = type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string', 'name?': 'string', 'from?': 'string' }).onUndeclaredKey('reject')
+
 export function createControlRoute(deps: AppDeps) {
   /** The one place the local channel's credentials are read. */
   function assertLocalCall(c: Context, action: string): void {
@@ -43,6 +49,7 @@ export function createControlRoute(deps: AppDeps) {
         summary: 'Stop the panel and everything it supervises (local token required)',
         responses: { 200: { description: 'Stopping', content: jsonBody(okResponseSchema) }, 403: { description: 'Bad token, or not a local caller' } },
       }),
+      validate('query', shutdownQuery),
       (c) => {
         assertLocalCall(c, 'stop the control panel')
 
@@ -211,6 +218,7 @@ export function createControlRoute(deps: AppDeps) {
         summary: 'Create a backup archive (local token required)',
         responses: { 200: { description: 'Created', content: jsonBody(backupCreatedResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' } },
       }),
+      validate('query', backupQuery),
       async (c) => {
         assertLocalCall(c, 'create a backup')
         // Query, not body: the local channel's request helper sends no payload, and `workspace`
@@ -254,6 +262,7 @@ export function createControlRoute(deps: AppDeps) {
         summary: 'Plan or apply a restore from a stored archive or a file on this machine (local token required)',
         responses: { 200: { description: 'The plan', content: jsonBody(restorePlanSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404] },
       }),
+      validate('query', restoreQuery),
       async (c) => {
         assertLocalCall(c, 'restore a backup')
         const confirm = c.req.query('confirm') === 'true'

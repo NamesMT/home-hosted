@@ -116,8 +116,18 @@ export function workspaceStateDir(id: string): string {
   return path.join(workspaceDir(id), '.state')
 }
 
-/** The last public address each DDNS target was confirmed to serve. */
+/**
+ * The last public address each DDNS target was confirmed to serve.
+ *
+ * A name no server id can produce (ids carry no `.`): `ddns.json` is also the nanny state of a
+ * persistent entry with the id `ddns`, and each overwrote the other.
+ */
 export function workspaceDdnsStatePath(id: string): string {
+  return path.join(workspaceStateDir(id), 'ddns.cache.json')
+}
+
+/** Where releases before `ddns.cache.json` kept that cache, read once and then removed. */
+export function workspaceLegacyDdnsStatePath(id: string): string {
   return path.join(workspaceStateDir(id), 'ddns.json')
 }
 

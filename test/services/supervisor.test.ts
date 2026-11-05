@@ -64,7 +64,8 @@ async function freePort(): Promise<number> {
   throw new Error('could not allocate a free port')
 }
 
-async function waitFor<T>(probe: () => T | undefined, timeoutMs = 10000): Promise<T> {
+// Generous: spawned children under a full parallel run on a slow machine can take seconds to speak.
+async function waitFor<T>(probe: () => T | undefined, timeoutMs = 30000): Promise<T> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     const value = probe()
@@ -2895,4 +2896,235 @@ exit 0
       expect(after.lastError).toContain('still running')
     }, { survivors: ['blog-db-1'] })
   }, 60000)
+})
+
+/**
+ * A stop, a disable, a removal or a dispose that lands while a start is still in flight — in its
+ * bootstrap or its port preflight, both of which await — must win. The start used to read a
+ * `stopping` flag the stop had already cleared, so the server spawned behind a "stopped" answer.
+ */
+describe('a stop during an in-flight start', () => {
+  /** A worker that leaves its pid in `workerFile`, behind a bootstrap that leaves its pid in `bootFile`. */
+  async function bootstrapped(bootMs = 3000): Promise<{ config: Record<string, unknown>, workerFile: string, bootFile: string }> {
+    const dir = await scratchDir('hh-cancel-')
+    const workerFile = path.join(dir, 'worker.pid')
+    const bootFile = path.join(dir, 'boot.pid')
+    cleanups.push(() => {
+      for (const file of [workerFile, bootFile]) {
+        try {
+          process.kill(Number(fs.readFileSync(file, 'utf8')), 'SIGKILL')
+        }
+        catch {
+          // Never written, or already gone.
+        }
+      }
+    })
+    const config = {
+      id: 'w',
+      command: process.execPath,
+      args: ['-e', 'require("fs").writeFileSync(process.env.WP, String(process.pid)); setInterval(() => {}, 1000)'],
+      env: { WP: workerFile },
+      health: { enabled: false },
+      restart: { enabled: false },
+      bootstrap: {
+        command: process.execPath,
+        args: ['-e', `require("fs").writeFileSync(process.env.BP, String(process.pid)); setTimeout(() => {}, ${bootMs})`],
+        env: { BP: bootFile },
+        timeoutMs: 20000,
+        runOnce: false,
+      },
+    }
+    return { config, workerFile, bootFile }
+  }
+
+  async function settle(starting: Promise<{ ok: boolean }>): Promise<void> {
+    expect((await starting).ok, 'the cancelled start must not report success').toBe(false)
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+
+  it('a stop during the bootstrap kills it and spawns nothing', async () => {
+    const { config, workerFile, bootFile } = await bootstrapped()
+    const { supervisor, history } = await makeSupervisor([config])
+
+    const starting = supervisor.start('w', { actor: 'user' })
+    await waitFor(() => fs.existsSync(bootFile))
+    const bootPid = Number(fs.readFileSync(bootFile, 'utf8'))
+    const began = Date.now()
+    expect((await supervisor.stop('w')).ok).toBe(true)
+    await settle(starting)
+
+    expect(Date.now() - began, 'the stop does not wait out the bootstrap').toBeLessThan(2500)
+    expect(isAlive(bootPid), 'the in-flight bootstrap is killed').toBe(false)
+    expect(fs.existsSync(workerFile), 'no worker was spawned after the stop').toBe(false)
+    expect(view(supervisor, 'w').status).toBe('stopped')
+    expect(view(supervisor, 'w').pid).toBeNull()
+    expect(history.all().filter(event => event.type === 'start')).toEqual([])
+  })
+
+  it('a stop while a dependency bootstraps neither waits for it nor spawns the dependent', async () => {
+    const dependency = await bootstrapped()
+    const dependent = await bootstrapped()
+    const { supervisor } = await makeSupervisor([
+      { ...dependency.config, id: 'db' },
+      { ...dependent.config, id: 'app', bootstrap: null, dependsOn: ['db'] },
+    ])
+
+    const starting = supervisor.start('app', { actor: 'user' })
+    await waitFor(() => fs.existsSync(dependency.bootFile))
+    const began = Date.now()
+    expect((await supervisor.stop('app')).ok).toBe(true)
+    expect(Date.now() - began, 'the stop does not wait out the dependency’s bootstrap').toBeLessThan(1500)
+    await settle(starting)
+
+    expect(fs.existsSync(dependent.workerFile), 'the dependent was never spawned').toBe(false)
+    await supervisor.stop('db')
+  })
+
+  it('a stop during the port preflight spawns nothing', async () => {
+    const port = await freePort()
+    const holder = net.createServer()
+    await new Promise<void>(resolve => holder.listen(port, '127.0.0.1', resolve))
+    cleanups.push(() => new Promise<void>(resolve => holder.close(() => resolve())))
+    const { config, workerFile } = await bootstrapped()
+    const { supervisor } = await makeSupervisor([{ ...config, bootstrap: null, port, onPortConflict: 'warn' }])
+
+    const starting = supervisor.start('w', { actor: 'user' })
+    await waitFor(() => view(supervisor, 'w').status === 'starting')
+    expect((await supervisor.stop('w')).ok).toBe(true)
+    await settle(starting)
+
+    expect(fs.existsSync(workerFile)).toBe(false)
+    expect(view(supervisor, 'w').status).toBe('stopped')
+  })
+
+  it('a disable during the bootstrap spawns nothing', async () => {
+    const { config, workerFile, bootFile } = await bootstrapped()
+    const { supervisor, store } = await makeSupervisor([config])
+
+    const starting = supervisor.start('w', { actor: 'user' })
+    await waitFor(() => fs.existsSync(bootFile))
+    store.updateServer('w', { enabled: false })
+    await settle(starting)
+
+    expect(fs.existsSync(workerFile)).toBe(false)
+    expect(view(supervisor, 'w').pid).toBeNull()
+  })
+
+  it('a removal during the bootstrap leaves no child and no history', async () => {
+    const { config, workerFile, bootFile } = await bootstrapped()
+    const { supervisor, store, history } = await makeSupervisor([config])
+
+    const starting = supervisor.start('w', { actor: 'user' })
+    await waitFor(() => fs.existsSync(bootFile))
+    store.removeServer('w')
+    await settle(starting)
+
+    expect(fs.existsSync(workerFile)).toBe(false)
+    expect(history.all().filter(event => event.serverId === 'w')).toEqual([])
+  })
+
+  it('a dispose during the port preflight spawns nothing', async () => {
+    const port = await freePort()
+    const holder = net.createServer()
+    await new Promise<void>(resolve => holder.listen(port, '127.0.0.1', resolve))
+    cleanups.push(() => new Promise<void>(resolve => holder.close(() => resolve())))
+    const { config, workerFile } = await bootstrapped()
+    const { supervisor } = await makeSupervisor([{ ...config, bootstrap: null, port, onPortConflict: 'warn' }])
+
+    const starting = supervisor.start('w', { actor: 'user' })
+    await waitFor(() => view(supervisor, 'w').status === 'starting')
+    await supervisor.dispose()
+    await settle(starting)
+
+    expect(fs.existsSync(workerFile)).toBe(false)
+  })
+})
+
+describe('a persistent entry whose nanny died while the panel was away', () => {
+  it('is starting, then running, once a new nanny is attached', async () => {
+    armRealNannySpawn()
+    const { supervisor, nannyDir } = await makeSupervisor([{
+      id: 'keep',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      persistent: true,
+      autostart: false,
+      health: { enabled: false },
+    }])
+    // A nanny pid that is certainly gone: a process that already exited.
+    const dead = spawn(process.execPath, ['-e', ''])
+    await new Promise(resolve => dead.once('exit', resolve))
+    writeNannyState(nannyStatePath(nannyDir, 'keep'), {
+      serverId: 'keep',
+      nannyPid: dead.pid!,
+      childPid: null,
+      startedAt: Date.now() - 60000,
+      logFile: '',
+      heartbeatAt: Date.now() - 60000,
+      lastExit: { code: 1, signal: null, at: Date.now() - 30000, runtimeMs: 30000 },
+    } as NannyState)
+
+    expect((await supervisor.start('keep', { actor: 'user' })).ok).toBe(true)
+    await waitForStatus(supervisor, 'keep', 'running')
+    expect(view(supervisor, 'keep').pid).not.toBeNull()
+    expect((await supervisor.stop('keep')).ok).toBe(true)
+  }, 20000)
+})
+
+/**
+ * The panel signalled the nanny's whole group, which holds the child, and the nanny forwarded the
+ * same signal again — so a server counting its SIGTERMs (a second one often means "now, hard") saw two.
+ */
+describe.skipIf(process.platform === 'win32')('a persistent entry’s stop signal', () => {
+  it('reaches the child exactly once', async () => {
+    armRealNannySpawn()
+    const dir = await scratchDir('hh-sig-')
+    const out = path.join(dir, 'signals.txt')
+    const { supervisor } = await makeSupervisor([{
+      id: 'keep',
+      command: process.execPath,
+      args: ['-e', 'process.on("SIGTERM", () => { require("fs").appendFileSync(process.env.OUT, "TERM\\n"); setTimeout(() => process.exit(0), 300) }); setInterval(() => {}, 1000)'],
+      env: { OUT: out },
+      persistent: true,
+      autostart: false,
+      health: { enabled: false },
+      stop: { signal: 'SIGTERM', killGroup: true, graceMs: 3000 },
+    }])
+
+    expect((await supervisor.start('keep', { actor: 'user' })).ok).toBe(true)
+    await waitForStatus(supervisor, 'keep', 'running')
+    // The child has to be up and trapping before the stop, or the count says nothing.
+    await waitFor(() => supervisor.logLines('keep').some(line => line.text.includes('runs this entry')))
+    await new Promise(resolve => setTimeout(resolve, 500))
+    expect((await supervisor.stop('keep')).ok).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    expect(fs.readFileSync(out, 'utf8')).toBe('TERM\n')
+  }, 20000)
+})
+
+describe('a health probe in flight across a stop', () => {
+  it('does not report its verdict against the stopped entry', async () => {
+    const port = await freePort()
+    const { supervisor, history } = await makeSupervisor([{
+      id: 'w',
+      command: process.execPath,
+      // Accepts and never answers, so an http probe hangs until its timeout.
+      args: ['-e', 'require("net").createServer(() => {}).listen(Number(process.env.P), "127.0.0.1")'],
+      env: { P: String(port) },
+      port,
+      restart: { enabled: false },
+      health: { enabled: true, mode: 'http', intervalMs: 500, timeoutMs: 2500, unhealthyThreshold: 1, forceRestartAfterMs: 0, startTimeoutMs: 8000 },
+    }])
+
+    await supervisor.start('w', { actor: 'user' })
+    await waitForStatus(supervisor, 'w', 'running')
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    expect((await supervisor.stop('w')).ok).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 3000))
+
+    expect(view(supervisor, 'w').health).not.toBe('unhealthy')
+    expect(view(supervisor, 'w').unhealthySince).toBeNull()
+    expect(history.all().filter(event => event.type === 'unhealthy')).toEqual([])
+  }, 20000)
 })

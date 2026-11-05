@@ -380,7 +380,7 @@ line in `AGENTS.md` instead.
   once resolved a `noc-console` test's `@/lib/proxy` to *stock's* differing copy without a murmur.
 
 - **A layout scan that finds an element by its class *text* reads the wrong element.** Both phone
-  scans did: `topbar-width.test.ts` matched `<div class="…">` for the one action cluster, and
+  scans did: one matched `<div class="…">` for the top bar's action cluster, and
   `mobile-layout.test.ts` sliced a body from `template.indexOf(classes.join(' '))`. Measured green on
   three defects: a bound `:class="cn('flex flex-wrap shrink-0')"` (the shape 60 elements in the corpus
   already use, invisible to a `class="…"` regex), a decoy `<div class="flex shrink-0 items-center">`
@@ -533,9 +533,9 @@ line in `AGENTS.md` instead.
 - **A row of chrome must be measured at the narrow viewport with the tap floor counted.** `pointer:
   coarse` raises every icon control to 44 px, so a `shrink-0` cluster of four targets plus a 96 px
   labelled trigger is 326 px — 6 px wider than a 320 px phone, `header.scrollWidth` 326 against 320 —
-  and the title (`flex-1`, the only child allowed to give way) collapsed to **0 px**. Both
-  declarations are pinned by `uis/stock/test/topbar-width.test.ts` because no mount can measure a
-  layout.
+  and the title (`flex-1`, the only child allowed to give way) collapsed to **0 px**. Check a
+  header change in a real browser at 320 px with a coarse pointer — a class-token test cannot
+  measure a layout, and the one that pinned this was removed as a change detector.
 - **A page served only through a CDN is blank on the box this package is for.** `/openapi/ui` was
   `Scalar()` alone, whose entire body is a module import from `cdn.jsdelivr.net`; with every
   non-panel request aborted, `#app` held **0 children and 0 characters**, while the same page pulled

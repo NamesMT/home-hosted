@@ -158,6 +158,15 @@ export function createBackup(options: CreateBackupOptions = {}): Promise<unknown
   return request('/api/backups', { method: 'POST', body: JSON.stringify(createBackupBody(options)) })
 }
 
+/** Replaces the API token with a new one, returned once. Needs a signed-in session. */
+export function generateApiToken(): Promise<{ token: string, hint: string }> {
+  return request('/api/auth/token', { method: 'POST' })
+}
+
+export function revokeApiToken(): Promise<unknown> {
+  return request('/api/auth/token', { method: 'DELETE' })
+}
+
 export function clearPassword(): Promise<unknown> {
   return request('/api/auth/password', { method: 'DELETE' })
 }

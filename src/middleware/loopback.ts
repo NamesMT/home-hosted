@@ -12,6 +12,18 @@ export function isLoopback(address: string | null): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
 }
 
+/** Headers a proxy adds; their presence means the TCP peer is a relay, not the person. */
+const FORWARDING_HEADERS = ['forwarded', 'x-forwarded-for', 'x-real-ip']
+
+/**
+ * Whether the request was made on this machine, by something that did not relay it.
+ *
+ * The panel's own reverse proxy connects from 127.0.0.1, so a loopback peer alone would hand every
+ * internet client this machine's trust (the "no password set yet" pass, first-setup, `/_hh`).
+ */
 export function isLoopbackRequest(c: { req: { raw: unknown } }): boolean {
+  const headers = (c.req.raw as { headers?: Headers } | undefined)?.headers
+  if (headers !== undefined && FORWARDING_HEADERS.some(name => headers.has(name)))
+    return false
   return isLoopback(requestIp(c))
 }

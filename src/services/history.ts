@@ -93,12 +93,17 @@ export class HistoryStore {
     if (runningSince !== null)
       upMs += Math.max(0, now - Math.max(runningSince, since))
 
+    // The ratio is over the part of the window this server existed for: a server first seen ten
+    // minutes ago and up the whole time is 100% up, not 0.7% of a day.
+    const firstSeen = Math.min(...mine.map(event => event.ts - (event.runtimeMs ?? 0)), runningSince ?? now)
+    const observedMs = Math.max(1, now - Math.max(since, firstSeen))
+
     const lastCrash = [...mine].reverse().find(event => event.type === 'crash')
     const lastExit = [...mine].reverse().find(event => event.type === 'exit' || event.type === 'crash')
 
     return {
       windowMs,
-      uptimeRatio: mine.length === 0 ? null : Math.max(0, Math.min(1, upMs / windowMs)),
+      uptimeRatio: mine.length === 0 ? null : Math.max(0, Math.min(1, upMs / observedMs)),
       restarts: recent.filter(event => event.type === 'start').length,
       crashes: recent.filter(event => event.type === 'crash').length,
       forcedRestarts: recent.filter(event => event.type === 'forced-restart').length,

@@ -49,13 +49,10 @@ export function actionCode(result: ActionResult): string {
   return result[UNKNOWN_SERVER] === true ? 'UNKNOWN_SERVER' : 'ACTION_FAILED'
 }
 
-/**
- * What a lifecycle route puts on the wire: the result it already had, plus its code.
- *
- * A success carries no code — a code names a failure.
- */
-export function actionAnswer(result: ActionResult): ActionResult & { code?: string } {
-  return result.ok ? { ...result } : { ...result, code: actionCode(result) }
+/** What a lifecycle route puts on the wire. A success carries no code — a code names a failure. */
+export function actionAnswer(result: ActionResult): ActionResult & { code?: string, message?: string } {
+  // A refusal carries the same `message`/`code` as every other failure; `ok`/`error` stay for older clients.
+  return result.ok ? { ...result } : { ...result, message: result.error ?? 'the action failed', code: actionCode(result) }
 }
 
 /** Unknown ids are 404; a server that exists but cannot act is a 409. */

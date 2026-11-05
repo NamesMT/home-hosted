@@ -143,7 +143,11 @@ function expandHome(value: string): string {
  */
 export function isGithubHost(url: string): boolean {
   try {
-    const host = new URL(url).hostname.toLowerCase()
+    const parsed = new URL(url)
+    // A token is only ever sent over TLS, so a plain-http GitHub URL is not "GitHub" here.
+    if (parsed.protocol !== 'https:')
+      return false
+    const host = parsed.hostname.toLowerCase()
     return host === 'github.com' || host.endsWith('.github.com')
       || host === 'githubusercontent.com' || host.endsWith('.githubusercontent.com')
   }

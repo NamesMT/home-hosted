@@ -7,6 +7,7 @@ import { ConfigError } from '#src/config/store'
 import { actionAnswer, actionCode, statusForAction, unknownServerError } from '#src/helpers/action-result'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
+import { frameKey, sseChannel } from '#src/helpers/sse'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
@@ -14,8 +15,6 @@ import { serverKey } from '#src/services/events'
 import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
 
 const idParam = type({ id: 'string >= 1' })
-/** Pending SSE writes per connection; log frames are dropped past it, state is not. */
-const MAX_PENDING_WRITES = 200
 const serverResponse = type({ server: serverViewSchema })
 const serversResponse = type({ servers: serverViewSchema.array() })
 /**
@@ -227,47 +226,24 @@ export function createServersRoute(deps: AppDeps) {
           throw unknownServerError(id)
 
         return streamSSE(c, async (stream) => {
-          let closed = false
-          let pending = 0
-          let queue: Promise<void> = Promise.resolve()
-          const send = (data: string, event: string): void => {
-            if (closed)
-              return
-            // Same rule as the panel-wide stream: a slow client loses the chatty
-            // server's log frames before it grows an unbounded write queue.
-            if (event === 'log' && pending > MAX_PENDING_WRITES)
-              return
-            pending += 1
-            queue = queue.then(() => stream.writeSSE({ event, data })).catch(() => {
-              closed = true
-            }).finally(() => {
-              pending -= 1
-            })
+          const channel = sseChannel(stream)
+          const send = (message: { type: string, workspaceId?: string, serverId?: string }): void => {
+            channel.send(message.type, JSON.stringify(message), { key: frameKey(message), droppable: message.type === 'log' })
           }
 
-          const unsubscribe = deps.hub.subscribe(serverKey(runtime.id, id), (message) => {
-            send(JSON.stringify(message), message.type)
-          })
+          const unsubscribe = deps.hub.subscribe(serverKey(runtime.id, id), send)
           stream.onAbort(() => {
-            closed = true
+            channel.close()
             unsubscribe()
           })
 
           const server = runtime.supervisor.views().find(entry => entry.id === id)
-          send(JSON.stringify({ type: 'server', ts: Date.now(), workspaceId: runtime.id, serverId: id, server }), 'server')
-          send(JSON.stringify({
-            type: 'log',
-            ts: Date.now(),
-            workspaceId: runtime.id,
-            serverId: id,
-            lines: runtime.supervisor.logLines(id, 200),
-          }), 'log')
+          send({ type: 'server', ts: Date.now(), workspaceId: runtime.id, serverId: id, server } as never)
+          send({ type: 'log', ts: Date.now(), workspaceId: runtime.id, serverId: id, lines: runtime.supervisor.logLines(id, 200) } as never)
 
-          while (true) {
+          while (!channel.closed) {
             await stream.sleep(15000)
-            if (closed)
-              break
-            await stream.writeSSE({ event: 'ping', data: String(Date.now()) })
+            channel.send('ping', String(Date.now()), { key: 'ping' })
           }
         })
       },

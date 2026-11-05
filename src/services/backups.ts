@@ -12,23 +12,25 @@ import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampCon
 import { KNOWN_SECRET_KEYS, mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts } from '#src/config/secret-parts'
 import { workspacesFileSchema } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { copyTree } from '#src/helpers/copy-tree'
 import { expandEnv } from '#src/helpers/env-file'
 import { logger } from '#src/helpers/logger'
 import { projectDir, resolveUserPath } from '#src/helpers/paths'
-import { acquireRestoreLock } from '#src/helpers/restore-lock'
+import { acquireRestoreLock, restoreLockHolder } from '#src/helpers/restore-lock'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
 import { isProcessAlive } from '#src/providers/port'
-import { serverTemplateVars } from '#src/services/supervisor'
+import { serverTemplateVars } from '#src/providers/server-vars'
 import { scopeSelection, selectionOf } from '#src/shared/backup-scope'
-import { workspaceIdSchema } from '#src/shared/contracts'
+import { serverSchema, workspaceIdSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
 import { isGeneratedPath } from '#src/shared/generated'
 import { isRecord } from '#src/shared/shape'
 
 const MANIFEST = 'manifest.json'
+const serverIdSchema = serverSchema.get('id')
 /**
  * The workspace registry inside an archive. Under `global/` because it is panel-wide, and
  * named as the live file is, so the two are recognisably the same document.
@@ -44,6 +46,9 @@ const PENDING_LOAD = 'pending-load'
  * thing that survives a restart, and it is what lets the two retention counts stay independent.
  */
 const AUTO_PREFIX = 'auto'
+const MANUAL_PREFIX = 'backup'
+/** The names `create()` writes; retention counts and prunes only these, never a zip someone else put here. */
+const ARCHIVE_NAME = new RegExp(`^(${AUTO_PREFIX}|${MANUAL_PREFIX})-\\d{4}(?:-\\d{2}){5}-\\d{1,3}\\.zip$`)
 /** A workspace leaf that carries state the panel re-reads after a restore. */
 const RELOADABLE = /^global:settings$|^workspace:[^:]+:(?:settings|servers)$/
 
@@ -635,6 +640,8 @@ export class BackupService {
    * long as the failure lasts. This is the in-memory backstop for that case.
    */
   private lastAttemptAt: number | null = null
+  /** Logs a pass deferred by a running restore once, not on every tick. */
+  private deferredForRestore = false
   /** Why the most recent scheduled pass failed, cleared by the next that works. */
   private scheduleError: { message: string, at: number } | null = null
 
@@ -781,15 +788,15 @@ export class BackupService {
     const staging = path.join(dir, stagingDirName('staging'))
     const createdAt = Date.now()
     // Milliseconds matter: two backups in the same second must not collide.
-    const prefix = options.automatic === true ? AUTO_PREFIX : 'backup'
+    const prefix = options.automatic === true ? AUTO_PREFIX : MANUAL_PREFIX
     const name = `${prefix}-${new Date(createdAt).toISOString().replace(/[:T]/g, '-').replace(/\.\d+Z$/, '')}-${createdAt % 1000}${SUFFIX}`
     const destination = path.join(dir, name)
 
     try {
       fs.mkdirSync(staging, { recursive: true })
       let captured = 0
-      const copy = (relative: string, source: string, ignoreGenerated = false): void => {
-        if (this.copyInto(staging, relative, source, ignoreGenerated))
+      const copy = async (relative: string, source: string, ignoreGenerated = false): Promise<void> => {
+        if (await this.copyInto(staging, relative, source, ignoreGenerated))
           captured++
       }
       /**
@@ -798,13 +805,13 @@ export class BackupService {
        * staged document holding only those — and the restore side merges by field, which
        * is what keeps a restore from wiping a secret the archive never carried.
        */
-      const copySecrets = (relative: string, source: string, entryId: string, scope: SecretScope, workspaceId?: string): void => {
+      const copySecrets = async (relative: string, source: string, entryId: string, scope: SecretScope, workspaceId?: string): Promise<void> => {
         const text = readText(source)
         if (text === null)
           return
         const fields = selectedSecretFields(entryId, source, scope, workspaceId)
         if (fields === null) {
-          copy(relative, source)
+          await copy(relative, source)
           return
         }
         const chosen = pickSecrets(parseSecrets(text), fields)
@@ -830,17 +837,17 @@ export class BackupService {
         || (workspaceId !== undefined && selects(`workspace:${workspaceId}:secrets`))
 
       if (capturesGlobal('global:settings'))
-        copy('global/settings.json', sources.globalSettingsPath)
+        await copy('global/settings.json', sources.globalSettingsPath)
       if (touchesSecrets('global:secrets'))
-        copySecrets('global/secrets.json', sources.globalSecretsPath, 'global:secrets', 'global')
+        await copySecrets('global/secrets.json', sources.globalSecretsPath, 'global:secrets', 'global')
       if (capturesGlobal('global:tls'))
-        copy('global/tls', sources.tlsDir)
+        await copy('global/tls', sources.tlsDir)
       // Always, and unconditionally: the registry is what lets a restore onto a blank host
       // know a workspace exists at all, and it is a few bytes of ids and labels. Tying it
       // to a selection would make "restore this workspace" impossible on a host that has
       // never heard of it. Not counted as a capture — a selection that names nothing real
       // is still "nothing was selected", which the check below refuses.
-      this.copyInto(staging, `global/${REGISTRY}`, sources.registryPath)
+      await this.copyInto(staging, `global/${REGISTRY}`, sources.registryPath)
 
       /**
        * The dump phase: give every entry with a `dump` hook the chance to produce a consistent copy.
@@ -867,7 +874,7 @@ export class BackupService {
           const dumpDir = path.join(staging, relative)
           const result = await runBackupHook(hook, server, dumpDir)
           if (!result.ok) {
-            fs.rmSync(staging, { recursive: true, force: true })
+            await fs.promises.rm(staging, { recursive: true, force: true })
             return { ok: false, error: hookFailure('dump', server, result) }
           }
           dumped.push({ workspaceId: workspace.id, serverId: server.id })
@@ -878,11 +885,11 @@ export class BackupService {
       for (const workspace of sources.workspaces) {
         const root = `workspaces/${workspace.id}`
         if (capturesWorkspace(workspace.id, 'settings'))
-          copy(`${root}/settings.json`, workspace.settingsPath)
+          await copy(`${root}/settings.json`, workspace.settingsPath)
         if (capturesWorkspace(workspace.id, 'servers'))
-          copy(`${root}/servers.config.json`, workspace.serversPath)
+          await copy(`${root}/servers.config.json`, workspace.serversPath)
         if (touchesSecrets(`workspace:${workspace.id}:secrets`, workspace.id))
-          copySecrets(`${root}/secrets.json`, workspace.secretsPath, `workspace:${workspace.id}:secrets`, 'workspace', workspace.id)
+          await copySecrets(`${root}/secrets.json`, workspace.secretsPath, `workspace:${workspace.id}:secrets`, 'workspace', workspace.id)
 
         for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
           if (!declared.included)
@@ -894,7 +901,7 @@ export class BackupService {
           const slug = slugifyPath(declared.path)
           if (data.some(entry => entry.slug === slug))
             continue
-          if (!this.copyInto(staging, path.join('data', slug), declared.path, declared.ignoreGenerated))
+          if (!await this.copyInto(staging, path.join('data', slug), declared.path, declared.ignoreGenerated))
             continue
           captured++
           data.push({ slug, path: declared.path, origin: declared.origin, workspace: workspace.id })
@@ -905,7 +912,7 @@ export class BackupService {
       // selection too: `--all --exclude <everything>` wrote a 631-byte archive holding nothing but
       // the registry, which reads as a backup and restores nothing.
       if ((wanted !== null || (options.exclude?.length ?? 0) > 0) && captured === 0) {
-        fs.rmSync(staging, { recursive: true, force: true })
+        await fs.promises.rm(staging, { recursive: true, force: true })
         return { ok: false, error: 'nothing was selected to back up' }
       }
 
@@ -924,7 +931,7 @@ export class BackupService {
 
       await createZip(staging, destination, password === null ? {} : { password })
 
-      fs.rmSync(staging, { recursive: true, force: true })
+      await fs.promises.rm(staging, { recursive: true, force: true })
       this.prune()
       // A successful run is the one moment this service knows a dead run's tree is not in use.
       this.sweepStaging()
@@ -934,8 +941,8 @@ export class BackupService {
       return { ok: true, file: { name, sizeBytes: stats.size, createdAt, encrypted: password !== null } }
     }
     catch (error) {
-      fs.rmSync(staging, { recursive: true, force: true })
-      fs.rmSync(destination, { force: true })
+      await fs.promises.rm(staging, { recursive: true, force: true }).catch(() => {})
+      await fs.promises.rm(destination, { force: true }).catch(() => {})
       return { ok: false, error: errorMessage(error) }
     }
   }
@@ -1034,11 +1041,34 @@ export class BackupService {
         }
       }
 
+      // The dump ids are joined into paths below, and an uploaded manifest is attacker controlled.
+      const dumpsValid = manifest.dumps === undefined || (Array.isArray(manifest.dumps) && manifest.dumps.every(dump =>
+        isRecord(dump) && !(workspaceIdSchema(dump.workspaceId) instanceof type.errors) && !(serverIdSchema(dump.serverId) instanceof type.errors)))
+      if (!dumpsValid)
+        return { ...plan, error: 'the archive\'s manifest names a dump with an invalid workspace or server id' }
+
       const sources = this.options.getSources()
       const selects = selectionOf(options)
-      const actions = new Map<string, () => void>()
+      const actions = new Map<string, () => void | Promise<void>>()
 
-      const addItem = (item: Omit<RestoreItem, 'selected'>, apply: (() => void) | null, aliases: string[] = []): void => {
+      /**
+       * Writes one archived secrets file. The whole-file item replaces it only when no leaf under
+       * `entryId` was excluded; otherwise it merges, so an excluded field keeps this host's value.
+       */
+      const secretsApply = (scope: SecretScope, entryId: string, target: string, archived: string): (() => void) => {
+        const parts = secretParts(scope, presentSecretKeys(parseSecrets(archived)))
+        const take = parts.filter(part => !selects.isExcluded(`${entryId}:${part.key}`)
+          && !part.fields.some(field => selects.isExcluded(`${entryId}:${field}`)))
+        return (): void => {
+          fs.mkdirSync(path.dirname(target), { recursive: true })
+          if (take.length === parts.length)
+            writeFileAtomic(target, archived, { mode: 0o600 })
+          else
+            mergeIntoFile(target, archived, take.flatMap(part => part.fields))
+        }
+      }
+
+      const addItem = (item: Omit<RestoreItem, 'selected'>, apply: (() => void | Promise<void>) | null, aliases: string[] = []): void => {
         if (apply === null) {
           plan.items.push({ ...item, selected: false })
           plan.skipped.push(`${item.label}${item.note === null ? '' : ` (${item.note})`}`)
@@ -1095,27 +1125,9 @@ export class BackupService {
 
       const globalSecrets = readText(path.join(staging, 'global', 'secrets.json'))
       if (globalSecrets !== null) {
-        // The whole-entry item writes the file outright, which is only right when nothing inside it
-        // was excluded. With a leaf excluded (`--exclude global:secrets:password`) it merges instead,
-        // so the excluded field keeps the value this host already had rather than being replaced by
-        // the archive's — the per-field items below exist to be the precise form, and this one must
-        // not undo them.
-        const globalSecretKeys = presentSecretKeys(parseSecrets(globalSecrets))
-        const everyGlobalSecretWanted = secretParts('global', globalSecretKeys)
-          .every(part => !selects.isExcluded(`global:secrets:${part.key}`)
-            && !part.fields.some(field => selects.isExcluded(`global:secrets:${field}`)))
         addItem(
           { id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null },
-          everyGlobalSecretWanted
-            ? () => writeFileAtomic(sources.globalSecretsPath, globalSecrets, { mode: 0o600 })
-            : () => {
-                // Only the fields this host may take: the exclusion decides, not the item.
-                const take = secretParts('global', globalSecretKeys)
-                  .filter(part => !selects.isExcluded(`global:secrets:${part.key}`)
-                    && !part.fields.some(field => selects.isExcluded(`global:secrets:${field}`)))
-                  .flatMap(part => part.fields)
-                mergeIntoFile(sources.globalSecretsPath, globalSecrets, take)
-              },
+          secretsApply('global', 'global:secrets', sources.globalSecretsPath, globalSecrets),
           ['secrets'],
         )
         // One item per secret the archive carries, so the password can come back without
@@ -1235,10 +1247,7 @@ export class BackupService {
           }
 
           if (secrets !== null) {
-            addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'secrets' }, kind: 'secrets', workspaceId: id, restorable: true, note: null }, () => {
-              fs.mkdirSync(path.dirname(workspace.secretsPath), { recursive: true })
-              writeFileAtomic(workspace.secretsPath, secrets, { mode: 0o600 })
-            })
+            addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'secrets' }, kind: 'secrets', workspaceId: id, restorable: true, note: null }, secretsApply('workspace', `workspace:${id}:secrets`, workspace.secretsPath, secrets))
             for (const part of secretParts('workspace', presentSecretKeys(parseSecrets(secrets)))) {
               addItem({
                 id: `workspace:${id}:secrets:${part.key}`,
@@ -1404,13 +1413,7 @@ export class BackupService {
           // it. The destination of each entry is what is checked, because that is
           // where the link is resolved; the links themselves are never recreated,
           // which is the stated invariant.
-          () => {
-            fs.cpSync(from, target.path, {
-              recursive: true,
-              force: true,
-              filter: (_source, destination) => isInsideResolved(target.path, destination),
-            })
-          },
+          () => copyTree(from, target.path, (_source, destination) => isInsideResolved(target.path, destination)),
           aliases,
         )
       }
@@ -1431,20 +1434,33 @@ export class BackupService {
         return plan
       }
 
+      let failure: unknown = null
       for (const [id, apply] of actions) {
-        apply()
+        try {
+          await apply()
+        }
+        catch (error) {
+          failure = error
+          break
+        }
         plan.applied.push(labelOf(plan, id))
+        plan.appliedIds.push(id)
       }
-      plan.appliedIds = [...actions.keys()]
 
       // The registry entries come last, and only once their leaves landed: a workspace
       // the panel knows about but whose files were never written would be a workspace
       // that exists and is empty, which is worse than one that is plainly absent.
       for (const workspace of createdWorkspaces.values()) {
-        if (![...actions.keys()].some(id => id.startsWith(`workspace:${workspace.id}:`)))
+        if (!plan.appliedIds.some(id => id.startsWith(`workspace:${workspace.id}:`)))
           continue
         this.options.ensureWorkspace?.({ id: workspace.id, label: workspace.label })
         plan.createdWorkspaces.push(workspace.id)
+      }
+
+      // A restore that failed partway still reloads what it wrote, so memory matches the disk.
+      if (failure !== null) {
+        this.reloadRestored(plan)
+        throw failure
       }
 
       /**
@@ -1492,8 +1508,7 @@ export class BackupService {
         // is copied where the entry can reach it after a restart, and its next `start` runs the hook
         // once the port accepts a connection.
         const staged = path.join(this.options.dataRoot, PENDING_LOAD, entry.workspaceId, entry.serverId)
-        fs.mkdirSync(path.dirname(staged), { recursive: true })
-        fs.cpSync(dumpDir, staged, { recursive: true, force: true })
+        await copyTree(dumpDir, staged, () => true)
         pendingLoads.push({ workspaceId: entry.workspaceId, serverId: entry.serverId, staged })
         plan.hooks = [...(plan.hooks ?? []), {
           serverId: entry.serverId,
@@ -1510,13 +1525,7 @@ export class BackupService {
       for (const load of pendingLoads)
         this.options.onLoadPending?.(load.workspaceId, load.serverId, load.staged)
 
-      if (this.options.onRestored !== undefined && [...actions.keys()].some(id => RELOADABLE.test(id))) {
-        plan.reloaded = true
-        // The panel re-reads the restored settings and servers here, so what the
-        // archive brought exists immediately instead of after a restart.
-        this.options.onRestored()
-      }
-
+      this.reloadRestored(plan)
       return plan
     }
     catch (error) {
@@ -1535,6 +1544,14 @@ export class BackupService {
       // the next moment the directory is known not to be in use.
       this.sweepStaging()
     }
+  }
+
+  /** The panel re-reads the restored settings and servers, so what the archive brought exists immediately. */
+  private reloadRestored(plan: RestorePlan & { appliedIds: string[] }): void {
+    if (this.options.onRestored === undefined || !plan.appliedIds.some(id => RELOADABLE.test(id)))
+      return
+    plan.reloaded = true
+    this.options.onRestored()
   }
 
   /** Selectable entries: the three global slices, then one per workspace. */
@@ -1773,26 +1790,22 @@ export class BackupService {
   }
 
   /** Copies one source into the staging tree; false when there was nothing there. */
-  private copyInto(staging: string, relative: string, source: string, ignoreGenerated = false): boolean {
+  private async copyInto(staging: string, relative: string, source: string, ignoreGenerated = false): Promise<boolean> {
     if (!fs.existsSync(source))
       return false
     const target = path.join(staging, relative)
     fs.mkdirSync(path.dirname(target), { recursive: true })
     // Never copy the archive directory into itself, however broad a declared
-    // path is (`fs.cpSync` would walk it while writing into it).
+    // path is (the copy would walk it while writing into it).
     const archiveDir = path.resolve(this.resolveDir())
     const root = path.resolve(source)
-    fs.cpSync(source, target, {
-      recursive: true,
-      force: true,
-      filter: (from) => {
-        const resolved = path.resolve(from)
-        if (isInside(archiveDir, resolved))
-          return false
-        if (!ignoreGenerated || resolved === root)
-          return true
-        return !isGeneratedPath(path.relative(root, resolved))
-      },
+    await copyTree(source, target, (from) => {
+      const resolved = path.resolve(from)
+      if (isInside(archiveDir, resolved))
+        return false
+      if (!ignoreGenerated || resolved === root)
+        return true
+      return !isGeneratedPath(path.relative(root, resolved))
     })
     return true
   }
@@ -1809,10 +1822,36 @@ export class BackupService {
     const config = this.options.getConfig()
     const files = this.list()
     const automatic = files.filter(isAutomatic)
-    const manual = files.filter(file => !isAutomatic(file))
+    const manual = files.filter(file => ARCHIVE_NAME.exec(file.name)?.[1] === MANUAL_PREFIX)
 
     for (const file of automatic.slice(config.schedule.keep)) this.remove(file.name)
     for (const file of manual.slice(config.keep)) this.remove(file.name)
+    this.sweepPartials()
+  }
+
+  /**
+   * An archive killed mid-write leaves its `.<name>.partial` behind (`createZip` renames only on
+   * success). An hour old is never a write in progress — a live one keeps touching its mtime.
+   */
+  private sweepPartials(now = Date.now()): void {
+    const dir = this.resolveDir()
+    let names: string[] = []
+    try {
+      names = fs.readdirSync(dir)
+    }
+    catch {
+      return
+    }
+    for (const name of names.filter(entry => entry.startsWith('.') && entry.endsWith(`${SUFFIX}.partial`))) {
+      const file = path.join(dir, name)
+      try {
+        if (now - fs.statSync(file).mtimeMs > 60 * 60_000)
+          fs.rmSync(file, { force: true })
+      }
+      catch {
+        // gone already, or not ours to remove
+      }
+    }
   }
 
   /** When the newest automatic archive was written, or null when there is none. */
@@ -1836,6 +1875,16 @@ export class BackupService {
     const latest = last === null ? this.lastAttemptAt : Math.max(last, this.lastAttemptAt ?? 0)
     if (latest !== null && now - latest < config.schedule.intervalMs)
       return
+
+    // A pass now would capture a half-restored tree; wait for the restore, without spending the attempt.
+    const restoring = restoreLockHolder(this.options.dataRoot)
+    if (restoring !== null) {
+      if (!this.deferredForRestore)
+        logger.info(`the scheduled backup is waiting for the restore that is running (pid ${restoring.pid})`)
+      this.deferredForRestore = true
+      return
+    }
+    this.deferredForRestore = false
 
     this.running = true
     this.lastAttemptAt = now
@@ -1875,7 +1924,7 @@ export class BackupService {
 
 /** Whether an archive came from the schedule rather than from a person. */
 function isAutomatic(file: { name: string }): boolean {
-  return file.name.startsWith(`${AUTO_PREFIX}-`)
+  return ARCHIVE_NAME.exec(file.name)?.[1] === AUTO_PREFIX
 }
 
 /** The label of one item, for `applied`; items are built before actions run. */

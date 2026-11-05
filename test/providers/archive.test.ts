@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { afterEach, describe, expect, it } from 'vitest'
+import { Readable } from 'node:stream'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from '#src/providers/archive'
 
 /**
@@ -58,6 +59,63 @@ describe('createZip', () => {
     // The directory's own entry may be there — it was classified before it went —
     // but nothing under it was invented, and the zip is a real one.
     expect(names.some(name => name.startsWith('doomed/') && name !== 'doomed/')).toBe(false)
+  })
+})
+
+describe('an interrupted archive', () => {
+  it('never leaves a file under the final name, nor its partial', async () => {
+    const root = await tempDir()
+    const outDir = await tempDir()
+    const out = path.join(outDir, 'backup.zip')
+    fs.writeFileSync(path.join(root, 'a.txt'), 'some bytes to read')
+
+    vi.spyOn(fs, 'createReadStream').mockImplementation((() => new Readable({
+      read() {
+        this.destroy(new Error('disk went away'))
+      },
+    })) as unknown as typeof fs.createReadStream)
+    try {
+      await expect(createZip(root, out)).rejects.toThrow()
+    }
+    finally {
+      vi.restoreAllMocks()
+    }
+
+    expect(fs.readdirSync(outDir), 'a failed archive leaves nothing that reads as a backup').toEqual([])
+  })
+
+  it('lets the event loop run while it walks the tree', async () => {
+    const root = await tempDir()
+    const out = path.join(await tempDir(), 'backup.zip')
+    for (const name of ['a', 'b', 'c'])
+      fs.writeFileSync(path.join(root, `${name}.txt`), name)
+
+    // Every slice is over budget, so a walk that yields at all yields between entries.
+    let clock = performance.now()
+    vi.spyOn(performance, 'now').mockImplementation(() => clock += 1000)
+    let turns = 0
+    let turn = setImmediate(function spin() {
+      turns++
+      turn = setImmediate(spin)
+    })
+    const seen: number[] = []
+    const statSync = fs.statSync
+    vi.spyOn(fs, 'statSync').mockImplementation(((target: fs.PathLike, ...rest: unknown[]) => {
+      if (String(target).startsWith(root))
+        seen.push(turns)
+      return (statSync as (...args: unknown[]) => unknown)(target, ...rest)
+    }) as never)
+    try {
+      await createZip(root, out)
+    }
+    finally {
+      clearImmediate(turn)
+      vi.restoreAllMocks()
+    }
+
+    expect(seen, 'the walk reached every entry').toHaveLength(3)
+    expect(new Set(seen).size, 'a walk in one synchronous run stalls the panel for the whole tree').toBeGreaterThan(1)
+    expect((await listZip(out)).map(entry => entry.name)).toEqual(['a.txt', 'b.txt', 'c.txt'])
   })
 })
 

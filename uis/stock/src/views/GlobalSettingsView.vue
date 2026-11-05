@@ -247,6 +247,7 @@ function resetListener(): void {
     form.control.port = baseline.port
     form.control.host = baseline.host
     form.control.openBrowser = baseline.openBrowser
+    form.control.allowedHosts = baseline.allowedHosts
   }
   rememberControlPart(form, snapshots, 'listener')
 }

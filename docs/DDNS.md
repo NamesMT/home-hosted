@@ -2,7 +2,15 @@
 
 Keep a list of hostnames pointed at this machine's public IP. The panel checks the address on an
 interval and calls a provider only when it actually changed — restart-safe, because the last
-confirmed address per hostname is kept in the workspace's `.hh/<workspace>/.state/ddns.json`.
+confirmed address per hostname, account and provider is kept in the workspace's
+`.hh/<workspace>/.state/ddns.cache.json`. Saving an account's credentials forgets what that account had
+confirmed, so the next pass writes its hostnames again.
+
+A refusal retrying cannot fix — bad credentials, a hostname the provider does not know, an abuse
+block — **stops** that hostname instead of retrying it every interval: its row stays an error marked
+*stopped* until its hostname, account or credentials change, the settings are saved, or you run a
+check. Detection only accepts a public address: private, CGNAT, documentation, benchmarking and
+multicast ranges are refused, and each detector gets 10 seconds.
 
 **Workspace Settings → Dynamic DNS** is the whole setup: add an account, paste its credentials, add
 hostnames. The block is saved by the page's own **Save settings**, like every other section on it; the

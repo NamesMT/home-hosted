@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, green, invocation, paint } from '#src/cli/io'
+import { bold, dim, firstRunPassword, green, invocation, paint } from '#src/cli/io'
 
 /** `status` answers "is it running, where, and how do I reach it". */
 
@@ -12,7 +12,7 @@ export const statusArgs = {
 
 export async function runStatus(json: boolean): Promise<void> {
   const { configuredPanelAddress, isLiveLiveness, probeRuntime, readRuntime, runtimeLiveness } = await import('#src/helpers/daemon')
-  const { UiService } = await import('#src/services/ui')
+  const { customUiInstalled, uiIdentity } = await import('#src/helpers/ui-dir')
   const { hhDir: dataRoot, workspaceDir, workspacesPath } = await import('#src/helpers/paths')
   const { readLastStop } = await import('#src/helpers/last-stop')
   // The per-server log directory is the **default workspace's**, and "which one is the default" is
@@ -77,9 +77,9 @@ export async function runStatus(json: boolean): Promise<void> {
 
   // Read once, above both outputs, so they cannot disagree about which UI is installed — the text
   // form prints it as a row and a script asking for JSON needs it just as much.
-  const ui = new UiService({ dataRoot })
-  const uiMeta = ui.status().meta
-  const uiLabel = ui.custom ? uiMeta?.name ?? 'installed' : 'stock'
+  const ui = { custom: customUiInstalled(dataRoot) }
+  const uiMeta = uiIdentity(dataRoot)
+  const uiLabel = ui.custom ? uiMeta.name ?? 'installed' : 'stock'
 
   if (json) {
     // The token is what authorises a local shutdown; a script only needs the rest.
@@ -102,7 +102,7 @@ export async function runStatus(json: boolean): Promise<void> {
       exitedCleanly: false,
       ...safe,
       logsDir: serverLogsDir,
-      ui: { custom: ui.custom, name: uiLabel, version: uiMeta?.version ?? null },
+      ui: { custom: ui.custom, name: uiLabel, version: uiMeta.version },
     }, null, 2)}\n`)
     if (!running)
       process.exitCode = 1
@@ -142,6 +142,9 @@ export async function runStatus(json: boolean): Promise<void> {
     ['serverlogs', fs.existsSync(serverLogsDir) ? `${serverLogsDir} (one file per server: <id>.log)` : serverLogsDir],
     ['ui', ui.custom ? `custom — ${uiLabel} (revert with \`${invocation()} ui-revert\`)` : 'stock'],
   ]
+  const initial = await firstRunPassword()
+  if (initial !== null)
+    rows.push(['password', `${paint('33', initial)} ${dim('(first-run password — change it in Global settings → Authentication)')}`])
 
   process.stdout.write(`${bold(`home-hosted ${runtime.version}`)}\n`)
   // Width from the rows, not a literal: the column was hard-coded at 8 until a 10-character

@@ -7,6 +7,40 @@ do about them.
 Keep each entry to what someone must *change*, not what was added. If a release has nothing a person
 must act on, it needs no section here at all.
 
+## 0.12.0
+
+**A public hostname must be declared.** The panel now refuses (`421 HOST_NOT_ALLOWED`) a request
+whose `Host` is a public name it does not know — the fix for a DNS-rebinding attack that let any web
+page drive a loopback-only panel. IPs, `localhost`, single-label and local names (`.local`, `.lan`,
+`.home.arpa`, …) and the panel's own reverse-proxy routes keep working. **If you reach the panel
+through an external proxy or tunnel on a public name**, add it before upgrading:
+
+```json
+{ "control": { "allowedHosts": ["panel.example.com"] } }
+```
+
+in `.hh/settings.json` (or under Global settings → Listener, reached by IP).
+
+**`trustProxy` now defaults to `"loopback"`.** A proxy on the same machine is trusted for the client
+address, so login lockout counts real clients instead of one shared `127.0.0.1`. A request carrying
+`X-Forwarded-For`/`Forwarded`/`X-Real-IP` never counts as "this machine" any more, whatever the
+setting. Set `trustProxy: false` explicitly to keep the old behaviour.
+
+**No more shared default password.** A new home gets a random first-run password, printed by `up`
+and shown by `status` until you change it. `/api/auth/session` no longer returns it (`defaultPassword`
+is always `null`). A home still on the old `hh` keeps working, and `status` reminds you to change it.
+
+**Bearer-token requests skip the same-origin check**, so a desktop or other-origin client can call
+the API. Cookie-authenticated writes are still same-origin only.
+
+**`SseMessage` is a union by `type`** (for TypeScript users of the shared contracts): narrow on
+`frame.type` before reading `serverId`, `server`, `lines` or `state`. The frames on the wire are
+unchanged. New: `home-hosted/client`, a typed client in the package.
+
+**Lifecycle refusals carry `message` and `code`** like every other error (`ok`/`error` remain).
+`/api/events?workspace=<id>` now filters server and log frames to that workspace, and refuses
+undeclared query keys.
+
 ## 0.11.1
 
 **A workspace-scoped route now refuses a query key it does not declare.** This is the one thing to

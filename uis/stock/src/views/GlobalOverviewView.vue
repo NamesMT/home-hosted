@@ -112,7 +112,8 @@ onMounted(async () => {
         <div class="p-4">
           <StatTile :label="t('views.globalOverview.panelUptime')" :value="panelUptime" :hint="panel.status.value === 'degraded' ? t('views.globalOverview.degraded') : t('views.globalOverview.serving')" />
         </div>
-        <div class="p-4">
+        <!-- Five tiles in a 2- or 3-column grid: the last one closes its row instead of leaving a hole. -->
+        <div class="col-span-2 p-4 lg:col-span-1">
           <StatTile :label="t('views.globalOverview.hostUptime')" :value="hostUptime" :hint="host?.enabled ? t('views.globalOverview.samplingOn') : t('views.globalOverview.samplingOff')" />
         </div>
       </div>

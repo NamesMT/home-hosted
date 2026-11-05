@@ -659,10 +659,11 @@ async function sendTest(): Promise<void> {
               </label>
               <label class="field">
                 <span class="field__label">bind</span>
-                <select v-model="form.defaults.bind">
-                  <option value="local">local (127.0.0.1)</option>
-                  <option value="lan">lan (0.0.0.0)</option>
-                </select>
+                <input v-model="form.defaults.bind" list="noc-bind-presets" placeholder="local, lan or an ipv4" spellcheck="false">
+                <datalist id="noc-bind-presets">
+                  <option value="local">127.0.0.1</option>
+                  <option value="lan">0.0.0.0</option>
+                </datalist>
               </label>
               <label class="field">
                 <span class="field__label">on port conflict</span>

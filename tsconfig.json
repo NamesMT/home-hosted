@@ -31,6 +31,7 @@
     "uis/vite.shared.ts",
     "uis/*/vite.config.ts",
     "vite.server.config.ts",
+    "vite.client.config.ts",
     "vitest.config.ts"
   ],
   "exclude": [

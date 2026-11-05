@@ -17,6 +17,7 @@ import { changesOpen } from '@/composables/useUi'
 import * as api from '@/lib/api'
 import { describeScope, schedulePatch } from '@/lib/backupSelection'
 import { waitForEndpoint } from '@/lib/endpoint'
+import { linesToArray } from '@/lib/fields'
 import { formatBytes, formatDateTime } from '@/lib/format'
 import { repairNumbers, secondsOf } from '@/lib/forms'
 
@@ -44,6 +45,7 @@ const form = reactive({
     port: 3999,
     host: 'local' as string,
     openBrowser: false,
+    allowedHosts: '',
     tlsEnabled: false,
   },
   host: {
@@ -129,6 +131,7 @@ function fillControl(): boolean {
     port: view.port,
     host: view.host,
     openBrowser: view.openBrowser,
+    allowedHosts: (view.allowedHosts ?? []).join('\n'),
     tlsEnabled: view.tls.enabled,
   })
   return true
@@ -298,6 +301,7 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
       port: view.port,
       host: view.host,
       openBrowser: view.openBrowser,
+      allowedHosts: view.allowedHosts ?? [],
       tls: { enabled: view.tls.enabled },
       // The wire shape, matching `next` below. `authConfig` returns the *form* shape and is for hydrating.
       auth: { ...authConfig(view.auth), trustProxy: toWireTrustProxy(view.auth.trustProxy) },
@@ -307,6 +311,7 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
       port: form.control.port,
       host: form.control.host,
       openBrowser: form.control.openBrowser,
+      allowedHosts: linesToArray(form.control.allowedHosts),
       tls: { enabled: form.control.tlsEnabled },
       // The select holds the three-way choice as a string; the wire form is `boolean | 'loopback'`.
       auth: { ...form.auth, trustProxy: toWireTrustProxy(form.auth.trustProxy) },
@@ -373,6 +378,7 @@ const currentSnapshot = computed<Patch>(() => {
           port: view.port,
           host: view.host,
           openBrowser: view.openBrowser,
+          allowedHosts: view.allowedHosts ?? [],
           tls: { enabled: view.tls.enabled },
           auth: authConfig(view.auth),
         },
@@ -505,6 +511,27 @@ async function clearPassword(): Promise<void> {
   if (failure !== null)
     passwordError.value = failure
   else passwordMessage.value = 'password cleared and authentication disabled'
+}
+
+const apiTokenSet = computed(() => controlView.value?.auth.apiTokenSet === true)
+/** Shown once, then gone with the page — the panel keeps only its hash. */
+const mintedToken = ref<string | null>(null)
+const tokenError = ref<string | null>(null)
+
+async function tokenAction(mint: boolean): Promise<void> {
+  tokenError.value = null
+  try {
+    if (mint) {
+      mintedToken.value = (await api.generateApiToken()).token
+    }
+    else {
+      await api.revokeApiToken()
+      mintedToken.value = null
+    }
+  }
+  catch (caught) {
+    tokenError.value = errorMessage(caught)
+  }
 }
 
 const backupBusy = ref(false)
@@ -755,6 +782,10 @@ async function revertUi(): Promise<void> {
                 <span class="field__label">open a browser on <code>up</code></span>
               </label>
               <label class="field">
+                <span class="field__label">allowed public hostnames <small>one per line — only for a name an external proxy forwards here</small></span>
+                <textarea v-model="form.control.allowedHosts" rows="2" spellcheck="false" placeholder="panel.example.com" />
+              </label>
+              <label class="field">
                 <span class="field__label">live address</span>
                 <input :value="liveAddress" disabled>
               </label>
@@ -933,6 +964,27 @@ async function revertUi(): Promise<void> {
               <button type="button" class="btn btn--sm btn--primary" :disabled="passwordSaving" @click="savePassword">
                 {{ passwordSet ? 'Update password' : 'Set password and enable auth' }}
               </button>
+            </div>
+
+            <p class="note">
+              API token: <strong>{{ apiTokenSet ? 'set' : 'none' }}</strong> — scripts and apps send it as
+              <code>Authorization: Bearer …</code>. It is full admin; changing the password does not revoke it.
+            </p>
+            <label v-if="mintedToken" class="field">
+              <span class="field__label">new token — copy it now, it is shown once</span>
+              <input :value="mintedToken" readonly spellcheck="false" @focus="($event.target as HTMLInputElement).select()">
+            </label>
+            <p v-if="tokenError" class="note note--error">
+              {{ tokenError }}
+            </p>
+            <div class="actions actions--start">
+              <button v-if="!apiTokenSet" type="button" class="btn btn--sm" @click="tokenAction(true)">
+                Generate token
+              </button>
+              <template v-else>
+                <ConfirmButton label="Regenerate token" confirm-label="Confirm regenerate" title="Every script and app using the current token stops working" @confirm="tokenAction(true)" />
+                <ConfirmButton label="Revoke token" confirm-label="Confirm revoke" tone="danger" title="Every script and app using the token loses access at once" @confirm="tokenAction(false)" />
+              </template>
             </div>
           </div>
         </div>

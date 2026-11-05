@@ -1,7 +1,7 @@
 import type { NannyState, StopConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
-import { NANNY_TRAPPED_SIGNALS, nannyIsAlive, nannySpecPath, nannyStatePath, readNannyState, SPEC_SUFFIX } from '#src/providers/nanny'
+import { NANNY_TRAPPED_SIGNALS, nannyIsAlive, nannySpecPath, nannyStatePath, nannyStopOptions, readNannyState, SPEC_SUFFIX } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
 import { terminatePid } from '#src/providers/process'
 import { stopSchema } from '#src/shared/contracts'
@@ -118,7 +118,7 @@ export async function stopPersistentEntries(
   for (const handle of handles) {
     const stop = options.stopFor?.(handle) ?? defaultStop
     const { state, dir, serverId } = handle
-    const nanny = await terminate(state.nannyPid, { signal: stop.signal, killGroup: stop.killGroup, graceMs: stop.graceMs })
+    const nanny = await terminate(state.nannyPid, nannyStopOptions(stop))
 
     // A nanny this process could not signal, or one that outlived `SIGKILL`, keeps its
     // record: it is the only way a later boot can find that process again.

@@ -21,6 +21,7 @@ import {
   workspaceDdnsStatePath,
   workspaceDir,
   workspaceHistoryPath,
+  workspaceLegacyDdnsStatePath,
   workspaceLogsDir,
   workspaceSecretsPath,
   workspaceServersPath,
@@ -462,6 +463,7 @@ export class PanelService {
       getCredentials: (accountId, provider) => secrets.getDdnsCredentials(accountId, provider)?.values ?? null,
       notifications,
       statePath: workspaceDdnsStatePath(id),
+      legacyStatePath: workspaceLegacyDdnsStatePath(id),
     })
 
     const supervisor = new Supervisor(store, this.options.hub, {
@@ -633,11 +635,9 @@ export class PanelService {
 /** A cheap change key: everything the UI redraws from, nothing it does not. */
 function stateSignature(state: AppState): string {
   return [
-    state.control.label,
-    state.control.url,
-    state.control.auth.exposed,
-    state.control.restartRequired,
-    state.control.tls.enabled,
+    // Whole, like the host view below: a hand-picked list missed `apiTokenSet`, `passwordSet` and
+    // `allowedHosts`, so another tab never saw a token minted or a password set.
+    JSON.stringify(state.control),
     /*
      * The whole host view, not a list of its fields. Signing only `sampledAt` and `alerts` published
      * nothing when sampling was switched off — that branch of `HostMonitor.tick` changes `enabled`
@@ -667,55 +667,10 @@ function stateSignature(state: AppState): string {
           state.proxy.engine.version ?? '',
           ...state.proxy.routes.map(route => `${route.route.id}:${route.status}:${route.upstream ?? ''}`),
         ].join(':'),
-    ...state.workspaces.flatMap(workspace => [
-      workspace.id,
-      workspace.label,
-      workspace.configError ?? '',
-      workspace.ddns === undefined
-        ? ''
-        : [workspace.ddns.running, workspace.ddns.lastRunAt, workspace.ddns.ipv4, workspace.ddns.ipv6, ...workspace.ddns.records.map(record => `${record.host}:${record.type}:${record.state}:${record.ip}`)].join(':'),
-      /*
-       * Every field a row shows, because any of them changing is news: a rename, an edit, a token
-       * arriving. A policy-only save used to publish no frame at all — the page then showed stale
-       * values until the host sample happened to move, up to an interval later.
-       */
-      ...(workspace.notifications.destinations ?? []).map(destination => [
-        destination.id,
-        destination.kind,
-        destination.enabled,
-        destination.useOwnSettings,
-        destination.chatId ?? '',
-        destination.tokenSet,
-        destination.url ?? '',
-        destination.method ?? '',
-        destination.format ?? '',
-        destination.headers ?? '',
-        destination.onCrash,
-        destination.onUnhealthy,
-        destination.onForcedRestart,
-        destination.onRecovered,
-        destination.onHost,
-        destination.onDdns ?? '',
-        destination.cooldownMs,
-        destination.lastResult ?? '',
-        destination.lastResultAt ?? '',
-      ].join(':')),
-      ...workspace.servers.map(server => [
-        server.id,
-        server.status,
-        server.health,
-        server.portState,
-        server.pid,
-        server.restarts,
-        server.nextRetryAt,
-        server.lastError,
-        server.bufferedLines,
-        // A new resource sample *is* news: the UI builds its charts by sampling
-        // these frames, so leaving them out of the signature means a fleet where
-        // nothing structural changes emits no frames at all.
-        server.responseMs,
-        server.resources?.sampledAt,
-      ].join(':')),
-    ]),
+    /*
+     * The whole workspace view, for the reason the host view above is signed whole: a hand-picked
+     * list left out `orphans`, so a stray process appearing or going published nothing.
+     */
+    ...state.workspaces.map(workspace => JSON.stringify(workspace)),
   ].join('|')
 }

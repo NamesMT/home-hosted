@@ -6,9 +6,6 @@ import { parseCookies } from '#src/helpers/cookies'
 
 export const SESSION_COOKIE = 'hh_session'
 
-/** Created on first boot when no password exists; exposure stays blocked until it changes. */
-export const DEFAULT_PASSWORD = 'hh'
-
 const MAX_SESSIONS = 100
 const MAX_LOCKOUT_MS = 15 * 60_000
 /** Bounds on the per-IP bookkeeping, which an attacker can otherwise grow. */
@@ -172,7 +169,8 @@ export class AuthService {
       passwordSet: this.secrets.passwordSet,
       apiTokenSet: this.secrets.apiTokenSet,
       usingDefaultPassword: this.secrets.usingDefaultPassword,
-      defaultPassword: this.secrets.usingDefaultPassword ? DEFAULT_PASSWORD : null,
+      // Kept for older UIs; the first-run password is shown on the machine, never over the API.
+      defaultPassword: null,
       sessionTtlMs: this.getConfig().sessionTtlMs,
     }
   }

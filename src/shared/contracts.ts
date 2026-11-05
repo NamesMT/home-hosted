@@ -273,7 +273,7 @@ export const authSchema = type({
   /** `auto` adds `Secure` when the request arrived over https (proxy-aware). */
   cookieSecure: '"auto" | "always" | "never" = "auto"',
   /** Trust `x-forwarded-*` from a reverse proxy; also drives the client IP. */
-  trustProxy: 'boolean | "loopback" = false',
+  trustProxy: 'boolean | "loopback" = "loopback"',
   maxLoginAttempts: 'number.integer >= 1 = 5',
   lockoutMs: 'number >= 1000 = 60000',
 }).onUndeclaredKey('reject')
@@ -540,14 +540,16 @@ export type DdnsRecordState = typeof ddnsRecordStateSchema.infer
 
 /** What happened to one hostname on the last pass. */
 export const ddnsRecordViewSchema = type({
-  host: 'string',
-  account: 'string',
-  provider: 'string',
-  type: ddnsRecordTypeSchema,
-  ip: 'string | null',
-  state: ddnsRecordStateSchema,
-  message: 'string | null',
-  updatedAt: 'number | null',
+  'host': 'string',
+  'account': 'string',
+  'provider': 'string',
+  'type': ddnsRecordTypeSchema,
+  'ip': 'string | null',
+  'state': ddnsRecordStateSchema,
+  'message': 'string | null',
+  'updatedAt': 'number | null',
+  /** The provider refused permanently; no retry until the hostname, account or credentials change, or a check. */
+  'stopped?': 'boolean',
 })
 export type DdnsRecordView = typeof ddnsRecordViewSchema.infer
 
@@ -666,6 +668,8 @@ export const backupsSchema = type({
 }).onUndeclaredKey('reject')
 export type BackupsConfig = typeof backupsSchema.infer
 
+const allowedHostsSchema = type(/^(?:\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i).array().atMostLength(64)
+
 export const controlSchema = type({
   /** What the panel calls itself; the stock UI shows it in the sidebar. */
   label: '1 <= string <= 60 = "home-hosted"',
@@ -673,6 +677,11 @@ export const controlSchema = type({
   /** Where the control panel itself listens; keep it `local` unless you mean it. */
   host: bindSchema.default(() => 'local' as const),
   openBrowser: 'boolean = false',
+  /**
+   * Public hostnames the panel answers to, besides IPs, local names and its own proxy routes —
+   * a name an external reverse proxy or tunnel forwards. `*.example.com` matches subdomains.
+   */
+  allowedHosts: allowedHostsSchema.default(() => []),
   auth: authSchema.default(() => ({})),
   tls: tlsSchema.default(() => ({})),
 }).onUndeclaredKey('reject')
@@ -837,6 +846,7 @@ const controlPatchSchema = type({
   port: '1 <= number.integer <= 65535?',
   host: bindSchema.optional(),
   openBrowser: 'boolean?',
+  allowedHosts: allowedHostsSchema.optional(),
   auth: authPatchSchema.optional(),
   tls: tlsPatchSchema.optional(),
 }).onUndeclaredKey('reject')
@@ -1371,7 +1381,10 @@ export const sessionViewSchema = type({
 })
 export type SessionView = typeof sessionViewSchema.infer
 
-export const loginSchema = type({ password: 'string' }).onUndeclaredKey('reject')
+/** `POST /api/auth/token`: the new token, returned once, and the readable head the panel keeps. */
+export const apiTokenCreatedSchema = type({ token: 'string', hint: 'string' })
+
+export const loginSchema = type({ password: 'string <= 512' }).onUndeclaredKey('reject')
 export type LoginRequest = typeof loginSchema.infer
 
 /** Any non-empty password is allowed; only a sanity cap on the length. */
@@ -1855,19 +1868,20 @@ export const healthResponseSchema = type({
 
 export const controlViewSchema = type({
   /** The configured panel name, for the shell to render. */
-  label: 'string',
-  port: 'number',
+  'label': 'string',
+  'port': 'number',
   /** The configured bind value (`local` | `lan` | ipv4). */
-  host: 'string',
+  'host': 'string',
   /** The address actually bound. */
-  bindHost: 'string',
-  url: 'string',
-  openBrowser: 'boolean',
+  'bindHost': 'string',
+  'url': 'string',
+  'openBrowser': 'boolean',
+  'allowedHosts?': 'string[]',
   /** The live listener differs from the configured host/port. */
-  restartRequired: 'boolean',
-  protocol: 'string',
-  auth: authStatusSchema,
-  tls: tlsStatusSchema,
+  'restartRequired': 'boolean',
+  'protocol': 'string',
+  'auth': authStatusSchema,
+  'tls': tlsStatusSchema,
 })
 export type ControlView = typeof controlViewSchema.infer
 
@@ -1973,15 +1987,27 @@ export const appStateSchema = type({
 }).onDeepUndeclaredKey('ignore')
 export type AppState = typeof appStateSchema.infer
 
-export const sseMessageSchema = type({
-  'type': '"hello" | "state" | "log" | "server"',
+/** One SSE frame, discriminated by `type`: a client narrowing on it gets the payload that frame carries. */
+const stateFrameSchema = type({
+  type: '"hello" | "state"',
+  ts: 'number',
+  state: appStateSchema,
+}).onDeepUndeclaredKey('ignore')
+const serverFrameSchema = type({
+  'type': '"server"',
   'ts': 'number',
   'workspaceId?': 'string',
-  'serverId': 'string?',
-  'state': appStateSchema.optional(),
-  'server': serverViewSchema.optional(),
-  'lines': logLineSchema.array().optional(),
+  'serverId': 'string',
+  'server': serverViewSchema,
 }).onDeepUndeclaredKey('ignore')
+const logFrameSchema = type({
+  'type': '"log"',
+  'ts': 'number',
+  'workspaceId?': 'string',
+  'serverId': 'string',
+  'lines': logLineSchema.array(),
+}).onDeepUndeclaredKey('ignore')
+export const sseMessageSchema = stateFrameSchema.or(serverFrameSchema).or(logFrameSchema)
 export type SseMessage = typeof sseMessageSchema.infer
 
 export const logQuerySchema = type({
@@ -1998,6 +2024,7 @@ export const logQuerySchema = type({
 export const actionResultSchema = type({
   'ok': 'boolean',
   'error?': 'string',
+  'message?': 'string',
   'code?': 'string',
 })
 export type ActionResultBody = typeof actionResultSchema.infer
@@ -2234,7 +2261,7 @@ export const apiErrorSchema = type({
   'code': 'string',
   /** Structured context when the failure has any — a field list, the routes holding a certificate. */
   'detail?': 'unknown',
-}).onUndeclaredKey('reject')
+})
 
 export const tlsUploadSchema = type({
   certificate: 'string >= 1',

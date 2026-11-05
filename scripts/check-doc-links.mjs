@@ -21,10 +21,14 @@ import process from 'node:process'
 /** The docs the package actually ships; keep in step with `package.json#files`. */
 const SHIPPED = [
   'README.md',
+  'docs/API.md',
+  'docs/BACKUPS.md',
+  'docs/CLI.md',
   'docs/DDNS.md',
   'docs/NOTIFICATIONS.md',
   'docs/RESTORE_DEMO.md',
   'docs/REVERSE_PROXY.md',
+  'docs/SECURITY.md',
   'docs/SERVERS.md',
   'docs/UI_CREATION.md',
 ]

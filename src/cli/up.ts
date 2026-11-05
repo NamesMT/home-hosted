@@ -6,7 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { buildDaemonArgv } from '#src/cli/args'
-import { bold, delay, dim, fail, green, invocation, paint } from '#src/cli/io'
+import { bold, delay, dim, fail, firstRunPassword, green, invocation, paint } from '#src/cli/io'
 import { rotateLog, tailLog } from '#src/helpers/daemon-log'
 import { runtimeArgs } from '#src/helpers/runtime'
 import { versionMismatchNote } from '#src/helpers/version'
@@ -178,6 +178,9 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
   process.stdout.write(`  ${dim(`project ${runtime.projectDir}`)}\n`)
   process.stdout.write(`  ${dim(`state   ${runtime.dataRoot}`)}\n`)
   process.stdout.write(`  ${dim(`log     ${runtime.logFile}`)}\n`)
+  const initial = await firstRunPassword()
+  if (initial !== null)
+    process.stdout.write(`${paint('33', 'password')} ${bold(initial)} ${dim('— the first-run password; change it in Global settings → Authentication')}\n`)
   await warnIfWslTemperatureMissing()
 }
 

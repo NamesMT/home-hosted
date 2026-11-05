@@ -171,3 +171,15 @@ export async function confirm(question: string, fallback: boolean): Promise<bool
     return fallback
   return answer === 'y' || answer === 'yes'
 }
+
+/** The first-run password while it is still the one in use, read from this machine's secrets file. */
+export async function firstRunPassword(): Promise<string | null> {
+  const { SecretsStore } = await import('#src/config/secrets')
+  const { globalSecretsPath } = await import('#src/helpers/paths')
+  try {
+    return new SecretsStore(globalSecretsPath, undefined, 'global').initialPassword
+  }
+  catch {
+    return null
+  }
+}

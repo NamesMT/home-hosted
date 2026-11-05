@@ -44,8 +44,8 @@ describe('formatDuration and formatUptime-style rendering', () => {
     expect(formatDuration(0)).toBe('0s')
     expect(formatDuration(1_000)).toBe('1s')
     expect(formatDuration(90_000)).toBe('1m 30s')
-    expect(formatDuration(3_600_000)).toBe('1h 0m')
-    expect(formatDuration(86_400_000)).toBe('1d 0h')
+    expect(formatDuration(3_600_000)).toBe('1h')
+    expect(formatDuration(86_400_000)).toBe('1d')
   })
 })
 

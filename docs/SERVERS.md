@@ -85,7 +85,7 @@ asks for a program of that name, because `command` is spawned with no shell.
 | `command`, `args`, `cwd` | what to run. `{placeholders}` resolve in `args` only (`env`, `dataEnvs`, `backupPaths` and `bootstrap.args` too); `command`, `cwd` and `envFile` are used literally, so `cwd: "~/app"` is not a home directory. **`command` is a program, not a command line** — it is spawned with no shell, so `"node server.js"` asks for a program of that name; write `"command": "node", "args": ["server.js"]` |
 | `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config. The env file is yours to write — `KEY=value`, one per line — and it is read whatever a Windows editor saved: a byte-order mark or UTF-16 is decoded, not refused |
 | `enabled` | `true` (default) starts it; `false` keeps the entry in the config but refuses to start it, stops it if it is running, and leaves a disabled `persistent` entry unattached at boot |
-| `port`, `bind` | enables the readiness wait, health checks and the conflict preflight; `local` keeps it on `127.0.0.1` |
+| `port`, `bind` | `port` enables the readiness wait, health checks and the conflict preflight. `bind` is `local` (`127.0.0.1`, the default), `lan` (`0.0.0.0`, every interface) or one IPv4 address of this machine — a Wi-Fi or VPN address, say — exposed to the program as `{host}` |
 | `onPortConflict` | `block` (default), `warn`, `follow`, `reclaim`, or `kill` — see below |
 | `persistent` | run it under its own nanny so it survives the panel — see below |
 | `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body — a `HEAD` carries no body, so it is warned about and the body check is skipped) |
@@ -382,11 +382,13 @@ normal process, so it is still subject to:
   own lifecycle to be the only thing that decides.
 - **A container.** Docker stops everything in the container's PID namespace, so persistence means the
   panel's lifetime inside that container, not the host's.
-- **Windows, on the forced path.** `taskkill /T` walks the parent tree, and `down` takes that path
-  automatically when the panel has not exited 20s after the shutdown request; the graceful path
-  (which is what `down` normally takes) leaves a persistent entry alone. `--with-persistent` stops
-  each nanny by pid, so it ends them on either path — and `restart --with-persistent` has to stop
-  them for real, because `up` reattaches to a nanny that is still alive.
+
+`down` forces the panel only once it has outlived the slowest configured stop (its `stop.graceMs`, plus
+a compose stack's `docker stop`, plus a margin; between 20s and 10 minutes), and even then it ends the
+panel's own pid alone, on Windows too — a persistent entry survives the forced path.
+`--with-persistent` stops each nanny by pid, so it ends them on either path — and
+`restart --with-persistent` has to stop them for real, because `up` reattaches to a nanny that is
+still alive.
 
 ## CPU temperature where the OS exposes none
 

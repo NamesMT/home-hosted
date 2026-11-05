@@ -37,7 +37,7 @@ describe('the UI contract route table', () => {
     expect(called.size, 'the clients must name several routes').toBeGreaterThanOrEqual(20)
     expect([...called].some(r => r.startsWith('/api/ddns')), 'the scoped half must be included').toBe(true)
 
-    const doc = fs.readFileSync(path.join(root, 'docs/UI_CREATION.md'), 'utf8')
+    const doc = fs.readFileSync(path.join(root, 'docs/API.md'), 'utf8')
     const undocumented = [...called].filter((route) => {
       // The doc writes `/api/servers/:id/{start,stop}` compactly, so match on the family stem.
       const stem = route.split('/').slice(0, 3).join('/')

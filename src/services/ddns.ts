@@ -1,6 +1,7 @@
 import type { DdnsFetch, DdnsRecord } from '#src/providers/ddns/types'
 import type { NotificationService } from '#src/services/notifications'
 import type { DdnsConfig, DdnsRecordState, DdnsRecordView, DdnsStatus } from '#src/shared/contracts'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { logger } from '#src/helpers/logger'
@@ -8,6 +9,7 @@ import { ddnsProvider } from '#src/providers/ddns'
 import { detectPublicAddress } from '#src/providers/ddns/ip'
 import { normalizeHost } from '#src/providers/ddns/types'
 import { errorMessage } from '#src/shared/error-message'
+import { isRecord } from '#src/shared/shape'
 
 /** One network pass, however many hosts it covers. */
 const RUN_TIMEOUT_MS = 60_000
@@ -22,7 +24,7 @@ interface CacheEntry {
 interface DdnsStateFile {
   version: 1
   updatedAt: number
-  /** Last address each `host|type` was confirmed to serve, so an unchanged IP costs no call. */
+  /** Last address each `host|type|account|provider` was confirmed to serve, so an unchanged IP costs no call. */
   records: Record<string, CacheEntry>
 }
 
@@ -31,6 +33,13 @@ interface ResultEntry {
   ip: string | null
   message: string | null
   updatedAt: number | null
+  stopped?: boolean
+}
+
+/** A permanent refusal, and what it was given: the same inputs would get the same answer. */
+interface StoppedEntry {
+  fingerprint: string
+  message: string
 }
 
 export interface DdnsDeps {
@@ -39,6 +48,8 @@ export interface DdnsDeps {
   getCredentials: (accountId: string, provider: string) => Record<string, string> | null
   notifications: NotificationService
   statePath: string
+  /** The pre-rename cache, adopted when `statePath` does not exist yet. */
+  legacyStatePath?: string
   fetchImpl?: DdnsFetch
   now?: () => number
 }
@@ -47,12 +58,33 @@ function emptyState(): DdnsStateFile {
   return { version: 1, updatedAt: 0, records: {} }
 }
 
+/**
+ * The cache an older release left at the legacy path, moved to the new one. Only a file shaped like
+ * that cache is taken: the same name is a persistent `ddns` entry's nanny state, which stays put.
+ */
+function adoptLegacyState(file: string, legacy: string): void {
+  if (fs.existsSync(file))
+    return
+  try {
+    const text = fs.readFileSync(legacy, 'utf8')
+    const parsed = JSON.parse(text) as unknown
+    if (!isRecord(parsed) || !isRecord(parsed.records))
+      return
+    writeFileAtomic(file, text)
+    fs.rmSync(legacy, { force: true })
+  }
+  catch {
+    // Nothing there, or nothing readable: the cache only saves provider calls.
+  }
+}
+
 function readState(file: string): DdnsStateFile {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<DdnsStateFile>
     const records: Record<string, CacheEntry> = {}
     for (const [key, value] of Object.entries(parsed?.records ?? {})) {
-      if (typeof value?.ip === 'string')
+      // A key from before the account and provider were part of it is a miss, not a match.
+      if (typeof value?.ip === 'string' && key.split('|').length === 4)
         records[key] = value
     }
     return { version: 1, updatedAt: typeof parsed?.updatedAt === 'number' ? parsed.updatedAt : 0, records }
@@ -63,8 +95,12 @@ function readState(file: string): DdnsStateFile {
   }
 }
 
-function cacheKey(host: string, type: string): string {
-  return `${normalizeHost(host)}|${type}`
+function cacheKey(host: string, type: string, account: string, provider: string): string {
+  return `${normalizeHost(host)}|${type}|${account}|${provider}`
+}
+
+function fingerprint(input: unknown): string {
+  return createHash('sha256').update(JSON.stringify(input)).digest('hex')
 }
 
 /**
@@ -76,6 +112,7 @@ function cacheKey(host: string, type: string): string {
  */
 export class DdnsService {
   private readonly results = new Map<string, ResultEntry>()
+  private readonly stopped = new Map<string, StoppedEntry>()
   private persisted: DdnsStateFile
   private running = false
   private disposed = false
@@ -87,6 +124,8 @@ export class DdnsService {
   private ipv6: string | null = null
 
   constructor(private readonly deps: DdnsDeps) {
+    if (deps.legacyStatePath !== undefined)
+      adoptLegacyState(deps.statePath, deps.legacyStatePath)
     this.persisted = readState(deps.statePath)
   }
 
@@ -115,25 +154,38 @@ export class DdnsService {
       const account = config.accounts.find(entry => entry.id === domain.account)
       const provider = account === undefined ? null : ddnsProvider(account.provider)
       for (const type of domain.types) {
-        const found = this.results.get(cacheKey(domain.host, type))
+        const key = cacheKey(domain.host, type, domain.account, account?.provider ?? '')
+        const found = this.results.get(key)
         views.push({
           host: domain.host,
           account: domain.account,
           provider: account?.provider ?? '',
           type,
-          ip: found?.ip ?? this.persisted.records[cacheKey(domain.host, type)]?.ip ?? null,
+          ip: found?.ip ?? this.persisted.records[key]?.ip ?? null,
           state: found?.state ?? (provider === null ? 'skipped' : 'pending'),
           message: found?.message ?? (account === undefined ? `unknown account "${domain.account}"` : provider === null ? `unknown provider "${account.provider}"` : null),
           updatedAt: found?.updatedAt ?? null,
+          ...(found?.stopped === true ? { stopped: true } : {}),
         })
       }
     }
     return views
   }
 
-  /** Makes the next tick run immediately, after a config or credential save. */
-  refresh(): void {
+  /**
+   * Makes the next tick run immediately, after a config or credential save, and lifts every
+   * permanent stop. Naming an account forgets what its records were confirmed to serve, because
+   * new credentials may reach another provider account.
+   */
+  refresh(options: { account?: string } = {}): void {
     this.lastStartedAt = null
+    this.stopped.clear()
+    if (options.account !== undefined) {
+      for (const key of Object.keys(this.persisted.records)) {
+        if (key.split('|')[2] === options.account)
+          delete this.persisted.records[key]
+      }
+    }
   }
 
   /**
@@ -167,6 +219,7 @@ export class DdnsService {
     let unchanged = 0
     let failed = 0
     let skipped = 0
+    let stopped = 0
 
     try {
       const wanted = this.wantedFamilies(config)
@@ -191,7 +244,7 @@ export class DdnsService {
         const credentials = account === undefined ? null : this.deps.getCredentials(account.id, account.provider)
 
         for (const type of domain.types) {
-          const key = cacheKey(domain.host, type)
+          const key = cacheKey(domain.host, type, domain.account, account?.provider ?? '')
           const family = type === 'A' ? 'ipv4' : 'ipv6'
           const familyConfig = type === 'A' ? config.ipv4 : config.ipv6
           const address = type === 'A' ? detected.ipv4.ip : detected.ipv6.ip
@@ -238,6 +291,15 @@ export class DdnsService {
             this.remember(key, 'skipped', address, `the "${account.provider}" provider does not update addresses`)
             continue
           }
+          const inputs = fingerprint({ domain, account, credentials })
+          const stop = this.stopped.get(key)
+          if (!options.force && stop !== undefined && stop.fingerprint === inputs) {
+            this.remember(key, 'error', address, `stopped: ${stop.message} — fix the hostname, account or credentials, or run a check`, true)
+            stopped += 1
+            continue
+          }
+          this.stopped.delete(key)
+
           const result = await update(record, { credentials: credentials ?? {}, fetch: fetchImpl, signal })
           if (result.ok) {
             this.persisted.records[key] = {
@@ -253,7 +315,9 @@ export class DdnsService {
               unchanged += 1
           }
           else {
-            this.remember(key, 'error', address, result.error ?? result.message)
+            if (result.permanent === true)
+              this.stopped.set(key, { fingerprint: inputs, message: result.error ?? result.message })
+            this.remember(key, 'error', address, result.error ?? result.message, result.permanent === true)
             failed += 1
             logger.warn(`ddns: ${domain.host} ${type}: ${result.error ?? result.message}`)
           }
@@ -265,7 +329,7 @@ export class DdnsService {
       this.lastRunAt = this.now()
       this.persisted.updatedAt = this.lastRunAt
       this.writeState()
-      this.lastResult = this.describe(changed, unchanged, failed, skipped)
+      this.lastResult = this.describe(changed, unchanged, failed, skipped, stopped)
       this.announce({ changed, failed })
     }
 
@@ -280,16 +344,17 @@ export class DdnsService {
     }
   }
 
-  private remember(key: string, state: DdnsRecordState, ip: string | null, message: string | null): void {
-    this.results.set(key, { state, ip, message, updatedAt: this.now() })
+  private remember(key: string, state: DdnsRecordState, ip: string | null, message: string | null, stopped = false): void {
+    this.results.set(key, { state, ip, message, updatedAt: this.now(), ...(stopped ? { stopped: true } : {}) })
   }
 
   /** Counts only: the detected addresses are shown beside it, and are the status's own. */
-  private describe(changed: number, unchanged: number, failed: number, skipped: number): string {
+  private describe(changed: number, unchanged: number, failed: number, skipped: number, stopped: number): string {
     const parts = [
       changed > 0 ? `${changed} updated` : null,
       unchanged > 0 ? `${unchanged} already current` : null,
       failed > 0 ? `${failed} failed` : null,
+      stopped > 0 ? `${stopped} stopped` : null,
       skipped > 0 ? `${skipped} skipped` : null,
     ].filter((part): part is string => part !== null)
     return parts.length === 0 ? 'nothing to update' : parts.join(', ')

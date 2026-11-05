@@ -24,9 +24,10 @@ const revealed = ref(false)
 
 const firstRun = computed(() => session.value?.passwordSet === false)
 const authOff = computed(() => session.value !== null && !session.value.authRequired)
-const usingDefault = computed(() => session.value?.usingDefaultPassword === true && session.value.defaultPassword !== null)
+const usingDefault = computed(() => session.value?.usingDefaultPassword === true)
 const exposed = computed(() => control.control.value?.auth.exposed === true)
-const panelUrl = computed(() => control.control.value?.url ?? '—')
+// Before sign-in the panel's own view is not readable, but the browser knows where it is.
+const panelUrl = computed(() => control.control.value?.url ?? window.location.origin)
 
 /**
  * How long a sign-in survives an idle gap, as a person reads it.
@@ -171,8 +172,8 @@ onMounted(async () => {
             <ShieldAlert class="mt-0.5 size-3.5 shrink-0 text-warn" />
             <p class="text-2xs leading-4 text-warn">
               <TransText k="login.defaultPasswordWarning">
-                <template #password>
-                  <code class="mx-1 rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">{{ session?.defaultPassword }}</code>
+                <template #command>
+                  <code class="rounded bg-black/10 px-1 py-0.5 font-mono dark:bg-white/10">home-hosted status</code>
                 </template>
               </TransText>
             </p>

@@ -5,10 +5,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
 import { createRootApp } from '#src/app'
 import { ensureLayout } from '#src/config/layout'
-import { SecretsStore } from '#src/config/secrets'
+import { generateInitialPassword, SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceRegistry } from '#src/config/workspaces'
 import { readStateFile } from '#src/helpers/config-text'
@@ -32,10 +31,10 @@ import {
   tlsDir,
 } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
-import { appVersion } from '#src/helpers/version'
+import { appVersion, packageRoot } from '#src/helpers/version'
 import { isPortFree, listPortHolders } from '#src/providers/port'
 import { AcmeChallengeService } from '#src/services/acme-challenge'
-import { AuthService, DEFAULT_PASSWORD } from '#src/services/auth'
+import { AuthService } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
 import { ControlServer } from '#src/services/control-server'
@@ -49,19 +48,6 @@ import { UiService } from '#src/services/ui'
 import { autoUpdateOfficialUi } from '#src/services/ui-update'
 import { parseBind } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
-
-/** The package root: one level above this file, whether it is `src/` or `dist/`. */
-export const packageRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
-
-function packageVersion(): string {
-  try {
-    const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as { version?: string }
-    return manifest.version ?? '0.0.0'
-  }
-  catch {
-    return '0.0.0'
-  }
-}
 
 export interface ControlPlaneOptions {
   /** One-off overrides, persisted only after every guard below passes. */
@@ -94,6 +80,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     logger.error(errorMessage(error))
     process.exit(1)
   }
+  restrictStateDir()
 
   const existing = readRuntime()
   // A live pid is not proof the panel is up: the OS recycles pids, and a stale record's own
@@ -209,8 +196,9 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // deliberately weak and flagged, which keeps LAN/exposure binding blocked (and
   // is announced on the login page) until it is changed.
   if (!auth.passwordSet) {
-    auth.ensureDefaultPassword(DEFAULT_PASSWORD)
-    logger.warn(`no password was set — created the default "${DEFAULT_PASSWORD}"; change it in Global Settings → Authentication`)
+    const initial = generateInitialPassword()
+    auth.ensureDefaultPassword(initial)
+    logger.warn(`no password was set — generated the first-run password "${initial}"; change it in Global settings → Authentication (\`status\` shows it until you do)`)
   }
 
   // Never serve the panel beyond loopback without a password behind it.
@@ -238,7 +226,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   if (intended.host !== configured.host || intended.port !== configured.port)
     settings.updateControl({ host: intended.host, port: intended.port })
 
-  const ui = new UiService({ dataRoot: hhDir, stockDir: path.join(packageRoot, 'uis', 'stock', 'dist') })
+  const ui = new UiService({ dataRoot: hhDir, stockDir: path.join(packageRoot(), 'uis', 'stock', 'dist') })
   // An install killed between its two renames leaves `.ui` missing and the user's copy in
   // a backup; put that back before anything reads the directory.
   const uiRecovery = ui.recover()
@@ -400,7 +388,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
 
   const endpoint = controlServer.endpoint
   const runtime: Runtime = {
-    version: packageVersion(),
+    version: appVersion(),
     pid: process.pid,
     url: endpoint.url,
     probeUrl: `${endpoint.protocol}://${probeHostFor(endpoint.bindHost)}:${endpoint.port}`,
@@ -481,3 +469,19 @@ function printEffectiveConfig(settings: GlobalSettingsStore, registry: Workspace
 }
 
 export { ConfigWatch }
+
+/**
+ * `.hh` holds server output, configs with `env` values and the reverse proxy's keys: the owner's
+ * alone. Applied on every boot so a home created by an older release is tightened too.
+ */
+function restrictStateDir(): void {
+  if (process.platform === 'win32')
+    return
+  try {
+    fs.mkdirSync(hhDir, { recursive: true, mode: 0o700 })
+    fs.chmodSync(hhDir, 0o700)
+  }
+  catch (error) {
+    logger.warn(`could not restrict ${hhDir} to its owner: ${errorMessage(error)}`)
+  }
+}

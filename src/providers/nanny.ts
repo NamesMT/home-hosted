@@ -1,5 +1,6 @@
 import type { ProcessBirth } from '#src/providers/port'
-import type { NannyExit, NannySpec, NannyState } from '#src/shared/contracts'
+import type { TerminateOptions } from '#src/providers/process'
+import type { NannyExit, NannySpec, NannyState, StopConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -34,6 +35,18 @@ export const SPEC_SUFFIX = '.spec.json'
  * so nothing was forwarded — see `stopPersistentEntries`, which then signals the child directly.
  */
 export const NANNY_TRAPPED_SIGNALS: ReadonlySet<NodeJS.Signals> = new Set(['SIGTERM', 'SIGINT'])
+
+/**
+ * How a nanny is stopped. A trapped signal goes to the nanny's pid alone and the nanny signals its
+ * own group once (`killGroup` is honoured there): signalling the group from here as well delivered
+ * the stop to the child twice. The SIGKILL escalation still covers the whole group. Windows has no
+ * signal a nanny can trap, so its stop is unchanged.
+ */
+export function nannyStopOptions(stop: StopConfig, platform: NodeJS.Platform = process.platform): TerminateOptions {
+  if (platform === 'win32' || !stop.killGroup || !NANNY_TRAPPED_SIGNALS.has(stop.signal))
+    return stop
+  return { ...stop, killGroup: false, escalateGroup: true }
+}
 
 /** How often a nanny rewrites its state file. */
 export const NANNY_HEARTBEAT_MS = 5000

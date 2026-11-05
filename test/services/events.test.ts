@@ -1,3 +1,4 @@
+import type { AppState } from '#src/shared/contracts'
 import { describe, expect, it, vi } from 'vitest'
 import { EventHub } from '#src/services/events'
 
@@ -32,7 +33,7 @@ describe('event hub', () => {
     const all = vi.fn()
     hub.subscribe(null, all)
     hub.publish(logMessage('alpha', 'web'))
-    hub.publish({ type: 'state', ts: 1 })
+    hub.publish({ type: 'state', ts: 1, state: {} as AppState })
     expect(all).toHaveBeenCalledTimes(2)
   })
 
@@ -43,11 +44,11 @@ describe('event hub', () => {
     hub.subscribe(null, bad)
     hub.subscribe(null, good)
 
-    expect(() => hub.publish({ type: 'state', ts: 1 })).not.toThrow()
+    expect(() => hub.publish({ type: 'state', ts: 1, state: {} as AppState })).not.toThrow()
     expect(good, 'one broken subscriber must not stop the rest').toHaveBeenCalledTimes(1)
 
     // Removed, so it is not retried on the next frame — and the good one still receives.
-    hub.publish({ type: 'state', ts: 2 })
+    hub.publish({ type: 'state', ts: 2, state: {} as AppState })
     expect(bad, 'a throwing listener is dropped, not retried').toHaveBeenCalledTimes(1)
     expect(good).toHaveBeenCalledTimes(2)
   })
@@ -75,7 +76,7 @@ describe('event hub', () => {
     off = hub.subscribe(null, first)
     hub.subscribe(null, second)
 
-    hub.publish({ type: 'state', ts: 1 })
+    hub.publish({ type: 'state', ts: 1, state: {} as AppState })
     expect(first).toHaveBeenCalledTimes(1)
     expect(second, 'self-unsubscribe must not skip the following listener').toHaveBeenCalledTimes(1)
   })

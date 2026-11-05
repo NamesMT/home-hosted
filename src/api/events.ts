@@ -4,25 +4,24 @@ import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { streamSSE } from 'hono/streaming'
 import { appFactory } from '#src/helpers/factory'
+import { frameKey, sseChannel } from '#src/helpers/sse'
 import { validate } from '#src/helpers/validator'
 import { serverKey } from '#src/services/events'
 
-const MAX_PENDING_WRITES = 200
 const PING_INTERVAL_MS = 15000
 
 const eventsQuery = type({
   /** Only this server's frames. */
   'serverId?': 'string',
-  /** The workspace that server belongs to; without it a repeated id matches every workspace. */
+  /** Only this workspace's server and log frames. */
   'workspace?': 'string',
   /** `logs=0` drops log frames; the first frame is always the full state. */
   'logs?': 'string',
-})
+}).onUndeclaredKey('reject')
 
 /**
- * One SSE stream per subscriber. Pass `?workspace=<id>&serverId=<id>` to receive
- * only that server's messages; the first frame always carries the full state
- * snapshot.
+ * One SSE stream per subscriber. `?workspace=<id>` narrows server and log frames to one workspace,
+ * `&serverId=<id>` to one server; the first frame always carries the full state snapshot.
  */
 export function createEventsRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -38,30 +37,12 @@ export function createEventsRoute(deps: AppDeps) {
         const query = c.req.valid('query')
         const serverId = query.serverId ?? null
         const workspaceId = query.workspace ?? null
-        const logOnly = query.logs !== '0'
+        const includeLogs = query.logs !== '0'
 
         return streamSSE(c, async (stream) => {
-          let pending = 0
-          let queue: Promise<void> = Promise.resolve()
-          let closed = false
-
-          const send = (message: SseMessage): Promise<void> => {
-            if (closed)
-              return queue
-            // A chatty child must not grow the queue without bound; state frames are
-            // always kept, log frames are dropped once the client falls behind.
-            if (message.type === 'log' && pending > MAX_PENDING_WRITES)
-              return queue
-            pending += 1
-            queue = queue
-              .then(() => stream.writeSSE({ event: message.type, data: JSON.stringify(message) }))
-              .catch(() => {
-                closed = true
-              })
-              .finally(() => {
-                pending -= 1
-              })
-            return queue
+          const channel = sseChannel(stream)
+          const send = (message: SseMessage): void => {
+            channel.send(message.type, JSON.stringify(message), { key: frameKey(message), droppable: message.type === 'log' })
           }
 
           // A named workspace scopes the subscription to one `workspaceId/serverId`;
@@ -71,25 +52,27 @@ export function createEventsRoute(deps: AppDeps) {
             ? serverKey(workspaceId, serverId)
             : null
           const unsubscribe = deps.hub.subscribe(subscription, (message) => {
-            if (!logOnly && message.type === 'log')
+            if (!includeLogs && message.type === 'log')
               return
-            if (subscription === null && serverId !== null && message.serverId !== serverId)
+            // A state frame carries no server, so a single-server subscription skips it too.
+            if (subscription === null && serverId !== null && (!('serverId' in message) || message.serverId !== serverId))
               return
-            void send(message)
+            // `?workspace=` alone narrows server and log frames; state frames are panel-wide.
+            if (subscription === null && workspaceId !== null && 'workspaceId' in message && message.workspaceId !== workspaceId)
+              return
+            send(message)
           })
 
           stream.onAbort(() => {
-            closed = true
+            channel.close()
             unsubscribe()
           })
 
-          await send({ type: 'hello', ts: Date.now(), state: deps.panel.getState() })
+          send({ type: 'hello', ts: Date.now(), state: deps.panel.getState() })
 
-          while (true) {
+          while (!channel.closed) {
             await stream.sleep(PING_INTERVAL_MS)
-            if (closed)
-              break
-            await stream.writeSSE({ event: 'ping', data: String(Date.now()) })
+            channel.send('ping', String(Date.now()), { key: 'ping' })
           }
         })
       },

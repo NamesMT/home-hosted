@@ -248,7 +248,7 @@ const SHEET: Record<DifferingKey, FieldSpec> = {
     full: true,
   },
   port: { label: 'port', control: 'text', numeric: true, placeholder: 'empty = none' },
-  bind: { label: 'bind', control: 'select', options: [{ value: 'local', label: 'local (127.0.0.1)' }, { value: 'lan', label: 'lan (0.0.0.0)' }] },
+  bind: { label: 'bind', control: 'select', options: [{ value: 'local', label: 'local (127.0.0.1)' }, { value: 'lan', label: 'lan (0.0.0.0)' }, { value: 'custom', label: 'custom ipv4' }] },
   persistent: { label: 'persistent', control: 'check', hint: 'keeps running when the panel stops; `down` reports it instead of stopping it' },
   logBufferLines: { label: 'log buffer lines', control: 'text', numeric: true, inheritedPlaceholder: true },
   dependsOn: { label: 'depends on — comma separated ids', control: 'text', placeholder: 'db, cache' },
@@ -338,7 +338,7 @@ export interface FormSection {
  */
 export const FORM_LAYOUT: Record<FormVariant, FormSection[]> = {
   sheet: [
-    { container: 'grid', fields: ['id', 'label', 'command', 'args', 'cwd', 'port', 'bind', 'autostart', 'persistent'] },
+    { container: 'grid', fields: ['id', 'label', 'command', 'args', 'cwd', 'port', 'bind', 'customBind', 'autostart', 'persistent'] },
     {
       container: 'fold',
       fields: [],

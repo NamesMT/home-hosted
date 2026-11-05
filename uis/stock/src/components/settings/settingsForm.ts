@@ -17,6 +17,7 @@ import type {
 import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
 import { sameScope } from '@shared/backup-scope'
+import { linesToArray } from '@shared/fields'
 import { countLeaves, diffFields, mergeReplacedList, replacedListConflicts } from '@shared/patch-diff'
 import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed } from 'vue'
@@ -37,6 +38,8 @@ export interface ListenerForm {
   port: number
   host: string
   openBrowser: boolean
+  /** Public hostnames the panel answers to, one per line. */
+  allowedHosts: string
   /** Part of the `control` patch, but edited from the TLS section. */
   tlsEnabled: boolean
 }
@@ -192,7 +195,7 @@ export function cloneHealth(health: HealthConfig): HealthConfig {
 /** Schema defaults, used only until the first frame fills each block in. */
 export function createGlobalForm(): GlobalSettingsForm {
   return {
-    control: { label: 'home-hosted', port: 3999, host: 'local', openBrowser: false, tlsEnabled: false },
+    control: { label: 'home-hosted', port: 3999, host: 'local', openBrowser: false, allowedHosts: '', tlsEnabled: false },
     auth: { enabled: false, sessionTtlMs: 604_800_000, cookieSecure: 'auto', trustProxy: 'off', maxLoginAttempts: 5, lockoutMs: 60_000 },
     host: {
       enabled: true,
@@ -274,7 +277,7 @@ export function authBaseline(status: AuthStatus): AuthForm {
 }
 
 export function listenerBaseline(view: ControlView): ListenerForm {
-  return { label: view.label, port: view.port, host: view.host, openBrowser: view.openBrowser, tlsEnabled: view.tls.enabled }
+  return { label: view.label, port: view.port, host: view.host, openBrowser: view.openBrowser, allowedHosts: (view.allowedHosts ?? []).join('\n'), tlsEnabled: view.tls.enabled }
 }
 
 export function splitList(value: string): string[] {
@@ -364,6 +367,7 @@ export function controlPatch(view: ControlView, form: GlobalSettingsForm): Patch
     port: view.port,
     host: view.host,
     openBrowser: view.openBrowser,
+    allowedHosts: view.allowedHosts ?? [],
     // `authBaseline` returns the *form* shape (strings), and `next` below is the *wire* shape, so the
     // comparison is made on the wire shape on both sides.
     auth: formToAuth(view.auth),
@@ -374,6 +378,7 @@ export function controlPatch(view: ControlView, form: GlobalSettingsForm): Patch
     port: form.control.port,
     host: form.control.host,
     openBrowser: form.control.openBrowser,
+    allowedHosts: linesToArray(form.control.allowedHosts),
     // `formToAuth` above converts the same way, so both sides of the diff are the *wire* form. Comparing a
     // converted `next` against a string-valued `current` made every save carry a spurious `trustProxy`.
     auth: { ...form.auth, trustProxy: toWireTrustProxy(form.auth.trustProxy) },
@@ -514,7 +519,7 @@ export function controlPartSnapshot(form: GlobalSettingsForm, part: ControlPart)
     return { ...form.auth }
   if (part === 'tls')
     return form.control.tlsEnabled
-  return { label: form.control.label, port: form.control.port, host: form.control.host, openBrowser: form.control.openBrowser }
+  return { label: form.control.label, port: form.control.port, host: form.control.host, openBrowser: form.control.openBrowser, allowedHosts: form.control.allowedHosts }
 }
 
 /**
@@ -600,6 +605,7 @@ export function listenerChanged(view: ControlView, form: GlobalSettingsForm): bo
     || view.port !== form.control.port
     || view.host !== form.control.host
     || view.openBrowser !== form.control.openBrowser
+    || (view.allowedHosts ?? []).join('\n') !== linesToArray(form.control.allowedHosts).join('\n')
 }
 
 export function tlsChanged(view: ControlView, form: GlobalSettingsForm): boolean {

@@ -47,7 +47,10 @@ export function createAuthGuard(deps: AuthGuardDeps): MiddlewareHandler {
 
     if (path.startsWith('/api')) {
       const method = c.req.method
-      if (method !== 'GET' && method !== 'HEAD') {
+      // A browser never attaches a bearer token by itself, so a request carrying one cannot be a
+      // cross-site forgery — which is what lets a desktop app or another origin use the API.
+      const viaToken = bearerToken(c.req.header('authorization')) !== null && requestIdentity(c, deps.auth).method === 'token'
+      if (method !== 'GET' && method !== 'HEAD' && !viaToken) {
         const origin = c.req.header('origin')
         if (origin !== undefined) {
           // `Host` is required by HTTP/1.1 but not guaranteed to be set by every

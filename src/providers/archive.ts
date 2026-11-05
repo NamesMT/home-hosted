@@ -6,6 +6,7 @@ import process from 'node:process'
 import { Readable, Writable } from 'node:stream'
 import { finished } from 'node:stream/promises'
 import { BlobReader, configure, ZipReader, ZipWriter } from '@zip.js/zip.js'
+import { eventLoopSlicer } from '#src/helpers/copy-tree'
 
 /**
  * `Readable.toWeb` is typed against `node:stream/web`, while zip.js declares the
@@ -110,7 +111,10 @@ export function isInvalidPassword(error: unknown): boolean {
  * from outside itself. Streams from disk to disk: nothing is buffered whole.
  */
 export async function createZip(sourceDir: string, destination: string, options: { password?: string } = {}): Promise<void> {
-  const output = fs.createWriteStream(destination, { mode: 0o600 })
+  // Written beside the destination and renamed on success, so an interrupted run never leaves a
+  // `.zip` that reads as a finished archive.
+  const partial = path.join(path.dirname(destination), `.${path.basename(destination)}.partial`)
+  const output = fs.createWriteStream(partial, { mode: 0o600 })
   // Attached up front: the fd closes as part of the web stream ending, so a
   // listener added afterwards would wait forever.
   const flushed = finished(output)
@@ -122,7 +126,7 @@ export async function createZip(sourceDir: string, destination: string, options:
   })
 
   try {
-    for (const item of walk(sourceDir)) {
+    for (const item of await walk(sourceDir)) {
       const mode = item.mode === null ? {} : { unixMode: item.mode }
       if (item.directory)
         await zip.add(item.name, null, { directory: true, ...mode })
@@ -135,12 +139,14 @@ export async function createZip(sourceDir: string, destination: string, options:
     }
     await zip.close()
     await flushed
+    await fs.promises.rename(partial, destination)
   }
   catch (error) {
     await writer.abort(error).catch(() => {})
     // The file stream also fails here (a full disk, a directory in the way), and
     // an unobserved rejection would take the whole control plane down.
     await flushed.catch(() => {})
+    await fs.promises.rm(partial, { force: true }).catch(() => {})
     throw error
   }
 }
@@ -290,9 +296,10 @@ function isUnderResolved(parent: string, child: string): boolean {
  * restore never recreates links anyway, so the link itself has nothing to restore; its content, if
  * it is wanted, is declared as its own path.
  */
-function walk(root: string): WalkedFile[] {
+async function walk(root: string): Promise<WalkedFile[]> {
   const files: WalkedFile[] = []
   const seen = new Set<string>()
+  const slice = eventLoopSlicer()
   let realRoot: string
   try {
     realRoot = fs.realpathSync(root)
@@ -310,7 +317,8 @@ function walk(root: string): WalkedFile[] {
     }
   }
 
-  const visit = (absolute: string, name: string): void => {
+  const visit = async (absolute: string, name: string): Promise<void> => {
+    await slice()
     let stats: fs.Stats
     try {
       stats = fs.statSync(absolute)
@@ -336,7 +344,7 @@ function walk(root: string): WalkedFile[] {
       seen.add(real)
       files.push({ name: `${name}/`, absolute, directory: true, size: 0, mode: archiveMode(stats) })
       for (const child of readDir(absolute))
-        visit(path.join(absolute, child), `${name}/${child}`)
+        await visit(path.join(absolute, child), `${name}/${child}`)
       return
     }
 
@@ -345,7 +353,7 @@ function walk(root: string): WalkedFile[] {
   }
 
   for (const child of readDir(root))
-    visit(path.join(root, child), child)
+    await visit(path.join(root, child), child)
 
   return files
 }

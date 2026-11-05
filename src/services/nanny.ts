@@ -6,6 +6,19 @@ import { spawnManaged, terminate } from '#src/providers/process'
 import { LineSplitter } from '#src/services/log-buffer'
 import { LogFiles } from '#src/services/log-files'
 
+/** Signals this nanny's own process group; false where there is none to signal (Windows, not a leader). */
+function signalOwnGroup(signal: NodeJS.Signals): boolean {
+  if (process.platform === 'win32')
+    return false
+  try {
+    process.kill(-process.pid, signal)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 /**
  * The nanny of one persistent entry: it spawns the child, owns its pipes, writes its
  * output to the entry's JSONL log and mirrors the child's exit.
@@ -57,8 +70,22 @@ export async function runNanny(spec: NannySpec, statePath: string): Promise<void
 
   const stopChild = (child: ChildProcess, signal: NodeJS.Signals): void => {
     emit('system', `${signal} — stopping this entry (grace ${spec.stop.graceMs}ms)`)
-    // The child is not a group leader, so the signal goes to its pid alone; the panel
-    // still signals this group, which is what covers anything the child left behind.
+    // The panel signals this pid alone (`nannyStopOptions`), so `killGroup` is honoured here: one
+    // signal to this group reaches the child and what it spawned exactly once, and the copy this
+    // nanny receives is ignored. The escalation stays on the child's pid — the group holds us too.
+    if (spec.stop.killGroup && NANNY_TRAPPED_SIGNALS.has(spec.stop.signal) && signalOwnGroup(spec.stop.signal)) {
+      const escalate = setTimeout(() => {
+        try {
+          child.kill('SIGKILL')
+        }
+        catch {
+          // already gone
+        }
+      }, spec.stop.graceMs)
+      escalate.unref()
+      child.once('exit', () => clearTimeout(escalate))
+      return
+    }
     void terminate(child, { signal: spec.stop.signal, killGroup: false, graceMs: spec.stop.graceMs })
   }
 

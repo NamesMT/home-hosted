@@ -2,30 +2,28 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-let cached: string | null = null
+let cachedRoot: { dir: string, version: string } | null = null
 
 /**
- * The running release, read from the package manifest.
+ * The package's own directory and release, found by walking up to the manifest named `home-hosted`.
  *
- * The caller may be `src/**` under tsx or the built `dist/cli.js`, so the manifest
- * is found by walking up rather than by a fixed relative path, and the name is checked:
- * a nested manifest must not be trusted as this package's.
+ * The caller may be `src/**` under tsx, `dist/cli.js`, or a code-split chunk under `dist/chunks/`,
+ * so no fixed relative path is right for all of them; a nested manifest is not trusted.
  *
- * `src/cli.ts` reaches this through a **relative** import, not `#src/*`. That file is the
- * bootstrap and may only pull in modules that load node builtins statically — a `#src`
- * import there would pull the daemon graph in before citty is even asked anything.
+ * `src/cli.ts` reaches this through a **relative** import, not `#src/*`: the bootstrap may only pull
+ * in modules that load node builtins statically.
  */
-export function appVersion(): string {
-  if (cached !== null)
-    return cached
-
-  let dir = path.dirname(fileURLToPath(import.meta.url))
-  for (let depth = 0; depth < 4; depth++) {
+function findPackage(): { dir: string, version: string } {
+  if (cachedRoot !== null)
+    return cachedRoot
+  const start = path.dirname(fileURLToPath(import.meta.url))
+  let dir = start
+  for (let depth = 0; depth < 5; depth++) {
     try {
       const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')) as { name?: string, version?: string }
       if (manifest.name === 'home-hosted' && typeof manifest.version === 'string') {
-        cached = manifest.version
-        return cached
+        cachedRoot = { dir, version: manifest.version }
+        return cachedRoot
       }
     }
     catch {
@@ -36,9 +34,18 @@ export function appVersion(): string {
       break
     dir = parent
   }
+  cachedRoot = { dir: path.dirname(start), version: '0.0.0' }
+  return cachedRoot
+}
 
-  cached = '0.0.0'
-  return cached
+/** The running release, read from the package manifest. */
+export function appVersion(): string {
+  return findPackage().version
+}
+
+/** Where the package is installed: the base for files it ships (`uis/stock/dist`). */
+export function packageRoot(): string {
+  return findPackage().dir
 }
 
 /**

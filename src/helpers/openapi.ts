@@ -1,4 +1,5 @@
 import type { StandardSchemaV1 } from '@standard-schema/spec'
+import type { ResolverReturnType } from 'hono-openapi'
 import { resolver } from 'hono-openapi'
 import { apiErrorSchema } from '#src/shared/contracts'
 
@@ -6,7 +7,7 @@ import { apiErrorSchema } from '#src/shared/contracts'
  * A JSON response body for `describeRoute`. The resolver needs a real Standard
  * Schema, so only ArkType schemas go in here — never a hand-written JSON schema.
  */
-export function jsonBody(schema: StandardSchemaV1) {
+export function jsonBody(schema: StandardSchemaV1): { 'application/json': { schema: ResolverReturnType } } {
   return { 'application/json': { schema: resolver(schema as never) } }
 }
 

@@ -29,7 +29,7 @@ export default defineConfig({
       external: [...builtinModules, ...builtinModules.map(name => `node:${name}`)],
       output: {
         entryFileNames: 'cli.js',
-        codeSplitting: false,
+        chunkFileNames: 'chunks/[name]-[hash].js',
       },
     },
   },

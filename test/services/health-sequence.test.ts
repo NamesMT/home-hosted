@@ -1,9 +1,5 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-
-const root = fileURLToPath(new URL('../..', import.meta.url))
+import { supervisorSources } from '../helpers/supervisor-source'
 
 /**
  * `health`, `healthFailures` and `unhealthySince` are one fact and must move together.
@@ -17,17 +13,18 @@ const root = fileURLToPath(new URL('../..', import.meta.url))
  * than a third field cleared in a third place.
  *
  * A unit test cannot see the *next* path that assigns the field directly, so this scans the
- * supervisor: the reset lives in the helper, and the only write allowed to start a streak is the
- * probe that measured one.
+ * supervisor and every module under `src/services/supervisor/`: the reset lives in the helper, and
+ * the only write allowed to start a streak is the probe that measured one.
  */
 describe('the supervisor writes health through one helper', () => {
-  const source = fs.readFileSync(path.join(root, 'src/services/supervisor.ts'), 'utf8')
+  const source = supervisorSources()
   // Split on either ending: a Windows checkout writes CRLF, and a `line === '  }'` comparison
   // against a line that still carries `\r` silently finds no method body at all.
   const lines = source.split(/\r?\n/)
 
   /**
-   * The line range of one method body, from its signature to the closing brace at method indent.
+   * The line range of one method or module function, from its signature to the closing brace at the
+   * signature's own indent.
    *
    * A **range**, not the lines, because two methods can contain byte-identical lines: the clears
    * `endProcessReadings` performs and the ones a bad call site would perform are the same text, so
@@ -35,9 +32,12 @@ describe('the supervisor writes health through one helper', () => {
    * scan passed against the defect (learned by breaking it).
    */
   function methodRange(name: string): { start: number, end: number } {
-    const start = lines.findIndex(line => /^ {2}(?:private |async )*[\w$]+\(/.test(line) && line.includes(` ${name}(`))
+    const member = new RegExp(`^ {2}(?:private |async )*${name}\\(`)
+    const fn = new RegExp(`^(?:export )?(?:async )?function ${name}\\(`)
+    const start = lines.findIndex(line => member.test(line) || fn.test(line))
     expect(start, `${name} must exist for this scan to guard anything`).toBeGreaterThan(-1)
-    const end = lines.findIndex((line, index) => index > start && line === '  }')
+    const close = lines[start]!.startsWith('  ') ? '  }' : '}'
+    const end = lines.findIndex((line, index) => index > start && line === close)
     expect(end, `${name} must have a body`).toBeGreaterThan(start)
     return { start, end }
   }
@@ -51,7 +51,7 @@ describe('the supervisor writes health through one helper', () => {
   it('assigns entry.health nowhere but inside setHealth', () => {
     const writes = [...source.matchAll(/entry\.health = /g)].length
     expect(writes, 'exactly one assignment, in `setHealth`').toBe(1)
-    expect(methodBody('setHealth').join('\n'), 'and it is the helper’s own line').toMatch(/^ {4}entry\.health = health$/m)
+    expect(methodBody('setHealth').join('\n'), 'and it is the helper’s own line').toMatch(/^\s+entry\.health = health$/m)
   })
 
   it('clears the streak only in setHealth, and starts one only in the probe', () => {
@@ -84,7 +84,7 @@ describe('the supervisor writes health through one helper', () => {
   it('drops a process’s measurements only in endProcessReadings', () => {
     const helper = methodBody('endProcessReadings').join('\n')
     for (const field of ['pid', 'responseMs', 'resources', 'adopted'])
-      expect(helper, `endProcessReadings must clear ${field}`).toMatch(new RegExp(`^ {4}entry\\.${field} = `, 'm'))
+      expect(helper, `endProcessReadings must clear ${field}`).toMatch(new RegExp(`^\\s+entry\\.${field} = `, 'm'))
 
     // Ownership is decided by **which method the line is in**, by line index. Comparing the text
     // passes against both the helper and a broken call site, because the lines are identical.
@@ -94,7 +94,7 @@ describe('the supervisor writes health through one helper', () => {
     const helperRange = methodRange('endProcessReadings')
     const offenders: string[] = []
     for (const [index, line] of lines.entries()) {
-      if (!/^ {4}entry\.(?:pid|adopted|responseMs|resources) = (?:null|false)$/.test(line))
+      if (!/^\s+entry\.(?:pid|adopted|responseMs|resources) = (?:null|false)$/.test(line))
         continue
       if (index < helperRange.start || index > helperRange.end)
         offenders.push(`line ${index + 1}: ${line.trim()}`)

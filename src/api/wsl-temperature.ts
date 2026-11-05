@@ -1,9 +1,11 @@
 import type { AppDeps } from '#src/app'
 import type { WslTemperatureStatus } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
+import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
+import { validate } from '#src/helpers/validator'
 import { installLibreHardwareMonitor, lhmInstalled, probeWslTemperature, removeWslTemperatureScript, tempCommandFor, writeWslTemperatureScript, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
 import { wslTemperatureSchema } from '#src/shared/contracts'
 
@@ -55,6 +57,7 @@ export function createWslTemperatureRoute(deps: AppDeps) {
         summary: 'Write the WSL helper script and point the temperature command at it',
         responses: { 200: { description: 'Set up', content: jsonBody(wslTemperatureSchema) }, 400: ERROR_RESPONSES[400] },
       }),
+      validate('query', type({ 'download?': '"true" | "false"' }).onUndeclaredKey('reject')),
       async (c) => {
         const current = status(deps)
         if (!current.supported) {
@@ -80,7 +83,7 @@ export function createWslTemperatureRoute(deps: AppDeps) {
         // panel does not ship. The first press says so and asks; a second press carries
         // `?download=true` and installs it. Never on the same click that did not mention a download.
         if (!lhmInstalled()) {
-          if (c.req.query('download') !== 'true')
+          if (c.req.valid('query').download !== 'true')
             return c.json({ ...status(deps), needsDownload: true })
           const install = await installLibreHardwareMonitor()
           if (install.error !== null)

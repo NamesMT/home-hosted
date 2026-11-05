@@ -30,6 +30,7 @@ import { errorHandler } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { createAuthGuard } from '#src/middleware/auth'
+import { createHostGuard } from '#src/middleware/host'
 import { setupOpenAPI } from '#src/openapi'
 
 /**
@@ -72,6 +73,9 @@ export function createRootApp(deps: AppDeps) {
     })
 
     .onError(errorHandler)
+
+    // Before anything else: a rebound public name must not reach a single route.
+    .use('*', createHostGuard(() => [...deps.panel.settings.control.allowedHosts, ...deps.proxy.panelHosts()]))
 
     // Outside `/api`, so a local `down` needs no session — but it needs the token
     // from `run.json` and a loopback peer. Registered before the guard by design.

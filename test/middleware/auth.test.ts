@@ -128,18 +128,6 @@ describe('auth guard', () => {
     expect(remote.status).toBe(401)
     expect(await remote.json()).toMatchObject({ code: 'AUTH_UNARMED' })
   })
-
-  it('treats a loopback request as local while auth is unarmed', async () => {
-    const { app } = await makeApp({ enabled: true })
-    const app2 = app
-    // `app.request` has no socket, so simulate srvx's resolved ip.
-    const response = await app2.request('http://127.0.0.1:3999/api/state', {
-      headers: { 'x-forwarded-for': '127.0.0.1' },
-    })
-    // Without trustProxy the header is ignored, so this stays a 401 — which is
-    // the safe direction: never treat a forwarded address as local.
-    expect(response.status).toBe(401)
-  })
 })
 
 describe('auth guard with an API token', () => {
@@ -185,7 +173,7 @@ describe('auth guard with an API token', () => {
     expect(await bare.json()).toMatchObject({ code: 'AUTH_UNARMED' })
   })
 
-  it('authorises mutations, still behind the same-origin rule', async () => {
+  it('authorises mutations from any origin, since a browser never attaches a token itself', async () => {
     const token = generateApiToken()
     const { app } = await makeApp({ enabled: true, password: 'a-good-password', token })
 
@@ -198,9 +186,16 @@ describe('auth guard with an API token', () => {
 
     const crossOrigin = await app.request('http://127.0.0.1:3999/api/servers/demo/start', {
       method: 'POST',
-      headers: { ...bearer(token), origin: 'http://evil.example' },
+      headers: { ...bearer(token), origin: 'tauri://localhost' },
     })
-    expect(crossOrigin.status).toBe(403)
+    expect(crossOrigin.status, 'a desktop client sends its own Origin with a token').toBe(200)
+
+    // A wrong token is not a credential, so it does not lift the same-origin rule.
+    const forged = await app.request('http://127.0.0.1:3999/api/servers/demo/start', {
+      method: 'POST',
+      headers: { authorization: 'Bearer hh_not-the-token', origin: 'http://evil.example' },
+    })
+    expect(forged.status).toBe(403)
   })
 
   it('leaves everything open when auth is off, token or not', async () => {

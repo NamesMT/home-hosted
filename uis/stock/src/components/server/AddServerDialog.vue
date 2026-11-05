@@ -8,6 +8,7 @@ import { addServerPayload, addServerPortError, addServerProblem, blankAddServerF
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
 import { applyPreset, SERVER_PRESETS } from '@/components/server/serverPresets'
 import AppButton from '@/components/ui/AppButton.vue'
+import BindField from '@/components/ui/BindField.vue'
 import Disclosure from '@/components/ui/Disclosure.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
 import Modal from '@/components/ui/Modal.vue'
@@ -237,15 +238,7 @@ async function submit(): Promise<void> {
           :error="portError"
           :hint="t('serverForm.portHint')"
         />
-        <SelectField
-          v-model="form.bind"
-          :label="t('serverForm.bindAddress')"
-          :options="[
-            { value: 'local', label: t('bind.local') },
-            { value: 'lan', label: t('bind.lan') },
-          ]"
-          :hint="t('addServer.bindHint')"
-        />
+        <BindField v-model="form.bind" :label="t('serverForm.bindAddress')" :hint="t('addServer.bindHint')" />
         <ToggleSwitch v-model="form.autostart" :label="t('serverForm.autostart')" :hint="t('serverForm.autostartHint')" wide />
         <ToggleSwitch v-model="form.persistent" :label="t('serverForm.persistent')" :hint="t('serverForm.persistentHint')" wide />
       </FieldGroup>

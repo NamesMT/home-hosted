@@ -35,7 +35,7 @@ export class EventHub {
 
   publish(message: SseMessage): void {
     this.dispatch(ALL, message)
-    if (message.serverId && message.workspaceId)
+    if ((message.type === 'server' || message.type === 'log') && message.workspaceId)
       this.dispatch(serverKey(message.workspaceId, message.serverId), message)
   }
 

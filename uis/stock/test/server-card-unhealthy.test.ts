@@ -58,7 +58,7 @@ function render(over: Partial<ServerView>): string {
 describe('the card’s unhealthy duration', () => {
   it('shows how long a running entry has been unhealthy', () => {
     const text = render({ status: 'running', health: 'unhealthy', unhealthySince: 1000 })
-    expect(text, 'a live unhealthy entry must state its duration').toContain('3m 0s')
+    expect(text, 'a live unhealthy entry must state its duration').toContain('3m')
   })
 
   it('says nothing about a duration once the process is gone', () => {

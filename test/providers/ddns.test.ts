@@ -54,7 +54,7 @@ function updater(provider: DdnsProvider): NonNullable<DdnsProvider['update']> {
 }
 
 function record(overrides: Partial<DdnsRecord> = {}): DdnsRecord {
-  return { host: 'home.example.com', type: 'A', ip: '203.0.113.7', ttl: 300, proxied: false, ...overrides }
+  return { host: 'home.example.com', type: 'A', ip: '93.184.216.7', ttl: 300, proxied: false, ...overrides }
 }
 
 describe('zone splitting', () => {
@@ -76,14 +76,14 @@ describe('zone splitting', () => {
 
 describe('public IP detection', () => {
   it('reads a bare address, a trace body and JSON', () => {
-    expect(parseAddressResponse('203.0.113.7\n', 'A')).toBe('203.0.113.7')
-    expect(parseAddressResponse('fl=1\nip=203.0.113.8\nts=1\n', 'A')).toBe('203.0.113.8')
-    expect(parseAddressResponse('{"ip":"203.0.113.9"}', 'A')).toBe('203.0.113.9')
+    expect(parseAddressResponse('93.184.216.7\n', 'A')).toBe('93.184.216.7')
+    expect(parseAddressResponse('fl=1\nip=93.184.216.8\nts=1\n', 'A')).toBe('93.184.216.8')
+    expect(parseAddressResponse('{"ip":"93.184.216.9"}', 'A')).toBe('93.184.216.9')
     expect(parseAddressResponse('{"address":"2606:4700::1111"}', 'AAAA')).toBe('2606:4700::1111')
   })
 
   it('refuses an address of the wrong family and a private one', () => {
-    expect(parseAddressResponse('203.0.113.7', 'AAAA')).toBeNull()
+    expect(parseAddressResponse('93.184.216.7', 'AAAA')).toBeNull()
     expect(parseAddressResponse('192.168.1.10', 'A')).toBeNull()
     expect(parseAddressResponse('100.64.0.1', 'A')).toBeNull()
     expect(isPublicAddress('10.0.0.1', 'A')).toBe(false)
@@ -113,29 +113,52 @@ describe('public IP detection', () => {
     expect(isPublicAddress('2a00:1450:4001:80e::200e', 'AAAA')).toBe(true)
   })
 
+  it('refuses documentation, benchmarking and multicast/reserved IPv4 ranges', () => {
+    for (const ip of ['192.0.2.1', '198.51.100.7', '203.0.113.7', '198.18.0.1', '198.19.255.254', '224.0.0.1', '239.255.255.250', '240.0.0.1', '255.255.255.255'])
+      expect(isPublicAddress(ip, 'A'), ip).toBe(false)
+    // The neighbours of each block are ordinary addresses.
+    for (const ip of ['192.0.3.1', '198.51.101.1', '203.0.114.1', '198.17.255.1', '198.20.0.1', '223.255.255.254'])
+      expect(isPublicAddress(ip, 'A'), ip).toBe(true)
+  })
+
+  it('gives each endpoint its own deadline, so a hung one does not stall the list', async () => {
+    const { fetch, calls } = recorder((url, init) => {
+      if (url.includes('api4.ipify.org')) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('timed out')))
+        })
+      }
+      return text('93.184.216.7')
+    })
+    // A pass-wide signal that outlives the test: only the per-endpoint deadline can end the hang.
+    const result = await detectPublicAddress('A', '', fetch, AbortSignal.timeout(60_000), 50)
+    expect(result).toEqual({ ip: '93.184.216.7', error: null })
+    expect(calls).toHaveLength(2)
+  }, 2_000)
+
   it('falls back through the endpoint list', async () => {
     const { fetch, calls } = recorder((url) => {
       if (url.includes('api4.ipify.org'))
         return json({}, 503)
-      return text('203.0.113.7')
+      return text('93.184.216.7')
     })
     const result = await detectPublicAddress('A', '', fetch)
-    expect(result).toEqual({ ip: '203.0.113.7', error: null })
+    expect(result).toEqual({ ip: '93.184.216.7', error: null })
     expect(calls).toHaveLength(2)
   })
 
   it('uses only the configured endpoint when one is set', async () => {
-    const { fetch, calls } = recorder(() => text('203.0.113.9'))
+    const { fetch, calls } = recorder(() => text('93.184.216.9'))
     const result = await detectPublicAddress('A', 'https://example.test/ip', fetch)
-    expect(result.ip).toBe('203.0.113.9')
+    expect(result.ip).toBe('93.184.216.9')
     expect(calls.map(call => call.url)).toEqual(['https://example.test/ip'])
   })
 })
 
 describe('dyndns2 replies', () => {
   it('separates the code from the detail', () => {
-    expect(describeDyndnsReply('good 203.0.113.7', 'no-ip')).toMatchObject({ ok: true, changed: true })
-    expect(describeDyndnsReply('nochg 203.0.113.7', 'no-ip')).toMatchObject({ ok: true, changed: false })
+    expect(describeDyndnsReply('good 93.184.216.7', 'no-ip')).toMatchObject({ ok: true, changed: true })
+    expect(describeDyndnsReply('nochg 93.184.216.7', 'no-ip')).toMatchObject({ ok: true, changed: false })
     expect(describeDyndnsReply('badauth', 'no-ip')).toMatchObject({ ok: false })
     expect(describeDyndnsReply('911', 'no-ip').error).toContain('30 minutes')
     expect(describeDyndnsReply('weird', 'no-ip').ok).toBe(false)
@@ -158,7 +181,7 @@ describe('cloudflare', () => {
     expect(result.cache).toEqual({ zoneId: 'zone1', recordId: 'rec1' })
     const patch = calls.find(call => call.init?.method === 'PATCH')
     expect(patch?.url).toBe('https://api.cloudflare.com/client/v4/zones/zone1/dns_records/rec1')
-    expect(JSON.parse(String(patch?.init?.body))).toEqual({ type: 'A', name: 'home.example.com', content: '203.0.113.7', ttl: 300, proxied: false })
+    expect(JSON.parse(String(patch?.init?.body))).toEqual({ type: 'A', name: 'home.example.com', content: '93.184.216.7', ttl: 300, proxied: false })
     expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toBe('Bearer tok')
   })
 
@@ -216,7 +239,7 @@ describe('cloudflare', () => {
     const { fetch, calls } = recorder((url) => {
       if (url.includes('/zones?name='))
         return json({ success: true, result: [{ id: 'zone1', name: 'example.com' }] })
-      return json({ success: true, result: [{ id: 'rec1', content: '203.0.113.7', ttl: 300, proxied: false }] })
+      return json({ success: true, result: [{ id: 'rec1', content: '93.184.216.7', ttl: 300, proxied: false }] })
     })
     const result = await updater(cloudflareProvider)(record(), { credentials: { apiToken: 'tok' }, fetch })
     expect(result).toMatchObject({ ok: true, changed: false })
@@ -363,7 +386,7 @@ describe('cloudflare', () => {
 
 describe('namecheap', () => {
   it('sends one GET and trusts the XML, not the status code', async () => {
-    const { fetch, calls } = recorder(() => text('<interface-response><IP>203.0.113.7</IP><ErrCount>0</ErrCount><Done>true</Done></interface-response>'))
+    const { fetch, calls } = recorder(() => text('<interface-response><IP>93.184.216.7</IP><ErrCount>0</ErrCount><Done>true</Done></interface-response>'))
     const result = await updater(namecheapProvider)(record({ host: 'home.example.com', type: 'A' }), { credentials: { password: 'pw' }, fetch })
 
     expect(result.ok).toBe(true)
@@ -372,7 +395,7 @@ describe('namecheap', () => {
     expect(url.searchParams.get('host')).toBe('home')
     expect(url.searchParams.get('domain')).toBe('example.com')
     expect(url.searchParams.get('password')).toBe('pw')
-    expect(url.searchParams.get('ip')).toBe('203.0.113.7')
+    expect(url.searchParams.get('ip')).toBe('93.184.216.7')
   })
 
   it('reports the provider error from ErrCount', async () => {
@@ -401,7 +424,7 @@ describe('porkbun', () => {
     expect(result).toMatchObject({ ok: true, changed: true })
     const edit = calls.find(call => call.url.includes('editByNameType'))
     expect(edit?.url).toContain('/dns/editByNameType/example.com/A/home')
-    expect(JSON.parse(String(edit?.init?.body))).toEqual({ content: '203.0.113.7', ttl: 600 })
+    expect(JSON.parse(String(edit?.init?.body))).toEqual({ content: '93.184.216.7', ttl: 600 })
     expect((edit?.init?.headers as Record<string, string>)['X-API-Key']).toBe('pk1')
     expect(seen).toHaveLength(2)
   })
@@ -419,19 +442,19 @@ describe('spaceship', () => {
     expect(result.ok).toBe(true)
     const put = calls.find(call => call.init?.method === 'PUT')
     expect(put?.url).toBe('https://spaceship.dev/api/v1/dns/records/example.com')
-    expect(JSON.parse(String(put?.init?.body))).toEqual({ force: true, items: [{ type: 'A', name: 'home', ttl: 3600, address: '203.0.113.7' }] })
+    expect(JSON.parse(String(put?.init?.body))).toEqual({ force: true, items: [{ type: 'A', name: 'home', ttl: 3600, address: '93.184.216.7' }] })
   })
 })
 
 describe('simple token providers', () => {
   it('no-ip sends basic auth and a recognised User-Agent', async () => {
-    const { fetch, calls } = recorder(() => text('good 203.0.113.7'))
+    const { fetch, calls } = recorder(() => text('good 93.184.216.7'))
     const result = await updater(noipProvider)(record(), { credentials: { username: 'me@example.com', password: 'pw' }, fetch })
     expect(result.ok).toBe(true)
     const headers = calls[0]?.init?.headers as Record<string, string>
     expect(headers.Authorization).toBe(`Basic ${Buffer.from('me@example.com:pw').toString('base64')}`)
     expect(headers['User-Agent']).toContain('home-hosted')
-    expect(calls[0]?.url).toContain('myip=203.0.113.7')
+    expect(calls[0]?.url).toContain('myip=93.184.216.7')
   })
 
   it('no-ip uses myipv6 for AAAA', async () => {
@@ -444,7 +467,7 @@ describe('simple token providers', () => {
     const { fetch, calls } = recorder(() => text('OK'))
     const result = await updater(duckdnsProvider)(record({ host: 'home.duckdns.org' }), { credentials: { token: 't' }, fetch })
     expect(result.ok).toBe(true)
-    expect(calls[0]?.url).toContain('domains=home&token=t&ip=203.0.113.7')
+    expect(calls[0]?.url).toContain('domains=home&token=t&ip=93.184.216.7')
   })
 
   it('duckdns reports KO', async () => {
@@ -453,7 +476,7 @@ describe('simple token providers', () => {
   })
 
   it('dynu uses basic auth', async () => {
-    const { fetch, calls } = recorder(() => text('nochg 203.0.113.7'))
+    const { fetch, calls } = recorder(() => text('nochg 93.184.216.7'))
     const result = await updater(dynuProvider)(record(), { credentials: { username: 'u', password: 'p' }, fetch })
     expect(result).toMatchObject({ ok: true, changed: false })
     expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toContain('Basic ')
@@ -462,21 +485,21 @@ describe('simple token providers', () => {
   it('desec binds the token to the hostname', async () => {
     const { fetch, calls } = recorder(() => text('good'))
     await updater(desecProvider)(record(), { credentials: { token: 'tok' }, fetch })
-    expect(calls[0]?.url).toBe('https://update.dedyn.io/?hostname=home.example.com&myipv4=203.0.113.7')
+    expect(calls[0]?.url).toBe('https://update.dedyn.io/?hostname=home.example.com&myipv4=93.184.216.7')
     expect((calls[0]?.init?.headers as Record<string, string>).Authorization).toBe(`Basic ${Buffer.from('home.example.com:tok').toString('base64')}`)
   })
 
   it('henet passes the per-host key', async () => {
-    const { fetch, calls } = recorder(() => text('good 203.0.113.7'))
+    const { fetch, calls } = recorder(() => text('good 93.184.216.7'))
     await updater(henetProvider)(record(), { credentials: { key: 'k' }, fetch })
     expect(calls[0]?.url).toContain('password=k')
   })
 
   it('freedns accepts a whole Direct URL and reports its text errors', async () => {
-    const ok = recorder(() => text('Updated home.example.com to 203.0.113.7'))
+    const ok = recorder(() => text('Updated home.example.com to 93.184.216.7'))
     const result = await updater(freednsProvider)(record(), { credentials: { token: 'https://freedns.afraid.org/dynamic/update.php?abc123' }, fetch: ok.fetch })
     expect(result.ok).toBe(true)
-    expect(ok.calls[0]?.url).toBe('https://freedns.afraid.org/dynamic/update.php?abc123&address=203.0.113.7')
+    expect(ok.calls[0]?.url).toBe('https://freedns.afraid.org/dynamic/update.php?abc123&address=93.184.216.7')
 
     const bad = recorder(() => text('ERROR: Invalid update URL (2)'))
     expect((await updater(freednsProvider)(record(), { credentials: { token: 'nope' }, fetch: bad.fetch })).ok).toBe(false)
@@ -490,7 +513,7 @@ describe('rest providers', () => {
     expect(result.ok).toBe(true)
     const put = calls.find(call => call.init?.method === 'PUT')
     expect(put?.url).toBe('https://api.gandi.net/v5/livedns/domains/example.com/records/home/A')
-    expect(JSON.parse(String(put?.init?.body))).toEqual({ rrset_values: ['203.0.113.7'], rrset_ttl: 300 })
+    expect(JSON.parse(String(put?.init?.body))).toEqual({ rrset_values: ['93.184.216.7'], rrset_ttl: 300 })
     expect((put?.init?.headers as Record<string, string>).Authorization).toBe('Bearer pat_x')
   })
 
@@ -575,7 +598,7 @@ describe('namecheap through the XML API', () => {
   const ok = '<?xml version="1.0"?><ApiResponse Status="OK"><Errors /><CommandResponse /></ApiResponse>'
   const bad = '<?xml version="1.0"?><ApiResponse Status="ERROR"><Errors><Error Number="1017105">Parameter ClientIP is disabled or locked</Error><Err1>ClientIP is not whitelisted</Err1></Errors></ApiResponse>'
 
-  const credentials = { apiUser: 'me', apiKey: 'key', clientIp: '203.0.113.7' }
+  const credentials = { apiUser: 'me', apiKey: 'key', clientIp: '93.184.216.7' }
 
   /** The `setHosts` parameters, as the API would read them. */
   function writtenRecords(url: string): Array<{ name: string, type: string, address: string, ttl: string }> {
@@ -623,7 +646,7 @@ describe('namecheap through the XML API', () => {
     expect(new URL(write!.url).searchParams.get('MXPref3')).toBe('10')
     const auth = new URL(write!.url).searchParams
     expect(auth.get('ApiUser')).toBe('me')
-    expect(auth.get('ClientIp')).toBe('203.0.113.7')
+    expect(auth.get('ClientIp')).toBe('93.184.216.7')
     expect(auth.get('SLD')).toBe('example')
     expect(auth.get('TLD')).toBe('com')
   })

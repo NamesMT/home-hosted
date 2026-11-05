@@ -111,6 +111,17 @@ export function processBirthSync(pid: number): number | null {
   }
 }
 
+/** The live holder of the restore lock, without taking it; null when nobody is restoring. */
+export function restoreLockHolder(hhDir: string): LockRecord | null {
+  const existing = readRecord(path.join(hhDir, 'restore.lock'))
+  return existing !== null && isLiveHolder(existing) ? existing : null
+}
+
+/** The holder is alive and has not held the lock absurdly long. */
+function isLiveHolder(record: LockRecord): boolean {
+  return holderIsAlive(record) && Date.now() - record.startedAt <= STALE_AFTER_MS
+}
+
 /**
  * Take the restore lock, or explain who holds it.
  *
@@ -132,8 +143,7 @@ export function acquireRestoreLock(hhDir: string, action = 'restore'): RestoreLo
 
   const existing = readRecord(file)
   if (existing !== null) {
-    const stale = !holderIsAlive(existing) || Date.now() - existing.startedAt > STALE_AFTER_MS
-    if (!stale)
+    if (isLiveHolder(existing))
       return { heldBy: existing }
     // The holder died, or has held it absurdly long: take it over, and say so.
     writeFileAtomic(file, `${JSON.stringify(mine)}\n`, { mode: 0o600 })

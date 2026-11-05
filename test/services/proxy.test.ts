@@ -658,6 +658,27 @@ describe('proxyService', () => {
     await expect(service.install()).rejects.toMatchObject({ code: 'ENGINE_DOWNLOAD_FAILED' })
   })
 
+  spawnsStubEngine('keeps the working engine when the downloaded build does not run', async () => {
+    const { service, options } = await harness()
+    writeStubEngine(service.enginePath, [])
+    const working = fs.readFileSync(service.enginePath, 'utf8')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('#!/bin/sh\necho "not caddy"\nexit 1\n'))
+
+    await expect(service.install()).rejects.toMatchObject({ code: 'ENGINE_DOWNLOAD_FAILED' })
+    expect(fs.readFileSync(service.enginePath, 'utf8'), 'the old binary was replaced').toBe(working)
+    expect(fs.readdirSync(options.binDir).filter(name => name.startsWith('download-'))).toEqual([])
+  })
+
+  spawnsStubEngine('swaps in a downloaded build that reports its version', async () => {
+    const { service } = await harness()
+    writeStubEngine(service.enginePath, [])
+    const build = '#!/bin/sh\nif [ "$1" = "version" ]; then echo "v2.12.0 h1:new"; fi\n'
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(build))
+
+    await expect(service.install()).resolves.toMatchObject({ installed: true, version: '2.12.0' })
+    expect(fs.readFileSync(service.enginePath, 'utf8')).toBe(build)
+  })
+
   it('still refuses while a child outlived its nanny', async () => {
     // `live()` is false there — the heartbeat is gone — but the binary is in use, so
     // replacing it on disk is exactly what must not happen.
@@ -1639,10 +1660,16 @@ describe('the port preflight and its own engine', () => {
  */
 describe('re-applying when a certificate arrives', () => {
   /** `sync()` returns early unless the proxy is on and the engine is installed. */
-  function syncable(service: ProxyService): void {
-    vi.spyOn(service, 'config', 'get').mockReturnValue(config({ enabled: true }))
+  function syncable(service: ProxyService, routes: Array<Record<string, unknown>> = [{ id: 'a', host: 'a.example.com', target: 'external', url: 'http://10.0.0.5:3000' }]): void {
+    vi.spyOn(service, 'config', 'get').mockReturnValue(config({ enabled: true, routes }))
     vi.spyOn(service, 'status').mockReturnValue({ state: 'running' } as ReturnType<typeof service.status>)
     vi.spyOn(service, 'installed').mockReturnValue(true)
+  }
+
+  /** The certificate state each route reads, keyed by route id. */
+  function certificates(service: ProxyService, states: Record<string, string>): void {
+    vi.spyOn(service as unknown as { certificateFor: (route: { id: string }) => unknown }, 'certificateFor')
+      .mockImplementation(route => ({ state: states[route.id] ?? 'pending', message: null }))
   }
 
   it('re-applies once the certificate state flips', async () => {
@@ -1650,13 +1677,13 @@ describe('re-applying when a certificate arrives', () => {
     const apply = vi.spyOn(service, 'apply').mockResolvedValue()
     syncable(service)
     // First call seeds the signature, second sees a change.
-    const views = [{ route: { id: 'a' }, certificate: { state: 'pending' } }]
-    vi.spyOn(service, 'routeViews').mockImplementation(() => views as ReturnType<typeof service.routeViews>)
+    const states: Record<string, string> = { a: 'pending' }
+    certificates(service, states)
 
     await service.sync()
     expect(apply, 'the first tick only seeds the signature').not.toHaveBeenCalled()
 
-    views[0]!.certificate = { state: 'issued' }
+    states.a = 'issued'
     await service.sync()
     expect(apply).toHaveBeenCalledTimes(1)
   })
@@ -1664,15 +1691,15 @@ describe('re-applying when a certificate arrives', () => {
   it('retries on the next tick when the apply fails, and records why', async () => {
     const { service } = await harness()
     syncable(service)
-    const views = [{ route: { id: 'a' }, certificate: { state: 'pending' } }]
-    vi.spyOn(service, 'routeViews').mockImplementation(() => views as ReturnType<typeof service.routeViews>)
+    const states: Record<string, string> = { a: 'pending' }
+    certificates(service, states)
     const apply = vi.spyOn(service, 'apply')
       .mockRejectedValueOnce(new Error('port 80 is already in use'))
       .mockResolvedValue()
     const record = vi.spyOn(service, 'recordError')
 
     await service.sync()
-    views[0]!.certificate = { state: 'issued' }
+    states.a = 'issued'
 
     await service.sync()
     expect(apply).toHaveBeenCalledTimes(1)
@@ -1693,18 +1720,66 @@ describe('re-applying when a certificate arrives', () => {
   it('does not re-record the same error every second', async () => {
     const { service } = await harness()
     syncable(service)
-    const views = [{ route: { id: 'a' }, certificate: { state: 'pending' } }]
-    vi.spyOn(service, 'routeViews').mockImplementation(() => views as ReturnType<typeof service.routeViews>)
+    const states: Record<string, string> = { a: 'pending' }
+    certificates(service, states)
     vi.spyOn(service, 'apply').mockRejectedValue(new Error('still broken'))
     const record = vi.spyOn(service, 'recordError')
 
     await service.sync()
-    views[0]!.certificate = { state: 'issued' }
+    states.a = 'issued'
     await service.sync()
     await service.sync()
     await service.sync()
 
     expect(record, 'recorded once, not once per tick').toHaveBeenCalledTimes(1)
+  })
+
+  it('re-applies when a server route\'s entry comes up or goes down, and only then', async () => {
+    // The boot apply runs before any entry has started, so a `server` route is left out; a
+    // signature of certificate state alone never noticed the entry coming up.
+    let url: string | null = null
+    const { service } = await harness({ resolveServer: () => ({ url, message: url === null ? 'stopped' : null }) })
+    const apply = vi.spyOn(service, 'apply').mockResolvedValue()
+    syncable(service, [{ id: 'web', host: 'web.example.com', target: 'server', workspace: 'default', server: 'web' }])
+    certificates(service, { web: 'issued' })
+
+    await service.sync()
+    url = '127.0.0.1:8080'
+    await service.sync()
+    expect(apply, 'the entry came up, so the route must be applied').toHaveBeenCalledTimes(1)
+
+    // A steady state is not a change: the tick is one second and must not re-apply each time.
+    await service.sync()
+    await service.sync()
+    expect(apply).toHaveBeenCalledTimes(1)
+
+    url = null
+    await service.sync()
+    expect(apply, 'the entry went down, so the route must leave the engine').toHaveBeenCalledTimes(2)
+  })
+
+  it('compares the first tick against what the boot apply was built from', async () => {
+    // The entry may already be up by the first tick; seeding the signature there instead of at
+    // the apply would bank the change and leave the route dark.
+    let url: string | null = null
+    const { service, settings } = await harness({ resolveServer: () => ({ url, message: url === null ? 'stopped' : null }) })
+    settings.updateProxy({ enabled: true, routes: [{ id: 'web', host: 'web.example.com', target: 'server', workspace: 'default', server: 'web' }] })
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    vi.spyOn(service, 'status').mockReturnValue({ state: 'running' } as ReturnType<typeof service.status>)
+    stubPortPreflight()
+    const posted: unknown[] = []
+    vi.spyOn(service as unknown as { postConfiguration: (rendered: unknown) => Promise<void> }, 'postConfiguration')
+      .mockImplementation(async (rendered) => { posted.push(rendered) })
+    ;(service as unknown as { admin: unknown }).admin = { kind: 'unix', path: '/nonexistent/admin.sock' }
+
+    await service.apply()
+    expect(posted).toHaveLength(1)
+    expect(JSON.stringify(posted[0])).not.toContain('web.example.com')
+
+    url = '127.0.0.1:8080'
+    await service.sync()
+    expect(posted, 'the first tick must apply the entry that came up after boot').toHaveLength(2)
+    expect(JSON.stringify(posted[1])).toContain('web.example.com')
   })
 })
 
@@ -1745,6 +1820,32 @@ describe('retrying a certificate on the only route', () => {
 
     await expect(service.retryCertificate('retry')).rejects.toMatchObject({ code: 'PROXY_CERT_RETRY_LAST_ROUTE' })
     expect(load, 'nothing may be posted before the refusal').not.toHaveBeenCalled()
+  })
+})
+
+describe('retrying a certificate when the re-apply fails', () => {
+  it('puts back the configuration the engine served, instead of leaving the name out', async () => {
+    const { service, options } = await harness()
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    vi.spyOn(service, 'status').mockReturnValue({ state: 'running' } as ReturnType<typeof service.status>)
+    vi.spyOn(service, 'config', 'get').mockReturnValue(config({
+      enabled: true,
+      routes: [
+        { id: 'retry', host: 'a.example.com', tls: 'auto', target: 'external', url: 'http://127.0.0.1:4000' },
+        { id: 'other', host: 'b.example.com', tls: 'auto', target: 'external', url: 'http://127.0.0.1:4001' },
+      ],
+    }))
+    fs.mkdirSync(path.dirname(options.configPath), { recursive: true })
+    fs.writeFileSync(options.configPath, '{"served":true}\n')
+    const loads: unknown[] = []
+    vi.spyOn(service as unknown as { loadIntoEngine: (rendered: unknown) => Promise<void> }, 'loadIntoEngine')
+      .mockImplementation(async (rendered) => { loads.push(rendered) })
+    vi.spyOn(service, 'apply').mockRejectedValue(new Error('port 443 is already in use'))
+
+    await expect(service.retryCertificate('retry')).rejects.toThrow('port 443 is already in use')
+    expect(loads).toHaveLength(2)
+    expect(JSON.stringify(loads[0])).not.toContain('a.example.com')
+    expect(loads[1], 'the staged config without the route was left in the engine').toEqual({ served: true })
   })
 })
 

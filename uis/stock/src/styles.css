@@ -388,3 +388,9 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The login field has its own show/hide control; Edge would draw a second one. */
+input[type='password']::-ms-reveal,
+input[type='password']::-ms-clear {
+  display: none;
+}

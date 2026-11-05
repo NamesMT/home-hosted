@@ -6,6 +6,7 @@ import process from 'node:process'
 import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
+import { customUiInstalled, uiDirectory } from '#src/helpers/ui-dir'
 import { extractZip, isZipArchive, listZip } from '#src/providers/archive'
 import { uiMetaSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
@@ -59,12 +60,12 @@ export class UiService {
 
   /** `$HHOSTED_HOME/.ui` — the only place a user UI is ever read from. */
   get directory(): string {
-    return path.join(this.options.dataRoot, '.ui')
+    return uiDirectory(this.options.dataRoot)
   }
 
   /** True when a user UI is installed and complete. */
   get custom(): boolean {
-    return fs.existsSync(path.join(this.directory, 'index.html'))
+    return customUiInstalled(this.options.dataRoot)
   }
 
   /** What the panel should serve right now. */

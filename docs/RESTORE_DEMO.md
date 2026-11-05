@@ -170,7 +170,7 @@ workspaces/default/settings.json
 
 **The dump is the data.** `backupPaths` pointed at a directory holding `mongodump` output, not at
 MongoDB's live data directory. That distinction matters: copying a running database's files can
-capture it torn, which [`README.md`](../README.md#-backups) warns about. A dump is consistent by
+capture it torn, which [`README.md`](./BACKUPS.md) warns about. A dump is consistent by
 construction.
 
 ## Restoring onto a blank host

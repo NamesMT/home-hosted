@@ -269,13 +269,21 @@ export async function terminatePids(
   return { stopped, forced: alive }
 }
 
-/** `netstat -ano` lines: `  TCP    127.0.0.1:4010    0.0.0.0:0    LISTENING    1234` */
+/**
+ * `netstat -ano` with no protocol filter: `-p tcp` lists IPv4 only, and Node's default `listen()`
+ * binds `[::]`, so such a listener was invisible to `free-port`, `kill`, `follow` and `reclaim`.
+ */
+export const NETSTAT_LISTENER_ARGS: readonly string[] = ['-ano']
+
+/** `netstat -ano` lines: `  TCP    127.0.0.1:4010    0.0.0.0:0    LISTENING    1234`; UDP rows are skipped. */
 export function parseNetstatListeners(output: string, port: number): number[] {
   const pids = new Set<number>()
 
   for (const line of output.split(/\r?\n/)) {
     const cells = line.trim().split(/\s+/)
     if (cells.length < 5)
+      continue
+    if ((cells[0] ?? '').toUpperCase() !== 'TCP')
       continue
     const local = cells[1] ?? ''
     const state = cells[3] ?? ''
@@ -356,7 +364,7 @@ export async function releaseDockerPort(holder: DockerPortHolder, timeoutMs = 20
 export async function listPortHolders(port: number): Promise<number[]> {
   if (process.platform === 'win32') {
     try {
-      const { stdout } = await execFileAsync('netstat', ['-ano', '-p', 'tcp'], { timeout: 5000 })
+      const { stdout } = await execFileAsync('netstat', [...NETSTAT_LISTENER_ARGS], { timeout: 5000 })
       return parseNetstatListeners(stdout, port)
     }
     catch {

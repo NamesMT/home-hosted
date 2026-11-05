@@ -143,9 +143,12 @@ describe('the documented error envelope', () => {
   })
 
   it('still refuses a body missing the fields clients rely on', () => {
-    // Not merely loosened: `code` and `message` stay required, and unknown keys stay rejected.
     expect(apiErrorSchema({ message: 'x' }) instanceof type.errors).toBe(true)
-    expect(apiErrorSchema({ message: 'x', code: 'y', extra: 1 }) instanceof type.errors).toBe(true)
+  })
+
+  it('accepts keys it does not name, as every response schema must', () => {
+    // A lifecycle refusal also carries `ok`/`error`, and a newer panel may add more.
+    expect(apiErrorSchema({ message: 'x', code: 'y', ok: false, error: 'x' }) instanceof type.errors).toBe(false)
   })
 })
 

@@ -44,6 +44,7 @@ interface Harness {
   panel: import('#src/services/panel').PanelService
   registry: import('#src/config/workspaces').WorkspaceRegistry
   settings: import('#src/config/settings').GlobalSettingsStore
+  secrets: import('#src/config/secrets').SecretsStore
   hub: import('#src/services/events').EventHub
   dir: string
   hhDir: string
@@ -293,6 +294,7 @@ async function makeHarness(options: {
     panel,
     registry,
     settings,
+    secrets,
     hub,
     dir,
     hhDir,
@@ -833,6 +835,68 @@ describe('panelService', () => {
 
       expect(frames.length, 'a policy-only edit published no frame').toBeGreaterThan(before)
       expect(frames.at(-1)?.workspaces[0]?.notifications.destinations?.[0]).toMatchObject({ id: 'hook', onCrash: false })
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  /** `orphans` was missing from the hand-picked signature, so an orphan appearing published nothing. */
+  it('publishes a frame when an orphan appears or goes', async () => {
+    const { panel, frames, dispose } = await makeHarness()
+
+    try {
+      const runtime = panel.requireWorkspace('default')
+      const patched = panel as unknown as { options: { hostMonitor: { current: unknown, tick: () => Promise<void> } } }
+      const host = patched.options.hostMonitor
+      const fixed = { ...(host.current as object) }
+      host.tick = async () => { host.current = fixed }
+      let orphans: Array<{ serverId: string, pid: number, startedAt: number | null }> = []
+      ;(runtime.supervisor as unknown as { orphans: () => unknown }).orphans = () => orphans
+
+      // The preceding state is published first, so the change below is not banked in the signature.
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > 0)
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      const before = frames.length
+      orphans = [{ serverId: 'gone', pid: 4242, startedAt: 1 }]
+      panel.notifyStateChange()
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(frames.length, 'a new orphan published no frame').toBeGreaterThan(before)
+      expect(frames.at(-1)?.workspaces[0]?.orphans).toEqual(orphans)
+
+      const after = frames.length
+      orphans = []
+      panel.notifyStateChange()
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(frames.length, 'a cleared orphan published no frame').toBeGreaterThan(after)
+      expect(frames.at(-1)?.workspaces[0]?.orphans).toEqual([])
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  it('publishes a frame when a credential changes, so every tab sees it', async () => {
+    const { panel, frames, secrets, dispose } = await makeHarness()
+
+    try {
+      const patched = panel as unknown as { options: { hostMonitor: { current: unknown, tick: () => Promise<void> } } }
+      const host = patched.options.hostMonitor
+      const fixed = { ...(host.current as object) }
+      host.tick = async () => { host.current = fixed }
+
+      panel.notifyStateChange()
+      await waitFor(() => frames.length > 0)
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      const before = frames.length
+      secrets.setApiToken('hh_a-token-minted-in-another-tab')
+      panel.notifyStateChange()
+      await new Promise(resolve => setTimeout(resolve, 200))
+      expect(frames.length, 'a minted token published no frame').toBeGreaterThan(before)
+      expect(frames.at(-1)?.control.auth.apiTokenSet).toBe(true)
     }
     finally {
       await dispose()
