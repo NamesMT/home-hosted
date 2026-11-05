@@ -71,7 +71,8 @@ describe('windows netstat parsing', () => {
 
   /** Node's default `listen()` binds `[::]`, so the query must list TCPv6 too, and the parser keep it. */
   it('finds a listener bound only on IPv6, and skips UDP rows', () => {
-    expect(NETSTAT_LISTENER_ARGS, '`-p tcp` lists IPv4 only').not.toContain('-p')
+    // Both families, each filtered: `-p TCP` alone is IPv4 only, and an unfiltered list is slow.
+    expect(NETSTAT_LISTENER_ARGS.map(args => args.at(-1))).toEqual(['TCP', 'TCPv6'])
     const output = [
       'Active Connections',
       '',

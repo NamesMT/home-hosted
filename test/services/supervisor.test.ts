@@ -952,7 +952,13 @@ describe('supervisor', () => {
    */
   it('restarts an adopted successor that exceeds its memory ceiling', async () => {
     const port = await freePort()
+    // The entry declares the very script its successor runs: on Windows a successor is recognised
+    // by its command line (another process's environment is unreadable there), so a different
+    // `-e` script was simply never adopted.
+    const hog = 'const hold = []; for (let i = 0; i < 64; i++) hold.push(Buffer.alloc(1024 * 1024, i));'
+      + 'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")'
     const harness = await makeSupervisor([httpServerConfig(port, {
+      args: ['-e', hog],
       onPortConflict: 'follow',
       // Above the plain node process this spawns, far below what it holds below.
       resources: { maxRssBytes: 8 * 1024 * 1024 },
@@ -968,11 +974,7 @@ describe('supervisor', () => {
 
     // A real successor of this entry that holds ~64 MB: the reading has to be genuinely over the
     // limit, so a fixture that never allocated cannot pass this by accident.
-    const successor = spawn(process.execPath, [
-      '-e',
-      'const hold = []; for (let i = 0; i < 64; i++) hold.push(Buffer.alloc(1024 * 1024, i));'
-      + 'require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1")',
-    ], {
+    const successor = spawn(process.execPath, ['-e', hog], {
       env: { ...process.env, PORT: String(port), HHOSTED_SERVER_ID: 'web' },
       stdio: 'ignore',
     })

@@ -270,10 +270,11 @@ export async function terminatePids(
 }
 
 /**
- * `netstat -ano` with no protocol filter: `-p tcp` lists IPv4 only, and Node's default `listen()`
- * binds `[::]`, so such a listener was invisible to `free-port`, `kill`, `follow` and `reclaim`.
+ * One filtered `netstat` per family. `-p TCP` alone lists IPv4 only, while Node's default `listen()`
+ * binds `[::]`; an unfiltered `-ano` lists every connection and UDP socket, which is slow enough on a
+ * busy machine to hit the lookup's timeout — and a timeout reads as "nothing holds the port".
  */
-export const NETSTAT_LISTENER_ARGS: readonly string[] = ['-ano']
+export const NETSTAT_LISTENER_ARGS: ReadonlyArray<readonly string[]> = [['-ano', '-p', 'TCP'], ['-ano', '-p', 'TCPv6']]
 
 /** `netstat -ano` lines: `  TCP    127.0.0.1:4010    0.0.0.0:0    LISTENING    1234`; UDP rows are skipped. */
 export function parseNetstatListeners(output: string, port: number): number[] {
@@ -363,13 +364,9 @@ export async function releaseDockerPort(holder: DockerPortHolder, timeoutMs = 20
 
 export async function listPortHolders(port: number): Promise<number[]> {
   if (process.platform === 'win32') {
-    try {
-      const { stdout } = await execFileAsync('netstat', [...NETSTAT_LISTENER_ARGS], { timeout: 5000 })
-      return parseNetstatListeners(stdout, port)
-    }
-    catch {
-      return []
-    }
+    const outputs = await Promise.all(NETSTAT_LISTENER_ARGS.map(args =>
+      execFileAsync('netstat', [...args], { timeout: 10000 }).then(result => result.stdout, () => '')))
+    return [...new Set(outputs.flatMap(output => parseNetstatListeners(output, port)))]
   }
 
   try {
