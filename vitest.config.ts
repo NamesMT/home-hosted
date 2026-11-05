@@ -44,9 +44,11 @@ export default defineConfig({
     },
   },
   test: {
-    // The supervisor suite drives real child processes and port probes.
-    testTimeout: 30000,
-    hookTimeout: 30000,
+    // Many suites drive real child processes, and the CLI suites start whole panels — each spawn pays
+    // for loading every schema (~1s) before it does anything. Under a full parallel run on a slow
+    // machine (WSL2) 30s was not enough for a test that starts, queries and stops a panel.
+    testTimeout: 90000,
+    hookTimeout: 90000,
     /*
      * A git worktree nested inside the repository is a second copy of every test file.
      *
@@ -59,6 +61,7 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       '**/.agents/**',
+      '**/.claude/**',
       '**/.dev-state/**',
     ],
     coverage: {

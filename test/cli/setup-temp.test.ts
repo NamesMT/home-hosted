@@ -5,7 +5,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
-import { isWsl } from '#src/providers/wsl-temperature'
+import { isWsl, lhmInstalled } from '#src/providers/wsl-temperature'
 
 /**
  * Whether the WSL2 path can run at all, decided once at module load.
@@ -17,6 +17,13 @@ import { isWsl } from '#src/providers/wsl-temperature'
  * a **pass** for a case that never ran.
  */
 const onWsl = isWsl()
+
+/**
+ * The real setup also needs LibreHardwareMonitor already on the Windows host (`--no-download` never
+ * fetches it), and it writes the helper into that host's `C:\ProgramData`. A WSL2 guest without the
+ * library is a machine these cases cannot run on, not a failure of the code under test.
+ */
+const canSetUp = onWsl && lhmInstalled()
 
 /**
  * `setup-temp`'s download flag has **three** states, and one flag expresses all of them.
@@ -107,7 +114,7 @@ describe('setup-temp refuses a flag it cannot honour', () => {
     }
   }, 120_000)
 
-  it.runIf(onWsl)('still accepts the flags where they mean something', async () => {
+  it.runIf(canSetUp)('still accepts the flags where they mean something', async () => {
     // The refusal must not catch the combination that is the whole point: `--wsl --no-download`.
     // Measured through the real binary, so this cannot pass on a parse alone.
     const result = await run(['--wsl', '--no-download'], '')
@@ -130,7 +137,7 @@ describe('setup-temp refuses a flag it cannot honour', () => {
  * asserted rather than skipped.
  */
 describe('setup-temp --clear deletes the helper it wrote', () => {
-  it.runIf(onWsl)('removes the script, not just the setting', async () => {
+  it.runIf(canSetUp)('removes the script, not just the setting', async () => {
     const { wslScriptPath } = await import('#src/providers/wsl-temperature')
     const script = wslScriptPath()
     expect(script, 'a WSL2 guest with the Windows drive mounted').not.toBeNull()

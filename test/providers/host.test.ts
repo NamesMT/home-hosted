@@ -126,7 +126,7 @@ describe('host sampling', () => {
   })
 
   it('skips disabled thresholds', async () => {
-    const disabled = await sampleHost(config({ diskPaths: [], loadPerCpu: 0, memoryUsedPercent: 100 }), t => t)
+    const disabled = await sampleHost(config({ diskPaths: [], loadPerCpu: 0, memoryUsedPercent: 0, swapUsedPercent: 0, tempCelsius: 0 }), t => t)
     expect(disabled.alerts).toEqual([])
   })
 
