@@ -28,13 +28,19 @@ async function clientFor(options: Parameters<typeof makeFixture>[0] = {}) {
 describe('home-hosted/client', () => {
   it('calls a typed route with the token attached', async () => {
     const { client } = await clientFor({ views: [makeView('web')] })
-    const { servers } = await client.json(client.api.api.servers.$get({ query: {} }))
+    const { servers } = await client.json(client.api.servers.$get({ query: {} }))
     expect(servers.map(server => server.id)).toEqual(['web'])
+  })
+
+  it('reaches routes outside /api through rpc', async () => {
+    const { client } = await clientFor()
+    const health = await client.json(client.rpc.healthz.$get())
+    expect(health.status).toBe('ok')
   })
 
   it('turns the error envelope into a HomeHostedError', async () => {
     const { client } = await clientFor()
-    const failure = await client.json(client.api.api.servers[':id'].$get({ param: { id: 'ghost' }, query: {} })).catch((error: unknown) => error)
+    const failure = await client.json(client.api.servers[':id'].$get({ param: { id: 'ghost' }, query: {} })).catch((error: unknown) => error)
     expect(failure).toBeInstanceOf(HomeHostedError)
     expect(failure).toMatchObject({ status: 404, code: 'UNKNOWN_SERVER' })
   })

@@ -5,14 +5,15 @@
  * import { createClient } from 'home-hosted/client'
  *
  * const hh = createClient({ baseUrl: 'http://127.0.0.1:3999', token: process.env.HH_TOKEN })
- * const { servers } = await hh.json(hh.api.api.servers.$get({ query: {} }))
+ * const { servers } = await hh.json(hh.api.servers.$get({ query: {} }))
  * for await (const frame of hh.events({ logs: false }))
  *   console.log(frame.type)
  * ```
  *
- * `api` is Hono's RPC client over the panel's own route table, so every path, body and response is
- * typed from the server that answers it. Types only travel from the server: this module imports
- * nothing of it at runtime.
+ * `api` is Hono's RPC client rooted at `/api`, typed from the panel's own route table, so every path,
+ * body and response is checked against the server that answers it; `rpc` is the same client at the
+ * root, for `/healthz` and `/openapi`. Types only travel from the server: nothing of it is imported
+ * at runtime.
  */
 import type { AppType } from '#src/app'
 import type { SseMessage } from '#src/shared/contracts'
@@ -75,7 +76,10 @@ export function createClient(options: ClientOptions) {
     ...options.headers,
   })
 
-  const api = hc<AppType>(baseUrl, { fetch: fetcher, headers })
+  const rpc = hc<AppType>(baseUrl, { fetch: fetcher, headers })
+  // Every route a client means lives under `/api`; rooting the client there keeps calls to
+  // `hh.api.servers` rather than `hh.api.api.servers`.
+  const api = rpc.api
 
   /** Awaits a call, returning its JSON body or throwing a `HomeHostedError`. */
   async function json<T>(call: Promise<{ ok: boolean, status: number, json: () => Promise<T> }>): Promise<T> {
@@ -109,7 +113,7 @@ export function createClient(options: ClientOptions) {
     }
   }
 
-  return { api, json, events, baseUrl }
+  return { api, rpc, json, events, baseUrl }
 }
 
 export type HomeHostedClient = ReturnType<typeof createClient>

@@ -149,8 +149,8 @@ import { createClient, HomeHostedError } from 'home-hosted/client'
 
 const hh = createClient({ baseUrl: 'http://127.0.0.1:3999', token: process.env.HH_TOKEN })
 
-const { servers } = await hh.json(hh.api.api.servers.$get({ query: { workspace: 'default' } }))
-await hh.json(hh.api.api.servers[':id'].restart.$post({ param: { id: 'web' }, query: {} }))
+const { servers } = await hh.json(hh.api.servers.$get({ query: { workspace: 'default' } }))
+await hh.json(hh.api.servers[':id'].restart.$post({ param: { id: 'web' }, query: {} }))
 
 for await (const frame of hh.events({ workspace: 'default', logs: false })) {
   if (frame.type === 'server')
@@ -159,7 +159,8 @@ for await (const frame of hh.events({ workspace: 'default', logs: false })) {
 ```
 
 `hh.json(...)` returns the body or throws a `HomeHostedError` (`status`, `code`, `detail`). `hh.api`
-is the raw Hono client when you want the `Response`. Pass `fetch` to use your own (tests, custom TLS).
+is the raw Hono client rooted at `/api`, for when you want the `Response`; `hh.rpc` is the same client
+at the root (`hh.rpc.healthz.$get()`). Pass `fetch` to use your own (tests, custom TLS).
 Types such as `AppState`, `ServerView` and `SseMessage` are exported too. The client and the panel
 should come from the same release: the types describe the routes of the version they shipped with.
 
