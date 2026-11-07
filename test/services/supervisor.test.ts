@@ -2788,7 +2788,7 @@ describe('stopping a docker-backed entry that this panel did not spawn', () => {
    * "the stop did not take" half is staged: a shim that exits 0 without touching the file would
    * otherwise pass for a stop that worked.
    */
-  async function withStack(body: (dir: string, running: () => string[], survivors: string[]) => Promise<void>, options: { survivors?: string[] } = {}): Promise<void> {
+  async function withStack(body: (dir: string, running: () => string[], survivors: string[]) => Promise<void>, options: { survivors?: string[], gate?: boolean } = {}): Promise<void> {
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-sup-stack-'))
     const project = path.join(dir, 'blog')
     await fs.promises.mkdir(project, { recursive: true })
@@ -2809,6 +2809,10 @@ case "$1" in
     done < '${dir}/running'
     ;;
   stop)
+    ${options.gate === true
+      ? `: > '${dir}/stopping'
+    while [ ! -e '${dir}/release' ]; do sleep 0.05; done`
+      : ''}
     shift
     for name in "$@"; do
       if ! grep -qx "$name" '${dir}/survivors' 2>/dev/null; then
@@ -2897,6 +2901,64 @@ exit 0
       expect(after.status, 'a stack that survived the stop is a conflict, never stopped').toBe('conflict')
       expect(after.lastError).toContain('still running')
     }, { survivors: ['blog-db-1'] })
+  }, 60000)
+
+  /**
+   * The inverse interleaving: a start that lands while a stop is ending its stack.
+   *
+   * `stopEntry` clears `stopping` and `child` *before* awaiting `stopComposeStack`, so in that window
+   * `start()` sees a stopped-looking entry and spawns for real. The stop's tail then ran on and
+   * cleared the readings — which bumps the *new* run's `runToken`, drops its pid and publishes
+   * `stopped` over a child that is still alive. Nothing is watching that child, so no exit event ever
+   * arrives: exactly the orphan `runToken` exists to prevent, reached from the other direction.
+   *
+   * The window is held open by the shim's `stop`, which blocks until this test creates `release` —
+   * so the start is *guaranteed* to land inside it rather than racing a sleep.
+   */
+  posixShim('a start accepted while the stop is ending its stack is not clobbered by that stop', async () => {
+    await withStack(async (project, running) => {
+      const dir = path.dirname(project)
+      const { supervisor } = await makeSupervisor([{
+        ...stackConfig(project),
+        /**
+         * Still `docker ... compose ...`, because `composeTarget` decides on the command *name* — an
+         * entry whose command is `node` is not a compose entry at all, and would take the branch that
+         * returns before the tail under test. The shim's `compose` case sleeps, so this is a wrapper
+         * that stays up like a real `compose up`.
+         */
+        args: ['compose', '-p', 'blog', 'up'],
+      }])
+      await supervisor.start('blog')
+      await waitForStatus(supervisor, 'blog', 'running')
+      const firstPid = view(supervisor, 'blog').pid
+      expect(firstPid, 'the fixture needs a wrapper of ours to stop').not.toBeNull()
+
+      const stopping = supervisor.stop('blog')
+      // Parked inside `stopComposeStack`, with `stopping` and `child` already cleared: the window.
+      await waitFor(() => fs.existsSync(path.join(dir, 'stopping')))
+
+      /**
+       * The whole point: during the teardown the entry still reads as stopping, so `start()` refuses
+       * rather than spawning a child this stop's tail would then forget. Before the reorder this
+       * answered `ok: true` and spawned — the assertion that caught it.
+       */
+      const during = await supervisor.start('blog')
+      expect(during.ok, 'a start during the teardown is refused, not spawned').toBe(false)
+      expect(during.error, 'and it says why').toContain('stopping')
+
+      await fs.promises.writeFile(path.join(dir, 'release'), '')
+      await stopping
+
+      const after = view(supervisor, 'blog')
+      expect(after.status, 'the stop that finished publishes its own verdict').toBe('stopped')
+      expect(after.pid, 'and nothing is left running that the panel has forgotten').toBeNull()
+      expect(running(), 'the stack was stopped, which is what the stop was doing').toEqual([])
+
+      // And the entry is startable again now that the stop is over.
+      const later = await supervisor.start('blog')
+      expect(later.ok, 'a start after the stop is accepted').toBe(true)
+      expect(view(supervisor, 'blog').pid, 'and it has a pid of its own').not.toBe(firstPid)
+    }, { gate: true })
   }, 60000)
 })
 
