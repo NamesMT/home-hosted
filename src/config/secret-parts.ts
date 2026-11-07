@@ -68,9 +68,24 @@ export function pickSecrets(source: Record<string, unknown>, fields: string[]): 
   for (const field of fields) {
     const value = source[field]
     if (value !== null && value !== undefined)
-      picked[field] = value
+      picked[field] = withoutFirstRunPassword(value)
   }
   return Object.keys(picked).length === 0 ? null : JSON.stringify(picked)
+}
+
+/**
+ * Drops `password.initial` — the generated first-run password, which the live file keeps so `up` and
+ * `status` can show it on the machine.
+ *
+ * An archive is a copy *off* the box: unencrypted unless a password was given, and the docs recommend
+ * keeping it elsewhere, so carrying the plaintext there hands a reader a working credential the hash
+ * beside it exists to avoid. The hash restores a password, which is all a restore needs.
+ */
+function withoutFirstRunPassword(value: unknown): unknown {
+  if (!isRecord(value) || !('initial' in value))
+    return value
+  const { initial: _initial, ...rest } = value
+  return rest
 }
 
 /** Parses a secrets document, tolerating anything: not-an-object, or broken JSON returns {}. */

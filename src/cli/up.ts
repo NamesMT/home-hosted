@@ -152,7 +152,10 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
 
   fs.mkdirSync(path.dirname(daemonLogPath), { recursive: true })
   rotateLog(daemonLogPath)
-  const log = fs.openSync(daemonLogPath, 'a')
+  // `0600`: the daemon's stderr lands here, and on a first boot that carries the generated password.
+  // Without a mode the file is `0644` under the usual umask, so any local account could read a
+  // credential the panel otherwise keeps in a 0600 file.
+  const log = fs.openSync(daemonLogPath, 'a', 0o600)
 
   const child = spawn(process.execPath, [...runtimeArgs(), entry, ...buildDaemonArgv(flags)], {
     detached: true,

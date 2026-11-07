@@ -1395,4 +1395,35 @@ describe('the API token, from the panel', () => {
     expect(response.status).toBe(403)
     expect(await response.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
   })
+
+  /**
+   * Revoking is the mirror of minting, so it needs the same proof of a person.
+   *
+   * `DELETE` was guarded only by the `/api` middleware while `POST` required a session: a leaked
+   * token could destroy the operator's own credential, and with auth switched off the request needed
+   * no credential at all. A token that can revoke itself makes a leak unrecoverable from the panel.
+   */
+  it('refuses to let a token revoke itself, or an anonymous caller revoke anything', async () => {
+    const created = await fixture({ password: 'a-good-password' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+
+    const byToken = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { authorization: `Bearer ${token}` } })
+    expect(byToken.status, 'a token may not revoke a token').toBe(403)
+    expect(await byToken.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
+
+    const anonymous = await created.app.request('/api/auth/token', { method: 'DELETE' })
+    expect(anonymous.status, 'and neither may nobody').toBe(401)
+
+    // The credential is untouched by either refusal.
+    const stillWorks = await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })
+    expect(stillWorks.status).toBe(200)
+  })
+
+  it('lets a signed-in session revoke with no token present at all', async () => {
+    const created = await fixture({ password: 'a-good-password' })
+    const cookie = await signIn(created, 'a-good-password')
+    const response = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { cookie } })
+    expect(response.status, 'a session can always clear a stale token').toBe(200)
+  })
 })

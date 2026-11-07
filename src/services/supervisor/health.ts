@@ -143,9 +143,14 @@ export async function probeEntry(ctx: SupervisorContext, entry: Entry, now: numb
   try {
     // Occupancy is shown even while stopped, so it is not gated on the health probe's timer.
     if (now - entry.lastOccupancyProbeAt >= PORT_STATE_INTERVAL_MS) {
+      const occupancyToken = entry.runToken
       entry.lastOccupancyProbeAt = now
       const accepting = await portAccepts(entry, port, health.timeoutMs)
-      entry.portState = accepting ? 'in-use' : 'free'
+      // The same rule the health half follows: a probe answers for the run it started in. Without
+      // this, a probe launched before a stop resolved afterwards and wrote its verdict onto the
+      // *next* run's port state — the card then showed "free" for a port the new run was serving.
+      if (entry.runToken === occupancyToken && entry.config.port === port)
+        entry.portState = accepting ? 'in-use' : 'free'
     }
 
     if (entry.status !== 'running' || !health.enabled)

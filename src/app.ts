@@ -78,11 +78,12 @@ export function createRootApp(deps: AppDeps) {
     .use('*', createHostGuard(() => [...deps.panel.settings.control.allowedHosts, ...deps.proxy.panelHosts()]))
 
     // Outside `/api`, so a local `down` needs no session — but it needs the token
-    // from `run.json` and a loopback peer. Registered before the guard by design.
+    // from `run.json` and a loopback peer. Behind the host guard like every route; a local
+    // caller reaches it by IP, which the guard always allows.
     .route('/_hh', createControlRoute(deps))
 
     // The engine's DNS-01 channel: outside `/api` too, loopback-only, and behind
-    // credentials the panel generates. Registered before the guard for the same reason.
+    // credentials the panel generates. The engine calls it on `127.0.0.1`, which the guard allows.
     .route('/_acme', createAcmeChallengeRoute(deps))
 
     .use('/api/*', createAuthGuard({ auth: deps.auth }))

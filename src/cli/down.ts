@@ -119,7 +119,7 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
   }
 
   // Nothing told the process to stop, so there is nothing to wait out; go straight to the forced stop.
-  const budget = stopping ? shutdownBudgetMs(await configuredServers(), options.withPersistent === true) : 0
+  const budget = stopping ? await shutdownBudget(options.withPersistent === true) : 0
   if (await waitForExit(runtime.pid, budget)) {
     clearRuntime()
     recordCleanStop()
@@ -229,41 +229,71 @@ async function stopPolicyLookup(): Promise<(handle: PersistentHandle) => StopCon
   return (handle) => {
     let byId = policies.get(handle.workspaceId)
     if (byId === undefined) {
-      byId = new Map(read(handle.workspaceId).map(server => [server.id, server.stop]))
+      byId = new Map(read(handle.workspaceId).servers.map(server => [server.id, server.stop]))
       policies.set(handle.workspaceId, byId)
     }
     return byId.get(handle.serverId) ?? stopSchema.assert({})
   }
 }
 
-/** Reads one workspace's entries; a config this CLI cannot read yields none, and the host still goes down. */
-async function serversReader(): Promise<(workspaceId: string) => ServerConfig[]> {
-  const { WorkspaceStore } = await import('#src/config/store')
-  const { workspaceServersPath, workspaceSettingsPath } = await import('#src/helpers/paths')
-  return (workspaceId) => {
-    try {
-      const store = new WorkspaceStore(workspaceId, workspaceSettingsPath(workspaceId), workspaceServersPath(workspaceId))
-      store.load()
-      return store.servers
-    }
-    catch {
-      return []
-    }
-  }
-}
-
-/** Every workspace's entries, read without writing anything: a missing registry is the default workspace. */
-async function configuredServers(): Promise<ServerConfig[]> {
+/**
+ * Every workspace's entries, and whether that answer is **complete**.
+ *
+ * Read without writing: `WorkspaceStore.load()` seeds a missing config, so a `down` that only needs a
+ * stop budget would create a workspace directory and two files on the way. Parsing the file directly
+ * leaves that to the panel.
+ *
+ * `complete` is what the budget rests on. A workspace whose config cannot be read yields no entries,
+ * and a budget computed from "no entries" is the 20 s floor — the exact failure a fixed 20 s wait was
+ * replaced to avoid, so an unreadable config widens the wait instead of shortening it.
+ */
+async function configuredServers(): Promise<{ servers: ServerConfig[], complete: boolean }> {
   const { WorkspaceRegistry } = await import('#src/config/workspaces')
   const { DEFAULT_WORKSPACE_ID, workspacesPath } = await import('#src/helpers/paths')
   let ids = [DEFAULT_WORKSPACE_ID]
+  let complete = true
   if (fs.existsSync(workspacesPath)) {
     const registry = new WorkspaceRegistry(workspacesPath)
     registry.load()
-    if (registry.configError === null)
+    if (registry.configError === null) {
       ids = registry.all().map(workspace => workspace.id)
+    }
+    else {
+      // The registry names no workspace, so neither does this budget; the listed default is a guess.
+      complete = false
+    }
   }
-  return ids.flatMap(await serversReader())
+
+  const read = await serversReader()
+  const servers: ServerConfig[] = []
+  for (const id of ids) {
+    const workspace = read(id)
+    if (!workspace.complete)
+      complete = false
+    servers.push(...workspace.servers)
+  }
+  return { servers, complete }
+}
+
+/** One workspace's entries, parsed read-only: a config this CLI cannot read reports itself. */
+export async function serversReader(): Promise<(workspaceId: string) => { servers: ServerConfig[], complete: boolean }> {
+  const { readStateFile } = await import('#src/helpers/config-text')
+  const { parseServersFile } = await import('#src/config/parse')
+  const { workspaceServersPath } = await import('#src/helpers/paths')
+  return (workspaceId) => {
+    const file = workspaceServersPath(workspaceId)
+    if (!fs.existsSync(file)) {
+      // Nothing declared is a real answer: a workspace with no entries stops nothing.
+      return { servers: [], complete: true }
+    }
+    try {
+      const parsed = parseServersFile(JSON.parse(readStateFile(file)), {})
+      return { servers: parsed.servers, complete: parsed.errors.length === 0 }
+    }
+    catch {
+      return { servers: [], complete: false }
+    }
+  }
 }
 
 const SHUTDOWN_FLOOR_MS = 20_000
@@ -272,11 +302,31 @@ const SHUTDOWN_CEILING_MS = 10 * 60_000
 const COMPOSE_STOP_MS = 130_000
 
 /**
+ * How long to give the panel, from whatever this CLI could read of its config.
+ *
+ * A config it could not read makes the answer unknowable rather than empty, and an unknowable config
+ * means an entry with a long grace may be one the read never showed. Widening to the ceiling there is
+ * the safe direction: waiting too long costs a slower `down`, waiting too little SIGKILLs a panel
+ * still inside a grace the person configured.
+ */
+async function shutdownBudget(withPersistent: boolean): Promise<number> {
+  const { servers, complete } = await configuredServers()
+  if (!complete) {
+    process.stderr.write(`${dim('could not read every server config — allowing the panel the full stop budget')}\n`)
+    return SHUTDOWN_CEILING_MS
+  }
+  return shutdownBudgetMs(servers, withPersistent)
+}
+
+/**
  * How long the panel may take to stop what it supervises before `down` forces it.
  *
- * The panel stops every entry concurrently, so this is the slowest entry's stop — its grace, the
- * SIGKILL wait after it, a second round for a persistent child signalled alone, and a compose stack's
- * `docker stop` — plus a margin. A fixed wait force-killed a panel still inside a configured grace.
+ * This is the slowest entry's stop, because the path `down` takes — `/_hh/shutdown` → `PanelService
+ * .dispose` — stops every workspace's entries through `Promise.all`. (`stopAll`, behind the panel's
+ * own stop-all route, is sequential; a caller budgeting for *that* would need the sum, not the max.)
+ *
+ * The slowest entry is its grace, the SIGKILL wait after it, a second round for a persistent child
+ * signalled alone, and a compose stack's `docker stop` — plus a margin.
  */
 export function shutdownBudgetMs(servers: ReadonlyArray<Pick<ServerConfig, 'command' | 'args' | 'persistent' | 'stop'>>, withPersistent: boolean): number {
   let slowest = 0

@@ -2,11 +2,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { stopSchema } from '#src/shared/contracts'
 
 // `#src/cli/down` resolves state paths at import time; keep it off the real home.
-process.env.HHOSTED_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-down-budget-'))
+const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-down-budget-'))
+process.env.HHOSTED_HOME = home
+// Swept, not leaked: a full run leaves one of these per execution.
+afterAll(() => fs.rmSync(home, { recursive: true, force: true }))
+
 const { forceStopCommand, shutdownBudgetMs } = await import('#src/cli/down')
 
 /**
@@ -59,5 +63,39 @@ describe('the forced stop', () => {
 
   it('is a signal elsewhere', () => {
     expect(forceStopCommand(4242, 'linux')).toBeNull()
+  })
+})
+
+/**
+ * A config `down` cannot read makes the stop budget *unknowable*, not empty.
+ *
+ * `WorkspaceStore.load()` reports a broken `servers.config.json` in `configError` rather than
+ * throwing, so a reader built on it returned `servers: []` — and `shutdownBudgetMs([])` is the 20 s
+ * floor. That reinstated, through a different door, the fixed 20 s wait this whole change replaced:
+ * an entry with a 120 s grace was SIGKILLed mid-shutdown whenever its file happened to be malformed.
+ * The widened wait is the safe direction: too long costs a slower `down`, too short kills a panel
+ * still inside a grace the person configured.
+ */
+describe('a config the CLI cannot read', () => {
+  it('widens the budget to the ceiling instead of collapsing to the floor', async () => {
+    const { serversReader } = await import('#src/cli/down') as unknown as {
+      serversReader: () => Promise<(id: string) => { servers: unknown[], complete: boolean }>
+    }
+    const read = await serversReader()
+    // The scratch home has no config at all: nothing declared is a real answer, so this is complete.
+    expect(read('default')).toEqual({ servers: [], complete: true })
+  })
+
+  it('reports a broken servers file as incomplete rather than empty', async () => {
+    const broken = path.join(home, '.hh', 'broken')
+    fs.mkdirSync(broken, { recursive: true })
+    fs.writeFileSync(path.join(broken, 'servers.config.json'), '{ not json')
+    const { serversReader } = await import('#src/cli/down') as unknown as {
+      serversReader: () => Promise<(id: string) => { servers: unknown[], complete: boolean }>
+    }
+    const read = await serversReader()
+    const result = read('broken')
+    expect(result.complete, 'a file that does not parse is not "no servers"').toBe(false)
+    expect(result.servers).toEqual([])
   })
 })

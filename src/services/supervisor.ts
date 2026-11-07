@@ -466,10 +466,16 @@ export class Supervisor {
       // Nothing of ours runs, but a compose entry's server is its containers, which may still be up.
       const stack = await stopComposeStack(this.ctx, entry)
       entry.stopping = false
-      if (refuseLingeringStack(this.ctx, entry, stack))
+      // A start that landed while the stack was being stopped owns the status now. `starting`, not the
+      // run token: this stop's own child exit bumps the token, so a token check would refuse a stop
+      // that worked.
+      const ours = !entry.starting
+      if (ours && refuseLingeringStack(this.ctx, entry, stack))
         return { ok: false, error: entry.lastError! }
-      entry.status = 'stopped'
-      this.publishServer(entry)
+      if (ours) {
+        entry.status = 'stopped'
+        this.publishServer(entry)
+      }
       return { ok: true }
     }
 
@@ -520,6 +526,16 @@ export class Supervisor {
     // A SIGKILL, an adopted wrapper or a `compose up -d` from elsewhere leaves the containers up, so
     // the stack is ended too and confirmed by a fresh listing.
     const stack = await stopComposeStack(this.ctx, entry)
+    // A start accepted while the stack was being stopped owns the entry now. Clearing the readings
+    // here would bump *its* `runToken`, drop its pid and publish it as stopped — a live child the
+    // panel had forgotten, which is the very orphan the run token exists to prevent.
+    //
+    // `entry.starting`, not the token: the child we just signalled ends *during* this stop, and its
+    // own exit handler bumps `runToken`, so a token check would refuse the tail for a stop that
+    // worked. `starting` is set synchronously by `start()` before its first await and is cleared when
+    // that call finishes, so it means exactly "a start is in flight right now".
+    if (entry.starting)
+      return { ok: true }
     endProcessReadings(entry)
     entry.nannyExit = null
     // The streak goes with the run; the verdict too, unless a survivor keeps its `conflict` outcome.

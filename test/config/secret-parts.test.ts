@@ -89,6 +89,28 @@ describe('pickSecrets', () => {
     expect(JSON.parse(pickSecrets({ telegram: { botToken: 'x' }, ddns: null }, ['telegram', 'ddns'])!))
       .toEqual({ telegram: { botToken: 'x' } })
   })
+
+  /**
+   * An archive is a copy *off* the box, and it is unencrypted unless someone gave it a password.
+   *
+   * The live secrets file keeps `password.initial` — the generated first-run password — so `up` and
+   * `status` can show it on the machine. Selecting the password into a backup carried that plaintext
+   * with it, so a reader of the zip held a working credential beside the hash that exists to avoid
+   * one. The hash alone restores a password, which is all a restore needs.
+   */
+  it('leaves the first-run password behind, and keeps the rest of the record', () => {
+    const source = {
+      password: { algo: 'scrypt', hash: 'h', salt: 's', isDefault: true, initial: 'abcd-efgh-jkmn' },
+    }
+    const picked = JSON.parse(pickSecrets(source, ['password'])!)
+    expect(picked.password.initial, 'the plaintext must not travel in an archive').toBeUndefined()
+    expect(picked.password).toMatchObject({ algo: 'scrypt', hash: 'h', salt: 's', isDefault: true })
+  })
+
+  it('leaves an already-changed record untouched', () => {
+    const source = { password: { algo: 'scrypt', hash: 'h', salt: 's' } }
+    expect(JSON.parse(pickSecrets(source, ['password'])!)).toEqual(source)
+  })
 })
 
 describe('parseSecrets', () => {

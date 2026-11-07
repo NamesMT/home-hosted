@@ -156,14 +156,20 @@ export function createAuthRoute(deps: AppDeps) {
       },
     )
 
+    /**
+     * Revoke the API token. Session only, for the same reason minting is: a token that could revoke
+     * its own successor — or itself — would let a leaked credential destroy the operator's access,
+     * and with auth switched off it was reachable with no credential at all.
+     */
     .delete(
       '/auth/token',
       describeRoute({
         tags: ['auth'],
-        summary: 'Revoke the API token',
-        responses: { 200: { description: 'Revoked', content: jsonBody(okResponseSchema) } },
+        summary: 'Revoke the API token (signed-in session required)',
+        responses: { 200: { description: 'Revoked', content: jsonBody(okResponseSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not revoke a token' } },
       }),
       (c) => {
+        requireSession(c, deps, 'revoking an API token')
         deps.secrets.clearApiToken()
         return c.json({ ok: true })
       },
