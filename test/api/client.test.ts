@@ -63,4 +63,42 @@ describe('home-hosted/client', () => {
     for await (const frame of readEventStream(body)) frames.push(frame)
     expect(frames).toEqual([{ event: 'log', data: '{"a":1}' }, { event: 'message', data: 'x\ny' }])
   })
+
+  /**
+   * Leaving the loop must close the connection, not merely stop reading it.
+   *
+   * `readEventStream` released its lock in `finally` but never cancelled the body, so the documented
+   * `for await (… of hh.events()) { … break }` left the request open: the panel kept a subscriber
+   * slot, and a Node script could not exit because the live socket held the event loop. Measured
+   * against a real listener — `1 of 1` SSE connections still open after leaving the loop.
+   *
+   * This stream never ends on its own, which is what a real panel's looks like, so only an explicit
+   * `cancel()` can settle it.
+   */
+  it('cancels the stream when the consumer stops reading early', async () => {
+    let cancelled = false
+    let pulls = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1
+        // The first frame, then silence — exactly what an idle panel sends after its `hello`.
+        if (pulls === 1)
+          controller.enqueue(new TextEncoder().encode('event: hello\ndata: {"type":"hello"}\n\n'))
+        return new Promise<void>(() => {})
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+
+    // Driven by hand rather than `for await`: the point is the early exit, and a loop whose body
+    // always breaks reads as a loop that should not be one.
+    const stream = readEventStream(body)
+    const first = await stream.next()
+    expect(first.done).toBe(false)
+    expect(first.value.event).toBe('hello')
+    await stream.return(undefined)
+
+    expect(cancelled, 'leaving the loop early must close the body, or the socket outlives the reader').toBe(true)
+  })
 })

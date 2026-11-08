@@ -129,6 +129,26 @@ async function toError(response: Response): Promise<HomeHostedError> {
   return new HomeHostedError(message, response.status, typeof record.code === 'string' ? record.code : 'HTTP_ERROR', record.detail)
 }
 
+/**
+ * Cancels the body when the consumer stops reading early.
+ *
+ * `releaseLock()` alone does not: it drops our handle on the stream while the connection stays open,
+ * so a `for await (const frame of hh.events())` that `break`s after one frame left the request running
+ * — the panel kept a subscriber slot, and a Node script could not exit because the socket kept the
+ * event loop alive. Measured against a real listener: `1 of 1` connections still open after leaving
+ * the loop, and a plain-process run stayed awake until `process.exit()`.
+ *
+ * `cancel()` is a no-op once the stream has ended on its own, so this is safe on the normal path too.
+ */
+async function cancelBody(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+  try {
+    await reader.cancel()
+  }
+  catch {
+    // Already errored or gone: the connection is closed either way, which is the point.
+  }
+}
+
 /** Parses a `text/event-stream` body into `{ event, data }` frames (the subset the panel sends). */
 export async function* readEventStream(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string, data: string }> {
   const decoder = new TextDecoder()
@@ -163,6 +183,7 @@ export async function* readEventStream(body: ReadableStream<Uint8Array>): AsyncG
     }
   }
   finally {
+    await cancelBody(reader)
     reader.releaseLock()
   }
 }
