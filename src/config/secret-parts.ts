@@ -88,6 +88,28 @@ function withoutFirstRunPassword(value: unknown): unknown {
   return rest
 }
 
+/**
+ * The same removal, applied to a whole secrets **document** rather than one field's value.
+ *
+ * `pickSecrets` already drops the field, but a backup that selects every secret copies the file
+ * whole and so bypassed it. This is that whole-file path: the document keeps every other key —
+ * including `null` slots and keys this release does not know — and differs only in that
+ * `password.initial` is gone. Returns `null` when the text is not a JSON object, so the caller can
+ * fall back to its ordinary copy.
+ */
+export function withoutInitialPassword(text: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  }
+  catch {
+    return null
+  }
+  if (!isRecord(parsed) || !('password' in parsed))
+    return null
+  return `${JSON.stringify({ ...parsed, password: withoutFirstRunPassword(parsed.password) })}\n`
+}
+
 /** Parses a secrets document, tolerating anything: not-an-object, or broken JSON returns {}. */
 export function parseSecrets(text: string): Record<string, unknown> {
   try {

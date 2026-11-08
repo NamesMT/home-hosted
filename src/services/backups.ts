@@ -9,7 +9,7 @@ import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
-import { KNOWN_SECRET_KEYS, mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts } from '#src/config/secret-parts'
+import { KNOWN_SECRET_KEYS, mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts, withoutInitialPassword } from '#src/config/secret-parts'
 import { workspacesFileSchema } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { copyTree } from '#src/helpers/copy-tree'
@@ -810,7 +810,29 @@ export class BackupService {
         if (text === null)
           return
         const fields = selectedSecretFields(entryId, source, scope, workspaceId)
+        /**
+         * `fields === null` means "every field is selected", which is the **default** — no
+         * `--include`/`--exclude`, and the automatic schedule. It is still not a licence to copy the
+         * file verbatim: `withoutFirstRunPassword` lives inside `pickSecrets`, so the raw-copy branch
+         * bypassed it and put `.control-secrets.json` in the zip byte for byte, plaintext first-run
+         * password and all — unencrypted, in a directory the docs tell people to copy off the box.
+         * The narrowing ran only on the partial path, and the sole test exercised `pickSecrets` in
+         * isolation, so the suite stayed green over it.
+         *
+         * A whole selection still copies the whole document — null slots, unknown keys and all, which
+         * is the shape the archive had before — with just that one field removed. Re-deriving the
+         * fields instead would drop every `null` slot, because `presentSecretKeys` counts only
+         * non-null values and `pickSecrets` then answers `null` for a file holding nothing set.
+         */
         if (fields === null) {
+          const stripped = withoutInitialPassword(text)
+          if (stripped !== null) {
+            const target = path.join(staging, relative)
+            fs.mkdirSync(path.dirname(target), { recursive: true })
+            fs.writeFileSync(target, stripped)
+            captured++
+            return
+          }
           await copy(relative, source)
           return
         }

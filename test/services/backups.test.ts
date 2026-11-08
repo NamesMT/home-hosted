@@ -1249,6 +1249,38 @@ describe('excluding a selection', () => {
   })
 
   /**
+   * The first-run password must not reach an archive on the **default** selection either.
+   *
+   * `withoutFirstRunPassword` was applied inside `pickSecrets`, and `copySecrets` only called that
+   * when the selection was *partial*. Selecting everything — no `include`/`exclude`, and the
+   * automatic schedule — returned `null` from `selectedSecretFields` ("copy the whole file"), took
+   * the raw-copy branch, and put `.control-secrets.json` in the zip byte for byte. So every default
+   * and scheduled archive carried a working panel password beside the hash that exists to avoid one,
+   * in a file that is unencrypted unless a password was given. The restore path *strips* it, so the
+   * code disagreed with itself about the value.
+   */
+  it('leaves the plaintext first-run password out of a whole-selection archive', async () => {
+    const fixture = await makeFixture({
+      globalSecrets: `${JSON.stringify({
+        password: { algo: 'scrypt', salt: 'SALT', hash: 'HASH', initial: 'pxv2-tvb5-3r8j' },
+        apiToken: 'TOKEN',
+      }, null, 2)}\n`,
+    })
+    // The default selection: nothing included, nothing excluded — the shape the schedule uses.
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    const { extractZip } = await import('#src/providers/archive')
+    const out = path.join(fixture.root, 'unpacked-initial')
+    await extractZip(path.join(fixture.dataRoot, '.backups', created.file!.name), out, { names: ['global/secrets.json'] })
+    const archived = JSON.parse(fs.readFileSync(path.join(out, 'global/secrets.json'), 'utf8')) as { password: Record<string, unknown>, apiToken?: string }
+    expect(archived.password.initial, 'the plaintext password must not travel off the box').toBeUndefined()
+    // Everything a restore actually needs is still there.
+    expect(archived.password.hash).toBe('HASH')
+    expect(archived.apiToken).toBe('TOKEN')
+  })
+
+  /**
    * The plan must describe the archive that will actually be written.
    *
    * Listing `workspace:default:servers` while the apply leaves it out is a plan for a different
