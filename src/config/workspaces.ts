@@ -71,11 +71,16 @@ export function readDefaultWorkspaceId(file: string): string {
  * from "I cannot tell": a diagnostic that answers an empty log for a typo'd `--workspace` is the
  * same false answer as one that answers it for a typo'd server id. `null` keeps the caller silent
  * on a registry it could not read, because unreadable is not "it names none".
+ *
+ * An **empty** registry is `null` too, for the same reason its sibling falls back to `default`: a
+ * registry listing nothing is what a hand-edit or a partially written file looks like, and the panel
+ * treats it as `default` rather than as "no workspace exists". Answering `[]` there made `logs <id>`
+ * refuse the default workspace that `start` and the panel both serve.
  */
 export function readWorkspaceIds(file: string): string[] | null {
   try {
     const parsed = workspacesFileSchema(JSON.parse(readStateFile(file)) as unknown)
-    if (parsed instanceof type.errors)
+    if (parsed instanceof type.errors || parsed.workspaces.length === 0)
       return null
     return parsed.workspaces.map(workspace => workspace.id)
   }

@@ -92,7 +92,11 @@ function writePersistent(
   const stateDir = path.join(home, '.hh', workspaceId, '.state')
   fs.mkdirSync(stateDir, { recursive: true })
   fs.mkdirSync(path.join(home, '.hh', workspaceId), { recursive: true })
-  fs.writeFileSync(path.join(home, '.hh', workspaceId, 'settings.json'), '{}\n')
+  // Stamped as the current schema, like the servers file below: an unstamped file reads as the oldest
+  // shape, which has a migration pending and is therefore refused — the same trap this helper's
+  // sibling comment records. `down` now reports an unreadable settings file as "cannot tell", which
+  // widens its stop budget to the ceiling, so an unstamped fixture made every case here wait 10 min.
+  fs.writeFileSync(path.join(home, '.hh', workspaceId, 'settings.json'), `${JSON.stringify({ meta: { writtenBy: 'test', schema: CONFIG_SCHEMA } })}\n`)
   // Stamped as the current schema: an unstamped file reads as the oldest shape, which has a
   // migration pending and is therefore refused — the stop would fall back to default policy.
   fs.writeFileSync(path.join(home, '.hh', workspaceId, 'servers.config.json'), `${JSON.stringify({

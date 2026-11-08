@@ -134,4 +134,35 @@ describe('a grace declared in the workspace defaults', () => {
     expect(result.servers[0]!.stop.graceMs, 'the defaults grace is resolved, as the panel resolves it').toBe(120_000)
     expect(shutdownBudgetMs(result.servers, false), 'and the budget covers it').toBeGreaterThan(120_000)
   })
+
+  /**
+   * The other half: a settings file that cannot be read must widen the budget, not shrink it.
+   *
+   * `workspaceDefaults` answered `{}` for a malformed settings file *and* reported `complete: true`,
+   * so a `defaults.stop.graceMs: 120000` the CLI could not parse became the 20 s floor — the exact
+   * SIGKILL-mid-grace this whole change exists to prevent, moved from the servers file to the
+   * settings file. A defaults value this release rejects is the same fact as unparseable JSON: the
+   * grace it names is invisible, and invisible is not zero.
+   */
+  it('reports an unreadable settings file as incomplete, so the budget widens', async () => {
+    const { serversReader } = await import('#src/cli/down') as unknown as {
+      serversReader: () => Promise<(id: string) => { servers: unknown[], complete: boolean }>
+    }
+    const read = await serversReader()
+
+    for (const [label, settings] of [
+      ['not JSON', '{ broken'],
+      ['a defaults value it rejects', JSON.stringify({ meta: { writtenBy: 'test', schema: 2 }, defaults: { stop: { graceMs: 'banana' } } })],
+    ] as const) {
+      const id = `bad-settings-${label.replace(/\s+/g, '-')}`
+      const dir = path.join(home, '.hh', id)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'settings.json'), settings)
+      fs.writeFileSync(path.join(dir, 'servers.config.json'), JSON.stringify({
+        meta: { writtenBy: 'test', schema: 2 },
+        servers: [{ id: 'web', command: 'node', args: ['server.js'] }],
+      }))
+      expect(read(id).complete, `${label}: an unreadable settings file is not a complete answer`).toBe(false)
+    }
+  })
 })

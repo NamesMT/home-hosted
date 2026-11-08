@@ -252,6 +252,29 @@ describe('logs <id>', () => {
     expect(ok.stdout).toContain('hi')
     expect(ok.stderr).toBe('')
   })
+
+  /**
+   * A registry that parses but lists nothing is "I cannot tell", not "no workspace exists".
+   *
+   * `readDefaultWorkspaceId` — the sibling in the same file — falls back to `default` for an empty
+   * registry, because that is what a hand-edit or a partially written file looks like, and that is
+   * the workspace the panel serves. Reading the ids as `[]` refused it: `logs web` on such a home
+   * exited 1 with `unknown workspace "default"`, while `start web` acted on it. Two rules in one file
+   * is the drift this whole change exists to remove.
+   */
+  it('does not refuse the default workspace when the registry lists none', async () => {
+    const { home } = stateRoot({ serverId: 'web', logLines: ['{"ts":1,"stream":"stdout","text":"hi"}'] })
+    fs.writeFileSync(
+      path.join(home, '.hh', 'workspaces.json'),
+      `${JSON.stringify({ meta: { writtenBy: 'test', schema: 2 }, workspaces: [] }, null, 2)}\n`,
+    )
+
+    const { stdout, stderr } = await captureLogs(home, { id: 'web' })
+
+    expect(process.exitCode, 'an empty registry must not turn a readable log into a refusal').toBe(0)
+    expect(stdout).toContain('hi')
+    expect(stderr).toBe('')
+  })
 })
 
 describe('status --json liveness', () => {

@@ -295,10 +295,13 @@ export async function serversReader(): Promise<(workspaceId: string) => { server
       // Nothing declared is a real answer: a workspace with no entries stops nothing.
       return { servers: [], complete: true }
     }
+    const resolved = workspaceDefaults(workspaceId, readStateFile, workspaceSettingsPath, parseWorkspaceSettings)
     try {
-      const defaults = workspaceDefaults(workspaceId, readStateFile, workspaceSettingsPath, parseWorkspaceSettings)
-      const parsed = parseServersFile(JSON.parse(readStateFile(file)), defaults)
-      return { servers: parsed.servers, complete: parsed.errors.length === 0 }
+      const parsed = parseServersFile(JSON.parse(readStateFile(file)), resolved.defaults)
+      // A settings file this CLI could not turn into defaults is as unknowable as a broken servers
+      // file: the grace it declares is invisible, and the budget computed without it is the 20 s floor
+      // — which SIGKILLs a panel still inside a grace the person configured.
+      return { servers: parsed.servers, complete: parsed.errors.length === 0 && resolved.complete }
     }
     catch {
       return { servers: [], complete: false }
@@ -307,28 +310,32 @@ export async function serversReader(): Promise<(workspaceId: string) => { server
 }
 
 /**
- * The `defaults` group a workspace's settings file declares, or `{}`.
+ * The `defaults` group a workspace's settings file declares, and whether that answer is trustworthy.
  *
- * An absent or unreadable settings file is `{}` rather than `complete: false`: with no defaults the
- * budget is computed from each entry's own `stop`, which is the pre-existing answer, and a settings
- * file that cannot be parsed must not widen every `down` to ten minutes. A *servers* config the CLI
- * cannot read already reports itself through the caller's `complete` flag.
+ * An **absent** file is a real answer — `{}`, `complete: true` — because a workspace with no settings
+ * has no `defaults` to miss and the seed declares none. A file that is there but cannot be read, or
+ * carries a `defaults` value this release rejects, is a different fact: the grace it declares is
+ * invisible to the budget, and a budget computed without it is the 20 s floor. Reporting that as
+ * `complete: false` widens the wait to the ceiling, which is the safe direction — too long costs a
+ * slower `down`, too short kills a panel inside a grace the person configured.
  */
 function workspaceDefaults(
   workspaceId: string,
   readStateFile: (file: string) => string,
   workspaceSettingsPath: (id: string) => string,
   parseWorkspaceSettings: (raw: unknown) => { config: { defaults?: Record<string, unknown> } | null, errors: string[] },
-): Record<string, unknown> {
+): { defaults: Record<string, unknown>, complete: boolean } {
   const file = workspaceSettingsPath(workspaceId)
   if (!fs.existsSync(file))
-    return {}
+    return { defaults: {}, complete: true }
   try {
     const parsed = parseWorkspaceSettings(JSON.parse(readStateFile(file)))
-    return (parsed.config?.defaults ?? {}) as Record<string, unknown>
+    if (parsed.errors.length > 0)
+      return { defaults: {}, complete: false }
+    return { defaults: (parsed.config?.defaults ?? {}) as Record<string, unknown>, complete: true }
   }
   catch {
-    return {}
+    return { defaults: {}, complete: false }
   }
 }
 
