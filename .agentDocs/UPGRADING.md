@@ -9,6 +9,33 @@ must act on, it needs no section here at all.
 
 ## 0.12.0
 
+**A workspace-scoped route now refuses a query key it does not declare.** This is the one thing to
+check before upgrading.
+
+Every such route already took `?workspace=<id>`. What changed is that a *different* key is now a
+`400 INVALID_INPUT` naming it, instead of being silently dropped. The reason: ArkType is permissive
+by default, so `POST /api/servers/<id>/stop?worspace=staging` answered `200 {"ok":true}` having
+stopped that entry in the **default** workspace — one transposed letter in a deploy script, aimed at
+one workspace, acting on another, with nothing in the answer naming the typo.
+
+The rule now spans every workspace-scoped route, so anything that appends an extra query parameter
+will fail where it used to work. The realistic cases:
+
+| what you send | before | now |
+| --- | --- | --- |
+| `?workspace=staging` (declared) | 200 | 200 |
+| `?worspace=staging` (typo) | 200, against **default** | 400 |
+| `?workspace=a&_=1730…` (cache-buster) | 200 | 400 |
+| `?workspace=a&v=2` (your own version tag) | 200 | 400 |
+| `?workspace=a&withPersistant=true` (typo) | 200, flag ignored | 400 |
+
+**What to change:** drop the extra parameter, or send it on a route that declares it. The keys each
+route accepts are in `GET /openapi/spec.json` — a route that declares nothing rejects everything but
+`workspace`. Nothing else about these routes changed: the id resolution, the `404
+UNKNOWN_WORKSPACE` for a name that does not exist, and every response shape are as they were.
+
+The shipped UIs need no change; both send only declared keys.
+
 **A public hostname must be declared.** The panel now refuses (`421 HOST_NOT_ALLOWED`) a request
 whose `Host` is a public name it does not know — the fix for a DNS-rebinding attack that let any web
 page drive a loopback-only panel. IPs, `localhost`, single-label and local names (`.local`, `.lan`,
@@ -41,34 +68,11 @@ unchanged. New: `home-hosted/client`, a typed client in the package.
 `/api/events?workspace=<id>` now filters server and log frames to that workspace, and refuses
 undeclared query keys.
 
-## 0.11.1
-
-**A workspace-scoped route now refuses a query key it does not declare.** This is the one thing to
-check before upgrading.
-
-Every such route already took `?workspace=<id>`. What changed is that a *different* key is now a
-`400 INVALID_INPUT` naming it, instead of being silently dropped. The reason: ArkType is permissive
-by default, so `POST /api/servers/<id>/stop?worspace=staging` answered `200 {"ok":true}` having
-stopped that entry in the **default** workspace — one transposed letter in a deploy script, aimed at
-one workspace, acting on another, with nothing in the answer naming the typo.
-
-The rule now spans every workspace-scoped route, so anything that appends an extra query parameter
-will fail where it used to work. The realistic cases:
-
-| what you send | before | now |
-| --- | --- | --- |
-| `?workspace=staging` (declared) | 200 | 200 |
-| `?worspace=staging` (typo) | 200, against **default** | 400 |
-| `?workspace=a&_=1730…` (cache-buster) | 200 | 400 |
-| `?workspace=a&v=2` (your own version tag) | 200 | 400 |
-| `?workspace=a&withPersistant=true` (typo) | 200, flag ignored | 400 |
-
-**What to change:** drop the extra parameter, or send it on a route that declares it. The keys each
-route accepts are in `GET /openapi/spec.json` — a route that declares nothing rejects everything but
-`workspace`. Nothing else about these routes changed: the id resolution, the `404
-UNKNOWN_WORKSPACE` for a name that does not exist, and every response shape are as they were.
-
-The shipped UIs need no change; both send only declared keys.
+**`hh_server_uptime_ratio_24h` is measured over the time the panel observed the server**, not over a
+fixed 24 hours. A server added ten minutes ago and up the whole time now reads `1` instead of `0.0069`.
+The series keeps its name and its `24h` suffix — the window is still the cap — but an alert written as
+"< 99% up" now fires on real downtime instead of on every entry's first day. Nothing else in the
+scrape changed.
 
 ## 0.11.0
 

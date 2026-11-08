@@ -76,7 +76,14 @@ export function createMetricsRoute(deps: AppDeps) {
       const uptime = servers
         .filter(server => server.history.uptimeRatio !== null)
         .map(server => `hh_server_uptime_ratio_24h{${labels(server)}} ${server.history.uptimeRatio!.toFixed(4)}`)
-      metric('hh_server_uptime_ratio_24h', 'Share of the last 24 hours the server was up', uptime)
+      /*
+       * The denominator is the time this server was **observed**, not the whole window. A server added
+       * ten minutes ago and up the whole time reads `1`, which is what a person means by "up"; dividing
+       * by a fixed 24h made it read `0.0069`, indistinguishable from a dead one, and every new entry
+       * tripped a "< 99% up" alert for its first day. The HELP states the denominator because a scrape
+       * has no page to explain itself, and an alert written against the old sentence now needs to know.
+       */
+      metric('hh_server_uptime_ratio_24h', 'Share of the last 24h the server was up, measured over the time it was observed (a server seen for ten minutes and up throughout reads 1)', uptime)
 
       const response = servers
         .filter(server => server.responseMs !== null)

@@ -32,10 +32,10 @@ Reaching the panel through an **external** proxy or tunnel on a public name? Add
 
 - **Sessions** live in memory only. The lifetime is an *idle* timeout: each request slides it.
   Changing the password signs every session out.
-- **Tokens** are stored as a SHA-256 hash; the value is shown once. Three operations need a signed-in
-  session instead — clearing the password, switching authentication off, and restoring an archive
-  that carries `global:secrets` (`403 SESSION_REQUIRED`). That prevents accidents; it is not a
-  boundary against someone holding the token (see above).
+- **Tokens** are stored as a SHA-256 hash; the value is shown once. Five operations need a signed-in
+  session instead — clearing the password, switching authentication off, minting or revoking an API
+  token, and restoring an archive that carries `global:secrets` (`403 SESSION_REQUIRED`). That
+  prevents accidents; it is not a boundary against someone holding the token (see above).
 - **Repeated login failures lock out per client address**, escalating to 15 minutes.
 
 ## Behind a proxy

@@ -27,10 +27,11 @@ your login screen". The token never expires.
 
 > [!WARNING]
 > **A token is full admin.** It can create and start a server entry, and an entry runs any command
-> as the user running the panel. Treat it like that user's password. Three routes still require a
-> signed-in session — clearing the password, switching authentication off, and restoring an archive
-> that carries the panel's own credentials (`403 SESSION_REQUIRED`) — so a script cannot do those
-> *by accident*, but they are not a security boundary against someone holding the token.
+> as the user running the panel. Treat it like that user's password. Five operations still require a
+> signed-in session — clearing the password, switching authentication off, minting an API token,
+> revoking an API token, and restoring an archive that carries the panel's own credentials
+> (`403 SESSION_REQUIRED`) — so a script cannot do those *by accident*, but they are not a security
+> boundary against someone holding the token.
 
 ### Hosts and origins
 
@@ -127,7 +128,9 @@ with a bearer token. Every series is a gauge; none ends in `_total`. A series wi
 **absent**, never `0`, so do not let a dashboard fill gaps with zero. `hh_host_cpu_used_percent`
 (0–100) is the CPU figure to alert on; `hh_host_load1_per_cpu` is runnable tasks per core.
 `hh_server_restarts` is the current crash streak (reset by a manual start), so compare it directly
-rather than through `rate()`.
+rather than through `rate()`. `hh_server_uptime_ratio_24h` is the share of the last 24 hours a server
+was up **measured over the time the panel observed it**, so a server added ten minutes ago and up
+throughout reads `1`, not `0.0069`.
 
 ## Compatibility
 

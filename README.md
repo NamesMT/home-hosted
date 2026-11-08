@@ -199,8 +199,9 @@ point your uptime monitor at it.
 | `GET /healthz` | no credential needed — for your monitor | ❌ |
 
 Every error is one envelope — `{ "message", "code", "detail"? }` — with a stable `code` to branch on.
-Undeclared query keys are refused (`400`), so a typo like `?worspace=` never acts on the default
-workspace. Full reference, SSE frames, metrics and compatibility rules: **[API.md](./docs/API.md)**.
+On a **workspace-scoped** route an undeclared query key is refused (`400`), so a typo like `?worspace=`
+never acts on the default workspace. Full reference, SSE frames, metrics and compatibility rules:
+**[API.md](./docs/API.md)**.
 
 </details>
 
