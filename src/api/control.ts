@@ -4,7 +4,7 @@ import path from 'node:path'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
-import { statusForAction } from '#src/helpers/action-result'
+import { actionAnswer, statusForAction } from '#src/helpers/action-result'
 import { afterResponse } from '#src/helpers/deferred'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
@@ -15,7 +15,7 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 
 import { isLoopbackRequest } from '#src/middleware/loopback'
 import { selectionOf } from '#src/shared/backup-scope'
-import { backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 
 /**
  * The local control channel used by `home-hosted down` and `home-hosted start|stop`.
@@ -69,14 +69,14 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Start one server, without a session (local token required)',
-        responses: { 200: { description: 'Started', content: jsonBody(okResponseSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
+        responses: { 200: { description: 'Started', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now: disabled, stopping, or port in use (`ACTION_FAILED`)' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {
         assertLocalCall(c, 'start or stop a server')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.start(c.req.param('id'), { actor: 'user' })
-        return c.json(result, statusForAction(result))
+        return c.json(actionAnswer(result), statusForAction(result))
       },
     )
 
@@ -112,14 +112,14 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Stop one server, without a session (local token required)',
-        responses: { 200: { description: 'Stopped', content: jsonBody(okResponseSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
+        responses: { 200: { description: 'Stopped', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now: disabled, stopping, or port in use (`ACTION_FAILED`)' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {
         assertLocalCall(c, 'start or stop a server')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.stop(c.req.param('id'))
-        return c.json(result, statusForAction(result))
+        return c.json(actionAnswer(result), statusForAction(result))
       },
     )
 
@@ -131,14 +131,14 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Restart one server, without a session (local token required)',
-        responses: { 200: { description: 'Restarted', content: jsonBody(okResponseSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' } },
+        responses: { 200: { description: 'Restarted', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now: disabled, stopping, or port in use (`ACTION_FAILED`)' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {
         assertLocalCall(c, 'restart a server')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.restart(c.req.param('id'), { actor: 'user' })
-        return c.json(result, statusForAction(result))
+        return c.json(actionAnswer(result), statusForAction(result))
       },
     )
 
@@ -165,7 +165,7 @@ export function createControlRoute(deps: AppDeps) {
         const result = await runtime.supervisor.freePort(c.req.param('id'))
         // `ok: false` carries the sentence a person acts on, and the status says which kind of
         // failure it was — the same pair the `/api` route answers, so the two cannot disagree.
-        return c.json(result, statusForAction(result))
+        return c.json(actionAnswer(result), statusForAction(result))
       },
     )
 

@@ -27,7 +27,17 @@ export function createHealthRoute(deps: AppDeps) {
             description: 'Serving',
             content: jsonBody(healthResponseSchema),
           },
-          503: { description: 'An entry needs attention: crashed, blocked on its port, stopped by the panel, or running and unhealthy' },
+          503: {
+            description: 'An entry needs attention: crashed, blocked on its port, stopped by the panel, or running and unhealthy',
+            /**
+             * The same schema as the 200, because a degraded panel answers the same document with
+             * `status: "degraded"`. Leaving `content` off made `finishSpec` stamp the error envelope
+             * onto it — every declared status ≥ 400 gets one — so the published spec told a generated
+             * monitor client to expect `{ message, code }` from the one endpoint whose whole job is
+             * machine consumption, and a degraded-but-working panel read as unparseable.
+             */
+            content: jsonBody(healthResponseSchema),
+          },
         },
       }),
       (c) => {

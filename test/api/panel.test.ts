@@ -333,6 +333,27 @@ describe('healthz', () => {
     expect(schema(bad) instanceof type.errors, `503 body: ${JSON.stringify(schema(bad))}`).toBe(false)
   })
 
+  /**
+   * The **published spec** has to describe the 503 the same way, not just the route's own schema.
+   *
+   * `finishSpec` stamps the error envelope onto every declared status ≥ 400, and `/healthz` declared
+   * its 503 with a description and no `content` — so the spec told a generated monitor client to
+   * expect `{ message, code }` from the one endpoint whose whole job is machine consumption, while
+   * the body is the health document. A monitor built from the spec would read a degraded-but-working
+   * panel as unparseable.
+   */
+  it('declares the health document as the 503 body, not the error envelope', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      paths: Record<string, { get: { responses: Record<string, { content?: Record<string, { schema?: Record<string, unknown> }> }> } }>
+    }
+    const content = spec.paths['/healthz']!.get.responses['503']!.content
+    expect(content, 'the 503 must declare a body').toBeDefined()
+    const schema = JSON.stringify(content)
+    expect(schema, 'it is the health document').toContain('uptimeMs')
+    expect(schema, 'and not the error envelope').not.toContain('"code"')
+  })
+
   it('includes the counts and host alerts for an authenticated caller', async () => {
     const created = await fixture({
       password: 'correct horse',
@@ -914,11 +935,39 @@ describe('/_hh/servers/:id/start|stop|restart', () => {
 
     const refused = await created.app.request('/_hh/servers/web/start', { method: 'POST', headers: local })
     expect(refused.status).toBe(409)
-    expect(await refused.json()).toEqual({ ok: false, error: 'server "web" is disabled' })
+    /**
+     * `message`/`code` beside `ok`/`error`, as every other failure carries them.
+     *
+     * The local channel used to answer the bare `{ ok, error }` here while `/api/servers/:id/start`
+     * carried the full envelope, so the same refusal read two ways depending on the channel and a
+     * client of the documented error shape had nothing to branch on. `ok`/`error` stay for older
+     * readers; the additions are optional, so an older client is unaffected.
+     */
+    expect(await refused.json()).toEqual({ ok: false, error: 'server "web" is disabled', message: 'server "web" is disabled', code: 'ACTION_FAILED' })
 
     const missing = await created.app.request('/_hh/servers/nope/stop', { method: 'POST', headers: local })
     expect(missing.status).toBe(404)
-    expect(await missing.json()).toEqual({ ok: false, error: 'unknown server "nope"' })
+    expect(await missing.json()).toEqual({ ok: false, error: 'unknown server "nope"', message: 'unknown server "nope"', code: 'UNKNOWN_SERVER' })
+  })
+
+  /**
+   * The spec has to declare the statuses these routes actually answer.
+   *
+   * `start`/`stop`/`restart` answer 409 for any refusal that is not a missing id, but their
+   * `describeRoute` listed only 200/403/404, so `finishSpec` never added a body for the 409 and a
+   * client generated from `/openapi/spec.json` had no handler for it at all.
+   */
+  it('declares the 409 its lifecycle routes answer', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as {
+      paths: Record<string, Record<string, { responses: Record<string, { content?: unknown }> }>>
+    }
+    for (const route of ['/_hh/servers/{id}/start', '/_hh/servers/{id}/stop', '/_hh/servers/{id}/restart']) {
+      const responses = spec.paths[route]?.post?.responses
+      expect(responses, `${route} must be in the spec`).toBeDefined()
+      expect(Object.keys(responses!), `${route} must declare its 409`).toContain('409')
+      expect(responses!['409']!.content, `${route}'s 409 must carry the error envelope`).toBeDefined()
+    }
   })
 })
 
