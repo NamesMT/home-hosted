@@ -57,7 +57,9 @@ const SECRET_FILE_NAMES = ['.control-secrets.json', '.secrets.json'] as const
  * make actually hold.
  */
 const SECRET_DOCUMENT_NAMES = new RegExp(
+  // `i`, because a case-insensitive filesystem can give the hex suffix back in either case.
   `^(?:${SECRET_FILE_NAMES.map(name => name.replaceAll('.', '\\.')).join('|')})(?:\\.\\d+\\.[0-9a-f]{8}\\.tmp)?$`,
+  'i',
 )
 
 function isSecretDocument(name: string): boolean {
