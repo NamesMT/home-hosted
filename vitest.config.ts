@@ -50,6 +50,23 @@ export default defineConfig({
     testTimeout: 90000,
     hookTimeout: 90000,
     /*
+     * Each test file gets a throwaway `$HHOSTED_HOME` before it is imported, and the run fails if the
+     * real one was touched.
+     *
+     * `src/helpers/paths.ts` resolves `dataRoot` once, at module load — and ESM hoists imports, so a
+     * test that assigns `process.env.HHOSTED_HOME` in its own body is already too late: the paths
+     * module has run and points at `~/.home-hosted`. `down-budget.test.ts` built a `WorkspaceStore`
+     * to read a stop budget, `load()` seeds a missing config, and a suite run created
+     * `~/.home-hosted` on the developer's machine. `setupFiles` is the only hook that runs early
+     * enough, once per file.
+     *
+     * The second entry is the guard on the first: a file that *deletes* the variable (several reset
+     * it to exercise the default) would reach the real directory again, so the run compares a
+     * snapshot of it taken before the suite with one taken after.
+     */
+    setupFiles: ['./test/support/test-home.ts'],
+    globalSetup: ['./test/support/real-home-guard.ts'],
+    /*
      * A git worktree nested inside the repository is a second copy of every test file.
      *
      * Agent worktrees live under `.agents/worktrees/<branch>/`, so running the suite from the

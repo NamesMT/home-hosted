@@ -57,6 +57,14 @@ Everything lives in `$HHOSTED_HOME/.hh` (default `~/.home-hosted/.hh`, mode `070
 `ddns.cache.json`). The package ships no servers:
 never commit a config, seed entry or path naming one.
 
+**`src/helpers/paths.ts` resolves `dataRoot` once, at module load**, and ESM hoists imports — so a
+test that assigns `process.env.HHOSTED_HOME` in its own body is already too late and every path it
+reads is the developer's real `~/.home-hosted`. `test/support/test-home.ts` (wired as `setupFiles`)
+gives each test file a throwaway home *before* it is imported, which is the only hook early enough;
+`test/support/real-home-guard.ts` (`globalSetup`) then fails the run if the real one changed. A test
+that needs `resolveDataRoot`'s own behaviour, or no home at all, sets or deletes the variable itself
+and restores it — it does not rely on the default being reachable.
+
 ## Commands
 
 ```sh

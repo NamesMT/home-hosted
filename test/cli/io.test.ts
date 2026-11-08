@@ -1,6 +1,6 @@
 import process from 'node:process'
 import { PassThrough } from 'node:stream'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bold, cyan, dim, green, heading, invocation, isTty, paint, style } from '#src/cli/io'
 
 /**
@@ -325,6 +325,18 @@ describe('invocation', () => {
   const originalArgv = process.argv[1]
   const originalOverride = process.env.HHOSTED_INVOCATION
   const originalHome = process.env.HHOSTED_HOME
+
+  /**
+   * These cases are about the *program*, so each starts with no state directory chosen.
+   *
+   * The suite gives every file a throwaway `$HHOSTED_HOME` (see `test/support/test-home.ts`), and
+   * `invocation()` appends `--home` whenever one is set — which the last case in this block relies
+   * on. Clearing it here is what makes "the bare command" the assertion rather than an accident of
+   * the runner's environment.
+   */
+  beforeEach(() => {
+    delete process.env.HHOSTED_HOME
+  })
 
   afterEach(() => {
     process.argv[1] = originalArgv as string
