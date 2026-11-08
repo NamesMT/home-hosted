@@ -223,6 +223,35 @@ describe('logs <id>', () => {
     expect(answer.stdout).toContain('no output yet')
     expect(answer.stderr).toBe('')
   })
+
+  /**
+   * The same false answer, one level up: a `--workspace` that names nothing.
+   *
+   * `logs web -w typo` joined the id into a path and read a file that could not exist, so it printed
+   * `no output yet — …/.hh/typo/.logs/web.log` and exited **0** — while `start web -w typo` refused
+   * the same id. `logs web -w typo | grep -q error` was therefore an empty pipeline that reads as
+   * "no errors", on the first command a diagnostic session runs.
+   */
+  it('refuses a --workspace that names no workspace', async () => {
+    const { home } = stateRoot({ serverId: 'web', logLines: ['{"ts":1,"stream":"stdout","text":"hi"}'] })
+    fs.writeFileSync(
+      path.join(home, '.hh', 'workspaces.json'),
+      `${JSON.stringify({ meta: { writtenBy: 'test', schema: 2 }, workspaces: [{ id: 'default', label: 'Default' }] }, null, 2)}\n`,
+    )
+
+    const { stdout, stderr } = await captureLogs(home, { id: 'web', workspace: 'typo' })
+
+    expect(process.exitCode, 'a refusal that keeps its answer would still be a success').toBe(1)
+    expect(stdout, 'stdout carries only an answer, and there is none').toBe('')
+    expect(stderr).toContain('unknown workspace "typo"')
+
+    // ...and a workspace that does exist still reads, with no note on stderr.
+    process.exitCode = 0
+    const ok = await captureLogs(home, { id: 'web', workspace: 'default' })
+    expect(process.exitCode).toBe(0)
+    expect(ok.stdout).toContain('hi')
+    expect(ok.stderr).toBe('')
+  })
 })
 
 describe('status --json liveness', () => {

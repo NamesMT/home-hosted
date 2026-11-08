@@ -132,10 +132,28 @@ async function refuseUnknownServer(target: LogTarget, json: boolean): Promise<bo
   if (serverId === undefined || workspaceId === undefined)
     return false
 
-  const { workspaceServersPath } = await import('#src/helpers/paths')
+  const { workspaceServersPath, workspacesPath } = await import('#src/helpers/paths')
   const { readDeclaredServerIds } = await import('#src/config/server-ids')
   const { logExists } = await import('#src/helpers/daemon-log')
   const { nearestWord } = await import('#src/cli/nearest')
+
+  /**
+   * The workspace itself first: an id that names no workspace makes every answer below meaningless,
+   * and the old code joined it into a path and read a file that could not exist. `logs web -w typo`
+   * printed `no output yet — …/.hh/typo/.logs/web.log` and exited 0, so `logs web -w typo | grep -q
+   * error` was an empty pipeline that reads as "no errors" — while `start web -w typo` refused the
+   * same id. A log on disk still wins, for the same reason it does for a removed server.
+   */
+  if (!logExists(target.file)) {
+    const { readWorkspaceIds } = await import('#src/config/workspaces')
+    const known = readWorkspaceIds(workspacesPath)
+    if (known !== null && !known.includes(workspaceId)) {
+      const suggestion = nearestWord(workspaceId, known)
+      refusal(`unknown workspace "${workspaceId}"${suggestion === null ? '' : ` — did you mean \`${suggestion}\`?`} (${workspacesPath})`)
+      process.exitCode = 1
+      return true
+    }
+  }
 
   const declared = readDeclaredServerIds(workspaceServersPath(workspaceId))
   if (declared === null || declared.includes(serverId))

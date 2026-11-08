@@ -1,6 +1,6 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, fail, paint } from '#src/cli/io'
+import { bold, dim, fail, invocation, paint } from '#src/cli/io'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -50,7 +50,7 @@ export async function runUsage(input: { json?: boolean }): Promise<void> {
   if (runtime === null || !await runtimeIsAlive(runtime)) {
     if (runtime !== null && await runtimeIsGone(runtime))
       clearRuntime()
-    fail('home-hosted is not running — start it with `home-hosted up`')
+    fail(`home-hosted is not running — start it with \`${invocation()} up\``)
   }
 
   const answer = await requestControl(runtime, '/_hh/usage', 15_000, 'GET')

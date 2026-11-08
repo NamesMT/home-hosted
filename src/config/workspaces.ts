@@ -64,6 +64,26 @@ export function readDefaultWorkspaceId(file: string): string {
   }
 }
 
+/**
+ * The workspace ids a registry declares — or `null` when it cannot answer.
+ *
+ * `readDefaultWorkspaceId`'s sibling for a command that must tell "that workspace does not exist"
+ * from "I cannot tell": a diagnostic that answers an empty log for a typo'd `--workspace` is the
+ * same false answer as one that answers it for a typo'd server id. `null` keeps the caller silent
+ * on a registry it could not read, because unreadable is not "it names none".
+ */
+export function readWorkspaceIds(file: string): string[] | null {
+  try {
+    const parsed = workspacesFileSchema(JSON.parse(readStateFile(file)) as unknown)
+    if (parsed instanceof type.errors)
+      return null
+    return parsed.workspaces.map(workspace => workspace.id)
+  }
+  catch {
+    return null
+  }
+}
+
 export class WorkspaceError extends Error {
   override name = 'WorkspaceError'
   readonly code: WorkspaceErrorCode | undefined
