@@ -817,6 +817,35 @@ describe('backup service', () => {
     expect(plan.items.every(item => !item.selected)).toBe(true)
   })
 
+  /**
+   * A restore rewrites the fields the archive carries, and nothing else.
+   *
+   * The global secrets writer replaced the live file wholesale whenever nothing was excluded — which
+   * reads as the identity case but is not: an archive only holds what its own selection captured. One
+   * taken with `--exclude global:secrets:apiToken` has no `apiToken` in it, so restoring it wrote a
+   * document without one and signed every script out, and a live secret the archive simply predates
+   * was dropped the same way. Every restore merged by field before this rewrite; this pins it back.
+   */
+  it('keeps a live secret the archive never carried', async () => {
+    const fixture = await makeFixture({
+      // The home as it stands when the archive is taken: a password and a token.
+      globalSecrets: `${JSON.stringify({ password: { algo: 'scrypt', hash: 'ARCHHASH' }, apiToken: { algo: 'sha256', hash: 'LIVETOKEN' } }, null, 2)}\n`,
+    })
+    // The selection leaves the token out, so the archive carries only the password.
+    const created = await fixture.service.create({ exclude: ['global:secrets:apiToken'] })
+    expect(created.ok, created.error).toBe(true)
+
+    // Time passes; the password changes on this machine. The token is still the one that must survive.
+    fs.writeFileSync(fixture.globalSecretsPath, `${JSON.stringify({ password: { algo: 'scrypt', hash: 'CHANGEDHASH' }, apiToken: { algo: 'sha256', hash: 'LIVETOKEN' } }, null, 2)}\n`)
+
+    const plan = await fixture.service.restore(path.join(fixture.service.directory, created.file!.name), { confirm: true, include: ['global:secrets'] })
+    expect(plan.applied, plan.error).toContain('Global secrets (password, API token)')
+
+    const live = JSON.parse(fs.readFileSync(fixture.globalSecretsPath, 'utf8')) as { password?: { hash?: string }, apiToken?: { hash?: string } }
+    expect(live.password?.hash, 'the archived field is applied').toBe('ARCHHASH')
+    expect(live.apiToken?.hash, 'a secret the archive never carried is not dropped').toBe('LIVETOKEN')
+  })
+
   it('skips a data path neither the current config nor the backup declares', async () => {
     const fixture = await makeFixture()
     const slug = slugifyPath(fixture.dataDir)
@@ -1332,6 +1361,37 @@ describe('excluding a selection', () => {
     expect(
       names.filter(name => name.endsWith('.control-secrets.json')),
       'a raw secrets document must never ride in through a data path',
+    ).toEqual([])
+  })
+
+  /**
+   * And not the half-written copy a crashed atomic write leaves behind.
+   *
+   * `writeFileAtomic` removes its `<file>.<pid>.<hex>.tmp` scratch copy only in its `catch`, so a
+   * SIGKILL between the write and the rename leaves a **complete** secrets document on disk. Its name
+   * is not one of the two live ones, so an exact-name filter walked straight past it — and it is that
+   * copy, not the renamed file, which still holds the plaintext first-run password.
+   */
+  it('never copies the scratch file a crashed atomic write leaves in a declared data path', async () => {
+    // A declared tree that is *not* the state root, so nothing else filters it out: whatever the tree
+    // holds is copied, which is what makes this a test of the filter rather than of the archive-dir guard.
+    const tree = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-crash-tree-'))
+    dirs.push(tree)
+    const document = `${JSON.stringify({ password: { algo: 'scrypt', hash: 'HASH', initial: 'pxv2-tvb5-3r8j' } }, null, 2)}\n`
+    fs.mkdirSync(path.join(tree, 'state'), { recursive: true })
+    fs.writeFileSync(path.join(tree, 'state', '.control-secrets.json.4242.deadbeef.tmp'), document)
+    // An ordinary file beside it, so an empty capture cannot pass this by accident.
+    fs.writeFileSync(path.join(tree, 'state', 'notes.txt'), 'kept\n')
+
+    const fixture = await makeFixture({ includePaths: [tree] })
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    const names = (await listZip(path.join(fixture.dataRoot, '.backups', created.file!.name))).map(entry => entry.name)
+    expect(names.some(name => name.endsWith('notes.txt')), 'the declared tree was captured').toBe(true)
+    expect(
+      names.filter(name => name.includes('.control-secrets.json')),
+      'a crashed atomic write must not be the way the password out',
     ).toEqual([])
   })
 

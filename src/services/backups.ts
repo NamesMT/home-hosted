@@ -46,7 +46,23 @@ const REGISTRY = 'workspaces.json'
  * declared state root captured `.control-secrets.json` verbatim, password and all. That is the same
  * leak by a different door, so the raw copy refuses these names wherever they appear.
  */
-const SECRET_FILE_NAMES = new Set(['.control-secrets.json', '.secrets.json'])
+const SECRET_FILE_NAMES = ['.control-secrets.json', '.secrets.json'] as const
+
+/**
+ * The live name, or the scratch copy `writeFileAtomic` gives a write that has not been renamed yet.
+ *
+ * That helper removes its temp file only in its `catch`, so a crash between the write and the rename
+ * leaves a **complete** secrets document on disk — plaintext first-run password included — under a
+ * name no exact match catches. Matching the atomic-write shape is what makes the guarantee the docs
+ * make actually hold.
+ */
+const SECRET_DOCUMENT_NAMES = new RegExp(
+  `^(?:${SECRET_FILE_NAMES.map(name => name.replaceAll('.', '\\.')).join('|')})(?:\\.\\d+\\.[0-9a-f]{8}\\.tmp)?$`,
+)
+
+function isSecretDocument(name: string): boolean {
+  return SECRET_DOCUMENT_NAMES.test(name)
+}
 const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data', 'dumps'])
 /** Every archive this service writes is a zip, encrypted or not. */
 const SUFFIX = '.zip'
@@ -1090,8 +1106,15 @@ export class BackupService {
       const actions = new Map<string, () => void | Promise<void>>()
 
       /**
-       * Writes one archived secrets file. The whole-file item replaces it only when no leaf under
-       * `entryId` was excluded; otherwise it merges, so an excluded field keeps this host's value.
+       * Writes one archived secrets file, **always** by field.
+       *
+       * Replacing the live file wholesale when nothing was excluded looked like the identity case, but
+       * an archive only carries what its own selection captured: restoring `global:secrets` from an
+       * archive taken with `--exclude global:secrets:apiToken` replaced the file with a document that
+       * had no `apiToken` in it, silently signing every script out. The live file may also hold a secret
+       * the archive predates. `mergeIntoFile` copies exactly the fields the archive carries and leaves
+       * every other key of the live file alone, which is the behaviour both cases want — and what every
+       * restore did before this rewrite.
        */
       const secretsApply = (scope: SecretScope, entryId: string, target: string, archived: string): (() => void) => {
         const parts = secretParts(scope, presentSecretKeys(parseSecrets(archived)))
@@ -1099,10 +1122,7 @@ export class BackupService {
           && !part.fields.some(field => selects.isExcluded(`${entryId}:${field}`)))
         return (): void => {
           fs.mkdirSync(path.dirname(target), { recursive: true })
-          if (take.length === parts.length)
-            writeFileAtomic(target, archived, { mode: 0o600 })
-          else
-            mergeIntoFile(target, archived, take.flatMap(part => part.fields))
+          mergeIntoFile(target, archived, take.flatMap(part => part.fields))
         }
       }
 
@@ -1841,8 +1861,9 @@ export class BackupService {
       const resolved = path.resolve(from)
       if (isInside(archiveDir, resolved))
         return false
-      // A declared tree may well contain a state directory; its secrets never travel raw.
-      if (SECRET_FILE_NAMES.has(path.basename(resolved)))
+      // A declared tree may well contain a state directory; its secrets never travel raw, and neither
+      // does the half-written copy a crashed atomic write leaves behind.
+      if (isSecretDocument(path.basename(resolved)))
         return false
       if (!ignoreGenerated || resolved === root)
         return true
