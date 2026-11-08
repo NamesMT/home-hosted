@@ -12,6 +12,7 @@ import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampCon
 import { KNOWN_SECRET_KEYS, mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts, withoutInitialPassword } from '#src/config/secret-parts'
 import { workspacesFileSchema } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { readStateFile } from '#src/helpers/config-text'
 import { copyTree } from '#src/helpers/copy-tree'
 import { expandEnv } from '#src/helpers/env-file'
 import { logger } from '#src/helpers/logger'
@@ -36,6 +37,16 @@ const serverIdSchema = serverSchema.get('id')
  * named as the live file is, so the two are recognisably the same document.
  */
 const REGISTRY = 'workspaces.json'
+/**
+ * Every file name the panel writes a secret into, in any directory.
+ *
+ * A secrets document must reach an archive only through `copySecrets`, which narrows the selection
+ * and drops the plaintext first-run password. The **data** phase copies whole trees a person declared
+ * — `{dataRoot}` is a documented template, and the docs recommend keeping archives off the box, so a
+ * declared state root captured `.control-secrets.json` verbatim, password and all. That is the same
+ * leak by a different door, so the raw copy refuses these names wherever they appear.
+ */
+const SECRET_FILE_NAMES = new Set(['.control-secrets.json', '.secrets.json'])
 const ALLOWED_ROOTS = new Set(['global', 'workspaces', 'data', 'dumps'])
 /** Every archive this service writes is a zip, encrypted or not. */
 const SUFFIX = '.zip'
@@ -603,9 +614,18 @@ export function slugifyPath(target: string): string {
   return cleaned.length > 0 ? cleaned.slice(-80) : 'path'
 }
 
+/**
+ * A state file's text, decoded the way `readStateFile` decodes it.
+ *
+ * **Not** `fs.readFileSync(file, 'utf8')`: a hand-edited file arrives with whatever a Windows editor
+ * wrote, and a leading BOM makes `JSON.parse` fail. Here that failure was not loud — it made
+ * `withoutInitialPassword` return `null`, which the caller reads as "this is not a document I can
+ * narrow", and the raw-copy fallback then put the plaintext first-run password into the archive. So
+ * the one codec the repo already centralised for exactly this reason is the one this must use.
+ */
 function readText(file: string): string | null {
   try {
-    return fs.readFileSync(file, 'utf8')
+    return readStateFile(file)
   }
   catch {
     return null
@@ -824,24 +844,20 @@ export class BackupService {
          * fields instead would drop every `null` slot, because `presentSecretKeys` counts only
          * non-null values and `pickSecrets` then answers `null` for a file holding nothing set.
          */
-        if (fields === null) {
-          const stripped = withoutInitialPassword(text)
-          if (stripped !== null) {
-            const target = path.join(staging, relative)
-            fs.mkdirSync(path.dirname(target), { recursive: true })
-            fs.writeFileSync(target, stripped)
-            captured++
-            return
-          }
-          await copy(relative, source)
-          return
-        }
-        const chosen = pickSecrets(parseSecrets(text), fields)
+        /**
+         * **Never** fall back to copying the original bytes. That fallback is the whole bug: a file
+         * `withoutInitialPassword` could not parse — a BOM, most realistically, which is what a
+         * Windows editor writes — took the raw-copy branch and carried the plaintext password into
+         * the archive. Unreadable is not "safe to copy verbatim"; it is a file that must not travel.
+         */
+        const chosen = fields === null ? withoutInitialPassword(text) : pickSecrets(parseSecrets(text), fields)
         if (chosen === null)
           return
         const target = path.join(staging, relative)
         fs.mkdirSync(path.dirname(target), { recursive: true })
-        fs.writeFileSync(target, `${chosen}\n`)
+        // 0600, the mode the live file has: the archive is a copy *off* the box, so it must not be
+        // more readable than its source (the default umask would make it 0644).
+        fs.writeFileSync(target, chosen.endsWith('\n') ? chosen : `${chosen}\n`, { mode: 0o600 })
         captured++
       }
 
@@ -1824,6 +1840,9 @@ export class BackupService {
     await copyTree(source, target, (from) => {
       const resolved = path.resolve(from)
       if (isInside(archiveDir, resolved))
+        return false
+      // A declared tree may well contain a state directory; its secrets never travel raw.
+      if (SECRET_FILE_NAMES.has(path.basename(resolved)))
         return false
       if (!ignoreGenerated || resolved === root)
         return true

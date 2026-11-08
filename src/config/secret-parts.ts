@@ -105,9 +105,12 @@ export function withoutInitialPassword(text: string): string | null {
   catch {
     return null
   }
-  if (!isRecord(parsed) || !('password' in parsed))
+  if (!isRecord(parsed))
     return null
-  return `${JSON.stringify({ ...parsed, password: withoutFirstRunPassword(parsed.password) })}\n`
+  // A document with no `password` key is already clean; it is still returned, normalised, so a caller
+  // never has to fall back to copying the original bytes — that fallback is what let a BOM'd file
+  // through with the password intact.
+  return `${JSON.stringify('password' in parsed ? { ...parsed, password: withoutFirstRunPassword(parsed.password) } : parsed)}\n`
 }
 
 /** Parses a secrets document, tolerating anything: not-an-object, or broken JSON returns {}. */

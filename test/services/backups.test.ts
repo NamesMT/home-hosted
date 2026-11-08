@@ -1281,6 +1281,61 @@ describe('excluding a selection', () => {
   })
 
   /**
+   * The same file, saved by a Windows editor: a leading BOM used to take the raw-copy fallback.
+   *
+   * `copySecrets` read with `fs.readFileSync(…, 'utf8')` instead of the repo's `readStateFile`, so a
+   * BOM made `JSON.parse` fail; the sanitiser answered `null`, the caller read that as "cannot narrow,
+   * copy it whole", and the plaintext password travelled after all. A BOM is not content — every other
+   * reader in this codebase strips it for exactly this reason — so the archive must be clean too.
+   */
+  it('leaves the plaintext password out even when the secrets file carries a BOM', async () => {
+    const doc = JSON.stringify({ password: { algo: 'scrypt', salt: 'SALT', hash: 'HASH', initial: 'pxv2-tvb5-3r8j' } }, null, 2)
+    const fixture = await makeFixture({ globalSecrets: `\uFEFF${doc}\n` })
+
+    const created = await fixture.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    const { extractZip } = await import('#src/providers/archive')
+    const out = path.join(fixture.root, 'unpacked-bom')
+    await extractZip(path.join(fixture.dataRoot, '.backups', created.file!.name), out, { names: ['global/secrets.json'] })
+    const archived = JSON.parse(fs.readFileSync(path.join(out, 'global/secrets.json'), 'utf8')) as { password: Record<string, unknown> }
+    expect(archived.password.initial, 'a BOM must not be the way past the filter').toBeUndefined()
+    expect(archived.password.hash, 'the hash is what a restore needs, and it stays').toBe('HASH')
+  })
+
+  /**
+   * The other door: a declared data path that happens to contain the state directory.
+   *
+   * `{dataRoot}` is a documented template for `includePaths`, and the docs recommend keeping archives
+   * off the box — which is precisely the layout where the archive directory is not inside the
+   * declared path, so nothing else filtered the secrets file out. The data phase copied whole trees
+   * with no secrets rule at all, so `.control-secrets.json` landed in the zip verbatim beside a
+   * correct `global/secrets.json`.
+   *
+   * A secrets document may reach an archive only through `copySecrets`, which narrows and sanitises it.
+   */
+  it('never copies a live secrets document in through a declared data path', async () => {
+    const fixture = await makeFixture({
+      globalSecrets: `${JSON.stringify({ password: { algo: 'scrypt', hash: 'HASH', initial: 'pxv2-tvb5-3r8j' } }, null, 2)}\n`,
+    })
+    // The state root itself, declared as data — the shape the docs describe.
+    const withRoot = await makeFixture({
+      globalSecrets: `${JSON.stringify({ password: { algo: 'scrypt', hash: 'HASH', initial: 'pxv2-tvb5-3r8j' } }, null, 2)}\n`,
+      includePaths: [fixture.dataRoot],
+    })
+
+    const created = await withRoot.service.create({})
+    expect(created.ok, created.error).toBe(true)
+
+    const names = (await listZip(path.join(withRoot.dataRoot, '.backups', created.file!.name))).map(entry => entry.name)
+    expect(names, 'the declared path still captured its ordinary files').toContain('global/secrets.json')
+    expect(
+      names.filter(name => name.endsWith('.control-secrets.json')),
+      'a raw secrets document must never ride in through a data path',
+    ).toEqual([])
+  })
+
+  /**
    * The plan must describe the archive that will actually be written.
    *
    * Listing `workspace:default:servers` while the apply leaves it out is a plan for a different
