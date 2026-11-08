@@ -1,6 +1,104 @@
 # Changelog
 
 
+## v0.12.0
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.11.0...v0.12.0)
+
+### 🚀 Enhancements
+
+- **cli:** A `usage` command, and `logs <id>` for one server ([49896d3](https://github.com/NamesMT/home-hosted/commit/49896d3))
+- **cli:** Report whether the last stop was deliberate ([3c53496](https://github.com/NamesMT/home-hosted/commit/3c53496))
+- **usage:** Show the history window, not only the current sample ([a3edabe](https://github.com/NamesMT/home-hosted/commit/a3edabe))
+- **status:** Show the server inventory, which the CLI could already read ([53f0ede](https://github.com/NamesMT/home-hosted/commit/53f0ede))
+- ⚠️  Harden the panel, fix lifecycle races, ship a typed client ([85246ef](https://github.com/NamesMT/home-hosted/commit/85246ef))
+
+### 🩹 Fixes
+
+- **cli:** Make `up --print-config` change nothing ([a172242](https://github.com/NamesMT/home-hosted/commit/a172242))
+- **init:** Hand over a block that works, and name pages that exist ([53de057](https://github.com/NamesMT/home-hosted/commit/53de057))
+- **supervisor:** A memory ceiling acts on an adopted process too ([cfcf868](https://github.com/NamesMT/home-hosted/commit/cfcf868))
+- **supervisor:** A refusal names the server that holds the port ([2317f6e](https://github.com/NamesMT/home-hosted/commit/2317f6e))
+- **panel:** A hand-lowered logs.keep prunes the rotations it no longer covers ([23b6d43](https://github.com/NamesMT/home-hosted/commit/23b6d43))
+- **api:** A misspelt ?workspace is refused, not applied to the default workspace ([4150276](https://github.com/NamesMT/home-hosted/commit/4150276))
+- **cli:** A refusal goes to stderr even when the command has more to say ([bd8b241](https://github.com/NamesMT/home-hosted/commit/bd8b241))
+- **cli:** `up` refuses a flag the running panel contradicts ([2950d5e](https://github.com/NamesMT/home-hosted/commit/2950d5e))
+- **config:** A settings file that cannot be parsed is not a migration candidate ([7c84f6c](https://github.com/NamesMT/home-hosted/commit/7c84f6c))
+- **cli:** `migrate --dry-run` describes the restamping it would do ([a1cdc93](https://github.com/NamesMT/home-hosted/commit/a1cdc93))
+- **cli:** `up` refuses a flag only when it disagrees, and pin the wiring ([1b33cb5](https://github.com/NamesMT/home-hosted/commit/1b33cb5))
+- **cli:** `start` says when the entry it spawned is already gone ([d9a0a30](https://github.com/NamesMT/home-hosted/commit/d9a0a30))
+- **cli:** Liveness is always present, and `down` reports a panel it cannot identify ([5dda90a](https://github.com/NamesMT/home-hosted/commit/5dda90a))
+- **health:** One "needs attention" rule for /healthz and both UIs ([5b4fb48](https://github.com/NamesMT/home-hosted/commit/5b4fb48))
+- **cli:** `logs` and `status` name the workspace the panel calls default ([ac859b1](https://github.com/NamesMT/home-hosted/commit/ac859b1))
+- **logs:** Read every rotation a server log has, not only `.1` ([9693655](https://github.com/NamesMT/home-hosted/commit/9693655))
+- **cli:** Refuse a `logs <id>` typo, and let `status` see a panel that lost its record ([c52bf96](https://github.com/NamesMT/home-hosted/commit/c52bf96))
+- **cli:** A hint carries the state directory it was given ([be15e45](https://github.com/NamesMT/home-hosted/commit/be15e45))
+- **spawn:** The EACCES message names a program this platform has ([e927ccb](https://github.com/NamesMT/home-hosted/commit/e927ccb))
+- **backups:** Reclaim the staging a killed run leaves behind ([821cfde](https://github.com/NamesMT/home-hosted/commit/821cfde))
+- **scripts:** A failing shorthand reports once, not twice ([b7a6fe6](https://github.com/NamesMT/home-hosted/commit/b7a6fe6))
+- **ui:** The DDNS per-hostname enabled flag is a ToggleSwitch ([8ff8d5d](https://github.com/NamesMT/home-hosted/commit/8ff8d5d))
+- **port:** Look up Windows listeners with two filtered netstat calls ([0abf1b4](https://github.com/NamesMT/home-hosted/commit/0abf1b4))
+- Close the holes review found in the overhaul ([e8c836b](https://github.com/NamesMT/home-hosted/commit/e8c836b))
+- **supervisor:** Two stops on one entry are one stop, not two racing tails ([eed2759](https://github.com/NamesMT/home-hosted/commit/eed2759))
+- **cli:** Down reads the workspace defaults, so it stops inside the grace it declares ([09fce7f](https://github.com/NamesMT/home-hosted/commit/09fce7f))
+- **cli:** A typo'd --workspace is a refusal, and the usage hint keeps --home ([4aa3e96](https://github.com/NamesMT/home-hosted/commit/4aa3e96))
+- **backups:** The first-run password leaves the archive on every selection ([2d9c67b](https://github.com/NamesMT/home-hosted/commit/2d9c67b))
+- **client:** Leaving the SSE loop closes the connection ([58f0d43](https://github.com/NamesMT/home-hosted/commit/58f0d43))
+- **api:** The published spec describes the bodies these routes really answer ([23881d5](https://github.com/NamesMT/home-hosted/commit/23881d5))
+- **backups:** Close the two doors the previous fix left open ([57ab277](https://github.com/NamesMT/home-hosted/commit/57ab277))
+- **cli:** An unreadable settings file widens the budget; an empty registry is not a refusal ([4446fc2](https://github.com/NamesMT/home-hosted/commit/4446fc2))
+- **backups:** The atomic-write leftover, and a restore that dropped a live secret ([9d83f06](https://github.com/NamesMT/home-hosted/commit/9d83f06))
+- **backups:** Match the atomic leftover case-insensitively ([a5cc442](https://github.com/NamesMT/home-hosted/commit/a5cc442))
+
+### 💅 Refactors
+
+- **supervisor:** Drop the sibling list nobody reads ([eb2fa84](https://github.com/NamesMT/home-hosted/commit/eb2fa84))
+- Drop two guards that pinned nothing ([1d4d650](https://github.com/NamesMT/home-hosted/commit/1d4d650))
+
+### 📖 Documentation
+
+- **media:** Refresh the README media for v0.11.0 ([10f27e9](https://github.com/NamesMT/home-hosted/commit/10f27e9))
+- Close the three contract gaps the review rounds logged ([c1a518e](https://github.com/NamesMT/home-hosted/commit/c1a518e))
+- Keep the end-user review log in the repo, not in /tmp ([15d20b9](https://github.com/NamesMT/home-hosted/commit/15d20b9))
+- Say what the strict query rule actually costs a client ([80712db](https://github.com/NamesMT/home-hosted/commit/80712db))
+- **review:** Record the attention-rule fix, and the status inventory gap ([cf7422e](https://github.com/NamesMT/home-hosted/commit/cf7422e))
+- **review:** Say what the status exit code does and does not promise ([adf4f40](https://github.com/NamesMT/home-hosted/commit/adf4f40))
+- **review:** Record the default-workspace disagreement, and two commands that answer from the record alone ([2aacec4](https://github.com/NamesMT/home-hosted/commit/2aacec4))
+- **review:** Record the flake I could not reproduce ([c25291b](https://github.com/NamesMT/home-hosted/commit/c25291b))
+- **review:** Record the logs typo and the status that denied a serving panel ([e2ebdb6](https://github.com/NamesMT/home-hosted/commit/e2ebdb6))
+- **review:** Record the hint that drove a different state directory ([7abd591](https://github.com/NamesMT/home-hosted/commit/7abd591))
+- **releasing:** Say what the tarball actually carries, and check it ([13bb03b](https://github.com/NamesMT/home-hosted/commit/13bb03b))
+- **review:** Record the release doc that misdescribed the tarball ([d4751ea](https://github.com/NamesMT/home-hosted/commit/d4751ea))
+- The header nav names Dynamic DNS, Backups, Security and the FAQ ([30e5257](https://github.com/NamesMT/home-hosted/commit/30e5257))
+- **review:** Drop the row for code that no longer exists ([8d94a3b](https://github.com/NamesMT/home-hosted/commit/8d94a3b))
+- **review:** Log the Windows permission hint ([f027d0c](https://github.com/NamesMT/home-hosted/commit/f027d0c))
+- **review:** Log the reclaimed backup staging ([33622c9](https://github.com/NamesMT/home-hosted/commit/33622c9))
+- **agents:** Fix a dead pointer and a count that had already drifted ([87b9830](https://github.com/NamesMT/home-hosted/commit/87b9830))
+- **review:** Log rounds 1-3 ([e997e0a](https://github.com/NamesMT/home-hosted/commit/e997e0a))
+- Rebuild the review log around what is still actionable ([452b547](https://github.com/NamesMT/home-hosted/commit/452b547))
+- **servers:** What a missing `node` on PATH means, and the three ways out ([d787eee](https://github.com/NamesMT/home-hosted/commit/d787eee))
+- Put every 0.12 migration where the release body will read it ([daebbee](https://github.com/NamesMT/home-hosted/commit/daebbee))
+- **backups:** An archive never carries the plaintext first-run password ([c30abc8](https://github.com/NamesMT/home-hosted/commit/c30abc8))
+
+### ✅ Tests
+
+- **cli:** Register alreadyRunningConflict as a pure up symbol ([b693f1d](https://github.com/NamesMT/home-hosted/commit/b693f1d))
+- **services:** Stop two control-server tests racing for the same port ([0a470a6](https://github.com/NamesMT/home-hosted/commit/0a470a6))
+- **cli:** Sweep the scratch homes this file left in tmpdir ([450bcb3](https://github.com/NamesMT/home-hosted/commit/450bcb3))
+- Stop the suite leaking scratch homes into tmpdir ([78ef465](https://github.com/NamesMT/home-hosted/commit/78ef465))
+- **cli:** Own the control port, so a local panel cannot break the suite ([2945429](https://github.com/NamesMT/home-hosted/commit/2945429))
+- Make the suite reliable on slow machines and WSL2 ([b6a3e22](https://github.com/NamesMT/home-hosted/commit/b6a3e22))
+- **lifecycle:** Pin the stop tail against a start that lands inside it ([841b75f](https://github.com/NamesMT/home-hosted/commit/841b75f))
+- Give every test file its own home, and fail the run if the real one is touched ([9d758e1](https://github.com/NamesMT/home-hosted/commit/9d758e1))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Harden the panel, fix lifecycle races, ship a typed client ([85246ef](https://github.com/NamesMT/home-hosted/commit/85246ef))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.11.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.10.3...v0.11.0)
