@@ -275,11 +275,20 @@ async function configuredServers(): Promise<{ servers: ServerConfig[], complete:
   return { servers, complete }
 }
 
-/** One workspace's entries, parsed read-only: a config this CLI cannot read reports itself. */
+/**
+ * One workspace's entries, parsed read-only: a config this CLI cannot read reports itself.
+ *
+ * The workspace's `defaults` block is resolved exactly as the panel resolves it, because a `stop`
+ * grace that lives there is part of what the budget must cover. Passing `{}` read only each entry's
+ * own `stop`: a workspace declaring `defaults.stop.graceMs: 120000` with an entry that spells none
+ * measured a 20 s budget against the 132 s the panel actually needed, and `down` then SIGKILLed it
+ * mid-grace — the same defect the widening above exists to avoid, reached through a valid config
+ * rather than a broken one.
+ */
 export async function serversReader(): Promise<(workspaceId: string) => { servers: ServerConfig[], complete: boolean }> {
   const { readStateFile } = await import('#src/helpers/config-text')
-  const { parseServersFile } = await import('#src/config/parse')
-  const { workspaceServersPath } = await import('#src/helpers/paths')
+  const { parseServersFile, parseWorkspaceSettings } = await import('#src/config/parse')
+  const { workspaceServersPath, workspaceSettingsPath } = await import('#src/helpers/paths')
   return (workspaceId) => {
     const file = workspaceServersPath(workspaceId)
     if (!fs.existsSync(file)) {
@@ -287,12 +296,39 @@ export async function serversReader(): Promise<(workspaceId: string) => { server
       return { servers: [], complete: true }
     }
     try {
-      const parsed = parseServersFile(JSON.parse(readStateFile(file)), {})
+      const defaults = workspaceDefaults(workspaceId, readStateFile, workspaceSettingsPath, parseWorkspaceSettings)
+      const parsed = parseServersFile(JSON.parse(readStateFile(file)), defaults)
       return { servers: parsed.servers, complete: parsed.errors.length === 0 }
     }
     catch {
       return { servers: [], complete: false }
     }
+  }
+}
+
+/**
+ * The `defaults` group a workspace's settings file declares, or `{}`.
+ *
+ * An absent or unreadable settings file is `{}` rather than `complete: false`: with no defaults the
+ * budget is computed from each entry's own `stop`, which is the pre-existing answer, and a settings
+ * file that cannot be parsed must not widen every `down` to ten minutes. A *servers* config the CLI
+ * cannot read already reports itself through the caller's `complete` flag.
+ */
+function workspaceDefaults(
+  workspaceId: string,
+  readStateFile: (file: string) => string,
+  workspaceSettingsPath: (id: string) => string,
+  parseWorkspaceSettings: (raw: unknown) => { config: { defaults?: Record<string, unknown> } | null, errors: string[] },
+): Record<string, unknown> {
+  const file = workspaceSettingsPath(workspaceId)
+  if (!fs.existsSync(file))
+    return {}
+  try {
+    const parsed = parseWorkspaceSettings(JSON.parse(readStateFile(file)))
+    return (parsed.config?.defaults ?? {}) as Record<string, unknown>
+  }
+  catch {
+    return {}
   }
 }
 
