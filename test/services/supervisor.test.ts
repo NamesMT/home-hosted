@@ -2813,6 +2813,8 @@ case "$1" in
       ? `: > '${dir}/stopping'
     while [ ! -e '${dir}/release' ]; do sleep 0.05; done`
       : ''}
+    # Every teardown is recorded, so a test can say how many ran rather than how many seemed to.
+    echo stop >> '${dir}/stops'
     shift
     for name in "$@"; do
       if ! grep -qx "$name" '${dir}/survivors' 2>/dev/null; then
@@ -2958,6 +2960,64 @@ exit 0
       const later = await supervisor.start('blog')
       expect(later.ok, 'a start after the stop is accepted').toBe(true)
       expect(view(supervisor, 'blog').pid, 'and it has a pid of its own').not.toBe(firstPid)
+    }, { gate: true })
+  }, 60000)
+
+  /**
+   * The same clobbering, reached from the other side: two stops on one entry.
+   *
+   * `stopping` is a boolean owned by no stop, so two overlapping calls each cleared it at their own
+   * tail. The first finisher dropped the flag while the second was still parked in
+   * `stopComposeStack`, so `start()` saw a stopped-looking entry and spawned for real — and the
+   * second tail then cleared the readings, dropped that pid and published `stopped` over a live
+   * child. `stopEntry` now joins the in-flight stop, so there is only ever one tail.
+   *
+   * The window is held open by the `stop` shim, exactly as above, so the second stop is guaranteed
+   * to arrive while the first is still tearing the stack down.
+   */
+  posixShim('a second stop joins the one in flight instead of racing its tail', async () => {
+    await withStack(async (project, running) => {
+      const dir = path.dirname(project)
+      const { supervisor } = await makeSupervisor([{
+        ...stackConfig(project),
+        args: ['compose', '-p', 'blog', 'up'],
+      }])
+      await supervisor.start('blog')
+      await waitForStatus(supervisor, 'blog', 'running')
+      const firstPid = view(supervisor, 'blog').pid
+      expect(firstPid, 'the fixture needs a wrapper of ours to stop').not.toBeNull()
+
+      const stopping = supervisor.stop('blog')
+      await waitFor(() => fs.existsSync(path.join(dir, 'stopping')))
+
+      /**
+       * Arrives inside the first stop's teardown. A joined stop is already waiting on that tail, so
+       * it has no teardown of its own to start — which is what the `stops` count asserts after the
+       * gate opens. A racing stop would enter `stopComposeStack` and block on the same gate.
+       */
+      const second = supervisor.stop('blog')
+
+      await fs.promises.writeFile(path.join(dir, 'release'), '')
+      const [first, joined] = await Promise.all([stopping, second])
+
+      // Both callers get the same verdict from the one stop that ran.
+      expect(first).toEqual(joined)
+      expect(joined.ok, 'the stack was stopped, so the joined stop reports the stop that happened').toBe(true)
+      expect(fs.readFileSync(path.join(dir, 'stops'), 'utf8').trim().split('\n').length, 'exactly one teardown ran in all').toBe(1)
+
+      const after = view(supervisor, 'blog')
+      expect(after.status, 'one tail published the verdict').toBe('stopped')
+      expect(after.pid, 'and nothing is left running that the panel has forgotten').toBeNull()
+      expect(running(), 'the stack was stopped once').toEqual([])
+
+      // The real defect: the entry must be startable, and the start must not be forgotten.
+      const later = await supervisor.start('blog')
+      expect(later.ok, 'a start after the joined stop is accepted').toBe(true)
+      const started = view(supervisor, 'blog')
+      expect(started.pid, 'and it has a pid of its own').not.toBe(firstPid)
+      expect(started.status, 'the start is not published as stopped').not.toBe('stopped')
+
+      await supervisor.stop('blog')
     }, { gate: true })
   }, 60000)
 })

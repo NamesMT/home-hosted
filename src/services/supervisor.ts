@@ -444,6 +444,35 @@ export class Supervisor {
   }
 
   private async stopEntry(entry: Entry): Promise<StartResult> {
+    /**
+     * Two stops on one entry are **one** stop, not two racing tails.
+     *
+     * `stopping` is a bare boolean with no owner, so it cannot express "a teardown is still running
+     * even though some stop has finished". Two overlapping calls each cleared it at their own tail:
+     * the first finisher dropped the flag while the second was still parked in `stopComposeStack`,
+     * `start()` saw a stopped-looking entry and spawned for real, and the second tail then cleared
+     * the readings, dropped that pid and published `stopped` over a live child. Joining the in-flight
+     * stop removes the second tail entirely.
+     *
+     * Reached by a double-click on Stop, `stop-all` racing a per-entry stop, and `sync()` stopping a
+     * disabled entry while a stop is already running.
+     */
+    if (entry.stopTask !== null)
+      return entry.stopTask
+    const task = this.runStop(entry)
+    // Assigned after `runStop` has run synchronously up to its first await (it sets `stopping`
+    // before then), so no second caller can slip in between.
+    entry.stopTask = task
+    try {
+      return await task
+    }
+    finally {
+      if (entry.stopTask === task)
+        entry.stopTask = null
+    }
+  }
+
+  private async runStop(entry: Entry): Promise<StartResult> {
     this.clearRetry(entry)
     entry.nextRetryAt = null
 

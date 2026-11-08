@@ -98,6 +98,11 @@ export interface Entry {
   runToken: number
   /** The start in flight, which a stop waits out once it has cancelled it. */
   startTask: Promise<StartResult> | null
+  /**
+   * The stop in flight. Two stops on one entry join this instead of each running a tail — a second
+   * tail would clear `stopping` mid-teardown and publish `stopped` over a start it never saw.
+   */
+  stopTask: Promise<StartResult> | null
   bootstrapChild: ChildProcess | null
   /** Who asked for the start in flight, recorded on its history event. */
   actor: HistoryActor
@@ -166,6 +171,7 @@ export function createEntry(config: ServerConfig, nannyDir: string): Entry {
     stopping: false,
     runToken: 0,
     startTask: null,
+    stopTask: null,
     bootstrapChild: null,
     actor: 'policy',
     removed: false,
