@@ -542,6 +542,47 @@ describe('supervisor', () => {
     expect(view(supervisor, 'web').status).toBe('running')
   })
 
+  /** A program that is not there never ran: a `runOnce` bootstrap stays owed instead of being marked done. */
+  it('does not mark a run-once bootstrap done when its program cannot be spawned', async () => {
+    const port = await freePort()
+    const { supervisor, nannyDir } = await makeSupervisor([httpServerConfig(port, {
+      bootstrap: { command: 'hh-no-such-program-xyz', args: [], timeoutMs: 5000, runOnce: true },
+    })])
+
+    expect((await supervisor.start('web')).ok).toBe(true)
+    await waitForStatus(supervisor, 'web', 'running')
+    expect(readEntryState(entryStatePath(nannyDir, 'web'))?.bootstrapDone ?? false).toBe(false)
+  })
+
+  /** A stop mid-bootstrap ends what the bootstrap started, not only the shell that started it. */
+  it.skipIf(process.platform === 'win32')('a stop during the bootstrap kills its grandchildren too', async () => {
+    const dir = await scratchDir('hh-boot-tree-')
+    const pidFile = path.join(dir, 'grandchild.pid')
+    cleanups.push(() => {
+      try {
+        process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 'SIGKILL')
+      }
+      catch {
+        // Never written, or already gone.
+      }
+    })
+    const { supervisor } = await makeSupervisor([{
+      id: 'w',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      health: { enabled: false },
+      restart: { enabled: false },
+      bootstrap: { command: 'sh', args: ['-c', `sleep 30 & echo $! > ${pidFile}; wait`], timeoutMs: 20000, runOnce: false },
+    }])
+
+    const starting = supervisor.start('w')
+    await waitFor(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').trim().length > 0)
+    const grandchild = Number(fs.readFileSync(pidFile, 'utf8'))
+    await supervisor.stop('w')
+    await starting
+    await waitFor(() => !isAlive(grandchild), 3000)
+  })
+
   it('runs bootstrap once, streams its output, and then starts the server', async () => {
     const port = await freePort()
     const { supervisor } = await makeSupervisor([httpServerConfig(port, {

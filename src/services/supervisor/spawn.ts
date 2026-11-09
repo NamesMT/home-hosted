@@ -1,14 +1,13 @@
 import type { ChildProcess } from 'node:child_process'
 import type { Entry, ResolvedSpawn, SupervisorContext } from '#src/services/supervisor/entry'
 import type { LogStream } from '#src/shared/contracts'
-import { spawn } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import { expandEnvList, expandEnvRecord, loadEnvFile, resolveEnvFilePath } from '#src/helpers/env-file'
 import { projectDir } from '#src/helpers/paths'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { composeTarget } from '#src/providers/docker'
-import { resolveCommand, resolveCwd } from '#src/providers/process'
+import { forceKillTree, resolveCommand, resolveCwd, spawnManaged } from '#src/providers/process'
 import { serverTemplateVars } from '#src/providers/server-vars'
 import { LineSplitter } from '#src/services/log-buffer'
 
@@ -78,12 +77,8 @@ export function detectCompose(entry: Entry, resolved: ResolvedSpawn): void {
 }
 
 export function killBootstrap(entry: Entry): void {
-  try {
-    entry.bootstrapChild?.kill('SIGKILL')
-  }
-  catch {
-    // already gone
-  }
+  if (entry.bootstrapChild !== null)
+    forceKillTree(entry.bootstrapChild)
 }
 
 /** Runs the entry's bootstrap, best-effort: a failure is logged and the start carries on. */
@@ -109,17 +104,12 @@ export async function runBootstrap(ctx: SupervisorContext, entry: Entry, current
   // would leave the entry wedged in `starting`.
   let child: ChildProcess
   try {
-    child = spawn(resolveCommand(spec.command, cwd, projectDir), args, {
-      cwd,
-      env: { ...process.env, ...resolveRecord(spec.env, vars) },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    })
+    // Its own group, and a shell for a `.cmd`: a stop or the timeout ends what a script started too.
+    child = spawnManaged({ command: resolveCommand(spec.command, cwd, projectDir), args, cwd, env: resolveRecord(spec.env, vars) })
   }
   catch (error) {
+    // Never ran, so a `runOnce` bootstrap is still owed.
     ctx.log(entry, 'system', `bootstrap could not start: ${(error as Error).message} — continuing anyway`)
-    entry.bootstrapDone = true
-    ctx.persist(entry)
     return
   }
   child.stdout?.on('data', chunk => stdout.push('stdout', chunk))
@@ -131,15 +121,11 @@ export async function runBootstrap(ctx: SupervisorContext, entry: Entry, current
   })
   entry.bootstrapChild = child
 
+  let spawnFailed = false
   const code = await new Promise<number | null>((resolve) => {
     const timer = setTimeout(() => {
       ctx.log(entry, 'system', `bootstrap timed out after ${spec.timeoutMs}ms`)
-      try {
-        child.kill('SIGKILL')
-      }
-      catch {
-        // already gone
-      }
+      forceKillTree(child)
     }, spec.timeoutMs)
     child.once('exit', (exitCode) => {
       clearTimeout(timer)
@@ -147,6 +133,7 @@ export async function runBootstrap(ctx: SupervisorContext, entry: Entry, current
     })
     child.once('error', (error) => {
       clearTimeout(timer)
+      spawnFailed = true
       ctx.log(entry, 'system', `bootstrap failed: ${(error as Error).message}`)
       resolve(null)
     })
@@ -156,6 +143,11 @@ export async function runBootstrap(ctx: SupervisorContext, entry: Entry, current
   // Cut short by a stop: it did not finish, so a `runOnce` bootstrap is still owed.
   if (!current()) {
     ctx.log(entry, 'system', 'bootstrap stopped')
+    return
+  }
+  // An `error` before any exit is a spawn that never happened (`ENOENT`): nothing ran, nothing is done.
+  if (spawnFailed && code === null) {
+    ctx.log(entry, 'system', 'bootstrap did not run — continuing anyway')
     return
   }
   entry.bootstrapDone = true

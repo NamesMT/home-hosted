@@ -193,6 +193,12 @@ export async function killTreeWindows(pid: number): Promise<void> {
   }
 }
 
+/** SIGKILL to a `spawnManaged` child and everything it started: its group, or its tree on Windows. */
+export function forceKillTree(child: ChildProcess): void {
+  if (child.exitCode === null && child.signalCode === null)
+    signalChild(child, 'SIGKILL', true)
+}
+
 function signalChild(child: ChildProcess, signal: NodeJS.Signals, killGroup: boolean): void {
   const pid = child.pid
   if (pid === undefined)
