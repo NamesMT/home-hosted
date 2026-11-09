@@ -50,6 +50,7 @@ export function endProcessReadings(entry: Entry): void {
   entry.adopted = false
   entry.responseMs = null
   entry.resources = null
+  entry.resourcesFromContainers = false
 }
 
 /** Loopback first, then the configured address, so a custom bind is still probed. */
@@ -227,6 +228,7 @@ export async function sampleResources(entries: Iterable<Entry>, sampler: Process
       entry.resources = summed === undefined
         ? samples.get(entry.pid!) ?? null
         : { cpuPercent: summed.cpuPercent, rssBytes: summed.rssBytes, processes: summed.processes, sampledAt: now }
+      entry.resourcesFromContainers = summed !== undefined
     }
   }
   catch {
@@ -243,6 +245,10 @@ export async function enforceMemoryLimit(ctx: HealthContext, entry: Entry): Prom
   const rss = entry.resources?.rssBytes ?? null
   const live = entry.child !== null || (entry.adopted && entry.pid !== null)
   if (limit <= 0 || rss === null || !live || entry.status !== 'running' || rss <= limit)
+    return false
+  // A compose entry's ceiling is on its containers. Until `docker stats` has answered, the reading is
+  // the wrapper's own tree, which is neither the number the limit names nor one to restart over.
+  if (entry.compose !== null && !entry.resourcesFromContainers)
     return false
 
   const measured = entry.compose === null ? 'process tree' : 'containers'

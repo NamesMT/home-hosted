@@ -118,6 +118,8 @@ export interface Entry {
   echoed: Set<string>
   responseMs: number | null
   resources: ProcessResources | null
+  /** Whether `resources` is the summed containers (a compose entry) rather than the wrapper's tree. */
+  resourcesFromContainers: boolean
   resourcesSampledAt: number
   /** The compose project this entry runs, detected once at start; `null` means "sample the process tree". */
   compose: ComposeTarget | null
@@ -182,6 +184,7 @@ export function createEntry(config: ServerConfig, nannyDir: string): Entry {
     echoed: new Set(),
     responseMs: null,
     resources: null,
+    resourcesFromContainers: false,
     resourcesSampledAt: 0,
     compose: null,
     historyCache: null,

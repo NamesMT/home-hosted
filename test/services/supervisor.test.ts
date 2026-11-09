@@ -2759,6 +2759,30 @@ exit 0
   }, 120000)
 
   /**
+   * Until `docker stats` has answered, a compose entry's reading is its wrapper's own tree — and the
+   * ceiling must not act on that: it names the containers. On a slow CI runner the wrapper alone
+   * crossed an 8 MB limit first and was restarted as "containers use 9MB".
+   */
+  posixShim('does not hold a compose entry to its ceiling on the wrapper tree', async () => {
+    await withDockerShim('64MiB', async (project) => {
+      // No containers are listed, so no container reading can ever arrive.
+      await fs.promises.writeFile(path.join(path.dirname(project), 'ps.out'), '')
+      const harness = await makeSupervisor([composeConfig(project, { resources: { maxRssBytes: 1 } })])
+      const sent: string[] = []
+      vi.spyOn(harness.notifications, 'notify').mockImplementation((event) => {
+        sent.push(event.reason)
+      })
+
+      await harness.supervisor.start('blog')
+      await waitForStatus(harness.supervisor, 'blog', 'running')
+      // Long enough for two resource samples of the wrapper, each far over a 1-byte limit.
+      await waitFor(() => view(harness.supervisor, 'blog').resources?.rssBytes !== undefined ? true : undefined, 20000)
+      await new Promise(resolve => setTimeout(resolve, 6000))
+      expect(sent, 'the wrapper tree is not what the ceiling measures').not.toContain('rss')
+    })
+  }, 120000)
+
+  /**
    * The other half of the rule: an entry that is not docker keeps the process-tree sample.
    *
    * A shell that happens to run docker is exactly the shape this cannot detect, and the honest
