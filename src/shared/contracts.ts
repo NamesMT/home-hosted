@@ -2106,7 +2106,6 @@ export const backupCreatedResponseSchema = lazy(() => type({
 export const bufferedLogsResponseSchema = lazy(() => type({
   lines: logLineSchema.array(),
 }))
-export type BufferedLogsResponse = typeof bufferedLogsResponseSchema.infer
 
 /**
  * `GET /api/logs/:id` — one entry's log **from disk**, with its rotation and its search window.

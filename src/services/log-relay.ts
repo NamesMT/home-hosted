@@ -78,10 +78,6 @@ export class LogRelay {
     return rest
   }
 
-  followedIds(): string[] {
-    return [...this.followed.keys()]
-  }
-
   dispose(): void {
     this.closed = true
     for (const { tailer } of this.followed.values()) tailer.close()

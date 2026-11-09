@@ -89,11 +89,6 @@ export function replacedListEdited(filled: readonly unknown[] | undefined, next:
   return !same(filled, next)
 }
 
-/** The wire form of a replaced list, each entry compared by value. */
-export function replacedListPatch<T>(filled: readonly unknown[] | undefined, next: readonly T[]): T[] | null {
-  return replacedListEdited(filled, next) ? [...next] : null
-}
-
 export interface ReplacedListMerge<T> {
   /** The list this form was filled with; absent means it was never filled. */
   filled: readonly T[] | undefined

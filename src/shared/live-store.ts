@@ -333,5 +333,3 @@ export function createLiveStore(options: LiveStoreOptions) {
     },
   }
 }
-
-export type LiveStore = ReturnType<typeof createLiveStore>

@@ -357,10 +357,6 @@ export class AuthService {
     this.logoutAll()
   }
 
-  activeSessions(): number {
-    return this.sessions.size
-  }
-
   dispose(): void {
     clearInterval(this.timer)
     this.sessions.clear()

@@ -125,20 +125,9 @@ export function wslScriptPath(): string | null {
   return path.join(guest, SCRIPT_NAME)
 }
 
-/** Where the helper is, in Windows terms — what the command line has to say. */
-export function wslScriptPathWindows(): string | null {
-  const base = lhmDirectoryWindows()
-  return base === null ? null : path.win32.join(path.win32.dirname(base), SCRIPT_NAME)
-}
-
 /** The `powershell.exe` invocation that runs `scriptPath` and prints the temperature. */
 export function tempCommandFor(scriptPath: string): string {
   return `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${windowsScriptPath(scriptPath)}"`
-}
-
-/** The command for a path already expressed in Windows terms. */
-export function tempCommandForWindows(windowsPath: string): string {
-  return `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${windowsPath}"`
 }
 
 /** The script's body. Kept tiny: it runs on every host sample. */
