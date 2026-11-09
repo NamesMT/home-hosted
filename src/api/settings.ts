@@ -105,6 +105,7 @@ export function createSettingsRoute(deps: AppDeps) {
         patch.control?.auth?.enabled ?? current.auth.enabled,
         deps.auth.passwordSet,
         deps.auth.usingDefaultPassword,
+        [deps.controlServer.endpoint.port, current.port],
       )
       if (proxyExposure !== null)
         throw new DetailedError(proxyExposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })

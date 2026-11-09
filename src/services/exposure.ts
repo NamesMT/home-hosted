@@ -52,6 +52,8 @@ export function checkProxyExposure(
   authEnabled: boolean,
   passwordSet: boolean,
   usingDefaultPassword = false,
+  /** The ports the panel listens on (live, and configured): an `external` route dialing one on this machine is a panel route. */
+  panelPorts: readonly number[] = [],
 ): string | null {
   if (!proxy.enabled)
     return null
@@ -61,7 +63,11 @@ export function checkProxyExposure(
   // with no password set served the whole panel to anyone reaching that hostname — the same
   // exposure as a `tls: "auto"` one, but in the clear. A route pointing at the panel is exposure
   // and obeys this bar, which is what the rule already said in prose.
-  const panelRoutes = proxy.routes.filter(route => route.enabled && route.target === 'panel')
+  //
+  // An `external` route whose upstream is the panel's own listener (`http://127.0.0.1:<port>`,
+  // `localhost`, `[::1]`, `0.0.0.0`) is the same exposure under another name, so it counts too.
+  const panelRoutes = proxy.routes.filter(route => route.enabled
+    && (route.target === 'panel' || (route.target === 'external' && dialsPanel(route.url, panelPorts))))
   if (panelRoutes.length === 0)
     return null
 
@@ -75,6 +81,41 @@ export function checkProxyExposure(
   if (usingDefaultPassword)
     return `the reverse proxy would serve the control panel at ${hosts} but it still uses the default password — change it first`
   return null
+}
+
+/**
+ * True when `upstream` names this machine on one of `panelPorts` — the panel's own listener.
+ *
+ * `new URL` normalizes the spellings that all mean loopback (`127.1`, `0`, `2130706433`, `[::1]`),
+ * so only the canonical forms are listed. A non-loopback bind is already held to the listener rule
+ * (`checkExposure`), which is why an interface address is not enumerated here.
+ */
+export function dialsPanel(upstream: string, panelPorts: readonly number[]): boolean {
+  if (panelPorts.length === 0)
+    return false
+  const trimmed = upstream.trim()
+  if (trimmed.length === 0)
+    return false
+  let url: URL
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`)
+  }
+  catch {
+    return false
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    return false
+  const port = Number(url.port.length > 0 ? url.port : url.protocol === 'https:' ? 443 : 80)
+  if (!panelPorts.includes(port))
+    return false
+  const host = url.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase()
+  return host === 'localhost'
+    || host.endsWith('.localhost')
+    || /^127(?:\.\d{1,3}){3}$/.test(host)
+    || host === '0.0.0.0'
+    || host === '::1'
+    || host === '::'
+    || /^::ffff:(?:7f[0-9a-f]{2}:[0-9a-f]{1,4}|0:0)$/.test(host)
 }
 
 /**

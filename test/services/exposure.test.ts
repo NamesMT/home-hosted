@@ -1,6 +1,6 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { checkExposure, checkProxyExposure, proxyTrustWarning } from '#src/services/exposure'
+import { checkExposure, checkProxyExposure, dialsPanel, proxyTrustWarning } from '#src/services/exposure'
 import { authSchema, controlSchema, proxyConfigSchema } from '#src/shared/contracts'
 
 function control(host: string, auth: Record<string, unknown> = {}) {
@@ -171,5 +171,22 @@ describe('reverse proxy exposure', () => {
     expect(checkProxyExposure(plain, false, false)).toContain('authentication is disabled and no password is set')
     expect(checkProxyExposure(plain, true, true, false)).toBeNull()
     expect(checkProxyExposure(plain, true, false)).toContain('no password is set')
+  })
+
+  /**
+   * An `external` route whose upstream is the panel's own listener serves the panel just as a
+   * `target: "panel"` route does — it was not counted, so it slipped past the rule entirely.
+   */
+  it('counts an external route dialing the panel listener as a panel route', () => {
+    for (const url of ['http://127.0.0.1:6123', '127.0.0.1:6123', 'http://localhost:6123', 'http://[::1]:6123', 'http://0.0.0.0:6123', 'http://127.1:6123', 'https://localhost.:6123', 'http://[::ffff:127.0.0.1]:6123']) {
+      const on = proxy({ enabled: true, routes: [{ id: 'sneaky', host: 'panel.lan', target: 'external', url }] })
+      expect(checkProxyExposure(on, true, false, false, [6123]), url).toContain('no password is set')
+      expect(checkProxyExposure(on, true, true, false, [6123]), url).toBeNull()
+    }
+    // Another port, or another machine, is an ordinary upstream.
+    expect(dialsPanel('http://127.0.0.1:6124', [6123])).toBe(false)
+    expect(dialsPanel('http://10.0.0.5:6123', [6123])).toBe(false)
+    expect(dialsPanel('http://localhost', [80])).toBe(true)
+    expect(dialsPanel('ftp://localhost:6123', [6123])).toBe(false)
   })
 })

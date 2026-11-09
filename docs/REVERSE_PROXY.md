@@ -90,6 +90,9 @@ panel route to `127.0.0.1`, which the panel's own guard reads as a local request
 plain-HTTP route with no password set would serve the panel to anyone who reached that
 hostname.
 
+An `external` route whose upstream is the panel's own listener (`http://127.0.0.1:<panel port>`,
+`localhost`, `[::1]`, `0.0.0.0`) is a panel route by another name, and is held to the same rule.
+
 ## HTTPS
 
 | `tls` | What it means |

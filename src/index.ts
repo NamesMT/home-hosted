@@ -282,7 +282,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     },
     listDnsAccounts: () => panel?.listDnsAccounts() ?? [],
     defaultWorkspaceId: () => registry.defaultId,
-    exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword),
+    exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword, [controlServer.endpoint.port, settings.control.port]),
     onStateChange: () => panel?.notifyStateChange(),
   })
 

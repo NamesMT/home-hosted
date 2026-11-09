@@ -225,7 +225,7 @@ export function createAuthRoute(deps: AppDeps) {
         // proxy's own exposure rule has to hold here too: a route with `target: "panel"`
         // serves this control panel on a public hostname, and that guard only runs when a
         // route is written.
-        const proxyExposure = checkProxyExposure(deps.proxy.config, false, false, false)
+        const proxyExposure = checkProxyExposure(deps.proxy.config, false, false, false, [deps.controlServer.endpoint.port, deps.panel.settings.control.port])
         if (proxyExposure !== null)
           throw new DetailedError(proxyExposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })
 
