@@ -32,6 +32,7 @@ interface BackupFileView {
 
 interface CreatedBody {
   file?: { name: string, sizeBytes: number }
+  warnings?: string[]
 }
 
 /** One thing a backup would capture, or a restore would write. */
@@ -512,17 +513,20 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
     const result = await service.create({ password: options.password, include, exclude })
     if (!result.ok)
       fail(result.error ?? 'the backup failed')
-    return { file: result.file }
+    return { file: result.file, ...(result.warnings === undefined ? {} : { warnings: result.warnings }) }
   })()
 
   const file = created?.file
   if (file === undefined)
     fail('the backup reported success but named no archive')
+  const warnings = created?.warnings ?? []
   if (options.json) {
-    process.stdout.write(`${JSON.stringify({ action: 'create', apply: true, file }, null, 2)}\n`)
+    process.stdout.write(`${JSON.stringify({ action: 'create', apply: true, file, ...(warnings.length === 0 ? {} : { warnings }) }, null, 2)}\n`)
     return
   }
   process.stdout.write(`${green('backup created')} ${file.name} ${dim(`(${human(file.sizeBytes)})`)}\n`)
+  for (const warning of warnings)
+    process.stderr.write(`warning: ${warning}\n`)
 }
 
 /**

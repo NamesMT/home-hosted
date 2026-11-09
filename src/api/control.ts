@@ -253,7 +253,7 @@ export function createControlRoute(deps: AppDeps) {
         const result = await deps.backups.create({ password, include, exclude })
         if (!result.ok)
           throw new DetailedError(result.error ?? 'the backup failed', { statusCode: 400, code: 'BACKUP_FAILED' })
-        return c.json({ file: result.file, files: deps.backups.list() })
+        return c.json({ file: result.file, files: deps.backups.list(), ...(result.warnings === undefined ? {} : { warnings: result.warnings }) })
       },
     )
 

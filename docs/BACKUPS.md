@@ -33,7 +33,10 @@ Selection is two-level: whole workspaces, or single pieces of one.
 A data directory is anything an entry declares in `dataEnvs` or `backupPaths`. Generated
 directories inside them (`node_modules`, `dist`, `.next`, caches) are skipped unless the entry sets
 `backupIgnoreGenerated: false`. A symlink that leads **outside** a declared path is not followed —
-declare its target instead — and file permission bits travel (`0600` stays `0600`).
+declare its target instead — and file permission bits travel (`0600` stays `0600`). A declared path
+that is *itself* a symlink (`data -> /mnt/disk/data`) is the data: its target is captured, and a
+restore writes back into that target. A declared path that ends up holding no files (a mount that
+was not up) is still archived, with a warning in the create result and on the CLI's stderr.
 
 ## Automatic backups
 

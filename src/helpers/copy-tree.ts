@@ -29,6 +29,11 @@ export function eventLoopSlicer(): () => Promise<void> {
  * Every non-directory entry is still copied by `cpSync`, so links, modes and special files behave as
  * they did; only the directory recursion is here, in cp's order — a directory this call creates gets
  * its source mode after its contents are written.
+ *
+ * The two roots are dereferenced: a declared `data -> /mnt/disk/data` *is* the data, so it is copied
+ * as its target rather than as a link (which the archive walk then drops as outside the tree, leaving
+ * an empty capture), and a restore writes into the directory a linked target names instead of
+ * refusing it as a non-directory. Links *below* the roots are untouched.
  */
 export async function copyTree(source: string, target: string, filter: (source: string, target: string) => boolean): Promise<void> {
   const slice = eventLoopSlicer()
@@ -53,5 +58,15 @@ export async function copyTree(source: string, target: string, filter: (source: 
       fs.chmodSync(to, stats.mode)
   }
   fs.mkdirSync(path.dirname(target), { recursive: true })
-  await visit(source, target)
+  await visit(realpathOr(source), realpathOr(target))
+}
+
+/** The path a link names, or the path itself when it does not resolve (absent, dangling). */
+function realpathOr(target: string): string {
+  try {
+    return fs.realpathSync(target)
+  }
+  catch {
+    return target
+  }
 }

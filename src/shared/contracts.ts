@@ -2090,8 +2090,10 @@ export const uiInstallResponseSchema = lazy(() => type({
 
 /** A backup was created: the new archive and the list it belongs to. */
 export const backupCreatedResponseSchema = lazy(() => type({
-  file: backupFileSchema,
-  files: backupFileSchema.array(),
+  'file': backupFileSchema,
+  'files': backupFileSchema.array(),
+  /** Captured but worth a look: a declared path that holds no files. Optional: older panels never send it. */
+  'warnings?': 'string[]',
 }))
 
 /**

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import {
   appStateSchema,
   authSchema,
+  backupCreatedResponseSchema,
   backupCreateSchema,
   backupEntrySchema,
   backupLocalResponseSchema,
@@ -871,6 +872,13 @@ describe('schemas moved out of their routes', () => {
     expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, extra: true }) instanceof type.errors).toBe(false)
     // An incomplete `servers` block is a real mistake, not a partial one.
     expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, servers: { total: 1 } }) instanceof type.errors).toBe(true)
+  })
+
+  it('backupCreatedResponseSchema carries warnings optionally', () => {
+    const file = { name: 'backup-x.zip', sizeBytes: 1, createdAt: 1, encrypted: false }
+    expect(backupCreatedResponseSchema({ file, files: [file] }) instanceof type.errors).toBe(false)
+    expect(backupCreatedResponseSchema({ file, files: [file], warnings: ['"/srv" was captured but holds no files'] }) instanceof type.errors).toBe(false)
+    expect(backupCreatedResponseSchema({ file, files: [file], warnings: 'one' }) instanceof type.errors).toBe(true)
   })
 
   it('telegramChatsSchema matches what the provider returns', () => {

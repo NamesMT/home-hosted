@@ -366,6 +366,48 @@ describe('backup service', () => {
   })
 
   /**
+   * A declared path that is itself a link (`data -> /mnt/disk/data`) *is* the data. It was copied as
+   * the link, which the archive walk then dropped as pointing outside the tree, so the archive held
+   * nothing for it while the run counted it as captured.
+   */
+  it.skipIf(process.platform === 'win32')('captures, and restores into, a declared path that is itself a symlink', async () => {
+    const root = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-backup-link-'))
+    dirs.push(root)
+    const disk = path.join(root, 'disk', 'data')
+    fs.mkdirSync(path.join(disk, 'nested'), { recursive: true })
+    fs.writeFileSync(path.join(disk, 'db.sqlite'), 'LINKED\n')
+    fs.writeFileSync(path.join(disk, 'nested', 'note.txt'), 'deep\n')
+    const link = path.join(root, 'data')
+    fs.symlinkSync(disk, link)
+
+    const fixture = await makeFixture({ dataPaths: [link] })
+    const result = await fixture.service.create()
+    expect(result.ok, result.error).toBe(true)
+    expect(result.warnings).toBeUndefined()
+    const archive = path.join(fixture.service.directory, result.file!.name)
+    const names = (await listZip(archive)).map(entry => entry.name)
+    expect(names).toContain(`data/${slugifyPath(link)}/db.sqlite`)
+    expect(names).toContain(`data/${slugifyPath(link)}/nested/note.txt`)
+
+    // The restore writes through the declared link into its target, not refusing it as a non-directory.
+    fs.rmSync(path.join(disk, 'db.sqlite'))
+    const plan = await fixture.service.restore(archive, { confirm: true })
+    expect(plan.error).toBeUndefined()
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(fs.readFileSync(path.join(disk, 'db.sqlite'), 'utf8')).toBe('LINKED\n')
+  })
+
+  it('warns when a declared path was captured but holds no files', async () => {
+    const fixture = await makeFixture()
+    const empty = path.join(fixture.root, 'empty-mount')
+    fs.mkdirSync(path.join(empty, 'only-dirs'), { recursive: true })
+    fixture.sources.includePaths.push(empty)
+    const result = await fixture.service.create()
+    expect(result.ok, result.error).toBe(true)
+    expect(result.warnings).toEqual([`"${empty}" was captured but holds no files`])
+  })
+
+  /**
    * The *global* `backups.includePaths` route into the same rule.
    *
    * A sibling test covers a server's `backupPaths` declaring an ancestor of the archive; this is the

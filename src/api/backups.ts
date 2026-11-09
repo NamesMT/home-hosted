@@ -61,7 +61,7 @@ export function createBackupsRoute(deps: AppDeps) {
         const result = await deps.backups.create({ password: body.password, include: body.include, exclude: body.exclude })
         if (!result.ok)
           throw backupFailed(result.error)
-        return c.json({ file: result.file, files: deps.backups.list() })
+        return c.json({ file: result.file, files: deps.backups.list(), ...(result.warnings === undefined ? {} : { warnings: result.warnings }) })
       },
     )
 

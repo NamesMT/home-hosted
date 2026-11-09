@@ -626,6 +626,27 @@ function cacheKey(file: { sizeBytes: number, createdAt: number }): string {
   return `${file.sizeBytes}:${file.createdAt}`
 }
 
+/** True when the tree at `root` contains at least one file (stops at the first). */
+function holdsAnyFile(root: string): boolean {
+  let stats: fs.Stats | undefined
+  try {
+    stats = fs.lstatSync(root)
+  }
+  catch {
+    return false
+  }
+  if (!stats.isDirectory())
+    return stats.isFile()
+  let names: string[]
+  try {
+    names = fs.readdirSync(root)
+  }
+  catch {
+    return false
+  }
+  return names.some(name => holdsAnyFile(path.join(root, name)))
+}
+
 /** Stable, filesystem-safe name for a data path inside the archive. */
 export function slugifyPath(target: string): string {
   const cleaned = target.replace(/[^A-Z0-9]+/gi, '-').replace(/^-+|-+$/g, '')
@@ -781,7 +802,7 @@ export class BackupService {
    * counts apart: an automatic pass must never prune the backup a person took by hand, and a
    * manual one must not silently eat the history the schedule is keeping.
    */
-  async create(options: { password?: string, include?: string[], exclude?: string[], automatic?: boolean } = {}): Promise<{ ok: boolean, file?: BackupFile, error?: string }> {
+  async create(options: { password?: string, include?: string[], exclude?: string[], automatic?: boolean } = {}): Promise<{ ok: boolean, file?: BackupFile, error?: string, warnings?: string[] }> {
     const config = this.options.getConfig()
     if (!config.enabled)
       return { ok: false, error: 'backups are disabled' }
@@ -938,6 +959,7 @@ export class BackupService {
       }
 
       const data: BackupManifest['data'] = []
+      const warnings: string[] = []
       for (const workspace of sources.workspaces) {
         const root = `workspaces/${workspace.id}`
         if (capturesWorkspace(workspace.id, 'settings'))
@@ -961,6 +983,10 @@ export class BackupService {
             continue
           captured++
           data.push({ slug, path: declared.path, origin: declared.origin, workspace: workspace.id })
+          // Captured, but empty: a mount that was not up, or a tree that is all links out of itself.
+          // The archive is still written — an empty directory can be legitimate — but not silently.
+          if (!holdsAnyFile(path.join(staging, 'data', slug)))
+            warnings.push(`"${declared.path}" was captured but holds no files`)
         }
       }
 
@@ -994,7 +1020,7 @@ export class BackupService {
 
       const stats = fs.statSync(destination)
       this.flags.set(name, { key: `${stats.size}:${Math.round(stats.mtimeMs)}`, encrypted: password !== null })
-      return { ok: true, file: { name, sizeBytes: stats.size, createdAt, encrypted: password !== null } }
+      return { ok: true, file: { name, sizeBytes: stats.size, createdAt, encrypted: password !== null }, ...(warnings.length === 0 ? {} : { warnings }) }
     }
     catch (error) {
       await fs.promises.rm(staging, { recursive: true, force: true }).catch(() => {})
@@ -1856,9 +1882,10 @@ export class BackupService {
     const target = path.join(staging, relative)
     ensureStateDir(path.dirname(target))
     // Never copy the archive directory into itself, however broad a declared
-    // path is (the copy would walk it while writing into it).
-    const archiveDir = path.resolve(this.resolveDir())
-    const root = path.resolve(source)
+    // path is (the copy would walk it while writing into it). Both resolved: `copyTree` walks the
+    // real path of a declared root that is itself a link.
+    const archiveDir = resolveExisting(path.resolve(this.resolveDir()))
+    const root = resolveExisting(path.resolve(source))
     await copyTree(source, target, (from) => {
       const resolved = path.resolve(from)
       if (isInside(archiveDir, resolved))
@@ -1966,6 +1993,8 @@ export class BackupService {
         // failing silently is indistinguishable from one that has not come due.
         if (result.ok) {
           this.scheduleError = null
+          for (const warning of result.warnings ?? [])
+            logger.warn('the scheduled backup', warning)
           return
         }
         this.scheduleError = { message: result.error ?? 'the scheduled backup failed', at: Date.now() }
