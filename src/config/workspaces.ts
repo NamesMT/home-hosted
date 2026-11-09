@@ -159,13 +159,20 @@ export class WorkspaceRegistry {
     return () => this.listeners.delete(listener)
   }
 
-  load(): void {
+  /** Reads the registry, seeding a missing one; `{ write: false }` holds the seed in memory only. */
+  load(options: { write?: boolean } = {}): void {
     let parsed: unknown
     try {
       parsed = JSON.parse(readStateFile(this.file))
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        if (options.write === false) {
+          this.list = seed()
+          this.error = null
+          this.notify()
+          return
+        }
         this.commit(seed())
         return
       }

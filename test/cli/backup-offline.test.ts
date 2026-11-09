@@ -146,3 +146,21 @@ describe('the offline backup service', () => {
     expect(runningNow().map(entry => entry.serverId)).toContain('gitea')
   })
 })
+
+/**
+ * Looking is not writing. `backup list` on a fresh home created `settings.json`, `workspaces.json`
+ * and the default workspace's two files, because every store seeds a missing file on `load()` — so a
+ * read-only command left a home that `status` then reported as initialised.
+ */
+describe('the offline backup service on a fresh home', () => {
+  it('reads a missing config as the seed without creating any file', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-offline-fresh-'))
+    dirs.push(home)
+    const hh = path.join(home, '.hh')
+    const { service } = createOfflineBackup({ hhDir: hh, settingsPath: path.join(hh, 'settings.json') })
+    await service.warm()
+
+    expect(service.selection().entries.length).toBeGreaterThan(0)
+    expect(fs.existsSync(hh), 'nothing under .hh may be created by a read').toBe(false)
+  })
+})

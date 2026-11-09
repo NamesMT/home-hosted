@@ -10,6 +10,7 @@ import {
   hhDir as defaultHhDir,
   tlsDir as defaultTlsDir,
   workspacesPath as defaultWorkspacesPath,
+  ensureStateDir,
 } from '#src/helpers/paths'
 import { entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { readNannyState } from '#src/providers/nanny'
@@ -91,10 +92,12 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
   const settingsPath = options.settingsPath ?? defaultGlobalSettingsPath
   const registryPath = path.join(hhDir, path.basename(defaultWorkspacesPath))
 
+  // Read-only: looking at a fresh home (`backup list`, a plan) must not seed its config files. The
+  // writes a restore makes go through the service, and the registry writes itself on `create`.
   const settings = new GlobalSettingsStore(settingsPath)
-  settings.load()
+  settings.load({ write: false })
   const registry = new WorkspaceRegistry(registryPath)
-  registry.load()
+  registry.load({ write: false })
 
   const workspaces = workspaceIds(registry)
   const ids = workspaces.map(workspace => workspace.id)
@@ -108,7 +111,7 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
     const serversPath = path.join(dir, 'servers.config.json')
     const secretsPath = path.join(dir, '.secrets.json')
     const store = new WorkspaceStore(workspace.id, settingsPath, serversPath)
-    store.load()
+    store.load({ write: false })
     return { id: workspace.id, label: workspace.label, settingsPath, serversPath, secretsPath, servers: store.servers }
   })
 
@@ -133,7 +136,7 @@ export function createOfflineBackup(options: { hhDir?: string, settingsPath?: st
       // different name than the supervisor reads (`<id>.run.json`), so the staged load was silently
       // invisible — the same class of bug as the schema rejection just above.
       const dir = path.join(hhDir, workspaceId, '.state')
-      fs.mkdirSync(dir, { recursive: true })
+      ensureStateDir(dir)
       const statePath = entryStatePath(dir, serverId)
       // Through `readEntryState`/`writeEntryState`, not hand-rolled JSON: the schema requires
       // `restarts` and `bootstrapDone`, and a file missing them is silently rejected on read — which

@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { logger } from '#src/helpers/logger'
+import { ensureStateDir } from '#src/helpers/paths'
 import { errorMessage } from '#src/shared/error-message'
 
 /**
@@ -74,7 +75,7 @@ export class TlsStore {
     if (!validation.ok)
       return { ok: false, error: validation.error }
 
-    fs.mkdirSync(this.dir, { recursive: true })
+    ensureStateDir(this.dir)
     writeFileAtomic(this.certPath, `${certificate.trimEnd()}\n`)
     writeFileAtomic(this.keyPath, `${privateKey.trimEnd()}\n`, { mode: 0o600 })
     this.cached = null

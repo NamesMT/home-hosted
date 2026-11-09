@@ -2,6 +2,7 @@ import type { LogLine, LogsConfig } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import path from 'node:path'
+import { ensureStateDir } from '#src/helpers/paths'
 
 /**
  * Append-only JSONL per server, one line per log entry, rotated by size.
@@ -187,7 +188,7 @@ export class LogFiles {
   private write(serverId: string, lines: LogLine[]): void {
     const { maxBytes } = this.getConfig()
     const file = this.currentPath(serverId)
-    fs.mkdirSync(this.dir, { recursive: true })
+    ensureStateDir(this.dir)
 
     // A batch is split at the size limit: writing it whole would sail past
     // maxBytes long before the next rotation check runs.

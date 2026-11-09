@@ -6,6 +6,7 @@ import process from 'node:process'
 import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
+import { ensureStateDir } from '#src/helpers/paths'
 import { customUiInstalled, uiDirectory } from '#src/helpers/ui-dir'
 import { extractZip, isZipArchive, listZip } from '#src/providers/archive'
 import { uiMetaSchema } from '#src/shared/contracts'
@@ -146,7 +147,7 @@ export class UiService {
     if (unusable !== undefined)
       return { ok: false, error: `the archive contains an unusable path: ${unusable.name}` }
 
-    fs.mkdirSync(staging, { recursive: true })
+    ensureStateDir(staging)
     await extractZip(archivePath, staging, { names: entries.map(entry => entry.name) })
 
     const root = resolveRoot(staging)

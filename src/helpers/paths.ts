@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -41,6 +42,41 @@ export const projectDir = resolveProjectDir()
 export const hhDir = path.join(dataRoot, '.hh')
 
 export const DEFAULT_WORKSPACE_ID = 'default'
+
+/**
+ * Creates `dir` (and its parents) for state this home owns, with `.hh` itself at `0700`.
+ *
+ * `.hh` holds server output, configs with `env` values and the proxy's keys, so it is the owner's
+ * alone. A bare `mkdirSync(..., { recursive: true })` under it made `.hh` `0755` whenever something
+ * other than `up` got there first — `backup list` on a fresh home did. Every creator goes through
+ * here, so the mode does not depend on which command ran first. A directory outside `.hh` is
+ * created as asked.
+ */
+export function ensureStateDir(dir: string = hhDir): void {
+  const relative = path.relative(hhDir, dir)
+  const inside = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+  if (inside && !fs.existsSync(hhDir))
+    fs.mkdirSync(hhDir, { recursive: true, mode: 0o700 })
+  fs.mkdirSync(dir, { recursive: true })
+}
+
+/**
+ * A stable, non-reversible name for a state root.
+ *
+ * The panel reports it on `/healthz` to a loopback caller, so a CLI with no `run.json` can tell its
+ * own panel from another home's panel (or anything else) on the configured port — two homes may
+ * share one. A hash, not the path, so the answer names no directory.
+ */
+export function homeFingerprint(root: string = dataRoot): string {
+  let resolved = root
+  try {
+    resolved = fs.realpathSync(root)
+  }
+  catch {
+    // Not created yet: the resolved path is still the same answer both sides compute.
+  }
+  return createHash('sha256').update(resolved).digest('hex').slice(0, 16)
+}
 
 // ---------------------------------------------------------------- global state
 

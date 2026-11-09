@@ -198,8 +198,9 @@ export class WorkspaceStore {
     return this.servers.find(server => server.id === id)
   }
 
-  load(): void {
-    this.read()
+  /** Reads both files, seeding a missing one; `{ write: false }` reads a missing file as its seed without creating it. */
+  load(options: { write?: boolean } = {}): void {
+    this.read(options.write !== false)
     this.apply()
     this.notify()
   }
@@ -276,19 +277,21 @@ export class WorkspaceStore {
       this.serversError = message
   }
 
-  private read(): void {
+  private read(write = true): void {
     let settings = readFile(this.settingsFile)
     if (settings.missing) {
       const seed = stampConfig(structuredClone(this.seedSettings))
       const text = `${JSON.stringify(seed, null, 2)}\n`
-      writeFileAtomic(this.settingsFile, text)
+      if (write)
+        writeFileAtomic(this.settingsFile, text)
       settings = { text, parsed: seed, missing: false, parseError: null }
     }
     let servers = readFile(this.serversFile)
     if (servers.missing) {
       const seed = stampConfig(structuredClone(this.seedServers))
       const text = `${JSON.stringify(seed, null, 2)}\n`
-      writeFileAtomic(this.serversFile, text)
+      if (write)
+        writeFileAtomic(this.serversFile, text)
       servers = { text, parsed: seed, missing: false, parseError: null }
     }
 

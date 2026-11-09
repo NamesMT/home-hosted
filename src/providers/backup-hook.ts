@@ -2,8 +2,8 @@ import type { Buffer } from 'node:buffer'
 import type { ChildProcess } from 'node:child_process'
 import type { BackupHookConfig, ServerConfig } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
-import fs from 'node:fs'
 import process from 'node:process'
+import { ensureStateDir } from '#src/helpers/paths'
 import { resolveRecord, resolveTemplates } from '#src/helpers/template'
 import { resolveCwd } from '#src/providers/process'
 import { serverTemplateVars } from '#src/providers/server-vars'
@@ -54,7 +54,7 @@ export async function runBackupHook(
   // A hook that names `{dumpDir}` must be given a directory that exists, or `mongodump` creates a
   // file at a path whose parent is missing and fails with a much less useful message.
   if (options.requireDumpDir !== false)
-    fs.mkdirSync(dumpDir, { recursive: true })
+    ensureStateDir(dumpDir)
 
   let child: ChildProcess
   try {

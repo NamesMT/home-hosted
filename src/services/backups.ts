@@ -16,7 +16,7 @@ import { readStateFile } from '#src/helpers/config-text'
 import { copyTree } from '#src/helpers/copy-tree'
 import { expandEnv } from '#src/helpers/env-file'
 import { logger } from '#src/helpers/logger'
-import { projectDir, resolveUserPath } from '#src/helpers/paths'
+import { ensureStateDir, projectDir, resolveUserPath } from '#src/helpers/paths'
 import { acquireRestoreLock, restoreLockHolder } from '#src/helpers/restore-lock'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion } from '#src/helpers/version'
@@ -831,7 +831,7 @@ export class BackupService {
     const destination = path.join(dir, name)
 
     try {
-      fs.mkdirSync(staging, { recursive: true })
+      ensureStateDir(staging)
       let captured = 0
       const copy = async (relative: string, source: string, ignoreGenerated = false): Promise<void> => {
         if (await this.copyInto(staging, relative, source, ignoreGenerated))
@@ -872,7 +872,7 @@ export class BackupService {
         if (chosen === null)
           return
         const target = path.join(staging, relative)
-        fs.mkdirSync(path.dirname(target), { recursive: true })
+        ensureStateDir(path.dirname(target))
         // 0600, the mode the live file has: the archive is a copy *off* the box, so it must not be
         // more readable than its source (the default umask would make it 0644).
         fs.writeFileSync(target, chosen.endsWith('\n') ? chosen : `${chosen}\n`, { mode: 0o600 })
@@ -1070,7 +1070,7 @@ export class BackupService {
       if (plan.encrypted && password === null)
         return { ...plan, needsPassword: true, error: 'this backup is password-protected' }
 
-      fs.mkdirSync(staging, { recursive: true })
+      ensureStateDir(staging)
       const extracted = await extractZip(archivePath, staging, {
         names: entries.map(entry => entry.name),
         ...(password === null ? {} : { password }),
@@ -1123,7 +1123,7 @@ export class BackupService {
         const take = parts.filter(part => !selects.isExcluded(`${entryId}:${part.key}`)
           && !part.fields.some(field => selects.isExcluded(`${entryId}:${field}`)))
         return (): void => {
-          fs.mkdirSync(path.dirname(target), { recursive: true })
+          ensureStateDir(path.dirname(target))
           mergeIntoFile(target, archived, take.flatMap(part => part.fields))
         }
       }
@@ -1212,7 +1212,7 @@ export class BackupService {
       if (fs.existsSync(tlsInArchive)) {
         const files = fs.readdirSync(tlsInArchive).filter(file => fs.statSync(path.join(tlsInArchive, file)).isFile())
         addItem({ id: 'global:tls', label: 'TLS certificate', labelKey: 'settings.backup.entryTlsCertificate', kind: 'tls', restorable: true, note: null }, () => {
-          fs.mkdirSync(sources.tlsDir, { recursive: true })
+          ensureStateDir(sources.tlsDir)
           for (const file of files) {
             const mode = file.endsWith('.key.pem') ? { mode: 0o600 } : {}
             writeFileAtomic(path.join(sources.tlsDir, file), fs.readFileSync(path.join(tlsInArchive, file), 'utf8'), mode)
@@ -1279,7 +1279,7 @@ export class BackupService {
             if (liftedSettings !== null) {
               const settingsText = `${JSON.stringify(liftedSettings, null, 2)}\n`
               addItem({ id: `workspace:${id}:settings`, label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, kind: 'settings', workspaceId: id, restorable: true, note: null }, () => {
-                fs.mkdirSync(path.dirname(workspace.settingsPath), { recursive: true })
+                ensureStateDir(path.dirname(workspace.settingsPath))
                 writeFileAtomic(workspace.settingsPath, settingsText)
               })
             }
@@ -1296,7 +1296,7 @@ export class BackupService {
               const serversText = `${JSON.stringify(liftedServers, null, 2)}\n`
               archivedServers.set(id, parsed)
               addItem({ id: `workspace:${id}:servers`, label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, kind: 'servers', workspaceId: id, restorable: true, note: null }, () => {
-                fs.mkdirSync(path.dirname(workspace.serversPath), { recursive: true })
+                ensureStateDir(path.dirname(workspace.serversPath))
                 writeFileAtomic(workspace.serversPath, serversText)
               })
             }
@@ -1319,7 +1319,7 @@ export class BackupService {
                 restorable: true,
                 note: null,
               }, () => {
-                fs.mkdirSync(path.dirname(workspace.secretsPath), { recursive: true })
+                ensureStateDir(path.dirname(workspace.secretsPath))
                 mergeIntoFile(workspace.secretsPath, secrets, part.fields)
               })
             }
@@ -1854,7 +1854,7 @@ export class BackupService {
     if (!fs.existsSync(source))
       return false
     const target = path.join(staging, relative)
-    fs.mkdirSync(path.dirname(target), { recursive: true })
+    ensureStateDir(path.dirname(target))
     // Never copy the archive directory into itself, however broad a declared
     // path is (the copy would walk it while writing into it).
     const archiveDir = path.resolve(this.resolveDir())

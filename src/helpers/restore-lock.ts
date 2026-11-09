@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { ensureStateDir } from '#src/helpers/paths'
 
 /**
  * A lock file that stops two restores from writing the same host at once.
@@ -130,7 +131,7 @@ function isLiveHolder(record: LockRecord): boolean {
  */
 export function acquireRestoreLock(hhDir: string, action = 'restore'): RestoreLock | { heldBy: LockRecord } {
   const file = path.join(hhDir, 'restore.lock')
-  fs.mkdirSync(hhDir, { recursive: true })
+  ensureStateDir(hhDir)
 
   // Our record, decided once: `release()` compares against it to tell "still mine" from "taken over".
   const mine: LockRecord = { pid: process.pid, startedAt: Date.now(), action, birthAt: processBirthSync(process.pid) }

@@ -17,6 +17,7 @@ import { openBrowser } from '#src/helpers/open'
 import {
   daemonLogPath,
   dataRoot,
+  ensureStateDir,
   globalSecretsPath,
   hhDir,
   projectDir,
@@ -478,7 +479,7 @@ function restrictStateDir(): void {
   if (process.platform === 'win32')
     return
   try {
-    fs.mkdirSync(hhDir, { recursive: true, mode: 0o700 })
+    ensureStateDir(hhDir)
     fs.chmodSync(hhDir, 0o700)
   }
   catch (error) {

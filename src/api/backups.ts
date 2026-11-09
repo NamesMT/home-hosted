@@ -12,6 +12,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
+import { ensureStateDir } from '#src/helpers/paths'
 import { parseOrThrow } from '#src/helpers/validate'
 import { validate } from '#src/helpers/validator'
 import { requestIdentity } from '#src/middleware/auth'
@@ -168,7 +169,7 @@ export function createBackupsRoute(deps: AppDeps) {
             throw new DetailedError(`the upload is larger than ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
 
           const uploads = path.join(deps.backups.directory, 'uploads')
-          fs.mkdirSync(uploads, { recursive: true })
+          ensureStateDir(uploads)
           uploadedTo = path.join(uploads, `upload-${crypto.randomUUID()}.zip`)
           // 0600: the archive holds whatever the config declares as data, possibly in
           // the clear, and sits here until the request finishes.

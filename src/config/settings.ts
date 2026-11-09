@@ -142,8 +142,13 @@ export class GlobalSettingsStore {
     return () => this.conflictListeners.delete(listener)
   }
 
-  load(): void {
-    this.read()
+  /**
+   * Reads the file, seeding it when missing. `{ write: false }` is the read-only form: a missing
+   * file reads as the seed without creating one, so a command that only looks (`backup list`)
+   * leaves a fresh home as it found it.
+   */
+  load(options: { write?: boolean } = {}): void {
+    this.read(options.write !== false)
     this.notify()
   }
 
@@ -196,7 +201,7 @@ export class GlobalSettingsStore {
     return { changed: true, applied: this.resolvedConfig !== before, error: this.configError }
   }
 
-  private read(): void {
+  private read(write = true): void {
     // Cleared up front so both branches answer the same question: a file that reads cleanly now is
     // not still "unparseable" from the read before it.
     this.parseError = null
@@ -205,8 +210,9 @@ export class GlobalSettingsStore {
     if (!fs.existsSync(this.file)) {
       const seed = stampConfig(structuredClone(this.seed))
       const text = `${JSON.stringify(seed, null, 2)}\n`
-      writeFileAtomic(this.file, text)
-      this.lastText = text
+      if (write)
+        writeFileAtomic(this.file, text)
+      this.lastText = write ? text : null
       this.raw = seed
       this.apply(seed)
       return

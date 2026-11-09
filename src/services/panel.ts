@@ -18,6 +18,7 @@ import { WorkspaceError } from '#src/config/workspaces'
 import { logger } from '#src/helpers/logger'
 import {
   dataRoot,
+  ensureStateDir,
   projectDir,
   workspaceDdnsStatePath,
   workspaceDir,
@@ -395,7 +396,7 @@ export class PanelService {
     // The directory is created here: `writeEntryState` is best-effort and swallows a failure, so on a
     // blank host — where the workspace's `.state/` does not exist yet — the staged load vanished
     // without a word.
-    fs.mkdirSync(stateDir, { recursive: true })
+    ensureStateDir(stateDir)
     const statePath = entryStatePath(stateDir, serverId)
     writeEntryState(statePath, {
       ...(readEntryState(statePath) ?? { restarts: 0, bootstrapDone: false }),
@@ -479,7 +480,7 @@ export class PanelService {
 
   private createRuntime(workspace: Workspace): WorkspaceRuntime {
     const id = workspace.id
-    fs.mkdirSync(workspaceDir(id), { recursive: true })
+    ensureStateDir(workspaceDir(id))
 
     const store = new WorkspaceStore(id, workspaceSettingsPath(id), workspaceServersPath(id))
     store.load()
