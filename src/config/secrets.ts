@@ -93,6 +93,17 @@ interface SecretsFile {
   ddns: Record<string, StoredDdnsRecord>
   /** How the DDNS key is derived; absent until the first sealed write. */
   ddnsKdf: DdnsKdfMeta | null
+  /** Top-level keys this release does not know, carried through a write so a newer release keeps them. */
+  extra?: Record<string, unknown>
+}
+
+/** Owned by this release, plus `version`: retired, and dropped on the next write rather than carried. */
+const KNOWN_SECRET_KEYS = new Set(['password', 'apiToken', 'telegram', 'ddns', 'ddnsKdf', 'version'])
+
+function unknownTopLevel(parsed: unknown): Record<string, unknown> {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+    return {}
+  return Object.fromEntries(Object.entries(parsed).filter(([key]) => !KNOWN_SECRET_KEYS.has(key)))
 }
 
 /**
@@ -591,6 +602,7 @@ export class SecretsStore {
         telegram: readTelegramTokens(parsed?.telegram),
         ddns: readStoredDdns(parsed?.ddns),
         ddnsKdf: readDdnsKdf((parsed as { ddnsKdf?: unknown })?.ddnsKdf),
+        extra: unknownTopLevel(parsed),
       })
     }
     catch (error) {
@@ -618,7 +630,8 @@ export class SecretsStore {
       throw new Error(`refusing to write ${this.file}: ${this.error}`)
 
     const sealed = this.sealStored(this.inScope(contents))
-    writeFileAtomic(this.file, `${JSON.stringify(sealed, null, 2)}\n`, { mode: 0o600 })
+    const { extra, ...known } = sealed
+    writeFileAtomic(this.file, `${JSON.stringify({ ...known, ...extra }, null, 2)}\n`, { mode: 0o600 })
     this.cache = sealed
   }
 

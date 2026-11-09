@@ -218,6 +218,19 @@ describe('ddns credentials on disk', () => {
  * belong to exactly one workspace. A scoped store neither reads nor writes the
  * other half, so a workspace file can never carry the panel's password.
  */
+describe('keys a newer release wrote', () => {
+  it('survive a write from this one', async () => {
+    const file = await tempFile()
+    fs.writeFileSync(file, JSON.stringify({ password: null, apiToken: null, telegram: {}, ddns: {}, ddnsKdf: null, futureSecret: { sealed: 'abc' } }), { mode: 0o600 })
+    const store = new SecretsStore(file, 's', 'workspace')
+
+    store.setTelegramToken('tg', 'bot-token')
+
+    expect(read(file).futureSecret).toEqual({ sealed: 'abc' })
+    expect(store.telegramToken('tg')).toBe('bot-token')
+  })
+})
+
 describe('secret scopes', () => {
   it('a global store never persists the workspace half', async () => {
     const file = await tempFile()
