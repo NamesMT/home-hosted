@@ -1,10 +1,5 @@
-import { spawnSync } from 'node:child_process'
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import process from 'node:process'
-import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { backupArgsCli } from '../support/backup-args'
 
 /**
  * The flag rules that guard a destructive command, checked without a panel.
@@ -14,34 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest'
  * running panel, so a missing panel is the only reason these need a throwaway home.
  */
 
-const root = fileURLToPath(new URL('../..', import.meta.url))
-const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-backup-args-'))
-
-/** This file's scratch home; a leaked temp dir fails no assertion, so it is swept here. */
-afterAll(() => {
-  fs.rmSync(home, { recursive: true, force: true })
-})
-
-function run(args: string[]): { status: number | null, output: string } {
-  const result = spawnSync(process.execPath, ['--import=tsx', path.join(root, 'src/cli.ts'), ...args, '--home', home], {
-    cwd: root,
-    encoding: 'utf8',
-    timeout: 60000,
-    env: { ...process.env, HHOSTED_HOME: home, NO_COLOR: '1' },
-  })
-  return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` }
-}
-
-/** The same run with the two streams kept apart, which is what a `--json` caller sees. */
-function runSplit(args: string[]): { status: number | null, stdout: string, stderr: string } {
-  const result = spawnSync(process.execPath, ['--import=tsx', path.join(root, 'src/cli.ts'), ...args, '--home', home], {
-    cwd: root,
-    encoding: 'utf8',
-    timeout: 60000,
-    env: { ...process.env, HHOSTED_HOME: home, NO_COLOR: '1' },
-  })
-  return { status: result.status, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
-}
+const { run } = backupArgsCli()
 
 describe('backup flag guards', () => {
   it('refuses an empty --include rather than widening to everything', () => {
@@ -93,76 +61,5 @@ describe('backup flag guards', () => {
     expect(none.status).toBe(1)
     expect(none.output).toContain('name what to act on')
     expect(none.output).toContain('--exclude')
-  })
-
-  it('refuses restore with no archive, and names both ways to give one', () => {
-    const missing = run(['backup', 'restore'])
-    expect(missing.status).toBe(1)
-    expect(missing.output).toContain('needs an archive')
-    // A person on a blank host has no name to pass: the refusal must mention `--from`.
-    expect(missing.output).toContain('--from')
-  })
-
-  it('refuses an archive name together with --from', () => {
-    // Two different archives named at once: picking one silently is the wrong guess on the
-    // command that overwrites live data.
-    const both = run(['backup', 'restore', 'x.zip', '--from', '/tmp/x.zip'])
-    expect(both.status).toBe(1)
-    expect(both.output).toContain('not both')
-  })
-
-  it('refuses --from on an action that cannot read an archive', () => {
-    // A flag silently ignored is a flag the person believed worked.
-    const created = run(['backup', 'create', '--all', '--from', '/tmp/x.zip'])
-    expect(created.status).toBe(1)
-    expect(created.output).toContain('--from is for restore')
-
-    const listed = run(['backup', 'list', '--from', '/tmp/x.zip'])
-    expect(listed.status).toBe(1)
-    expect(listed.output).toContain('--from is for restore')
-  })
-
-  /**
-   * A path is a *file* question before it is a scope question.
-   *
-   * `restore --from /media/usb` (no `--all`, no `--include`) answered "name what to act on" to
-   * someone who had already named their archive, hiding the real problem — a directory, or a typo.
-   * Measured: the good sentence existed only one flag away, so it read as a scope mistake.
-   */
-  it('names a missing or non-file --from path before complaining about the scope', () => {
-    const missing = run(['backup', 'restore', '--from', '/definitely/not/here.zip'])
-    expect(missing.status).toBe(1)
-    expect(missing.output).toContain('no file at /definitely/not/here.zip')
-    expect(missing.output).not.toContain('name what to act on')
-
-    // A directory is the case `existsSync` alone says yes to.
-    const dir = run(['backup', 'restore', '--from', home])
-    expect(dir.status).toBe(1)
-    expect(dir.output).toContain(`no file at ${home}`)
-    expect(dir.output).not.toContain('name what to act on')
-  })
-
-  /**
-   * A refusal is one message, and it belongs on the stream a reader is watching.
-   *
-   * Measured on the built CLI: `backup create --json` wrote `  global` / `    - global:settings` to
-   * **stdout** and `error name what to act on` to **stderr**. A `--json` caller therefore got
-   * neither a document nor a reason — the ids are not JSON — and a terminal that filters stderr saw
-   * a list with nothing saying what was wrong. The sentence and the ids it introduces are one
-   * refusal, so they travel together.
-   */
-  it('writes a whole refusal to stderr, leaving stdout for the answer', () => {
-    const split = runSplit(['backup', 'create', '--json'])
-    expect(split.status).toBe(1)
-    expect(split.stdout, 'a refused --json run has no answer to print on stdout').toBe('')
-    expect(split.stderr).toContain('name what to act on')
-    // The ids are part of the refusal, not a document.
-    expect(split.stderr).toContain('global:settings')
-  })
-
-  it('refuses an unknown action instead of guessing', () => {
-    const unknown = run(['backup', 'destroy'])
-    expect(unknown.status).toBe(1)
-    expect(unknown.output).toContain('unknown action')
   })
 })
