@@ -10,7 +10,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { vi } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
-import { isPortFree } from '#src/providers/port'
+import { testPort } from './ports'
 
 const dirs: string[] = []
 const originalHome = process.env.HHOSTED_HOME
@@ -56,29 +56,9 @@ export async function waitFor<T>(probe: () => T | undefined | false, timeoutMs =
   }
 }
 
-/**
- * A port nothing is listening on. Binding `0` asks the OS, then the listener closes, so the number is
- * free by the time a case uses it; the poll absorbs the few milliseconds a just-closed socket can
- * still answer in.
- */
+/** A port no parallel test can be handed too (see `test/support/ports.ts`). */
 export async function freePortNumber(): Promise<number> {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const port = await new Promise<number>((resolve, reject) => {
-      const server = net.createServer()
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', () => {
-        const address = server.address()
-        const bound = typeof address === 'object' && address !== null ? address.port : 0
-        server.close(() => resolve(bound))
-      })
-    })
-    for (let probe = 0; probe < 20; probe++) {
-      if (await isPortFree(port))
-        return port
-      await new Promise(resolve => setTimeout(resolve, 25))
-    }
-  }
-  throw new Error('could not allocate a free port')
+  return testPort()
 }
 
 /** Whether anything accepts a connection there, which is what a port being held means. */

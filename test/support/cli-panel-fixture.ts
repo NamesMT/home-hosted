@@ -3,13 +3,13 @@ import type net from 'node:net'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
-import { createServer } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach } from 'vitest'
 import { isProcessAlive } from '#src/providers/port'
+import { testPort } from './ports'
 
 /**
  * The `server-action*` CLI suites: a throwaway home, a fake panel listening in this process, and
@@ -33,17 +33,11 @@ export async function cliPanelFixture() {
    *
    * The fixture's `settings.json` is seeded by the first `--print-config` run, naming the default
    * 3999 — so a developer with a panel on 3999 made `down`'s `configuredPanelAddress` probe find it and
-   * refuse, and this file failed against a perfectly good CLI. Pinned here so the test owns a port
-   * instead of assuming the machine is idle.
+   * refuse, and this file failed against a perfectly good CLI. The port comes from this worker's own
+   * block (`ports.ts`): an ephemeral one, probed and released, was soon another fixture's, and `down`
+   * then refused for real.
    */
-  const controlPort = await new Promise<number>((resolve) => {
-    const probe = createServer()
-    probe.listen(0, '127.0.0.1', () => {
-      const address = probe.address()
-      const port = typeof address === 'object' && address !== null ? address.port : 0
-      probe.close(() => resolve(port))
-    })
-  })
+  const controlPort = await testPort()
   fs.mkdirSync(path.join(home, '.hh'), { recursive: true })
   fs.writeFileSync(path.join(home, '.hh', 'settings.json'), JSON.stringify({
     meta: { writtenBy: '0.11.0', schema: 2 },

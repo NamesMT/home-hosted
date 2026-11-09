@@ -33,7 +33,7 @@ describe('a restore that applied nothing', () => {
 
     const result = runCli(['backup', 'restore', 'fake.zip', '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
     // The service's own words; the CLI must not swallow them and exit 0.
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.output).toContain('not a home-hosted backup')
   }, 60_000)
 
@@ -44,7 +44,7 @@ describe('a restore that applied nothing', () => {
     await rewriteArchive(path.join(home, '.hh', '.backups', name), 'manifest.json', `${JSON.stringify({ version: 1, createdAt: Date.now(), writtenBy: '9.9.9', schema: 99 }, null, 2)}\n`)
 
     const result = runCli(['backup', 'restore', name, '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.output).toContain('config schema 99')
   }, 90_000)
 
@@ -56,7 +56,7 @@ describe('a restore that applied nothing', () => {
 
     const result = runCli(['backup', 'restore', name, '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
     // A missing password is a prompt, not a silent success.
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.output).toContain('--password')
   }, 90_000)
 })

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { configJson } from '../support/config-fixture'
+import { testPort } from '../support/ports'
 
 /**
  * `up` refuses to start — exit 1, the exact problem printed — when any file this
@@ -53,19 +54,8 @@ function seedWorkspace(home: string, id = 'default'): { workspace: string, hh: s
 }
 
 /** A free port in the dev range, so a panel on 3999 (installed or dev) cannot interfere. */
-function freeDevPort(from = 6100, to = 6199): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const attempt = (port: number): void => {
-      if (port > to) {
-        reject(new Error(`no free port in ${from}-${to}`))
-        return
-      }
-      const probe = net.createServer()
-      probe.once('error', () => attempt(port + 1))
-      probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(port)))
-    }
-    attempt(from)
-  })
+function freeDevPort(): Promise<number> {
+  return testPort()
 }
 
 /** Gives the home a control port of its own unless the case wrote its own settings. */
@@ -131,7 +121,7 @@ async function runUp(home: string, timeoutMs = 30000): Promise<{ status: number 
 /** A kill says "the guard never exited", not "the guard answered the wrong thing". */
 function expectRefused(result: { status: number | null, stdout: string, stderr: string, killed: boolean }): void {
   expect(result.killed, `up was still running after the budget and had to be killed\nstdout: ${result.stdout}\nstderr: ${result.stderr}`).toBe(false)
-  expect(result.status).toBe(1)
+  expect(result.status, result.stderr).toBe(1)
 }
 
 describe('startup guard: an unreadable file stops `up`', () => {

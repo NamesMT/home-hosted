@@ -202,7 +202,7 @@ describe('down --with-persistent', () => {
     try {
       const result = await runCli(['down'])
 
-      expect(result.status, 'a stop that failed must not exit 0').toBe(1)
+      expect(result.status, `a stop that failed must not exit 0\n${result.stderr}`).toBe(1)
       // The refusal and its remedy are one message on one stream, and that stream is stderr.
       // Printed to stdout, a script reading `down`'s output saw the failure where success goes.
       expect(result.stderr, 'the refusal belongs on stderr').toContain('could not stop pid 1')

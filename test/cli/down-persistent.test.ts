@@ -52,7 +52,7 @@ describe('down --with-persistent', () => {
     // `restart <id>` acts on one server; the flag means "every persistent entry, everywhere",
     // and honouring it there would be a different command than the one that was typed.
     const result = await runCli(['restart', 'web', '--with-persistent'])
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('restart <id> restarts one server')
   })
 
@@ -96,7 +96,7 @@ describe('down with no run.json but a panel still answering', () => {
     try {
       const result = await runCli(['down'])
 
-      expect(result.status, 'a live panel is not a successful stop').toBe(1)
+      expect(result.status, `a live panel is not a successful stop\n${result.stderr}`).toBe(1)
       expect(result.stderr).toContain(`127.0.0.1:${port}`)
       expect(result.stdout, 'no success line for a panel that is still there').not.toContain('is not running')
       // It reports; it never signals. The listener is still up.
@@ -118,7 +118,7 @@ describe('down with no run.json but a panel still answering', () => {
 
     try {
       const result = await runCli(['down'])
-      expect(result.status).toBe(0)
+      expect(result.status, result.stderr).toBe(0)
       expect(result.stdout).toContain('home-hosted is not running')
     }
     finally {

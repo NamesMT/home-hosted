@@ -25,7 +25,7 @@ describe('restart, for one server or the panel', () => {
     writeRuntime(created.url)
 
     const result = await runCli(['restart', 'web'])
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     // "restarted", not "stopped": the verb is the action.
     expect(result.stdout).toContain('restarted web')
     expect(created.seen.path).toBe('/_hh/servers/web/restart')
@@ -37,7 +37,7 @@ describe('restart, for one server or the panel', () => {
     writeRuntime(created.url)
 
     const result = await runCli(['restart', 'web', '--workspace', 'staging'])
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(created.seen.path).toBe('/_hh/servers/web/restart?workspace=staging')
     expect(result.stdout).toContain('restarted staging/web')
   })
@@ -47,7 +47,7 @@ describe('restart, for one server or the panel', () => {
     writeRuntime(created.url)
 
     const result = await runCli(['restart', 'web'])
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('server "web" is disabled')
   })
 
@@ -80,7 +80,7 @@ describe('restart, for one server or the panel', () => {
   it('refuses `restart --workspace` when no server id is given', async () => {
     const result = await runCli(['restart', '--workspace', 'default', '--print-config'])
 
-    expect(result.status, 'the flag must be refused, not ignored').toBe(1)
+    expect(result.status, `the flag must be refused, not ignored\n${result.stderr}`).toBe(1)
     expect(result.stderr).toContain('restart --workspace needs a server id')
     // It names the corrected form, so the reader does not have to infer it.
     expect(result.stderr).toContain('--workspace <id>')
@@ -100,7 +100,7 @@ describe('restart, for one server or the panel', () => {
     // that proves the corrected form is named.
     const result = await runCli(['restart', '--workspace', 'staging'])
 
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(created.seen.path, 'the control channel must not be touched').toBeUndefined()
     expect(result.stderr).toContain('needs a server id')
   })
@@ -143,7 +143,7 @@ describe('restart, for one server or the panel', () => {
     const created = await panel(200, JSON.stringify({ ok: true }))
     writeRuntime(created.url)
     const equals = await runCli(['restart', 'web', '--port=5000'])
-    expect(equals.status).toBe(1)
+    expect(equals.status, equals.stderr).toBe(1)
     expect(equals.stderr).toContain('takes no panel option')
 
     // The bare form still forwards it — the flag is not wrong, only wrong *here*.
@@ -153,7 +153,7 @@ describe('restart, for one server or the panel', () => {
     // time it has been earned.
     fs.rmSync(path.join(home, '.hh', 'run.json'), { force: true })
     const bare = await runCli(['restart', '--print-config'])
-    expect(bare.status, 'a bare restart still honours --print-config').toBe(0)
+    expect(bare.status, `a bare restart still honours --print-config\n${bare.stderr}`).toBe(0)
     expect(bare.stdout).toContain('servers')
   })
 })

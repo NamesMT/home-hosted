@@ -35,7 +35,7 @@ describe('the no-flag refusal lists real ids', () => {
     const home = makeHome()
     try {
       const failure = runCli(['backup', 'create'], { home })
-      expect(failure.status).toBe(1)
+      expect(failure.status, failure.stderr).toBe(1)
 
       // The coarse ids are still there, and so is every leaf under them.
       expect(failure.output).toContain('workspace:default')

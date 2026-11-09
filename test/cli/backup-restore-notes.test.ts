@@ -23,7 +23,7 @@ describe('a restore that names a file path', () => {
     fs.copyFileSync(path.join(backups, name), path.join(elsewhere, name))
 
     const result = runCli(['backup', 'restore', path.join(elsewhere, name), '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     // The directory the name has to be in, and the fact that a path is not one.
     expect(result.output).toContain('.backups')
     expect(result.output).toContain('not a path')

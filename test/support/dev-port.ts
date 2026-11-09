@@ -1,4 +1,4 @@
-import net from 'node:net'
+import { testPort } from './ports'
 
 /**
  * A free control port in a dev range (6xxx), never handed out twice by the same allocator.
@@ -14,25 +14,7 @@ import net from 'node:net'
  * Each test file takes its **own** range: files run in parallel, and two files probing one range can
  * both pick a port in the instant between one's probe closing and its panel binding.
  */
-export function devPortAllocator(from: number, to: number): () => Promise<number> {
-  const taken = new Set<number>()
-  return () => new Promise((resolve, reject) => {
-    const attempt = (port: number): void => {
-      if (port > to) {
-        reject(new Error(`no free port in ${from}-${to}`))
-        return
-      }
-      if (taken.has(port)) {
-        attempt(port + 1)
-        return
-      }
-      const probe = net.createServer()
-      probe.once('error', () => attempt(port + 1))
-      probe.listen(port, '127.0.0.1', () => probe.close(() => {
-        taken.add(port)
-        resolve(port)
-      }))
-    }
-    attempt(from)
-  })
+/** Kept for its call sites; every port now comes from the per-worker blocks in `ports.ts`. */
+export function devPortAllocator(_from?: number, _to?: number): () => Promise<number> {
+  return testPort
 }

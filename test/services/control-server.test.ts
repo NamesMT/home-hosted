@@ -9,6 +9,7 @@ import path from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { ControlServer } from '#src/services/control-server'
 import { hasOpenssl } from '../support/capabilities'
+import { testPort } from '../support/ports'
 
 /**
  * The panel's own listener. Moving it is the one operation that can make the panel
@@ -22,48 +23,9 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 })
 
-/** Ports this file has already handed out, so a parallel test cannot be given the same one. */
-const handedOut = new Set<number>()
-
-/**
- * Binds port 0 so the OS picks, then waits for the port to be genuinely free again.
- *
- * Two tests running in parallel can be handed the *same* ephemeral port a moment apart, which is
- * how `reports a restart failure…` failed under the full suite with `EADDRINUSE` while passing
- * alone. The kernel offers no way to reserve a port for later, so this keeps the ports this file
- * used and asks again on a collision — a fresh `listen(0)` each time, plus the 150 ms drain the
- * just-closed listener needs.
- */
+/** A port no parallel test can be handed too (see `test/support/ports.ts`). */
 async function freePort(): Promise<number> {
-  for (let tries = 0; tries < 10; tries++) {
-    const port = await new Promise<number>((resolve, reject) => {
-      const server = net.createServer()
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', () => {
-        const address = server.address() as net.AddressInfo
-        server.close(() => resolve(address.port))
-      })
-    })
-    // A just-closed listener can still complete a handshake for a moment.
-    await new Promise(resolve => setTimeout(resolve, 150))
-    if (handedOut.has(port))
-      continue
-    // Bound-then-closed is also a moment where another process may already hold it.
-    if (!await canBind(port))
-      continue
-    handedOut.add(port)
-    return port
-  }
-  throw new Error('could not find a free, unused port in 10 attempts')
-}
-
-/** Whether a listener can actually bind this port right now. */
-async function canBind(port: number): Promise<boolean> {
-  return await new Promise<boolean>((resolve) => {
-    const probe = net.createServer()
-    probe.once('error', () => resolve(false))
-    probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(true)))
-  })
+  return testPort()
 }
 
 /** Listens on `port`, retrying with a fresh one when a parallel test took it first. */

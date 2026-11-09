@@ -49,7 +49,7 @@ describe('up against a live panel', () => {
     // `--host local` resolves to 127.0.0.1, which is the bind the record already has.
     const result = await runCli(['up', '--port', '3999', '--host', 'local'])
     expect(result.stderr, 'an agreeing re-run must not refuse').toBe('')
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('already running')
   })
 
@@ -57,7 +57,7 @@ describe('up against a live panel', () => {
     writeLiveRuntime(3999, '0.0.0.0')
     // `local` against a panel bound to 0.0.0.0 is a real move, so it is refused.
     const result = await runCli(['up', '--host', 'local'])
-    expect(result.status, 'a contradicted flag must exit 1').toBe(1)
+    expect(result.status, `a contradicted flag must exit 1\n${result.stderr}`).toBe(1)
     expect(result.stderr).toContain('--host local was not honoured')
     // stdout stays empty, so nothing reads as a success line for a move that did not happen.
     expect(result.stdout).not.toContain('already running')
@@ -67,7 +67,7 @@ describe('up against a live panel', () => {
     writeLiveRuntime(3999, '0.0.0.0')
     const result = await runCli(['up', '--host', '0.0.0.0'])
     expect(result.stderr).toBe('')
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
   })
 })
 
@@ -77,7 +77,7 @@ describe('start/stop against a live panel', () => {
     writeRuntime(created.url)
 
     const result = await runCli(['start', 'web'])
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('started web')
     expect(created.seen.path).toBe('/_hh/servers/web/start')
     expect(created.seen.token).toBe('local-token')
@@ -88,7 +88,7 @@ describe('start/stop against a live panel', () => {
     writeRuntime(created.url)
 
     const result = await runCli(['stop', 'web'])
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('server "web" is disabled')
   })
 
@@ -98,7 +98,7 @@ describe('start/stop against a live panel', () => {
     writeRuntime(created.url, '0.6.4')
 
     const result = await runCli(['start', 'web'])
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('home-hosted 0.6.4')
     expect(result.stderr).toContain('does not know this command')
   })

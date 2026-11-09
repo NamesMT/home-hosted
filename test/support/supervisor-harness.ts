@@ -14,7 +14,6 @@ import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceStore } from '#src/config/store'
-import { isPortFree } from '#src/providers/port'
 import { AuthService } from '#src/services/auth'
 import { DdnsService } from '#src/services/ddns'
 import { EventHub } from '#src/services/events'
@@ -23,6 +22,7 @@ import { LogFiles } from '#src/services/log-files'
 import { NotificationService } from '#src/services/notifications'
 import { Supervisor } from '#src/services/supervisor'
 import { TlsStore } from '#src/services/tls'
+import { testPort } from './ports'
 
 export const cleanups: Array<() => Promise<void> | void> = []
 
@@ -38,29 +38,9 @@ export async function runCleanups(): Promise<void> {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
 }
 
-/**
- * Binds port 0 to let the OS pick, then polls until the port is genuinely free:
- * a just-closed listener can still complete a handshake for a few milliseconds.
- */
+/** A port no parallel test can be handed too (see `test/support/ports.ts`). */
 export async function freePort(): Promise<number> {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const port = await new Promise<number>((resolve, reject) => {
-      const server = net.createServer()
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', () => {
-        const address = server.address()
-        const bound = typeof address === 'object' && address !== null ? address.port : 0
-        server.close(() => resolve(bound))
-      })
-    })
-
-    for (let probe = 0; probe < 20; probe++) {
-      if (await isPortFree(port))
-        return port
-      await new Promise(resolve => setTimeout(resolve, 25))
-    }
-  }
-  throw new Error('could not allocate a free port')
+  return testPort()
 }
 
 // Generous: spawned children under a full parallel run on a slow machine can take seconds to speak.

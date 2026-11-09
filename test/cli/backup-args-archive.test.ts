@@ -7,7 +7,7 @@ const { home, run, runSplit } = backupArgsCli()
 describe('backup flag guards', () => {
   it('refuses restore with no archive, and names both ways to give one', () => {
     const missing = run(['backup', 'restore'])
-    expect(missing.status).toBe(1)
+    expect(missing.status, missing.output).toBe(1)
     expect(missing.output).toContain('needs an archive')
     // A person on a blank host has no name to pass: the refusal must mention `--from`.
     expect(missing.output).toContain('--from')
@@ -17,18 +17,18 @@ describe('backup flag guards', () => {
     // Two different archives named at once: picking one silently is the wrong guess on the
     // command that overwrites live data.
     const both = run(['backup', 'restore', 'x.zip', '--from', '/tmp/x.zip'])
-    expect(both.status).toBe(1)
+    expect(both.status, both.output).toBe(1)
     expect(both.output).toContain('not both')
   })
 
   it('refuses --from on an action that cannot read an archive', () => {
     // A flag silently ignored is a flag the person believed worked.
     const created = run(['backup', 'create', '--all', '--from', '/tmp/x.zip'])
-    expect(created.status).toBe(1)
+    expect(created.status, created.output).toBe(1)
     expect(created.output).toContain('--from is for restore')
 
     const listed = run(['backup', 'list', '--from', '/tmp/x.zip'])
-    expect(listed.status).toBe(1)
+    expect(listed.status, listed.output).toBe(1)
     expect(listed.output).toContain('--from is for restore')
   })
 
@@ -41,13 +41,13 @@ describe('backup flag guards', () => {
    */
   it('names a missing or non-file --from path before complaining about the scope', () => {
     const missing = run(['backup', 'restore', '--from', '/definitely/not/here.zip'])
-    expect(missing.status).toBe(1)
+    expect(missing.status, missing.output).toBe(1)
     expect(missing.output).toContain('no file at /definitely/not/here.zip')
     expect(missing.output).not.toContain('name what to act on')
 
     // A directory is the case `existsSync` alone says yes to.
     const dir = run(['backup', 'restore', '--from', home])
-    expect(dir.status).toBe(1)
+    expect(dir.status, dir.output).toBe(1)
     expect(dir.output).toContain(`no file at ${home}`)
     expect(dir.output).not.toContain('name what to act on')
   })
@@ -63,7 +63,7 @@ describe('backup flag guards', () => {
    */
   it('writes a whole refusal to stderr, leaving stdout for the answer', () => {
     const split = runSplit(['backup', 'create', '--json'])
-    expect(split.status).toBe(1)
+    expect(split.status, split.stderr).toBe(1)
     expect(split.stdout, 'a refused --json run has no answer to print on stdout').toBe('')
     expect(split.stderr).toContain('name what to act on')
     // The ids are part of the refusal, not a document.
@@ -72,7 +72,7 @@ describe('backup flag guards', () => {
 
   it('refuses an unknown action instead of guessing', () => {
     const unknown = run(['backup', 'destroy'])
-    expect(unknown.status).toBe(1)
+    expect(unknown.status, unknown.output).toBe(1)
     expect(unknown.output).toContain('unknown action')
   })
 })

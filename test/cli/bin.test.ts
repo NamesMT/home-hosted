@@ -64,7 +64,7 @@ describe('the published bin', () => {
     expect(result.stderr, result.stderr).not.toContain('ERR_MODULE_NOT_FOUND')
     // No log yet is the ordinary answer for a fresh home, and it proves the whole chain ran.
     expect(result.stdout).toContain('no output yet')
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
   })
 
   /**
@@ -84,7 +84,7 @@ describe('the published bin', () => {
     expect(result.stderr, result.stderr).not.toContain('ERR_MODULE_NOT_FOUND')
     // The effective config, which is only reachable once the whole graph loaded.
     expect(result.stdout).toContain('"servers"')
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
   })
 
   it('runs logs through the sources fallback as well', () => {
@@ -93,7 +93,7 @@ describe('the published bin', () => {
 
     expect(result.stderr, result.stderr).not.toContain('ERR_MODULE_NOT_FOUND')
     expect(result.stdout).toContain('no output yet')
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
   })
 
   /**
@@ -134,7 +134,7 @@ describe('the published bin', () => {
     const cwd = tempDir()
     const result = runBin(['--help'], { cwd, built: true })
 
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('home-hosted')
     // The command added most recently, so this fails if the registry stops being wired.
     expect(result.stdout).toContain('logs')

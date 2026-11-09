@@ -74,7 +74,7 @@ describe('a stale run.json naming a live stranger\'s pid', () => {
 
     const result = await runCli(['status'])
 
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stdout).toContain('stale')
     expect(result.stdout, 'a recycled pid is not a panel that is merely wedged').not.toContain('running, but not answering')
     // And the JSON form agrees with the text form, naming the reason.
@@ -126,7 +126,7 @@ describe('free-port, and start --free-port', () => {
     writeRuntime(fake.url)
 
     const result = await runCli(['free-port', 'web'])
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('freed port 4010')
     expect(result.stdout).toContain('4242')
     // The local channel, not `/api`: no session, just run.json's token.
@@ -146,7 +146,7 @@ describe('free-port, and start --free-port', () => {
     writeRuntime(fake.url)
 
     const result = await runCli(['free-port', 'web'])
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('pid 11 stopped')
     expect(result.stdout).toContain('pid 22 had to be killed')
   })
@@ -180,7 +180,7 @@ describe('free-port, and start --free-port', () => {
     writeRuntime(fake.url)
 
     const result = await runCli(['free-port', 'web'])
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('nothing is listening on port 4010')
   })
 
@@ -221,7 +221,7 @@ describe('free-port, and start --free-port', () => {
     writeRuntime(`http://127.0.0.1:${address.port}`)
 
     const result = await runCli(['start', 'web', '--free-port'])
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('port is free')
     expect(result.stdout).toContain('started web')
     // Both calls happened, in that order — the flag composes rather than replacing.
@@ -241,7 +241,7 @@ describe('free-port, and start --free-port', () => {
     writeRuntime(fake.url)
 
     const result = await runCli(['start', 'web', '--free-port'])
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('still in use')
     expect(result.stdout).not.toContain('started web')
   })

@@ -20,7 +20,7 @@ const runCli = smokeRunner(home)
 describe('cli smoke', () => {
   it('--help exits 0 and still lists every command and curated flag', () => {
     const help = runCli(['--help'])
-    expect(help.status).toBe(0)
+    expect(help.status, help.stderr).toBe(0)
 
     for (const command of ['up', 'down', 'restart', 'status', 'logs', 'start', 'stop', 'set-password', 'set-token', 'migrate', 'init', 'ui-switch', 'ui-revert'])
       expect(help.stdout, command).toContain(command)
@@ -63,7 +63,7 @@ describe('cli smoke', () => {
 
   it('scopes `--help` to the command it follows', () => {
     const up = runCli(['up', '--help'])
-    expect(up.status).toBe(0)
+    expect(up.status, up.stderr).toBe(0)
     expect(up.stdout).toContain('home-hosted up [options]')
     expect(up.stdout).toContain('--port')
     expect(up.stdout).toContain('--foreground')
@@ -78,32 +78,32 @@ describe('cli smoke', () => {
     expect(up.stdout).toContain('Environment')
 
     const status = runCli(['status', '--help'])
-    expect(status.status).toBe(0)
+    expect(status.status, status.stderr).toBe(0)
     expect(status.stdout).toContain('--json')
     expect(status.stdout).not.toContain('--foreground')
 
     const uiSwitch = runCli(['ui-switch', '-h'])
-    expect(uiSwitch.status).toBe(0)
+    expect(uiSwitch.status, uiSwitch.stderr).toBe(0)
     expect(uiSwitch.stdout).toContain('--asset')
     expect(uiSwitch.stdout).not.toContain('--pm')
 
     // The per-server commands take a bare id, and their help has to say so.
     const start = runCli(['start', '--help'])
-    expect(start.status).toBe(0)
+    expect(start.status, start.stderr).toBe(0)
     expect(start.stdout).toContain('home-hosted start <id>')
     expect(start.stdout).toContain('<id>')
     expect(start.stdout).not.toContain('--foreground')
 
     // `down` used to advertise no options; `--with-persistent` is the first one it has.
     const down = runCli(['down', '--help'])
-    expect(down.status).toBe(0)
+    expect(down.status, down.stderr).toBe(0)
     expect(down.stdout).toContain('--with-persistent')
     // `--port` is `up`'s, so seeing it here would mean another command's section leaked.
     expect(down.stdout).not.toContain('--port')
 
     // Still a command with nothing of its own to offer.
     const revert = runCli(['ui-revert', '--help'])
-    expect(revert.status).toBe(0)
+    expect(revert.status, revert.stderr).toBe(0)
     expect(revert.stdout).toContain('no options')
     expect(revert.stdout).not.toContain('--asset')
   })
@@ -146,12 +146,12 @@ describe('cli smoke', () => {
     }
     // With no argument it still does its one job, and says so.
     const plain = runCli(['ui-revert'])
-    expect(plain.status).toBe(0)
+    expect(plain.status, plain.stderr).toBe(0)
   })
 
   it('an unknown command exits 1 with the usage and the old wording', () => {
     const result = runCli(['nonsense'])
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('unknown command: nonsense')
     expect(result.stderr).toContain('home-hosted — a control panel')
   })
@@ -165,7 +165,7 @@ describe('cli smoke', () => {
    */
   it('suggests the closest command when one is misspelled', () => {
     const typo = runCli(['restar'])
-    expect(typo.status).toBe(1)
+    expect(typo.status, typo.stderr).toBe(1)
     expect(typo.stderr).toContain('unknown command: restar')
     expect(typo.stderr, 'a one-edit typo names the command it meant').toContain('did you mean `restart`')
 
@@ -181,18 +181,18 @@ describe('cli smoke', () => {
   /** The supervisor lives in the daemon, so `start` has to say what it is missing. */
   it('start/stop name the missing piece instead of failing obscurely', () => {
     const noId = runCli(['start'])
-    expect(noId.status).toBe(1)
+    expect(noId.status, noId.stderr).toBe(1)
     expect(noId.stderr).toContain('needs a server id')
 
     const noPanel = runCli(['stop', 'web'])
-    expect(noPanel.status).toBe(1)
+    expect(noPanel.status, noPanel.stderr).toBe(1)
     expect(noPanel.stderr).toContain('home-hosted is not running')
   })
 
   it('--version prints the package version', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as { version: string }
     const result = runCli(['--version'])
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout.trim()).toBe(manifest.version)
   })
 })

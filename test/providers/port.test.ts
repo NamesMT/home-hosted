@@ -1,11 +1,11 @@
 import type { ChildProcess } from 'node:child_process'
 import { execFileSync, spawn } from 'node:child_process'
 import fs from 'node:fs'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { findDockerPortHolder, isProcessAlive, killPortHolders, listPortHolders, parseFiletime, parseProcBirth, parsePsBirth, processBirth, processLiveness, releaseDockerPort, terminatePids } from '#src/providers/port'
+import { testPort } from '../support/ports'
 
 const children: ChildProcess[] = []
 
@@ -49,17 +49,9 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 
   throw new Error('waitFor timed out')
 }
 
-/** A port the OS just handed out, and that nothing is listening on any more. */
+/** A port no parallel test can be handed too (see `test/support/ports.ts`). */
 async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer()
-    server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address()
-      const port = typeof address === 'object' && address !== null ? address.port : 0
-      server.close(() => resolve(port))
-    })
-  })
+  return testPort()
 }
 
 /**

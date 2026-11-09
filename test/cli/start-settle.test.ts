@@ -109,7 +109,7 @@ describe('start reports what actually happened', () => {
 
     const result = await runCli(['start', 'web'])
 
-    expect(result.status, 'a process that is already gone is not a success').toBe(1)
+    expect(result.status, `a process that is already gone is not a success\n${result.stderr}`).toBe(1)
     expect(result.stderr).toContain('did not stay up')
     expect(result.stderr).toContain('exited with code 1')
     // stdout stays empty: a script reading it must not see a success line for a dead process.
@@ -125,7 +125,7 @@ describe('start reports what actually happened', () => {
 
     const result = await runCli(['start', 'web'])
 
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('started web')
     expect(result.stderr).toBe('')
   })
@@ -142,7 +142,7 @@ describe('start reports what actually happened', () => {
 
     const result = await runCli(['restart', 'web'])
 
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.stderr).toContain('did not stay up')
   })
 
@@ -155,7 +155,7 @@ describe('start reports what actually happened', () => {
 
     const result = await runCli(['stop', 'web'])
 
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('stopped web')
   })
 })
@@ -186,7 +186,7 @@ describe('usage', () => {
 
     const result = await runCli(['usage'])
 
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     const lines = result.stdout.trim().split('\n')
     // Header, then loudest first.
     expect(lines[0]).toContain('SERVER')
@@ -221,7 +221,7 @@ describe('usage', () => {
 
     const result = await runCli(['usage'])
 
-    expect(result.status).toBe(0)
+    expect(result.status, result.stderr).toBe(0)
     const lines = result.stdout.trim().split('\n')
     expect(lines[0]).toContain('CRASH')
     // Ranked by memory, so the running entry leads and the crashed one follows.

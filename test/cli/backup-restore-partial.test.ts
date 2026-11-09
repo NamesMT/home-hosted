@@ -15,7 +15,7 @@ describe('a restore that applied nothing', () => {
     const name = fs.readdirSync(backups).find(entry => entry.endsWith('.zip'))!
 
     const result = runCli(['backup', 'restore', name, '--all', '--password', 'wrong', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.output).toContain('--password')
   }, 90_000)
 

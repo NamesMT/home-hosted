@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { testPort } from '../support/ports'
 
 /**
  * `up --port` / `-p` move the listener. The port is also persisted for the next
@@ -39,19 +39,8 @@ function makeHome(): string {
   return home
 }
 
-function freeDevPort(from = 6200, to = 6299): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const attempt = (port: number): void => {
-      if (port > to) {
-        reject(new Error(`no free port in ${from}-${to}`))
-        return
-      }
-      const probe = net.createServer()
-      probe.once('error', () => attempt(port + 1))
-      probe.listen(port, '127.0.0.1', () => probe.close(() => resolve(port)))
-    }
-    attempt(from)
-  })
+function freeDevPort(): Promise<number> {
+  return testPort()
 }
 
 async function waitForHealth(url: string, timeoutMs: number): Promise<boolean> {

@@ -27,14 +27,14 @@ describe('a mistyped id on a restore', () => {
     const name = takeArchive(home)
 
     const excluded = runCli(['backup', 'restore', name, '--all', '--exclude', 'globalsecrets', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(excluded.status).toBe(1)
+    expect(excluded.status, excluded.stderr).toBe(1)
     expect(excluded.output).toContain('globalsecrets')
     expect(excluded.output).toContain('not in this plan')
     // The hint must name a command that lists *this* plan's ids — the archive's, not the host's.
     expect(excluded.output).toContain('backup restore')
 
     const included = runCli(['backup', 'restore', name, '--include', 'workspace:ghost', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(included.status).toBe(1)
+    expect(included.status, included.stderr).toBe(1)
     expect(included.output).toContain('workspace:ghost')
   }, 90_000)
 

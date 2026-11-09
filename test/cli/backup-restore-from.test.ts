@@ -36,7 +36,7 @@ describe('restore --from', () => {
     fs.writeFileSync(notAnArchive, 'this is not a zip\n')
 
     const result = runCli(['backup', 'restore', '--from', notAnArchive, '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     // The service's own wording — one implementation, so the two doors cannot drift apart.
     expect(result.output).toContain('not a home-hosted backup')
   }, 90_000)
@@ -50,7 +50,7 @@ describe('restore --from', () => {
     })
 
     const result = runCli(['backup', 'restore', '--from', escaping, '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     expect(result.output).toContain('unexpected entries')
     expect(result.output).toContain('evil.txt')
   }, 60_000)
@@ -60,7 +60,7 @@ describe('restore --from', () => {
     const missing = path.join(scratch('hh-from-missing-'), 'not-here.zip')
 
     const result = runCli(['backup', 'restore', '--from', missing, '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     // "not a home-hosted backup" would send someone to inspect an archive that is simply absent.
     expect(result.output).toContain('no file at')
     expect(result.output).not.toContain('not a home-hosted backup')
@@ -71,7 +71,7 @@ describe('restore --from', () => {
     const name = takeArchive(home)
 
     const result = runCli(['backup', 'restore', name, '--from', path.join(home, '.hh', '.backups', name), '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(result.status).toBe(1)
+    expect(result.status, result.stderr).toBe(1)
     // On the one command that overwrites live data, choosing between two named archives is a guess.
     expect(result.output).toContain('not both')
   }, 90_000)
