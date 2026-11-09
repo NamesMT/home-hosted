@@ -1867,6 +1867,8 @@ export const healthResponseSchema = lazy(() => type({
   'uptimeMs': 'number',
   'servers?': type({ total: 'number', running: 'number', crashed: 'number', unhealthy: 'number' }),
   'hostAlerts?': 'string[]',
+  /** Which state root this panel serves, as a fingerprint — only to a loopback caller (the CLI). */
+  'home?': 'string',
 }))
 
 export const controlViewSchema = lazy(() => type({

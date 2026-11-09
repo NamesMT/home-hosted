@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { homeFingerprint } from '#src/helpers/paths'
 
 /**
  * The CLI surface an operator and a script actually use: one server's log, the usage table, and the
@@ -374,8 +375,10 @@ describe('status with no run.json but a panel still answering', () => {
     dirs.push(home)
     // A real listener, because the claim under test is about the machine: a stub would only prove
     // that `probePort` was called.
+    // Which home the stand-in claims: only a panel naming *this* home is this home's panel.
+    let claims: string | null = homeFingerprint(home)
     const server = http.createServer((_req, res) => {
-      res.end('{"status":"ok"}')
+      res.end(JSON.stringify({ status: 'ok', uptimeMs: 1, ...(claims === null ? {} : { home: claims }) }))
     })
     listeners.push(server)
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -424,6 +427,13 @@ describe('status with no run.json but a panel still answering', () => {
     expect(json.running).toBe(false)
     expect(json.answeringWithoutRecord).toBe(`http://127.0.0.1:${port}`)
     expect(server.listening, 'status probes; it never signals').toBe(true)
+
+    // Another home's panel on the same port is not this one: the port is reported taken, not "ours".
+    claims = 'another-home'
+    const other = JSON.parse((await read(true)).stdout) as { answeringWithoutRecord?: string, portTakenByOther?: number }
+    expect(other.answeringWithoutRecord).toBeUndefined()
+    expect(other.portTakenByOther).toBe(port)
+    expect((await read(false)).stdout).toContain(`port ${port} is taken by another process`)
 
     // And with nothing on that port, the original sentence is unchanged.
     await new Promise<void>(resolve => server.close(() => resolve()))

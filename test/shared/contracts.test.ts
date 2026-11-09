@@ -849,6 +849,9 @@ describe('schemas moved out of their routes', () => {
     // The optional halves appear only for an authenticated caller.
     expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, servers: { total: 0, running: 0, crashed: 0, unhealthy: 0 } }) instanceof type.errors).toBe(false)
     expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, hostAlerts: ['disk'] }) instanceof type.errors).toBe(false)
+    // `home` is for a loopback caller only, so it is optional too.
+    expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, home: '0123456789abcdef' }) instanceof type.errors).toBe(false)
+    expect(healthResponseSchema({ status: 'ok', uptimeMs: 1, home: 1 }) instanceof type.errors).toBe(true)
 
     // `uptimeMs` is not optional.
     expect(healthResponseSchema({ status: 'ok' }) instanceof type.errors).toBe(true)

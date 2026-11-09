@@ -1,8 +1,10 @@
 import type { AddressInfo } from 'node:net'
 import fs from 'node:fs'
+import http from 'node:http'
 import net from 'node:net'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { homeFingerprint } from '#src/helpers/paths'
 import { isProcessAlive } from '#src/providers/port'
 import { downPersistentFixture } from '../support/down-persistent'
 
@@ -81,12 +83,20 @@ describe('down --with-persistent', () => {
  * came from. It signals nothing: without a record there is no pid it can prove it owns.
  */
 describe('down with no run.json but a panel still answering', () => {
+  /** A stand-in panel on the configured port whose `/healthz` names `homeId` (or no home). */
+  async function healthz(homeId: string | null): Promise<{ server: http.Server, port: number }> {
+    const server = http.createServer((_req, res) => {
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify({ status: 'ok', uptimeMs: 1, ...(homeId === null ? {} : { home: homeId }) }))
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    listening.push(server)
+    return { server, port: (server.address() as AddressInfo).port }
+  }
+
   it('refuses, names the address, and touches nothing', async () => {
     zshHome()
-    const server = net.createServer()
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
-    const { port } = server.address() as AddressInfo
-    listening.push(server)
+    const { server, port } = await healthz(homeFingerprint(home))
 
     // The state root a panel that lost its record would leave behind: settings naming the port, and
     // no run.json at all.
@@ -101,6 +111,51 @@ describe('down with no run.json but a panel still answering', () => {
       expect(result.stdout, 'no success line for a panel that is still there').not.toContain('is not running')
       // It reports; it never signals. The listener is still up.
       expect(server.listening, 'down must not touch a process it cannot identify').toBe(true)
+
+      // `restart` is `down` then `up`, and must stop at the failed half: going on started a second
+      // panel against this one (here, `--print-config` would have printed the config and exited 0).
+      const restart = await runCli(['restart', '--print-config'])
+      expect(restart.status, restart.stderr).toBe(1)
+      expect(restart.stdout, 'up must not run after a refused down').not.toContain('"servers"')
+    }
+    finally {
+      fs.rmSync(path.join(home, '.hh', 'settings.json'), { force: true })
+    }
+  })
+
+  /**
+   * Two homes can share a port — the user runs two panels, one stopped. Any listener used to count as
+   * "this home's panel", so `down` in the stopped home refused over the other one and `status` blamed
+   * it. Only a `/healthz` naming this home is this home's panel.
+   */
+  it('treats another home\'s panel on the same port as not ours: exit 0, nothing touched', async () => {
+    zshHome()
+    for (const other of ['0123456789abcdef', null]) {
+      const { server, port } = await healthz(other)
+      writeSettings(port)
+      try {
+        const result = await runCli(['down'])
+        expect(result.status, result.stderr).toBe(0)
+        expect(result.stdout).toContain(`port ${port} is taken by another process`)
+        expect(server.listening).toBe(true)
+      }
+      finally {
+        fs.rmSync(path.join(home, '.hh', 'settings.json'), { force: true })
+      }
+    }
+  })
+
+  it('treats a listener that is not a panel at all as not ours', async () => {
+    zshHome()
+    const server = net.createServer(socket => socket.destroy())
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    listening.push(server)
+    const { port } = server.address() as AddressInfo
+    writeSettings(port)
+    try {
+      const result = await runCli(['down'])
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stdout).toContain('is taken by another process')
     }
     finally {
       fs.rmSync(path.join(home, '.hh', 'settings.json'), { force: true })

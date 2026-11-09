@@ -144,3 +144,24 @@ describe('a stale run.json naming a live stranger\'s pid', () => {
     }
   })
 })
+
+/**
+ * `restart` checks every `up` flag before it stops anything.
+ *
+ * `restart --port abc` ran `down` first and only then refused the port, so a typo took the panel down
+ * and left it down. The record names a recycled pid so a `down` that did run would only *ask* the
+ * stub panel to stop (it never signals a stranger) — which `seen.path` then records.
+ */
+describe('restart with an invalid up flag', () => {
+  it('refuses before the panel is stopped', async () => {
+    for (const extra of [['--port', 'abc'], ['--host', 'nope']]) {
+      const created = await panel(200, JSON.stringify({ ok: true }))
+      writeRuntime(created.url, '0.9.9', await recycledPid())
+
+      const result = await runCli(['restart', ...extra])
+      expect(result.status, `${extra.join(' ')}\n${result.stderr}`).toBe(1)
+      expect(result.stderr).toContain(extra[0] === '--port' ? 'invalid port: abc' : 'invalid control host: nope')
+      expect(created.seen.path, `${extra.join(' ')} must not reach /_hh/shutdown`).toBeUndefined()
+    }
+  })
+})

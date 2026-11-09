@@ -25,13 +25,18 @@ export interface DownOptions {
 
 /** Which persistent entries this stop ended, as `(workspace, id)` — what `restart` starts back. */
 export interface DownResult {
+  /**
+   * False when a panel of this home may still be running: it could not be stopped, or it answers
+   * without a `run.json` to stop it by. `restart` must not go on to `up` over it.
+   */
+  ok: boolean
   stoppedPersistent: Array<{ workspaceId: string, serverId: string }>
 }
 
 export async function runDown(options: DownOptions = {}): Promise<DownResult> {
   const { clearRuntime, configuredPanelAddress, isLiveLiveness, readRuntime, requestShutdown, runtimeLiveness } = await import('#src/helpers/daemon')
 
-  const result: DownResult = { stoppedPersistent: [] }
+  const result: DownResult = { ok: true, stoppedPersistent: [] }
   // What was running before this command did anything. The panel ends the entries itself when
   // asked, so afterwards they are simply gone — and the difference between "was running" and
   // "still running" is the only account of what was stopped. `restart` starts exactly that list.
@@ -50,15 +55,20 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     // held its port. Nothing here can *prove* ownership of a pid, so this only reports: it never
     // signals what it cannot identify.
     const leftover = await configuredPanelAddress()
-    if (leftover !== null) {
+    if (leftover?.kind === 'panel') {
       // Refused, not a success line: a deploy chain that continues here starts a second panel
       // against a live one. It says where and what to do, and signals nothing.
-      refusal(`something is already answering on ${leftover}, but no run.json records which process owns it — stop it yourself, or free that port, then run \`${invocation()} up\``)
+      refusal(`this home's panel is answering on ${leftover.url}, but no run.json records which process owns it — stop it yourself, or free that port, then run \`${invocation()} up\``)
       process.exitCode = 1
+      result.ok = false
       // Persistent entries are still the thing easiest to forget, so their report still runs.
       return finish()
     }
-    process.stdout.write('home-hosted is not running\n')
+    // Another home's panel (or anything else) on the same port is not ours to stop: nothing of this
+    // home is running, which is what `down` was asked to make true.
+    process.stdout.write(leftover?.kind === 'other'
+      ? `home-hosted is not running (port ${leftover.port} is taken by another process — nothing of this home to stop)\n`
+      : 'home-hosted is not running\n')
     // The panel's absence is exactly when a persistent entry is easiest to forget: it outlives
     // the panel by design, so "nothing is running" must not be said by omission here.
     return finish()
@@ -144,6 +154,7 @@ export async function runDown(options: DownOptions = {}): Promise<DownResult> {
     refusal(`could not stop pid ${runtime.pid} — it is still running, and its record was kept`)
     process.stderr.write(`${dim(`stop it yourself with \`kill -9 ${runtime.pid}\` (Windows: \`taskkill /PID ${runtime.pid} /F\`), then run \`down\` again`)}\n`)
     process.exitCode = 1
+    result.ok = false
     return finish()
   }
   clearRuntime()

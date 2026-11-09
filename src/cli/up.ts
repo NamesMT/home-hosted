@@ -18,7 +18,9 @@ const DEFAULT_PORT = 3999
 export const upArgs = {
   port: { type: 'string', alias: 'p', description: `control panel port (default: ${DEFAULT_PORT})` },
   host: { type: 'string', description: 'local | lan | an ipv4 address (default: local)' },
-  autostart: { type: 'boolean', default: true, negativeDescription: 'do not start the entries marked autostart' },
+  // No `default: true`: `toUpFlags` reads "not given" as on, and `restart <id>` needs `undefined`
+  // to tell "not given" from `--no-autostart`.
+  autostart: { type: 'boolean', negativeDescription: 'do not start the entries marked autostart' },
   open: { type: 'boolean', description: 'open the panel in a browser once it is up' },
   foreground: { type: 'boolean', description: 'run in this process instead of detaching (systemd/docker)' },
   printConfig: { type: 'boolean', description: 'print the effective config and exit' },
@@ -54,6 +56,23 @@ export function toUpFlags(args: RawUpArgs): UpFlags {
     foreground: args.foreground === true,
     printConfig: args.printConfig === true,
   }
+}
+
+/**
+ * `toUpFlags`, plus the check of `--host` that only the panel's own boot used to make.
+ *
+ * Async because the bind parser lives with the schemas, which a detaching `up` otherwise never
+ * loads. Run before anything happens, so `up --host nope` is refused here rather than in a daemon
+ * log, and `restart --host nope` before the panel is stopped.
+ */
+export async function checkedUpFlags(args: RawUpArgs): Promise<UpFlags> {
+  const flags = toUpFlags(args)
+  if (flags.host !== undefined) {
+    const { parseBind } = await import('#src/shared/contracts')
+    if (parseBind(flags.host) === null)
+      fail(`invalid control host: ${flags.host} (expected local, lan or an ipv4 address)`)
+  }
+  return flags
 }
 
 /**
@@ -124,7 +143,7 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
   }
 
   const { clearRuntime, readRuntime, runtimeIsAlive, runtimeIsGone } = await import('#src/helpers/daemon')
-  const { daemonLogPath, dataRoot, projectDir } = await import('#src/helpers/paths')
+  const { daemonLogPath, dataRoot, ensureStateDir, projectDir } = await import('#src/helpers/paths')
 
   const existing = readRuntime()
   if (existing !== null && await runtimeIsAlive(existing)) {
@@ -150,7 +169,7 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
   if (existing !== null && await runtimeIsGone(existing))
     clearRuntime()
 
-  fs.mkdirSync(path.dirname(daemonLogPath), { recursive: true })
+  ensureStateDir(path.dirname(daemonLogPath))
   rotateLog(daemonLogPath)
   // `0600`: the daemon's stderr lands here, and on a first boot that carries the generated password.
   // Without a mode the file is `0644` under the usual umask, so any local account could read a
@@ -235,7 +254,7 @@ export function upCommand(entry: string) {
     meta: { name: 'up' },
     args: upArgs,
     run: async ({ args }) => {
-      await runUp(toUpFlags(args), entry)
+      await runUp(await checkedUpFlags(args), entry)
     },
   })
 }

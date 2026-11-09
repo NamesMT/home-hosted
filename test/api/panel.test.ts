@@ -6,6 +6,7 @@ import { type } from 'arktype'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateApiToken, SecretsStore } from '#src/config/secrets'
 import { missingServer } from '#src/helpers/action-result'
+import { homeFingerprint } from '#src/helpers/paths'
 import { healthResponseSchema, serverSchema } from '#src/shared/contracts'
 import { makeFixture, makeView } from './fixture'
 
@@ -205,6 +206,21 @@ describe('healthz', () => {
     // Counts and alerts are for a signed-in caller.
     expect('servers' in body).toBe(false)
     expect('hostAlerts' in body).toBe(false)
+  })
+
+  /**
+   * A CLI with no `run.json` asks `/healthz` whose panel holds its configured port: two homes may share
+   * one. The answer is a fingerprint, and only for this machine — a relayed or remote caller gets none.
+   */
+  it('names its home to a loopback caller, and to nobody else', async () => {
+    const local = await fixture({ ip: '127.0.0.1' })
+    expect((await (await local.app.request('/healthz')).json() as { home?: string }).home).toBe(homeFingerprint())
+
+    const relayed = await local.app.request('/healthz', { headers: { 'x-forwarded-for': '203.0.113.9' } })
+    expect('home' in (await relayed.json() as object)).toBe(false)
+
+    const remote = await fixture({ ip: '10.0.0.5' })
+    expect('home' in (await (await remote.app.request('/healthz')).json() as object)).toBe(false)
   })
 
   it('reports degraded with 503 when an autostart server has crashed', async () => {

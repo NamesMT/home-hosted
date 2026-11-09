@@ -4,8 +4,10 @@ import process from 'node:process'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { jsonBody } from '#src/helpers/openapi'
+import { homeFingerprint } from '#src/helpers/paths'
 import { secretEqual } from '#src/helpers/secret-compare'
 import { requestIdentity } from '#src/middleware/auth'
+import { isLoopbackRequest } from '#src/middleware/loopback'
 import { healthResponseSchema } from '#src/shared/contracts'
 import { needsAttention } from '#src/shared/server-attention'
 
@@ -16,6 +18,7 @@ import { needsAttention } from '#src/shared/server-attention'
  * failing its own health check. Server details are only included for an authenticated caller.
  */
 export function createHealthRoute(deps: AppDeps) {
+  const home = homeFingerprint()
   return appFactory.createApp()
     .get(
       '/healthz',
@@ -70,6 +73,9 @@ export function createHealthRoute(deps: AppDeps) {
                 hostAlerts: state.host.alerts,
               }
             : {}),
+          // Which home this is, for a CLI on this machine that has no `run.json` to go by: two homes
+          // may share a port, and only this tells their panels apart. A hash, so it names no path.
+          ...(isLoopbackRequest(c) ? { home } : {}),
         }, broken.length > 0 ? 503 : 200)
       },
     )

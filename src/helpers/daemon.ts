@@ -129,7 +129,7 @@ export async function probeRuntime(runtime: Runtime, timeoutMs = 2500): Promise<
   // The token is what makes `/healthz` include the per-server counts instead of only the public
   // status line. `usage` was already reading the same numbers over `/_hh`; `status` not doing so was
   // this call passing no token, not the data being unavailable.
-  const answer = await localCall(runtime, '/healthz', 'GET', runtime.token, timeoutMs)
+  const answer = await localCall(runtime.probeUrl, '/healthz', 'GET', runtime.token, timeoutMs)
   return { reachable: answer !== null, degraded: answer?.status === 503, servers: readServerCounts(answer?.body) }
 }
 
@@ -147,27 +147,37 @@ function readServerCounts(body: string | undefined): RuntimeProbe['servers'] {
   }
 }
 
+/** What holds the configured control port when no `run.json` names a panel. */
+export type ConfiguredListener
+  = | { kind: 'panel', url: string }
+    | { kind: 'other', port: number }
+
 /**
- * Where a panel is answering, when no `run.json` says it should be — or `null`.
+ * What is listening on this home's configured port, when no `run.json` says a panel should be — or
+ * `null` when nothing is.
  *
  * Every command that answers "is it running" has to consult this, not the record alone: with
  * `run.json` deleted, `status` printed "home-hosted is not running" while `GET /healthz` on the
- * same port answered `200`, and `down` had already learned the same lesson (it refuses instead of
- * letting `down && up` start a second panel over a live one). The port comes from the state root's
- * own `settings.json`, because that is the only record left once `run.json` is gone.
+ * same port answered `200`, and `down` refuses instead of letting `down && up` start a second panel
+ * over a live one. The port comes from the state root's own `settings.json`, because that is the
+ * only record left once `run.json` is gone.
+ *
+ * **A listener is only this home's panel when it says so.** Two homes may share a port (one stopped,
+ * one running), and treating any listener as "ours" broke `status` and `down` in the stopped one —
+ * `down` refused over another home's panel. `/healthz` tells a loopback caller which home it serves
+ * (`homeFingerprint`), so anything else — another home, an older panel, a stranger — is `other`.
  *
  * It **probes, and never signals**: without a record there is no pid this process can prove it
  * owns. A settings file that is missing or does not parse is not evidence either way, so this
- * reports nothing rather than inventing a port to test — a stranger's service on 3999 must not be
- * reported as this panel.
+ * reports nothing rather than inventing a port to test.
  */
-export async function configuredPanelAddress(): Promise<string | null> {
+export async function configuredPanelAddress(): Promise<ConfiguredListener | null> {
   const { readStateFile } = await import('#src/helpers/config-text')
-  const { globalSettingsPath } = await import('#src/helpers/paths')
+  const { globalSettingsPath, homeFingerprint } = await import('#src/helpers/paths')
   const { probePort } = await import('#src/providers/port')
   const { globalSettingsSchema } = await import('#src/config/schema')
 
-  let port: number | null = null
+  let port: number
   try {
     const parsed = globalSettingsSchema(JSON.parse(readStateFile(globalSettingsPath)) as unknown)
     // `instanceof type.errors` is the only honest test — ArkType's errors are not `Error`s, so
@@ -181,7 +191,28 @@ export async function configuredPanelAddress(): Promise<string | null> {
     return null
   }
 
-  return port !== null && await probePort('127.0.0.1', port) ? `http://127.0.0.1:${port}` : null
+  if (!await probePort('127.0.0.1', port))
+    return null
+  // https only when plain http got no answer at all: the panel may serve TLS on its own port.
+  for (const protocol of ['http', 'https']) {
+    const base = `${protocol}://127.0.0.1:${port}`
+    const answer = await localCall(base, '/healthz', 'GET', undefined, 2500)
+    if (answer === null)
+      continue
+    return answeredHome(answer.body) === homeFingerprint() ? { kind: 'panel', url: base } : { kind: 'other', port }
+  }
+  return { kind: 'other', port }
+}
+
+/** The `home` a `/healthz` answer names, or `null`. */
+function answeredHome(body: string): string | null {
+  try {
+    const home = (JSON.parse(body) as { home?: unknown }).home
+    return typeof home === 'string' ? home : null
+  }
+  catch {
+    return null
+  }
 }
 
 /**
@@ -193,7 +224,7 @@ export async function requestShutdown(runtime: Runtime, timeoutMs = 4000, option
   // sends no body, and this is what lets `down --with-persistent` have the panel end the entries
   // while it is still alive to record the stop.
   const query = options.withPersistent === true ? '?withPersistent=true' : ''
-  const answer = await localCall(runtime, `/_hh/shutdown${query}`, 'POST', runtime.token, timeoutMs)
+  const answer = await localCall(runtime.probeUrl, `/_hh/shutdown${query}`, 'POST', runtime.token, timeoutMs)
   return answer !== null && answer.status >= 200 && answer.status < 300
 }
 
@@ -212,7 +243,7 @@ export interface ControlAnswer {
  * 120s default timeout of its own. Past this it is a wedged panel, not a slow one.
  */
 export async function requestControl(runtime: Runtime, path: string, timeoutMs = 150000, method: 'GET' | 'POST' = 'POST'): Promise<ControlAnswer | null> {
-  const answer = await localCall(runtime, path, method, runtime.token, timeoutMs)
+  const answer = await localCall(runtime.probeUrl, path, method, runtime.token, timeoutMs)
   if (answer === null)
     return null
 
@@ -232,9 +263,9 @@ export async function requestControl(runtime: Runtime, path: string, timeoutMs =
  * `status`, the graceful `down` and the local start/stop — so this speaks
  * http/https directly.
  */
-function localCall(runtime: Runtime, path: string, method: 'GET' | 'POST', token: string | undefined, timeoutMs: number): Promise<{ status: number, body: string } | null> {
+function localCall(base: string, path: string, method: 'GET' | 'POST', token: string | undefined, timeoutMs: number): Promise<{ status: number, body: string } | null> {
   return new Promise((resolve) => {
-    const url = new URL(`${runtime.probeUrl}${path}`)
+    const url = new URL(`${base}${path}`)
     const secure = url.protocol === 'https:'
     const request = (secure ? https : http).request({
       hostname: url.hostname,

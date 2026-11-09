@@ -39,7 +39,11 @@ export async function runStatus(json: boolean): Promise<void> {
     // `down` already probes for this shape (it refuses rather than let `down && up` start a second
     // panel over a live one); the same probe answers here, and nothing is signalled — without a
     // record there is no pid this command can prove it owns, so no pid is reported either.
-    const answering = await configuredPanelAddress()
+    const listener = await configuredPanelAddress()
+    const answering = listener?.kind === 'panel' ? listener.url : null
+    // Another home's panel, or anything else, on the port this home is configured for: not ours, but
+    // `up` will fail on it, so it is worth saying.
+    const portTaken = listener?.kind === 'other' ? listener.port : null
     if (json) {
       // `liveness` is always present, because the contract says so and a script should not have to
       // branch on whether a record exists. No `run.json` is not "unknown": nothing is behind the
@@ -54,10 +58,14 @@ export async function runStatus(json: boolean): Promise<void> {
         exitedCleanly: lastStop !== null,
         ...(lastStop === null ? {} : { lastStopAt: lastStop.at }),
         ...(answering === null ? {} : { answeringWithoutRecord: answering }),
+        ...(portTaken === null ? {} : { portTakenByOther: portTaken }),
       }, null, 2)}\n`)
     }
     else if (answering !== null) {
-      process.stdout.write(`home-hosted is not running, but something is answering on ${answering} — no run.json records which process owns it, so this cannot name or signal a pid; stop it yourself, or free that port, then run \`${invocation()} up\`\n`)
+      process.stdout.write(`home-hosted is not running, but this home's panel is answering on ${answering} — no run.json records which process owns it, so this cannot name or signal a pid; stop it yourself, or free that port, then run \`${invocation()} up\`\n`)
+    }
+    else if (portTaken !== null) {
+      process.stdout.write(`home-hosted is not running — its port ${portTaken} is taken by another process (another home's panel, or something else); free it or start with \`${invocation()} up --port <port>\`\n`)
     }
     else if (initialised) {
       process.stdout.write(`home-hosted is not running — start it with \`${invocation()} up\`\n`)
