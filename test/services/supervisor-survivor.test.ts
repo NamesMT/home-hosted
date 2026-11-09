@@ -57,4 +57,23 @@ describe('a process that survives its stop', () => {
     expect(result.error).toContain(`pid ${successorPid} survived the stop`)
     expect(view(supervisor, 'web').status).toBe('conflict')
   })
+
+  /**
+   * `restart()` ignored the stop's answer and started anyway: beside a survivor that is a duplicate
+   * server, or the survivor adopted back as if nothing had happened.
+   */
+  it('ends a restart with the stop\'s refusal, keeping the survivor\'s pid', async () => {
+    const { supervisor, successorPid, history } = await adoptedEntry()
+    immortal.add(successorPid)
+    const starts = history.all().filter(event => event.type === 'start').length
+
+    const result = await supervisor.restart('web')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('survived the stop')
+    const after = view(supervisor, 'web')
+    expect(after.status).toBe('conflict')
+    expect(after.pid, 'the survivor stays this entry\'s, so nothing starts beside it').toBe(successorPid)
+    expect(history.all().filter(event => event.type === 'start').length, 'no second process was spawned').toBe(starts)
+    expect(supervisor.logLines('web').filter(line => line.text.startsWith('adopted pid')), 'not adopted again').toHaveLength(1)
+  })
 })

@@ -344,10 +344,14 @@ export class Supervisor {
     // A force restart's outcome is owed, so the internal stop must not discard it; `start()` clears it
     // for a user's restart.
     const owed = this.entries.get(id)?.pendingRestart ?? null
-    await this.stop(id)
+    const stopped = await this.stop(id)
     const entry = this.entries.get(id)
     if (entry !== undefined && owed !== null && entry.pendingRestart === null)
       entry.pendingRestart = owed
+    // A stop that left something running (a surviving pid, a container) is the answer: a start now
+    // would spawn beside the survivor, or adopt it as if it were new.
+    if (!stopped.ok)
+      return stopped
     return this.start(id, options)
   }
 
@@ -566,7 +570,8 @@ export class Supervisor {
     const survivor = entry.pid !== null && isProcessAlive(entry.pid)
       ? entry.pid
       : null
-    if (isPersistentRun(entry))
+    const persistentRun = isPersistentRun(entry)
+    if (persistentRun)
       this.persistent.finishStop(entry, survivor)
 
     entry.child = null
@@ -581,6 +586,12 @@ export class Supervisor {
     // whole window, and there is no await between this line and the writes below.
     entry.stopping = false
     endProcessReadings(entry)
+    // A survivor keeps its pid and how it was run: a second stop signals it again (as a nanny's, if
+    // it was one), and the entry stays active rather than looking free to start beside it.
+    if (survivor !== null) {
+      entry.pid = survivor
+      entry.runPersistent = persistentRun
+    }
     entry.nannyExit = null
     // The streak goes with the run; the verdict too, unless a survivor keeps its `conflict` outcome.
     endHealthStreak(entry)
