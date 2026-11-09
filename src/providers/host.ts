@@ -189,7 +189,7 @@ export function usedPercent(free: number, total: number): number {
   return Math.max(0, Math.min(100, ((total - free) / total) * 100))
 }
 
-export function memoryInfo(): { memoryUsedPercent: number, swapUsedPercent: number } {
+export function memoryInfo(vmStat?: string): { memoryUsedPercent: number, swapUsedPercent: number } {
   try {
     const info = fs.readFileSync('/proc/meminfo', 'utf8')
     const read = (key: string): number => Number.parseInt(new RegExp(`^${key}:\\s+(\\d+)`, 'm').exec(info)?.[1] ?? '0', 10)
@@ -201,7 +201,7 @@ export function memoryInfo(): { memoryUsedPercent: number, swapUsedPercent: numb
   }
   catch {
     const total = os.totalmem()
-    const available = availableMemoryBytes(process.platform, os.freemem())
+    const available = availableMemoryBytes(process.platform, os.freemem(), vmStat)
     return {
       memoryUsedPercent: available === null ? 0 : usedPercent(available, total),
       swapUsedPercent: 0,
@@ -382,9 +382,17 @@ export function cpuTemperature(): number | null {
   return pickCpuTemperature(sensors)
 }
 
+/** Paths whose last `statfs` has not returned — a hung network mount holds a threadpool thread. */
+const pendingStatfs = new Set<string>()
+
 async function diskUsage(target: string): Promise<HostView['disks'][number] | null> {
+  // Never queue a second stuck call behind the first: four of them exhaust libuv's pool, which
+  // stalls every async fs, crypto and DNS call in the panel.
+  if (pendingStatfs.has(target))
+    return null
+  pendingStatfs.add(target)
   try {
-    const stats = await fs.promises.statfs(target)
+    const stats = await fs.promises.statfs(target).finally(() => pendingStatfs.delete(target))
     const totalBytes = stats.blocks * stats.bsize
     const freeBytes = stats.bavail * stats.bsize
     return {
@@ -460,7 +468,12 @@ export async function readTemperature(config: HostConfig): Promise<number | null
 export async function sampleHost(config: HostConfig, resolvePath: (target: string) => string): Promise<HostView> {
   const cpus = os.cpus().length || 1
   const loadAvg = os.loadavg()
-  const memory = memoryInfo()
+  // `vm_stat` is read here, asynchronously: the parser's own synchronous fallback would block the
+  // event loop on every sample, on the path that builds the frame.
+  const vmStat = process.platform === 'darwin'
+    ? await execFileAsync('vm_stat', [], { timeout: 3000 }).then(result => result.stdout, () => '')
+    : undefined
+  const memory = memoryInfo(vmStat)
   // The deltas are taken at the *start*, so the window covers the whole sample rather than
   // whichever part of it the disk stats and swap spawn happened to leave over.
   const cpuTimes = cpuTimesSnapshot()

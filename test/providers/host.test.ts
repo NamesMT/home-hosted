@@ -1,6 +1,7 @@
+import fs from 'node:fs'
 import process from 'node:process'
 import { type } from 'arktype'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, parseTemperature, pickCpuTemperature, readTemperature, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, temperatureFromCommand, usedPercent } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
@@ -515,5 +516,22 @@ describe('a configured temperature command', () => {
   it('prefers the command over the built-in probe', async () => {
     // Even on a machine where the probe would work: a person who set it meant to override.
     expect(await readTemperature(config({ tempCommand: 'echo 77', tempCommandTimeoutMs: 5000 }))).toBe(77)
+  })
+})
+
+describe('a disk path that never answers', () => {
+  it('is not asked again while its first statfs is still stuck', async () => {
+    const statfs = vi.spyOn(fs.promises, 'statfs').mockImplementation(() => new Promise(() => {}))
+    try {
+      const pending = sampleHost(config({ diskPaths: ['/mnt/hung-nfs'] }), t => t)
+      // The first sample is parked on the hung mount; a second one must not queue behind it.
+      const second = await sampleHost(config({ diskPaths: ['/mnt/hung-nfs'] }), t => t)
+      expect(second.disks).toEqual([])
+      expect(statfs).toHaveBeenCalledTimes(1)
+      void pending
+    }
+    finally {
+      statfs.mockRestore()
+    }
   })
 })

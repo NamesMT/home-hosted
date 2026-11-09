@@ -15,6 +15,7 @@ export class HostMonitor {
   private current: HostView
   private lastSampleAt = 0
   private alerting = false
+  private sampling = false
 
   constructor(
     private readonly getConfig: () => HostConfig,
@@ -45,11 +46,18 @@ export class HostMonitor {
         this.current = { ...this.current, enabled: false }
       return
     }
-    if (now - this.lastSampleAt < config.intervalMs)
+    if (this.sampling || now - this.lastSampleAt < config.intervalMs)
       return
 
     this.lastSampleAt = now
-    this.current = await sampleHost(config, this.resolvePath)
+    // One sample at a time: a slow disk or sensor must not stack samples up behind it.
+    this.sampling = true
+    try {
+      this.current = await sampleHost(config, this.resolvePath)
+    }
+    finally {
+      this.sampling = false
+    }
 
     if (this.current.alerts.length > 0) {
       if (!this.alerting) {
