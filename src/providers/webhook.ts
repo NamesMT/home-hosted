@@ -181,9 +181,12 @@ export async function sendWebhook(
 
   // Expanded here and validated above, so an unset `${ENV}` in the URL is reported as such
   // rather than surfacing as a generic "fetch failed".
-  const url = expandEnv(target.url.trim(), process.env)
+  // Every message quotes the URL as configured: the expanded one can hold the secret an `${ENV}`
+  // placeholder exists to keep out of the settings file, and these messages are shown on the page.
+  const configured = target.url.trim()
+  const url = expandEnv(configured, process.env)
   if (url.includes('${'))
-    return { ok: false, error: `the URL still holds an unexpanded placeholder: ${url}` }
+    return { ok: false, error: `the URL still holds an unexpanded placeholder: ${configured}` }
 
   // HTTP header names are case-insensitive, so a target's own `Content-Type:` must *replace* the
   // default rather than sit beside it — while keeping the spelling the person wrote, because that
@@ -219,6 +222,6 @@ export async function sendWebhook(
     return { ok: true }
   }
   catch (error) {
-    return { ok: false, error: errorMessage(error) }
+    return { ok: false, error: errorMessage(error).replaceAll(url, configured) }
   }
 }
