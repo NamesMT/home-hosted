@@ -58,29 +58,11 @@ number that summarises every entry at once. An empty list is a genuine `0`, and 
 
 ## The scans that enforce this
 
-`test/shared/host-readings.test.ts` and `test/shared/ui-readings.test.ts`, both reading templates
-through `test/helpers/template-render.ts`:
-
-- every `.vue` for `?? 0` on a host measurement, in **any** render shape (`{{ }}`, `:value`,
-  `:display`, `v-text`) — reading only the interpolation missed a fabricated `0 °C` in a prop;
-- a load or percentage compared against a literal, or a tone computed outside the predicate;
-- a temperature divided, clamped or defaulted by a number;
-- a host surface passing `warn-at`/`danger-at` to a dial;
-- a reading followed into whatever local it was destructured or derived into, and that local's own
-  initializer — a fallback inside a `computed` never appears in the template;
-- `sumReadings` used for a total rather than a hand-rolled loop.
-
-`test/shared/probe-band.test.ts` pins `probeBand` and scans every UI source for a probe latency
-compared against a literal — the fourth copy, in a file no surface test mounts. The rendered half is
-`uis/noc-console/test/probe-tile-agrees.test.ts`, which mounts the tile and the list row and reads the
-class and stroke off both.
-
-`test/shared/cpu-scale.test.ts` reads every UI source for a capacity written by hand. It carried the
-same narrowing twice: the first matcher wanted *two* bare literals, because the copy it was written
-for was `toneClass(cpuPercent, 40, 80)`, so `cpuBand(x, 100)` and `cpuCapacity(100)` were green. The
-second read only a `Math.max(100, …)` floor, so the expression the original fix replaced —
-`(cpus ?? 1) * 100` — was green again, in a `computed` and in a `:max` binding alike, which is the
-one shape the module exists to forbid. A core count times `100` *is* the capacity, so one predicate
-reads that, its commuted form, and the floor. A share of a fixed scale (`clamp((value / max) * 100)`)
-and a `cpuCapacity(cpus)` call are outside it, and both were measured in the corpus before the
-predicate was written.
+- `test/shared/host-readings.test.ts`, `test/shared/ui-readings.test.ts` — host readings in every
+  render shape, followed into locals and their initializers (through `test/helpers/template-render.ts`).
+- `test/shared/probe-band.test.ts` — `probeBand`, and no probe latency compared against a literal;
+  the rendered half is `uis/noc-console/test/probe-tile-agrees.test.ts`.
+- `test/shared/cpu-scale.test.ts` — no CPU capacity written by hand (`cpus * 100` in any order, or a
+  `Math.max(100, ...)` floor).
+- `test/shared/server-readings.test.ts`, `uis/noc-console/test/cpu-tile-agrees.test.ts`,
+  `uis/noc-console/test/host-vitals-unsampled.test.ts`, `uis/noc-console/test/host-band-thresholds.test.ts`.
