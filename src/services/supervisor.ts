@@ -560,8 +560,10 @@ export class Supervisor {
         this.log(entry, 'system', `port ${port} was still held by pid ${leftover.join(', ')} — killed`)
     }
 
-    // A pid that outlived SIGKILL keeps its records and the outcome is not dressed up as "stopped".
-    const survivor = isPersistentRun(entry) && entry.pid !== null && isProcessAlive(entry.pid)
+    // A pid that outlived SIGKILL keeps its records and the outcome is not dressed up as "stopped" —
+    // any entry's: a spawned child that exited has had its pid cleared by `handleExit` already, and an
+    // adopted one has no exit event to clear it.
+    const survivor = entry.pid !== null && isProcessAlive(entry.pid)
       ? entry.pid
       : null
     if (isPersistentRun(entry))
