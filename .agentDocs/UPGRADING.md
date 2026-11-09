@@ -7,6 +7,13 @@ do about them.
 Keep each entry to what someone must *change*, not what was added. If a release has nothing a person
 must act on, it needs no section here at all.
 
+## 0.13.0
+
+**A config save can now answer `409 CONFIG_CHANGED_ON_DISK`.** When a `settings.json` or
+`servers.config.json` was edited on disk after the panel last read it, a write through the API is
+refused instead of silently overwriting that edit. The panel reloads the file; retry the request. A
+script that treats every non-2xx as fatal should retry this one once.
+
 ## 0.12.0
 
 **A workspace-scoped route now refuses a query key it does not declare.** This is the one thing to

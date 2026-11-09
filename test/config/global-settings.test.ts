@@ -161,6 +161,23 @@ describe('globalSettingsStore', () => {
     expect(store.reloadFromDisk()).toEqual({ changed: false, applied: false, error: null })
   })
 
+  it('refuses a save over an edit it has not read yet', async () => {
+    const { store, file } = await makeStore({})
+    let conflicts = 0
+    store.onConflict(() => conflicts++)
+
+    const edited = configJson({ host: { tempCommand: 'cat /tmp/temp' } })
+    await fs.promises.writeFile(file, edited)
+
+    expect(() => store.updateBackups({ keep: 2 })).toThrow(/changed on disk/)
+    expect(conflicts).toBe(1)
+    expect(await fs.promises.readFile(file, 'utf8')).toBe(edited)
+
+    store.reloadFromDisk()
+    store.updateBackups({ keep: 2 })
+    expect(read(file).host.tempCommand).toBe('cat /tmp/temp')
+  })
+
   it('reports a settings file that went away instead of re-seeding it', async () => {
     const { store, file } = await makeStore({})
 

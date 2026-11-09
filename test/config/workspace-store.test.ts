@@ -522,6 +522,40 @@ describe('settings updates', () => {
   })
 })
 
+describe('a save racing a hand edit', () => {
+  it('refuses to overwrite an edit it has not read, and tells its conflict listeners', async () => {
+    const { store } = await storeWith({ id: 'a', command: 'node' })
+    let conflicts = 0
+    store.onConflict(() => conflicts++)
+
+    const edited = json({ servers: [{ id: 'a', command: 'node', label: 'by hand' }] })
+    await fs.promises.writeFile(store.path, edited)
+
+    let caught: unknown
+    try {
+      store.updateServer('a', { label: 'from the panel' })
+    }
+    catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(ConfigError)
+    expect((caught as ConfigError).code).toBe('CONFIG_CHANGED_ON_DISK')
+    expect(conflicts).toBe(1)
+    expect(await fs.promises.readFile(store.path, 'utf8')).toBe(edited)
+
+    // The settings side is checked the same way.
+    const settingsEdit = json({ defaults: { bind: 'lan' } })
+    await fs.promises.writeFile(store.settingsPath, settingsEdit)
+    expect(() => store.updateLogs({ keep: 2 })).toThrow(/changed on disk/)
+    expect(await fs.promises.readFile(store.settingsPath, 'utf8')).toBe(settingsEdit)
+
+    // Once reloaded, the retry builds on the edit.
+    store.reloadFromDisk()
+    store.updateServer('a', { autostart: false })
+    expect(read(store.path).servers[0].label).toBe('by hand')
+  })
+})
+
 describe('write separation', () => {
   it('a settings write never touches the servers file, and vice versa', async () => {
     const { store } = await storeWith({ id: 'a', command: 'node' })

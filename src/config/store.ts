@@ -27,7 +27,7 @@ import {
   workspaceSettingsSchema,
 } from '#src/config/schema'
 import { SEED_SERVERS_FILE, SEED_WORKSPACE_SETTINGS } from '#src/config/seed'
-import { ConfigError } from '#src/config/settings'
+import { changedOnDisk, ConfigError, fileMovedSince } from '#src/config/settings'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { validateDdnsConfig } from '#src/providers/ddns'
@@ -93,6 +93,7 @@ export class WorkspaceStore {
   private settingsSchemaVersion = UNSTAMPED_SCHEMA
   private serversSchemaVersion = UNSTAMPED_SCHEMA
   private readonly listeners = new Set<() => void>()
+  private readonly conflictListeners = new Set<() => void>()
 
   constructor(
     private readonly workspaceId: string,
@@ -180,6 +181,12 @@ export class WorkspaceStore {
   onChange(listener: () => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  /** Told when a save was refused because a file changed on disk, so its owner can reload it. */
+  onConflict(listener: () => void): () => void {
+    this.conflictListeners.add(listener)
+    return () => this.conflictListeners.delete(listener)
   }
 
   /** How many listeners are attached; a disposed owner must not add to it. */
@@ -470,7 +477,16 @@ export class WorkspaceStore {
     return { ...parsed, port: parsed.port ?? null }
   }
 
+  /** A save patches the last trusted read, so a hand edit not yet loaded would be overwritten. */
+  private assertUnchanged(file: string, lastText: string | null): void {
+    if (!fileMovedSince(file, lastText))
+      return
+    for (const listener of this.conflictListeners) listener()
+    throw changedOnDisk(file)
+  }
+
   private commitSettings(draft: Record<string, unknown>): void {
+    this.assertUnchanged(this.settingsFile, this.lastSettingsText)
     const stamped = stampConfig(draft)
     const text = `${JSON.stringify(stamped, null, 2)}\n`
     writeFileAtomic(this.settingsFile, text)
@@ -482,6 +498,7 @@ export class WorkspaceStore {
   }
 
   private commitServers(draft: Record<string, unknown>): void {
+    this.assertUnchanged(this.serversFile, this.lastServersText)
     const stamped = stampConfig(draft)
     const text = `${JSON.stringify(stamped, null, 2)}\n`
     writeFileAtomic(this.serversFile, text)

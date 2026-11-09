@@ -5,6 +5,7 @@ import { describeRoute } from 'hono-openapi'
 import { streamSSE } from 'hono/streaming'
 import { ConfigError } from '#src/config/store'
 import { actionAnswer, actionCode, statusForAction, unknownServerError } from '#src/helpers/action-result'
+import { configFailure } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { frameKey, sseChannel } from '#src/helpers/sse'
@@ -60,6 +61,7 @@ export function createServersRoute(deps: AppDeps) {
         responses: {
           201: { description: 'Created', content: jsonBody(storedServerResponse) },
           400: ERROR_RESPONSES[400],
+          409: ERROR_RESPONSES[409],
         },
       }),
       validate('query', workspaceQuerySchema),
@@ -71,7 +73,7 @@ export function createServersRoute(deps: AppDeps) {
         }
         catch (error) {
           if (error instanceof ConfigError)
-            throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_SERVER' })
+            throw configFailure(error, 'INVALID_SERVER')
           throw error
         }
       },
@@ -94,6 +96,7 @@ export function createServersRoute(deps: AppDeps) {
           200: { description: 'Replaced', content: jsonBody(storedServerResponse) },
           201: { description: 'Created', content: jsonBody(storedServerResponse) },
           400: ERROR_RESPONSES[400],
+          409: ERROR_RESPONSES[409],
         },
       }),
       validate('query', workspaceQuerySchema),
@@ -113,7 +116,7 @@ export function createServersRoute(deps: AppDeps) {
         }
         catch (error) {
           if (error instanceof ConfigError)
-            throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_SERVER' })
+            throw configFailure(error, 'INVALID_SERVER')
           throw error
         }
       },
@@ -338,7 +341,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .patch(
       '/:id',
-      describeRoute({ tags: ['servers'], summary: 'Edit a server', responses: { 200: { description: 'The server', content: jsonBody(storedServerResponse) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Edit a server', responses: { 200: { description: 'The server', content: jsonBody(storedServerResponse) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404], 409: ERROR_RESPONSES[409] } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       validate('json', serverPatchSchema),
@@ -352,7 +355,7 @@ export function createServersRoute(deps: AppDeps) {
             // Branch on the exception's *code*, not its message: `startsWith('unknown server')` read
             // any future message with that prefix — "unknown serverless runtime" — as a missing id.
             const status = error.code === 'UNKNOWN_SERVER' ? 404 : 400
-            throw new DetailedError(error.message, { statusCode: status, code: status === 404 ? 'UNKNOWN_SERVER' : 'INVALID_SERVER' })
+            throw configFailure(error, status === 404 ? 'UNKNOWN_SERVER' : 'INVALID_SERVER', status)
           }
           throw error
         }
@@ -361,7 +364,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .delete(
       '/:id',
-      describeRoute({ tags: ['servers'], summary: 'Stop and remove a server', responses: { 200: { description: 'Removed', content: jsonBody(okResponseSchema) }, 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Stop and remove a server', responses: { 200: { description: 'Removed', content: jsonBody(okResponseSchema) }, 404: ERROR_RESPONSES[404], 409: ERROR_RESPONSES[409] } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       async (c) => {
@@ -374,7 +377,7 @@ export function createServersRoute(deps: AppDeps) {
         }
         catch (error) {
           if (error instanceof ConfigError)
-            throw unknownServerError(id)
+            throw error.code === 'CONFIG_CHANGED_ON_DISK' ? configFailure(error, error.code) : unknownServerError(id)
           throw error
         }
       },

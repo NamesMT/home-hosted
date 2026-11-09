@@ -5,6 +5,7 @@ import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { ConfigError } from '#src/config/store'
+import { configFailure } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
@@ -61,7 +62,7 @@ export function createDdnsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['ddns'],
         summary: 'Replace the dynamic DNS block',
-        responses: { 200: { description: 'Saved', content: jsonBody(ddnsViewSchema) }, 400: ERROR_RESPONSES[400] },
+        responses: { 200: { description: 'Saved', content: jsonBody(ddnsViewSchema) }, 400: ERROR_RESPONSES[400], 409: ERROR_RESPONSES[409] },
       }),
       validate('query', workspaceQuerySchema),
       validate('json', ddnsConfigSchema),
@@ -77,7 +78,7 @@ export function createDdnsRoute(deps: AppDeps) {
         }
         catch (error) {
           if (error instanceof ConfigError)
-            throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_DDNS' })
+            throw configFailure(error, 'INVALID_DDNS')
           throw error
         }
 

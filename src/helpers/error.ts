@@ -1,7 +1,8 @@
-import type { DetailedError } from '@namesmt/utils'
 import type { ErrorHandler as HonoErrorHandler } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { DetailedError } from '@namesmt/utils'
 import { HTTPException } from 'hono/http-exception'
+import { ConfigError } from '#src/config/settings'
 import { logger } from '#src/helpers/logger'
 
 /**
@@ -21,7 +22,20 @@ export interface ApiErrorBody {
   detail?: unknown
 }
 
-export const errorHandler: HonoErrorHandler = (error, c) => {
+/**
+ * A store's refusal as the API answers it: `code` for an invalid value (400 unless `statusCode`
+ * says otherwise), and `409 CONFIG_CHANGED_ON_DISK` for a save refused because the file was edited
+ * since the panel read it — that one is about timing, not about the value, and a retry succeeds.
+ */
+export function configFailure(error: ConfigError, code: string, statusCode = 400): DetailedError {
+  if (error.code === 'CONFIG_CHANGED_ON_DISK')
+    return new DetailedError(error.message, { statusCode: 409, code: error.code })
+  return new DetailedError(error.message, { statusCode, code })
+}
+
+export const errorHandler: HonoErrorHandler = (raw, c) => {
+  // A route that does not catch a store's refusal still answers its conflict as a conflict.
+  const error = raw instanceof ConfigError && raw.code === 'CONFIG_CHANGED_ON_DISK' ? configFailure(raw, raw.code) : raw
   const body = toErrorBody(error)
   const status = statusOf(error)
 

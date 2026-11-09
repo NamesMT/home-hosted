@@ -121,6 +121,7 @@ export class PanelService {
       onError: error => logger.warn(`cannot watch ${path.basename(this.options.settings.path)}: ${errorMessage(error)}`),
     })
     this.settingsWatch.start()
+    this.options.settings.onConflict(() => this.settingsWatch.check())
 
     this.timer = setInterval(() => {
       void this.tick().catch((error: unknown) => logger.error('the panel tick failed', error))
@@ -537,6 +538,10 @@ export class PanelService {
       new ConfigWatch({ file: store.settingsPath, onChange: () => this.handleConfigChange(id), onError: error => logger.warn(`cannot watch ${path.basename(store.settingsPath)}: ${errorMessage(error)}`) }),
     ]
     for (const watch of runtime.watches) watch.start()
+    // A save refused because a file moved under it: reload now, so the retry builds on the edit.
+    store.onConflict(() => {
+      for (const watch of runtime.watches) watch.check()
+    })
 
     return runtime
   }

@@ -460,8 +460,9 @@ restart needed:
   newly expose the panel without a password, is not applied: the panel logs why and keeps the
   settings it was running.
 
-A save from the panel's own UI is the panel's write: it replaces the file, so hand-edits made while
-it runs are lost by that next save. Edit, then let the panel read it back, before using the UI.
+A save from the panel never overwrites an edit it has not read yet: if the file changed on disk since
+the panel last loaded it, the save is refused (`409 CONFIG_CHANGED_ON_DISK`), the panel reloads the
+file, and saving again applies your change on top of the edit.
 
 Whatever encoding your editor puts on the file is fine. A UTF-8 **byte-order mark** (Notepad's
 "UTF-8 with BOM", PowerShell 5.1's `Set-Content -Encoding UTF8`) and the **UTF-16LE** that

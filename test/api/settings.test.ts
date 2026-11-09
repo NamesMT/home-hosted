@@ -31,6 +31,35 @@ function patch(created: Fixture, body: Record<string, unknown>, url = '/api/sett
   }))
 }
 
+describe('a save that races a hand edit', () => {
+  it('answers 409 CONFIG_CHANGED_ON_DISK and leaves the edit on disk', async () => {
+    const created = await app()
+
+    const global = fs.readFileSync(created.settings.path, 'utf8').replace('"control": {', '"control": {\n    "label": "by hand",')
+    fs.writeFileSync(created.settings.path, global)
+    const response = await patch(created, { backups: { keep: 4 } })
+    expect(response.status).toBe(409)
+    expect(((await response.json()) as { code: string }).code).toBe('CONFIG_CHANGED_ON_DISK')
+    expect(fs.readFileSync(created.settings.path, 'utf8')).toBe(global)
+
+    const workspace = `${fs.readFileSync(created.store.settingsPath, 'utf8')}\n`
+    fs.writeFileSync(created.store.settingsPath, workspace)
+    const workspaceResponse = await patch(created, { logs: { keep: 2 } }, '/api/settings/workspace')
+    expect(workspaceResponse.status).toBe(409)
+    expect(fs.readFileSync(created.store.settingsPath, 'utf8')).toBe(workspace)
+
+    const servers = `${fs.readFileSync(created.store.path, 'utf8')}\n`
+    fs.writeFileSync(created.store.path, servers)
+    const serverResponse = await created.app.request('/api/servers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'web', command: 'node' }),
+    })
+    expect(serverResponse.status).toBe(409)
+    expect(fs.readFileSync(created.store.path, 'utf8')).toBe(servers)
+  })
+})
+
 describe('global settings route', () => {
   it('writes the panel-wide blocks a PATCH accepts', async () => {
     const created = await app()

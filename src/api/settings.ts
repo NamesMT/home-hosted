@@ -10,6 +10,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { ConfigError } from '#src/config/store'
 import { displayHost } from '#src/helpers/bind'
 import { afterResponse } from '#src/helpers/deferred'
+import { configFailure } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
@@ -77,7 +78,7 @@ export function createSettingsRoute(deps: AppDeps) {
     .patch('/settings', describeRoute({
       tags: ['panel'],
       summary: 'Edit the panel-wide settings: listener, host vitals and backups',
-      responses: { 200: { description: 'Saved; the listener may be moving', content: jsonBody(settingsSavedSchema) }, 400: ERROR_RESPONSES[400] },
+      responses: { 200: { description: 'Saved; the listener may be moving', content: jsonBody(settingsSavedSchema) }, 400: ERROR_RESPONSES[400], 409: ERROR_RESPONSES[409] },
     }), validate('json', settingsPatchSchema), async (c) => {
       const patch: SettingsPatch = c.req.valid('json')
       const current = settings.control
@@ -153,7 +154,7 @@ export function createSettingsRoute(deps: AppDeps) {
       }
       catch (error) {
         if (error instanceof ConfigError)
-          throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_SETTINGS' })
+          throw configFailure(error, 'INVALID_SETTINGS')
         throw error
       }
 
@@ -282,7 +283,7 @@ export function createSettingsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Edit one workspace\'s server defaults, logs and notifications',
-        responses: { 200: { description: 'Saved', content: jsonBody(workspaceSettingsSavedSchema) }, 400: ERROR_RESPONSES[400] },
+        responses: { 200: { description: 'Saved', content: jsonBody(workspaceSettingsSavedSchema) }, 400: ERROR_RESPONSES[400], 409: ERROR_RESPONSES[409] },
       }),
       validate('query', workspaceQuerySchema),
       validate('json', workspaceSettingsPatchSchema),
@@ -307,7 +308,7 @@ export function createSettingsRoute(deps: AppDeps) {
         }
         catch (error) {
           if (error instanceof ConfigError)
-            throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_SETTINGS' })
+            throw configFailure(error, 'INVALID_SETTINGS')
           throw error
         }
 

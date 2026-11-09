@@ -5,6 +5,7 @@ import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { applyPatch, PROXY_MERGE_KEYS } from '#src/config/patch'
 import { ConfigError } from '#src/config/settings'
+import { configFailure } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
@@ -91,7 +92,7 @@ export function createProxyRoute(deps: AppDeps) {
       describeRoute({
         tags: ['proxy'],
         summary: 'Change the reverse proxy settings or its route table',
-        responses: { 200: { description: 'Saved and applied', content: jsonBody(proxyViewSchema) }, 400: ERROR_RESPONSES[400] },
+        responses: { 200: { description: 'Saved and applied', content: jsonBody(proxyViewSchema) }, 400: ERROR_RESPONSES[400], 409: ERROR_RESPONSES[409] },
       }),
       validate('json', proxyPatchSchema),
       async (c) => {
@@ -104,7 +105,7 @@ export function createProxyRoute(deps: AppDeps) {
         }
         catch (error) {
           if (error instanceof ConfigError)
-            throw new DetailedError(error.message, { statusCode: 400, code: 'INVALID_PROXY' })
+            throw configFailure(error, 'INVALID_PROXY')
           throw error
         }
 

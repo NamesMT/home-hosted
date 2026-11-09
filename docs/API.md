@@ -68,7 +68,8 @@ Every failure is one JSON envelope with a stable `code` to branch on:
 `detail` is present only when there is structure to report (validation issues, conflicting routes).
 A refused lifecycle action (`start`, `stop`, `restart`) also carries `ok: false` and `error` (the same
 text as `message`) for older clients. Status codes: `400` bad input, `401` no credential, `403`
-forbidden for this credential or origin, `404` unknown id, `409` the entry cannot do that now,
+forbidden for this credential or origin, `404` unknown id, `409` the entry cannot do that now (or
+`CONFIG_CHANGED_ON_DISK`: the config file was edited since the panel read it — it reloads, so retry),
 `413` too large, `421` unknown host, `502` the reverse-proxy engine or its download failed.
 
 ## Endpoints

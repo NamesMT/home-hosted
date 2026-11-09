@@ -16,5 +16,6 @@ export const ERROR_RESPONSES = {
   400: { description: 'The request was rejected', content: jsonBody(apiErrorSchema) },
   401: { description: 'No valid session', content: jsonBody(apiErrorSchema) },
   404: { description: 'Unknown id', content: jsonBody(apiErrorSchema) },
+  409: { description: 'The config file was edited on disk since the panel read it (`CONFIG_CHANGED_ON_DISK`); the panel reloads it — retry', content: jsonBody(apiErrorSchema) },
   413: { description: 'The body is larger than this route accepts', content: jsonBody(apiErrorSchema) },
 } as const

@@ -12,19 +12,41 @@ import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { globalSettingsPath } from '#src/helpers/paths'
 
+export type ConfigErrorCode = 'UNKNOWN_SERVER' | 'CONFIG_CHANGED_ON_DISK'
+
 export class ConfigError extends Error {
   override name = 'ConfigError'
   /**
    * The *kind* of config problem, when a caller has to branch on it rather than just report it.
-   * `UNKNOWN_SERVER` is the one case today: the servers route answers 404 for a missing id and 400
-   * for an invalid patch, and it decided that by matching the message text.
+   * `UNKNOWN_SERVER` lets the servers route answer 404 for a missing id and 400 for an invalid
+   * patch; `CONFIG_CHANGED_ON_DISK` is a save refused because the file moved under it (409).
    */
-  readonly code: 'UNKNOWN_SERVER' | undefined
+  readonly code: ConfigErrorCode | undefined
 
-  constructor(message: string, code?: 'UNKNOWN_SERVER') {
+  constructor(message: string, code?: ConfigErrorCode) {
     super(message)
     this.code = code
   }
+}
+
+/**
+ * A save that would overwrite an edit the panel has not read yet. The caller is told to retry; the
+ * store's conflict listeners are what make the reload happen first.
+ */
+export function changedOnDisk(file: string): ConfigError {
+  return new ConfigError(`${path.basename(file)} changed on disk since the panel last read it — the panel will reload it; retry the save`, 'CONFIG_CHANGED_ON_DISK')
+}
+
+/** The bytes on disk differ from the ones a store last read or wrote; a missing file is not an edit to keep. */
+export function fileMovedSince(file: string, lastText: string | null): boolean {
+  let text: string
+  try {
+    text = readStateFile(file)
+  }
+  catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ENOENT'
+  }
+  return text !== lastText
 }
 
 /**
@@ -48,6 +70,7 @@ export class GlobalSettingsStore {
   private warnings: string[] = []
   private schemaVersion = UNSTAMPED_SCHEMA
   private readonly listeners = new Set<() => void>()
+  private readonly conflictListeners = new Set<() => void>()
 
   constructor(private readonly file: string = globalSettingsPath, private readonly seed: Record<string, unknown> = SEED_GLOBAL_SETTINGS) {}
 
@@ -111,6 +134,12 @@ export class GlobalSettingsStore {
   onChange(listener: () => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
+  }
+
+  /** Told when a save was refused because the file changed on disk, so its owner can reload it. */
+  onConflict(listener: () => void): () => void {
+    this.conflictListeners.add(listener)
+    return () => this.conflictListeners.delete(listener)
   }
 
   load(): void {
@@ -268,6 +297,12 @@ export class GlobalSettingsStore {
   }
 
   private commit(draft: Record<string, unknown>): void {
+    // A save patches the last trusted read; a hand edit the watcher has not picked up yet would be
+    // overwritten without a word.
+    if (fileMovedSince(this.file, this.lastText)) {
+      for (const listener of this.conflictListeners) listener()
+      throw changedOnDisk(this.file)
+    }
     const stamped = stampConfig(draft)
     const text = `${JSON.stringify(stamped, null, 2)}\n`
     writeFileAtomic(this.file, text)
