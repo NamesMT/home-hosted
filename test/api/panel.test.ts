@@ -1160,6 +1160,28 @@ describe('openapi document', () => {
     }
   })
 
+  /**
+   * Responses never reject an undeclared key — a newer panel adds fields, and a client generated from
+   * this document must not refuse them. `POST`/`PUT`/`PATCH /api/servers` answered with the strict
+   * write schema and published `additionalProperties: false` at every depth of the entry.
+   */
+  it('never publishes `additionalProperties: false` in a response', async () => {
+    const created = await fixture()
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as { paths: Record<string, Record<string, { responses?: unknown }>> }
+    const strict: string[] = []
+    const walk = (node: unknown, where: string): void => {
+      if (node === null || typeof node !== 'object')
+        return
+      if ((node as { additionalProperties?: unknown }).additionalProperties === false)
+        strict.push(where)
+      for (const [key, value] of Object.entries(node)) walk(value, `${where}/${key}`)
+    }
+    for (const [route, methods] of Object.entries(spec.paths)) {
+      for (const [method, operation] of Object.entries(methods)) walk(operation.responses, `${method.toUpperCase()} ${route}`)
+    }
+    expect(strict).toEqual([])
+  })
+
   it('is generated from the live route table', async () => {
     const created = await fixture()
     const response = await created.app.request('/openapi/spec.json')

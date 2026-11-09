@@ -25,7 +25,9 @@ const serversResponse = lazy(() => type({ servers: serverViewSchema.array() }))
  * view here was wrong and quietly misled clients — a consumer reading `server.config`
  * off a create got `undefined` with no error anywhere.
  */
-const storedServerResponse = lazy(() => type({ server: serverSchema }))
+// `serverSchema` rejects undeclared keys at every depth (it validates writes); an answer must not,
+// or a generated client refuses the next field a newer panel adds.
+const storedServerResponse = lazy(() => type({ server: serverSchema }).onDeepUndeclaredKey('ignore'))
 const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
 /**
  * `stop-all`'s own query: the workspace, plus `withPersistent`.
