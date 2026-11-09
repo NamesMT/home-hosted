@@ -494,8 +494,11 @@ export class WorkspaceStore {
 
   private apply(): void {
     const settings = parseWorkspaceSettings(this.liveSettings)
-    const servers = parseServersFile(this.liveServers, settings.config?.defaults as unknown as Record<string, unknown> ?? {})
     const haveResolved = this.resolvedConfig !== undefined
+    // A settings file that fails the schema keeps the defaults already in force: resolving against
+    // `{}` silently reverted every server to the code defaults while `defaults` still said otherwise.
+    const defaults = settings.config?.defaults ?? (haveResolved ? this.resolvedConfig.defaults : undefined)
+    const servers = parseServersFile(this.liveServers, defaults as unknown as Record<string, unknown> ?? {})
 
     this.settingsError = this.settingsParseError ?? (settings.errors.length > 0 ? settings.errors.join('; ') : null)
     this.serversError = this.serversParseError ?? (servers.errors.length > 0 ? servers.errors.join('; ') : null)

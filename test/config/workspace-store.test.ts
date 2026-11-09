@@ -497,6 +497,22 @@ describe('settings updates', () => {
     expect(store.getServer('b')?.autostart).toBe(false)
   })
 
+  it('keeps resolving servers against the running defaults when a settings edit fails the schema', async () => {
+    const { store } = await storeWith({ id: 'a', command: 'node' }, {
+      defaults: { bind: 'lan', restart: { maxRetries: 9 } },
+    })
+    expect(store.getServer('a')?.bind).toBe('lan')
+
+    // An unrelated error elsewhere in the file: the defaults block itself is fine.
+    await fs.promises.writeFile(store.settingsPath, json({ defaults: { bind: 'lan', restart: { maxRetries: 9 } }, logs: { keep: 0 } }))
+    store.reloadFromDisk()
+
+    expect(store.configError).toContain('logs')
+    expect(store.defaults.bind).toBe('lan')
+    expect(store.getServer('a')?.bind).toBe('lan')
+    expect(store.getServer('a')?.restart.maxRetries).toBe(9)
+  })
+
   it('rejects an invalid defaults patch and leaves the file alone', async () => {
     const { store } = await storeWith({ id: 'a', command: 'node' })
     const before = await fs.promises.readFile(store.settingsPath, 'utf8')
