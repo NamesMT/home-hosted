@@ -8,6 +8,7 @@ import {
   authSchema,
   backupCreateSchema,
   backupEntrySchema,
+  backupLocalResponseSchema,
   backupScheduleSchema,
   backupsViewSchema,
   bootstrapOrNullSchema,
@@ -463,6 +464,14 @@ describe('view contracts', () => {
    * covered without anyone remembering to add it, which is the same reason the genericity block
    * below walks `src/`.
    */
+  it('takes either answer of the local backup channel: the plan, or the archive written', () => {
+    const file = { name: 'b.zip', sizeBytes: 1, createdAt: 1, encrypted: false }
+    expect(backupLocalResponseSchema({ apply: false, entries: [], includePaths: [] }) instanceof type.errors).toBe(false)
+    expect(backupLocalResponseSchema({ file, files: [file] }) instanceof type.errors).toBe(false)
+    // A plan is never `apply: true`: that would be an archive with no file named.
+    expect(backupLocalResponseSchema({ apply: true, entries: [], includePaths: [] }) instanceof type.errors).toBe(true)
+  })
+
   it('gives every response schema the deep ignore, so a nested addition never blanks a client', () => {
     const source = fs.readFileSync(path.join(packageRoot, 'src/shared/contracts.ts'), 'utf8')
 

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { generateApiToken, SecretsStore } from '#src/config/secrets'
 import { missingServer } from '#src/helpers/action-result'
 import { homeFingerprint } from '#src/helpers/paths'
-import { healthResponseSchema, serverSchema } from '#src/shared/contracts'
+import { backupLocalResponseSchema, healthResponseSchema, serverSchema } from '#src/shared/contracts'
 import { makeFixture, makeView } from './fixture'
 
 /**
@@ -691,6 +691,33 @@ describe('/_hh/backups', () => {
     const response = await created.app.request('/_hh/backups', { headers: token })
     expect(response.status).toBe(403)
     expect(await response.json()).toMatchObject({ code: 'NOT_LOOPBACK' })
+  })
+
+  /**
+   * Without `confirm=true` the local channel answers a plan, while its spec promised `{ file, files }`
+   * — a generated client read `file` off a plan and got nothing. The spec now declares both shapes,
+   * and each real body validates against the schema it documents.
+   */
+  it('documents both answers of POST /_hh/backups: the default plan, and the confirmed archive', async () => {
+    const created = await fixture()
+    const plan = await created.app.request('/_hh/backups', { method: 'POST', headers: token })
+    expect(plan.status).toBe(200)
+    const planBody = await plan.json()
+    expect(planBody).toMatchObject({ apply: false, entries: expect.any(Array), includePaths: expect.any(Array) })
+    expect(backupLocalResponseSchema(planBody) instanceof type.errors).toBe(false)
+
+    const made = await created.app.request('/_hh/backups?confirm=true', { method: 'POST', headers: token })
+    expect(made.status).toBe(200)
+    const madeBody = await made.json()
+    expect(madeBody).toMatchObject({ file: expect.any(Object), files: expect.any(Array) })
+    expect(backupLocalResponseSchema(madeBody) instanceof type.errors).toBe(false)
+
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as { paths: Record<string, Record<string, { responses: Record<string, { content?: Record<string, { schema: { anyOf?: Array<{ properties?: Record<string, unknown> }> } }> }> }>> }
+    const shapes = spec.paths['/_hh/backups']!.post!.responses['200']!.content!['application/json']!.schema.anyOf ?? []
+    expect(shapes.map(shape => Object.keys(shape.properties ?? {}).sort())).toEqual(expect.arrayContaining([
+      ['apply', 'entries', 'includePaths'],
+      ['file', 'files'],
+    ]))
   })
 
   it('lists the archives for a local caller', async () => {

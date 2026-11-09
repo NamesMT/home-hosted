@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import type { AppDeps } from '#src/app'
+import type { BackupPlanResponse } from '#src/shared/contracts'
 import path from 'node:path'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
@@ -15,7 +16,7 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 
 import { selectionOf } from '#src/shared/backup-scope'
-import { actionResultSchema, backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 
 /**
@@ -216,8 +217,8 @@ export function createControlRoute(deps: AppDeps) {
       '/backups',
       describeRoute({
         tags: ['panel'],
-        summary: 'Create a backup archive (local token required)',
-        responses: { 200: { description: 'Created', content: jsonBody(backupCreatedResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' } },
+        summary: 'Plan a backup, or create it with `confirm=true` (local token required)',
+        responses: { 200: { description: 'Without `confirm=true`, the plan (`apply: false`) and nothing written; with it, the archive created', content: jsonBody(backupLocalResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' } },
       }),
       validate('query', backupQuery),
       async (c) => {
@@ -247,7 +248,7 @@ export function createControlRoute(deps: AppDeps) {
           const entries = view.entries
             .filter(entry => selects(entry.id) || namesLeafOf(entry.id))
             .map(entry => ({ ...entry, items: entry.items.filter(item => selects(item.id)) }))
-          return c.json({ apply: false, entries, includePaths })
+          return c.json({ apply: false, entries, includePaths } satisfies BackupPlanResponse)
         }
         const result = await deps.backups.create({ password, include, exclude })
         if (!result.ok)

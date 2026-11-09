@@ -99,7 +99,7 @@ forbidden for this credential or origin, `404` unknown id, `409` the entry canno
 | `GET`/`PUT /api/ddns`, `PUT`/`DELETE /api/ddns/credentials/:id`, `POST /api/ddns/check` | dynamic DNS | ✅ |
 | `PUT`/`DELETE /api/notifications/destinations/:id/token`, `POST …/{test,detect-chats}`, `POST /api/notifications/test-webhook` | notification credentials and test sends | ✅ |
 | `GET`/`PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `PUT`/`DELETE /api/proxy/certificates/:id` | the reverse proxy | |
-| `GET`/`POST /api/backups`, `POST /api/backups/restore`, `GET /api/backups/:name/download` | archives; `GET` is the selection model, fetch it when a dialog opens | |
+| `GET`/`POST /api/backups`, `POST /api/backups/restore`, `GET /api/backups/:name/download` | archives; `GET` is the selection model, fetch it when a dialog opens. `POST /api/backups` creates at once; a restore only plans unless `?confirm=true` | |
 | `POST`/`DELETE /api/settings/ui`, `POST`/`DELETE /api/settings/tls` | install a UI zip / a PEM pair | |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout`, `POST`/`DELETE /api/auth/password` | the session and the password | |
 | `POST`/`DELETE /api/auth/token` | generate (session only, shown once) or revoke the API token | |

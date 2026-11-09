@@ -2094,6 +2094,20 @@ export const backupCreatedResponseSchema = lazy(() => type({
   files: backupFileSchema.array(),
 }))
 
+/**
+ * `POST /_hh/backups` without `confirm=true`: what a backup would capture, and nothing written.
+ * The local channel plans by default; `POST /api/backups` creates at once.
+ */
+export const backupPlanResponseSchema = lazy(() => type({
+  apply: 'false',
+  entries: backupEntrySchema.array(),
+  includePaths: 'string[]',
+}))
+export type BackupPlanResponse = typeof backupPlanResponseSchema.infer
+
+/** The local channel's answer: a plan, or the archive it wrote once confirmed. */
+export const backupLocalResponseSchema = lazy(() => backupPlanResponseSchema.or(backupCreatedResponseSchema))
+
 /** Buffered or persisted log lines, the shape every log-reading route returns. */
 /**
  * `GET /api/servers/:id/logs` — the **buffered** lines, straight from memory.

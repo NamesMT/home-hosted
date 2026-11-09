@@ -15,6 +15,9 @@ home-hosted backup restore --from /media/usb/x.zip --all --confirm
 Both work with the panel **stopped**, which is when you usually need them. Without `--confirm` they
 plan first: at a terminal they ask, and without one (cron, CI) they print the plan and exit 1, so an
 unattended job never mistakes a plan for a backup. `--json` without `--confirm` is just the plan.
+The local channel the CLI uses plans by default too (`POST /_hh/backups` and `/_hh/backups/restore`
+answer a plan unless `confirm=true`); over `/api`, `POST /api/backups` creates at once, and a restore
+plans unless `?confirm=true`.
 
 ## What an archive holds
 
