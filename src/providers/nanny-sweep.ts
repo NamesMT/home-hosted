@@ -1,7 +1,7 @@
 import type { NannyState, StopConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
-import { NANNY_TRAPPED_SIGNALS, nannyIsAlive, nannySpecPath, nannyStatePath, nannyStopOptions, readNannyState, SPEC_SUFFIX } from '#src/providers/nanny'
+import { NANNY_TRAPPED_SIGNALS, nannyChildPid, nannyIsAlive, nannySpecPath, nannyStatePath, nannyStopOptions, readNannyState, SPEC_SUFFIX } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
 import { terminatePid } from '#src/providers/process'
 import { stopSchema } from '#src/shared/contracts'
@@ -107,6 +107,8 @@ export async function stopPersistentEntries(
      * seam is the terminator, not the decision — everything below still runs.
      */
     terminate?: typeof terminatePid
+    /** Whether the state's child pid is still the process the nanny spawned (`nannyChildPid`). */
+    childPid?: typeof nannyChildPid
   } = {},
 ): Promise<PersistentStop[]> {
   const results: PersistentStop[] = []
@@ -136,8 +138,10 @@ export async function stopPersistentEntries(
     const orphaned = state.childPid !== null && state.childPid > 0
       && !stop.killGroup
       && (!NANNY_TRAPPED_SIGNALS.has(stop.signal) || nanny === 'force-killed')
-    if (orphaned)
-      await terminate(state.childPid!, { signal: 'SIGKILL', killGroup: false, graceMs: 0 })
+    // Only once it is known to be that child: the nanny is gone, so the pid may be recycled already.
+    const child = orphaned ? await (options.childPid ?? nannyChildPid)(state) : null
+    if (child !== null)
+      await terminate(child, { signal: 'SIGKILL', killGroup: false, graceMs: 0 })
 
     consumeRecord(dir, serverId)
     results.push({ handle, stopped: true, error: null })

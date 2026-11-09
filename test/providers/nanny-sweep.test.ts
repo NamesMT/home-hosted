@@ -59,6 +59,8 @@ async function stopWith(policy: StopConfig, nannyOutcome: 'exited' | 'force-kill
       calls.push({ pid, signal: options.signal, killGroup: options.killGroup })
       return pid === nannyPid ? nannyOutcome : 'exited'
     },
+    // Reaped pids stand in for a live child here; whether it is still *that* child is its own test.
+    childPid: async state => state.childPid,
   })
 
   expect(results[0]!.stopped).toBe(true)
@@ -98,5 +100,49 @@ describe('stopping a persistent entry', () => {
     const { calls } = await stopWith({ ...base, signal: 'SIGKILL', killGroup: true }, 'exited')
 
     expect(calls).toHaveLength(1)
+  })
+})
+
+/**
+ * The child pid is signalled after its nanny is gone, so it may already be somebody else's: pids are
+ * recycled. Only a process born when the nanny stamped its record is that child.
+ */
+describe('stopping the child a nanny could not reach', () => {
+  async function signalledPids(startedAt: number): Promise<{ calls: number[], live: number }> {
+    const live = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'ignore' })
+    const exited = new Promise(resolve => live.once('exit', resolve))
+    try {
+      // Let it be born before the stamp the caller chose.
+      await new Promise(resolve => setTimeout(resolve, 100))
+      const nannyPid = await deadPid()
+      const calls: number[] = []
+      await stopPersistentEntries([{
+        workspaceId: 'default',
+        serverId: 'keep',
+        dir: process.cwd(),
+        state: { serverId: 'keep', nannyPid, childPid: live.pid!, startedAt: startedAt === 0 ? Date.now() : startedAt, logFile: '', heartbeatAt: Date.now() },
+      }], {
+        stopFor: () => ({ ...base, signal: 'SIGKILL' }),
+        terminate: async (pid) => {
+          calls.push(pid)
+          return 'exited'
+        },
+      })
+      return { calls: calls.filter(pid => pid !== nannyPid), live: live.pid! }
+    }
+    finally {
+      live.kill('SIGKILL')
+      await exited
+    }
+  }
+
+  it('leaves a pid born after the nanny\'s record alone', async () => {
+    const { calls } = await signalledPids(Date.now() - 60_000)
+    expect(calls).toEqual([])
+  })
+
+  it('stops the pid when it is the child the record describes', async () => {
+    const { calls, live } = await signalledPids(0)
+    expect(calls).toEqual([live])
   })
 })

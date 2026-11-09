@@ -307,3 +307,22 @@ export async function nannyIsAlive(state: NannyState, id: string, options: { rea
     && words.includes(NANNY_COMMAND)
     && words.some(word => word.endsWith(`${id}.spec.json`))
 }
+
+/**
+ * The nanny's child, when that pid is still the process it spawned — `null` otherwise. Used to stop a
+ * child the nanny could not pass a stop on to, which happens *after* the nanny is gone, so a pid alone
+ * could be anybody's by then. The nanny stamps `startedAt` just before it spawns the child, so the
+ * child is born within the stamp's tolerance and a pid born later is a recycled one. Where the
+ * platform reports no birth, the environment marker decides.
+ */
+export async function nannyChildPid(state: NannyState, options: { readBirth?: (pid: number) => Promise<ProcessBirth | null> } = {}): Promise<number | null> {
+  const pid = state.childPid
+  if (pid === null || pid <= 0)
+    return null
+  const liveness = await processLiveness(pid, state.startedAt, options)
+  if (liveness === 'live')
+    return pid
+  if (liveness === 'unknown' && await processCarriesServerId(pid, state.serverId))
+    return pid
+  return null
+}

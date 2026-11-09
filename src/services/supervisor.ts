@@ -13,7 +13,7 @@ import { computeBackoff } from '#src/helpers/backoff'
 import { logger } from '#src/helpers/logger'
 import { DockerMetrics } from '#src/providers/docker'
 import { clearEntryState, entryStatePath } from '#src/providers/entry-state'
-import { describeNannyExit, describeSpawnError, nannyStopOptions, sweepNannySpecs } from '#src/providers/nanny'
+import { describeNannyExit, describeSpawnError, nannyChildPid, nannyStopOptions, sweepNannySpecs } from '#src/providers/nanny'
 import { isProcessAlive, killPortHolders } from '#src/providers/port'
 import { ProcessSampler } from '#src/providers/proc'
 import { spawnManaged, terminate, terminatePid } from '#src/providers/process'
@@ -547,8 +547,10 @@ export class Supervisor {
     if (outcome === 'force-killed')
       this.log(entry, 'system', 'force-killed after grace period')
 
-    if (nannyState?.childPid != null && !entry.config.stop.killGroup)
-      await terminatePid(nannyState.childPid, { ...entry.config.stop, killGroup: false })
+    // The nanny is gone by now, so its recorded child is signalled only while it is provably that child.
+    const nannyChild = nannyState !== null && !entry.config.stop.killGroup ? await nannyChildPid(nannyState) : null
+    if (nannyChild !== null)
+      await terminatePid(nannyChild, { ...entry.config.stop, killGroup: false })
 
     const { port, stop } = entry.config
     if (stop.killPortHolders && port !== null) {
