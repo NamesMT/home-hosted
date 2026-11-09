@@ -24,6 +24,8 @@ import { lazy } from '#src/shared/lazy'
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024
 
 const nameParam = lazy(() => type({ name: 'string >= 1' }))
+/** `confirm=true` applies; anything else would silently plan, so a typo is refused instead. */
+const restoreQuery = lazy(() => type({ 'confirm?': '"true" | "false"' }).onUndeclaredKey('reject'))
 
 /** A backup that failed to be created is a bad request, not a server fault. */
 function backupFailed(error: string | undefined): DetailedError {
@@ -126,7 +128,7 @@ export function createBackupsRoute(deps: AppDeps) {
       summary: 'Plan or apply a restore from a stored or uploaded archive',
       requestBody: { required: false, content: { 'application/json': { schema: resolver(restoreRequestSchema) } } },
       responses: { 200: { description: 'The plan', content: jsonBody(restorePlanSchema) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404], 413: ERROR_RESPONSES[413] },
-    }),
+    }), validate('query', restoreQuery),
     /**
      * Bound the body **while it arrives**, not after.
      *
@@ -142,7 +144,7 @@ export function createBackupsRoute(deps: AppDeps) {
         throw new DetailedError(`the upload is larger than ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
       },
     }), async (c) => {
-      const confirm = c.req.query('confirm') === 'true'
+      const confirm = c.req.valid('query').confirm === 'true'
       const contentType = c.req.header('content-type') ?? ''
 
       let archive: string | null = null

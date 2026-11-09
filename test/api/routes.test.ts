@@ -700,6 +700,30 @@ describe('backups route', () => {
     expect(await removed.json()).toMatchObject({ code: 'UNKNOWN_BACKUP' })
   })
 
+  /** `confirm` was read raw: a typo (`confrim=true`, `confirm=yes`) silently planned, and the spec never named it. */
+  it('validates the restore query: a typo is refused, and `confirm` is in the spec', async () => {
+    const created = await fixture()
+    created.backups.resolve = () => '/tmp/whatever.zip'
+    let confirmed: boolean | undefined
+    created.backups.restore = async (_archive, options) => {
+      confirmed = options?.confirm
+      return plan({ dryRun: !options?.confirm })
+    }
+
+    for (const url of ['/api/backups/restore?confirm=yes', '/api/backups/restore?confrim=true']) {
+      const refused = await request(created.app, url, 'POST', { name: 'x.zip' })
+      expect(refused.status, url).toBe(400)
+      expect(await refused.json()).toMatchObject({ code: 'INVALID_INPUT' })
+    }
+    expect(confirmed).toBeUndefined()
+
+    expect((await request(created.app, '/api/backups/restore?confirm=true', 'POST', { name: 'x.zip', exclude: ['global:secrets'] })).status).toBe(200)
+    expect(confirmed).toBe(true)
+
+    const spec = await (await created.app.request('/openapi/spec.json')).json() as { paths: Record<string, Record<string, { parameters?: Array<{ name: string, in: string }> }>> }
+    expect(spec.paths['/api/backups/restore']!.post!.parameters).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'confirm', in: 'query' })]))
+  })
+
   it('plans a restore without confirming, and demands an archive to restore from', async () => {
     const created = await fixture()
 
