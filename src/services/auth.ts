@@ -92,6 +92,7 @@ export function bearerToken(header: string | null | undefined): string | null {
 export class AuthService {
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly attempts = new Map<string, AttemptRecord>()
+  private readonly listeners = new Set<() => void>()
   private readonly timer: NodeJS.Timeout
 
   constructor(
@@ -153,8 +154,8 @@ export class AuthService {
    * Resolves whichever credential the request carried. The token is only
    * consulted when no session matched, so a stale cookie cannot mask it.
    */
-  authenticate(credentials: { cookieToken: string | null, bearerToken: string | null }): AuthIdentity {
-    const session = this.validate(credentials.cookieToken)
+  authenticate(credentials: { cookieToken: string | null, bearerToken: string | null }, options: { slide?: boolean } = {}): AuthIdentity {
+    const session = this.validate(credentials.cookieToken, options)
     if (session !== null)
       return { authenticated: true, method: 'cookie', session }
     if (this.validateApiToken(credentials.bearerToken))
@@ -179,16 +180,17 @@ export class AuthService {
     return parseCookies(cookieHeader)[SESSION_COOKIE] ?? null
   }
 
-  /** Sliding expiry: an active panel stays logged in, an idle one does not. */
-  validate(token: string | null): SessionRecord | null {
+  /**
+   * Sliding expiry: an active panel stays logged in, an idle one does not. `slide: false` checks
+   * without counting as a visit — an open event stream re-checks its caller, and must not keep an
+   * idle session alive past the cookie the browser holds.
+   */
+  validate(token: string | null, options: { slide?: boolean } = {}): SessionRecord | null {
     if (!token)
       return null
     const session = this.sessions.get(token)
     if (!session)
       return null
-    // The password changed since this session was issued — by the API, or by `set-password` in
-    // another process writing the same file. Either way the credential it represents is gone.
-
     // The password changed since this session was issued — by the API, or by `set-password` in
     // another process writing the same file. Either way the credential it represents is gone.
     if (session.passwordRevision !== this.secrets.passwordUpdatedAt) {
@@ -202,9 +204,31 @@ export class AuthService {
       return null
     }
 
-    session.lastSeenAt = now
-    session.expiresAt = now + this.getConfig().sessionTtlMs
+    if (options.slide !== false) {
+      session.lastSeenAt = now
+      session.expiresAt = now + this.getConfig().sessionTtlMs
+    }
     return session
+  }
+
+  /**
+   * Called whenever a credential may have stopped being valid (sign-out, password set, changed or
+   * cleared), so a long-lived connection authorised at its start can re-check its caller at once
+   * rather than outliving the credential. Returns the unsubscribe.
+   */
+  onCredentialsChanged(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  /** Tells every listener; one that throws must not keep the others from hearing it. */
+  notifyCredentialsChanged(): void {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener()
+      }
+      catch {}
+    }
   }
 
   /**
@@ -308,12 +332,13 @@ export class AuthService {
   }
 
   logout(token: string | null): void {
-    if (token)
-      this.sessions.delete(token)
+    if (token && this.sessions.delete(token))
+      this.notifyCredentialsChanged()
   }
 
   logoutAll(): void {
     this.sessions.clear()
+    this.notifyCredentialsChanged()
   }
 
   /**
@@ -330,6 +355,7 @@ export class AuthService {
     const session = keep === null ? undefined : this.sessions.get(keep)
     if (session !== undefined)
       session.passwordRevision = this.secrets.passwordUpdatedAt
+    this.notifyCredentialsChanged()
   }
 
   /** Drops every session except one, which is how a password change stays signed in. */
@@ -360,6 +386,7 @@ export class AuthService {
   dispose(): void {
     clearInterval(this.timer)
     this.sessions.clear()
+    this.listeners.clear()
   }
 
   private cleanup(): void {

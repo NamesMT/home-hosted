@@ -25,6 +25,12 @@ Or, signed in from anywhere: **Global settings → Authentication → Generate t
 token once; `DELETE /api/auth/token` revokes it. A `401` with `code: "AUTH_REQUIRED"` means "show
 your login screen". The token never expires.
 
+While no password is in force (authentication off, or on with none set yet), `/api` answers only
+this machine — a loopback request with no forwarding header — or the token. Anything else, including
+a request relayed by a proxy on the same host, is `401 AUTH_DISABLED_REMOTE` (auth off) or
+`401 AUTH_UNARMED` (auth on, no password): set a password first. `POST /api/auth/logout` needs no
+credential, so a browser whose session already expired can still clear its cookie.
+
 > [!WARNING]
 > **A token is full admin.** It can create and start a server entry, and an entry runs any command
 > as the user running the panel. Treat it like that user's password. Five operations still require a

@@ -25,7 +25,7 @@ password. Nothing is exposed until you decide it should be.
 | **Host** | must be an IP, `localhost`, a single-label or local-suffix name (`.local`, `.lan`, `.home.arpa`, …), a reverse-proxy route that serves the panel, or listed in `control.allowedHosts`. Otherwise `421`. This blocks DNS-rebinding attacks from web pages you visit. |
 | **Origin** | a cookie-authenticated write from another origin is refused (`403 CROSS_ORIGIN`); cookies are `HttpOnly` and `SameSite=Strict`. Bearer-token requests are exempt — browsers never attach a token on their own. |
 | **Credential** | a session cookie, or `Authorization: Bearer <token>`. |
-| **"This machine"** | a request from a loopback address that carries **no** forwarding header (`Forwarded`, `X-Forwarded-For`, `X-Real-IP`). Only such a request may set the first password or use the local control channel — so nothing relayed by a proxy, including the panel's own, gets that trust. |
+| **"This machine"** | a request from a loopback address that carries **no** forwarding header (`Forwarded`, `X-Forwarded-For`, `X-Real-IP`). Only such a request may set the first password, use the local control channel, or use `/api` without a credential while no password is in force (authentication off, or on with none set; anything else gets `401 AUTH_DISABLED_REMOTE` / `AUTH_UNARMED`) — so nothing relayed by a proxy, including the panel's own or an nginx on the same host, gets that trust. |
 
 Reaching the panel through an **external** proxy or tunnel on a public name? Add the name to
 `control.allowedHosts` in `.hh/settings.json` (or under Global settings → Listener, reached by IP).

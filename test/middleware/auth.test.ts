@@ -17,7 +17,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map(dir => fs.promises.rm(dir, { recursive: true, force: true })))
 })
 
-async function makeApp(options: { enabled: boolean, password?: string, token?: string }) {
+async function makeApp(options: { enabled: boolean, password?: string, token?: string, ip?: string }) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-guard-'))
   dirs.push(dir)
 
@@ -35,6 +35,12 @@ async function makeApp(options: { enabled: boolean, password?: string, token?: s
   // The guard fails by throwing, exactly like the real app (see src/app.ts).
   const app = new Hono()
   app.onError(errorHandler)
+  // srvx sets the peer on a real connection; without `ip` there is none, which reads as remote.
+  app.use('*', async (c, next) => {
+    if (options.ip !== undefined)
+      (c.req.raw as { ip?: string }).ip = options.ip
+    await next()
+  })
   app.use('/api/*', createAuthGuard({ auth }))
   app.get('/api/state', c => c.json({ servers: [] }))
   app.get('/api/auth/session', c => c.json({ authenticated: false }))
@@ -52,10 +58,16 @@ function sessionHeader(token: string): Record<string, string> {
 const LOCAL_ORIGIN = 'http://127.0.0.1:3999'
 
 describe('auth guard', () => {
-  it('leaves everything open when auth is off', async () => {
-    const { app } = await makeApp({ enabled: false })
-    const response = await app.request('http://127.0.0.1:3999/api/state')
-    expect(response.status).toBe(200)
+  it('with auth off, leaves the API open to this machine only', async () => {
+    const { app } = await makeApp({ enabled: false, ip: '127.0.0.1' })
+    expect((await app.request('http://127.0.0.1:3999/api/state')).status).toBe(200)
+    // A proxy on this machine relays from loopback, but its forwarding headers give it away.
+    const relayed = await app.request('http://127.0.0.1:3999/api/state', { headers: { 'x-forwarded-for': '203.0.113.9' } })
+    expect(relayed.status).toBe(401)
+    expect(await relayed.json()).toMatchObject({ code: 'AUTH_DISABLED_REMOTE' })
+
+    const { app: remote } = await makeApp({ enabled: false, ip: '192.168.1.20' })
+    expect((await remote.request('http://192.168.1.10:3999/api/state')).status).toBe(401)
   })
 
   it('serves the SPA shell without a session, but not the API', async () => {
@@ -198,8 +210,10 @@ describe('auth guard with an API token', () => {
     expect(forged.status).toBe(403)
   })
 
-  it('leaves everything open when auth is off, token or not', async () => {
-    const { app } = await makeApp({ enabled: false, token: generateApiToken() })
-    expect((await app.request('http://192.168.1.10:3999/api/state')).status).toBe(200)
+  it('with auth off, a remote caller needs the token', async () => {
+    const token = generateApiToken()
+    const { app } = await makeApp({ enabled: false, token, ip: '192.168.1.20' })
+    expect((await app.request('http://192.168.1.10:3999/api/state')).status).toBe(401)
+    expect((await app.request('http://192.168.1.10:3999/api/state', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
   })
 })

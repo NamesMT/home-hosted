@@ -101,6 +101,34 @@ describe('auth guard', () => {
     expect(response.status).toBe(401)
     expect(await response.json()).toMatchObject({ code: 'AUTH_UNARMED' })
   })
+
+  /**
+   * Auth switched off used to skip every check, so a request a reverse proxy on this machine
+   * relayed (loopback peer, forwarding headers) was full admin for whoever reached that proxy.
+   */
+  it('with auth off, refuses anything that is not this machine — including a relayed loopback request', async () => {
+    const local = await fixture()
+    local.settings.updateControl({ auth: { enabled: false } })
+    expect((await local.app.request('/api/state')).status).toBe(200)
+
+    const relayed = await local.app.request('/api/state', { headers: { 'x-forwarded-for': '203.0.113.9' } })
+    expect(relayed.status).toBe(401)
+    expect(await relayed.json()).toMatchObject({ code: 'AUTH_DISABLED_REMOTE' })
+
+    const remote = await fixture({ ip: '10.0.0.5' })
+    remote.settings.updateControl({ auth: { enabled: false } })
+    const response = await remote.app.request('/api/state')
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({ code: 'AUTH_DISABLED_REMOTE' })
+  })
+
+  it('with auth off, still lets the API token through from anywhere', async () => {
+    const remote = await fixture({ ip: '10.0.0.5' })
+    remote.settings.updateControl({ auth: { enabled: false } })
+    const token = generateApiToken()
+    setApiToken(remote, token)
+    expect((await remote.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
+  })
 })
 
 describe('auth routes', () => {
@@ -124,6 +152,23 @@ describe('auth routes', () => {
     const state = await response.json() as AppState
     expect(state.dataRoot).toBe(created.dir)
     expect(state.workspaces.map(workspace => workspace.configPath)).toEqual([created.store.path])
+  })
+
+  /** An expired session is exactly when the browser most needs to be told to drop its cookie. */
+  it('clears the cookie on logout even when the session already expired', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const cookie = await signIn(created, 'correct horse')
+    created.auth.logoutAll()
+
+    const response = await created.app.request('/api/auth/logout', { method: 'POST', headers: { cookie } })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('set-cookie')?.toLowerCase()).toContain('max-age=0')
+  })
+
+  it('still refuses a cross-site logout', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const response = await created.app.request('http://127.0.0.1:3999/api/auth/logout', { method: 'POST', headers: { origin: 'https://evil.example' } })
+    expect(response.status).toBe(403)
   })
 
   it('clears the cookie on logout', async () => {
