@@ -1,4 +1,5 @@
 import type { LogLine, LogStream } from '#src/shared/contracts'
+import { Buffer } from 'node:buffer'
 import { describe, expect, it } from 'vitest'
 import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
 
@@ -111,6 +112,31 @@ describe('lineSplitter', () => {
     // What is left buffered is the tail of that same line, not a copy.
     splitter.flush('stdout')
     expect(seen.join('')).toBe(huge)
+  })
+
+  /** A pipe cuts wherever it likes: a `€` (3 bytes) split over two chunks must stay one `€`. */
+  it('keeps a multibyte character that straddles two chunks', () => {
+    const seen: string[] = []
+    const splitter = new LineSplitter((_stream, text) => seen.push(text))
+    const bytes = Buffer.from(`${'x'.repeat(65_535)}€€€\nend €`)
+    const cut = 65_536 // one byte into the first `€`
+    splitter.push('stdout', bytes.subarray(0, cut))
+    splitter.push('stdout', bytes.subarray(cut, cut + 4)) // ends mid second `€`
+    splitter.push('stdout', bytes.subarray(cut + 4, bytes.length - 1)) // ends mid the last `€`
+    splitter.push('stdout', bytes.subarray(bytes.length - 1))
+    splitter.flush('stdout')
+
+    expect(seen.join('\n')).toBe(`${'x'.repeat(65_535)}€€€\nend €`)
+    expect(seen.join('')).not.toContain('�')
+  })
+
+  it('renders a stream that ends mid-character once, at flush', () => {
+    const seen: string[] = []
+    const splitter = new LineSplitter((_stream, text) => seen.push(text))
+    splitter.push('stdout', Buffer.from('ok\n'))
+    splitter.push('stdout', Buffer.from('€').subarray(0, 2))
+    splitter.flush('stdout')
+    expect(seen).toEqual(['ok', '�'])
   })
 
   it('strips the carriage return of a flushed partial line too', () => {

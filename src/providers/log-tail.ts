@@ -1,6 +1,7 @@
 import type { LogLine } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
+import { Utf8Chunks } from '#src/helpers/utf8-chunks'
 
 /**
  * Reads the JSONL a nanny writes for a persistent entry, from where it last stopped.
@@ -37,8 +38,16 @@ export class LogTailer {
   private offset = 0
   private identity: number | null = null
   private carry = ''
+  /** The file is one byte stream: a read budget can end inside a multibyte character. */
+  private readonly decoder = new Utf8Chunks()
 
   constructor(private readonly file: string) {}
+
+  /** Forget a half-seen line (and character): the bytes that would complete it are gone. */
+  private dropCarry(): void {
+    this.carry = ''
+    this.decoder.reset()
+  }
 
   /** Bytes consumed so far; equal to the file size once it has been drained. */
   get position(): number {
@@ -49,7 +58,7 @@ export class LogTailer {
   reset(): void {
     this.offset = 0
     this.identity = null
-    this.carry = ''
+    this.dropCarry()
   }
 
   /**
@@ -71,7 +80,7 @@ export class LogTailer {
     }
 
     const size = stats.size
-    this.carry = ''
+    this.dropCarry()
     this.offset = size
     this.identity = stats.ino === 0 ? stats.birthtimeMs : stats.ino
     if (size === 0 || count <= 0)
@@ -129,7 +138,7 @@ export class LogTailer {
    * Ignore what is already in the file and follow it from here.
    */
   skipToEnd(): void {
-    this.carry = ''
+    this.dropCarry()
     try {
       const stats = fs.statSync(this.file)
       this.offset = stats.size
@@ -155,7 +164,7 @@ export class LogTailer {
     // `ino` is 0 on some Windows filesystems; the birth time identifies the file there.
     const identity = stats.ino === 0 ? stats.birthtimeMs : stats.ino
     if (this.identity !== null && (identity !== this.identity || stats.size < this.offset)) {
-      this.carry = ''
+      this.dropCarry()
       this.offset = 0
     }
     this.identity = identity
@@ -188,7 +197,7 @@ export class LogTailer {
           break
         this.offset += bytes
         consumed += bytes
-        this.consume(buffer.subarray(0, bytes).toString('utf8'), lines)
+        this.consume(this.decoder.write(buffer.subarray(0, bytes)), lines)
         if (bytes < length)
           break
       }

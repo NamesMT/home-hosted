@@ -1,5 +1,6 @@
 import type { Buffer } from 'node:buffer'
 import type { LogLine, LogStream } from '#src/shared/contracts'
+import { Utf8Chunks } from '#src/helpers/utf8-chunks'
 
 /** A partial line past this size is emitted rather than buffered further. */
 const MAX_PENDING_CHARS = 64 * 1024
@@ -65,11 +66,13 @@ export class LogBuffer {
  */
 export class LineSplitter {
   private pending = ''
+  /** One splitter is one byte stream, so a character split across two chunks survives. */
+  private readonly decoder = new Utf8Chunks()
 
   constructor(private readonly emit: (stream: LogStream, text: string) => void) {}
 
   push(stream: LogStream, chunk: string | Buffer): void {
-    this.pending += chunk.toString()
+    this.pending += this.decoder.write(chunk)
     const parts = this.pending.split('\n')
     this.pending = parts.pop() ?? ''
     for (const part of parts) this.emit(stream, part.replace(/\r$/, ''))
@@ -82,6 +85,7 @@ export class LineSplitter {
   }
 
   flush(stream: LogStream): void {
+    this.pending += this.decoder.end()
     if (this.pending.length === 0)
       return
     this.emit(stream, this.pending.replace(/\r$/, ''))

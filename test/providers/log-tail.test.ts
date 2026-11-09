@@ -65,6 +65,20 @@ describe('logTailer', () => {
     expect(tailer.read().map(entry => entry.text)).toEqual(['kept'])
   })
 
+  /** The per-poll budget cuts at a byte count, which can land inside a multibyte character. */
+  it('keeps a multibyte character that straddles the per-poll read budget', async () => {
+    const file = await tempFile()
+    const prefix = '{"ts":1,"stream":"stdout","text":"'
+    // Put the cut (256 KiB) one byte into the first `€`.
+    const filler = 'x'.repeat(256 * 1024 - Buffer.byteLength(prefix) - 1)
+    const text = `${filler}€€€`
+    fs.writeFileSync(file, `${prefix}${text}"}\n${line('after €')}`)
+
+    const tailer = new LogTailer(file)
+    const lines = [...tailer.read(), ...tailer.read()]
+    expect(lines.map(entry => entry.text)).toEqual([text, 'after €'])
+  })
+
   it('skips to the end, so hour-old output is not replayed as news', async () => {
     const file = await tempFile()
     fs.writeFileSync(file, line('old'))
