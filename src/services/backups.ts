@@ -1,6 +1,7 @@
 import type { SecretScope } from '#src/config/secret-parts'
 import type { TemplateVars } from '#src/helpers/template'
 import type { BackupEntry, BackupFile, BackupsConfig, BackupSelection, BackupsView, RestoreItem, RestorePlan, RestoreSkip, ServerConfig } from '#src/shared/contracts'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -647,8 +648,21 @@ function holdsAnyFile(root: string): boolean {
   return names.some(name => holdsAnyFile(path.join(root, name)))
 }
 
-/** Stable, filesystem-safe name for a data path inside the archive. */
+/**
+ * Stable, filesystem-safe name for a data path inside the archive.
+ *
+ * The readable part alone collided — `/srv/app-data`, `/srv/app/data` and `/srv/app data` all read
+ * `srv-app-data`, and every path after the first was silently left out — so it carries a short hash
+ * of the resolved path. A restore reads the slug from the manifest, so archives written with the
+ * hashless form still restore.
+ */
 export function slugifyPath(target: string): string {
+  const hash = createHash('sha256').update(path.resolve(target)).digest('hex').slice(0, 8)
+  return `${legacySlug(target).slice(-71)}-${hash}`
+}
+
+/** The hashless slug archives were written with before; only a manifest without a slug falls back to it. */
+function legacySlug(target: string): string {
   const cleaned = target.replace(/[^A-Z0-9]+/gi, '-').replace(/^-+|-+$/g, '')
   return cleaned.length > 0 ? cleaned.slice(-80) : 'path'
 }
@@ -976,9 +990,11 @@ export class BackupService {
             continue
           if (!fs.existsSync(declared.path))
             continue
-          const slug = slugifyPath(declared.path)
-          if (data.some(entry => entry.slug === slug))
+          // The same directory declared by two workspaces (a global include path) is captured once.
+          const resolved = path.resolve(declared.path)
+          if (data.some(entry => path.resolve(entry.path) === resolved))
             continue
+          const slug = slugifyPath(declared.path)
           if (!await this.copyInto(staging, path.join('data', slug), declared.path, declared.ignoreGenerated))
             continue
           captured++
@@ -1453,7 +1469,7 @@ export class BackupService {
         const archivedPath = typeof entry.path === 'string' ? entry.path : ''
         const origin = typeof entry.origin === 'string' ? entry.origin : undefined
         const workspace = typeof entry.workspace === 'string' ? entry.workspace : undefined
-        const from = path.join(staging, 'data', safeSlug(entry.slug) ?? slugifyPath(archivedPath))
+        const from = path.join(staging, 'data', safeSlug(entry.slug) ?? legacySlug(archivedPath))
         const target = matchTarget(origin, workspace, archivedPath)
         const targetWorkspace = target?.workspace ?? workspace
         const base: Omit<RestoreItem, 'selected'> = {

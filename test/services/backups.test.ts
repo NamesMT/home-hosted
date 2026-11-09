@@ -224,8 +224,14 @@ async function makeFixture(
 
 describe('slugifyPath', () => {
   it('produces a filesystem-safe name', () => {
-    expect(slugifyPath('/home/user/.omniroute')).toBe('home-user-omniroute')
-    expect(slugifyPath('.')).toBe('path')
+    expect(slugifyPath('/home/user/.omniroute')).toMatch(/^home-user-omniroute-[0-9a-f]{8}$/)
+    expect(slugifyPath('.')).toMatch(/^path-[0-9a-f]{8}$/)
+    expect(slugifyPath(`/${'x'.repeat(200)}`).length).toBeLessThanOrEqual(80)
+  })
+
+  it('gives paths that read alike their own names', () => {
+    const slugs = ['/srv/app-data', '/srv/app/data', '/srv/app data'].map(slugifyPath)
+    expect(new Set(slugs).size).toBe(3)
   })
 })
 
@@ -395,6 +401,48 @@ describe('backup service', () => {
     expect(plan.error).toBeUndefined()
     expect(fs.lstatSync(link).isSymbolicLink()).toBe(true)
     expect(fs.readFileSync(path.join(disk, 'db.sqlite'), 'utf8')).toBe('LINKED\n')
+  })
+
+  /**
+   * `/srv/app-data`, `/srv/app/data` and `/srv/app data` shared one slug, so every path after the
+   * first was silently left out of the archive.
+   */
+  it('captures and restores paths whose readable slugs collide', async () => {
+    const fixture = await makeFixture()
+    const base = path.join(fixture.root, 'srv')
+    const paths = [path.join(base, 'app-data'), path.join(base, 'app', 'data'), path.join(base, 'app data')]
+    paths.forEach((dir, index) => {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'which.txt'), `${index}\n`)
+    })
+    fixture.sources.includePaths.push(...paths)
+
+    const result = await fixture.service.create()
+    expect(result.ok, result.error).toBe(true)
+    const archive = path.join(fixture.service.directory, result.file!.name)
+    const names = (await listZip(archive)).map(entry => entry.name)
+    for (const dir of paths)
+      expect(names, dir).toContain(`data/${slugifyPath(dir)}/which.txt`)
+
+    for (const dir of paths)
+      fs.rmSync(dir, { recursive: true, force: true })
+    const plan = await fixture.service.restore(archive, { confirm: true })
+    expect(plan.error).toBeUndefined()
+    paths.forEach((dir, index) => expect(fs.readFileSync(path.join(dir, 'which.txt'), 'utf8'), dir).toBe(`${index}\n`))
+  })
+
+  it('restores an archive written with the older, hashless slugs', async () => {
+    const fixture = await makeFixture()
+    const legacy = fixture.dataDir.replace(/[^A-Z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(-80)
+    const archive = path.join(fixture.root, 'legacy.zip')
+    await makeArchive(archive, {
+      workspaces: {},
+      data: [{ slug: legacy, path: fixture.dataDir, origin: 'app:DATA_DIR', workspace: 'default' }],
+      files: { [`data/${legacy}/db.sqlite`]: 'LEGACY\n' },
+    })
+    const plan = await fixture.service.restore(archive, { confirm: true })
+    expect(plan.error).toBeUndefined()
+    expect(fs.readFileSync(path.join(fixture.dataDir, 'db.sqlite'), 'utf8')).toBe('LEGACY\n')
   })
 
   it('warns when a declared path was captured but holds no files', async () => {
