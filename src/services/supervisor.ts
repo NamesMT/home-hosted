@@ -55,7 +55,8 @@ const TICK_INTERVAL_MS = 1000
 type Context = PortContext & HealthContext & PersistentContext
 
 export class Supervisor {
-  private readonly sampler = new ProcessSampler()
+  // Shares one process scan per second with every other workspace's sampler.
+  private readonly sampler = new ProcessSampler(1000)
   /** Container readings for docker-backed entries, batched across the workspace. */
   private readonly docker = new DockerMetrics()
   private readonly entries = new Map<string, Entry>()

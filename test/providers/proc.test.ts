@@ -309,3 +309,30 @@ describe('treeCpuUsedSeconds', () => {
     expect(treeCpuUsedSeconds(previous, next, [100])).toBeCloseTo(0.5)
   })
 })
+
+describe('process scans shared between samplers', () => {
+  it('lets samplers that opt in share one scan, and keeps ownership lookups fresh', async () => {
+    const { ProcessSampler, forgetProcessScan, processScanCount, processTreeOwners } = await import('#src/providers/proc')
+    forgetProcessScan()
+    const before = processScanCount()
+
+    // Two workspaces' samplers in the same second: one walk of the process table between them.
+    const [a, b] = await Promise.all([new ProcessSampler(1000).sample(process.pid), new ProcessSampler(1000).sample(process.pid)])
+    expect(a?.rssBytes).toBeGreaterThan(0)
+    expect(b?.rssBytes).toBeGreaterThan(0)
+    expect(processScanCount() - before, 'one scan for both').toBe(1)
+
+    // "Is this pid ours?" never accepts a reused scan.
+    await processTreeOwners([process.pid])
+    expect(processScanCount() - before).toBe(2)
+  })
+
+  it('answers its last reading, not a zero, when handed the scan it already used', async () => {
+    const { ProcessSampler, forgetProcessScan } = await import('#src/providers/proc')
+    forgetProcessScan()
+    const sampler = new ProcessSampler(1000)
+    const first = await sampler.sample(process.pid)
+    const again = await sampler.sample(process.pid)
+    expect(again).toEqual(first)
+  })
+})

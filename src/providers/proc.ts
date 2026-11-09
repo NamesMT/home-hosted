@@ -70,6 +70,22 @@ export function parseWindowsCsv(text: string): ProcRow[] {
 }
 
 let clockTicks: number | null = null
+let pageKb: number | null = null
+
+/** The kernel page size in kB (4 on x86, often 16 or 64 on arm64), read once. */
+async function getPageKb(): Promise<number> {
+  if (pageKb !== null)
+    return pageKb
+  try {
+    const { stdout } = await execFileAsync('getconf', ['PAGESIZE'], { timeout: 2000 })
+    const bytes = Number.parseInt(stdout.trim(), 10)
+    pageKb = Number.isFinite(bytes) && bytes > 0 ? bytes / 1024 : 4
+  }
+  catch {
+    pageKb = 4
+  }
+  return pageKb
+}
 
 /** Linux jiffies per second; `getconf` is POSIX, with the usual default behind it. */
 async function getClockTicks(): Promise<number> {
@@ -90,7 +106,7 @@ async function getClockTicks(): Promise<number> {
  * `/proc/<pid>/stat` needs care: the comm field is parenthesised and may itself
  * contain spaces or parentheses, so parsing starts after the last `)`.
  */
-function parseStat(pid: number, content: string): ProcRow | null {
+function parseStat(pid: number, content: string, pageSizeKb = 4): ProcRow | null {
   const close = content.lastIndexOf(')')
   if (close < 0)
     return null
@@ -102,8 +118,11 @@ function parseStat(pid: number, content: string): ProcRow | null {
 
   if (!Number.isFinite(ppid) || !Number.isFinite(utime) || !Number.isFinite(stime))
     return null
-  return { pid, ppid, rssKb: Number.isFinite(rssPages) ? rssPages * 4 : 0, cpuSeconds: utime + stime }
+  return { pid, ppid, rssKb: Number.isFinite(rssPages) ? rssPages * pageSizeKb : 0, cpuSeconds: utime + stime }
 }
+
+/** Processes read between two turns of the event loop, so a large host never stalls it. */
+const SCAN_BATCH = 64
 
 async function readLinux(): Promise<ProcRow[]> {
   const rows: ProcRow[] = []
@@ -115,28 +134,23 @@ async function readLinux(): Promise<ProcRow[]> {
     return rows
   }
 
+  // One read per process: `stat`'s resident page count times the real page size is VmRSS.
+  const pageSizeKb = await getPageKb()
+  let read = 0
   for (const name of names) {
     if (!/^\d+$/.test(name))
       continue
     const pid = Number.parseInt(name, 10)
     try {
-      const row = parseStat(pid, fs.readFileSync(`/proc/${pid}/stat`, 'utf8'))
-      if (row === null)
-        continue
-      // VmRSS is exact; the stat page count assumes a 4K page.
-      try {
-        const vmRss = /^VmRSS:\s+(\d+)\s+kB/m.exec(fs.readFileSync(`/proc/${pid}/status`, 'utf8'))?.[1]
-        if (vmRss !== undefined)
-          row.rssKb = Number.parseInt(vmRss, 10)
-      }
-      catch {
-        // Fall back to the page count.
-      }
-      rows.push(row)
+      const row = parseStat(pid, fs.readFileSync(`/proc/${pid}/stat`, 'utf8'), pageSizeKb)
+      if (row !== null)
+        rows.push(row)
     }
     catch {
       // Exited between listing and reading.
     }
+    if (++read % SCAN_BATCH === 0)
+      await new Promise(resolve => setImmediate(resolve))
   }
 
   return rows
@@ -173,12 +187,47 @@ async function readWindows(): Promise<ProcRow[]> {
   }
 }
 
-async function readProcesses(): Promise<ProcRow[]> {
+let scans = 0
+
+/** Test hook: how many real process-table scans have run. */
+export function processScanCount(): number {
+  return scans
+}
+
+function scanProcesses(): Promise<ProcRow[]> {
+  scans += 1
   if (process.platform === 'linux')
     return readLinux()
   if (process.platform === 'win32')
     return readWindows()
   return readPosix()
+}
+
+interface ProcessScan { at: number, rows: ProcRow[] }
+let lastScan: { at: number, scan: Promise<ProcessScan> } | null = null
+
+/**
+ * The process table. `reuseMs` lets a caller accept a scan that is in flight or that recent — the
+ * resource samplers do, because every workspace has one and entries come due on their own second,
+ * so one tick could otherwise walk `/proc` (or spawn PowerShell) once per workspace per due entry.
+ * Anything deciding *ownership* passes 0: a process spawned a moment ago must be in its answer.
+ */
+function readProcesses(now = Date.now(), reuseMs = 0): Promise<ProcessScan> {
+  if (reuseMs > 0 && lastScan !== null && now - lastScan.at < reuseMs)
+    return lastScan.scan
+  // Stamped with when it was taken, so a sampler handed a reused scan times its CPU delta right.
+  const scan = scanProcesses().then(rows => ({ at: now, rows }))
+  lastScan = { at: now, scan }
+  scan.catch(() => {
+    if (lastScan?.scan === scan)
+      lastScan = null
+  })
+  return scan
+}
+
+/** Test hook: the next read scans afresh. */
+export function forgetProcessScan(): void {
+  lastScan = null
 }
 
 function collectTree(rootPid: number, children: Map<number, number[]>): number[] {
@@ -275,7 +324,7 @@ export async function processTreeOwners(roots: number[]): Promise<Map<number, nu
     return owners
 
   try {
-    const rows = await readProcesses()
+    const { rows } = await readProcesses()
     const children = new Map<number, number[]>()
     for (const row of rows) {
       const siblings = children.get(row.ppid) ?? []
@@ -307,6 +356,9 @@ export async function processTreeOwners(roots: number[]): Promise<Map<number, nu
  * are null rather than wrong.
  */
 export class ProcessSampler {
+  /** `reuseMs`: accept a process scan this recent from any sampler (0 = always scan fresh). */
+  constructor(private readonly reuseMs = 0) {}
+
   /**
    * Cumulative CPU seconds per pid, from the **whole process table** of the last scan.
    *
@@ -333,6 +385,9 @@ export class ProcessSampler {
    */
   private readonly forgotten = new Map<number, number>()
 
+  /** Each root's latest reading, answered again when the only scan available is one already used. */
+  private readonly lastReadings = new Map<number, ProcessResources>()
+
   async sample(rootPid: number, now = Date.now()): Promise<ProcessResources | null> {
     const samples = await this.sampleMany([rootPid], now)
     return samples.get(rootPid) ?? null
@@ -344,11 +399,21 @@ export class ProcessSampler {
       return results
 
     let rows: ProcRow[] = []
+    let scannedAt = now
     try {
-      rows = await readProcesses()
+      const scan = await readProcesses(now, this.reuseMs)
+      rows = scan.rows
+      scannedAt = scan.at
     }
     catch {
       rows = []
+    }
+
+    // The same scan this sampler already differenced: a second delta would be zero, not a reading.
+    if (this.previousTable !== null && this.previousTable.at === scannedAt && rows.length > 0) {
+      for (const rootPid of rootPids)
+        results.set(rootPid, this.lastReadings.get(rootPid) ?? null)
+      return results
     }
 
     const byPid = new Map(rows.map(row => [row.pid, row]))
@@ -361,7 +426,7 @@ export class ProcessSampler {
 
     // One baseline for the scan, shared by every root: they were all read at the same instant.
     const before = this.previousTable
-    const elapsedSeconds = before === null ? 0 : (now - before.at) / 1000
+    const elapsedSeconds = before === null ? 0 : (scannedAt - before.at) / 1000
     const ticks = process.platform === 'linux' ? await getClockTicks() : 1
     // Stored in *seconds*, the unit the comparison uses. Keeping raw jiffies here made every
     // Linux delta compare `seconds` against `jiffies`, so each one looked negative and was skipped.
@@ -409,11 +474,17 @@ export class ProcessSampler {
         cpuPercent: cpuPercent === null ? null : Math.round(cpuPercent * 10) / 10,
         rssBytes: Math.round(rssKb * 1024),
         processes: pids.length,
-        sampledAt: now,
+        sampledAt: scannedAt,
       })
     }
 
-    this.previousTable = { at: now, cpuSeconds: tableCpuSeconds }
+    this.previousTable = { at: scannedAt, cpuSeconds: tableCpuSeconds }
+    for (const [pid, reading] of results) {
+      if (reading !== null)
+        this.lastReadings.set(pid, reading)
+      else
+        this.lastReadings.delete(pid)
+    }
     return results
   }
 
@@ -426,6 +497,7 @@ export class ProcessSampler {
    * is remembered here and consumed by that root's next sample.
    */
   forget(rootPid: number): void {
+    this.lastReadings.delete(rootPid)
     this.forgotten.set(rootPid, Date.now())
   }
 }
