@@ -1,9 +1,8 @@
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { smokeRunner } from '../support/cli-smoke'
 
 /**
  * 0.8.0 dropped the pre-workspace relocation, so a `$HHOSTED_HOME` still holding the 0.6.x
@@ -14,7 +13,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * `paths.ts` resolves `dataRoot` at import time, so every case sets `HHOSTED_HOME` to its own
  * temp dir and re-imports the module graph — never the developer's real home.
  */
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const originalHome = process.env.HHOSTED_HOME
 const dirs: string[] = []
 
@@ -92,11 +90,7 @@ describe('ensureLayout', () => {
 
   it('reaches the user as one CLI error, not a stack trace', async () => {
     const home = await makeLegacyHome()
-    const result = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'status'], {
-      cwd: root,
-      encoding: 'utf8',
-      env: { ...process.env, HHOSTED_HOME: home, HHOSTED_PROJECT: home },
-    })
+    const result = smokeRunner(home)(['status'])
 
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('0.6.x')

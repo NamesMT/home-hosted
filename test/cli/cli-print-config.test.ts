@@ -1,10 +1,8 @@
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import process from 'node:process'
 import { describe, expect, it } from 'vitest'
-import { root } from '../support/cli-smoke'
+import { smokeRunner } from '../support/cli-smoke'
 import { devPortAllocator } from '../support/dev-port'
 
 /** This file's own slice of the dev range; every other `cli-status*` / `cli-print-config` file holds its own. */
@@ -27,11 +25,7 @@ describe('print-config leaves the home alone', () => {
   it('writes no credential on a home that has none', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-print-config-'))
     try {
-      const printed = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'up', '--print-config'], {
-        cwd: root,
-        encoding: 'utf8',
-        env: { ...process.env, HHOSTED_HOME: dir, HHOSTED_PROJECT: dir },
-      })
+      const printed = smokeRunner(dir)(['up', '--print-config'])
 
       expect(printed.status, printed.stderr).toBe(0)
       // It really did print the config, so the assertion below is not "it did nothing".
@@ -50,29 +44,17 @@ describe('print-config leaves the home alone', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-print-config-'))
     const port = await freeDevPort()
     try {
-      const started = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'up', '--port', String(port), '--no-autostart'], {
-        cwd: root,
-        encoding: 'utf8',
-        env: { ...process.env, HHOSTED_HOME: dir, HHOSTED_PROJECT: dir },
-      })
+      const started = smokeRunner(dir)(['up', '--port', String(port), '--no-autostart'])
       expect(started.status, started.stderr).toBe(0)
 
-      const printed = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'up', '--print-config'], {
-        cwd: root,
-        encoding: 'utf8',
-        env: { ...process.env, HHOSTED_HOME: dir, HHOSTED_PROJECT: dir },
-      })
+      const printed = smokeRunner(dir)(['up', '--print-config'])
 
       expect(printed.stderr, 'a read-only command is not the second panel to refuse').not.toContain('already running')
       expect(printed.status, printed.stderr).toBe(0)
       expect(() => JSON.parse(printed.stdout), printed.stdout).not.toThrow()
     }
     finally {
-      spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'down'], {
-        cwd: root,
-        encoding: 'utf8',
-        env: { ...process.env, HHOSTED_HOME: dir, HHOSTED_PROJECT: dir },
-      })
+      smokeRunner(dir)(['down'])
       fs.rmSync(dir, { recursive: true, force: true })
     }
   }, 60_000)

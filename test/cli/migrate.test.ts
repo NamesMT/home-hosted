@@ -1,10 +1,9 @@
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
+import { smokeRunner } from '../support/cli-smoke'
 
 /**
  * `migrate --dry-run` promises to write nothing, and the promise is load-bearing: it is what a person
@@ -18,7 +17,6 @@ import { CONFIG_SCHEMA } from '#src/config/migrations'
  * This pins the contract against the real fixture: a state directory needing a stamp, where the write
  * paths are the ones that exist now.
  */
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const dirs: string[] = []
 
 afterEach(() => {
@@ -40,12 +38,7 @@ function homeWithState(): { home: string, settings: string } {
 }
 
 function runCli(home: string, args: string[]): { status: number | null, stdout: string, stderr: string } {
-  const result = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), ...args], {
-    cwd: root,
-    encoding: 'utf8',
-    env: { ...process.env, HHOSTED_HOME: home, HHOSTED_PROJECT: home },
-  })
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+  return smokeRunner(home)(args)
 }
 
 /**

@@ -11,6 +11,7 @@ import { afterAll, afterEach } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
+import { cliArgv } from './run-cli'
 
 /**
  * The `down-persistent*` CLI suites: a throwaway home, stand-in nannies and the state files that
@@ -32,7 +33,8 @@ export function downPersistentFixture() {
 
   function runCli(args: string[]): Promise<{ status: number | null, stdout: string, stderr: string }> {
     return new Promise((resolve) => {
-      const child = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), ...args], {
+      const [executable, ...argv] = cliArgv(args)
+      const child = spawn(executable, argv, {
         cwd: root,
         env: { ...process.env, HHOSTED_HOME: home, HHOSTED_PROJECT: home },
       })

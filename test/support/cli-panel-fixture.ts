@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach } from 'vitest'
 import { isProcessAlive } from '#src/providers/port'
 import { testPort } from './ports'
+import { cliArgv } from './run-cli'
 
 /**
  * The `server-action*` CLI suites: a throwaway home, a fake panel listening in this process, and
@@ -46,7 +47,8 @@ export async function cliPanelFixture() {
 
   function runCli(args: string[]): Promise<{ status: number | null, stdout: string, stderr: string }> {
     return new Promise((resolve) => {
-      const child = spawn(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), ...args], {
+      const [executable, ...argv] = cliArgv(args)
+      const child = spawn(executable, argv, {
         cwd: root,
         env: { ...process.env, HHOSTED_HOME: home, HHOSTED_PROJECT: home },
       })

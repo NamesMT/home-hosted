@@ -1,10 +1,9 @@
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { afterAll } from 'vitest'
+import { runCli } from './run-cli'
 
 /**
  * The spawned-process CLI smoke suites (`test/cli/cli-smoke*.test.ts`, `cli-status*.test.ts`).
@@ -29,12 +28,5 @@ export function smokeHome(prefix = 'hh-cli-smoke-'): string {
 
 /** `home-hosted <args>` with `home` as both `HHOSTED_HOME` and `HHOSTED_PROJECT`. */
 export function smokeRunner(home: string): (args: string[]) => { status: number | null, stdout: string, stderr: string } {
-  return (args) => {
-    const result = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), ...args], {
-      cwd: root,
-      encoding: 'utf8',
-      env: { ...process.env, HHOSTED_HOME: home, HHOSTED_PROJECT: home },
-    })
-    return { status: result.status, stdout: result.stdout, stderr: result.stderr }
-  }
+  return args => runCli(args, { env: { HHOSTED_HOME: home, HHOSTED_PROJECT: home } })
 }

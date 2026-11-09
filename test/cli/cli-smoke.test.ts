@@ -1,9 +1,7 @@
 import { Buffer } from 'node:buffer'
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import process from 'node:process'
 import { describe, expect, it } from 'vitest'
 import { root, smokeHome, smokeRunner } from '../support/cli-smoke'
 
@@ -219,11 +217,7 @@ describe('print-config reads hand-edited files', () => {
         Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(JSON.stringify({ logs: { keep: 3 } }))]),
       )
 
-      const printed = spawnSync(process.execPath, ['--import', 'tsx', path.join(root, 'src', 'cli.ts'), 'up', '--print-config'], {
-        cwd: root,
-        encoding: 'utf8',
-        env: { ...process.env, HHOSTED_HOME: home, HHOSTED_PROJECT: home },
-      })
+      const printed = smokeRunner(home)(['up', '--print-config'])
       const config = JSON.parse(printed.stdout) as { workspaces: Array<{ settings: { logs?: { keep?: number } } | null }> }
       expect(config.workspaces[0]!.settings, 'a BOM must not read as "no settings"').not.toBeNull()
       expect(config.workspaces[0]!.settings!.logs?.keep).toBe(3)
