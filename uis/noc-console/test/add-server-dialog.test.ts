@@ -23,7 +23,10 @@ vi.mock('@/composables/useWorkspaces', () => ({
   useWorkspaces: () => ({
     defaults,
     lastError: ref(null),
-    createServer: async (payload: unknown) => { created.push(payload) },
+    createServer: async (payload: unknown) => {
+      created.push(payload)
+      return { ok: true as const, value: undefined }
+    },
   }),
 }))
 vi.mock('@/composables/useUi', () => ({
