@@ -212,8 +212,15 @@ export async function sendWebhook(
       body,
       // A wedged receiver must not hold a supervisor tick for ever.
       signal: AbortSignal.timeout(10_000),
+      // Never followed: a redirect would carry the target's own credential headers to whatever
+      // origin the receiver names, and could turn https into http.
+      redirect: 'manual',
     })
 
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location')
+      return { ok: false, error: `answered ${response.status}, a redirect${location === null ? '' : ` to ${location.slice(0, 200)}`} — not followed; set the URL to the final address` }
+    }
     if (!response.ok) {
       const detail = await response.text().catch(() => '')
       const trimmed = detail.trim().slice(0, 200)

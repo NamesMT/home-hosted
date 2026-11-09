@@ -103,7 +103,13 @@ survives. `${ENV}` expands in the URL and in the values, the same rule the rest 
 ```
 
 A literal token in a header works too, but it then lives in the workspace's `settings.json` — a plain
-config file. Prefer the placeholder above, and treat that file as sensitive if you do use one.
+config file, shown back on the settings page and carried by every backup of that workspace's settings.
+Prefer the placeholder above (the variable is read from the panel's environment, so set it where the
+panel starts), and treat that file as sensitive if you do use a literal.
+
+A redirect from the receiver is **not followed**: following one would hand the headers above to
+whatever address the receiver names, and could drop https for http. The send fails with the
+`Location` it was pointed at — set the URL to that final address.
 
 Two destinations cannot share an `id`: it keys a destination's throttle, its last-result record **and
 a Telegram destination's bot token**, so a duplicate would make two behave as one. The save is
