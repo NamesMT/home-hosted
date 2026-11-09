@@ -426,6 +426,64 @@ describe('panelService', () => {
     }
   })
 
+  it('never lets two concurrent removals leave the panel with no workspace', async () => {
+    const { panel, registry, dispose } = await makeHarness({
+      workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],
+    })
+
+    try {
+      // Each removal has a server to stop, so both are suspended in an await at the same time.
+      for (const id of ['default', 'staging']) {
+        const runtime = panel.requireWorkspace(id)
+        fs.writeFileSync(runtime.store.path, JSON.stringify({ $schema: './servers.config.schema.json', meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers: [{ id: 'web', command: process.execPath, args: ['-e', 'null'] }] }, null, 2))
+        runtime.store.reloadFromDisk()
+        vi.spyOn(runtime.supervisor, 'stop').mockImplementation(async () => {
+          await new Promise(resolve => setTimeout(resolve, 50))
+          return { ok: true }
+        })
+      }
+
+      const results = await Promise.allSettled([panel.remove('default'), panel.remove('staging')])
+      expect(results.map(result => result.status).sort()).toEqual(['fulfilled', 'rejected'])
+      expect(panel.workspaces()).toHaveLength(1)
+      expect(registry.all()).toHaveLength(1)
+      expect(registry.all()[0]!.id).toBe(panel.workspaces()[0]!.id)
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  it('leaves the workspace intact when the registry refuses the removal', async () => {
+    const { panel, registry, dispose } = await makeHarness({
+      workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],
+    })
+
+    try {
+      const runtime = panel.requireWorkspace('staging')
+      const dir = path.dirname(runtime.store.path)
+      const removeSpy = vi.spyOn(registry, 'remove').mockImplementation(() => {
+        throw new Error('disk full')
+      })
+
+      await expect(panel.remove('staging')).rejects.toThrow(/disk full/)
+      expect(panel.workspace('staging')).toBe(runtime)
+      expect(fs.existsSync(dir)).toBe(true)
+      expect(runtime.watches.length).toBeGreaterThan(0)
+      // The watchers still run: a hand edit is still picked up.
+      fs.writeFileSync(runtime.store.path, JSON.stringify({ $schema: './servers.config.schema.json', meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers: [{ id: 'after', command: process.execPath, args: ['-e', 'null'] }] }, null, 2))
+      await waitFor(() => runtime.store.servers.some(server => server.id === 'after'))
+
+      // And the reservation is released, so a retry can go through.
+      removeSpy.mockRestore()
+      await panel.remove('staging')
+      expect(panel.workspace('staging')).toBeUndefined()
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   /**
    * A workspace is not removed while one of its processes survived the stop.
    *

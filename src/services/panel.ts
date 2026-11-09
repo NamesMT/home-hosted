@@ -93,6 +93,8 @@ const TICK_MS = 1000
  */
 export class PanelService {
   private readonly runtimes = new Map<string, WorkspaceRuntime>()
+  /** Workspaces a `remove()` has reserved but not yet dropped, counted by the last-one check. */
+  private readonly removing = new Set<string>()
   private readonly timer: NodeJS.Timeout
   private disposed = false
   private lastStateSignature = ''
@@ -311,31 +313,42 @@ export class PanelService {
     const runtime = this.runtimes.get(id)
     if (runtime === undefined)
       throw new WorkspaceError(`unknown workspace "${id}"`)
-    if (this.runtimes.size <= 1)
+    if (this.removing.has(id))
+      throw new WorkspaceError(`workspace "${id}" is already being removed`)
+    // Reserved before the first await: two removals checking `size` and then both awaiting their
+    // stops each saw a second workspace still there, and the panel ended with none.
+    if (this.runtimes.size - this.removing.size <= 1)
       throw new WorkspaceError('cannot remove the only workspace')
+    this.removing.add(id)
 
-    for (const server of runtime.store.servers) {
-      const stopped = await runtime.supervisor.stop(server.id).catch((error: unknown) => {
-        logger.warn(`could not stop ${server.id} while removing workspace "${id}"`, error)
-        return { ok: true, error: undefined } as Awaited<ReturnType<typeof runtime.supervisor.stop>>
-      })
-      // A pid that outlived SIGKILL is deliberately kept findable: `stopEntry` keeps its nanny state
-      // file because "its pid is in the state file" is how a later boot reaches the child the stop
-      // could not forward. That file lives under `workspaceDir(id)`, which the `rmSync` below deletes
-      // recursively — so removing anyway would leave the process running with nothing that knows its
-      // name. Refused; the person can stop it and remove the workspace afterwards.
-      if (!stopped.ok && stopped.error?.includes('survived the stop'))
-        throw new WorkspaceError(`cannot remove "${id}": ${stopped.error} — stop it first, or the workspace would be deleted while that process is still running and unreachable from here`)
+    try {
+      for (const server of runtime.store.servers) {
+        const stopped = await runtime.supervisor.stop(server.id).catch((error: unknown) => {
+          logger.warn(`could not stop ${server.id} while removing workspace "${id}"`, error)
+          return { ok: true, error: undefined } as Awaited<ReturnType<typeof runtime.supervisor.stop>>
+        })
+        // A pid that outlived SIGKILL is deliberately kept findable: `stopEntry` keeps its nanny state
+        // file because "its pid is in the state file" is how a later boot reaches the child the stop
+        // could not forward. That file lives under `workspaceDir(id)`, which the `rmSync` below deletes
+        // recursively — so removing anyway would leave the process running with nothing that knows its
+        // name. Refused; the person can stop it and remove the workspace afterwards.
+        if (!stopped.ok && stopped.error?.includes('survived the stop'))
+          throw new WorkspaceError(`cannot remove "${id}": ${stopped.error} — stop it first, or the workspace would be deleted while that process is still running and unreachable from here`)
+      }
+
+      // The registry first: a refusal there leaves the runtime, its watchers and its files intact.
+      const entry = this.options.registry.remove(id)
+      this.runtimes.delete(id)
+      await runtime.supervisor.dispose()
+      this.disposeRuntime(runtime)
+      fs.rmSync(workspaceDir(id), { recursive: true, force: true })
+      logger.info(`workspace "${id}" removed`)
+      this.scheduleState()
+      return entry
     }
-    await runtime.supervisor.dispose()
-    this.disposeRuntime(runtime)
-    this.runtimes.delete(id)
-
-    const entry = this.options.registry.remove(id)
-    fs.rmSync(workspaceDir(id), { recursive: true, force: true })
-    logger.info(`workspace "${id}" removed`)
-    this.scheduleState()
-    return entry
+    finally {
+      this.removing.delete(id)
+    }
   }
 
   /**
