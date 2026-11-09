@@ -34,18 +34,6 @@ function perUiAlias(): Plugin {
   }
 }
 
-/**
- * The suites that start real panels, CLIs and child processes: most of the suite's time, and every
- * test that is sensitive to machine load. `HH_TEST_SCOPE=fast` leaves them out (`pnpm run check:fast`);
- * the full gate and CI always run them.
- */
-const SLOW_SUITES = [
-  'test/cli/**',
-  'test/services/supervisor.test.ts',
-  'test/services/panel.test.ts',
-  'test/services/nanny.test.ts',
-]
-
 export default defineConfig({
   // Each UI's own aliases, so its modules are testable from `uis/<name>/test/`: pure logic
   // directly, and a component with `// @vitest-environment happy-dom` at the top of the file
@@ -57,6 +45,15 @@ export default defineConfig({
     },
   },
   test: {
+    /*
+     * The modules each test file loads are recorded, so `--sinceLastRun` (local) and CI's
+     * `HH_TEST_SINCE` run (`test/support/changed-since-commit.ts`) select tests by what they really
+     * import. `--sinceLastRun` forces its own provider; the commit-based one is used only when asked.
+     */
+    experimental: {
+      recordDependencies: true,
+      ...(process.env.HH_TEST_SINCE ? { vcsProvider: './test/support/changed-since-commit.ts' } : {}),
+    },
     // Many suites drive real child processes, and the CLI suites start whole panels — each spawn pays
     // for loading every schema (~1s) before it does anything. Under a full parallel run on a slow
     // machine (WSL2) 30s was not enough for a test that starts, queries and stops a panel.
@@ -90,7 +87,6 @@ export default defineConfig({
      */
     exclude: [
       ...configDefaults.exclude,
-      ...(process.env.HH_TEST_SCOPE === 'fast' ? SLOW_SUITES : []),
       '**/.agents/**',
       '**/.claude/**',
       '**/.dev-state/**',
