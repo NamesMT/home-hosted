@@ -250,6 +250,9 @@ export class PanelService {
       projectDir,
       dataRoot,
       version: appVersion(),
+      settingsError: this.options.settings.configError === null
+        ? null
+        : { message: this.options.settings.configError, path: this.options.settings.path },
     }
   }
 
@@ -717,6 +720,8 @@ function stateSignature(state: AppState): string {
     // Whole, like the host view below: a hand-picked list missed `apiTokenSet`, `passwordSet` and
     // `allowedHosts`, so another tab never saw a token minted or a password set.
     JSON.stringify(state.control),
+    // A broken `settings.json` appearing or being fixed is news even when nothing else moved.
+    state.settingsError?.message ?? '',
     /*
      * The whole host view, not a list of its fields. Signing only `sampledAt` and `alerts` published
      * nothing when sampling was switched off — that branch of `HostMonitor.tick` changes `enabled`

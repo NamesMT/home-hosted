@@ -180,6 +180,8 @@ export function useControlPlane() {
   const projectDir = computed(() => appState.value?.projectDir ?? null)
   const dataRoot = computed(() => appState.value?.dataRoot ?? null)
   const version = computed(() => appState.value?.version ?? null)
+  /** The panel-wide settings.json could not be applied. Absent on an older panel. */
+  const settingsError = computed(() => appState.value?.settingsError ?? null)
 
   function workspaceById(id: string) {
     return appState.value?.workspaces.find(workspace => workspace.id === id)
@@ -245,6 +247,7 @@ export function useControlPlane() {
     projectDir,
     dataRoot,
     version,
+    settingsError,
     connection: readonly(connection),
     lastError: readonly(lastError),
     now: readonly(now),

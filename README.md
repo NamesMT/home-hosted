@@ -225,7 +225,7 @@ Give it four things and it can run your home server without guessing:
 | --- | --- |
 | 🗂 **Workspaces** | One panel, many setups. Each owns its servers, secrets, logs and settings; listener, auth, backups, TLS and UI stay panel-wide |
 | 🚦 **Lifecycle** | Start, stop, restart from the panel, the CLI or the API; `autostart` entries come up with it. A process left behind by a renamed entry is listed with a stop button |
-| 📝 **Hand edits welcome** | Edit `servers.config.json` in an editor or `git checkout` — picked up in seconds. A file it cannot read is reported, and running servers are left alone |
+| 📝 **Hand edits welcome** | Edit `servers.config.json` or the panel's `settings.json` in an editor or `git checkout` — picked up in seconds. A file it cannot read is reported in the UI, and what is running is left alone |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with a retry budget that survives a panel restart |
 | 🩺 **Health that acts** | TCP or HTTP probes: warn, then force a restart. Ports checked before starting; a program that restarts itself can be [followed](./docs/SERVERS.md#when-a-program-restarts-itself) |
 | 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy*, not just spawned; `down` stops dependents first |

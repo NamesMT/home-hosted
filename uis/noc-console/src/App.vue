@@ -6,6 +6,7 @@ import AddServerDialog from '@/components/AddServerDialog.vue'
 import HelpOverlay from '@/components/HelpOverlay.vue'
 import HostRail from '@/components/HostRail.vue'
 import LogDrawer from '@/components/LogDrawer.vue'
+import SettingsProblem from '@/components/SettingsProblem.vue'
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { connect, disconnect, useControlPlane } from '@/composables/useControlPlane'
 import { isTyping, runKeyHandlers } from '@/composables/useKeymap'
@@ -261,6 +262,8 @@ onScopeDispose(() => {
     </nav>
 
     <div class="main">
+      <!-- Panel-wide, so above every page. -->
+      <SettingsProblem :problem="control.settingsError.value" />
       <RouterView />
       <LogDrawer v-if="drawerOpen && selectedId && activeId" :server-id="selectedId" :workspace-id="activeId" />
     </div>

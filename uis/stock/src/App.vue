@@ -134,6 +134,7 @@ onScopeDispose(() => disconnect())
           :control="control.control.value"
           :config-error="workspace.configError.value"
           :config-path="workspace.selected.value?.configPath"
+          :settings-error="control.settingsError.value"
         />
 
         <!-- `relative` contains absolutely-positioned descendants (an `sr-only` label, for

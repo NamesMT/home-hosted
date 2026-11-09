@@ -8,6 +8,8 @@ const props = defineProps<{
   control: ControlView | null
   configError: string | null
   configPath: string | undefined
+  /** The panel-wide `settings.json` could not be applied. Optional: older callers do not pass it. */
+  settingsError?: { message: string, path: string } | null
 }>()
 
 interface Notice {
@@ -27,6 +29,15 @@ const notices = computed<Notice[]>(() => {
       tone: 'danger',
       text: t('notice.configError', { error: props.configError }),
       hint: t('notice.configErrorHint', { path: props.configPath ?? 'servers.config.json' }),
+    })
+  }
+
+  if (props.settingsError) {
+    out.push({
+      id: 'settings',
+      tone: 'danger',
+      text: t('notice.configError', { error: props.settingsError.message }),
+      hint: t('notice.configErrorHint', { path: props.settingsError.path }),
     })
   }
 

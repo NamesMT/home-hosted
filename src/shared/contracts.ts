@@ -1984,6 +1984,12 @@ export const appStateSchema = type({
   'dataRoot': 'string',
   /** The release this panel is running. Optional: an older panel does not send one. */
   'version?': 'string',
+  /**
+   * The panel-wide `settings.json` could not be applied (a parse or schema error, or an edit refused
+   * for exposing the panel); the running settings are kept. `null` when it is fine; absent on an
+   * older panel.
+   */
+  'settingsError?': type({ message: 'string', path: 'string' }).or('null'),
 }).onDeepUndeclaredKey('ignore')
 export type AppState = typeof appStateSchema.infer
 

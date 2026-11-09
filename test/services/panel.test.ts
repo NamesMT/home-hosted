@@ -1055,6 +1055,24 @@ describe('panelService', () => {
     }
   })
 
+  it('tells every client the global settings are broken, and when they are fixed', async () => {
+    const { settings, frames, dispose } = await makeHarness()
+
+    try {
+      fs.writeFileSync(settings.path, '{ not json')
+      await waitFor(() => frames.at(-1)?.settingsError ? true : undefined)
+      expect(frames.at(-1)?.settingsError).toMatchObject({ path: settings.path })
+      expect(frames.at(-1)?.settingsError?.message).toContain('cannot parse')
+
+      const onDisk = { control: { label: 'fixed' }, meta: { writtenBy: 'test', schema: CONFIG_SCHEMA } }
+      fs.writeFileSync(settings.path, JSON.stringify(onDisk, null, 2))
+      await waitFor(() => frames.at(-1)?.settingsError === null ? true : undefined)
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('refuses a hand edit that would serve the panel through the proxy with no password', async () => {
     const { settings, dispose } = await makeHarness()
 

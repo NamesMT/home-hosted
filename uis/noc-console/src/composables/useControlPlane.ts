@@ -125,6 +125,8 @@ export function useControlPlane() {
   const proxy = computed(() => appState.value?.proxy ?? null)
   const dataRoot = computed(() => appState.value?.dataRoot ?? '')
   const projectDir = computed(() => appState.value?.projectDir ?? '')
+  /** The panel-wide settings.json could not be applied. Absent on an older panel. */
+  const settingsError = computed(() => appState.value?.settingsError ?? null)
 
   async function readState(): Promise<void> {
     store.applyState(await api.fetchState())
@@ -177,6 +179,7 @@ export function useControlPlane() {
     proxy,
     dataRoot,
     projectDir,
+    settingsError,
     connection: readonly(connection),
     now: readonly(now),
     serverById,

@@ -116,6 +116,10 @@ reads it with a streaming `fetch` and the bearer header.
 | `log` | `{ ts, workspaceId, serverId, lines }` — new output |
 | `ping` | the time, every 15 s |
 
+`state.settingsError` is `{ message, path }` while the panel-wide `settings.json` cannot be applied
+(the running settings are kept), `null` when it is fine, and absent on an older panel. A workspace's
+own config problem is `configError` on that workspace.
+
 Query: `?workspace=<id>` narrows `server`/`log` frames to one workspace, `&serverId=<id>` to one
 server, `?logs=0` drops log frames. A slow client never makes the panel buffer without bound: queued
 `state` and `server` frames are replaced by newer ones, and log frames are dropped once too many are
