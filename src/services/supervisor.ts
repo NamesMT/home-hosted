@@ -6,6 +6,7 @@ import type { Entry, ResolvedSpawn, StartResult, SupervisorOptions } from '#src/
 import type { HealthContext } from '#src/services/supervisor/health'
 import type { PersistentContext } from '#src/services/supervisor/persistent'
 import type { PortContext, SupervisedPids } from '#src/services/supervisor/port-preflight'
+import type { OrphanLivenessCache } from '#src/services/supervisor/records'
 import type { FreePortResult, HistoryActor, LogLine, LogStream, NannyExit, ServerOrphan, ServerStatus, ServerView } from '#src/shared/contracts'
 import { missingServer } from '#src/helpers/action-result'
 import { computeBackoff } from '#src/helpers/backoff'
@@ -64,6 +65,9 @@ export class Supervisor {
   private readonly persistent: PersistentEntries
   /** Processes no entry owns, refreshed by the tick; read synchronously by the state frame. */
   private orphanCache: ServerOrphan[] = []
+  private readonly orphanLiveness: OrphanLivenessCache = new Map()
+  /** A tick still running when the next interval fires is not joined by a second one. */
+  private ticking = false
   private readonly tickTimer: NodeJS.Timeout
   /** Detaches this supervisor from the store's listener set in `dispose()`. */
   private readonly storeUnsubscribe: () => void
@@ -85,7 +89,7 @@ export class Supervisor {
       supervisedPids: () => this.supervisedPids(),
       resolveSpawn: entry => resolveSpawn(ctx, entry),
       isDisposed: () => this.disposed,
-      restart: id => this.restart(id),
+      restartInBackground: id => this.restartInBackground(id),
       stopEntry: entry => this.stopEntry(entry),
     }
     this.ctx = ctx
@@ -102,7 +106,14 @@ export class Supervisor {
     this.storeUnsubscribe = this.store.onChange(() => this.sync())
     // A throw inside the tick must not become an unhandled rejection: on Node 24 that ends the process.
     this.tickTimer = setInterval(() => {
-      void this.tick().catch((error: unknown) => logger.error('the supervisor tick failed', error))
+      if (this.ticking)
+        return
+      this.ticking = true
+      void this.tick()
+        .catch((error: unknown) => logger.error('the supervisor tick failed', error))
+        .finally(() => {
+          this.ticking = false
+        })
     }, TICK_INTERVAL_MS)
     this.tickTimer.unref()
   }
@@ -122,7 +133,7 @@ export class Supervisor {
 
   /** Async (a birth time per pid), so it runs on the tick, never in the per-frame view. */
   private async refreshOrphans(): Promise<void> {
-    this.orphanCache = await scanOrphans(this.options.nannyDir, id => this.entries.has(id))
+    this.orphanCache = await scanOrphans(this.options.nannyDir, id => this.entries.has(id), { cache: this.orphanLiveness })
   }
 
   /** Stops one reported orphan and reclaims its record once the pid is gone. */
@@ -338,6 +349,13 @@ export class Supervisor {
     if (entry !== undefined && owed !== null && entry.pendingRestart === null)
       entry.pendingRestart = owed
     return this.start(id, options)
+  }
+
+  /** A restart the tick asked for: awaited inline it held every other entry's probes for its stop grace. */
+  private restartInBackground(id: string): void {
+    void this.restart(id).catch((error: unknown) => {
+      logger.error(`could not restart ${id}`, error)
+    })
   }
 
   async freePort(id: string): Promise<FreePortResult & { error?: string }> {
@@ -875,7 +893,7 @@ export class Supervisor {
     const now = Date.now()
 
     await sampleResources(this.entries.values(), this.sampler, this.docker, now)
-    // Cheap when nothing changed (a readdir); birth checks run only for files no entry owns.
+    // A readdir and a signal-0 per orphan record; birth checks are cached (see `scanOrphans`).
     await this.refreshOrphans().catch((error: unknown) => {
       logger.warn('could not refresh the orphaned-process list', error)
     })
@@ -889,14 +907,21 @@ export class Supervisor {
         this.handleAdoptedExit(entry)
         continue
       }
-      if (await enforceMemoryLimit(this.ctx, entry))
+      // A restart or stop already under way (possibly one this tick began a second ago) owns the entry.
+      if (entry.stopping || entry.starting)
+        continue
+      if (enforceMemoryLimit(this.ctx, entry))
         continue
       if (healthBudgetSpent(entry)) {
-        await giveUpOnHealth(this.ctx, entry)
+        // In the background, like the restarts: a stop waits out a grace period, and every other
+        // entry's probes would wait with it.
+        void giveUpOnHealth(this.ctx, entry).catch((error: unknown) => {
+          logger.error(`could not stop ${entry.config.id} after its health budget ran out`, error)
+        })
         continue
       }
       if (shouldForceRestart(this.ctx, entry, now)) {
-        await this.restart(entry.config.id)
+        this.restartInBackground(entry.config.id)
         continue
       }
       if (entry.status === 'backoff' && entry.nextRetryAt !== null && now >= entry.nextRetryAt && entry.retryTimer === null) {

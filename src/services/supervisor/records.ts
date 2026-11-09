@@ -1,3 +1,4 @@
+import type { ProcessBirth, ProcessLiveness } from '#src/providers/port'
 import type { Entry, SupervisorContext } from '#src/services/supervisor/entry'
 import type { ServerOrphan } from '#src/shared/contracts'
 import fs from 'node:fs'
@@ -85,11 +86,28 @@ export function forgetRecordedChild(ctx: SupervisorContext, entry: Entry, pid: n
   ctx.persist(entry)
 }
 
+/** How long an orphan's birth check is trusted before it is read again. */
+const ORPHAN_BIRTH_RECHECK_MS = 15_000
+
+/**
+ * The birth verdicts of earlier scans, keyed by `(pid, startedAt)`. A birth read is a `ps` (or a
+ * PowerShell call on Windows) per pid, and the scan runs every second.
+ */
+export type OrphanLivenessCache = Map<string, { liveness: ProcessLiveness, at: number }>
+
 /**
  * Processes this panel started that no configured entry claims any more (renamed or removed while the
  * panel was down), read from the state directory so an earlier panel's files count too.
+ *
+ * A readdir plus one cheap signal-0 per record each call; the birth check, which costs a process
+ * spawn on macOS and Windows, is cached per `(pid, startedAt)` and repeated only every
+ * `ORPHAN_BIRTH_RECHECK_MS`. A pid that dies is still seen on the next scan.
  */
-export async function scanOrphans(nannyDir: string, owned: (id: string) => boolean): Promise<ServerOrphan[]> {
+export async function scanOrphans(
+  nannyDir: string,
+  owned: (id: string) => boolean,
+  options: { cache?: OrphanLivenessCache, now?: number, readBirth?: (pid: number) => Promise<ProcessBirth | null> } = {},
+): Promise<ServerOrphan[]> {
   let names: string[]
   try {
     names = fs.readdirSync(nannyDir)
@@ -98,6 +116,8 @@ export async function scanOrphans(nannyDir: string, owned: (id: string) => boole
     return []
   }
 
+  const now = options.now ?? Date.now()
+  const seen = new Set<string>()
   const found: ServerOrphan[] = []
   for (const name of names) {
     if (!name.endsWith('.run.json'))
@@ -112,12 +132,33 @@ export async function scanOrphans(nannyDir: string, owned: (id: string) => boole
     const startedAt = state?.lastStartedAt ?? 0
     // A pid born after the record is a stranger, and reporting it would offer a one-click SIGTERM of
     // it. No stamp can only be judged by liveness, and `unknown` counts as alive.
-    const liveness = startedAt > 0
-      ? await processLiveness(pid, startedAt)
-      : (isProcessAlive(pid) ? 'unknown' : 'gone')
+    let liveness: ProcessLiveness
+    if (!isProcessAlive(pid)) {
+      liveness = 'gone'
+    }
+    else if (startedAt <= 0) {
+      liveness = 'unknown'
+    }
+    else {
+      const key = `${pid}:${startedAt}`
+      seen.add(key)
+      const cached = options.cache?.get(key)
+      if (cached !== undefined && now - cached.at < ORPHAN_BIRTH_RECHECK_MS) {
+        liveness = cached.liveness
+      }
+      else {
+        liveness = await processLiveness(pid, startedAt, { readBirth: options.readBirth })
+        options.cache?.set(key, { liveness, at: now })
+      }
+    }
     if (liveness === 'gone' || liveness === 'recycled')
       continue
     found.push({ serverId: id, pid, startedAt: startedAt > 0 ? startedAt : null })
+  }
+  // Only what this scan still saw, so the cache cannot grow past the state directory.
+  for (const key of options.cache?.keys() ?? []) {
+    if (!seen.has(key))
+      options.cache?.delete(key)
   }
   return found
 }

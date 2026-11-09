@@ -13,7 +13,8 @@ const RESOURCE_SAMPLE_INTERVAL_MS = 5000
 
 export interface HealthContext extends SupervisorContext {
   isDisposed: () => boolean
-  restart: (id: string) => Promise<StartResult>
+  /** Starts a restart without waiting for it: the tick must not hold every entry for one stop grace. */
+  restartInBackground: (id: string) => void
   stopEntry: (entry: Entry) => Promise<StartResult>
 }
 
@@ -241,7 +242,7 @@ export async function sampleResources(entries: Iterable<Entry>, sampler: Process
  * The memory ceiling, on whatever the sample carries (summed container RSS for a docker entry). It
  * asks "is there a live process?", not "did we spawn it", so an adopted successor is held to it too.
  */
-export async function enforceMemoryLimit(ctx: HealthContext, entry: Entry): Promise<boolean> {
+export function enforceMemoryLimit(ctx: HealthContext, entry: Entry): boolean {
   const limit = entry.config.resources.maxRssBytes
   const rss = entry.resources?.rssBytes ?? null
   const live = entry.child !== null || (entry.adopted && entry.pid !== null)
@@ -258,7 +259,7 @@ export async function enforceMemoryLimit(ctx: HealthContext, entry: Entry): Prom
   ctx.options.history.record(entry.config.id, { type: 'forced-restart', detail })
   ctx.notify(entry, 'rss', detail)
   entry.pendingRestart = { cause: 'exceeding its memory limit' }
-  await ctx.restart(entry.config.id)
+  ctx.restartInBackground(entry.config.id)
   return true
 }
 
