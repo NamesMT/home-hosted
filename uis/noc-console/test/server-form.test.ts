@@ -1,6 +1,7 @@
 import type { HealthConfig, RestartConfig, ServerDefaults, StopConfig } from '@shared/contracts'
 import type { FieldKey } from '../src/lib/serverForm'
 import { serverPatchSchema } from '@shared/contracts'
+import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { blankSharedForm, FIELD_CATALOG_PARTS, FIELD_SPECS, fieldSpec, FORM_LAYOUT, inheritBaseline, rssBytesFromForm, rssMegabytesFromConfig, SCHEMA_HEALTH, SCHEMA_RESTART, SCHEMA_STOP } from '../src/lib/serverForm'
 
@@ -245,7 +246,7 @@ describe('the MiB round-trip', () => {
    */
   it('produces a resource group the server patch schema accepts', () => {
     const parsed = serverPatchSchema({ resources: { maxRssBytes: rssBytesFromForm('128') } })
-    expect(parsed instanceof Error).toBe(false)
+    expect(parsed).not.toBeInstanceOf(type.errors)
     expect(JSON.stringify(parsed)).toContain('134217728')
   })
 })
