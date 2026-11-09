@@ -19,7 +19,7 @@ import { spawnManaged, terminate, terminatePid } from '#src/providers/process'
 import { dependenciesOf, dependentsOf, orderByDependencies } from '#src/services/dependencies'
 import { LineSplitter, LogBuffer } from '#src/services/log-buffer'
 import { refuseLingeringStack, stopComposeStack } from '#src/services/supervisor/compose'
-import { createEntry, delay, isActive } from '#src/services/supervisor/entry'
+import { createEntry, delay, isActive, isPersistentRun } from '#src/services/supervisor/entry'
 import {
   awaitReadiness,
   endHealthStreak,
@@ -519,10 +519,10 @@ export class Supervisor {
 
     // A persistent entry's server is the nanny's child; a stop the nanny cannot forward (`SIGKILL`,
     // `killGroup: false`) would leave it running, so its pid is read from the state file.
-    const nannyState = entry.config.persistent ? this.persistent.readState(entry.config.id) : null
+    const nannyState = isPersistentRun(entry) ? this.persistent.readState(entry.config.id) : null
 
     // An adopted successor is not our child: same shutdown, signalled by pid.
-    const stopOptions = entry.config.persistent ? nannyStopOptions(entry.config.stop) : entry.config.stop
+    const stopOptions = isPersistentRun(entry) ? nannyStopOptions(entry.config.stop) : entry.config.stop
     const outcome = entry.child === null && entry.pid !== null
       ? await terminatePid(entry.pid, stopOptions)
       : await terminate(entry.child!, stopOptions)
@@ -541,10 +541,10 @@ export class Supervisor {
     }
 
     // A pid that outlived SIGKILL keeps its records and the outcome is not dressed up as "stopped".
-    const survivor = entry.config.persistent && entry.pid !== null && isProcessAlive(entry.pid)
+    const survivor = isPersistentRun(entry) && entry.pid !== null && isProcessAlive(entry.pid)
       ? entry.pid
       : null
-    if (entry.config.persistent)
+    if (isPersistentRun(entry))
       this.persistent.finishStop(entry, survivor)
 
     entry.child = null
@@ -605,7 +605,8 @@ export class Supervisor {
       const bufferChanged = entry.config.logBufferLines !== config.logBufferLines
       // `persistent` takes effect on the next start; what must not linger is the tailer, and what it
       // had not read yet still belongs to this entry.
-      if (entry.config.persistent && !config.persistent)
+      // A live nanny keeps its tailer until its run ends (`finishStop`/`consumeExit` drain it then).
+      if (entry.config.persistent && !config.persistent && entry.runPersistent !== true)
         this.persistent.drain(entry)
       entry.config = config
       if (bufferChanged) {
@@ -635,6 +636,7 @@ export class Supervisor {
    */
   private adoptEntry(entry: Entry, pid: number, reason: string): StartResult {
     entry.adopted = true
+    entry.runPersistent = entry.config.persistent
     entry.pid = pid
     entry.child = null
     entry.status = 'running'
@@ -655,7 +657,7 @@ export class Supervisor {
     if (entry.pid !== null)
       this.sampler.forget(entry.pid)
     // A nanny that vanished while we watched still leaves the real exit behind.
-    if (entry.config.persistent)
+    if (isPersistentRun(entry))
       this.persistent.consumeExit(entry)
     const ranForMs = entry.nannyExit?.runtimeMs ?? (entry.startedAt === null ? 0 : Date.now() - entry.startedAt)
     const detail = entry.nannyExit === null ? 'adopted process exited' : describeNannyExit(entry.nannyExit)
@@ -731,6 +733,7 @@ export class Supervisor {
    */
   private attachChild(entry: Entry, child: ChildProcess, detail: string, cwd: string, flush?: () => void): void {
     entry.child = child
+    entry.runPersistent = entry.config.persistent
     // A new run: whatever an earlier step said no longer describes it, and readiness only acts on `starting`.
     entry.status = 'starting'
     entry.lastError = null
@@ -773,7 +776,7 @@ export class Supervisor {
     if (entry.pid !== null)
       this.sampler.forget(entry.pid)
     // A nanny's own exit code is only a mirror: the state file decides the reason.
-    if (entry.config.persistent)
+    if (isPersistentRun(entry))
       this.persistent.consumeExit(entry)
     const nannyExit = entry.nannyExit
     entry.nannyExit = null

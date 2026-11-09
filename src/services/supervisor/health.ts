@@ -48,6 +48,7 @@ export function endProcessReadings(entry: Entry): void {
   entry.runToken += 1
   entry.pid = null
   entry.adopted = false
+  entry.runPersistent = null
   entry.responseMs = null
   entry.resources = null
   entry.resourcesFromContainers = false

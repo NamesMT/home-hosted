@@ -6,6 +6,7 @@ import process from 'node:process'
 import { clearEntryState, entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { isProcessAlive, processLiveness, terminatePids } from '#src/providers/port'
 import { processCarriesServerId } from '#src/providers/proc'
+import { isPersistentRun } from '#src/services/supervisor/entry'
 
 /** What this entry's own state file says about the child the last panel spawned. */
 export type RecordedChild
@@ -25,8 +26,8 @@ export function persistEntryState(nannyDir: string, entry: Entry): void {
     // Carried, not recomputed: a rewrite without it silently drops a restore's staged load.
     pendingLoad: entry.pendingLoad,
     // A persistent entry's nanny state is already its record; a second one could only disagree.
-    lastPid: entry.config.persistent ? null : entry.lastChild?.pid ?? null,
-    lastStartedAt: entry.config.persistent ? null : entry.lastChild?.startedAt ?? null,
+    lastPid: isPersistentRun(entry) ? null : entry.lastChild?.pid ?? null,
+    lastStartedAt: isPersistentRun(entry) ? null : entry.lastChild?.startedAt ?? null,
   })
 }
 

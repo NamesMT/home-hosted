@@ -934,6 +934,43 @@ describe.skipIf(process.platform === 'win32')('a persistent entry’s stop signa
   }, 20000)
 })
 
+/**
+ * `persistent` takes effect at the next start. A save that turned it off under a running nanny made
+ * the stop treat the nanny as a plain child: it signalled the whole group (the nanny forwarded the
+ * signal again) and skipped the nanny's own teardown, leaving its state file — which the next
+ * persistent start then read as "crashed while the panel was away".
+ */
+describe.skipIf(process.platform === 'win32')('turning persistent off while it runs', () => {
+  it('stops the running nanny as a nanny, and leaves nothing to misreport later', async () => {
+    armRealNannySpawn()
+    const dir = await scratchDir('hh-flip-')
+    const out = path.join(dir, 'signals.txt')
+    const { supervisor, store, history, nannyDir } = await makeSupervisor([{
+      id: 'keep',
+      command: process.execPath,
+      args: ['-e', 'process.on("SIGTERM", () => { require("fs").appendFileSync(process.env.OUT, "TERM\\n"); setTimeout(() => process.exit(0), 300) }); setInterval(() => {}, 1000)'],
+      env: { OUT: out },
+      persistent: true,
+      autostart: false,
+      health: { enabled: false },
+      stop: { signal: 'SIGTERM', killGroup: true, graceMs: 3000 },
+    }])
+
+    expect((await supervisor.start('keep', { actor: 'user' })).ok).toBe(true)
+    await waitForStatus(supervisor, 'keep', 'running')
+    await waitFor(() => supervisor.logLines('keep').some(line => line.text.includes('runs this entry')))
+    await new Promise(resolve => setTimeout(resolve, 500))
+
+    store.updateServer('keep', { persistent: false })
+    expect((await supervisor.stop('keep')).ok).toBe(true)
+    await new Promise(resolve => setTimeout(resolve, 300))
+
+    expect(fs.readFileSync(out, 'utf8'), 'the child got one SIGTERM, as a nanny\'s stop sends').toBe('TERM\n')
+    expect(fs.existsSync(nannyStatePath(nannyDir, 'keep')), 'the nanny\'s teardown ran').toBe(false)
+    expect(history.all().some(event => event.serverId === 'keep' && event.type === 'crash')).toBe(false)
+  }, 20000)
+})
+
 describe('a health probe in flight across a stop', () => {
   it('does not report its verdict against the stopped entry', async () => {
     const port = await freePort()

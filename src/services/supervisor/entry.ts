@@ -84,6 +84,12 @@ export interface Entry {
   probing: boolean
   /** The running process is a detached successor we adopted, not a child we spawned. */
   adopted: boolean
+  /**
+   * Whether the current run is a nanny's, fixed when it begins; null with no run. `persistent` takes
+   * effect at the next start, so a save that flips it must not change how *this* run is stopped,
+   * reaped or recorded. Read it through `isPersistentRun`.
+   */
+  runPersistent: boolean | null
   /** The panel stopped this entry because it could not serve — not the operator. */
   stoppedByPanel: boolean
   /** How a persistent entry's child ended, read from its nanny's state file. */
@@ -167,6 +173,7 @@ export function createEntry(config: ServerConfig, nannyDir: string): Entry {
     lastOccupancyProbeAt: 0,
     probing: false,
     adopted: false,
+    runPersistent: null,
     stoppedByPanel: false,
     nannyExit: null,
     starting: false,
@@ -194,4 +201,9 @@ export function createEntry(config: ServerConfig, nannyDir: string): Entry {
 export function isActive(entry: Entry): boolean {
   // An adopted successor has no child of ours but is running; disabling it must still stop it.
   return entry.child !== null || entry.pid !== null || entry.adopted || entry.status === 'backoff'
+}
+
+/** Whether the run in progress (or, with none, the next one) is a persistent entry's. */
+export function isPersistentRun(entry: Entry): boolean {
+  return entry.runPersistent ?? entry.config.persistent
 }

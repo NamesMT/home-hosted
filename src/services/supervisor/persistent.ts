@@ -181,6 +181,7 @@ export class PersistentEntries {
       return false
     if (alive) {
       entry.adopted = true
+      entry.runPersistent = true
       entry.child = null
       entry.pid = state.nannyPid
       entry.startedAt = state.startedAt
