@@ -10,7 +10,7 @@ import { bearerToken, SESSION_COOKIE } from '#src/services/auth'
  * Endpoints the SPA needs before it can show a login form, plus sign-out: it is idempotent and
  * CSRF-guarded, and a browser whose session already expired must still be able to clear its cookie.
  */
-const PUBLIC_PATHS = new Set(['/api/auth/login', '/api/auth/session', '/api/auth/logout'])
+export const PUBLIC_API_PATHS: ReadonlySet<string> = new Set(['/api/auth/login', '/api/auth/session', '/api/auth/logout'])
 
 /** 401s from the guard carry this code so the SPA can route to the login view. */
 export const AUTH_REQUIRED_CODE = 'AUTH_REQUIRED'
@@ -99,7 +99,7 @@ export function createAuthGuard(deps: AuthGuardDeps): MiddlewareHandler {
         }
       }
 
-      if (!PUBLIC_PATHS.has(path)) {
+      if (!PUBLIC_API_PATHS.has(path)) {
         const identity = requestIdentity(c, deps.auth)
         const refusal = accessRefusal(c, deps.auth, identity)
         if (refusal !== null) {

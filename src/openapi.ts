@@ -2,6 +2,7 @@ import { generateSpecs } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES } from '#src/helpers/openapi'
 import { appVersion } from '#src/helpers/version'
+import { PUBLIC_API_PATHS } from '#src/middleware/auth'
 import { openApiReferencePage } from '#src/openapi-reference'
 
 const PREFIX = '/openapi'
@@ -109,8 +110,8 @@ export function setupOpenAPI(app: Parameters<typeof generateSpecs>[0]) {
     )
 }
 
-/** Routes answered without any credential. */
-const PUBLIC_OPERATIONS = new Set(['/healthz', '/api/auth/login', '/api/auth/session'])
+/** Routes answered without any credential: the guard's own list, plus the liveness probe. */
+const PUBLIC_OPERATIONS = new Set(['/healthz', ...PUBLIC_API_PATHS])
 
 const ERROR_BODY = {
   'application/json': {

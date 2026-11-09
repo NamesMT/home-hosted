@@ -1144,6 +1144,8 @@ describe('openapi document', () => {
 
     expect(spec.paths['/healthz']!.get!.security).toEqual([])
     expect(spec.paths['/api/auth/login']!.post!.security).toEqual([])
+    // Sign-out needs no credential, so an expired session can still clear its cookie.
+    expect(spec.paths['/api/auth/logout']!.post!.security).toEqual([])
     expect(spec.paths['/_hh/shutdown']!.post!.security).toEqual([{ localToken: [] }])
     expect(Object.keys(spec.paths).some(route => route.startsWith('/_acme')), 'internal plumbing is not API').toBe(false)
 
