@@ -8,9 +8,10 @@ import { Utf8Chunks } from '#src/helpers/utf8-chunks'
  *
  * The panel is not the writer here, so the reader has to survive the two things a
  * writer does on its own: rotation (a renamed file next to a fresh one) and
- * truncation. Both are detected by comparing the file's identity and size against
- * the position last read, and every poll reads to EOF so a rotation never strands
- * bytes in the file it left behind.
+ * truncation. The tailer holds the file it is reading open, so a rotation renames
+ * that file away from under the path but not from under the tailer: the old file is
+ * drained to EOF through its descriptor before the new one is opened, and the bytes
+ * written between the last poll and the rename are still relayed.
  */
 
 /** One poll reads at most this much, so a burst cannot stall the tick. */
@@ -34,20 +35,21 @@ const MAX_CARRY_CHARS = 1024 * 1024
 
 const LOG_STREAMS = new Set(['stdout', 'stderr', 'system'])
 
+/** `ino` is 0 on some Windows filesystems; the birth time identifies the file there. */
+function identityOf(stats: fs.Stats): number {
+  return stats.ino === 0 ? stats.birthtimeMs : stats.ino
+}
+
 export class LogTailer {
   private offset = 0
   private identity: number | null = null
+  /** The file being read, held open so a rotation cannot take its unread tail away. */
+  private fd: number | null = null
   private carry = ''
   /** The file is one byte stream: a read budget can end inside a multibyte character. */
   private readonly decoder = new Utf8Chunks()
 
   constructor(private readonly file: string) {}
-
-  /** Forget a half-seen line (and character): the bytes that would complete it are gone. */
-  private dropCarry(): void {
-    this.carry = ''
-    this.decoder.reset()
-  }
 
   /** Bytes consumed so far; equal to the file size once it has been drained. */
   get position(): number {
@@ -56,9 +58,23 @@ export class LogTailer {
 
   /** Start from the beginning again — used when a fresh process takes the entry over. */
   reset(): void {
+    this.close()
     this.offset = 0
     this.identity = null
     this.dropCarry()
+  }
+
+  /** Releases the descriptor. A later `read()` reopens the path. */
+  close(): void {
+    if (this.fd === null)
+      return
+    try {
+      fs.closeSync(this.fd)
+    }
+    catch {
+      // Already closed.
+    }
+    this.fd = null
   }
 
   /**
@@ -71,28 +87,10 @@ export class LogTailer {
    * does not delegate to `LogFiles.readTail()`, which knows nothing of this position.
    */
   readTailLines(count: number): LogLine[] {
-    let stats: fs.Stats
-    try {
-      stats = fs.statSync(this.file)
-    }
-    catch {
+    const size = this.attachAtEnd()
+    if (this.fd === null || size === 0 || count <= 0)
       return []
-    }
-
-    const size = stats.size
-    this.dropCarry()
-    this.offset = size
-    this.identity = stats.ino === 0 ? stats.birthtimeMs : stats.ino
-    if (size === 0 || count <= 0)
-      return []
-
-    let handle: number
-    try {
-      handle = fs.openSync(this.file, 'r')
-    }
-    catch {
-      return []
-    }
+    const handle = this.fd
 
     try {
       let window = Math.min(size, BACKFILL_INITIAL_BYTES)
@@ -129,87 +127,142 @@ export class LogTailer {
     catch {
       return []
     }
-    finally {
-      fs.closeSync(handle)
-    }
   }
 
   /**
    * Ignore what is already in the file and follow it from here.
    */
   skipToEnd(): void {
-    this.dropCarry()
-    try {
-      const stats = fs.statSync(this.file)
-      this.offset = stats.size
-      this.identity = stats.ino === 0 ? stats.birthtimeMs : stats.ino
-    }
-    catch {
-      this.offset = 0
-      this.identity = null
-    }
+    this.attachAtEnd()
   }
 
   /** Every complete line written since the previous call. */
   read(): LogLine[] {
-    let stats: fs.Stats
-    try {
-      stats = fs.statSync(this.file)
-    }
-    catch {
-      // Not created yet, or rotated away between the two syscalls.
-      return []
-    }
-
-    // `ino` is 0 on some Windows filesystems; the birth time identifies the file there.
-    const identity = stats.ino === 0 ? stats.birthtimeMs : stats.ino
-    if (this.identity !== null && (identity !== this.identity || stats.size < this.offset)) {
-      this.dropCarry()
-      this.offset = 0
-    }
-    this.identity = identity
-
-    if (stats.size <= this.offset)
-      return []
-
     const lines: LogLine[] = []
-    let handle: number
-    try {
-      handle = fs.openSync(this.file, 'r')
-    }
-    catch {
-      return []
-    }
+    if (this.fd === null && !this.openPath())
+      return lines
 
+    // A poll consumes at most `MAX_BYTES_PER_READ`, which is what the constant promises: `LogRelay`
+    // calls this every 250 ms, and draining a whole backlog in one synchronous call stalled the
+    // event loop for the entire catch-up. The remainder waits for the next poll.
+    let budget = MAX_BYTES_PER_READ
     try {
-      // A poll consumes at most `MAX_BYTES_PER_READ`, which is what the constant promises. Sizing the
-      // buffer is not enough: refilling it in a loop until EOF drained a whole backlog in one
-      // synchronous call, and `LogRelay` calls this every 250 ms — so a server flooding its log while
-      // the panel was busy stalled the event loop for the entire catch-up. The remainder waits for the
-      // next poll, which is 250 ms away.
-      const budget = Math.min(MAX_BYTES_PER_READ, stats.size - this.offset)
-      const buffer = Buffer.alloc(budget)
-      let consumed = 0
-      while (consumed < budget && this.offset < stats.size) {
-        const length = Math.min(buffer.length, budget - consumed, stats.size - this.offset)
-        const bytes = fs.readSync(handle, buffer, 0, length, this.offset)
-        if (bytes <= 0)
-          break
-        this.offset += bytes
-        consumed += bytes
-        this.consume(this.decoder.write(buffer.subarray(0, bytes)), lines)
-        if (bytes < length)
-          break
-      }
+      budget -= this.drain(budget, lines)
+
+      // The path names another file now: the writer rotated. Only once the old one is read to its
+      // end — the writer has moved on, so that end is final — does the tailer switch to the new one.
+      if (this.fd !== null && this.pathReplaced() && this.drained() && this.openPath(true))
+        this.drain(budget, lines)
     }
     catch {
       // A file replaced mid-read is picked up by the next poll.
     }
-    finally {
-      fs.closeSync(handle)
-    }
 
     return lines
+  }
+
+  /** Opens the path and moves to its end, dropping anything held from an earlier file. */
+  private attachAtEnd(): number {
+    this.close()
+    this.dropCarry()
+    this.offset = 0
+    this.identity = null
+    if (!this.openPath())
+      return 0
+    try {
+      this.offset = fs.fstatSync(this.fd!).size
+    }
+    catch {
+      this.close()
+    }
+    return this.offset
+  }
+
+  /**
+   * Opens whatever the path names now. A file other than the one last read starts at 0;
+   * reopening the same one (after `close()`) keeps the position. `replaced` says the caller
+   * already knows it is another file, whatever its identity reads.
+   */
+  private openPath(replaced = false): boolean {
+    let fd: number
+    try {
+      fd = fs.openSync(this.file, 'r')
+    }
+    catch {
+      // Not created yet, or between a rename and the next write.
+      return false
+    }
+    let identity: number
+    try {
+      identity = identityOf(fs.fstatSync(fd))
+    }
+    catch {
+      fs.closeSync(fd)
+      return false
+    }
+    this.close()
+    if (replaced || (this.identity !== null && identity !== this.identity)) {
+      this.offset = 0
+      this.dropCarry()
+    }
+    this.identity = identity
+    this.fd = fd
+    return true
+  }
+
+  /**
+   * Whether the path now names a different file than the open descriptor — or none.
+   *
+   * Identity alone is not trusted: where `ino` is 0 the birth time stands in for it and can
+   * collide, so a path *smaller* than the open file (stat'd after it, so a same-file reading can
+   * only be larger) is a different file too.
+   */
+  private pathReplaced(): boolean {
+    const held = fs.fstatSync(this.fd!)
+    let current: fs.Stats
+    try {
+      current = fs.statSync(this.file)
+    }
+    catch {
+      return true
+    }
+    return identityOf(current) !== identityOf(held) || current.size < held.size
+  }
+
+  private drained(): boolean {
+    return this.offset >= fs.fstatSync(this.fd!).size
+  }
+
+  /** Reads the open file from `offset` towards its end, up to `budget` bytes; returns bytes read. */
+  private drain(budget: number, lines: LogLine[]): number {
+    const fd = this.fd!
+    const size = fs.fstatSync(fd).size
+    if (size < this.offset) {
+      // Truncated in place: start over on the same file.
+      this.offset = 0
+      this.dropCarry()
+    }
+    const want = Math.min(budget, size - this.offset)
+    if (want <= 0)
+      return 0
+
+    const buffer = Buffer.alloc(want)
+    let consumed = 0
+    while (consumed < want) {
+      const bytes = fs.readSync(fd, buffer, 0, want - consumed, this.offset)
+      if (bytes <= 0)
+        break
+      this.offset += bytes
+      consumed += bytes
+      this.consume(this.decoder.write(buffer.subarray(0, bytes)), lines)
+    }
+    return consumed
+  }
+
+  /** Forget a half-seen line (and character): the bytes that would complete it are gone. */
+  private dropCarry(): void {
+    this.carry = ''
+    this.decoder.reset()
   }
 
   private consume(text: string, lines: LogLine[]): void {

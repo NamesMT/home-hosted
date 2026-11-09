@@ -22,6 +22,12 @@ async function tempFile(): Promise<string> {
   return path.join(dir, 'x.log')
 }
 
+/** A tailer holds its file open; Windows cannot remove the directory until it lets go. */
+function track(tailer: LogTailer): LogTailer {
+  cleanups.push(() => tailer.close())
+  return tailer
+}
+
 function line(text: string, stream = 'stdout'): string {
   return `${JSON.stringify({ ts: 1, stream, text })}\n`
 }
@@ -29,7 +35,7 @@ function line(text: string, stream = 'stdout'): string {
 describe('logTailer', () => {
   it('returns only complete lines, and completes a half-written one on the next read', async () => {
     const file = await tempFile()
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
 
     fs.writeFileSync(file, line('one'))
     expect(tailer.read().map(entry => entry.text)).toEqual(['one'])
@@ -44,7 +50,7 @@ describe('logTailer', () => {
 
   it('follows a rotation into the new file without losing the old tail', async () => {
     const file = await tempFile()
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
 
     fs.writeFileSync(file, line('before'))
     expect(tailer.read().map(entry => entry.text)).toEqual(['before'])
@@ -54,9 +60,49 @@ describe('logTailer', () => {
     expect(tailer.read().map(entry => entry.text)).toEqual(['after'])
   })
 
+  /**
+   * The writer rotates between two polls: whatever it appended to the old file since the last
+   * read is in `.1` now, and jumping straight to the new file's start never relayed it.
+   */
+  it('drains what the old file gained before it was rotated', async () => {
+    const file = await tempFile()
+    const tailer = track(new LogTailer(file))
+
+    fs.writeFileSync(file, line('before'))
+    expect(tailer.read().map(entry => entry.text)).toEqual(['before'])
+
+    fs.appendFileSync(file, line('late in the old file'))
+    fs.renameSync(file, `${file}.1`)
+    fs.writeFileSync(file, line('after'))
+    expect(tailer.read().map(entry => entry.text)).toEqual(['late in the old file', 'after'])
+  })
+
+  it('drains an old-file backlog larger than one poll before switching', async () => {
+    const file = await tempFile()
+    const tailer = track(new LogTailer(file))
+
+    fs.writeFileSync(file, line('start'))
+    tailer.read()
+
+    // ~600 KB: more than two polls' budget, all written before the rotation.
+    const backlog = Array.from({ length: 3000 }, (_, index) => line(`old-${index}-${'x'.repeat(180)}`))
+    fs.appendFileSync(file, backlog.join(''))
+    fs.renameSync(file, `${file}.1`)
+    fs.writeFileSync(file, line('new-0'))
+
+    const seen: string[] = []
+    for (let poll = 0; poll < 10; poll++)
+      seen.push(...tailer.read().map(entry => entry.text))
+
+    expect(seen).toHaveLength(3001)
+    expect(seen.slice(0, 2)).toEqual([`old-0-${'x'.repeat(180)}`, `old-1-${'x'.repeat(180)}`])
+    expect(seen.at(-2)).toBe(`old-2999-${'x'.repeat(180)}`)
+    expect(seen.at(-1)).toBe('new-0')
+  })
+
   it('starts over when the file is truncated under it', async () => {
     const file = await tempFile()
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
 
     fs.writeFileSync(file, line('gone-away'))
     expect(tailer.read().map(entry => entry.text)).toEqual(['gone-away'])
@@ -74,7 +120,7 @@ describe('logTailer', () => {
     const text = `${filler}€€€`
     fs.writeFileSync(file, `${prefix}${text}"}\n${line('after €')}`)
 
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     const lines = [...tailer.read(), ...tailer.read()]
     expect(lines.map(entry => entry.text)).toEqual([text, 'after €'])
   })
@@ -83,7 +129,7 @@ describe('logTailer', () => {
     const file = await tempFile()
     fs.writeFileSync(file, line('old'))
 
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     tailer.skipToEnd()
     expect(tailer.read()).toEqual([])
 
@@ -95,7 +141,7 @@ describe('logTailer', () => {
     const file = await tempFile()
     fs.writeFileSync(file, line('one') + line('two') + line('three'))
 
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     expect(tailer.readTailLines(2).map(entry => entry.text)).toEqual(['two', 'three'])
     // The offset moved with the backfill: those two are history, not news.
     expect(tailer.read()).toEqual([])
@@ -106,7 +152,7 @@ describe('logTailer', () => {
 
   it('ignores a file that is not there yet, and a line that is not ours', async () => {
     const file = await tempFile()
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     expect(tailer.read()).toEqual([])
 
     fs.writeFileSync(file, `not json\n${line('fine', 'stderr')}`)
@@ -124,7 +170,7 @@ describe('logTailer', () => {
     // the truncation asserting itself: the request is for five. The window now grows until it
     // has them, so the answer is all five — and the first is still not lost to the boundary.
     const file = await tempFile()
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     const exactLine = (marker: string, bytes: number): string => {
       const empty = `${JSON.stringify({ ts: 1, stream: 'stdout', text: marker })}\n`
       const pad = bytes - Buffer.byteLength(empty)
@@ -145,7 +191,7 @@ describe('logTailer', () => {
     // blank — and then `slice(1)` removed the first *real* line behind it. Filtering
     // has to happen after the fragment is dropped, not before.
     const file = await tempFile()
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     fs.writeFileSync(file, `${' '.repeat(300_000)}\n${line('one')}${line('two')}`)
 
     const backfill = tailer.readTailLines(10)
@@ -164,7 +210,7 @@ describe('logTailer', () => {
 describe('a backfill with long lines', () => {
   it('returns every line asked for, oldest first', async () => {
     const file = await tempFile()
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     const body = Array.from({ length: 2000 }, (_, i) =>
       `${JSON.stringify({ ts: 1_700_000_000_000 + i, stream: 'stdout', text: `long output ${i} ${'x'.repeat(1400)}` })}\n`).join('')
     fs.writeFileSync(file, body)
@@ -178,7 +224,7 @@ describe('a backfill with long lines', () => {
 
   it('still returns everything a short log holds, without inventing lines', async () => {
     const file = await tempFile()
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     fs.writeFileSync(file, `${JSON.stringify({ ts: 1, stream: 'stdout', text: 'only' })}\n`)
 
     expect(tailer.readTailLines(200)).toHaveLength(1)
@@ -206,7 +252,7 @@ describe('log tailer read bound', () => {
     const content = line.repeat(Math.ceil(total / line.length))
     await fs.promises.writeFile(file, content)
 
-    const tailer = new LogTailer(file)
+    const tailer = track(new LogTailer(file))
     const first = tailer.read()
 
     expect(first.length, 'a first read must return lines').toBeGreaterThan(0)

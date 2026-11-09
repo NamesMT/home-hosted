@@ -47,6 +47,7 @@ export class LogRelay {
     if (current !== undefined && current.file === file)
       return []
 
+    current?.tailer.close()
     const tailer = new LogTailer(file)
     const backfill = options.backfill ?? 0
     const history = backfill > 0 ? tailer.readTailLines(backfill) : []
@@ -69,6 +70,8 @@ export class LogRelay {
   unfollow(serverId: string): LogLine[] {
     const current = this.followed.get(serverId)
     const rest = current === undefined ? [] : current.tailer.read()
+    // The tailer holds its file open; on Windows that would keep a deleted name in place.
+    current?.tailer.close()
     this.followed.delete(serverId)
     if (this.followed.size === 0)
       this.stopTimer()
@@ -81,6 +84,7 @@ export class LogRelay {
 
   dispose(): void {
     this.closed = true
+    for (const { tailer } of this.followed.values()) tailer.close()
     this.followed.clear()
     this.stopTimer()
   }
