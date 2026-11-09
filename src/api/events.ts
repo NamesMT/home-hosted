@@ -2,17 +2,15 @@ import type { AppDeps } from '#src/app'
 import type { SseMessage } from '#src/shared/contracts'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
-import { streamSSE } from 'hono/streaming'
+import { serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
-import { frameKey, sseChannel } from '#src/helpers/sse'
 import { validate } from '#src/helpers/validator'
+import { requireWorkspace } from '#src/helpers/workspace'
 import { serverKey } from '#src/services/events'
 import { lazy } from '#src/shared/lazy'
 
-const PING_INTERVAL_MS = 15000
-
 const eventsQuery = lazy(() => type({
-  /** Only this server's frames. */
+  /** Only this server's frames — in `workspace`, or the default workspace when that is omitted. */
   'serverId?': 'string',
   /** Only this workspace's server and log frames. */
   'workspace?': 'string',
@@ -22,7 +20,8 @@ const eventsQuery = lazy(() => type({
 
 /**
  * One SSE stream per subscriber. `?workspace=<id>` narrows server and log frames to one workspace,
- * `&serverId=<id>` to one server; the first frame always carries the full state snapshot.
+ * `&serverId=<id>` to one server of it (of the default workspace when none is named); the first frame
+ * always carries the full state snapshot.
  */
 export function createEventsRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -37,44 +36,25 @@ export function createEventsRoute(deps: AppDeps) {
       (c) => {
         const query = c.req.valid('query')
         const serverId = query.serverId ?? null
-        const workspaceId = query.workspace ?? null
         const includeLogs = query.logs !== '0'
 
-        return streamSSE(c, async (stream) => {
-          const channel = sseChannel(stream)
-          const send = (message: SseMessage): void => {
-            channel.send(message.type, JSON.stringify(message), { key: frameKey(message), droppable: message.type === 'log' })
-          }
+        // A server id is unique only inside its workspace, so naming one without a workspace means
+        // the default workspace — the rule every other workspace-scoped route follows — never "any".
+        const workspaceId = serverId === null ? query.workspace ?? null : requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), query.workspace).id
 
-          // A named workspace scopes the subscription to one `workspaceId/serverId`;
-          // a bare id keeps working but can only be filtered, because the same id may
-          // exist in several workspaces.
-          const subscription = workspaceId !== null && serverId !== null
-            ? serverKey(workspaceId, serverId)
-            : null
+        return serveEventStream(c, deps.auth, (send) => {
+          const subscription = workspaceId !== null && serverId !== null ? serverKey(workspaceId, serverId) : null
           const unsubscribe = deps.hub.subscribe(subscription, (message) => {
             if (!includeLogs && message.type === 'log')
-              return
-            // A state frame carries no server, so a single-server subscription skips it too.
-            if (subscription === null && serverId !== null && (!('serverId' in message) || message.serverId !== serverId))
               return
             // `?workspace=` alone narrows server and log frames; state frames are panel-wide.
             if (subscription === null && workspaceId !== null && 'workspaceId' in message && message.workspaceId !== workspaceId)
               return
             send(message)
           })
-
-          stream.onAbort(() => {
-            channel.close()
-            unsubscribe()
-          })
-
-          send({ type: 'hello', ts: Date.now(), state: deps.panel.getState() })
-
-          while (!channel.closed) {
-            await stream.sleep(PING_INTERVAL_MS)
-            channel.send('ping', String(Date.now()), { key: 'ping' })
-          }
+          const hello: SseMessage = { type: 'hello', ts: Date.now(), state: deps.panel.getState() }
+          send(hello)
+          return unsubscribe
         })
       },
     )

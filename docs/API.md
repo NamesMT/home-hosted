@@ -123,12 +123,19 @@ reads it with a streaming `fetch` and the bearer header.
 | `log` | `{ ts, workspaceId, serverId, lines }` — new output |
 | `ping` | the time, every 15 s |
 
+A stream is authorised when it opens **and** re-checked on every ping and whenever credentials
+change (sign-out, a password set, changed or cleared, the token rotated, auth settings saved): once
+the caller would no longer be let in, the panel ends the stream, and the reconnect meets the usual
+`401`. The re-check does not count as activity, so an open stream does not keep an idle session
+alive.
+
 `state.settingsError` is `{ message, path }` while the panel-wide `settings.json` cannot be applied
 (the running settings are kept), `null` when it is fine, and absent on an older panel. A workspace's
 own config problem is `configError` on that workspace.
 
 Query: `?workspace=<id>` narrows `server`/`log` frames to one workspace, `&serverId=<id>` to one
-server, `?logs=0` drops log frames. A slow client never makes the panel buffer without bound: queued
+server of it — of the **default** workspace when `workspace` is omitted, since ids repeat across
+workspaces (an unknown workspace is `404`) — and `?logs=0` drops log frames. A slow client never makes the panel buffer without bound: queued
 `state` and `server` frames are replaced by newer ones, and log frames are dropped once too many are
 waiting — so treat every snapshot as complete, and logs as best-effort (the log routes have the
 full history).

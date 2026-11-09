@@ -1,14 +1,14 @@
 import type { AppDeps } from '#src/app'
+import type { StreamFrame } from '#src/helpers/event-stream'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
-import { streamSSE } from 'hono/streaming'
 import { ConfigError } from '#src/config/store'
 import { actionAnswer, actionCode, statusForAction, unknownServerError } from '#src/helpers/action-result'
 import { configFailure } from '#src/helpers/error'
+import { serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
-import { frameKey, sseChannel } from '#src/helpers/sse'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
@@ -229,26 +229,12 @@ export function createServersRoute(deps: AppDeps) {
         if (!runtime.store.getServer(id))
           throw unknownServerError(id)
 
-        return streamSSE(c, async (stream) => {
-          const channel = sseChannel(stream)
-          const send = (message: { type: string, workspaceId?: string, serverId?: string }): void => {
-            channel.send(message.type, JSON.stringify(message), { key: frameKey(message), droppable: message.type === 'log' })
-          }
-
+        return serveEventStream(c, deps.auth, (send) => {
           const unsubscribe = deps.hub.subscribe(serverKey(runtime.id, id), send)
-          stream.onAbort(() => {
-            channel.close()
-            unsubscribe()
-          })
-
           const server = runtime.supervisor.views().find(entry => entry.id === id)
-          send({ type: 'server', ts: Date.now(), workspaceId: runtime.id, serverId: id, server } as never)
-          send({ type: 'log', ts: Date.now(), workspaceId: runtime.id, serverId: id, lines: runtime.supervisor.logLines(id, 200) } as never)
-
-          while (!channel.closed) {
-            await stream.sleep(15000)
-            channel.send('ping', String(Date.now()), { key: 'ping' })
-          }
+          send({ type: 'server', ts: Date.now(), workspaceId: runtime.id, serverId: id, server } as StreamFrame)
+          send({ type: 'log', ts: Date.now(), workspaceId: runtime.id, serverId: id, lines: runtime.supervisor.logLines(id, 200) } as StreamFrame)
+          return unsubscribe
         })
       },
     )

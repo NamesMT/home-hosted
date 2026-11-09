@@ -1542,6 +1542,114 @@ describe('panel event stream', () => {
     expect(rest).not.toContain('not mine')
   })
 
+  /** Reads until the server ends the stream; true when it did within the deadline. */
+  async function streamEnds(reader: ReadableStreamDefaultReader<Uint8Array>, timeoutMs = 1500): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const chunk = await Promise.race([
+        reader.read(),
+        new Promise<null>(resolve => setTimeout(resolve, Math.max(1, deadline - Date.now()), null)),
+      ])
+      if (chunk === null)
+        return false
+      if (chunk.done)
+        return true
+    }
+    return false
+  }
+
+  /**
+   * The guard only sees the request that opens a stream. Without a re-check, a stream opened before a
+   * sign-out or a password change kept delivering every frame and log line for as long as it stayed
+   * connected.
+   */
+  it.each(['/api/events', '/api/servers/web/stream'])('ends %s when its session signs out', async (url) => {
+    const created = await fixture({ password: 'correct horse', servers: [{ id: 'web', command: 'node' }], views: [makeView('web')] })
+    const cookie = await signIn(created, 'correct horse')
+    const response = await created.app.request(url, { headers: { cookie } })
+    expect(response.status).toBe(200)
+    const reader = response.body!.getReader()
+    await readFrames(reader, new TextDecoder(), '', text => text.includes('event: '), 2000)
+
+    const logout = await created.app.request('/api/auth/logout', { method: 'POST', headers: { cookie } })
+    expect(logout.status).toBe(200)
+    expect(await streamEnds(reader)).toBe(true)
+  })
+
+  it('ends a stream when the password changes, but not the one that changed it', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const other = await signIn(created, 'correct horse')
+    const mine = await signIn(created, 'correct horse')
+    const otherStream = (await created.app.request('/api/events', { headers: { cookie: other } })).body!.getReader()
+    const myStream = (await created.app.request('/api/events', { headers: { cookie: mine } })).body!.getReader()
+    await readFrames(otherStream, new TextDecoder(), '', text => text.includes('event: hello'), 2000)
+    await readFrames(myStream, new TextDecoder(), '', text => text.includes('event: hello'), 2000)
+
+    const changed = await created.app.request('/api/auth/password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'cookie': mine },
+      body: JSON.stringify({ currentPassword: 'correct horse', newPassword: 'battery staple' }),
+    })
+    expect(changed.status).toBe(200)
+    expect(await streamEnds(otherStream)).toBe(true)
+    expect(await streamEnds(myStream, 300)).toBe(false)
+    await myStream.cancel().catch(() => {})
+  })
+
+  /** A change the panel is not told about — the CLI rewriting the password file — is caught on the next ping. */
+  it('ends a stream on the next ping once its credential stopped being valid', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const cookie = await signIn(created, 'correct horse')
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    let reader: ReadableStreamDefaultReader<Uint8Array>
+    try {
+      reader = (await created.app.request('/api/events', { headers: { cookie } })).body!.getReader()
+      const first = await reader.read()
+      expect(new TextDecoder().decode(first.value)).toContain('event: hello')
+
+      // `set-password` in another process: same file, no notification to this one.
+      vi.advanceTimersByTime(5)
+      new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setPassword('rotated elsewhere')
+      await vi.advanceTimersByTimeAsync(15_000)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+    expect(await streamEnds(reader)).toBe(true)
+  })
+
+  it('does not keep an idle session alive by re-checking it', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const cookie = await signIn(created, 'correct horse')
+    const token = cookie.split('=')[1]!
+    const before = created.auth.validate(token, { slide: false })!.expiresAt
+    const reader = (await created.app.request('/api/events', { headers: { cookie } })).body!.getReader()
+    await readFrames(reader, new TextDecoder(), '', text => text.includes('event: hello'), 2000)
+    const opened = created.auth.validate(token, { slide: false })!.expiresAt
+
+    created.auth.notifyCredentialsChanged()
+    expect(created.auth.validate(token, { slide: false })!.expiresAt).toBe(opened)
+    expect(opened).toBeGreaterThanOrEqual(before)
+    await reader.cancel().catch(() => {})
+  })
+
+  /** Server ids repeat across workspaces: a bare `serverId` means the default workspace's server, never both. */
+  it('scopes ?serverId= without ?workspace= to the default workspace', async () => {
+    const created = await fixture({ workspaces: [{ id: 'staging' }], views: [makeView('web')] })
+    const reader = (await created.app.request('/api/events?serverId=web')).body!.getReader()
+    const decoder = new TextDecoder()
+    const hello = await readFrames(reader, decoder, '', text => text.includes('event: hello'), 2000)
+
+    created.hub.publish({ type: 'log', ts: Date.now(), workspaceId: 'staging', serverId: 'web', lines: [{ ts: 1, stream: 'stdout', text: 'staging line' }] })
+    created.hub.publish({ type: 'log', ts: Date.now(), workspaceId: created.defaultId, serverId: 'web', lines: [{ ts: 1, stream: 'stdout', text: 'default line' }] })
+    const rest = await readFrames(reader, decoder, hello, text => text.includes('default line'))
+    await reader.cancel().catch(() => {})
+    expect(rest).toContain('default line')
+    expect(rest).not.toContain('staging line')
+
+    expect((await created.app.request('/api/events?serverId=web&workspace=nope')).status).toBe(404)
+  })
+
   it('forwards log frames by default', async () => {
     const created = await fixture({ views: [makeView('web')] })
     const response = await created.app.request('/api/events')

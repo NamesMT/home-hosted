@@ -161,6 +161,7 @@ export function createAuthRoute(deps: AppDeps) {
         requireSession(c, deps, 'generating an API token')
         const token = generateApiToken()
         deps.secrets.setApiToken(token)
+        deps.auth.notifyCredentialsChanged()
         return c.json({ token, hint: deps.secrets.apiTokenHint ?? token.slice(0, 8) })
       },
     )
@@ -180,6 +181,7 @@ export function createAuthRoute(deps: AppDeps) {
       (c) => {
         requireSession(c, deps, 'revoking an API token')
         deps.secrets.clearApiToken()
+        deps.auth.notifyCredentialsChanged()
         return c.json({ ok: true })
       },
     )

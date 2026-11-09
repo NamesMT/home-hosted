@@ -158,6 +158,10 @@ export function createSettingsRoute(deps: AppDeps) {
         throw error
       }
 
+      // Who may use the panel can change with `auth` (on/off, session lifetime): open streams re-ask.
+      if (patch.control?.auth !== undefined)
+        deps.auth.notifyCredentialsChanged()
+
       const next = settings.control
       const endpointChanged = next.host !== deps.controlServer.endpoint.host || next.port !== deps.controlServer.endpoint.port
       const proxyChanged = next.auth.trustProxy !== previous.trustProxy
