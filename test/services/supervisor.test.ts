@@ -127,6 +127,40 @@ describe('supervisor', () => {
     expect(staged, 'the pending load must be cleared once it is known it cannot run').toBe(1)
   })
 
+  /**
+   * A stop before the port answers keeps the dump staged instead of loading into nothing.
+   *
+   * The readiness wait ended on `stopped` and then ran the hook anyway, against a dead server, after
+   * clearing `pendingLoad` — so the restored data was never loaded.
+   */
+  it('keeps a staged dump when the entry stops before it is ready', async () => {
+    const port = await freePort()
+    const marker = path.join(await scratchDir('hh-load5-'), 'loaded.txt')
+    const dumpDir = await scratchDir('hh-dump5-')
+    const { supervisor } = await makeSupervisor([{
+      ...httpServerConfig(port),
+      // Binds only after 2 s, so the stop lands while the load is still waiting.
+      args: ['-e', 'setTimeout(()=>require("node:http").createServer((q,s)=>s.end("ok")).listen(Number(process.env.PORT),"127.0.0.1"),2000)'],
+      load: {
+        command: process.execPath,
+        args: ['-e', `require("node:fs").appendFileSync(${JSON.stringify(marker)}, "run\\n")`, '{dumpDir}'],
+        timeoutMs: 10_000,
+      },
+    }])
+
+    supervisor.stagePendingLoad('web', dumpDir)
+    await supervisor.start('web')
+    await new Promise(resolve => setTimeout(resolve, 300))
+    await supervisor.stop('web')
+    await waitFor(() => supervisor.logLines('web').some(line => line.text.includes('waits for the next start')), 10_000)
+    expect(fs.existsSync(marker), 'no load may run against a stopped server').toBe(false)
+
+    // Still staged: the next start loads it once the port answers.
+    await supervisor.start('web')
+    await waitFor(() => fs.existsSync(marker), 15_000)
+    expect(fs.readFileSync(marker, 'utf8').trim().split('\n')).toHaveLength(1)
+  })
+
   it('runs a staged load once the entry is up, and clears it', async () => {
     const port = await freePort()
     const marker = path.join(await scratchDir('hh-load-'), 'loaded.txt')
