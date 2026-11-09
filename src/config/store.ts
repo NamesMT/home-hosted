@@ -27,7 +27,7 @@ import {
   workspaceSettingsSchema,
 } from '#src/config/schema'
 import { SEED_SERVERS_FILE, SEED_WORKSPACE_SETTINGS } from '#src/config/seed'
-import { changedOnDisk, ConfigError, fileMovedSince } from '#src/config/settings'
+import { assertSaveable, ConfigError } from '#src/config/settings'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { validateDdnsConfig } from '#src/providers/ddns'
@@ -81,8 +81,15 @@ export class WorkspaceStore {
   private rawServers: Record<string, unknown> = {}
   private liveSettings: unknown = null
   private liveServers: unknown = null
-  private lastSettingsText: string | null = null
-  private lastServersText: string | null = null
+  /** The bytes behind `liveSettings`/`liveServers`: the last revision that parsed. */
+  private liveSettingsText: string | null = null
+  private liveServersText: string | null = null
+  /** The bytes behind `rawSettings`/`rawServers`, the objects a save patches: what a save may replace. */
+  private trustedSettingsText: string | null = null
+  private trustedServersText: string | null = null
+  /** The bytes last looked at, so an unchanged file (ours, or a broken edit) is not re-read. */
+  private seenSettingsText: string | null = null
+  private seenServersText: string | null = null
   private resolvedConfig!: ResolvedWorkspaceConfig
   /** A JSON parse failure, kept apart from a schema problem so `apply()` cannot clear it. */
   private settingsParseError: string | null = null
@@ -227,16 +234,16 @@ export class WorkspaceStore {
 
     for (const side of ['settings', 'servers'] as const) {
       const read = side === 'settings' ? settings : servers
-      const lastText = side === 'settings' ? this.lastSettingsText : this.lastServersText
+      const seen = side === 'settings' ? this.seenSettingsText : this.seenServersText
       const file = side === 'settings' ? this.settingsFile : this.serversFile
 
-      if (read.text !== lastText) {
-        changed = true
-        if (side === 'settings')
-          this.lastSettingsText = read.text
-        else
-          this.lastServersText = read.text
-      }
+      if (read.text === seen)
+        continue
+      changed = true
+      if (side === 'settings')
+        this.seenSettingsText = read.text
+      else
+        this.seenServersText = read.text
 
       if (read.parseError !== null) {
         const message = `cannot parse ${path.basename(file)}: ${read.parseError}`
@@ -244,21 +251,21 @@ export class WorkspaceStore {
           this.settingsParseError = message
         else
           this.serversParseError = message
-        // The live/raw values stay on the last trusted read.
+        // The live/raw values — and the bytes a save may replace — stay on the last trusted read.
         continue
       }
 
-      if (read.text !== lastText) {
-        if (side === 'settings') {
-          this.settingsParseError = null
-          this.liveSettings = read.parsed
-        }
-        else {
-          this.serversParseError = null
-          this.liveServers = read.parsed
-        }
-        applied = true
+      if (side === 'settings') {
+        this.settingsParseError = null
+        this.liveSettings = read.parsed
+        this.liveSettingsText = read.text
       }
+      else {
+        this.serversParseError = null
+        this.liveServers = read.parsed
+        this.liveServersText = read.text
+      }
+      applied = true
     }
 
     if (!changed && !applied && this.configError === null)
@@ -295,16 +302,18 @@ export class WorkspaceStore {
       servers = { text, parsed: seed, missing: false, parseError: null }
     }
 
-    this.lastSettingsText = settings.text
-    this.lastServersText = servers.text
-    this.liveSettings = settings.parsed
-    this.liveServers = servers.parsed
+    this.seenSettingsText = settings.text
+    this.seenServersText = servers.text
     this.settingsParseError = settings.parseError === null ? null : `cannot parse ${path.basename(this.settingsFile)}: ${settings.parseError}`
     this.serversParseError = servers.parseError === null ? null : `cannot parse ${path.basename(this.serversFile)}: ${servers.parseError}`
-    if (settings.parseError === null)
+    if (settings.parseError === null) {
       this.liveSettings = settings.parsed
-    if (servers.parseError === null)
+      this.liveSettingsText = settings.text
+    }
+    if (servers.parseError === null) {
       this.liveServers = servers.parsed
+      this.liveServersText = servers.text
+    }
   }
 
   private notify(): void {
@@ -480,20 +489,15 @@ export class WorkspaceStore {
     return { ...parsed, port: parsed.port ?? null }
   }
 
-  /** A save patches the last trusted read, so a hand edit not yet loaded would be overwritten. */
-  private assertUnchanged(file: string, lastText: string | null): void {
-    if (!fileMovedSince(file, lastText))
-      return
-    for (const listener of this.conflictListeners) listener()
-    throw changedOnDisk(file)
-  }
-
   private commitSettings(draft: Record<string, unknown>): void {
-    this.assertUnchanged(this.settingsFile, this.lastSettingsText)
+    // A save patches the last trusted read, so a hand edit not yet loaded — or one that cannot be
+    // loaded at all — would be overwritten.
+    assertSaveable(this.settingsFile, { trusted: this.trustedSettingsText, seen: this.seenSettingsText, unusable: this.settingsParseError ?? this.settingsError }, this.conflictListeners)
     const stamped = stampConfig(draft)
     const text = `${JSON.stringify(stamped, null, 2)}\n`
     writeFileAtomic(this.settingsFile, text)
-    this.lastSettingsText = text
+    this.seenSettingsText = text
+    this.liveSettingsText = text
     this.liveSettings = stamped
     this.settingsParseError = null
     this.apply()
@@ -501,11 +505,12 @@ export class WorkspaceStore {
   }
 
   private commitServers(draft: Record<string, unknown>): void {
-    this.assertUnchanged(this.serversFile, this.lastServersText)
+    assertSaveable(this.serversFile, { trusted: this.trustedServersText, seen: this.seenServersText, unusable: this.serversParseError ?? this.serversError }, this.conflictListeners)
     const stamped = stampConfig(draft)
     const text = `${JSON.stringify(stamped, null, 2)}\n`
     writeFileAtomic(this.serversFile, text)
-    this.lastServersText = text
+    this.seenServersText = text
+    this.liveServersText = text
     this.liveServers = stamped
     this.serversParseError = null
     this.apply()
@@ -548,10 +553,14 @@ export class WorkspaceStore {
     this.resolvedConfig = { ...settingsConfig, servers: nextServers }
 
     // The raw objects every write patches follow the last trusted read only.
-    if (settings.config !== null)
+    if (settings.config !== null) {
       this.rawSettings = structuredClone(this.liveSettings) as Record<string, unknown>
-    if (servers.errors.length === 0)
+      this.trustedSettingsText = this.liveSettingsText
+    }
+    if (servers.errors.length === 0) {
       this.rawServers = structuredClone(this.liveServers) as Record<string, unknown>
+      this.trustedServersText = this.liveServersText
+    }
   }
 
   private resolveSettingsFallback(): ResolvedWorkspaceSettings {

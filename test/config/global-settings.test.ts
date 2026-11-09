@@ -178,6 +178,47 @@ describe('globalSettingsStore', () => {
     expect(read(file).host.tempCommand).toBe('cat /tmp/temp')
   })
 
+  /**
+   * The reload advanced the save baseline before the parse, so after a hand edit with a JSON typo
+   * the next panel save replaced the person's file with the last good revision plus the patch.
+   */
+  it('refuses a save over a hand edit it could not parse, and keeps the file', async () => {
+    const { store, file } = await makeStore({})
+    const broken = '{ "host": { "tempCommand": "cat /tmp/temp" }, }'
+    await fs.promises.writeFile(file, broken)
+    expect(store.reloadFromDisk().error).toMatch(/cannot parse/)
+
+    expect(() => store.updateBackups({ keep: 2 })).toThrow(/cannot be used .*cannot parse/)
+    expect(await fs.promises.readFile(file, 'utf8')).toBe(broken)
+    // An unchanged broken file is not re-reported as a change on every tick.
+    expect(store.reloadFromDisk().changed).toBe(false)
+    expect(() => store.updateBackups({ keep: 2 })).toThrow(ConfigError)
+    expect(await fs.promises.readFile(file, 'utf8')).toBe(broken)
+
+    await fs.promises.writeFile(file, configJson({ host: { tempCommand: 'cat /tmp/temp' } }))
+    store.reloadFromDisk()
+    store.updateBackups({ keep: 2 })
+    expect(read(file).host.tempCommand).toBe('cat /tmp/temp')
+    expect(read(file).backups.keep).toBe(2)
+  })
+
+  it('refuses a save over a hand edit the reload guard refused', async () => {
+    const { store, file } = await makeStore({})
+    const edited = configJson({ host: { tempCommand: 'refused' } })
+    await fs.promises.writeFile(file, edited)
+    expect(store.reloadFromDisk(() => 'it would expose the panel').applied).toBe(false)
+    expect(() => store.updateBackups({ keep: 2 })).toThrow(/cannot be used .*expose/)
+    expect(await fs.promises.readFile(file, 'utf8')).toBe(edited)
+  })
+
+  it('refuses a save when it started over a file it could not parse', async () => {
+    const { store, file } = await makeStore({})
+    await fs.promises.writeFile(file, '{ nope')
+    store.load()
+    expect(() => store.updateBackups({ keep: 2 })).toThrow(/cannot be used/)
+    expect(await fs.promises.readFile(file, 'utf8')).toBe('{ nope')
+  })
+
   it('reports a settings file that went away instead of re-seeding it', async () => {
     const { store, file } = await makeStore({})
 

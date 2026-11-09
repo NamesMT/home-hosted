@@ -37,16 +37,36 @@ export function changedOnDisk(file: string): ConfigError {
   return new ConfigError(`${path.basename(file)} changed on disk since the panel last read it — the panel will reload it; retry the save`, 'CONFIG_CHANGED_ON_DISK')
 }
 
-/** The bytes on disk differ from the ones a store last read or wrote; a missing file is not an edit to keep. */
-export function fileMovedSince(file: string, lastText: string | null): boolean {
-  let text: string
+/**
+ * Refuses a save unless the file on disk holds `trusted` — the bytes the object being patched came
+ * from. A missing file is not an edit to keep.
+ *
+ * Only bytes that parsed (and that the store adopted) ever become `trusted`. Advancing it on a mere
+ * read let a hand edit with a JSON typo become the baseline while the patched object stayed on the
+ * previous revision, so the next panel save silently replaced the person's file. When the file on
+ * disk is the very revision the store already found unusable (`seen` + `unusable`), the refusal
+ * says so instead of inviting a retry that cannot succeed.
+ */
+export function assertSaveable(
+  file: string,
+  baseline: { trusted: string | null, seen: string | null, unusable: string | null },
+  conflictListeners: Iterable<() => void>,
+): void {
+  let text: string | null
   try {
     text = readStateFile(file)
   }
   catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ENOENT'
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return
+    text = null
   }
-  return text !== lastText
+  if (text !== null && text === baseline.trusted)
+    return
+  for (const listener of conflictListeners) listener()
+  if (text !== null && text === baseline.seen && baseline.unusable !== null)
+    throw new ConfigError(`${path.basename(file)} on disk cannot be used (${baseline.unusable}) — fix or revert that edit; the panel will not save over it`, 'CONFIG_CHANGED_ON_DISK')
+  throw changedOnDisk(file)
 }
 
 /**
@@ -56,8 +76,10 @@ export function fileMovedSince(file: string, lastText: string | null): boolean {
  */
 export class GlobalSettingsStore {
   private raw: Record<string, unknown> = {}
-  /** The bytes behind the live settings, so a watcher can tell a real edit from our own write. */
-  private lastText: string | null = null
+  /** The bytes behind `raw`, the object every save patches: only a parsed, adopted revision. */
+  private trustedText: string | null = null
+  /** The bytes last looked at, so an unchanged file (ours, or a broken edit) is not re-read. */
+  private seenText: string | null = null
   private resolvedConfig!: ResolvedGlobalConfig
   /** A schema problem in the file last applied. */
   private error: string | null = null
@@ -173,9 +195,9 @@ export class GlobalSettingsStore {
     }
     this.diskError = null
 
-    if (text === this.lastText)
+    if (text === this.seenText)
       return { changed: false, applied: false, error: this.configError }
-    this.lastText = text
+    this.seenText = text
 
     let parsed: unknown
     try {
@@ -196,6 +218,7 @@ export class GlobalSettingsStore {
     }
 
     const before = this.resolvedConfig
+    this.trustedText = text
     this.apply(parsed)
     this.notify()
     return { changed: true, applied: this.resolvedConfig !== before, error: this.configError }
@@ -212,7 +235,8 @@ export class GlobalSettingsStore {
       const text = `${JSON.stringify(seed, null, 2)}\n`
       if (write)
         writeFileAtomic(this.file, text)
-      this.lastText = write ? text : null
+      this.trustedText = write ? text : null
+      this.seenText = write ? text : null
       this.raw = seed
       this.apply(seed)
       return
@@ -222,6 +246,7 @@ export class GlobalSettingsStore {
     let parsed: unknown
     try {
       text = readStateFile(this.file)
+      this.seenText = text
       parsed = JSON.parse(text)
     }
     catch (error) {
@@ -233,7 +258,7 @@ export class GlobalSettingsStore {
       return
     }
 
-    this.lastText = text
+    this.trustedText = text
     this.apply(parsed)
   }
 
@@ -305,14 +330,12 @@ export class GlobalSettingsStore {
   private commit(draft: Record<string, unknown>): void {
     // A save patches the last trusted read; a hand edit the watcher has not picked up yet would be
     // overwritten without a word.
-    if (fileMovedSince(this.file, this.lastText)) {
-      for (const listener of this.conflictListeners) listener()
-      throw changedOnDisk(this.file)
-    }
+    assertSaveable(this.file, { trusted: this.trustedText, seen: this.seenText, unusable: this.parseError ?? this.refusedError }, this.conflictListeners)
     const stamped = stampConfig(draft)
     const text = `${JSON.stringify(stamped, null, 2)}\n`
     writeFileAtomic(this.file, text)
-    this.lastText = text
+    this.trustedText = text
+    this.seenText = text
     // The file is now the panel's own write, so no earlier verdict on it still holds.
     this.parseError = null
     this.diskError = null

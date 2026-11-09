@@ -462,7 +462,10 @@ restart needed:
 
 A save from the panel never overwrites an edit it has not read yet: if the file changed on disk since
 the panel last loaded it, the save is refused (`409 CONFIG_CHANGED_ON_DISK`), the panel reloads the
-file, and saving again applies your change on top of the edit.
+file, and saving again applies your change on top of the edit. While the file on disk is one the
+panel could not use — it does not parse, fails the schema, or was refused for exposing the panel —
+every save from the panel is refused the same way, naming the problem, so your edit is never
+replaced: fix or revert it, and the next save builds on it.
 
 Whatever encoding your editor puts on the file is fine. A UTF-8 **byte-order mark** (Notepad's
 "UTF-8 with BOM", PowerShell 5.1's `Set-Content -Encoding UTF8`) and the **UTF-16LE** that

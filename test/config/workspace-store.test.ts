@@ -235,12 +235,40 @@ describe('workspaceStore', () => {
     store.reloadFromDisk()
     expect(store.getServer('keep')).toBeDefined()
 
-    // A servers write is built from the last trusted read, not from the broken file.
-    store.updateServer('keep', { label: 'written while the file was broken' })
+    // A save would replace the person's file with the last trusted read plus the patch, losing the
+    // hand edit — it is refused, and the file on disk is left exactly as they wrote it.
+    expect(() => store.updateServer('keep', { label: 'written while the file was broken' })).toThrow(/cannot be used .*cannot parse/)
+    expect(fs.readFileSync(store.path, 'utf8')).toBe('{ nope')
+    // Asked again (the watcher ticks), the answer is the same: the broken bytes never become the baseline.
+    store.reloadFromDisk()
+    expect(() => store.updateServer('keep', { label: 'again' })).toThrow(/CONFIG_CHANGED_ON_DISK|cannot be used/)
+    expect(fs.readFileSync(store.path, 'utf8')).toBe('{ nope')
 
+    // Once the file is fixed, it is picked up and the save builds on it.
+    await fs.promises.writeFile(store.path, json({ servers: [{ id: 'keep', command: 'node' }, { id: 'hand', command: 'node' }] }))
+    store.reloadFromDisk()
+    store.updateServer('keep', { label: 'after the fix' })
     const written = read(store.path)
-    expect(written.servers?.map((entry: { id: string }) => entry.id)).toEqual(['keep'])
-    expect(store.getServer('keep')?.label).toBe('written while the file was broken')
+    expect(written.servers?.map((entry: { id: string }) => entry.id)).toEqual(['keep', 'hand'])
+    expect(store.getServer('keep')?.label).toBe('after the fix')
+  })
+
+  it('refuses a save over a settings file that parses but fails the schema', async () => {
+    const { store } = await storeWith({ id: 'keep', command: 'node' })
+    const broken = `${JSON.stringify({ logs: { keep: 'many' } }, null, 2)}\n`
+    await fs.promises.writeFile(store.settingsPath, broken)
+    store.reloadFromDisk()
+    expect(store.configError).not.toBeNull()
+    expect(() => store.updateLogs({ keep: 3 })).toThrow(/cannot be used/)
+    expect(fs.readFileSync(store.settingsPath, 'utf8')).toBe(broken)
+  })
+
+  it('refuses a save when it starts over a file it could not parse', async () => {
+    const { store } = await storeWith({ id: 'keep', command: 'node' })
+    await fs.promises.writeFile(store.path, '{ nope')
+    store.load()
+    expect(() => store.addServer({ id: 'new', command: 'node' })).toThrow(/cannot be used/)
+    expect(fs.readFileSync(store.path, 'utf8')).toBe('{ nope')
   })
 
   it('treats a deleted file as a problem, never as an edit to re-seed', async () => {
