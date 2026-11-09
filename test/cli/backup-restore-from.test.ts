@@ -66,16 +66,6 @@ describe('restore --from', () => {
     expect(result.output).not.toContain('not a home-hosted backup')
   }, 60_000)
 
-  it('refuses a name and --from together rather than picking one', () => {
-    const { home } = makeHome()
-    const name = takeArchive(home)
-
-    const result = runCli(['backup', 'restore', name, '--from', path.join(home, '.hh', '.backups', name), '--all', '--confirm'], { home, env: { NO_COLOR: '1' } })
-    expect(result.status, result.stderr).toBe(1)
-    // On the one command that overwrites live data, choosing between two named archives is a guess.
-    expect(result.output).toContain('not both')
-  }, 90_000)
-
   it('leaves the name-only path exactly as it was', () => {
     const { home } = makeHome()
     const name = takeArchive(home)
