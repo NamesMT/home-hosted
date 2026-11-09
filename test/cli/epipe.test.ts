@@ -65,6 +65,7 @@ describe('a reader that hangs up early', () => {
     const result = await runPiped(['logs', '--lines', 'all'], 200)
     expect(result.stderr).not.toContain('EPIPE')
     expect(result.stderr).not.toContain('Unhandled')
-    expect(result.code).toBe(0)
+    // The stderr is the message: a non-zero exit with nothing else said is undiagnosable from CI.
+    expect(result.code, result.stderr).toBe(0)
   })
 })
