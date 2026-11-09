@@ -114,9 +114,11 @@ export class HistoryStore {
     }
   }
 
+  /** Flushes a pending save only: a store never read holds `[]`, and saving it would empty the file. */
   dispose(): void {
-    if (this.saveTimer !== null)
-      clearTimeout(this.saveTimer)
+    if (this.saveTimer === null)
+      return
+    clearTimeout(this.saveTimer)
     this.saveTimer = null
     this.save()
   }

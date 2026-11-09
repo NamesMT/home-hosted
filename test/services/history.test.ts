@@ -139,6 +139,17 @@ describe('history store', () => {
     expect(reloaded.summarize('web', 24 * HOUR).crashes).toBe(1)
   })
 
+  it('never writes over the file on dispose when it was never read', async () => {
+    const { history: first, file } = await makeHistory()
+    first.record('web', { type: 'crash', detail: 'boom', runtimeMs: 1000 })
+    first.dispose()
+    const before = fs.readFileSync(file, 'utf8')
+
+    // A runtime torn down before anything asked for its history.
+    new HistoryStore(file).dispose()
+    expect(fs.readFileSync(file, 'utf8')).toBe(before)
+  })
+
   it('survives a corrupt file', async () => {
     const { history, file } = await makeHistory()
     await fs.promises.writeFile(file, '{ not json')
