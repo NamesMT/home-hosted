@@ -56,7 +56,12 @@ async function scrollToBottom(): Promise<void> {
     element.scrollTop = element.scrollHeight
 }
 
-watch(() => props.lines.length, () => {
+/**
+ * Follow on every batch, not on the line count: the live buffer is capped, so once it is full the
+ * count stops changing and follow silently ended. The last line is a new object in every batch,
+ * capped or not, which makes it the per-batch revision this needs.
+ */
+watch(() => [props.lines.length, props.lines.at(-1)], () => {
   if (follow.value)
     void scrollToBottom()
 })
