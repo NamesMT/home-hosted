@@ -1,5 +1,5 @@
-import type { Bot } from 'grammy'
-import { afterEach, describe, expect, it } from 'vitest'
+import type { TelegramBot as Bot } from '#src/providers/telegram'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   describeTelegramError,
   escapeHtml,
@@ -195,5 +195,62 @@ describe('listTelegramChats', () => {
     })
 
     expect(await listTelegramChats(TOKEN)).toEqual({ ok: false, chats: [], error: 'Unauthorized (401)' })
+  })
+})
+
+describe('the Bot API client', () => {
+  const reply = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
+  it('posts to the method with the token in the path, and returns the result', async () => {
+    const calls: Array<{ url: string, body: unknown }> = []
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      calls.push({ url, body: JSON.parse(String(init.body)) })
+      return reply(200, { ok: true, result: { id: 1, is_bot: true, first_name: 'HH', username: 'hh_bot' } })
+    })
+    expect(await verifyTelegramToken(TOKEN)).toEqual({ ok: true, username: 'hh_bot' })
+    expect(calls[0]!.url).toBe(`https://api.telegram.org/bot${TOKEN}/getMe`)
+  })
+
+  it('waits out a 429 retry_after, then succeeds', async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    vi.stubGlobal('fetch', async () => {
+      calls += 1
+      return calls === 1
+        ? reply(429, { ok: false, error_code: 429, description: 'Too Many Requests', parameters: { retry_after: 3 } })
+        : reply(200, { ok: true, result: true })
+    })
+    const sent = sendTelegramMessage(TOKEN, '42', 'hi')
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(await sent).toEqual({ ok: true })
+    expect(calls).toBe(2)
+  })
+
+  it('does not retry a refusal, and names it', async () => {
+    let calls = 0
+    vi.stubGlobal('fetch', async () => {
+      calls += 1
+      return reply(400, { ok: false, error_code: 400, description: 'Bad Request: chat not found' })
+    })
+    expect(await sendTelegramMessage(TOKEN, '42', 'hi')).toEqual({ ok: false, error: 'Bad Request: chat not found (400)' })
+    expect(calls).toBe(1)
+  })
+
+  it('never puts the token in a network error it reports', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError(`fetch failed for https://api.telegram.org/bot${TOKEN}/sendMessage`)
+    })
+    const sent = sendTelegramMessage(TOKEN, '42', 'hi')
+    await vi.advanceTimersByTimeAsync(10_000)
+    const outcome = await sent
+    expect(outcome.ok).toBe(false)
+    expect(outcome.error).not.toContain(TOKEN)
+    expect(outcome.error).toContain('could not reach Telegram')
   })
 })
