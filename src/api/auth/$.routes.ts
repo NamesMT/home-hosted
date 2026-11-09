@@ -92,15 +92,15 @@ export function createAuthRoute(deps: AppDeps) {
 
     /**
      * First-time setup is allowed from loopback without a session (there is
-     * nothing to authenticate against yet); every later change needs the session
-     * and* the current password.
+     * nothing to authenticate against yet), and only from there; every later change
+     * needs a credential *and* the current password.
      */
     .post(
       '/auth/password',
       describeRoute({
         tags: ['auth'],
         summary: 'Set, change or enable the panel password',
-        responses: { 200: { description: 'Updated', content: jsonBody(passwordSetResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401] },
+        responses: { 200: { description: 'Updated', content: jsonBody(passwordSetResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'The first password must be set from this machine, not with an API token' } },
       }),
       validate('json', passwordSchema),
       (c) => {
@@ -111,6 +111,15 @@ export function createAuthRoute(deps: AppDeps) {
 
         if (!identity.authenticated && !firstSetup)
           throw new DetailedError('authentication required', { statusCode: 401, code: AUTH_REQUIRED_CODE })
+
+        // The *first* password arms the panel and locks every other credential out, so it is set from
+        // this machine (or a session), never by a remote token holder.
+        if (!hadPassword && !firstSetup && identity.method !== 'cookie') {
+          throw new DetailedError('setting the first panel password needs this machine — open the panel on it, or run `home-hosted set-password` there', {
+            statusCode: 403,
+            code: 'SESSION_REQUIRED',
+          })
+        }
 
         // The current password is demanded of every credential, so a stolen API
         // token cannot rewrite the password it would then need to be recovered from.

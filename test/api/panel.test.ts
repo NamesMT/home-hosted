@@ -1716,6 +1716,22 @@ describe('auth: cookies and first-time setup', () => {
     expect(created.auth.passwordSet).toBe(true)
   })
 
+  /** A remote token holder arming the panel with their own password would lock its owner out. */
+  it('refuses a remote token setting the first password', async () => {
+    const created = await fixture({ ip: '10.0.0.5' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+
+    const response = await created.app.request('/api/auth/password', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'authorization': `Bearer ${token}` },
+      body: JSON.stringify({ newPassword: 'attacker password' }),
+    })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
+    expect(created.auth.passwordSet).toBe(false)
+  })
+
   it('keeps both exposure guards on the session path too', async () => {
     // The guard is unchanged: a session that would otherwise be allowed still cannot clear a
     // password while the panel is exposed. (A token caller never reaches these — refused first.)
