@@ -454,6 +454,11 @@ restart needed:
 
 - **A lowered `logs.keep`** deletes the rotations above it on the next reload, the same as saving it
   in the panel. Both edit one file, so both mean the same thing.
+- **The panel-wide `.hh/settings.json`** (listener, host vitals, backups, proxy — what
+  `home-hosted setup-temp` writes) is watched the same way. A new `control.host` or `port` waits for a
+  restart, as it does when saved in the panel. A revision that cannot be parsed, or one that would
+  newly expose the panel without a password, is not applied: the panel logs why and keeps the
+  settings it was running.
 
 A save from the panel's own UI is the panel's write: it replaces the file, so hand-edits made while
 it runs are lost by that next save. Edit, then let the panel read it back, before using the UI.

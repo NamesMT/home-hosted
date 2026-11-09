@@ -1012,6 +1012,66 @@ describe('panelService', () => {
     }
   })
 
+  /** What `home-hosted setup-temp` does: write `host.tempCommand` into the panel's own file. */
+  it('sees a hand edit of the global settings, and the next save keeps it', async () => {
+    const { settings, frames, dispose } = await makeHarness()
+
+    try {
+      const onDisk = JSON.parse(fs.readFileSync(settings.path, 'utf8')) as Record<string, any>
+      onDisk.host = { ...onDisk.host, tempCommand: 'cat /tmp/temp' }
+      onDisk.control = { ...onDisk.control, label: 'edited by hand' }
+      fs.writeFileSync(settings.path, JSON.stringify(onDisk, null, 2))
+
+      await waitFor(() => settings.host.tempCommand === 'cat /tmp/temp')
+      await waitFor(() => frames.some(frame => frame.control.label === 'edited by hand'))
+
+      // A save from the panel builds on the edit instead of overwriting it.
+      settings.updateBackups({ keep: 2 })
+      const after = JSON.parse(fs.readFileSync(settings.path, 'utf8')) as Record<string, any>
+      expect(after.host.tempCommand).toBe('cat /tmp/temp')
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  it('keeps the running global settings when a hand edit is unreadable', async () => {
+    const { settings, dispose } = await makeHarness()
+
+    try {
+      settings.updateControl({ label: 'running' })
+      fs.writeFileSync(settings.path, '{ not json')
+
+      await waitFor(() => settings.configError !== null)
+      expect(settings.configError).toContain('cannot parse')
+      expect(settings.control.label).toBe('running')
+
+      const onDisk = { control: { label: 'fixed' }, meta: { writtenBy: 'test', schema: CONFIG_SCHEMA } }
+      fs.writeFileSync(settings.path, JSON.stringify(onDisk, null, 2))
+      await waitFor(() => settings.configError === null && settings.control.label === 'fixed')
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  it('refuses a hand edit that would serve the panel through the proxy with no password', async () => {
+    const { settings, dispose } = await makeHarness()
+
+    try {
+      const onDisk = JSON.parse(fs.readFileSync(settings.path, 'utf8')) as Record<string, any>
+      onDisk.proxy = { ...onDisk.proxy, enabled: true, routes: [{ id: 'panel', host: 'panel.example.com', target: 'panel' }] }
+      fs.writeFileSync(settings.path, JSON.stringify(onDisk, null, 2))
+
+      await waitFor(() => settings.configError !== null)
+      expect(settings.configError).toContain('not applied')
+      expect(settings.proxy.enabled).toBe(false)
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('reloads every workspace, e.g. after a restore', async () => {
     const { panel, settings, dispose } = await makeHarness({
       servers: [{ id: 'web', command: process.execPath, args: ['-e', 'null'] }],

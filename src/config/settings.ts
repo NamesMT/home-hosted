@@ -37,9 +37,14 @@ export class GlobalSettingsStore {
   /** The bytes behind the live settings, so a watcher can tell a real edit from our own write. */
   private lastText: string | null = null
   private resolvedConfig!: ResolvedGlobalConfig
+  /** A schema problem in the file last applied. */
   private error: string | null = null
   /** A JSON parse failure, kept apart from a schema problem so `apply()` cannot clear it. */
   private parseError: string | null = null
+  /** The file is gone or unreadable; cleared by the next read that finds it. */
+  private diskError: string | null = null
+  /** A hand edit the reload guard refused; the running settings are kept. */
+  private refusedError: string | null = null
   private warnings: string[] = []
   private schemaVersion = UNSTAMPED_SCHEMA
   private readonly listeners = new Set<() => void>()
@@ -71,7 +76,7 @@ export class GlobalSettingsStore {
   }
 
   get configError(): string | null {
-    return this.error
+    return this.diskError ?? this.parseError ?? this.refusedError ?? this.error
   }
 
   /** Keys a newer release wrote that this one ignores; nothing to refuse over. */
@@ -113,33 +118,61 @@ export class GlobalSettingsStore {
     this.notify()
   }
 
-  reloadFromDisk(): { changed: boolean, applied: boolean, error: string | null } {
+  /**
+   * The watcher's entry point: re-reads the file only when its bytes changed, so the panel's own
+   * writes never count as an edit.
+   *
+   * A revision that cannot be parsed, or that `guard` refuses (an edit that would expose the
+   * panel, say), is reported through `configError` while the running settings — and the raw
+   * object every write patches — stay on the last trusted read.
+   */
+  reloadFromDisk(guard?: (candidate: ResolvedGlobalConfig) => string | null): { changed: boolean, applied: boolean, error: string | null } {
     let text: string
     try {
       text = readStateFile(this.file)
     }
-    catch {
-      this.error = `${path.basename(this.file)} is gone`
-      return { changed: false, applied: false, error: this.error }
+    catch (error) {
+      this.diskError = (error as NodeJS.ErrnoException).code === 'ENOENT'
+        ? `${path.basename(this.file)} is gone`
+        : `cannot read ${path.basename(this.file)}: ${(error as Error).message}`
+      return { changed: false, applied: false, error: this.configError }
     }
+    this.diskError = null
 
-    if (text === this.lastText) {
-      if (this.error !== null) {
-        this.error = null
-        this.load()
-      }
-      return { changed: false, applied: false, error: null }
+    if (text === this.lastText)
+      return { changed: false, applied: false, error: this.configError }
+    this.lastText = text
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    }
+    catch (error) {
+      this.parseError = `cannot parse ${path.basename(this.file)}: ${(error as Error).message}`
+      return { changed: true, applied: false, error: this.configError }
+    }
+    this.parseError = null
+    this.refusedError = null
+
+    const candidate = parseGlobalSettings(parsed).config
+    const refusal = candidate === null || guard === undefined ? null : guard(candidate)
+    if (refusal !== null) {
+      this.refusedError = `${path.basename(this.file)} was not applied: ${refusal}`
+      return { changed: true, applied: false, error: this.configError }
     }
 
     const before = this.resolvedConfig
-    this.load()
-    return { changed: true, applied: this.resolvedConfig !== before, error: this.error }
+    this.apply(parsed)
+    this.notify()
+    return { changed: true, applied: this.resolvedConfig !== before, error: this.configError }
   }
 
   private read(): void {
     // Cleared up front so both branches answer the same question: a file that reads cleanly now is
     // not still "unparseable" from the read before it.
     this.parseError = null
+    this.diskError = null
+    this.refusedError = null
     if (!fs.existsSync(this.file)) {
       const seed = stampConfig(structuredClone(this.seed))
       const text = `${JSON.stringify(seed, null, 2)}\n`
@@ -157,8 +190,7 @@ export class GlobalSettingsStore {
       parsed = JSON.parse(text)
     }
     catch (error) {
-      this.error = `cannot parse ${path.basename(this.file)}: ${(error as Error).message}`
-      this.parseError = this.error
+      this.parseError = `cannot parse ${path.basename(this.file)}: ${(error as Error).message}`
       if (this.resolvedConfig === undefined) {
         this.raw = {}
         this.resolvedConfig = this.resolveFallback()
@@ -240,6 +272,10 @@ export class GlobalSettingsStore {
     const text = `${JSON.stringify(stamped, null, 2)}\n`
     writeFileAtomic(this.file, text)
     this.lastText = text
+    // The file is now the panel's own write, so no earlier verdict on it still holds.
+    this.parseError = null
+    this.diskError = null
+    this.refusedError = null
     this.raw = stamped
     this.apply(stamped)
     this.notify()

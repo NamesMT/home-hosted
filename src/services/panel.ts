@@ -1,3 +1,4 @@
+import type { ResolvedGlobalConfig } from '#src/config/schema'
 import type { GlobalSettingsStore } from '#src/config/settings'
 import type { WorkspaceRegistry } from '#src/config/workspaces'
 import type { AuthService } from '#src/services/auth'
@@ -34,6 +35,7 @@ import { entryStatePath, readEntryState, writeEntryState } from '#src/providers/
 import { buildBackupSources } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
 import { DdnsService } from '#src/services/ddns'
+import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { HistoryStore } from '#src/services/history'
 import { LogFiles } from '#src/services/log-files'
 import { NotificationService } from '#src/services/notifications'
@@ -99,6 +101,10 @@ export class PanelService {
   private disposed = false
   private lastStateSignature = ''
   private stateScheduled = false
+  /** The panel-wide `settings.json`, watched like every workspace file. */
+  private readonly settingsWatch: ConfigWatch
+  /** The global config error last written to the log, so a standing typo is reported once. */
+  private reportedSettingsError: string | null
 
   constructor(private readonly options: PanelServiceOptions) {
     for (const workspace of this.options.registry.all())
@@ -107,6 +113,14 @@ export class PanelService {
     // Config errors and warnings are reported by the caller that owns the startup
     // decision (`runControlPlane` refuses on them); repeating them here would print
     // the same line twice before the refusal.
+
+    this.reportedSettingsError = this.options.settings.configError
+    this.settingsWatch = new ConfigWatch({
+      file: this.options.settings.path,
+      onChange: () => this.handleSettingsChange(),
+      onError: error => logger.warn(`cannot watch ${path.basename(this.options.settings.path)}: ${errorMessage(error)}`),
+    })
+    this.settingsWatch.start()
 
     this.timer = setInterval(() => {
       void this.tick().catch((error: unknown) => logger.error('the panel tick failed', error))
@@ -452,6 +466,7 @@ export class PanelService {
   async dispose(options: { withPersistent?: boolean } = {}): Promise<void> {
     this.disposed = true
     clearInterval(this.timer)
+    this.settingsWatch.dispose()
     this.options.backups.dispose()
     await Promise.all(this.workspaces().map(runtime => runtime.supervisor.dispose(options)))
     for (const runtime of this.workspaces()) this.disposeRuntime(runtime)
@@ -591,6 +606,53 @@ export class PanelService {
         logger.error(`could not start the added server ${server.id}`, error)
       })
     }
+  }
+
+  /**
+   * `settings.json` edited by hand (or by `setup-temp`) is picked up without a restart, and the next
+   * save builds on it instead of overwriting it. Every consumer reads the settings through a getter,
+   * so the reload alone is enough — except a running proxy engine, which holds the config it was
+   * last handed and is re-applied here.
+   */
+  private handleSettingsChange(): void {
+    const settings = this.options.settings
+    const proxyBefore = JSON.stringify(settings.proxy)
+    const result = settings.reloadFromDisk(candidate => this.settingsRefusal(candidate))
+
+    const currentError = settings.configError
+    if (currentError !== this.reportedSettingsError) {
+      this.reportedSettingsError = currentError
+      if (currentError === null)
+        logger.info(`${path.basename(settings.path)} is readable again`)
+      else
+        logger.error(`${currentError} — keeping the settings already running`)
+    }
+    if (result.applied)
+      logger.info(`${path.basename(settings.path)} reloaded`)
+
+    const proxy = this.options.proxy()
+    if (result.applied && proxy !== null && JSON.stringify(settings.proxy) !== proxyBefore && proxy.status().state === 'running') {
+      void proxy.apply().catch((error: unknown) => {
+        proxy.recordError(errorMessage(error))
+        logger.warn(`proxy:    could not apply the edited settings: ${errorMessage(error)}`)
+      })
+    }
+    this.scheduleState()
+  }
+
+  /**
+   * The exposure rule a settings write obeys, for an edit that arrives through the file instead: a
+   * hand edit that would newly expose the live listener or a proxied panel route without a password
+   * is refused. Only a *new* exposure — one already in force is the startup guard's to report.
+   */
+  private settingsRefusal(candidate: ResolvedGlobalConfig): string | null {
+    const auth = this.options.auth
+    const liveHost = this.options.control().host
+    const blocked = (config: ResolvedGlobalConfig): string | null =>
+      checkExposure({ ...config.control, host: liveHost }, auth.passwordSet, auth.usingDefaultPassword).blockedReason
+      ?? checkProxyExposure(config.proxy, config.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword)
+    const next = blocked(candidate)
+    return next !== null && blocked(this.options.settings.config) === null ? next : null
   }
 
   private async tick(): Promise<void> {
