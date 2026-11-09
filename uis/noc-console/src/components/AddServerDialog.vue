@@ -6,6 +6,7 @@ import { type } from 'arktype'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import ServerFormFields from '@/components/ServerFormFields.vue'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { flash, selectedId } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import { linesToArray, textToEnv } from '@/lib/fields'
@@ -182,7 +183,7 @@ async function submit(): Promise<void> {
 
 <template>
   <div v-if="open" class="overlay" @click.self="emit('close')">
-    <div class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-label="add a server">
+    <div v-focus-trap class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-modal="true" aria-label="add a server">
       <div class="overlay__head">
         <span class="overlay__title">add server</span>
         <span class="view__spacer" />

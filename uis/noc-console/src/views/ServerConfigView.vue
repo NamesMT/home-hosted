@@ -9,6 +9,7 @@ import { useRouter } from 'vue-router'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import ServerFormFields from '@/components/ServerFormFields.vue'
 import StatusChip from '@/components/StatusChip.vue'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { configChangesOpen, flash, selectedId } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import { envToText, linesToArray, textToEnv } from '@/lib/fields'
@@ -521,7 +522,7 @@ async function remove(): Promise<void> {
     </form>
 
     <div v-if="configChangesOpen" class="overlay" @click.self="closeChanges">
-      <div class="overlay__panel overlay__panel--sheet" role="dialog" aria-label="unsaved server config changes">
+      <div v-focus-trap class="overlay__panel overlay__panel--sheet" role="dialog" aria-modal="true" aria-label="unsaved server config changes">
         <div class="overlay__head">
           <span class="overlay__title">unsaved changes</span>
           <span class="view__spacer" />

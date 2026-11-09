@@ -2,6 +2,7 @@
 import type { WorkspacePage } from '@/router'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { workspaceOpen } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import { workspacePath } from '@/router'
@@ -142,7 +143,7 @@ async function confirmRemove(): Promise<void> {
   </button>
 
   <div v-if="workspaceOpen" class="overlay" @click.self="workspaceOpen = false">
-    <div class="overlay__panel ws__panel" role="dialog" aria-label="workspaces">
+    <div v-focus-trap class="overlay__panel ws__panel" role="dialog" aria-modal="true" aria-label="workspaces">
       <div class="overlay__head">
         <span class="overlay__title">workspaces</span>
         <span class="view__spacer" />

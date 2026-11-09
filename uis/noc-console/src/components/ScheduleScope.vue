@@ -4,6 +4,7 @@ import type { BackupScope, BackupSelection } from '@shared/contracts'
 import type { CaptureChoice } from '@/lib/backupSelection'
 import { scopeOf } from '@shared/backup-scope'
 import { computed, ref, watch } from 'vue'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { useModalLayer } from '@/composables/useModalLayer'
 import { captureItems } from '@/lib/backupSelection'
 
@@ -73,7 +74,7 @@ function apply(): void {
 
 <template>
   <div v-if="props.open" class="overlay" @click.self="emit('close')">
-    <div class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-label="choose what an automatic backup captures">
+    <div v-focus-trap class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-modal="true" aria-label="choose what an automatic backup captures">
       <div class="overlay__head">
         <span class="overlay__title">automatic backup contents</span>
         <span class="view__spacer" />

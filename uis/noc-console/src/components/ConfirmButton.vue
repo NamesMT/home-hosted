@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { useModalLayer } from '@/composables/useModalLayer'
 
 /**
@@ -62,7 +63,7 @@ function alternative(): void {
   </button>
 
   <div v-if="open" class="overlay" @click.self="cancel">
-    <div class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-modal="true" :aria-label="props.title ?? props.confirmLabel">
+    <div v-focus-trap class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-modal="true" :aria-label="props.title ?? props.confirmLabel">
       <div class="overlay__head">
         <span class="overlay__title">{{ props.title ?? props.confirmLabel }}</span>
         <span class="view__spacer" />

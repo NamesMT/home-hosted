@@ -47,6 +47,16 @@ export function closeTopModal(): boolean {
 }
 
 /**
+ * What Escape does: close one layer per press. The topmost modal goes first; only with none open
+ * does `fallback` run (the drawer). Closing both at once threw away the drawer a person had open
+ * just to dismiss a confirmation over it.
+ */
+export function closeTopLayer(fallback: () => void): void {
+  if (!closeTopModal())
+    fallback()
+}
+
+/**
  * Registers `close` for as long as `isOpen` is true. Call it once in setup: the layer follows the
  * state itself, so a dialog closed by a save, a backdrop click or a navigation unregisters the same
  * way, and `onScopeDispose` covers the component going away while still open.

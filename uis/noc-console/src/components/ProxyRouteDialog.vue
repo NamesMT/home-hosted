@@ -3,6 +3,7 @@ import type { ProxyDnsAccountView } from '@shared/contracts'
 import type { ProxyWorkspace, RouteDraft, RouteErrors } from '@/lib/proxy'
 import { clonePlain } from '@shared/clone'
 import { computed, nextTick, ref, watch } from 'vue'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { useModalLayer } from '@/composables/useModalLayer'
 import { dnsAccountOptions, isPublicHost, newRouteDraft, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
 
@@ -93,7 +94,7 @@ function submit(): void {
 
 <template>
   <div v-if="props.open" class="overlay" @click.self="emit('close')">
-    <div class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-label="route">
+    <div v-focus-trap class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-modal="true" aria-label="route">
       <div class="overlay__head">
         <span class="overlay__title">{{ editing ? 'edit route' : 'add route' }}</span>
         <span class="view__spacer" />

@@ -121,6 +121,38 @@ describe('every modal overlay owns the keyboard', () => {
     expect(failures).toEqual([])
   })
 
+  /**
+   * A modal is announced as one and keeps focus: `aria-modal` tells a screen reader the page behind
+   * is inert, and `v-focus-trap` (`useFocusTrap.ts`) keeps Tab inside and restores focus on close.
+   * Only `ConfirmButton` set the attribute, and no panel trapped focus.
+   */
+  it('marks every dialog panel modal and traps focus in it', () => {
+    const failures: string[] = []
+    let panels = 0
+    for (const file of files) {
+      const text = fs.readFileSync(file, 'utf8')
+      const name = path.basename(file)
+      if (!isModal(text) || NON_MODAL.has(name))
+        continue
+      for (const [tag] of text.matchAll(/<div\s[^>]*role="dialog"[^>]*>/g)) {
+        panels += 1
+        if (!tag.includes('aria-modal="true"'))
+          failures.push(`${name}: a dialog panel without aria-modal="true"`)
+        if (!tag.includes('v-focus-trap'))
+          failures.push(`${name}: a dialog panel without v-focus-trap`)
+      }
+    }
+    expect(panels).toBeGreaterThanOrEqual(10)
+    expect(failures).toEqual([])
+  })
+
+  /** Escape closes one layer per press: `closeTopLayer` closed a modal *and* the drawer under it. */
+  it('closes one layer per Escape in the shell', () => {
+    const escape = shell.slice(shell.indexOf('if (key === \'Escape\')'), shell.indexOf('if (key === \'Escape\')') + 400)
+    expect(escape).toContain('closeTopLayer(')
+    expect(escape, 'the drawer must not close beside a modal').not.toMatch(/^\s*if \(drawerOpen\.value\)/m)
+  })
+
   it('never advertises an esc keycap on a surface nothing closes', () => {
     const failures: string[] = []
     for (const file of files) {

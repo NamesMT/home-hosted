@@ -11,6 +11,7 @@ import ConfirmButton from '@/components/ConfirmButton.vue'
 import DdnsPanel from '@/components/DdnsPanel.vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { changesOpen } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
@@ -933,7 +934,7 @@ async function sendTest(): Promise<void> {
     </div>
 
     <div v-if="changesOpen" class="overlay" @click.self="closeChanges">
-      <div class="overlay__panel overlay__panel--sheet" role="dialog" aria-label="unsaved settings changes">
+      <div v-focus-trap class="overlay__panel overlay__panel--sheet" role="dialog" aria-modal="true" aria-label="unsaved settings changes">
         <div class="overlay__head">
           <span class="overlay__title">unsaved changes</span>
           <span class="view__spacer" />

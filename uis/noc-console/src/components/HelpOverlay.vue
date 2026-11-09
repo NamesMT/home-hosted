@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { useUi } from '@/composables/useUi'
 
 const { helpOpen } = useUi()
@@ -48,7 +49,7 @@ const groups: Array<{ title: string, rows: Row[] }> = [
 
 <template>
   <div v-if="helpOpen" class="overlay" @click.self="helpOpen = false">
-    <div class="overlay__panel" role="dialog" aria-label="keyboard shortcuts">
+    <div v-focus-trap class="overlay__panel" role="dialog" aria-modal="true" aria-label="keyboard shortcuts">
       <div class="overlay__head">
         <span class="overlay__title">keyboard</span>
         <span class="view__spacer" />

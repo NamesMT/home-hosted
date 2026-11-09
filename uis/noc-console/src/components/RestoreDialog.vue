@@ -2,6 +2,7 @@
 import type { BackupFile, RestorePlan } from '@shared/contracts'
 import { errorMessage } from '@shared/error-message'
 import { computed, ref, watch } from 'vue'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { useModalLayer } from '@/composables/useModalLayer'
 import * as api from '@/lib/api'
 
@@ -152,7 +153,7 @@ watch(() => props.open, (isOpen) => {
 
 <template>
   <div v-if="open" class="overlay" @click.self="emit('close')">
-    <div class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-label="restore a backup">
+    <div v-focus-trap class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-modal="true" aria-label="restore a backup">
       <div class="overlay__head">
         <span class="overlay__title">restore</span>
         <span class="view__spacer" />

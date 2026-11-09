@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { CertificateErrors } from '@/lib/proxy'
 import { computed, nextTick, ref, watch } from 'vue'
+import { vFocusTrap } from '@/composables/useFocusTrap'
 import { useModalLayer } from '@/composables/useModalLayer'
 import { ROUTE_ID_PATTERN, slugifyCertificateId, uniqueCertificateId } from '@/lib/proxy'
 
@@ -90,7 +91,7 @@ function submit(): void {
 
 <template>
   <div v-if="props.open" class="overlay" @click.self="emit('close')">
-    <div class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-label="certificate">
+    <div v-focus-trap class="overlay__panel overlay__panel--sheet dialog" role="dialog" aria-modal="true" aria-label="certificate">
       <div class="overlay__head">
         <span class="overlay__title">add certificate</span>
         <span class="view__spacer" />

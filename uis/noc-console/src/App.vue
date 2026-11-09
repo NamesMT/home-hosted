@@ -9,7 +9,7 @@ import LogDrawer from '@/components/LogDrawer.vue'
 import WorkspaceSwitcher from '@/components/WorkspaceSwitcher.vue'
 import { connect, disconnect, useControlPlane } from '@/composables/useControlPlane'
 import { isTyping, runKeyHandlers } from '@/composables/useKeymap'
-import { closeTopModal, modalOpen, useModalLayer } from '@/composables/useModalLayer'
+import { closeTopLayer, modalOpen, useModalLayer } from '@/composables/useModalLayer'
 import { streamDecision, useSession } from '@/composables/useSession'
 import { useUi } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
@@ -105,9 +105,9 @@ function onKeydown(event: KeyboardEvent): void {
   const key = event.key
 
   if (key === 'Escape') {
-    closeTopModal()
-    if (drawerOpen.value)
+    closeTopLayer(() => {
       drawerOpen.value = false
+    })
     if (isTyping(event))
       (event.target as HTMLElement).blur()
     keyPrefix.value = null
