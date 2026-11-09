@@ -14,7 +14,6 @@ proxy.view.settingsSavedToast,Settings saved,Đã lưu cài đặt,设置已保�
 proxy.view.retryFailed,the retry failed,thử lại thất bại,重试失败,再試行に失敗しました,el reintento falló,재시도에 실패했습니다,повторная попытка не удалась,la nouvelle tentative a échoué,der erneute Versuch ist fehlgeschlagen
 proxy.view.retryAsked,asking the CA again for {host},đang hỏi lại CA cho {host},正在为 {host} 再次向 CA 申请,{host} について CA に再要求しています,volviendo a pedir la CA para {host},{host}에 대해 CA에 다시 요청하는 중,у CA снова запрашивается сертификат для {host},nouvelle demande de la CA pour {host},die CA wird erneut für {host} gefragt
 proxy.view.fieldChanged,field changed,trường đã thay đổi,个字段已更改,フィールドを変更,campo modificado,필드 변경됨,поле изменено,champ modifié,Feld geändert
-proxy.view.fieldsChanged,fields changed,trường đã thay đổi,个字段已更改,フィールドを変更,campos modificados,필드 변경됨,поля изменены,champs modifiés,Felder geändert
 proxy.view.noChanges,No unsaved changes,Không có thay đổi chưa lưu,没有未保存的更改,未保存の変更はありません,No hay cambios sin guardar,저장하지 않은 변경 없음,Нет несохранённых изменений,Aucune modification non enregistrée,Keine ungespeicherten Änderungen
 proxy.view.discard,Discard changes,Bỏ thay đổi,放弃更改,変更を破棄,Descartar los cambios,변경 사항 버리기,Отменить изменения,Abandonner les modifications,Änderungen verwerfen
 proxy.view.save,Save settings,Lưu cài đặt,保存设置,設定を保存,Guardar los ajustes,설정 저장,Сохранить настройки,Enregistrer les paramètres,Einstellungen speichern

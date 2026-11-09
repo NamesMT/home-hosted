@@ -4,8 +4,6 @@ settings.defaults.description,Applied to every entry that does not set its own v
 settings.defaults.enabledHint,New entries start enabled.,Mục mới bắt đầu ở trạng thái bật.,新条目默认处于启用状态。,新しいエントリは有効な状態で始まります。,Las entradas nuevas empiezan activadas.,새 항목은 사용 상태로 시작합니다.,Новые записи создаются включёнными.,Les nouvelles entrées démarrent activées.,Neue Einträge starten aktiviert.
 settings.defaults.autostart,Autostart with the panel,Tự khởi động cùng bảng điều khiển,随面板一起自动启动,パネルとともに自動起動,Iniciar con el panel,제어판과 함께 자동 시작,Автозапуск вместе с панелью,Démarrer avec le panneau,Autostart mit dem Panel
 settings.defaults.bind,Bind,Lắng nghe trên,绑定,バインド,Enlace,바인드,Привязка,Liaison,Bindung
-settings.defaults.bindLocal,Local — 127.0.0.1,Local — 127.0.0.1,Local — 127.0.0.1,ローカル — 127.0.0.1,Local — 127.0.0.1,로컬 — 127.0.0.1,Локально — 127.0.0.1,Local — 127.0.0.1,Lokal — 127.0.0.1
-settings.defaults.bindLan,LAN — 0.0.0.0,LAN — 0.0.0.0,LAN — 0.0.0.0,LAN — 0.0.0.0,LAN — 0.0.0.0,LAN — 0.0.0.0,LAN — 0.0.0.0,LAN — 0.0.0.0,LAN — 0.0.0.0
 settings.defaults.onPortConflict,On port conflict,Khi trùng cổng,端口冲突时,ポート競合時,Si el puerto está ocupado,포트 충돌 시,При конфликте портов,En cas de conflit de port,Bei Portkonflikt
 settings.defaults.conflictBlock,Block the start,Chặn việc khởi động,阻止启动,起動をブロック,Bloquear el inicio,시작 차단,Блокировать запуск,Bloquer le démarrage,Den Start blockieren
 settings.defaults.conflictWarn,Warn and start anyway,Cảnh báo và vẫn khởi động,警告并仍然启动,警告してそのまま起動,Avisar e iniciar de todos modos,경고 후 그래도 시작,Предупредить и всё равно запустить,Avertir et démarrer quand même,Warnen und trotzdem starten

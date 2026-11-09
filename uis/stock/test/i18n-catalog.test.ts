@@ -282,8 +282,6 @@ describe('the sheets', () => {
      * has left, and the settings page's own day field. Everything else must use a `{duration}`.
      */
     const countOfDays = new Set([
-      'days.remaining[one]',
-      'days.remaining[other]',
       'settings.tls.days',
       'proxy.engine.expiresSoon',
       'proxy.certificate.daysLeft',

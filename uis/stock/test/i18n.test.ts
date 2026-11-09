@@ -52,7 +52,7 @@ describe('reactivity', () => {
     // A plain string has no plural object, but it still carries `{count}`: returning it raw left a
     // literal `{count}` on screen. `logs.matches` is such a message (English never inflects it).
     expect(tc('logs.matches', 2)).toBe('2 matches')
-    expect(tc('servers.total', 5)).toBe('5 servers')
+    expect(tc('logs.lines', 5)).toBe('5 lines')
   })
 
   it('interpolates a second placeholder through tc()', () => {
@@ -81,7 +81,6 @@ describe('reactivity', () => {
       for (const text of [
         t('login.sessionNote', { duration: '7d' }),
         t('theme.label', { theme: 'x' }),
-        tc('servers.total', 3),
         tc('palette.results', 4),
         tc('logs.lines', 2),
       ])
@@ -91,9 +90,9 @@ describe('reactivity', () => {
 
   it('uses CLDR plural categories for Russian', async () => {
     await setLocale('ru')
-    // `servers.total` is authored as { one, few, many, other } — see plural.ts for why.
-    const forms = [1, 2, 5, 21].map(n => `${n}=${tc('servers.total', n)}`)
+    // `logs.lines` is authored as { one, few, many, other } — see plural.ts for why.
+    const forms = [1, 2, 5, 21].map(n => `${n}=${tc('logs.lines', n)}`)
     // `21` is CLDR `one`, so a naive index-by-count selector would give it the `many` form.
-    expect(forms).toEqual(['1=1 сервер', '2=2 сервера', '5=5 серверов', '21=21 сервер'])
+    expect(forms).toEqual(['1=1 строка', '2=2 строки', '5=5 строк', '21=21 строка'])
   })
 })
