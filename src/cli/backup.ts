@@ -1,4 +1,3 @@
-import type { OfflineBackup } from '#src/cli/backup-offline'
 import type { requestControl, Runtime } from '#src/helpers/daemon'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -166,19 +165,8 @@ async function usesPanel(): Promise<boolean> {
   return (await daemon.probeRuntime(runtime)).reachable
 }
 
-/**
- * The offline service.
- *
- * It reads the same files the panel does — every workspace's `settings.json` and
- * `servers.config.json` under the state root — so an archive taken with the panel down holds what a
- * running one would have captured.
- */
-async function offlineBackup(): Promise<OfflineBackup> {
-  return createOfflineBackup()
-}
-
-/** Turn a non-200 control answer into the panel's own message, or the status. */
-function refusal(answer: { status: number, body: unknown }): never {
+/** Exit on a non-200 control answer with the panel's own message, or the status. */
+function failWithAnswer(answer: { status: number, body: unknown }): never {
   const body = answer.body as { message?: string } | null
   if (body?.message !== undefined)
     fail(body.message)
@@ -315,7 +303,7 @@ async function refuseWithoutScope(action: 'create' | 'restore', suffix: string):
  */
 async function availableRowsFromDisk(action: 'create' | 'restore', suffix: string): Promise<PlanItem[]> {
   try {
-    const { service } = await offlineBackup()
+    const { service } = createOfflineBackup()
     await service.warm()
     if (action === 'create')
       return service.selection().entries as unknown as PlanItem[]
@@ -377,14 +365,14 @@ function withParam(suffix: string, key: string, value: string): string {
 /**
  * Ask before writing.
  *
- * A session that cannot be asked gets the plan and a one-line instruction — not a silent write, and
- * not a silent no-op that looks like one.
+ * A session that cannot be asked is refused, exit 1, after the plan: not a silent write, and not a
+ * success. Exiting 0 here meant a cron job's `backup create --all` printed a plan every night and
+ * never took a backup, with nothing in its exit status to say so. (`--json` without `--confirm` is
+ * the explicit "show me the plan" request and still exits 0; it never reaches this.)
  */
 async function consent(question: string): Promise<boolean> {
-  if (process.stdin.isTTY !== true) {
-    process.stdout.write('\nnot applied — this session cannot ask. Re-run with `--confirm` to apply.\n')
-    return false
-  }
+  if (process.stdin.isTTY !== true)
+    fail('not applied — this session cannot ask for consent; re-run with --confirm to apply (or --json to only read the plan)')
   const answer = await prompt(`${question} [y/N] `)
   if (/^yes$|^y$/i.test(answer.trim())) {
     process.stdout.write('\n')
@@ -409,12 +397,12 @@ export async function runBackupList(json: boolean): Promise<void> {
       if (answer === null)
         fail(`the control panel is not answering on ${runtime.probeUrl}`)
       if (answer.status !== 200)
-        refusal(answer)
+        failWithAnswer(answer)
       printList(answer.body as { files?: BackupFileView[], dir?: string } | null, json)
       return
     }
   }
-  const { service } = await offlineBackup()
+  const { service } = createOfflineBackup()
   await service.warm()
   printList(service.selection(), json)
 }
@@ -465,11 +453,11 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
         if (answer === null)
           fail(`the control panel is not answering on ${runtime.probeUrl}`)
         if (answer.status !== 200)
-          refusal(answer)
+          failWithAnswer(answer)
         return (answer.body as { entries?: PlanItem[] } | null)?.entries ?? []
       }
     }
-    const { service } = await offlineBackup()
+    const { service } = createOfflineBackup()
     await service.warm()
     return service.selection().entries as unknown as PlanItem[]
   })()
@@ -491,7 +479,9 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
       process.stdout.write('  (nothing matched — check --include, or what the entries declare)\n')
       return
     }
-    warnRunning(await runningEntries())
+    // From the state files either way: the panel's backup view has no per-entry running flag, and a
+    // persistent entry's nanny rewrites its file whether or not the panel is up.
+    warnRunning(createOfflineBackup().runningNow())
     if (!await consent('Take this backup?'))
       return
   }
@@ -513,11 +503,11 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
         if (answer === null)
           fail(`the control panel is not answering on ${runtime.probeUrl}`)
         if (answer.status !== 200)
-          refusal(answer)
+          failWithAnswer(answer)
         return answer.body as CreatedBody | null
       }
     }
-    const { service } = await offlineBackup()
+    const { service } = createOfflineBackup()
     await service.warm()
     const result = await service.create({ password: options.password, include, exclude })
     if (!result.ok)
@@ -533,17 +523,6 @@ export async function runBackupCreate(options: { password?: string, scope: Scope
     return
   }
   process.stdout.write(`${green('backup created')} ${file.name} ${dim(`(${human(file.sizeBytes)})`)}\n`)
-}
-
-/**
- * The entries running right now.
- *
- * Read from the state files in **both** cases: the panel's own backup view has no per-entry running
- * flag to read, and the state files are the same witness the panel's supervisor would give — a
- * persistent entry keeps its nanny alive and rewrites that file whether or not the panel is up.
- */
-async function runningEntries(): Promise<Array<{ workspaceId: string, serverId: string }>> {
-  return (await offlineBackup()).runningNow()
 }
 
 /**
@@ -566,21 +545,6 @@ function planRefusal(plan: RestoreOutcome | null): string | null {
   if (plan.error !== undefined && plan.error.length > 0)
     return plan.error
   return null
-}
-
-/**
- * A restore's per-item skips, as lines a person can act on.
- *
- * `skipped` is the same list the UI draws, and it is the only thing that says a piece of an
- * otherwise successful restore was left behind — an unreadable `servers.config.json`, a data path
- * whose declaration changed, a dump staged for an entry with no `load` hook. Printing only the
- * applied count reported such a restore as complete.
- *
- * Read from the outcome of the run that is being reported: the plan and the apply answer different
- * lists, because a skip such as a missing load hook is only known once the files have landed.
- */
-function restoreNotes(outcome: RestoreOutcome | null): string[] {
-  return outcome?.skipped ?? []
 }
 
 export async function runBackupRestore(options: { name?: string, from?: string, password?: string, scope: Scope, exclude?: string[], confirm: boolean, json: boolean }): Promise<void> {
@@ -610,7 +574,7 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
   if (source.kind === 'from' && (!fs.existsSync(source.path) || !fs.statSync(source.path).isFile()))
     fail(`no file at ${source.path} — \`--from\` takes the path to an archive on this machine`)
 
-  const service = online ? null : (await offlineBackup()).service
+  const service = online ? null : createOfflineBackup().service
   if (service !== null)
     await service.warm()
 
@@ -639,7 +603,7 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
     if (answer === null)
       fail(`the control panel is not answering at ${runtime.probeUrl}`)
     if (answer.status !== 200)
-      refusal(answer)
+      failWithAnswer(answer)
     return answer.body as RestoreOutcome | null
   })()
 
@@ -665,7 +629,7 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
     assertKnown(scope.ids, archiveItems, '--include', 'restore')
 
   if (options.json && !options.confirm) {
-    process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: label, items, skipped: restoreNotes(plan) }, null, 2)}\n`)
+    process.stdout.write(`${JSON.stringify({ action: 'restore', apply: false, name: label, items, skipped: (plan?.skipped ?? []) }, null, 2)}\n`)
     return
   }
 
@@ -678,7 +642,7 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
       : `${bold('Plan')} for ${label} — nothing has been written yet\n`)
     printPlanTree(items.map(item => ({ id: item.id, note: item.note ?? null })))
     if (!options.confirm) {
-      for (const note of restoreNotes(plan))
+      for (const note of (plan?.skipped ?? []))
         process.stdout.write(`  ${dim('!')} ${note}\n`)
     }
     if (items.length === 0) {
@@ -710,7 +674,7 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
       if (answer === null)
         fail(`the control panel is not answering at ${runtime.probeUrl}`)
       if (answer.status !== 200)
-        refusal(answer)
+        failWithAnswer(answer)
       const result = answer.body as RestoreOutcome | null
       return {
         ...result,
@@ -730,9 +694,10 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
 
     const applied = (outcome.items ?? []).filter(item => item.selected !== false)
     const hooks = (outcome.hooks ?? []).filter(hook => hook.action === 'load')
-    // The **apply's** list, not the plan's: a dump staged for an entry with no `load` hook is only
-    // discovered here, and reporting the plan's list dropped that sentence from both outputs.
-    const notes = restoreNotes(outcome)
+    // The **apply's** skips, not the plan's: a dump staged for an entry with no `load` hook is only
+    // discovered here, and reporting the plan's list dropped that sentence from both outputs. They are
+    // the only thing that says a piece of an otherwise successful restore was left behind.
+    const notes = outcome.skipped ?? []
 
     if (options.json) {
       process.stdout.write(`${JSON.stringify({
@@ -790,6 +755,43 @@ function restoreQuery(source: RestoreSource, options: { password?: string, exclu
   return base
 }
 
+type BackupAction = 'list' | 'create' | 'restore'
+type BackupFlag = 'target' | 'from' | 'password' | 'include' | 'exclude' | 'all' | 'confirm' | 'json'
+
+/** What each action reads. Anything else given is refused, never parsed and dropped. */
+const HONOURED: Record<BackupAction, ReadonlySet<BackupFlag>> = {
+  list: new Set(['json']),
+  create: new Set(['password', 'include', 'exclude', 'all', 'confirm', 'json']),
+  restore: new Set(['target', 'from', 'password', 'include', 'exclude', 'all', 'confirm', 'json']),
+}
+
+/**
+ * A flag the action cannot honour is refused, not ignored: `backup list --all --include x` listed
+ * every archive, and `backup create foo --all` dropped `foo` without a word.
+ */
+export function unhonouredBackupFlag(action: BackupAction, given: Partial<Record<BackupFlag, unknown>>): string | null {
+  for (const flag of Object.keys(given) as BackupFlag[]) {
+    if (given[flag] === undefined || HONOURED[action].has(flag))
+      continue
+    if (flag === 'target')
+      return `\`backup ${action}\` takes no archive name ("${String(given.target)}") — only restore reads one`
+    return `--${flag} does nothing for \`backup ${action}\` — drop it`
+  }
+  return null
+}
+
+function refuseUnhonouredFlags(action: BackupAction, args: Partial<Record<BackupFlag, unknown>>): void {
+  const given: Partial<Record<BackupFlag, unknown>> = {}
+  for (const flag of ['target', 'from', 'password', 'include', 'exclude', 'all', 'confirm', 'json'] as const) {
+    const value = args[flag]
+    if (value !== undefined && value !== '')
+      given[flag] = value
+  }
+  const problem = unhonouredBackupFlag(action, given)
+  if (problem !== null)
+    fail(problem)
+}
+
 export const backupCommand = defineCommand({
   meta: { name: 'backup' },
   args: {
@@ -808,14 +810,13 @@ export const backupCommand = defineCommand({
   async run({ args }) {
     try {
       const action = args.action === undefined || args.action.length === 0 ? 'list' : args.action
+      if (action !== 'list' && action !== 'create' && action !== 'restore')
+        fail(`unknown action "${action}" — use list, create or restore`)
+      refuseUnhonouredFlags(action, args)
       // Validated up front, before any panel lookup: a bad flag combination is refused whether or
       // not anything is running, which is also what makes it testable without a panel.
       const parsed = action === 'create' || action === 'restore' ? parseScope(args.all === true, args.include) : null
       const exclude = action === 'create' || action === 'restore' ? parseExclude(args.exclude) : undefined
-      // A flag this action cannot honour is refused, not ignored: `--from` names an archive to
-      // *read*, and `list`/`create` have nothing to read one for.
-      if (action !== 'restore' && args.from !== undefined && args.from.length > 0)
-        fail(`--from is for restore — \`${invocation()} backup ${action}\` takes none`)
       if (action === 'list') {
         await runBackupList(args.json === true)
       }
@@ -829,7 +830,7 @@ export const backupCommand = defineCommand({
           json: args.json === true,
         })
       }
-      else if (action === 'restore') {
+      else {
         const from = args.from !== undefined && args.from.length > 0 ? args.from : undefined
         const name = args.target !== undefined && args.target.length > 0 ? args.target : undefined
         // Refused before anything is looked up, like every other flag combination here: on the one
@@ -861,9 +862,6 @@ export const backupCommand = defineCommand({
           confirm: args.confirm === true,
           json: args.json === true,
         })
-      }
-      else {
-        fail(`unknown action "${action}" — use list, create or restore`)
       }
     }
     catch (error) {

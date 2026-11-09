@@ -25,11 +25,44 @@ describe('backup flag guards', () => {
     // A flag silently ignored is a flag the person believed worked.
     const created = run(['backup', 'create', '--all', '--from', '/tmp/x.zip'])
     expect(created.status, created.output).toBe(1)
-    expect(created.output).toContain('--from is for restore')
+    expect(created.output).toContain('--from does nothing for `backup create`')
 
     const listed = run(['backup', 'list', '--from', '/tmp/x.zip'])
     expect(listed.status, listed.output).toBe(1)
-    expect(listed.output).toContain('--from is for restore')
+    expect(listed.output).toContain('--from does nothing for `backup list`')
+  })
+
+  /** Every flag an action cannot honour, not only `--from`: each was parsed and silently dropped. */
+  it('refuses any flag the action cannot honour, and an archive name outside restore', () => {
+    for (const extra of [['--all'], ['--include', 'global'], ['--exclude', 'global'], ['--password', 'x'], ['--confirm']]) {
+      const listed = run(['backup', 'list', ...extra])
+      expect(listed.status, `${extra.join(' ')}\n${listed.output}`).toBe(1)
+      expect(listed.output).toContain(`${extra[0]} does nothing for \`backup list\``)
+    }
+
+    // `create foo --all` archived everything and never mentioned `foo`.
+    const named = run(['backup', 'create', 'foo', '--all', '--confirm'])
+    expect(named.status, named.output).toBe(1)
+    expect(named.output).toContain('takes no archive name ("foo")')
+    expect(named.output).not.toContain('backup created')
+  })
+
+  /**
+   * A session that cannot be asked is not consent, and not a success either.
+   *
+   * It printed the plan and exited 0, so `backup create --all` in a cron job never took a backup and
+   * nothing in its exit status said so. `--json` without `--confirm` is the explicit plan request and
+   * stays 0.
+   */
+  it('refuses to apply without --confirm when it cannot ask, and exits 1', () => {
+    const split = runSplit(['backup', 'create', '--all'])
+    expect(split.status, split.stderr).toBe(1)
+    expect(split.stderr).toContain('--confirm')
+    expect(split.stdout).toContain('Plan')
+
+    const plan = runSplit(['backup', 'create', '--all', '--json'])
+    expect(plan.status, plan.stderr).toBe(0)
+    expect(JSON.parse(plan.stdout)).toMatchObject({ action: 'create', apply: false })
   })
 
   /**
