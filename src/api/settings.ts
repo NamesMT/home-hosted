@@ -210,8 +210,21 @@ export function createSettingsRoute(deps: AppDeps) {
     .post('/settings/ui', describeRoute({
       tags: ['panel'],
       summary: 'Replace the panel UI with an uploaded static build',
-      responses: { 200: { description: 'Installed', content: jsonBody(uiInstallResponseSchema) }, 400: ERROR_RESPONSES[400], 413: ERROR_RESPONSES[413] },
+      responses: { 200: { description: 'Installed', content: jsonBody(uiInstallResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'An API token may not install a UI' }, 413: ERROR_RESPONSES[413] },
     }),
+    /**
+     * A UI is script served on the panel's own origin, to every browser that signs in. Installing
+     * one is a person's act, like minting a token — refused to a token before the upload is read.
+     */
+    async (c, next) => {
+      if (requestIdentity(c, deps.auth).method === 'token') {
+        throw new DetailedError('installing a UI needs a signed-in session, not an API token — sign in at the panel, or run `home-hosted ui-switch --file <zip>` on the machine', {
+          statusCode: 403,
+          code: 'SESSION_REQUIRED',
+        })
+      }
+      await next()
+    },
     /**
      * Bound the body **while it arrives**, not after. The checks below read `Content-Length`, which a
      * chunked request does not send, and compare `file.size` only after `parseBody()` has buffered

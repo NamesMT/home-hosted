@@ -1060,6 +1060,19 @@ describe('settings route: listener and UI upload', () => {
     expect(on.status).toBe(200)
   })
 
+  /** A UI is script on the panel's origin, served to every browser that signs in: a person's act. */
+  it('refuses a UI upload made with an API token, before reading it', async () => {
+    const created = await fixture()
+    const token = generateApiToken()
+    setApiToken(created, token)
+    const form = new FormData()
+    form.append('file', new File([new Uint8Array([1, 2, 3])], 'ui.zip'))
+
+    const response = await created.app.request('/api/settings/ui', { method: 'POST', body: form, headers: { authorization: `Bearer ${token}` } })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
+  })
+
   it('rejects a UI upload with no file field', async () => {
     const created = await fixture()
     const form = new FormData()

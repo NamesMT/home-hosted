@@ -33,11 +33,12 @@ credential, so a browser whose session already expired can still clear its cooki
 
 > [!WARNING]
 > **A token is full admin.** It can create and start a server entry, and an entry runs any command
-> as the user running the panel. Treat it like that user's password. Five operations still require a
-> signed-in session — clearing the password, switching authentication off, minting an API token,
-> revoking an API token, and restoring an archive that carries the panel's own credentials
-> (`403 SESSION_REQUIRED`) — so a script cannot do those *by accident*, but they are not a security
-> boundary against someone holding the token.
+> as the user running the panel. Treat it like that user's password. A few operations are still
+> refused to a token (`403 SESSION_REQUIRED`) — clearing the password, switching authentication off,
+> minting or revoking an API token, setting the *first* password (only this machine may), installing
+> a custom UI, and restoring an archive that carries the panel's own credentials — so a script
+> cannot do those *by accident*, but they are not a security boundary against someone holding the
+> token.
 
 ### Hosts and origins
 

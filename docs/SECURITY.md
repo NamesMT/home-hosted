@@ -34,10 +34,15 @@ Reaching the panel through an **external** proxy or tunnel on a public name? Add
 
 - **Sessions** live in memory only. The lifetime is an *idle* timeout: each request slides it.
   Changing the password signs every session out.
-- **Tokens** are stored as a SHA-256 hash; the value is shown once. Five operations need a signed-in
-  session instead — clearing the password, switching authentication off, minting or revoking an API
-  token, and restoring an archive that carries `global:secrets` (`403 SESSION_REQUIRED`). That
-  prevents accidents; it is not a boundary against someone holding the token (see above).
+- **Tokens** are stored as a SHA-256 hash; the value is shown once. **A token is full admin**: it can
+  create and start an entry, and an entry runs any command as the panel's user — so anyone holding
+  it can do anything that user can, on this machine, including what the panel refuses it.
+- **A few actions are refused to a token** and need a signed-in session (or this machine):
+  clearing the password, switching authentication off, minting or revoking an API token, setting the
+  *first* password, installing a custom UI, and restoring an archive that carries `global:secrets`
+  (`403 SESSION_REQUIRED`). That keeps a script from doing them by accident, and keeps a leaked
+  token from locking you out of the panel itself. It is **not** a boundary against someone holding
+  the token: revoke a leaked one, and treat the machine as theirs until you have.
 - **Repeated login failures lock out per client address**, escalating to 15 minutes.
 
 ## Behind a proxy
