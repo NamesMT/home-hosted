@@ -1444,11 +1444,11 @@ describe('openapi document', () => {
       return Object.keys(schema?.properties ?? {}).sort()
     }
 
-    // `POST /api/backups` — the handler sends `{ file, files }`.
+    // `POST /api/backups` — the handler sends `{ file, files }`, plus `warnings` only when it has one.
     const backup = await form(created.app, '/api/backups', 'POST', {})
     expect(backup.status).toBe(200)
     const backupBody = await backup.json() as Record<string, unknown>
-    expect(declaredKeys('/api/backups', 'post')).toEqual(Object.keys(backupBody).sort())
+    expect(declaredKeys('/api/backups', 'post')).toEqual([...new Set([...Object.keys(backupBody), 'warnings'])].sort())
 
     // `DELETE /api/settings/tls` — the handler sends the review, not `{ ok }`.
     const tls = await created.app.request('/api/settings/tls', { method: 'DELETE' })
