@@ -407,7 +407,6 @@ export class PanelService {
     for (const runtime of this.workspaces()) {
       const before = new Set(runtime.store.servers.map(server => server.id))
       runtime.store.load()
-      runtime.history.load()
       this.pruneLogs(runtime)
       this.reportWorkspaceErrors(runtime.id)
       this.startRestored(runtime, before)

@@ -398,7 +398,6 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       settings.load()
       for (const workspace of workspaces.values()) {
         workspace.store.load()
-        workspace.runtime.history.load()
       }
     },
     startAll: async (ids: string[] = [...workspaces.keys()]) => {
