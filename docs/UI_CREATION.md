@@ -87,6 +87,14 @@ stamps. A BOM or UTF-16 file (Notepad, PowerShell) is read fine.
   (`uis/stock/src/components/settings/settingsForm.ts`).
 - **Decide to open the stream from the session**, not from the auth flags: with auth off both flags
   are `false` forever, and a watcher on them never fires (`uis/stock/src/composables/useSession.ts`).
+- **Reconnect after the browser gives up.** Sessions live in memory, so a restarted panel answers
+  the stream's reconnect with `401` — and an `EventSource` stops retrying on any non-`200`. On an
+  error with `readyState === CLOSED`, re-check the session: signed out goes to login, anything else
+  reconnects with backoff. Each per-server stream replays its recent lines on every connect, so
+  clear that server's buffer on each `open`. Inside this repo, `src/shared/live-store.ts` does all
+  of this for both UIs.
+- **Tolerate a value you have not heard of.** A newer panel may add a status or a health state;
+  show it as it came rather than refusing the frame (`src/shared/live-frames.ts`).
 - **Text the panel formats itself** (a backup entry's label, why a path is skipped) arrives as
   English plus an optional `labelKey`/`noteKey` and `…Params`. Resolve the key if you have a catalog,
   otherwise render the English.

@@ -1,4 +1,5 @@
 import type { HealthState, ServerStatus } from '@shared/contracts'
+import { t } from '@/i18n'
 
 export type Tone = 'ok' | 'warn' | 'danger' | 'info' | 'neutral' | 'accent'
 
@@ -25,6 +26,27 @@ export const HEALTH_META: Record<HealthState, { labelKey: string, tone: Tone }> 
   unknown: { labelKey: 'health.unknown', tone: 'neutral' },
   healthy: { labelKey: 'health.healthy', tone: 'ok' },
   unhealthy: { labelKey: 'health.unhealthy', tone: 'danger' },
+}
+
+/**
+ * The lookups every surface goes through. The client accepts a status or health value a newer panel
+ * added (see `@shared/live-frames`), and indexing the table with one threw inside a render: it gets
+ * a neutral tone and its own text instead.
+ */
+export function statusMeta(status: string): StatusMeta {
+  return (STATUS_META as Partial<Record<string, StatusMeta>>)[status] ?? { labelKey: `status.${status}`, tone: 'neutral', transitional: false }
+}
+
+export function healthMeta(health: string): { labelKey: string, tone: Tone } {
+  return (HEALTH_META as Partial<Record<string, { labelKey: string, tone: Tone }>>)[health] ?? { labelKey: `health.${health}`, tone: 'neutral' }
+}
+
+export function statusLabel(status: string): string {
+  return t(statusMeta(status).labelKey, undefined, status)
+}
+
+export function healthLabel(health: string): string {
+  return t(healthMeta(health).labelKey, undefined, health)
 }
 
 export const TONE_TEXT: Record<Tone, string> = {

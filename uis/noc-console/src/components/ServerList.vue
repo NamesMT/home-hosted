@@ -55,7 +55,7 @@ function ledFor(status: ServerStatus): string {
     backoff: 'led--starting',
     crashed: 'led--crashed',
     conflict: 'led--crashed',
-  }[status]
+  }[status] ?? 'led--stopped'
 }
 
 function healthLed(health: HealthState): string {
@@ -64,7 +64,7 @@ function healthLed(health: HealthState): string {
     unknown: 'led--stopped',
     healthy: 'led--healthy',
     unhealthy: 'led--unhealthy',
-  }[health]
+  }[health] ?? 'led--stopped'
 }
 
 /**

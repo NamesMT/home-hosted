@@ -1,227 +1,117 @@
 import type { AppState, Bind, LogLine, ServerView, SettingsPatch, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { ServerSeries } from '@shared/live-series'
+import type { ConnectionState } from '@shared/live-store'
 import type { ActionResult, BackupsView } from '@/lib/api'
 import type { ServerRef } from '@/lib/servers'
-import { sseMessageSchema } from '@shared/contracts'
 import { errorMessage } from '@shared/error-message'
-import { liveReadings } from '@shared/server-readings'
-import { type } from 'arktype'
+import { createLiveStore } from '@shared/live-store'
 import { computed, reactive, readonly, ref } from 'vue'
-import { useSession } from '@/composables/useSession'
+import { streamDecision, useSession } from '@/composables/useSession'
 import { flash } from '@/composables/useUi'
 import * as api from '@/lib/api'
 import { allServers as refsOf, serverKey, toServerView } from '@/lib/servers'
 
 export { AuthRequiredError } from '@/lib/api'
-
-export type ConnectionState = 'connecting' | 'open' | 'closed'
+export type { ServerSeries } from '@shared/live-series'
+export type { ConnectionState } from '@shared/live-store'
 
 /**
- * Ring buffers kept client-side for the sparklines; the API has no history.
- *
- * A point is `null` when nothing was measured: a stopped entry has no reading, and the chart must
- * break there rather than draw a vertex on the floor. A `0` would be a measured idle process.
+ * What every action resolves to. Each caller reads its own failure here: a shared "last error"
+ * was overwritten by whichever concurrent action finished last, so one toggle could report
+ * another's message, or none.
  */
-export interface ServerSeries {
-  cpu: (number | null)[]
-  rss: (number | null)[]
-  probe: (number | null)[]
-}
+export type Outcome<T> = { ok: true, value: T } | { ok: false, error: string }
 
 const MAX_CLIENT_LINES = 1000
 const SERIES_LENGTH = 48
 
 const appState = ref<AppState | null>(null)
 const connection = ref<ConnectionState>('connecting')
-const lastError = ref<string | null>(null)
 const now = ref(Date.now())
-/** Keyed `${workspaceId}/${serverId}`, never the bare id. */
+/**
+ * Keyed `${workspaceId}/${serverId}`, never the bare id. Each is the one array a pane holds, kept
+ * in step with the store's buffer in place so a pane that took it once keeps seeing new lines.
+ */
 const logLines = reactive<Record<string, LogLine[]>>({})
-const series = reactive<Record<string, ServerSeries>>({})
-const streams = new Map<string, EventSource>()
-const streamRefs = new Map<string, number>()
-const lastSample = new Map<string, number>()
+/** Servers with a lifecycle action in flight, so a held key or a second click does not stack another. */
+const inFlight = reactive(new Set<string>())
 
-let globalSource: EventSource | null = null
 let clock: ReturnType<typeof setInterval> | null = null
 let statePromise: Promise<void> | null = null
 
-function pushCapped(ring: (number | null)[], value: number | null): void {
-  ring.push(value)
-  if (ring.length > SERIES_LENGTH)
-    ring.splice(0, ring.length - SERIES_LENGTH)
-}
-
-function seriesFor(key: string): ServerSeries {
-  return series[key] ?? (series[key] = { cpu: [], rss: [], probe: [] })
-}
-
-function sampleServer(server: ServerView): void {
-  if (server.workspaceId === undefined)
-    return
-  const key = serverKey(server.workspaceId, server.id)
-  const at = server.resources?.sampledAt ?? server.startedAt ?? 0
-  if (lastSample.get(key) === at)
-    return
-  lastSample.set(key, at)
-  // One process's readings: absent, not a stale number and not a zero. A newer UI can meet an older
-  // panel that kept them across an adopted entry's stop, and a zero is the value that looks like a
-  // measured idle process rather than a stopped one. The series keeps the absence so the chart can
-  // break at it — a `?? 0` here drew a stopped entry as a flat line on the floor.
-  const live = liveReadings(server)
-  const ring = seriesFor(key)
-  pushCapped(ring.cpu, live.cpuPercent)
-  pushCapped(ring.rss, live.rssBytes)
-  pushCapped(ring.probe, live.responseMs)
-}
-
-function appendLines(key: string, lines: LogLine[]): void {
-  const bucket = logLines[key] ?? (logLines[key] = [])
-  bucket.push(...lines)
-  if (bucket.length > MAX_CLIENT_LINES)
-    bucket.splice(0, bucket.length - MAX_CLIENT_LINES)
-}
-
-/**
- * Replaces one entry in the frame. A `server` frame carries its `workspaceId`;
- * an id that exists in exactly one workspace is unambiguous, and anything the
- * owner cannot be resolved for is dropped rather than guessed at.
- */
-function upsertServer(server: ServerView): void {
-  const current = appState.value
-  if (!current)
-    return
-
-  const explicit = server.workspaceId
-  const owners = explicit === undefined
-    ? current.workspaces.filter(workspace => workspace.servers.some(entry => entry.id === server.id))
-    : current.workspaces.filter(workspace => workspace.id === explicit)
-  if (owners.length !== 1)
-    return
-
-  const workspace = owners[0]!
-  const withWorkspace: ServerView = explicit === undefined ? { ...server, workspaceId: workspace.id } : server
-  workspace.servers = workspace.servers.some(entry => entry.id === server.id)
-    ? workspace.servers.map(entry => (entry.id === server.id ? withWorkspace : entry))
-    : [...workspace.servers, withWorkspace]
-  sampleServer(withWorkspace)
-}
-
-function handleMessage(raw: string): void {
-  let payload: unknown
+/** After a stream closed for good: signed out goes to login, anything else reconnects. */
+async function checkSession(): Promise<boolean> {
   try {
-    payload = JSON.parse(raw)
+    if (streamDecision(await api.fetchSession()) === 'login') {
+      await useSession().refresh()
+      return false
+    }
   }
   catch {
-    return
+    // Unreachable: keep retrying.
   }
-
-  const parsed = sseMessageSchema(payload)
-  if (parsed instanceof type.errors) {
-    console.warn('[home-hosted] ignored malformed SSE frame', parsed.summary)
-    return
-  }
-
-  if (parsed.type === 'hello' || parsed.type === 'state') {
-    if (parsed.state)
-      setRawState(parsed.state as AppState)
-    return
-  }
-
-  if (parsed.type === 'server' && parsed.server) {
-    upsertServer(parsed.server as ServerView)
-    return
-  }
-
-  if (parsed.type === 'log' && parsed.serverId && parsed.lines) {
-    // A frame without a workspace cannot be keyed correctly, so it is dropped.
-    const workspaceId = parsed.workspaceId
-    if (workspaceId === undefined)
-      return
-    appendLines(serverKey(workspaceId, parsed.serverId), parsed.lines)
-  }
+  return true
 }
 
-function setRawState(state: AppState): void {
-  appState.value = state
-  for (const workspace of state.workspaces) {
-    for (const server of workspace.servers)
-      sampleServer(toServerView(server, workspace.id))
-  }
-}
+const store = createLiveStore({
+  openEventSource: url => new EventSource(url),
+  eventsUrl: '/api/events?logs=0',
+  serverStreamUrl: (workspaceId, serverId) => api.serverStreamUrl(serverId, workspaceId),
+  state: {
+    get: () => appState.value,
+    set: (state) => {
+      appState.value = state
+    },
+  },
+  maxLines: MAX_CLIENT_LINES,
+  seriesCapacity: SERIES_LENGTH,
+  checkSession,
+  onConnection: (state) => {
+    connection.value = state
+  },
+  onLogs: (key) => {
+    // Through the reactive record, never the raw array an assignment returns: that splice is untracked.
+    logLines[key] ??= []
+    const bucket = logLines[key]
+    bucket.splice(0, bucket.length, ...store.lines(key))
+  },
+  observe: value => reactive(value) as typeof value,
+})
 
 export function connect(): void {
-  if (globalSource)
-    return
-
   clock ??= setInterval(() => {
     now.value = Date.now()
   }, 1000)
-
-  const source = new EventSource('/api/events?logs=0')
-  globalSource = source
-  connection.value = 'connecting'
-
-  source.onopen = () => {
-    connection.value = 'open'
-  }
-  source.onerror = () => {
-    connection.value = 'closed'
-  }
-  for (const event of ['hello', 'state', 'server', 'log'] as const) {
-    source.addEventListener(event, (message) => {
-      handleMessage((message as MessageEvent<string>).data)
-    })
-  }
+  store.connect()
 }
 
 export function disconnect(): void {
-  globalSource?.close()
-  globalSource = null
+  store.disconnect()
   if (clock)
     clearInterval(clock)
   clock = null
 }
 
 /**
- * Lazily opens a per-server stream, addressed by the workspace that owns it. The
- * server replays its ring buffer first.
+ * Lazily opens a per-server stream, addressed by the workspace that owns it. The server replays its
+ * ring buffer first, and the returned array is cleared before every replay.
  */
 export function watchLogs(workspaceId: string, serverId: string): LogLine[] {
   const key = serverKey(workspaceId, serverId)
-  const refs = (streamRefs.get(key) ?? 0) + 1
-  streamRefs.set(key, refs)
-  if (refs === 1 && !streams.has(key)) {
-    logLines[key] ??= []
-    const source = new EventSource(api.serverStreamUrl(serverId, workspaceId))
-    const listener = (message: MessageEvent<string>): void => handleMessage(message.data)
-    for (const event of ['log', 'server'] as const) source.addEventListener(event, listener)
-    source.onerror = () => {
-      // EventSource retries on its own; nothing to do beyond keeping the UI honest.
-    }
-    streams.set(key, source)
-  }
-  return logLines[key] ?? []
+  logLines[key] ??= []
+  store.acquireLogs(workspaceId, serverId)
+  return logLines[key]
 }
 
 /** Closes the stream once no pane is watching it any more. */
 export function unwatchLogs(workspaceId: string, serverId: string): void {
-  const key = serverKey(workspaceId, serverId)
-  const refs = (streamRefs.get(key) ?? 1) - 1
-  if (refs > 0) {
-    streamRefs.set(key, refs)
-    return
-  }
-  streamRefs.delete(key)
-  streams.get(key)?.close()
-  streams.delete(key)
+  store.releaseLogs(workspaceId, serverId)
 }
 
 export function resetLogs(workspaceId: string, serverId: string): void {
   const key = serverKey(workspaceId, serverId)
-  const bucket = logLines[key]
-  if (bucket)
-    bucket.splice(0, bucket.length)
-  else logLines[key] = []
+  logLines[key] ??= []
+  store.resetLogs(key)
 }
 
 export function useControlPlane() {
@@ -237,7 +127,7 @@ export function useControlPlane() {
   const projectDir = computed(() => appState.value?.projectDir ?? '')
 
   async function readState(): Promise<void> {
-    setRawState(await api.fetchState())
+    store.applyState(await api.fetchState())
   }
 
   /** One frame is enough for a guarded deep link; concurrent callers share it. */
@@ -250,21 +140,17 @@ export function useControlPlane() {
     await statePromise
   }
 
-  async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
-    lastError.value = null
+  async function run<T>(action: () => Promise<T>): Promise<Outcome<T>> {
     try {
-      const result = await action()
+      const value = await action()
       await readState()
-      return result
+      return { ok: true, value }
     }
     catch (error) {
       // A 401 means the session died; send the UI back to the login view.
-      if (error instanceof api.AuthRequiredError) {
+      if (error instanceof api.AuthRequiredError)
         void useSession().refresh()
-        return undefined
-      }
-      lastError.value = errorMessage(error)
-      return undefined
+      return { ok: false, error: errorMessage(error) }
     }
   }
 
@@ -277,7 +163,7 @@ export function useControlPlane() {
   }
 
   function seriesOf(workspaceId: string, id: string): ServerSeries {
-    return seriesFor(serverKey(workspaceId, id))
+    return store.series(serverKey(workspaceId, id))
   }
 
   return {
@@ -292,11 +178,11 @@ export function useControlPlane() {
     dataRoot,
     projectDir,
     connection: readonly(connection),
-    lastError: readonly(lastError),
     now: readonly(now),
     serverById,
     seriesOf,
     ensureState,
+    isBusy: (workspaceId: string, id: string): boolean => inFlight.has(serverKey(workspaceId, id)),
     refresh: () => run(async () => {}),
     start: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'start', workspaceId)),
     stop: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'stop', workspaceId)),
@@ -318,24 +204,22 @@ export function useControlPlane() {
     create: (workspaceId: string, payload: api.CreateServerPayload) => run(() => api.createServer(payload, workspaceId)),
     remove: (workspaceId: string, id: string) => run(async () => {
       await api.removeServer(id, workspaceId)
-      unwatchLogs(workspaceId, id)
-      const key = serverKey(workspaceId, id)
-      delete logLines[key]
-      delete series[key]
-      // The third per-server map: it had no prune, so every id the session ever sampled stayed in it.
-      lastSample.delete(key)
+      store.forget(workspaceId, id)
+      delete logLines[serverKey(workspaceId, id)]
     }),
-    /** Runs an action and surfaces a failure through the shared error state. */
-    async act(workspaceId: string, id: string, action: 'start' | 'stop' | 'restart'): Promise<ActionResult | undefined> {
-      const result = await run(() => api.serverAction(id, action, workspaceId))
-      if (lastError.value === null) {
+    /** Runs a lifecycle action and flashes its own outcome. */
+    async act(workspaceId: string, id: string, action: 'start' | 'stop' | 'restart'): Promise<Outcome<ActionResult>> {
+      const key = serverKey(workspaceId, id)
+      inFlight.add(key)
+      const outcome = await run(() => api.serverAction(id, action, workspaceId)).finally(() => inFlight.delete(key))
+      if (outcome.ok) {
         const label = action === 'start' ? 'starting' : action === 'stop' ? 'stopping' : 'restarting'
         flash(`${id}: ${label}`)
       }
       else {
-        flash(lastError.value, 'error')
+        flash(outcome.error, 'error')
       }
-      return result
+      return outcome
     },
   }
 }

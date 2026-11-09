@@ -274,9 +274,9 @@ async function save(): Promise<void> {
 
   saving.value = true
   try {
-    await workspace.saveConfig(props.id, patch.value)
-    if (workspace.lastError.value !== null) {
-      error.value = workspace.lastError.value
+    const outcome = await workspace.saveConfig(props.id, patch.value)
+    if (!outcome.ok) {
+      error.value = outcome.error
       return
     }
     selectedId.value = props.id
@@ -289,11 +289,13 @@ async function save(): Promise<void> {
 }
 
 async function remove(): Promise<void> {
-  await workspace.removeServer(props.id)
-  if (workspace.lastError.value === null) {
-    flash(`removed ${props.id}`)
-    back()
+  const outcome = await workspace.removeServer(props.id)
+  if (!outcome.ok) {
+    flash(outcome.error, 'error')
+    return
   }
+  flash(`removed ${props.id}`)
+  back()
 }
 </script>
 

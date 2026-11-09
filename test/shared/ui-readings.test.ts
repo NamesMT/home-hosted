@@ -127,12 +127,10 @@ describe('the UIs read a process’s numbers through one predicate', () => {
   const surfaces: Array<{ ui: string, file: string, frame: string }> = [
     { ui: 'stock', file: 'components/server/ServerCard.vue', frame: 'server' },
     { ui: 'stock', file: 'views/ServerDetailView.vue', frame: 'value' },
-    { ui: 'stock', file: 'lib/telemetry.ts', frame: 'server' },
     { ui: 'stock', file: 'views/OverviewView.vue', frame: 'server' },
     { ui: 'noc-console', file: 'components/ServerList.vue', frame: 'server' },
     { ui: 'noc-console', file: 'components/ServerDetail.vue', frame: 'props.server' },
     { ui: 'noc-console', file: 'views/GlobalOverviewView.vue', frame: 'server' },
-    { ui: 'noc-console', file: 'composables/useControlPlane.ts', frame: 'server' },
   ]
 
   it('each reading surface imports the shared predicate', () => {
@@ -173,13 +171,15 @@ describe('the UIs read a process’s numbers through one predicate', () => {
    * on the floor** — 0% by eye, the exact value `AGENTS.md` forbids a surface to invent. So this
    * reads the shape rather than a spelling.
    */
-  it('the noc-console sampler keeps an absent reading absent in its series', () => {
-    const source = ui('noc-console', 'composables/useControlPlane.ts')
+  it('the shared sampler keeps an absent reading absent in its series', () => {
+    // Both UIs' series come from the one sampler in the shared live store now.
+    const source = fs.readFileSync(path.join(root, 'src', 'shared', 'live-series.ts'), 'utf8')
+    expect(source, 'the sampler must read the shared predicate').toContain('from \'./server-readings\'')
     expect(source, 'the sampler must build its point from the predicate').toMatch(/const live = liveReadings\(server\)/)
 
     // Every ring push, read from the source: the value must be the predicate's own field with no
     // fallback. `?? 0` is the coercion this exists for, and it is a shape, not one spelling.
-    const pushes = [...source.matchAll(/pushCapped\(ring\.(\w+), (.*)\)$/gm)].map(match => ({
+    const pushes = [...source.matchAll(/series\.(cpu|rss|probe)\.push\((.*)\)$/gm)].map(match => ({
       ring: match[1]!,
       value: match[2]!.trim(),
     }))

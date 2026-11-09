@@ -29,7 +29,7 @@ import { useTheme } from '@/composables/useTheme'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import { t, tc } from '@/i18n'
 import { cn } from '@/lib/cn'
-import { STATUS_META } from '@/lib/status'
+import { statusLabel } from '@/lib/status'
 import { workspacePath } from '@/router'
 
 interface PaletteCommand {
@@ -91,7 +91,7 @@ const commands = computed<PaletteCommand[]>(() => {
 
   for (const { workspace: owner, server } of entries) {
     const label = server.config.label ?? server.id
-    const status = t(STATUS_META[server.status].labelKey)
+    const status = statusLabel(server.status)
     out.push({
       id: `open:${owner.id}:${server.id}`,
       title: t('palette.openServer', { label }),

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Bind, LogLine, ServerStatus, ServerView } from '@shared/contracts'
+import type { Outcome } from '@/composables/useControlPlane'
 import { parseBind } from '@shared/contracts'
 import { cpuBand } from '@shared/cpu-scale'
 import { probeBand } from '@shared/probe-latency'
@@ -110,26 +111,44 @@ async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
   }
 }
 
-async function toggleEnabled(event: Event): Promise<void> {
-  await control.setEnabled(props.workspaceId, props.server.id, (event.target as HTMLInputElement).checked)
+/**
+ * The checkbox and the select are plain `:checked`/`:value` bindings, so a refused change leaves
+ * the control showing what was asked for, not what the entry is: put it back and say why.
+ */
+async function toggle(event: Event, apply: (value: boolean) => Promise<Outcome<unknown>>): Promise<void> {
+  const box = event.target as HTMLInputElement
+  const wanted = box.checked
+  const outcome = await apply(wanted)
+  if (!outcome.ok) {
+    box.checked = !wanted
+    flash(outcome.error, 'error')
+  }
 }
 
-async function toggleAutostart(event: Event): Promise<void> {
-  await control.setAutostart(props.workspaceId, props.server.id, (event.target as HTMLInputElement).checked)
+function toggleEnabled(event: Event): Promise<void> {
+  return toggle(event, enabled => control.setEnabled(props.workspaceId, props.server.id, enabled))
+}
+
+function toggleAutostart(event: Event): Promise<void> {
+  return toggle(event, autostart => control.setAutostart(props.workspaceId, props.server.id, autostart))
 }
 
 async function changeBind(event: Event): Promise<void> {
-  const bind: Bind | null = parseBind((event.target as HTMLSelectElement).value)
-  if (bind === null)
-    return
-  await control.setBind(props.workspaceId, props.server.id, bind)
+  const select = event.target as HTMLSelectElement
+  const bind: Bind | null = parseBind(select.value)
+  const outcome = bind === null
+    ? { ok: false as const, error: `${select.value} is not a bind address` }
+    : await control.setBind(props.workspaceId, props.server.id, bind)
+  if (!outcome.ok) {
+    select.value = config.value.bind
+    flash(outcome.error, 'error')
+  }
 }
 
 async function remove(): Promise<void> {
   const id = props.server.id
-  await control.remove(props.workspaceId, id)
-  if (control.lastError.value === null)
-    flash(`removed ${id}`)
+  const outcome = await control.remove(props.workspaceId, id)
+  flash(outcome.ok ? `removed ${id}` : outcome.error, outcome.ok ? 'info' : 'error')
 }
 
 function edit(): void {
@@ -138,8 +157,8 @@ function edit(): void {
 
 async function clearBuffer(): Promise<void> {
   const id = props.server.id
-  await control.clearLogs(props.workspaceId, id)
-  flash(`${id}: buffered logs cleared`)
+  const outcome = await control.clearLogs(props.workspaceId, id)
+  flash(outcome.ok ? `${id}: buffered logs cleared` : outcome.error, outcome.ok ? 'info' : 'error')
 }
 
 function ledClass(status: ServerStatus): string {
@@ -151,7 +170,7 @@ function ledClass(status: ServerStatus): string {
     backoff: 'led--starting',
     crashed: 'led--crashed',
     conflict: 'led--crashed',
-  }[status]
+  }[status] ?? 'led--stopped'
 }
 </script>
 

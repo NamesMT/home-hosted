@@ -17,7 +17,7 @@ import { t, tc } from '@/i18n'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { formatBytes } from '@/lib/format'
-import { STATUS_META, TONE_DOT } from '@/lib/status'
+import { statusMeta, TONE_DOT } from '@/lib/status'
 
 const route = useRoute()
 const router = useRouter()
@@ -228,7 +228,7 @@ onMounted(async () => {
             )"
             @click="select(server.serverId)"
           >
-            <span :class="cn('size-1.5 shrink-0 rounded-full', TONE_DOT[STATUS_META[server.status].tone])" />
+            <span :class="cn('size-1.5 shrink-0 rounded-full', TONE_DOT[statusMeta(server.status).tone])" />
             <span class="min-w-0 flex-1">
               <span :class="cn('block truncate text-xs', server.serverId === selected ? 'font-medium text-accent' : 'text-ink')">
                 {{ server.label }}

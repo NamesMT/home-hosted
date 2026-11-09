@@ -114,19 +114,33 @@ function edit(): void {
     editTo(server.id)
 }
 
+/** One action per server at a time: a second press while the first is running is dropped. */
 function actOn(id: string, action: 'start' | 'stop' | 'restart'): void {
-  void workspace.act(id, action)
+  if (!workspace.isBusy(id))
+    void workspace.act(id, action)
 }
 
-function act(action: 'start' | 'stop' | 'restart'): void {
+/** A held key repeats, and a press while that server's action is still running would stack another. */
+function act(action: 'start' | 'stop' | 'restart', event?: KeyboardEvent): void {
   const server = selected.value
-  if (server)
-    actOn(server.id, action)
+  if (!server || event?.repeat === true)
+    return
+  actOn(server.id, action)
 }
 
 async function clearServer(id: string): Promise<void> {
-  await workspace.clearLogs(id)
-  flash(`${id}: buffered logs cleared`)
+  const outcome = await workspace.clearLogs(id)
+  flash(outcome.ok ? `${id}: buffered logs cleared` : outcome.error, outcome.ok ? 'info' : 'error')
+}
+
+async function startAll(): Promise<void> {
+  const outcome = await workspace.startAll()
+  flash(outcome.ok ? 'starting every enabled server' : outcome.error, outcome.ok ? 'info' : 'error')
+}
+
+async function stopAll(options: { withPersistent?: boolean } = {}): Promise<void> {
+  const outcome = await workspace.stopAll(options)
+  flash(outcome.ok ? 'stopping every server' : outcome.error, outcome.ok ? 'info' : 'error')
 }
 
 async function clearSelected(): Promise<void> {
@@ -135,7 +149,7 @@ async function clearSelected(): Promise<void> {
     await clearServer(server.id)
 }
 
-useKeyHandler((key) => {
+useKeyHandler((key, event) => {
   switch (key) {
     case 'j':
       move(1)
@@ -156,13 +170,13 @@ useKeyHandler((key) => {
       return true
     }
     case 's':
-      act('start')
+      act('start', event)
       return true
     case 'x':
-      act('stop')
+      act('stop', event)
       return true
     case 'r':
-      act('restart')
+      act('restart', event)
       return true
     case 'e':
     case 'Enter':
@@ -199,7 +213,7 @@ useKeyHandler((key) => {
       <button type="button" class="btn btn--sm" title="keyboard shortcuts" @click="helpOpen = true">
         keys <kbd class="kbd">?</kbd>
       </button>
-      <button type="button" class="btn btn--sm" @click="workspace.startAll()">
+      <button type="button" class="btn btn--sm" @click="startAll()">
         start all
       </button>
       <ConfirmButton
@@ -209,8 +223,8 @@ useKeyHandler((key) => {
         title="Stop every server in this workspace?"
         hint="Persistent entries keep running unless you choose “with persistent”."
         tone="ghost"
-        @confirm="workspace.stopAll()"
-        @alternative="workspace.stopAll({ withPersistent: true })"
+        @confirm="stopAll()"
+        @alternative="stopAll({ withPersistent: true })"
       />
       <button type="button" class="btn btn--sm btn--primary" @click="addOpen = true">
         add <kbd class="kbd">a</kbd>

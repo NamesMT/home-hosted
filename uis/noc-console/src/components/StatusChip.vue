@@ -3,7 +3,8 @@ import type { ServerStatus } from '@shared/contracts'
 
 defineProps<{ status: ServerStatus }>()
 
-const labels: Record<ServerStatus, string> = {
+/** Partial on purpose: a newer panel may send a status this UI has no label for, shown as it came. */
+const labels: Partial<Record<string, string>> & Record<ServerStatus, string> = {
   stopped: 'stopped',
   starting: 'starting',
   running: 'running',
@@ -15,5 +16,5 @@ const labels: Record<ServerStatus, string> = {
 </script>
 
 <template>
-  <span class="chip" :class="`chip--${status}`">{{ labels[status] }}</span>
+  <span class="chip" :class="`chip--${status}`">{{ labels[status] ?? status }}</span>
 </template>

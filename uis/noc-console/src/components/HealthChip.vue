@@ -3,7 +3,8 @@ import type { HealthState } from '@shared/contracts'
 
 defineProps<{ health: HealthState }>()
 
-const labels: Record<HealthState, string> = {
+/** Partial on purpose: a newer panel may send a state this UI has no label for, shown as it came. */
+const labels: Partial<Record<string, string>> & Record<HealthState, string> = {
   disabled: 'off',
   unknown: 'unknown',
   healthy: 'healthy',
@@ -12,5 +13,5 @@ const labels: Record<HealthState, string> = {
 </script>
 
 <template>
-  <span class="chip" :class="`chip--${health}`">{{ labels[health] }}</span>
+  <span class="chip" :class="`chip--${health}`">{{ labels[health] ?? health }}</span>
 </template>

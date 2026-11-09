@@ -163,10 +163,9 @@ async function submit(): Promise<void> {
 
   busy.value = true
   try {
-    await workspace.createServer(parsed)
-
-    if (workspace.lastError.value !== null) {
-      error.value = workspace.lastError.value
+    const outcome = await workspace.createServer(parsed)
+    if (!outcome.ok) {
+      error.value = outcome.error
       return
     }
 

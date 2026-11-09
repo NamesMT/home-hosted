@@ -1,23 +1,23 @@
-import type { LogLine, ServerView, SettingsPatch, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { AppState, LogLine, ServerView, SettingsPatch, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { ConnectionState } from '@shared/live-store'
 import type { MaybeRefOrGetter, Ref } from 'vue'
 import type { AppStateView } from '@/lib/api'
 import type { ServerSeries } from '@/lib/telemetry'
-import { parseBind, sseMessageSchema } from '@shared/contracts'
+import { parseBind } from '@shared/contracts'
 import { errorMessage } from '@shared/error-message'
+import { createLiveStore } from '@shared/live-store'
 /** The composite key every per-server buffer and series is stored under. */
 // Imported as well as re-exported: this module calls `serverKey` itself, and a re-export does not
 // bring the name into scope.
 import { serverKey } from '@shared/server-key'
-import { type } from 'arktype'
-import { computed, onScopeDispose, readonly, ref, toValue, watch } from 'vue'
-import { useSession } from '@/composables/useSession'
+import { computed, onScopeDispose, reactive, readonly, ref, toValue, watch } from 'vue'
+import { streamDecision, useSession } from '@/composables/useSession'
 import { useToasts } from '@/composables/useToasts'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
+import { SERIES_CAPACITY } from '@/lib/telemetry'
 
-import { createSeries, recordSample } from '@/lib/telemetry'
-
-export type ConnectionState = 'connecting' | 'open' | 'closed'
+export type { ConnectionState } from '@shared/live-store'
 
 /** Lines kept per server client-side; the disk tail holds the archive. */
 export const MAX_CLIENT_LINES = 8000
@@ -26,235 +26,76 @@ const appState = ref<AppStateView | null>(null)
 const connection = ref<ConnectionState>('connecting')
 const lastError = ref<string | null>(null)
 const now = ref(Date.now())
-/** Server ids repeat across workspaces, so every per-server map is keyed by both. */
-const series = new Map<string, ServerSeries>()
 const notifier = useToasts()
 
 export { serverKey } from '@shared/server-key'
 
-interface LogBuffer {
-  lines: LogLine[]
-  version: Ref<number>
-  refs: number
-  source: EventSource | null
-}
-
-const buffers = new Map<string, LogBuffer>()
-
 /**
- * Bumped on every buffer mutation. `lines` is a plain array mutated in place, and
- * a buffer may not even exist when a view first evaluates its version, so a single
- * always-live counter is what makes the log views re-render on the first line and
- * on every one after it. Without it the version computed caches once and the
- * viewer stays empty until something else forces a re-render.
+ * Bumped on every buffer change. The store's buffers are plain, and one may not even exist when a
+ * view first evaluates its version, so a single always-live counter is what makes the log views
+ * re-render on the first line and on every one after it.
  */
 const logRevision = ref(0)
 
-let globalSource: EventSource | null = null
+/**
+ * After a stream closed for good: a signed-out session goes to the login view (the shell's
+ * `streamDecision` watch disconnects and routes), anything else — the panel still restarting —
+ * reconnects.
+ */
+async function checkSession(): Promise<boolean> {
+  try {
+    if (streamDecision(await api.fetchSession()) === 'login') {
+      useSession().requireLogin()
+      return false
+    }
+  }
+  catch {
+    // Unreachable: keep retrying.
+  }
+  return true
+}
+
+const store = createLiveStore({
+  openEventSource: url => new EventSource(url),
+  eventsUrl: '/api/events?logs=0',
+  serverStreamUrl: (workspaceId, serverId) => `/api/servers/${encodeURIComponent(serverId)}/stream${api.workspaceQuery(workspaceId)}`,
+  state: {
+    get: () => appState.value as AppState | null,
+    set: (state) => {
+      appState.value = state as AppStateView
+    },
+  },
+  maxLines: MAX_CLIENT_LINES,
+  seriesCapacity: SERIES_CAPACITY,
+  checkSession,
+  onConnection: (state) => {
+    connection.value = state
+  },
+  onLogs: () => {
+    logRevision.value += 1
+  },
+  observe: value => reactive(value) as typeof value,
+})
+
 let clock: ReturnType<typeof setInterval> | null = null
 
-function bufferFor(key: string): LogBuffer {
-  const existing = buffers.get(key)
-  if (existing)
-    return existing
-  const created: LogBuffer = { lines: [], version: ref(0), refs: 0, source: null }
-  buffers.set(key, created)
-  return created
-}
-
-function appendLines(key: string, batch: LogLine[]): void {
-  const buffer = bufferFor(key)
-  // A new array per batch, never a push. A computed is only re-read by its
-  // subscribers when its own recomputed value *differs*, and Vue compares with
-  // Object.is — an array mutated in place is always equal to itself, so a viewer's
-  // line count stayed frozen at whatever it read first. The counters below are what
-  // tell the views to re-read the buffer at all.
-  const merged = buffer.lines.concat(batch)
-  buffer.lines = merged.length > MAX_CLIENT_LINES ? merged.slice(merged.length - MAX_CLIENT_LINES) : merged
-  buffer.version.value += 1
-  logRevision.value += 1
-}
-
 export function liveLines(key: string): LogLine[] {
-  return buffers.get(key)?.lines ?? []
+  return store.lines(key)
 }
 
 export function resetLogs(key: string): void {
-  const buffer = buffers.get(key)
-  if (!buffer)
-    return
-  buffer.lines = []
-  buffer.version.value += 1
-  logRevision.value += 1
-}
-
-function seriesFor(key: string): ServerSeries {
-  const existing = series.get(key)
-  if (existing)
-    return existing
-  const created = createSeries()
-  series.set(key, created)
-  return created
-}
-
-function trackServer(server: ServerView): void {
-  if (server.workspaceId === undefined)
-    return
-  recordSample(seriesFor(serverKey(server.workspaceId, server.id)), server, Date.now())
-}
-
-/**
- * Replaces one entry in the frame. A `server` frame may omit `workspaceId` (an
- * older panel), so an id that exists in exactly one workspace is unambiguous;
- * anything else is dropped rather than guessed at.
- */
-function upsertServer(server: ServerView): void {
-  const current = appState.value
-  if (!current)
-    return
-
-  const explicit = server.workspaceId
-  const target = explicit === undefined
-    ? current.workspaces.filter(workspace => workspace.servers.some(entry => entry.id === server.id))
-    : current.workspaces.filter(workspace => workspace.id === explicit)
-  if (target.length !== 1)
-    return
-
-  const workspace = target[0]!
-  const nested = workspace.servers.find(entry => entry.id === server.id)
-  const withWorkspace: ServerView = explicit === undefined ? { ...server, workspaceId: workspace.id } : server
-  if (nested === undefined)
-    workspace.servers = [...workspace.servers, withWorkspace]
-  else
-    workspace.servers = workspace.servers.map(entry => (entry.id === server.id ? withWorkspace : entry))
-}
-
-function handleMessage(raw: string): void {
-  let payload: unknown
-  try {
-    payload = JSON.parse(raw)
-  }
-  catch {
-    return
-  }
-
-  const parsed = sseMessageSchema(payload)
-  if (parsed instanceof type.errors) {
-    console.warn('[home-hosted] ignored malformed SSE frame', parsed.summary)
-    return
-  }
-
-  if (parsed.type === 'hello' || parsed.type === 'state') {
-    if (parsed.state) {
-      appState.value = parsed.state as AppStateView
-      for (const workspace of appState.value.workspaces) {
-        for (const server of workspace.servers)
-          trackServer(server)
-      }
-    }
-    return
-  }
-
-  if (parsed.type === 'server' && parsed.server) {
-    const server = parsed.server as ServerView
-    upsertServer(server)
-    trackServer(server)
-    return
-  }
-
-  if (parsed.type === 'log' && parsed.serverId && parsed.lines) {
-    const workspaceId = parsed.workspaceId
-    if (workspaceId === undefined)
-      return
-    appendLines(serverKey(workspaceId, parsed.serverId), parsed.lines)
-  }
-}
-
-function openServerStream(workspaceId: string, serverId: string, buffer: LogBuffer): void {
-  const key = serverKey(workspaceId, serverId)
-  // Every connect replays the panel's last 200 buffered lines, so anything kept from a
-  // previous connection would be shown twice — leaving the Logs page for Persisted and
-  // coming back, or a server detail view unmounting, did exactly that. Start clean; this
-  // is the one place a stream begins.
-  buffer.lines = []
-  buffer.version.value += 1
-  logRevision.value += 1
-  const source = new EventSource(`/api/servers/${encodeURIComponent(serverId)}/stream${api.workspaceQuery(workspaceId)}`)
-  const listener = (event: Event): void => {
-    const message = event as MessageEvent<string>
-    let payload: unknown
-    try {
-      payload = JSON.parse(message.data)
-    }
-    catch {
-      return
-    }
-    const parsed = sseMessageSchema(payload)
-    if (parsed instanceof type.errors) {
-      console.warn('[home-hosted] ignored malformed SSE frame', parsed.summary)
-      return
-    }
-    if (parsed.type === 'log' && parsed.lines) {
-      appendLines(key, parsed.lines)
-      return
-    }
-    if (parsed.type === 'server' && parsed.server)
-      upsertServer(parsed.server as ServerView)
-  }
-  for (const event of ['log', 'server'] as const)
-    source.addEventListener(event, listener)
-  source.onerror = () => {
-    // EventSource retries on its own; the shell already shows the global link.
-  }
-  buffer.source = source
-}
-
-function acquireServerStream(workspaceId: string, serverId: string): void {
-  const buffer = bufferFor(serverKey(workspaceId, serverId))
-  buffer.refs += 1
-  if (!buffer.source)
-    openServerStream(workspaceId, serverId, buffer)
-}
-
-function releaseServerStream(workspaceId: string, serverId: string): void {
-  const buffer = buffers.get(serverKey(workspaceId, serverId))
-  if (!buffer)
-    return
-  buffer.refs = Math.max(0, buffer.refs - 1)
-  if (buffer.refs === 0) {
-    buffer.source?.close()
-    buffer.source = null
-  }
+  store.resetLogs(key)
 }
 
 export function connect(): void {
-  if (globalSource)
-    return
-
   clock ??= setInterval(() => {
     now.value = Date.now()
   }, 1000)
-
-  const source = new EventSource('/api/events?logs=0')
-  globalSource = source
-  connection.value = 'connecting'
-
-  source.onopen = () => {
-    connection.value = 'open'
-  }
-  source.onerror = () => {
-    connection.value = 'closed'
-  }
-  for (const event of ['hello', 'state', 'server', 'log'] as const) {
-    source.addEventListener(event, (message) => {
-      handleMessage((message as MessageEvent<string>).data)
-    })
-  }
+  store.connect()
 }
 
 export function disconnect(): void {
-  globalSource?.close()
-  globalSource = null
+  store.disconnect()
   if (clock)
     clearInterval(clock)
   clock = null
@@ -276,13 +117,13 @@ export function useServerLogs(workspaceId: MaybeRefOrGetter<string | null>, serv
     if (held !== null && held !== key) {
       const [workspace, server] = held.split('/')
       if (workspace !== undefined && server !== undefined)
-        releaseServerStream(workspace, server)
+        store.releaseLogs(workspace, server)
     }
     held = key
     if (key !== null) {
       const [workspace, server] = key.split('/')
       if (workspace !== undefined && server !== undefined)
-        acquireServerStream(workspace, server)
+        store.acquireLogs(workspace, server)
     }
   }, { immediate: true })
 
@@ -290,7 +131,7 @@ export function useServerLogs(workspaceId: MaybeRefOrGetter<string | null>, serv
     if (held !== null) {
       const [workspace, server] = held.split('/')
       if (workspace !== undefined && server !== undefined)
-        releaseServerStream(workspace, server)
+        store.releaseLogs(workspace, server)
     }
     held = null
   })
@@ -300,7 +141,7 @@ export function useServerLogs(workspaceId: MaybeRefOrGetter<string | null>, serv
     // `logRevision` is the dependency that always exists; the per-buffer counter
     // is only the value, so the first append still invalidates this.
     void logRevision.value
-    return key === null ? 0 : buffers.get(key)?.version.value ?? 0
+    return key === null ? 0 : store.logVersion(key)
   })
 
   return {
@@ -312,7 +153,7 @@ export function useServerLogs(workspaceId: MaybeRefOrGetter<string | null>, serv
     count: computed(() => {
       const key = current.value
       void logRevision.value
-      return key === null ? 0 : buffers.get(key)?.lines.length ?? 0
+      return key === null ? 0 : store.lines(key).length
     }),
     clear(): void {
       const key = current.value
@@ -349,7 +190,7 @@ export function useControlPlane() {
   }
 
   function seriesOf(workspaceId: string, id: string): ServerSeries {
-    return seriesFor(serverKey(workspaceId, id))
+    return store.series(serverKey(workspaceId, id))
   }
 
   /**
@@ -360,7 +201,7 @@ export function useControlPlane() {
     if (appState.value !== null)
       return
     try {
-      appState.value = await api.fetchState()
+      store.applyState(await api.fetchState() as AppState)
     }
     catch (error) {
       if (error instanceof api.AuthRequiredError)
@@ -375,7 +216,7 @@ export function useControlPlane() {
     lastError.value = null
     try {
       const result = await action()
-      appState.value = await api.fetchState()
+      store.applyState(await api.fetchState() as AppState)
       const message = typeof options.success === 'function' ? options.success(result) : options.success
       if (message)
         notifier.success(message)
@@ -457,9 +298,7 @@ export function useControlPlane() {
     create: (workspaceId: string, payload: api.CreateServerPayload) => run(() => api.createServer(workspaceId, payload), { title: t('toast.addServerFailed'), success: t('toast.serverAdded') }),
     remove: (workspaceId: string, id: string) => run(async () => {
       await api.removeServer(workspaceId, id)
-      releaseServerStream(workspaceId, id)
-      buffers.delete(serverKey(workspaceId, id))
-      series.delete(serverKey(workspaceId, id))
+      store.forget(workspaceId, id)
     }, { title: t('toast.removeServerFailed', { id }), success: t('toast.serverRemoved', { id }) }),
   }
 }

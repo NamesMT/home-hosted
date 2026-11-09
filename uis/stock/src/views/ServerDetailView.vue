@@ -34,7 +34,7 @@ import {
   formatRatio,
   relativeFrom,
 } from '@/lib/format'
-import { HEALTH_META, STATUS_META } from '@/lib/status'
+import { healthLabel, statusLabel } from '@/lib/status'
 import { workspacePath } from '@/router'
 
 const route = useRoute()
@@ -119,8 +119,8 @@ const stats = computed(() => {
   const rows = [
     { key: 'pid', label: t('views.serverDetail.pid'), value: value.pid === null ? '—' : String(value.pid) },
     { key: 'uptime', label: t('common.uptime'), value: uptime.value },
-    { key: 'status', label: t('common.status'), value: t(STATUS_META[value.status].labelKey) },
-    { key: 'health', label: t('views.serverDetail.health'), value: t(HEALTH_META[value.health].labelKey) },
+    { key: 'status', label: t('common.status'), value: statusLabel(value.status) },
+    { key: 'health', label: t('views.serverDetail.health'), value: healthLabel(value.health) },
     { key: 'port', label: t('views.serverDetail.portState'), value: t(PORT_STATE_LABEL_KEY[value.portState] ?? 'common.unknown') },
     { key: 'probe', label: t('views.serverDetail.lastProbe'), value: live.responseMs === null ? '—' : `${live.responseMs} ms` },
     { key: 'rss', label: 'RSS', value: formatBytesShort(live.rssBytes) },

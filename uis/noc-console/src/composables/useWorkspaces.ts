@@ -137,8 +137,6 @@ export function useWorkspaces() {
     serverCount,
     runningCount,
     crashedCount,
-    lastError: control.lastError,
-
     refresh: control.refresh,
     start: (id: string) => control.start(activeId.value, id),
     stop: (id: string) => control.stop(activeId.value, id),
@@ -154,5 +152,6 @@ export function useWorkspaces() {
     createServer: (payload: api.CreateServerPayload) => control.create(activeId.value, payload),
     removeServer: (id: string) => control.remove(activeId.value, id),
     act: (id: string, action: 'start' | 'stop' | 'restart') => control.act(activeId.value, id, action),
+    isBusy: (id: string) => control.isBusy(activeId.value, id),
   }
 }

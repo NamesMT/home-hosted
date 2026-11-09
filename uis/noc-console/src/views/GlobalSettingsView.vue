@@ -433,11 +433,12 @@ async function saveSettings(): Promise<void> {
       return
     }
 
-    const saved: SettingsSaveResult | null = await control.saveSettings(globalPatch) ?? null
-    if (!saved) {
-      settingsError.value = control.lastError.value ?? 'the settings could not be saved'
+    const outcome = await control.saveSettings(globalPatch)
+    if (!outcome.ok) {
+      settingsError.value = outcome.error
       return
     }
+    const saved: SettingsSaveResult = outcome.value
 
     settings.value = saved
     // What was saved is what live state holds now, so every block may follow it

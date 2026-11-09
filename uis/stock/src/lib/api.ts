@@ -25,7 +25,6 @@ import {
   request,
 } from '@shared/api-client'
 import {
-  appStateSchema,
   logHistoryViewSchema,
   logServersViewSchema,
   settingsPatchSchema,
@@ -33,6 +32,7 @@ import {
   workspaceSettingsViewSchema,
   workspaceViewSchema,
 } from '@shared/contracts'
+import { parseState } from '@shared/live-frames'
 import { type } from 'arktype'
 
 import { rpc } from '@/lib/rpc'
@@ -126,9 +126,10 @@ function scoped(path: string, workspace: string, extra?: URLSearchParams): strin
 /** Validated at the boundary: contract drift fails loudly here, not in the UI. */
 export async function fetchState(): Promise<AppStateView> {
   const payload = await request<unknown>('/api/state')
-  const parsed = appStateSchema(payload)
-  if (parsed instanceof type.errors)
-    throw new Error(`state contract mismatch: ${parsed.summary}`)
+  // Tolerant of an enum value a newer panel added: one unknown status must not blank the UI.
+  const parsed = parseState(payload)
+  if (parsed === null)
+    throw new Error('state contract mismatch')
   // The schema accepts both `port` forms; the control plane always sends the
   // normalized one (`number | null`), which is what AppStateView describes.
   return parsed as AppStateView

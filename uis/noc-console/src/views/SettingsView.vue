@@ -496,9 +496,12 @@ async function saveSettings(): Promise<void> {
       return
     }
 
-    if (Object.keys(patch).length > 0 && !(await workspace.saveSettings(patch))) {
-      settingsError.value = control.lastError.value ?? 'the workspace settings could not be saved'
-      return
+    if (Object.keys(patch).length > 0) {
+      const outcome = await workspace.saveSettings(patch)
+      if (!outcome.ok) {
+        settingsError.value = outcome.error
+        return
+      }
     }
 
     // DDNS has its own route (`PUT /api/ddns`); the panel owns its draft.
