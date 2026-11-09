@@ -32,7 +32,7 @@ Releasing: [`.agentDocs/RELEASING.md`](.agentDocs/RELEASING.md), with upgrade no
 
 | You need to… | Start at | Also touch |
 | --- | --- | --- |
-| add/change an API route | `src/api/<group>.ts` (chained factory) → mounted in `src/app.ts` | request/response schemas in `src/shared/contracts.ts`; `describeRoute` + `jsonBody`; a test in `test/api/` (`test/api/fixture.ts` builds a full app) |
+| add/change an API route | `src/api/<group>.ts`, or `src/api/<group>/$.routes.ts` for `auth`, `servers`, `workspaces` (chained factory) → mounted in `src/app.ts` | request/response schemas in `src/shared/contracts.ts`; `describeRoute` + `jsonBody`; a test in `test/api/` (`test/api/fixture.ts` builds a full app) |
 | add a server field | `serverSchema` + its patch schema in `src/shared/contracts.ts` | merge keys in `src/config/patch.ts` if nested; the forms in `uis/stock/src/components/server/` **and** `uis/noc-console/src/lib/serverForm.ts`; `docs/SERVERS.md`; `test/shared/contracts.test.ts` |
 | add a panel/workspace setting | the schema + patch in `contracts.ts`, the store in `src/config/settings.ts` or `store.ts` | the view in `src/services/state.ts`; `uis/stock/src/components/settings/settingsForm.ts` (+ its section `.vue`) and `uis/noc-console/src/views/*SettingsView.vue` |
 | change process lifecycle | `src/services/supervisor.ts` (the state machine); one concern per module in `src/services/supervisor/` (`port-preflight`, `persistent`, `health`, `records`, `spawn`, `compose`, `view`) | `src/providers/process.ts`, `port.ts`, `proc.ts`, `identity.ts`; persistent entries in `src/services/nanny.ts` + `src/providers/nanny.ts`; tests in `test/services/supervisor.test.ts` (real child processes) |
@@ -57,13 +57,10 @@ Everything lives in `$HHOSTED_HOME/.hh` (default `~/.home-hosted/.hh`, mode `070
 `ddns.cache.json`). The package ships no servers:
 never commit a config, seed entry or path naming one.
 
-**`src/helpers/paths.ts` resolves `dataRoot` once, at module load**, and ESM hoists imports — so a
-test that assigns `process.env.HHOSTED_HOME` in its own body is already too late and every path it
-reads is the developer's real `~/.home-hosted`. `test/support/test-home.ts` (wired as `setupFiles`)
-gives each test file a throwaway home *before* it is imported, which is the only hook early enough;
-`test/support/real-home-guard.ts` (`globalSetup`) then fails the run if the real one changed. A test
-that needs `resolveDataRoot`'s own behaviour, or no home at all, sets or deletes the variable itself
-and restores it — it does not rely on the default being reachable.
+**`src/helpers/paths.ts` resolves `dataRoot` once, at module load**, so a test cannot redirect it by
+setting `HHOSTED_HOME` in its own body. `test/support/test-home.ts` (`setupFiles`) gives each test file
+a throwaway home first, and `test/support/real-home-guard.ts` fails the run if the real one changed. A
+test that sets or deletes the variable itself restores it.
 
 ## Commands
 
