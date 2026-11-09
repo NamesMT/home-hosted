@@ -209,9 +209,9 @@ async function save(): Promise<void> {
   saveMessage.value = null
   try {
     if (hasWorkspacePatch) {
-      const result = await control.saveWorkspaceSettings(workspace.activeId.value, pending)
-      if (!result) {
-        saveError.value = control.lastError.value ?? t('views.settings.saveFailed')
+      const outcome = await control.saveWorkspaceSettings(workspace.activeId.value, pending)
+      if (!outcome.ok) {
+        saveError.value = outcome.error
         return
       }
     }

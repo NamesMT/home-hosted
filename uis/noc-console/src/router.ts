@@ -79,6 +79,9 @@ router.beforeEach(async (to) => {
   // The frame decides which ids exist, so a deep link waits for it once.
   const control = useControlPlane()
   await control.ensureState()
+  // The frame read can be what finds the session gone (a panel restart drops every session).
+  if (session.value?.authRequired === true && session.value.authenticated !== true)
+    return { name: 'login', query: { next: to.fullPath } }
   const workspace = useWorkspaces()
   const list = workspace.workspaces.value
   if (list.length === 0)

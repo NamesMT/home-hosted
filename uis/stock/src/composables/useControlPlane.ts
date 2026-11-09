@@ -1,8 +1,10 @@
+import type { Outcome } from '@shared/action-outcome'
 import type { AppState, LogLine, ServerView, SettingsPatch, WorkspaceSettingsPatch } from '@shared/contracts'
 import type { ConnectionState } from '@shared/live-store'
 import type { MaybeRefOrGetter, Ref } from 'vue'
 import type { AppStateView } from '@/lib/api'
 import type { ServerSeries } from '@/lib/telemetry'
+import { runThenRefetch } from '@shared/action-outcome'
 import { parseBind } from '@shared/contracts'
 import { errorMessage } from '@shared/error-message'
 import { createLiveStore } from '@shared/live-store'
@@ -17,6 +19,7 @@ import { t } from '@/i18n'
 import * as api from '@/lib/api'
 import { SERIES_CAPACITY } from '@/lib/telemetry'
 
+export type { Outcome } from '@shared/action-outcome'
 export type { ConnectionState } from '@shared/live-store'
 
 /** Lines kept per server client-side; the disk tail holds the archive. */
@@ -24,7 +27,6 @@ export const MAX_CLIENT_LINES = 8000
 
 const appState = ref<AppStateView | null>(null)
 const connection = ref<ConnectionState>('connecting')
-const lastError = ref<string | null>(null)
 const now = ref(Date.now())
 const notifier = useToasts()
 
@@ -211,28 +213,51 @@ export function useControlPlane() {
     }
   }
 
+  /**
+   * An action, then a fresh frame, resolving to **this call's** outcome.
+   *
+   * There used to be one shared `lastError` that every action overwrote, so a failed Start elsewhere
+   * showed in an open config editor and kept it open after its own save had succeeded. And the
+   * re-read sat in the same `try` as the action, so a refresh that failed after a successful save
+   * reported the save as failed. Now each caller reads its own result, and a failed refresh is its
+   * own toast.
+   */
   async function run<T>(
     action: () => Promise<T>,
     options: { title: string, success?: string | ((result: T) => string) },
-  ): Promise<T | undefined> {
-    lastError.value = null
-    try {
-      const result = await action()
+  ): Promise<Outcome<T>> {
+    const { outcome, actionError, refetchError } = await runThenRefetch(action, async () => {
       store.applyState(await api.fetchState() as AppState)
-      const message = typeof options.success === 'function' ? options.success(result) : options.success
-      if (message)
-        notifier.success(message)
-      return result
+    })
+    if (!outcome.ok) {
+      if (actionError instanceof api.AuthRequiredError)
+        useSession().requireLogin()
+      else
+        notifier.failure(options.title, outcome.error)
+      return outcome
+    }
+    const message = typeof options.success === 'function' ? options.success(outcome.value) : options.success
+    if (message)
+      notifier.success(message)
+    if (refetchError instanceof api.AuthRequiredError)
+      useSession().requireLogin()
+    else if (refetchError !== undefined)
+      notifier.failure(t('toast.refreshFailed'), errorMessage(refetchError))
+    return outcome
+  }
+
+  /** Re-reads the frame. There is no action behind it, so its own failure is the outcome. */
+  async function refresh(title = t('toast.refreshFailed')): Promise<Outcome<void>> {
+    try {
+      store.applyState(await api.fetchState() as AppState)
+      return { ok: true, value: undefined }
     }
     catch (error) {
-      if (error instanceof api.AuthRequiredError) {
+      if (error instanceof api.AuthRequiredError)
         useSession().requireLogin()
-        return undefined
-      }
-      const message = errorMessage(error)
-      lastError.value = message
-      notifier.failure(options.title, message)
-      return undefined
+      else
+        notifier.failure(title, errorMessage(error))
+      return { ok: false, error: errorMessage(error) }
     }
   }
 
@@ -249,14 +274,13 @@ export function useControlPlane() {
     version,
     settingsError,
     connection: readonly(connection),
-    lastError: readonly(lastError),
     now: readonly(now),
     workspaceById,
     ensureState,
     serverById,
     seriesOf,
 
-    refresh: (title = t('toast.refreshFailed')) => run(async () => {}, { title }),
+    refresh,
 
     start: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'start'), { title: t('toast.startFailed', { id }) }),
     stop: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'stop'), { title: t('toast.stopFailed', { id }) }),
@@ -283,11 +307,12 @@ export function useControlPlane() {
         ? t('toast.portFree', { port: result.port, id })
         : t('toast.portHeld', { port: result.port })),
     }),
-    setBind: (workspaceId: string, id: string, bind: string) => {
+    setBind: (workspaceId: string, id: string, bind: string): Promise<Outcome<unknown>> => {
       const parsed = parseBind(bind)
       if (parsed === null) {
-        notifier.failure(t('toast.bindFailed', { id }), t('toast.bindInvalid', { bind }))
-        return Promise.resolve(undefined)
+        const error = t('toast.bindInvalid', { bind })
+        notifier.failure(t('toast.bindFailed', { id }), error)
+        return Promise.resolve({ ok: false, error })
       }
       return run(() => api.patchServer(workspaceId, id, { bind: parsed }), { title: t('toast.bindFailed', { id }) })
     },

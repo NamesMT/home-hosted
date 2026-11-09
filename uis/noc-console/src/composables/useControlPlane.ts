@@ -1,8 +1,10 @@
+import type { Outcome } from '@shared/action-outcome'
 import type { AppState, Bind, LogLine, ServerView, SettingsPatch, WorkspaceSettingsPatch } from '@shared/contracts'
 import type { ServerSeries } from '@shared/live-series'
 import type { ConnectionState } from '@shared/live-store'
 import type { ActionResult, BackupsView } from '@/lib/api'
 import type { ServerRef } from '@/lib/servers'
+import { runThenRefetch } from '@shared/action-outcome'
 import { errorMessage } from '@shared/error-message'
 import { createLiveStore } from '@shared/live-store'
 import { computed, reactive, readonly, ref } from 'vue'
@@ -12,15 +14,15 @@ import * as api from '@/lib/api'
 import { allServers as refsOf, serverKey, toServerView } from '@/lib/servers'
 
 export { AuthRequiredError } from '@/lib/api'
-export type { ServerSeries } from '@shared/live-series'
-export type { ConnectionState } from '@shared/live-store'
-
 /**
  * What every action resolves to. Each caller reads its own failure here: a shared "last error"
  * was overwritten by whichever concurrent action finished last, so one toggle could report
  * another's message, or none.
  */
-export type Outcome<T> = { ok: true, value: T } | { ok: false, error: string }
+export type { Outcome } from '@shared/action-outcome'
+export type { ServerSeries } from '@shared/live-series'
+
+export type { ConnectionState } from '@shared/live-store'
 
 const MAX_CLIENT_LINES = 1000
 const SERIES_LENGTH = 48
@@ -132,28 +134,40 @@ export function useControlPlane() {
     store.applyState(await api.fetchState())
   }
 
-  /** One frame is enough for a guarded deep link; concurrent callers share it. */
+  /**
+   * One frame is enough for a guarded deep link; concurrent callers share it.
+   *
+   * It never throws: a router guard that rethrew left a blank page on a deep link opened while the
+   * panel restarted. A lapsed session goes to the login view; anything else lets the route render,
+   * and the stream fills the frame in once the panel answers.
+   */
   async function ensureState(): Promise<void> {
     if (appState.value !== null)
       return
     statePromise ??= readState().finally(() => {
       statePromise = null
     })
-    await statePromise
-  }
-
-  async function run<T>(action: () => Promise<T>): Promise<Outcome<T>> {
     try {
-      const value = await action()
-      await readState()
-      return { ok: true, value }
+      await statePromise
     }
     catch (error) {
-      // A 401 means the session died; send the UI back to the login view.
       if (error instanceof api.AuthRequiredError)
-        void useSession().refresh()
-      return { ok: false, error: errorMessage(error) }
+        await useSession().refresh()
     }
+  }
+
+  /**
+   * An action, then a fresh frame. The action's own result is what the caller gets: a state read
+   * that failed afterwards is flashed on its own, never reported as the action failing.
+   */
+  async function run<T>(action: () => Promise<T>): Promise<Outcome<T>> {
+    const { outcome, actionError, refetchError } = await runThenRefetch(action, readState)
+    // A 401 means the session died; send the UI back to the login view.
+    if (actionError instanceof api.AuthRequiredError || refetchError instanceof api.AuthRequiredError)
+      void useSession().refresh()
+    else if (refetchError !== undefined)
+      flash(`done, but the view could not refresh: ${errorMessage(refetchError)}`, 'error')
+    return outcome
   }
 
   function serverById(workspaceId: string, id: string | null): ServerView | null {
@@ -186,7 +200,18 @@ export function useControlPlane() {
     seriesOf,
     ensureState,
     isBusy: (workspaceId: string, id: string): boolean => inFlight.has(serverKey(workspaceId, id)),
-    refresh: () => run(async () => {}),
+    /** Re-reads the frame; its own failure is the answer, since there is no action behind it. */
+    refresh: async (): Promise<Outcome<void>> => {
+      try {
+        await readState()
+        return { ok: true, value: undefined }
+      }
+      catch (error) {
+        if (error instanceof api.AuthRequiredError)
+          void useSession().refresh()
+        return { ok: false, error: errorMessage(error) }
+      }
+    },
     start: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'start', workspaceId)),
     stop: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'stop', workspaceId)),
     restart: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'restart', workspaceId)),

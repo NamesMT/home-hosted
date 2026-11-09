@@ -195,11 +195,12 @@ async function save(): Promise<void> {
   saveError.value = null
   saveMessage.value = null
   try {
-    const result = await control.saveGlobalSettings(pending)
-    if (!result) {
-      saveError.value = control.lastError.value ?? t('views.globalSettings.saveFailed')
+    const outcome = await control.saveGlobalSettings(pending)
+    if (!outcome.ok) {
+      saveError.value = outcome.error
       return
     }
+    const result = outcome.value
     saveMessage.value = t('views.globalSettings.saved')
     toasts.success(t('views.globalSettings.savedToast'))
     await loadConfig()

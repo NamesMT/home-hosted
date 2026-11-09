@@ -120,9 +120,9 @@ async function submit(): Promise<void> {
 
   creating.value = true
   try {
-    await control.create(props.workspaceId, parsed)
-    if (control.lastError.value !== null) {
-      showError(control.lastError.value, null)
+    const outcome = await control.create(props.workspaceId, parsed)
+    if (!outcome.ok) {
+      showError(outcome.error, null)
       return
     }
     emit('created')

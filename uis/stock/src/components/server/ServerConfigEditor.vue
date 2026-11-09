@@ -264,9 +264,9 @@ async function save(): Promise<void> {
       return
     }
 
-    await control.saveConfig(props.workspaceId, props.serverId, pending)
-    if (control.lastError.value !== null) {
-      error.value = control.lastError.value
+    const outcome = await control.saveConfig(props.workspaceId, props.serverId, pending)
+    if (!outcome.ok) {
+      error.value = outcome.error
       return
     }
 
