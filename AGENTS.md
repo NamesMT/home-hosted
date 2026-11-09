@@ -71,14 +71,21 @@ and restores it — it does not rely on the default being reachable.
 pnpm dev                       # panel :6000 + stock UI dev server :6001, state in .dev-state/, password `dev`
 pnpm dev --ui noc-console      # another UI; --home/--port/--ui-port override
 pnpm run cli <command>         # any CLI command against .dev-state/ — never ~/.home-hosted
-pnpm run quickcheck            # eslint + tsc + vue-tsc + doc links (no tests)
+pnpm run quickcheck            # eslint + tsc + vue-tsc + doc links, in parallel and cached (~10 s warm)
 pnpm exec vitest run <files>   # targeted tests
-pnpm run check                 # THE GATE: quickcheck + the full suite with coverage floors. Run before pushing
+pnpm run check:dev             # the inner loop: quickcheck + only the tests your changes reach
+                               #   (vitest --sinceLastRun) and those that failed last time
+pnpm run check:fast            # a broad sweep: quickcheck + the whole suite minus the suites that
+                               #   start real panels and processes (HH_TEST_SCOPE=fast)
+pnpm run check                 # THE GATE: quickcheck + everything + coverage floors. Before pushing
 pnpm run build                 # dist/cli.js + the stock UI
 pnpm run build:uis             # every UI, zipped into uis/dist/
 pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated catalogs
 ```
 
+- **Which gate when:** `check:dev` after each change while you work; `check:fast` before you hand
+  work back if your change is broad; `check` once before pushing — it is what CI runs. `check:dev`
+  follows imports, so a change only a spawned CLI or a source scan would see may wait for `check`.
 - Dev and test instances stay in the **6xxx** range; never assume 3999 is free — the user may have a
   real panel there. Tests bind fixed ports, so two full suites on one machine collide.
 - `pnpm-workspace.yaml`'s `allowBuilds` is load-bearing: dropping an entry makes `pnpm install` exit 1.
@@ -167,7 +174,7 @@ These are the ones that prevent real defects. Break one only with a reason in th
 5. User-visible behaviour is described in `README.md` / `docs/` in the same change, and
    `node scripts/check-doc-links.mjs` passes. A change someone must act on gets a section in
    `.agentDocs/UPGRADING.md`.
-6. `pnpm run check` before pushing — it is what CI runs.
+6. `pnpm run check:dev` while iterating, and `pnpm run check` once before pushing — it is what CI runs.
 
 ## How to work here
 

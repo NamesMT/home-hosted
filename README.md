@@ -564,7 +564,8 @@ Yes: process trees from Win32_Process, `taskkill` for stopping, `.cmd` shims res
 ```bash
 pnpm install
 pnpm dev            # panel :6000 + stock UI dev server :6001, state in .dev-state/ (password: dev)
-pnpm run check      # lint, types, doc links and the full test suite
+pnpm run check:dev  # while working: lint/types (cached) + only the tests your changes reach
+pnpm run check      # before pushing: lint, types, doc links and the full suite with coverage
 ```
 
 ```text

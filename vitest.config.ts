@@ -1,5 +1,6 @@
 import type { Plugin } from 'vite'
 import path from 'node:path'
+import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import { configDefaults, defineConfig } from 'vitest/config'
@@ -32,6 +33,18 @@ function perUiAlias(): Plugin {
     },
   }
 }
+
+/**
+ * The suites that start real panels, CLIs and child processes: most of the suite's time, and every
+ * test that is sensitive to machine load. `HH_TEST_SCOPE=fast` leaves them out (`pnpm run check:fast`);
+ * the full gate and CI always run them.
+ */
+const SLOW_SUITES = [
+  'test/cli/**',
+  'test/services/supervisor.test.ts',
+  'test/services/panel.test.ts',
+  'test/services/nanny.test.ts',
+]
 
 export default defineConfig({
   // Each UI's own aliases, so its modules are testable from `uis/<name>/test/`: pure logic
@@ -77,6 +90,7 @@ export default defineConfig({
      */
     exclude: [
       ...configDefaults.exclude,
+      ...(process.env.HH_TEST_SCOPE === 'fast' ? SLOW_SUITES : []),
       '**/.agents/**',
       '**/.claude/**',
       '**/.dev-state/**',
