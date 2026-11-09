@@ -764,6 +764,30 @@ describe('supervisor', () => {
     expect(afterRestart).toHaveLength(1)
   })
 
+  /** Each stream is its own byte sequence: a half-written stdout line must not absorb stderr's. */
+  it('keeps a bootstrap\'s stdout and stderr partial lines apart', async () => {
+    const port = await freePort()
+    const script = [
+      'const wait = ms => new Promise(resolve => setTimeout(resolve, ms))',
+      ';(async () => {',
+      '  process.stdout.write("out-"); await wait(100)',
+      '  process.stderr.write("err-"); await wait(100)',
+      '  process.stdout.write("A\\n"); await wait(100)',
+      '  process.stderr.write("B\\n"); await wait(100)',
+      '  process.stdout.write("tail-without-newline")',
+      '})()',
+    ].join('\n')
+    const { supervisor } = await makeSupervisor([httpServerConfig(port, {
+      bootstrap: { command: process.execPath, args: ['-e', script], timeoutMs: 10000 },
+    })])
+
+    await supervisor.start('web')
+    await waitFor(() => view(supervisor, 'web').status === 'running')
+
+    const lines = supervisor.logLines('web').map(entry => entry.text).filter(text => text.startsWith('[bootstrap]'))
+    expect(lines).toEqual(['[bootstrap] out-A', '[bootstrap] err-B', '[bootstrap] tail-without-newline'])
+  })
+
   it('exports data envs to the process, over `env`', async () => {
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-dataenv-'))
     cleanups.push(() => fs.promises.rm(dir, { recursive: true, force: true }))

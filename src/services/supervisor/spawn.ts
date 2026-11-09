@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
 import type { Entry, ResolvedSpawn, SupervisorContext } from '#src/services/supervisor/entry'
+import type { LogStream } from '#src/shared/contracts'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
@@ -96,10 +97,13 @@ export async function runBootstrap(ctx: SupervisorContext, entry: Entry, current
   const args = resolveTemplates(spec.args, vars)
   ctx.log(entry, 'system', `bootstrap: ${spec.command} ${args.join(' ')}`)
 
-  const splitter = new LineSplitter((_stream, text) => {
+  const emit = (_stream: LogStream, text: string): void => {
     if (text.trim().length > 0)
       ctx.log(entry, 'system', `[bootstrap] ${text}`)
-  })
+  }
+  // One splitter per stream: a shared one merged a half-written stdout line with stderr's.
+  const stdout = new LineSplitter(emit)
+  const stderr = new LineSplitter(emit)
 
   // `spawn` throws synchronously for an unusable command (empty, a NUL, a cwd through a file); escaping
   // would leave the entry wedged in `starting`.
@@ -118,8 +122,13 @@ export async function runBootstrap(ctx: SupervisorContext, entry: Entry, current
     ctx.persist(entry)
     return
   }
-  child.stdout?.on('data', chunk => splitter.push('stdout', chunk))
-  child.stderr?.on('data', chunk => splitter.push('stderr', chunk))
+  child.stdout?.on('data', chunk => stdout.push('stdout', chunk))
+  child.stderr?.on('data', chunk => stderr.push('stderr', chunk))
+  // `close` is when both pipes have delivered everything, so an unterminated last line is not lost.
+  child.once('close', () => {
+    stdout.flush('stdout')
+    stderr.flush('stderr')
+  })
   entry.bootstrapChild = child
 
   const code = await new Promise<number | null>((resolve) => {
