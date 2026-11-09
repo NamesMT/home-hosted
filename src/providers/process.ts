@@ -52,7 +52,34 @@ export function resolveCommand(command: string, ...searchDirs: string[]): string
     }
   }
 
+  if (process.platform === 'win32' && path.extname(command) === '')
+    return windowsShimOnPath(command) ?? command
   return command
+}
+
+/**
+ * A bare name that `PATH` resolves to a `.cmd`/`.bat` (`pnpm`, `npm`, `yarn`) comes back with that
+ * extension, so `needsShell` sees it: `spawn` without a shell only finds `.com`/`.exe` and answers
+ * `ENOENT`. The name stays bare (`npm.cmd`), so `cmd.exe` searches for it and a `Program Files`
+ * path is never split. `null` when the first match by `PATHEXT` order needs no shell, or none exists.
+ */
+function windowsShimOnPath(command: string): string | null {
+  const runnable = new Set(['.com', '.exe', '.bat', '.cmd'])
+  const extensions = (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map(extension => extension.trim().toLowerCase())
+    .filter(extension => runnable.has(extension))
+  for (const dir of pathDirs()) {
+    for (const extension of extensions) {
+      if (isExecutable(path.join(dir, `${command}${extension}`)))
+        return extension === '.bat' || extension === '.cmd' ? `${command}${extension}` : null
+    }
+  }
+  return null
+}
+
+function pathDirs(): string[] {
+  return (process.env.PATH ?? '').split(path.delimiter).filter(dir => dir.length > 0)
 }
 
 /**
@@ -73,8 +100,7 @@ export function findProgram(command: string, cwd: string = projectDir): string |
   }
 
   const extensions = process.platform === 'win32' ? ['', ...WINDOWS_SHIM_EXTENSIONS] : ['']
-  const dirs = (process.env.PATH ?? '').split(path.delimiter).filter(dir => dir.length > 0)
-  for (const dir of dirs) {
+  for (const dir of pathDirs()) {
     for (const extension of extensions) {
       const candidate = path.join(dir, `${command}${extension}`)
       if (isExecutable(candidate))

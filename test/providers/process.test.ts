@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import { resolveCommand, resolveCwd } from '#src/providers/process'
+import { needsShell, resolveCommand, resolveCwd } from '#src/providers/process'
 
 /**
  * The two pure helpers on the spawn path.
@@ -127,6 +127,36 @@ describe('resolveCommand on Windows', () => {
     // than a path Node is guaranteed to fail on.
     const project = binDirWith('mytool')
     expect(resolveCommand('mytool', project)).toBe('mytool')
+  })
+
+  /**
+   * `pnpm`/`npm` on PATH are `.cmd` shims. Returned bare, `needsShell` said no and `spawn` (which only
+   * appends `.com`/`.exe`) answered `ENOENT` for a program that is installed.
+   */
+  it('names the .cmd a bare command resolves to on PATH, so it is spawned through a shell', () => {
+    asWindows()
+    const savedPath = process.env.PATH
+    const savedExt = process.env.PATHEXT
+    try {
+      const bin = binDirWith()
+      const onPath = path.join(bin, 'node_modules', '.bin')
+      fs.writeFileSync(path.join(onPath, 'pnpm.cmd'), '')
+      fs.writeFileSync(path.join(onPath, 'node.exe'), '')
+      process.env.PATH = onPath
+      process.env.PATHEXT = '.COM;.EXE;.BAT;.CMD'
+      expect(resolveCommand('pnpm')).toBe('pnpm.cmd')
+      expect(needsShell(resolveCommand('pnpm'))).toBe(true)
+      // An .exe needs no shell and spawn finds it itself.
+      expect(resolveCommand('node')).toBe('node')
+      expect(resolveCommand('absent-xyz')).toBe('absent-xyz')
+    }
+    finally {
+      process.env.PATH = savedPath
+      if (savedExt === undefined)
+        delete process.env.PATHEXT
+      else
+        process.env.PATHEXT = savedExt
+    }
   })
 
   it('searches an explicitly named shim literally, without trying other extensions', () => {
