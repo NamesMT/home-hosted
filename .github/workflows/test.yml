@@ -1,42 +1,85 @@
 name: test
 
+# A push or PR runs the tests its changes reach, measured against the last green run; the whole
+# suite with coverage is a manual dispatch here, and part of every release (release.yml).
+#
+# `--sinceLastRun` cannot do this: it decides by file mtimes, and a checkout writes every file
+# fresh. So the same two halves are used with git instead — vitest records which modules each test
+# file loads (`experimental.recordDependencies`), the records are cached with the commit they were
+# taken at, and `HH_TEST_SINCE=<that commit>` makes `--changed` ask git what moved since
+# (`test/support/changed-since-commit.ts`). No cache, an unrelated history or a changed global input
+# (lockfile, configs, test support) runs everything.
+
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      full:
+        description: Run the whole suite with coverage
+        type: boolean
+        default: true
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-
-    # The suite is ~30 s here with coverage, so this only has to be wide enough not to trip
-    # a slow runner. Without it a hung test waits out GitHub's 6-hour default before anyone
-    # is told — which is exactly what happened once on the cross-platform gate.
-    timeout-minutes: 15
-
-    strategy:
-      matrix:
-        node: [24.x]
-        os: [ubuntu-latest]
-      fail-fast: false
+    runs-on: ubuntu-latest
+    # A full run is a few minutes; without a bound a hung test waits out GitHub's 6-hour default.
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v7
         with:
+          # The diff against the last green commit needs the history.
           fetch-depth: 0
 
-      - name: Set node ${{ matrix.node }}
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node }}
+          node-version: 24.x
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6
 
-      - name: Install
-        run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
-      - name: Test (w/ coverage report)
-        run: pnpm test --coverage
+      - name: Restore the last green run's test records
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.full) }}
+        uses: actions/cache/restore@v6
+        with:
+          path: node_modules/.vite/vitest
+          key: vitest-records-${{ github.sha }}
+          restore-keys: vitest-records-
+
+      - name: Test
+        run: |
+          record=node_modules/.vite/vitest/green-commit
+          since=""
+          full="${{ github.event_name == 'workflow_dispatch' && inputs.full }}"
+          if [ "$full" != "true" ] && [ -f "$record" ]; then
+            candidate="$(cat "$record")"
+            if git merge-base --is-ancestor "$candidate" HEAD 2>/dev/null; then
+              since="$candidate"
+            fi
+          fi
+          if [ "$full" = "true" ]; then
+            echo "full suite, with coverage"
+            pnpm exec vitest run --coverage
+          elif [ -n "$since" ]; then
+            echo "tests reached by changes since ${since}"
+            HH_TEST_SINCE="$since" pnpm exec vitest run --changed --passWithNoTests
+          else
+            echo "no usable record of a green run: full suite"
+            pnpm exec vitest run
+          fi
+
+      - name: Remember this commit as green
+        if: success() && github.event_name != 'pull_request'
+        run: git rev-parse HEAD > node_modules/.vite/vitest/green-commit
+
+      # Only main's green runs become the base: a PR's records are of a merge commit nobody keeps.
+      - name: Save the test records
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/cache/save@v6
+        with:
+          path: node_modules/.vite/vitest
+          key: vitest-records-${{ github.sha }}

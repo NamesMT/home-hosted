@@ -81,8 +81,9 @@ pnpm run build:uis             # every UI, zipped into uis/dist/
 pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated catalogs
 ```
 
-- **Which gate when:** `check:fast` after each change while you work; `check` once before pushing —
-  it is what CI runs. `check:fast` follows imports, so a change only a spawned CLI or a source scan
+- **Which gate when:** `check:fast` after each change while you work; `check` once before pushing.
+  CI on a push runs only the tests its changes reach since the last green run (`test.yml`); the
+  whole suite with coverage runs on a manual dispatch of `test.yml` and in every release. `check:fast` follows imports, so a change only a spawned CLI or a source scan
   would see waits for `check`. Its first run in a fresh checkout is the whole suite.
 - Dev and test instances stay in the **6xxx** range; never assume 3999 is free — the user may have a
   real panel there. Tests bind fixed ports, so two full suites on one machine collide.
@@ -172,7 +173,8 @@ These are the ones that prevent real defects. Break one only with a reason in th
 5. User-visible behaviour is described in `README.md` / `docs/` in the same change, and
    `node scripts/check-doc-links.mjs` passes. A change someone must act on gets a section in
    `.agentDocs/UPGRADING.md`.
-6. `pnpm run check:fast` while iterating, and `pnpm run check` once before pushing — it is what CI runs.
+6. `pnpm run check:fast` while iterating, and `pnpm run check` once before pushing — CI only runs what
+   your push reaches, so the full local run is what catches the rest.
 
 ## How to work here
 

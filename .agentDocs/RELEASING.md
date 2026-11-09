@@ -40,7 +40,9 @@ Four workflows, and the split is deliberate:
 
 | workflow | runs on | what it proves |
 | --- | --- | --- |
-| `quickcheck.yml` / `test.yml` | every push and PR | lint, types, the whole suite with coverage — Linux only |
+| `quickcheck.yml` | every push and PR | lint, types, doc links — Linux only |
+| `test.yml` | every push and PR; manual dispatch | the tests a push's changes reach since the last green run (Linux); dispatched, the whole suite with coverage |
+| `release.yml` | manual dispatch | cross-platform, then lint, types and the whole suite **with coverage** — the coverage floors' automatic gate |
 | `cross-platform.yml` | the release gate, or by hand | the same suite on macOS and Windows |
 | `release.yml` | dispatched with a version | the platform gate, then tag, publish, release assets |
 

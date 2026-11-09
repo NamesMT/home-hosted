@@ -112,8 +112,9 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Lint, types and tests
-        run: pnpm run quickcheck && pnpm exec vitest run
+      # The one automatic full run with coverage: push CI only runs what its changes reach.
+      - name: Lint, types and the full suite with coverage
+        run: pnpm run quickcheck && pnpm exec vitest run --coverage
 
       - name: Build the CLI, the stock UI and the UI bundles
         run: pnpm run build && pnpm run build:uis
