@@ -7,7 +7,7 @@ import { devPortAllocator } from '../support/dev-port'
 
 const home = smokeHome()
 const runCli = smokeRunner(home)
-/** This file's own slice of the dev range; the sibling `cli-status*` files each hold another. */
+/** This file's own slice of the dev range; every other `cli-status*` / `cli-print-config` file holds its own. */
 const freeDevPort = devPortAllocator(6500, 6599)
 
 /**
