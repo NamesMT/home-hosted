@@ -36,7 +36,7 @@ describe('log files', () => {
     files.append('web', line('second', 'stderr'))
     files.flush()
 
-    const lines = files.readTail('web', 10)
+    const lines = (await files.readTail('web', 10))
     expect(lines.map(entry => entry.text)).toEqual(['first', 'second'])
     expect(lines[1]?.stream).toBe('stderr')
   })
@@ -47,8 +47,8 @@ describe('log files', () => {
     files.append('b', line('from b'))
     files.flush()
 
-    expect(files.readTail('a', 10).map(entry => entry.text)).toEqual(['from a'])
-    expect(files.readTail('b', 10).map(entry => entry.text)).toEqual(['from b'])
+    expect((await files.readTail('a', 10)).map(entry => entry.text)).toEqual(['from a'])
+    expect((await files.readTail('b', 10)).map(entry => entry.text)).toEqual(['from b'])
   })
 
   it('only returns the requested tail', async () => {
@@ -56,7 +56,7 @@ describe('log files', () => {
     for (let index = 0; index < 20; index++) files.append('web', line(`line ${index}`))
     files.flush()
 
-    const lines = files.readTail('web', 5)
+    const lines = (await files.readTail('web', 5))
     expect(lines.map(entry => entry.text)).toEqual(['line 15', 'line 16', 'line 17', 'line 18', 'line 19'])
   })
 
@@ -65,7 +65,7 @@ describe('log files', () => {
     files.append('web', line('ignored'))
     files.flush()
 
-    expect(files.readTail('web', 10)).toEqual([])
+    expect((await files.readTail('web', 10))).toEqual([])
     expect(files.info('web').enabled).toBe(false)
   })
 
@@ -82,7 +82,7 @@ describe('log files', () => {
     expect(info.files.some(file => file.name === 'web.log.1')).toBe(true)
 
     // The tail spans the rotation boundary.
-    const lines = files.readTail('web', 10)
+    const lines = (await files.readTail('web', 10))
     expect(lines.map(entry => entry.text)).toContain(`line 199 ${'x'.repeat(80)}`)
     expect(lines.length).toBe(10)
   })
@@ -95,7 +95,7 @@ describe('log files', () => {
     expect(files.info('web').sizeBytes).toBeGreaterThan(0)
     files.clear('web')
     expect(files.info('web').sizeBytes).toBe(0)
-    expect(files.readTail('web', 5)).toEqual([])
+    expect((await files.readTail('web', 5))).toEqual([])
   })
 
   it('clears lines that are still pending, not only the bytes already on disk', async () => {
@@ -107,7 +107,7 @@ describe('log files', () => {
     files.clear('web')
     files.flush()
 
-    expect(files.readTail('web', 5), 'a cleared line must not come back on the next flush').toEqual([])
+    expect((await files.readTail('web', 5)), 'a cleared line must not come back on the next flush').toEqual([])
   })
 
   it('flushes pending lines on dispose', async () => {
@@ -142,7 +142,7 @@ describe('a tail larger than one read chunk', () => {
       `${Array.from({ length: total }, (_, i) => jsonLine(i)).join('\n')}\n`,
     )
 
-    const tail = files.readTail('web', total)
+    const tail = (await files.readTail('web', total))
     expect(tail).toHaveLength(total)
     // The oldest line is the one at index 0 — the truncation showed up here first.
     expect(tail[0]!.ts).toBe(1_700_000_000_000)
@@ -157,7 +157,7 @@ describe('a tail larger than one read chunk', () => {
       `${Array.from({ length: 1200 }, (_, i) => jsonLine(i)).join('\n')}\n`,
     )
 
-    const tail = files.readTail('web', 3)
+    const tail = (await files.readTail('web', 3))
     expect(tail.map(line => line.ts)).toEqual([1_700_000_000_000 + 1197, 1_700_000_000_000 + 1198, 1_700_000_000_000 + 1199])
   })
 
@@ -176,7 +176,7 @@ describe('a tail larger than one read chunk', () => {
       `${Array.from({ length: 5000 }, (_, i) => marked(i)).join('\n')}\n`,
     )
 
-    const window = files.readTail('web', 5000)
+    const window = (await files.readTail('web', 5000))
     expect(window).toHaveLength(5000)
     expect(window.filter(line => line.text.includes('NEEDLE'))).toHaveLength(1)
   })
@@ -187,7 +187,7 @@ describe('a tail larger than one read chunk', () => {
     await fs.promises.writeFile(path.join(dir, 'logs', 'web.log'), `${jsonLine(100)}\n${jsonLine(101)}\n`)
     await fs.promises.writeFile(path.join(dir, 'logs', 'web.log.1'), `${jsonLine(98)}\n${jsonLine(99)}\n`)
 
-    expect(files.readTail('web', 4).map(line => line.ts)).toEqual([98, 99, 100, 101].map(offset => 1_700_000_000_000 + offset))
+    expect((await files.readTail('web', 4)).map(line => line.ts)).toEqual([98, 99, 100, 101].map(offset => 1_700_000_000_000 + offset))
   })
 })
 
@@ -214,10 +214,10 @@ describe('the tail sizes the Logs page offers', () => {
     // 200 bytes a line is ~730 KB of file, so any window smaller than the whole thing proves
     // the reader grew to meet the request.
     for (const asked of [200, 500, 2000]) {
-      expect(files.readTail('web', asked), `asked ${asked}`).toHaveLength(asked)
+      expect((await files.readTail('web', asked)), `asked ${asked}`).toHaveLength(asked)
     }
     // More than the file holds: everything there is, and the true oldest line first.
-    const all = files.readTail('web', 5000)
+    const all = (await files.readTail('web', 5000))
     expect(all).toHaveLength(total)
     expect(all[0]!.ts).toBe(1_700_000_000_000)
   })
@@ -252,7 +252,7 @@ describe('what `keep` actually bounds', () => {
     await writeRotations(dir, 3)
 
     // Four files of ten lines each; the old reader walked the current file and `.1` only.
-    const tail = files.readTail('web', 40)
+    const tail = (await files.readTail('web', 40))
     expect(tail).toHaveLength(40)
     expect(tail[0]!.ts).toBe(1_700_000_000_000)
   })
@@ -261,7 +261,7 @@ describe('what `keep` actually bounds', () => {
     const { files, dir } = await makeLogs({ maxBytes: 10000, keep: 3 })
     await writeRotations(dir, 3, 10, i => (i === 0 ? 'NEEDLE the deploy failed' : `line ${i}`))
 
-    const window = files.readTail('web', 5000)
+    const window = (await files.readTail('web', 5000))
     expect(window.filter(line => line.text.includes('NEEDLE')), 'a search must not report "nothing found" for a line on disk').toHaveLength(1)
   })
 
@@ -316,4 +316,54 @@ describe('what `keep` actually bounds', () => {
     const left = await fs.promises.readdir(path.join(dir, 'logs')).catch(() => [] as string[])
     expect(left, 'a delete must not leave the files it did not think it had').toEqual([])
   })
+})
+
+/**
+ * A tail costs what it returns, and never holds the event loop.
+ *
+ * The window used to grow by a fixed 256 KB and re-read and re-parse all of it each time, all
+ * synchronously: 5000 lines of 8 KB each (what every search reads) took ~7 s of a 48 MB file
+ * with the panel frozen throughout.
+ */
+describe('tail cost', () => {
+  it('reads lines longer than a chunk, CRLF, multibyte text and a torn last line like a whole-file parse', async () => {
+    const { files, dir } = await makeLogs()
+    await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
+    const texts = ['first', `long ${'€'.repeat(200_000)}`, '', 'crlf', `mid ${'y'.repeat(256 * 1024 - 40)}`, 'é last']
+    const body = texts.map((text, i) => (text === '' ? '' : JSON.stringify({ ts: i, stream: 'stdout', text })))
+    const raw = `${body.map((entry, i) => (i === 3 ? `${entry}\r` : entry)).join('\n')}\n{"ts":9,"stream":"std`
+    await fs.promises.writeFile(path.join(dir, 'logs', 'web.log'), raw)
+
+    const expected = texts.filter(text => text !== '')
+    expect((await files.readTail('web', 50)).map(line => line.text)).toEqual(expected)
+    expect((await files.readTail('web', 3)).map(line => line.text)).toEqual(expected.slice(-3))
+  })
+
+  it('reads 5000 long lines of a 48 MB log quickly and without blocking', async () => {
+    const { files, dir } = await makeLogs()
+    await fs.promises.mkdir(path.join(dir, 'logs'), { recursive: true })
+    const filler = 'x'.repeat(8 * 1024)
+    const count = 6000
+    const body = Array.from({ length: count }, (_, i) => JSON.stringify({ ts: i, stream: 'stdout', text: `${i} ${filler}` })).join('\n')
+    await fs.promises.writeFile(path.join(dir, 'logs', 'web.log'), `${body}\n`)
+
+    let longestGap = 0
+    let last = performance.now()
+    const ticker = setInterval(() => {
+      const now = performance.now()
+      longestGap = Math.max(longestGap, now - last)
+      last = now
+    }, 5)
+
+    const started = performance.now()
+    const lines = (await files.readTail('web', 5000))
+    const elapsed = performance.now() - started
+    clearInterval(ticker)
+
+    expect(lines).toHaveLength(5000)
+    expect(lines[0]!.ts).toBe(count - 5000)
+    expect(lines.at(-1)!.ts).toBe(count - 1)
+    expect(elapsed, `took ${Math.round(elapsed)} ms`).toBeLessThan(1500)
+    expect(longestGap, `the event loop stalled for ${Math.round(longestGap)} ms`).toBeLessThan(250)
+  }, 30_000)
 })

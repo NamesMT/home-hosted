@@ -1846,14 +1846,14 @@ describe('a removed server', () => {
     supervisor.logLines('web') // touch the buffer so the entry is live
     logFiles.append('web', { ts: 1, stream: 'stdout', text: 'HISTORY OF THE OLD ENTRY' })
     logFiles.flush()
-    expect(logFiles.readTail('web', 10).some(line => line.text.includes('HISTORY OF THE OLD ENTRY'))).toBe(true)
+    expect((await logFiles.readTail('web', 10)).some(line => line.text.includes('HISTORY OF THE OLD ENTRY'))).toBe(true)
 
     // Drop it the way a config edit does: the store stops listing the id, then syncs.
     store.removeServer('web')
     await waitFor(() => supervisor.views().length === 0)
 
     expect(
-      logFiles.readTail('web', 10).some(line => line.text.includes('HISTORY OF THE OLD ENTRY')),
+      (await logFiles.readTail('web', 10)).some(line => line.text.includes('HISTORY OF THE OLD ENTRY')),
       'the removed entry\'s log lines must not survive to be served under the same id',
     ).toBe(false)
     // The same reclaim for history: otherwise the card reports "Last crash" for a server that was

@@ -1190,7 +1190,8 @@ describe('server event stream', () => {
     for (let index = 0; index < 3; index++)
       created.logFiles.append('web', { ts: index, stream: 'stdout', text: `line-${index}` })
     created.logFiles.flush()
-    created.supervisor.logLines = id => created.logFiles.readTail(id, 200)
+    const persisted = await created.logFiles.readTail('web', 200)
+    created.supervisor.logLines = id => (id === 'web' ? persisted : [])
 
     expect((await request(created.app, '/api/servers/ghost/stream')).status).toBe(404)
 

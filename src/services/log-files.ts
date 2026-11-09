@@ -112,22 +112,24 @@ export class LogFiles {
    * a line that was on disk — a search that answers "nothing found" while the log holds the
    * match is worse than a shorter window.
    */
-  readTail(serverId: string, tail: number): LogLine[] {
+  async readTail(serverId: string, tail: number): Promise<LogLine[]> {
     if (!this.getConfig().persist)
       return []
 
-    // Oldest first, so `unshift` walks it backwards into reading order.
+    // Newest first, so each file's lines go in front of the ones already read.
     const sources = this.retained(serverId)
-    const lines: LogLine[] = []
+    const parts: LogLine[][] = []
+    let found = 0
 
     for (const file of sources) {
-      if (lines.length >= tail)
+      if (found >= tail)
         break
-      const chunk = this.readTailChunk(file, tail - lines.length)
-      lines.unshift(...chunk)
+      const chunk = await readFileTail(file, tail - found)
+      parts.unshift(chunk)
+      found += chunk.length
     }
 
-    return lines.slice(-tail)
+    return parts.flat().slice(-tail)
   }
 
   clear(serverId: string): void {
@@ -255,66 +257,6 @@ export class LogFiles {
     }
   }
 
-  /**
-   * The last `tail` parseable lines of one file.
-   *
-   * Reads backwards, growing the window until it has enough lines. It used to read exactly one
-   * fixed chunk, which silently truncated: a JSONL line here is a couple of hundred bytes, so
-   * one 256 KB chunk holds roughly 1500 of them, while the route accepts `tail=5000`. Asking
-   * for 5000 returned 1464 and dropped 3536 lines with no error — the oldest line handed back
-   * was not the oldest asked for.
-   */
-  private readTailChunk(file: string, tail: number): LogLine[] {
-    let handle: number
-    try {
-      handle = fs.openSync(file, 'r')
-    }
-    catch {
-      return []
-    }
-
-    try {
-      const size = fs.fstatSync(handle).size
-      if (size === 0)
-        return []
-
-      let start = Math.max(0, size - READ_CHUNK_BYTES)
-      let parsed: LogLine[] = []
-
-      // One extra loop's worth of margin, because a partial line at the window's start is
-      // dropped and a line can be long: growing beats guessing the exact byte count.
-      while (true) {
-        const length = size - start
-        const buffer = Buffer.alloc(length)
-        fs.readSync(handle, buffer, 0, length, start)
-
-        // A mid-file cut leaves a partial first line. A JSONL log is one object per line, so a
-        // fragment cannot parse and the loop below skips it — but the whole-file case has no
-        // fragment, which is what `start > 0` distinguishes.
-        const raw = buffer.toString('utf8').split('\n')
-        parsed = []
-        for (const entry of start > 0 ? raw.slice(1) : raw) {
-          if (entry.trim().length === 0)
-            continue
-          try {
-            parsed.push(JSON.parse(entry) as LogLine)
-          }
-          catch {
-            // A partial line, or a torn write at the file's end.
-          }
-        }
-
-        if (parsed.length >= tail || start === 0)
-          return parsed.slice(-tail)
-
-        start = Math.max(0, start - READ_CHUNK_BYTES)
-      }
-    }
-    finally {
-      fs.closeSync(handle)
-    }
-  }
-
   private currentPath(serverId: string): string {
     return path.join(this.dir, `${serverId}.log`)
   }
@@ -371,4 +313,86 @@ export class LogFiles {
     const covered = rotated.slice(0, keep)
     return current === undefined ? covered : [current, ...covered]
   }
+}
+
+/**
+ * The last `tail` parseable lines of one file, oldest first.
+ *
+ * Reads backwards one chunk at a time, carrying the bytes before a chunk's first newline into
+ * the next (older) chunk, so every byte is read and parsed once and the cost is what is returned.
+ * The previous reader grew a window by a fixed step and re-read and re-parsed all of it each
+ * time, synchronously: 5000 lines of 8 KB took seconds with the event loop held throughout.
+ * Lines are cut on the `\n` byte, which never occurs inside a UTF-8 sequence, so no character is
+ * split. A blank line, a torn write at the end and anything that does not parse are skipped.
+ */
+async function readFileTail(file: string, tail: number): Promise<LogLine[]> {
+  if (tail <= 0)
+    return []
+  let handle: fs.promises.FileHandle
+  try {
+    handle = await fs.promises.open(file, 'r')
+  }
+  catch {
+    return []
+  }
+
+  const found: LogLine[] = [] // newest first
+  const take = (bytes: Buffer): void => {
+    const text = bytes.toString('utf8')
+    if (text.trim().length === 0)
+      return
+    try {
+      found.push(JSON.parse(text) as LogLine)
+    }
+    catch {
+      // A partial line, or a torn write at the file's end.
+    }
+  }
+
+  try {
+    let end = (await handle.stat()).size
+    // The start of the line the newer chunks began in the middle of, newest piece last.
+    let carry: Buffer[] = []
+    while (end > 0 && found.length < tail) {
+      const start = Math.max(0, end - READ_CHUNK_BYTES)
+      const chunk = Buffer.allocUnsafe(end - start)
+      let filled = 0
+      while (filled < chunk.length) {
+        const { bytesRead } = await handle.read(chunk, filled, chunk.length - filled, start + filled)
+        if (bytesRead <= 0)
+          break
+        filled += bytesRead
+      }
+      // A file shrunk under the read: what was not filled is not data.
+      const bytes = chunk.subarray(0, filled)
+      end = start
+
+      let lineEnd = bytes.length
+      let newline = bytes.lastIndexOf(0x0A, lineEnd - 1)
+      if (newline === -1) {
+        carry.unshift(bytes)
+        continue
+      }
+      // The newest line here continues into what the newer chunks left over.
+      take(Buffer.concat([bytes.subarray(newline + 1), ...carry]))
+      carry = []
+      lineEnd = newline
+      while (found.length < tail && lineEnd > 0) {
+        newline = bytes.lastIndexOf(0x0A, lineEnd - 1)
+        if (newline === -1)
+          break
+        take(bytes.subarray(newline + 1, lineEnd))
+        lineEnd = newline
+      }
+      carry = [bytes.subarray(0, lineEnd)]
+    }
+    // The file's first line has no newline before it.
+    if (end === 0 && found.length < tail)
+      take(Buffer.concat(carry))
+  }
+  finally {
+    await handle.close()
+  }
+
+  return found.slice(0, tail).reverse()
 }

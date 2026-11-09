@@ -57,7 +57,7 @@ export function createLogsRoute(deps: AppDeps) {
       }),
       validate('query', historyQuery),
       validate('param', idParam),
-      (c) => {
+      async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const { id } = c.req.valid('param')
         if (!runtime.store.getServer(id))
@@ -80,7 +80,7 @@ export function createLogsRoute(deps: AppDeps) {
          */
         const window = search.length > 0 || stream.length > 0 ? Math.max(tail, MAX_TAIL) : tail
 
-        let lines = runtime.logFiles.readTail(id, window)
+        let lines = await runtime.logFiles.readTail(id, window)
         if (stream.length > 0)
           lines = lines.filter(line => line.stream === stream)
 
