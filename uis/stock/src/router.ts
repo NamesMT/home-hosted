@@ -4,14 +4,19 @@ import { useSession } from '@/composables/useSession'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import { loginRedirect } from '@/lib/login-redirect'
 import GlobalOverviewView from '@/views/GlobalOverviewView.vue'
-import GlobalSettingsView from '@/views/GlobalSettingsView.vue'
 import LoginView from '@/views/LoginView.vue'
-import LogsView from '@/views/LogsView.vue'
 import OverviewView from '@/views/OverviewView.vue'
-import ProxyView from '@/views/ProxyView.vue'
-import ServerDetailView from '@/views/ServerDetailView.vue'
 import ServersView from '@/views/ServersView.vue'
-import SettingsView from '@/views/SettingsView.vue'
+
+/*
+ * The first paint stays eager (login, the overviews, the server list); the heavier pages load on
+ * first visit, so the entry chunk does not carry every settings form and editor.
+ */
+const ServerDetailView = () => import('@/views/ServerDetailView.vue')
+const LogsView = () => import('@/views/LogsView.vue')
+const SettingsView = () => import('@/views/SettingsView.vue')
+const GlobalSettingsView = () => import('@/views/GlobalSettingsView.vue')
+const ProxyView = () => import('@/views/ProxyView.vue')
 
 /** Pages that read the workspace in the URL. */
 const WORKSPACE_ROUTES = new Set(['overview', 'servers', 'server-detail', 'logs', 'settings'])
