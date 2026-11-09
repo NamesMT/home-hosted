@@ -131,16 +131,24 @@ function stepMatch(delta: number): void {
  * still said "streaming". `version` changes on every batch, cap or not.
  */
 watch(() => [props.version, total.value], () => {
-  if (follow.value) {
-    currentMatch.value = 0
+  if (follow.value)
     requestAnimationFrame(scrollToBottom)
-  }
 })
 
-watch(matches, () => {
+/**
+ * A new search starts at its first match; a new batch does not. `matches` is rebuilt on every
+ * batch, and resetting on that sent the reader back to the top match each time a line arrived.
+ */
+watch([query, stream], () => {
   currentMatch.value = 0
   if (matches.value.length > 0 && query.value.trim().length > 0)
     requestAnimationFrame(() => scrollToRow(matches.value[0]!))
+})
+
+// The buffer is capped, so a match can scroll off the front: keep the counter in range.
+watch(() => matches.value.length, (count) => {
+  if (currentMatch.value >= count)
+    currentMatch.value = Math.max(0, count - 1)
 })
 
 watch(stream, () => {
