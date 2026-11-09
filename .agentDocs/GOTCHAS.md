@@ -725,6 +725,15 @@ line in `AGENTS.md` instead.
 
 ## Schemas and types
 
+- **A module-level schema is `lazy(() => type(…))`, and nothing at module level calls one.**
+  Building all of `contracts.ts` at import cost ~1.2 s — every CLI command (`status --json` was 2.0 s,
+  now 0.4 s), every spawned test child, every UI load. `lazy()` (`src/shared/lazy.ts`) is a
+  zero-length function, which ArkType calls as a thunk when it is composed, so the real node goes into
+  `type({ a: x })`, `.or(x)`, `.merge(x)`. Two ways to undo it silently: a schema method at module
+  level (`x.optional()` in a shape object — `editableFields` is a function for this reason), and
+  `.default(…)` wrapped in `lazy`, which returns a tuple rather than a schema. `test/shared/lazy.test.ts`
+  fails if importing the contracts builds anything, and builds every exported schema, since a
+  definition error no longer fails the import.
 - **`instanceof type.errors`, never `instanceof Error`,** for a schema result: ArkType's errors are
   not `Error`s, so `x instanceof Error` is false for a valid *and* an invalid payload. Six tests
   asserted `expect(schema(v) instanceof Error).toBe(false)` as a conformance check and could never

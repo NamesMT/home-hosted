@@ -1607,7 +1607,7 @@ describe('the documented state layout', () => {
 describe('the documented field reference', () => {
   it('names every field serverSchema accepts', () => {
     const contracts = fs.readFileSync(fileURLToPath(new URL('../../src/shared/contracts.ts', import.meta.url)), 'utf8')
-    const start = contracts.indexOf('export const serverSchema = type({')
+    const start = contracts.indexOf('export const serverSchema = lazy(() => type({')
     // Bracket-match the object literal rather than guessing where it ends.
     let depth = 0
     let end = start

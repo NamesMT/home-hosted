@@ -49,6 +49,7 @@ import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
 import { boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { TlsStore } from '#src/services/tls'
 import { errorMessage } from '#src/shared/error-message'
+import { lazy } from '#src/shared/lazy'
 import { isPublicHost } from '#src/shared/proxy-form'
 
 /** The engine is not a server entry, but it borrows the nanny's shape. */
@@ -75,14 +76,14 @@ const DNS01_MODULE = 'dns.providers.acmeproxy'
  * so no digest is recorded. A file from an older release, which did record one,
  * carries an undeclared key and is rejected wholesale — it reads as "not installed".
  */
-export const engineRecordSchema = type({
+export const engineRecordSchema = lazy(() => type({
   engine: 'string',
   version: 'string',
   source: '"downloaded" | "custom"',
   url: 'string',
   bytes: 'number',
   installedAt: 'number',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type EngineRecord = typeof engineRecordSchema.infer
 
 /**
@@ -90,10 +91,10 @@ export type EngineRecord = typeof engineRecordSchema.infer
  * Generated once and kept beside the engine's other state, 0600 — the endpoint is
  * loopback-only, and this is the second lock on a door that writes into DNS.
  */
-export const challengeAuthSchema = type({
+export const challengeAuthSchema = lazy(() => type({
   username: 'string >= 1',
   password: 'string >= 1',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ChallengeAuth = typeof challengeAuthSchema.infer
 
 /** The DNS names a certificate covers, from its SANs (and its subject as a fallback). */
@@ -145,20 +146,20 @@ interface ResolvedRoute {
  * listener, and a route whose upstream is down binds nothing at all. Configured-but-unbound is not
  * the same as bound, and treating it as bound admits a stranger standing on that port.
  */
-const appliedRecordSchema = type({
+const appliedRecordSchema = lazy(() => type({
   httpPort: '1 <= number.integer <= 65535 | null',
   httpsPort: '1 <= number.integer <= 65535 | null',
   at: 'number',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** How the panel reaches a running engine; kept beside the nanny's state so a new panel finds it. */
-const adminRecordSchema = type({
+const adminRecordSchema = lazy(() => type({
   kind: '"unix" | "tcp"',
   path: 'string = ""',
   host: 'string = ""',
   port: 'number = 0',
   origin: 'string = ""',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 export interface ProxyServiceOptions {
   settings: GlobalSettingsStore

@@ -2,6 +2,7 @@ import type { WorkspaceRuntime } from '#src/services/panel'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { WorkspaceError } from '#src/config/workspaces'
+import { lazy } from '#src/shared/lazy'
 
 /**
  * Every workspace-scoped route reads its target from this one query key.
@@ -17,7 +18,7 @@ import { WorkspaceError } from '#src/config/workspaces'
  * (`extra.merge(workspaceQuerySchema)`): `merge` keeps the argument's `onUndeclaredKey`, so that
  * spelling inherits the rejection while the reverse would lose it.
  */
-export const workspaceQuerySchema = type({ 'workspace?': 'string' }).onUndeclaredKey('reject')
+export const workspaceQuerySchema = lazy(() => type({ 'workspace?': 'string' }).onUndeclaredKey('reject'))
 
 /**
  * Resolves the workspace a request is about. Omitting it means the panel's

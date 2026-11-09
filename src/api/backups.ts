@@ -17,11 +17,12 @@ import { validate } from '#src/helpers/validator'
 import { requestIdentity } from '#src/middleware/auth'
 import { selectionWritesCredentials } from '#src/shared/backup-scope'
 import { backupCreatedResponseSchema, backupCreateSchema, backupFilesResponseSchema, backupSelectionSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 
 /** Uploads are buffered in memory by `parseBody`, so they get a hard ceiling. */
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024
 
-const nameParam = type({ name: 'string >= 1' })
+const nameParam = lazy(() => type({ name: 'string >= 1' }))
 
 /** A backup that failed to be created is a bad request, not a server fault. */
 function backupFailed(error: string | undefined): DetailedError {

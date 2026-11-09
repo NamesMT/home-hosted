@@ -4,6 +4,7 @@ import { type } from 'arktype'
 import { secretEqual } from '#src/helpers/secret-compare'
 import { ddnsProvider } from '#src/providers/ddns'
 import { normalizeHost } from '#src/providers/ddns/types'
+import { lazy } from '#src/shared/lazy'
 
 /**
  * The ACMEProxy protocol, which is what Caddy's `dns.providers.acmeproxy` module
@@ -16,10 +17,10 @@ import { normalizeHost } from '#src/providers/ddns/types'
  */
 
 /** The request and the reply are the same two fields. */
-const proxyMessageSchema = type({
+const proxyMessageSchema = lazy(() => type({
   fqdn: 'string >= 1',
   value: 'string >= 1',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 export interface ChallengeAccount {
   /** The workspace that owns the account, so a write is attributable. */

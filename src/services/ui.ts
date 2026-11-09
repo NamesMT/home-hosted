@@ -10,6 +10,7 @@ import { customUiInstalled, uiDirectory } from '#src/helpers/ui-dir'
 import { extractZip, isZipArchive, listZip } from '#src/providers/archive'
 import { uiMetaSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
+import { lazy } from '#src/shared/lazy'
 
 /**
  * The panel's UI is replaceable: the stock SPA ships in the package, and a user
@@ -25,14 +26,14 @@ const MAX_BYTES = 512 * 1024 * 1024
 const MAX_NAME = 120
 
 /** What a UI author may declare in a root `ui.json` inside their archive. */
-const manifestSchema = type({
+const manifestSchema = lazy(() => type({
   'name?': 'string',
   'version?': 'string',
   'repo?': 'string',
   'tag?': 'string',
   'asset?': 'string',
   'unix?': 'number.integer >= 0',
-})
+}))
 
 /**
  * A UI archive is a static site: relative paths only, no traversal, no absolute

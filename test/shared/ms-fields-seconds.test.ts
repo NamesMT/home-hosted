@@ -78,7 +78,7 @@ const BOTH_UIS: Array<{ key: string, seen: RegExp }> = [
 function schemaFloors(): Map<string, number> {
   const contracts = readFileSync(path.join(root, 'src/shared/contracts.ts'), 'utf8')
   const found = new Map<string, number>()
-  for (const declared of contracts.matchAll(/^export const (\w+)Schema = type\(\{/gm)) {
+  for (const declared of contracts.matchAll(/^export const (\w+)Schema = lazy\(\(\) => type\(\{/gm)) {
     const open = declared.index + declared[0].length - 1
     // Balanced braces, because a schema body nests (`health.http`, `ddns.ipv4`, …).
     let depth = 0

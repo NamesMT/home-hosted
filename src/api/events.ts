@@ -7,17 +7,18 @@ import { appFactory } from '#src/helpers/factory'
 import { frameKey, sseChannel } from '#src/helpers/sse'
 import { validate } from '#src/helpers/validator'
 import { serverKey } from '#src/services/events'
+import { lazy } from '#src/shared/lazy'
 
 const PING_INTERVAL_MS = 15000
 
-const eventsQuery = type({
+const eventsQuery = lazy(() => type({
   /** Only this server's frames. */
   'serverId?': 'string',
   /** Only this workspace's server and log frames. */
   'workspace?': 'string',
   /** `logs=0` drops log frames; the first frame is always the full state. */
   'logs?': 'string',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * One SSE stream per subscriber. `?workspace=<id>` narrows server and log frames to one workspace,

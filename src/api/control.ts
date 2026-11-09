@@ -12,10 +12,11 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { secretEqual } from '#src/helpers/secret-compare'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
-
 import { isLoopbackRequest } from '#src/middleware/loopback'
+
 import { selectionOf } from '#src/shared/backup-scope'
 import { actionResultSchema, backupCreatedResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 
 /**
  * The local control channel used by `home-hosted down` and `home-hosted start|stop`.
@@ -25,9 +26,9 @@ import { actionResultSchema, backupCreatedResponseSchema, backupSelectionSchema,
  * different local user, or anyone on the network, gets nothing.
  */
 /** The local channel's query keys, declared so a typo is refused and the spec names them. */
-const shutdownQuery = type({ 'withPersistent?': 'string' }).onUndeclaredKey('reject')
-const backupQuery = type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string' }).onUndeclaredKey('reject')
-const restoreQuery = type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string', 'name?': 'string', 'from?': 'string' }).onUndeclaredKey('reject')
+const shutdownQuery = lazy(() => type({ 'withPersistent?': 'string' }).onUndeclaredKey('reject'))
+const backupQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string' }).onUndeclaredKey('reject'))
+const restoreQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string', 'name?': 'string', 'from?': 'string' }).onUndeclaredKey('reject'))
 
 export function createControlRoute(deps: AppDeps) {
   /** The one place the local channel's credentials are read. */

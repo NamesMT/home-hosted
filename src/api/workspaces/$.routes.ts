@@ -7,11 +7,12 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { workspaceCreateSchema, workspaceRenameSchema, workspaceViewSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 
-const idParam = type({ id: 'string >= 1' })
-const workspacesResponse = type({ workspaces: workspaceViewSchema.array() })
-const workspaceResponse = type({ workspace: workspaceViewSchema })
-const removedResponse = type({ ok: 'boolean', removed: type({ id: 'string', label: 'string' }) })
+const idParam = lazy(() => type({ id: 'string >= 1' }))
+const workspacesResponse = lazy(() => type({ workspaces: workspaceViewSchema.array() }))
+const workspaceResponse = lazy(() => type({ workspace: workspaceViewSchema }))
+const removedResponse = lazy(() => type({ ok: 'boolean', removed: type({ id: 'string', label: 'string' }) }))
 
 /** A registry failure is an API failure: unknown ids are 404, conflicts 409, the rest 400. */
 function workspaceFailure(error: unknown): never {

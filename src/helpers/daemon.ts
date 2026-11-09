@@ -7,13 +7,14 @@ import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { runtimePath } from '#src/helpers/paths'
 import { processLiveness } from '#src/providers/port'
+import { lazy } from '#src/shared/lazy'
 
 /**
  * `run.json` is how `status`/`down` find the live control plane and how they are
  * allowed to stop it without a password: the file is mode 0600, and the token in
  * it is what `POST /_hh/shutdown` checks.
  */
-export const runtimeSchema = type({
+export const runtimeSchema = lazy(() => type({
   version: 'string',
   pid: 'number.integer >= 1',
   /** The address that was actually bound, for humans. */
@@ -29,7 +30,7 @@ export const runtimeSchema = type({
   configPath: 'string',
   logFile: 'string',
   token: 'string >= 1',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type Runtime = typeof runtimeSchema.infer
 
 export function readRuntime(): Runtime | null {

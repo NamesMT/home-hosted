@@ -6,17 +6,18 @@ import { readStateFile } from '#src/helpers/config-text'
 import { DEFAULT_WORKSPACE_ID, workspacesPath } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { workspaceSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 
 /**
  * The workspace registry: which workspaces exist, in the order the selector shows
  * them. Kept apart from any workspace's own files so it can be read before they
  * are, and so creating or removing one is a single small write.
  */
-export const workspacesFileSchema = type({
+export const workspacesFileSchema = lazy(() => type({
   $schema: 'string?',
   meta: metaSchema.optional(),
   workspaces: workspaceSchema.array(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * The *kind* of registry failure, when a caller has to branch on it rather than just report it.

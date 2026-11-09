@@ -11,18 +11,19 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { logHistoryQuerySchema, logLinesResponseSchema, logServersViewSchema, okResponseSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 
 /** Bounds for the tail query, so a bad client cannot ask for the whole file. */
 const MIN_TAIL = 50
 const MAX_TAIL = 5000
 const DEFAULT_TAIL = 500
 
-const idParam = type({ id: 'string >= 1' })
+const idParam = lazy(() => type({ id: 'string >= 1' }))
 // The workspace schema is the **argument** in both, and that is what keeps these strict: `merge`
 // takes the argument's `onUndeclaredKey`, so `extra.merge(workspaceQuerySchema)` refuses a
 // misspelt key while `workspaceQuerySchema.merge(extra)` would have lost the rejection and run the
 // request against the default workspace.
-const downloadQuery = type({ 'file?': 'string' }).merge(workspaceQuerySchema)
+const downloadQuery = lazy(() => type({ 'file?': 'string' }).merge(workspaceQuerySchema))
 const historyQuery = logHistoryQuerySchema.merge(workspaceQuerySchema)
 
 export function createLogsRoute(deps: AppDeps) {

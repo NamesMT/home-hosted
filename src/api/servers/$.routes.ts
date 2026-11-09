@@ -14,17 +14,18 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
 import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 
-const idParam = type({ id: 'string >= 1' })
-const serverResponse = type({ server: serverViewSchema })
-const serversResponse = type({ servers: serverViewSchema.array() })
+const idParam = lazy(() => type({ id: 'string >= 1' }))
+const serverResponse = lazy(() => type({ server: serverViewSchema }))
+const serversResponse = lazy(() => type({ servers: serverViewSchema.array() }))
 /**
  * A write answers the *stored* entry, not a view: `addServer`/`updateServer` return the
  * `ServerConfig` they committed, which is flat and carries no live status. Declaring the
  * view here was wrong and quietly misled clients — a consumer reading `server.config`
  * off a create got `undefined` with no error anywhere.
  */
-const storedServerResponse = type({ server: serverSchema })
+const storedServerResponse = lazy(() => type({ server: serverSchema }))
 const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
 /**
  * `stop-all`'s own query: the workspace, plus `withPersistent`.
@@ -35,7 +36,7 @@ const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
  * `onUndeclaredKey` the result carries: `workspaceQuerySchema.merge(extra)` would have lost the
  * rejection and this route's typo rule with it.
  */
-const stopAllQuery = type({ 'withPersistent?': 'string' }).merge(workspaceQuerySchema)
+const stopAllQuery = lazy(() => type({ 'withPersistent?': 'string' }).merge(workspaceQuerySchema))
 
 export function createServersRoute(deps: AppDeps) {
   return appFactory.createApp()

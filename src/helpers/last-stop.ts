@@ -3,6 +3,7 @@ import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { hhDir } from '#src/helpers/paths'
+import { lazy } from '#src/shared/lazy'
 
 /**
  * How the panel last stopped — the fact `status` could not report.
@@ -15,12 +16,12 @@ import { hhDir } from '#src/helpers/paths'
  * Only a deliberate stop writes it. A panel that was killed has nobody to write anything, which is
  * why a *stale record* stays the signal for that one — see `status`.
  */
-export const lastStopSchema = type({
+export const lastStopSchema = lazy(() => type({
   /** Milliseconds since the epoch, from the process that stopped it. */
   at: 'number',
   /** How it stopped. `down` is the only writer today; the field exists so a future cause is named. */
   reason: '"down"',
-})
+}))
 
 export type LastStop = typeof lastStopSchema.infer
 

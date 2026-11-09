@@ -13,8 +13,9 @@ import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { ddnsProvider, ddnsProviderInfos, validateDdnsConfig } from '#src/providers/ddns'
 import { ddnsConfigSchema, ddnsCredentialsSchema, ddnsViewSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 
-const accountParam = type({ id: '/^[a-z0-9][a-z0-9_-]*$/' })
+const accountParam = lazy(() => type({ id: '/^[a-z0-9][a-z0-9_-]*$/' }))
 
 /**
  * Dynamic DNS is configured as one whole block, not as settings patches: its

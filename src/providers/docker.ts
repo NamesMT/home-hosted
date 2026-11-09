@@ -4,6 +4,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { promisify } from 'node:util'
 import { type } from 'arktype'
+import { lazy } from '#src/shared/lazy'
 
 const execFileAsync = promisify(execFile)
 
@@ -82,13 +83,13 @@ export interface ComposeTarget {
 const EMPTY: ReadonlyMap<string, ComposeReading> = new Map()
 
 /** One `docker stats --format json` line. Unknown keys are normal — docker adds fields over time. */
-const statsLineSchema = type({
+const statsLineSchema = lazy(() => type({
   'CPUPerc': 'string',
   'ID': 'string',
   'MemUsage': 'string',
   'PIDs': 'string',
   '+': 'ignore',
-})
+}))
 
 const BYTE_SCALES: Record<string, number> = {
   b: 1,

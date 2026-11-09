@@ -467,7 +467,7 @@ describe('view contracts', () => {
     const source = fs.readFileSync(path.join(packageRoot, 'src/shared/contracts.ts'), 'utf8')
 
     /**
-     * Every `export const X = type({…})` declaration, with its own body and its own trailer.
+     * Every `export const X = lazy(() => type({…}))` declaration, with its own body and its own trailer.
      *
      * A schema's body ends at the first `\n})` at column 0 *after its own declaration start* — the
      * same boundary `health-sequence.test.ts` uses for a method body. Matching a whole declaration
@@ -476,7 +476,7 @@ describe('view contracts', () => {
      */
     function declarations(): Array<{ name: string, body: string, trailer: string }> {
       const found: Array<{ name: string, body: string, trailer: string }> = []
-      for (const match of source.matchAll(/^export const (\w+) = type\(\{/gm)) {
+      for (const match of source.matchAll(/^export const (\w+) = lazy\(\(\) => type\(\{/gm)) {
         const start = match.index!
         const end = source.indexOf('\n})', start)
         if (end === -1)
@@ -484,7 +484,7 @@ describe('view contracts', () => {
         found.push({
           name: match[1]!,
           // The body without the declaration line, so a schema never matches its own name.
-          body: source.slice(start, end).replace(`export const ${match[1]!} = type({`, ''),
+          body: source.slice(start, end).replace(`export const ${match[1]!} = lazy(() => type({`, ''),
           trailer: source.slice(end, end + 40),
         })
       }

@@ -1,5 +1,6 @@
 import { type } from 'arktype'
 import { HOST_ALERT_DEFAULTS, LOAD_ALERT_PER_CPU_DEFAULT } from './host-readings'
+import { lazy } from './lazy'
 
 /**
  * Schemas shared by the control plane and the SPA: the server entry shape, the
@@ -9,7 +10,7 @@ import { HOST_ALERT_DEFAULTS, LOAD_ALERT_PER_CPU_DEFAULT } from './host-readings
  */
 
 /** `local` -> 127.0.0.1, `lan` -> 0.0.0.0, or an explicit IPv4 to bind. */
-export const bindSchema = type('"local" | "lan" | /^\\d{1,3}(?:\\.\\d{1,3}){3}$/')
+export const bindSchema = lazy(() => type('"local" | "lan" | /^\\d{1,3}(?:\\.\\d{1,3}){3}$/'))
 export type Bind = typeof bindSchema.infer
 
 /**
@@ -17,23 +18,23 @@ export type Bind = typeof bindSchema.infer
  * under `$HHOSTED_HOME/.hh/<id>/`. The id is the directory name and never
  * changes; the label is what a person reads and may rename at will.
  */
-export const workspaceIdSchema = type('/^[a-z0-9][a-z0-9_-]*$/')
-export const workspaceSchema = type({
+export const workspaceIdSchema = lazy(() => type('/^[a-z0-9][a-z0-9_-]*$/'))
+export const workspaceSchema = lazy(() => type({
   id: workspaceIdSchema,
   label: '1 <= string <= 60',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type Workspace = typeof workspaceSchema.infer
 
 /** `id` is optional; when omitted it is derived from the label. */
-export const workspaceCreateSchema = type({
+export const workspaceCreateSchema = lazy(() => type({
   'id?': workspaceIdSchema,
   'label?': '1 <= string <= 60',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type WorkspaceCreate = typeof workspaceCreateSchema.infer
 
-export const workspaceRenameSchema = type({
+export const workspaceRenameSchema = lazy(() => type({
   label: '1 <= string <= 60',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** Parses a bind value (`local` | `lan` | ipv4); null when it is not one. */
 export function parseBind(value: string): Bind | null {
@@ -42,7 +43,7 @@ export function parseBind(value: string): Bind | null {
 }
 
 /** `null` means "no port": no readiness probe, no health supervision, no preflight. */
-export const portSchema = type('1 <= number.integer <= 65535 | null')
+export const portSchema = lazy(() => type('1 <= number.integer <= 65535 | null'))
 
 /**
  * What to do when something already listens on the entry's port. `follow` and
@@ -50,13 +51,10 @@ export const portSchema = type('1 <= number.integer <= 65535 | null')
  * successor (the `HHOSTED_SERVER_ID` marker, POSIX only); `kill` is the blunt one:
  * it stops any holder except the panel's own process tree.
  */
-export const onPortConflictSchema = type.enumerated('block', 'warn', 'follow', 'reclaim', 'kill')
+export const onPortConflictSchema = lazy(() => type.enumerated('block', 'warn', 'follow', 'reclaim', 'kill'))
 export type OnPortConflict = typeof onPortConflictSchema.infer
 
-/** The stored forms carry the default; a patch must not (see the patch schemas below). */
-export const onPortConflictDefaultSchema = onPortConflictSchema.default('block')
-
-export const restartSchema = type({
+export const restartSchema = lazy(() => type({
   enabled: 'boolean = true',
   maxRetries: 'number.integer >= 0 = 3',
   baseDelayMs: 'number >= 0 = 1000',
@@ -64,11 +62,11 @@ export const restartSchema = type({
   maxDelayMs: 'number >= 0 = 30000',
   /** A process alive this long is considered healthy again and the retry counter resets. */
   resetAfterMs: 'number >= 0 = 60000',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 export type RestartConfig = typeof restartSchema.infer
 
-export const httpCheckSchema = type({
+export const httpCheckSchema = lazy(() => type({
   /** `https` is for a backend that serves TLS itself; pair it with `allowInvalidCert` when it is self-signed. */
   scheme: '"http" | "https" = "http"',
   /** Accept any certificate. A self-signed pair is the normal case here, and the probe is local. */
@@ -81,16 +79,16 @@ export const httpCheckSchema = type({
   expectStatusBelow: 'number.integer = 400',
   /** Substring that must appear in the response body. */
   expectBody: 'string = ""',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type HttpCheckConfig = typeof httpCheckSchema.infer
 
 /** Restart guards for the process tree. */
-export const resourcesSchema = type({
+export const resourcesSchema = lazy(() => type({
   /** Restart when the tree's RSS exceeds this; 0 disables. */
   maxRssBytes: 'number.integer >= 0 = 0',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-export const healthSchema = type({
+export const healthSchema = lazy(() => type({
   enabled: 'boolean = true',
   /** `port` = TCP connect only; `http` = fetch `http.path` and assert the response. */
   mode: '"port" | "http" = "port"',
@@ -103,29 +101,29 @@ export const healthSchema = type({
   forceRestartAfterMs: 'number >= 0 = 0',
   /** How long to wait for the port to accept connections after spawn. */
   startTimeoutMs: 'number >= 0 = 20000',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 export type HealthConfig = typeof healthSchema.infer
 
-export const stopSchema = type({
+export const stopSchema = lazy(() => type({
   signal: '"SIGTERM" | "SIGINT" | "SIGKILL" = "SIGTERM"',
   killGroup: 'boolean = true',
   graceMs: 'number >= 0 = 5000',
   /** Last resort for wrappers that detach their real server. */
   killPortHolders: 'boolean = false',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 export type StopConfig = typeof stopSchema.infer
 
-export const bootstrapSchema = type({
+export const bootstrapSchema = lazy(() => type({
   command: 'string',
   args: type('string[]').default(() => []),
   env: type('Record<string, string>').default(() => ({})),
   timeoutMs: 'number >= 1000 = 120000',
   /** Run once per `up` session; whatever it installs persists on disk. */
   runOnce: 'boolean = true',
-}).onUndeclaredKey('reject')
-export const bootstrapOrNullSchema = bootstrapSchema.or(type('null'))
+}).onUndeclaredKey('reject'))
+export const bootstrapOrNullSchema = lazy(() => bootstrapSchema.or(type('null')))
 
 /**
  * The `bootstrap` group as a patch carries it: every field optional, and **no defaults**.
@@ -139,14 +137,14 @@ export const bootstrapOrNullSchema = bootstrapSchema.or(type('null'))
  * became `120000`. The group is still replaced, so a caller sends the fields it means to keep;
  * what changes is that the panel no longer invents the ones it did not send.
  */
-export const bootstrapPatchSchema = type({
+export const bootstrapPatchSchema = lazy(() => type({
   command: 'string >= 1?',
   args: 'string[]?',
   env: 'Record<string, string>?',
   timeoutMs: 'number >= 1000?',
   runOnce: 'boolean?',
-}).onUndeclaredKey('reject')
-export const bootstrapPatchOrNullSchema = bootstrapPatchSchema.or(type('null'))
+}).onUndeclaredKey('reject'))
+export const bootstrapPatchOrNullSchema = lazy(() => bootstrapPatchSchema.or(type('null')))
 
 /**
  * A command run around a backup, for engines that need one to produce a consistent copy.
@@ -159,7 +157,7 @@ export const bootstrapPatchOrNullSchema = bootstrapPatchSchema.or(type('null'))
  * `{dumpDir}` is created before `dump` runs and captured by the archive; on restore the same
  * directory is filled again before `load` runs, so the two hooks see the same path.
  */
-export const backupHookSchema = type({
+export const backupHookSchema = lazy(() => type({
   // Non-empty: an empty command is accepted by `spawn`'s type but fails at run time, and a `dump`
   // hook that cannot start refuses **every** backup — a config mistake that reads as a broken feature.
   command: 'string >= 1',
@@ -175,8 +173,8 @@ export const backupHookSchema = type({
    * database reached over a socket should raise it.
    */
   waitMs: 'number >= 0 = 2000',
-}).onUndeclaredKey('reject')
-export const backupHookOrNullSchema = backupHookSchema.or(type('null'))
+}).onUndeclaredKey('reject'))
+export const backupHookOrNullSchema = lazy(() => backupHookSchema.or(type('null')))
 
 /**
  * The `dump`/`load` group as a patch carries it: every field optional, and **no defaults**.
@@ -186,14 +184,14 @@ export const backupHookOrNullSchema = backupHookSchema.or(type('null'))
  * reset `args`, `env`, `timeoutMs` and `waitMs` to values nobody sent. `waitMs` is the one that
  * bites hardest — a `load` waiting on a slow database would silently drop back to 2 s.
  */
-export const backupHookPatchSchema = type({
+export const backupHookPatchSchema = lazy(() => type({
   command: 'string >= 1?',
   args: 'string[]?',
   env: 'Record<string, string>?',
   timeoutMs: 'number >= 1000?',
   waitMs: 'number >= 0?',
-}).onUndeclaredKey('reject')
-export const backupHookPatchOrNullSchema = backupHookPatchSchema.or(type('null'))
+}).onUndeclaredKey('reject'))
+export const backupHookPatchOrNullSchema = lazy(() => backupHookPatchSchema.or(type('null')))
 
 export type BackupHookConfig = typeof backupHookSchema.infer
 
@@ -205,11 +203,11 @@ export type BackupHookConfig = typeof backupHookSchema.infer
  * `servers[0] ("web"): label must be a string (was null)`. The write side already tolerates `null`, and every
  * display falls back with `label ?? id` — which `null` satisfies and `''` does not.
  */
-export const labelOrNullSchema = type('string | null')
+export const labelOrNullSchema = lazy(() => type('string | null'))
 
-export const logBufferLinesSchema = type('50 <= number.integer <= 100000')
+export const logBufferLinesSchema = lazy(() => type('50 <= number.integer <= 100000'))
 
-export const serverSchema = type({
+export const serverSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   label: labelOrNullSchema.optional(),
   enabled: 'boolean = true',
@@ -242,7 +240,8 @@ export const serverSchema = type({
   load: backupHookOrNullSchema.optional(),
   port: portSchema.optional(),
   bind: bindSchema.default(() => 'local' as const),
-  onPortConflict: onPortConflictDefaultSchema,
+  // The stored forms carry the default; a patch must not (see the patch schemas below).
+  onPortConflict: onPortConflictSchema.default('block'),
   restart: restartSchema.default(() => ({})),
   health: healthSchema.default(() => ({})),
   stop: stopSchema.default(() => ({})),
@@ -259,14 +258,14 @@ export const serverSchema = type({
    * `dist`, `.next`, caches, …) inside the paths this entry declares.
    */
   backupIgnoreGenerated: 'boolean = true',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ServerConfig = Omit<typeof serverSchema.infer, 'port'> & { port: number | null }
 
 /**
  * Authentication for the control panel itself. The password never lives here —
  * only the policy does; its scrypt hash sits in a git-ignored secrets file.
  */
-export const authSchema = type({
+export const authSchema = lazy(() => type({
   enabled: 'boolean = true',
   /** Idle timeout: a session dies this long after its **last** request, not after login. */
   sessionTtlMs: 'number >= 60000 = 604800000',
@@ -276,7 +275,7 @@ export const authSchema = type({
   trustProxy: 'boolean | "loopback" = "loopback"',
   maxLoginAttempts: 'number.integer >= 1 = 5',
   lockoutMs: 'number >= 1000 = 60000',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type AuthConfig = typeof authSchema.infer
 
 /**
@@ -306,9 +305,9 @@ const notificationPolicyShape = {
  * throttled every two minutes" — is set **once**, instead of once per transport and again per
  * destination.
  */
-export const notificationDefaultsSchema = type({
+export const notificationDefaultsSchema = lazy(() => type({
   ...notificationPolicyShape,
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type NotificationDefaults = typeof notificationDefaultsSchema.infer
 
 /**
@@ -319,9 +318,9 @@ export type NotificationDefaults = typeof notificationDefaultsSchema.infer
  * build's whole app. Reusing the strict schema in the view did exactly that: one additive key in
  * `defaults` rejected the state frame and the page went blank.
  */
-export const notificationDefaultsViewSchema = type({
+export const notificationDefaultsViewSchema = lazy(() => type({
   ...notificationPolicyShape,
-})
+}))
 
 /**
  * Whether a target follows the general block or carries its own.
@@ -339,7 +338,7 @@ const useOwnSettingsSchema = 'boolean = true'
  * `chatId` is config; the bot token is a **secret**, keyed by this target's `id` in the workspace's
  * `.secrets.json`. More than one is allowed, which is why the token cannot be a singleton any more.
  */
-const telegramDestinationSchema = type({
+const telegramDestinationSchema = lazy(() => type({
   kind: '"telegram"',
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   /** Off until configured: a bare `enabled: true` with no chat would fail every send. */
@@ -349,7 +348,7 @@ const telegramDestinationSchema = type({
   ...notificationPolicyShape,
   // Rejects any other key, which is what keeps a `botToken` out of a config file: without this the
   // schema tolerated it, so a hand-edited settings.json loaded a plaintext secret with no warning.
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * One webhook target: a URL, a method, and the headers to send with it.
@@ -361,7 +360,7 @@ const telegramDestinationSchema = type({
  * all three; a per-service adapter would be a code change per service.
  */
 /** One webhook destination. */
-export const webhookTargetSchema = type({
+export const webhookTargetSchema = lazy(() => type({
   kind: '"webhook"',
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   /** Empty only while the target is a draft; the page will not save one without it. */
@@ -378,11 +377,11 @@ export const webhookTargetSchema = type({
   headers: 'string = ""',
   useOwnSettings: useOwnSettingsSchema,
   ...notificationPolicyShape,
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type WebhookTarget = typeof webhookTargetSchema.infer
 
 /** A destination is one of the kinds this build can deliver to. */
-export const notificationTargetSchema = telegramDestinationSchema.or(webhookTargetSchema)
+export const notificationTargetSchema = lazy(() => telegramDestinationSchema.or(webhookTargetSchema))
 export type NotificationTarget = typeof notificationTargetSchema.infer
 
 /**
@@ -393,14 +392,14 @@ export type NotificationTarget = typeof notificationTargetSchema.infer
  * `duplicateWebhookIds` at the write; a schema `narrow` cannot be rendered to JSON Schema and every
  * route's `toJsonSchema()` would throw.
  */
-const destinationListSchema = notificationTargetSchema.array()
+const destinationListSchema = lazy(() => notificationTargetSchema.array())
 
-export const notificationsSchema = type({
+export const notificationsSchema = lazy(() => type({
   /** What every destination inherits unless it carries its own settings. */
   defaults: notificationDefaultsSchema.default(() => ({})),
   /** Replaced by a patch, the same way `ddns.accounts` is: a merge cannot express removing one. */
   destinations: destinationListSchema.default(() => []),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * The ids that appear more than once, so a write can refuse them.
@@ -421,20 +420,20 @@ export function duplicateWebhookIds(targets: ReadonlyArray<{ id: string }>): str
 export type NotificationsConfig = typeof notificationsSchema.infer
 
 /** On-disk log retention for the Logs page. */
-export const logsSchema = type({
+export const logsSchema = lazy(() => type({
   persist: 'boolean = true',
   /** Per server, before rotating to `.1`, `.2`, ... */
   maxBytes: '10000 <= number <= 100000000 = 2000000',
   keep: '1 <= number.integer <= 10 = 3',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type LogsConfig = typeof logsSchema.infer
 
-export const tlsSchema = type({
+export const tlsSchema = lazy(() => type({
   enabled: 'boolean = false',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** Host-level vitals and their alert thresholds. */
-export const hostSchema = type({
+export const hostSchema = lazy(() => type({
   enabled: 'boolean = true',
   intervalMs: 'number >= 5000 = 15000',
   /** Filesystems reported and alerted on; templates and `~` are expanded. */
@@ -464,29 +463,29 @@ export const hostSchema = type({
   tempCommand: 'string <= 512 = ""',
   /** How long that command may run before it is killed, so a hung helper cannot stall a sample. */
   tempCommandTimeoutMs: '100 <= number <= 30000 = 5000',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type HostConfig = typeof hostSchema.infer
 
 /** A record family the DDNS engine can point at this host. */
-export const ddnsRecordTypeSchema = type.enumerated('A', 'AAAA')
+export const ddnsRecordTypeSchema = lazy(() => type.enumerated('A', 'AAAA'))
 export type DdnsRecordType = typeof ddnsRecordTypeSchema.infer
 
 /**
  * One DNS provider account. Its credentials are secrets and live in the secrets
  * file keyed by this `id`, never in the config.
  */
-export const ddnsAccountSchema = type({
+export const ddnsAccountSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   provider: 'string >= 1',
   label: 'string = ""',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type DdnsAccount = typeof ddnsAccountSchema.infer
 
 /**
  * A hostname to keep pointed at this machine. That list is the whole user-facing
  * setup: the provider account it belongs to, and (optionally) which families.
  */
-export const ddnsDomainSchema = type({
+export const ddnsDomainSchema = lazy(() => type({
   host: '/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/',
   account: 'string >= 1',
   /** Records to keep current; `A` unless the host needs IPv6 too. */
@@ -501,20 +500,20 @@ export const ddnsDomainSchema = type({
   /** Proxying is a property of the record, not the panel: Cloudflare only. */
   proxied: 'boolean = false',
   enabled: 'boolean = true',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type DdnsDomain = typeof ddnsDomainSchema.infer
 
 /** Which public IP families to detect; a provider is only called for the ones declared. */
-export const ddnsIpv4Schema = type({
+export const ddnsIpv4Schema = lazy(() => type({
   enabled: 'boolean = true',
   /** Override the public-IP endpoint; empty uses the built-in list. */
   url: 'string = ""',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-export const ddnsIpv6Schema = type({
+export const ddnsIpv6Schema = lazy(() => type({
   enabled: 'boolean = false',
   url: 'string = ""',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * Dynamic DNS: keep a list of hostnames pointed at this machine's public IP.
@@ -522,7 +521,7 @@ export const ddnsIpv6Schema = type({
  * last confirmed differs, which is what keeps simple endpoints (FreeDNS, No-IP)
  * inside their rate limits.
  */
-export const ddnsConfigSchema = type({
+export const ddnsConfigSchema = lazy(() => type({
   enabled: 'boolean = false',
   /** How often the public address is re-checked. */
   intervalMs: 'number >= 60000 = 300000',
@@ -532,14 +531,14 @@ export const ddnsConfigSchema = type({
   ttl: 'number.integer >= 1 = 1',
   accounts: ddnsAccountSchema.array().default(() => []),
   domains: ddnsDomainSchema.array().default(() => []),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type DdnsConfig = typeof ddnsConfigSchema.infer
 
-export const ddnsRecordStateSchema = type('"pending" | "ok" | "unchanged" | "error" | "skipped"')
+export const ddnsRecordStateSchema = lazy(() => type('"pending" | "ok" | "unchanged" | "error" | "skipped"'))
 export type DdnsRecordState = typeof ddnsRecordStateSchema.infer
 
 /** What happened to one hostname on the last pass. */
-export const ddnsRecordViewSchema = type({
+export const ddnsRecordViewSchema = lazy(() => type({
   'host': 'string',
   'account': 'string',
   'provider': 'string',
@@ -550,11 +549,11 @@ export const ddnsRecordViewSchema = type({
   'updatedAt': 'number | null',
   /** The provider refused permanently; no retry until the hostname, account or credentials change, or a check. */
   'stopped?': 'boolean',
-})
+}))
 export type DdnsRecordView = typeof ddnsRecordViewSchema.infer
 
 /** Live DDNS state, as the state frame and the settings page read it. */
-export const ddnsStatusSchema = type({
+export const ddnsStatusSchema = lazy(() => type({
   enabled: 'boolean',
   running: 'boolean',
   lastRunAt: 'number | null',
@@ -562,20 +561,20 @@ export const ddnsStatusSchema = type({
   ipv4: 'string | null',
   ipv6: 'string | null',
   records: ddnsRecordViewSchema.array(),
-})
+}))
 export type DdnsStatus = typeof ddnsStatusSchema.infer
 
 /** What a provider needs from the person configuring it. */
-export const ddnsProviderFieldSchema = type({
+export const ddnsProviderFieldSchema = lazy(() => type({
   key: 'string',
   label: 'string',
   hint: 'string = ""',
   optional: 'boolean = false',
-})
+}))
 export type DdnsProviderField = typeof ddnsProviderFieldSchema.infer
 
 /** Provider capabilities, so the UI knows which options to show. */
-export const ddnsProviderInfoSchema = type({
+export const ddnsProviderInfoSchema = lazy(() => type({
   id: 'string',
   label: 'string',
   docsUrl: 'string',
@@ -585,17 +584,17 @@ export const ddnsProviderInfoSchema = type({
   proxied: 'boolean',
   /** These credentials can also answer an ACME DNS-01 challenge (a TXT record). */
   txt: 'boolean',
-})
+}))
 export type DdnsProviderInfo = typeof ddnsProviderInfoSchema.infer
 
 /** `GET /api/ddns`: the policy, the live state, and the providers this build knows. */
-export const ddnsViewSchema = type({
+export const ddnsViewSchema = lazy(() => type({
   config: ddnsConfigSchema,
   status: ddnsStatusSchema,
   providers: ddnsProviderInfoSchema.array(),
   /** Account ids whose credentials are stored. */
   credentials: type('string[]'),
-}).onDeepUndeclaredKey('ignore')
+}).onDeepUndeclaredKey('ignore'))
 export type DdnsView = typeof ddnsViewSchema.infer
 
 /**
@@ -604,17 +603,17 @@ export type DdnsView = typeof ddnsViewSchema.infer
  * The provider travels with the request because the account may still be an
  * unsaved draft — the server needs its field list, not a config entry.
  */
-export const ddnsCredentialsSchema = type({
+export const ddnsCredentialsSchema = lazy(() => type({
   provider: 'string >= 1',
   credentials: type('Record<string, string>'),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * The DDNS block as a patch: no defaults, and `accounts`/`domains` are lists a
  * patch **replaces** — a key-by-key merge cannot express removing a hostname.
  * `ipv4`/`ipv6` still merge, so a patch may decide just one of their members.
  */
-export const ddnsPatchSchema = type({
+export const ddnsPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   intervalMs: 'number >= 60000?',
   ipv4: type({ enabled: 'boolean?', url: 'string?' }).onUndeclaredKey('reject').optional(),
@@ -622,7 +621,7 @@ export const ddnsPatchSchema = type({
   ttl: 'number.integer >= 1?',
   accounts: ddnsAccountSchema.array().optional(),
   domains: ddnsDomainSchema.array().optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type DdnsPatch = typeof ddnsPatchSchema.infer
 
 /** Tar archives of config, secrets, TLS and declared data paths. */
@@ -636,14 +635,14 @@ export type DdnsPatch = typeof ddnsPatchSchema.infer
  * An empty `ids` is refused rather than read as either "nothing" or "everything": those are the two
  * readings a person cannot tell apart from the file, and one of them captures nothing at all.
  */
-export const backupScopeSchema = type({
+export const backupScopeSchema = lazy(() => type({
   mode: '"only" | "except"',
   ids: type('string >= 1').array().atLeastLength(1),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type BackupScope = typeof backupScopeSchema.infer
 
 /** The scheduled half: an interval, a retention of its own, and what it captures. */
-export const backupScheduleSchema = type({
+export const backupScheduleSchema = lazy(() => type({
   /** 0 turns the schedule off; otherwise the gap between automatic archives. */
   intervalMs: 'number.integer >= 0 = 0',
   /** How many automatic archives to keep. Manual ones are never pruned by it. */
@@ -654,10 +653,10 @@ export const backupScheduleSchema = type({
    * "everything", and a default here would rewrite every existing schedule on its first save.
    */
   scope: backupScopeSchema.optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type BackupScheduleConfig = typeof backupScheduleSchema.infer
 
-export const backupsSchema = type({
+export const backupsSchema = lazy(() => type({
   enabled: 'boolean = true',
   dir: 'string = ".backups"',
   /** How many archives to keep in total, newest first. */
@@ -665,12 +664,12 @@ export const backupsSchema = type({
   /** Extra paths in every backup, in addition to each server's `backupPaths`. */
   includePaths: type('string[]').default(() => []),
   schedule: backupScheduleSchema.default(() => ({})),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type BackupsConfig = typeof backupsSchema.infer
 
-const allowedHostsSchema = type(/^(?:\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i).array().atMostLength(64)
+const allowedHostsSchema = lazy(() => type(/^(?:\*\.)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i).array().atMostLength(64))
 
-export const controlSchema = type({
+export const controlSchema = lazy(() => type({
   /** What the panel calls itself; the stock UI shows it in the sidebar. */
   label: '1 <= string <= 60 = "home-hosted"',
   port: '1 <= number.integer <= 65535 = 3999',
@@ -684,34 +683,35 @@ export const controlSchema = type({
   allowedHosts: allowedHostsSchema.default(() => []),
   auth: authSchema.default(() => ({})),
   tls: tlsSchema.default(() => ({})),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ControlConfig = typeof controlSchema.infer
 
 /** Applied to every server entry; whatever an entry sets wins. */
-export const defaultsSchema = type({
+export const defaultsSchema = lazy(() => type({
   enabled: 'boolean = true',
   autostart: 'boolean = false',
   bind: bindSchema.default(() => 'local' as const),
-  onPortConflict: onPortConflictDefaultSchema,
+  // The stored forms carry the default; a patch must not (see the patch schemas below).
+  onPortConflict: onPortConflictSchema.default('block'),
   restart: restartSchema.default(() => ({})),
   health: healthSchema.default(() => ({})),
   stop: stopSchema.default(() => ({})),
   logBufferLines: logBufferLinesSchema.default(() => 500),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ServerDefaults = typeof defaultsSchema.infer
 
 // Patch variants stay default-free: an API client sends only what it changes, so
 // a partial nested group must not silently pull in the code defaults.
-const restartPatchSchema = type({
+const restartPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   maxRetries: 'number.integer >= 0?',
   baseDelayMs: 'number >= 0?',
   factor: 'number >= 1?',
   maxDelayMs: 'number >= 0?',
   resetAfterMs: 'number >= 0?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const httpCheckPatchSchema = type({
+const httpCheckPatchSchema = lazy(() => type({
   scheme: '"http" | "https"?',
   allowInvalidCert: 'boolean?',
   path: 'string?',
@@ -719,13 +719,13 @@ const httpCheckPatchSchema = type({
   expectStatus: 'number.integer | null?',
   expectStatusBelow: 'number.integer?',
   expectBody: 'string?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const resourcesPatchSchema = type({
+const resourcesPatchSchema = lazy(() => type({
   maxRssBytes: 'number.integer >= 0?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const healthPatchSchema = type({
+const healthPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   mode: '"port" | "http"?',
   http: httpCheckPatchSchema.optional(),
@@ -734,23 +734,23 @@ const healthPatchSchema = type({
   unhealthyThreshold: 'number.integer >= 1?',
   forceRestartAfterMs: 'number >= 0?',
   startTimeoutMs: 'number >= 0?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const stopPatchSchema = type({
+const stopPatchSchema = lazy(() => type({
   signal: '"SIGTERM" | "SIGINT" | "SIGKILL"?',
   killGroup: 'boolean?',
   graceMs: 'number >= 0?',
   killPortHolders: 'boolean?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const authPatchSchema = type({
+const authPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   sessionTtlMs: 'number >= 60000?',
   cookieSecure: '"auto" | "always" | "never"?',
   trustProxy: 'boolean | "loopback"?',
   maxLoginAttempts: 'number.integer >= 1?',
   lockoutMs: 'number >= 1000?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 const notificationPolicyPatchShape = {
   onCrash: 'boolean?',
@@ -769,7 +769,7 @@ const notificationPolicyPatchShape = {
  * credential), so it names the kind it is addressing. The list is **replaced**, not merged — a merge
  * cannot express removing a destination, the same reason `ddns.accounts` is replaced.
  */
-const destinationPatchSchema = type({
+const destinationPatchSchema = lazy(() => type({
   kind: '"telegram" | "webhook"',
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   enabled: 'boolean?',
@@ -782,9 +782,9 @@ const destinationPatchSchema = type({
   format: '"json" | "text"?',
   headers: 'string?',
   ...notificationPolicyPatchShape,
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const notificationsPatchSchema = type({
+const notificationsPatchSchema = lazy(() => type({
   /** Merged key by key, like the other nested groups. */
   /**
    * A merge key-by-key, and **every field optional** — `notificationPolicyPatchShape`, not a
@@ -798,9 +798,9 @@ const notificationsPatchSchema = type({
   defaults: type({ ...notificationPolicyPatchShape }).onUndeclaredKey('reject').optional(),
   /** Replaced whole, so a removed destination stays removed. */
   destinations: destinationPatchSchema.array().optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const hostPatchSchema = type({
+const hostPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   intervalMs: 'number >= 5000?',
   diskPaths: type('string[]').optional(),
@@ -811,9 +811,9 @@ const hostPatchSchema = type({
   tempCelsius: 'number >= 0?',
   tempCommand: 'string <= 512?',
   tempCommandTimeoutMs: '100 <= number <= 30000?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const backupSchedulePatchSchema = type({
+const backupSchedulePatchSchema = lazy(() => type({
   intervalMs: 'number.integer >= 0?',
   keep: 'number.integer >= 1?',
   /**
@@ -821,27 +821,27 @@ const backupSchedulePatchSchema = type({
    * only way to spell "forget the choice I made" — an omitted key means "leave it as it is".
    */
   scope: backupScopeSchema.or(type('null')).optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const backupsPatchSchema = type({
+const backupsPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   dir: 'string?',
   keep: 'number.integer >= 1?',
   includePaths: type('string[]').optional(),
   schedule: backupSchedulePatchSchema.optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const logsPatchSchema = type({
+const logsPatchSchema = lazy(() => type({
   persist: 'boolean?',
   maxBytes: '10000 <= number <= 100000000?',
   keep: '1 <= number.integer <= 10?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const tlsPatchSchema = type({
+const tlsPatchSchema = lazy(() => type({
   enabled: 'boolean?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const controlPatchSchema = type({
+const controlPatchSchema = lazy(() => type({
   label: '1 <= string <= 60 | null?',
   port: '1 <= number.integer <= 65535?',
   host: bindSchema.optional(),
@@ -849,9 +849,9 @@ const controlPatchSchema = type({
   allowedHosts: allowedHostsSchema.optional(),
   auth: authPatchSchema.optional(),
   tls: tlsPatchSchema.optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const defaultsPatchSchema = type({
+const defaultsPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   autostart: 'boolean?',
   bind: bindSchema.optional(),
@@ -860,50 +860,53 @@ const defaultsPatchSchema = type({
   health: healthPatchSchema.optional(),
   stop: stopPatchSchema.optional(),
   logBufferLines: logBufferLinesSchema.optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-const editableFields = {
-  /**
-   * `null` clears it, the same spelling `serverSchema` accepts and every display's `label ?? id`
-   * fallback needs — an empty string satisfies neither. `serverPatchSchema` is what the editor
-   * validates its payload against and what `PATCH /api/servers/:id` checks, so without this a
-   * cleared Label was refused with "label must be a string (was null)" and could not be saved at all
-   * (`1f58a5d` fixed `applyPatch` and the *control* patch schema, and cited that one in its message).
-   */
-  label: labelOrNullSchema.optional(),
-  enabled: 'boolean?',
-  autostart: 'boolean?',
-  persistent: 'boolean?',
-  command: 'string?',
-  args: 'string[]?',
-  cwd: 'string?',
-  env: 'Record<string, string>?',
-  dataEnvs: 'Record<string, string>?',
-  bootstrap: bootstrapPatchOrNullSchema.optional(),
-  dump: backupHookPatchOrNullSchema.optional(),
-  load: backupHookPatchOrNullSchema.optional(),
-  port: portSchema.optional(),
-  bind: bindSchema.optional(),
-  onPortConflict: onPortConflictSchema.optional(),
-  restart: restartPatchSchema.optional(),
-  health: healthPatchSchema.optional(),
-  stop: stopPatchSchema.optional(),
-  logBufferLines: logBufferLinesSchema.optional(),
-  dependsOn: type('string[]').optional(),
-  envFile: 'string?',
-  resources: resourcesPatchSchema.optional(),
-  backupPaths: type('string[]').optional(),
-  backupIgnoreGenerated: 'boolean?',
-} as const
+/** A function, so the schemas it names are built only when a patch schema is. */
+function editableFields() {
+  return {
+    /**
+     * `null` clears it, the same spelling `serverSchema` accepts and every display's `label ?? id`
+     * fallback needs — an empty string satisfies neither. `serverPatchSchema` is what the editor
+     * validates its payload against and what `PATCH /api/servers/:id` checks, so without this a
+     * cleared Label was refused with "label must be a string (was null)" and could not be saved at all
+     * (`1f58a5d` fixed `applyPatch` and the *control* patch schema, and cited that one in its message).
+     */
+    label: labelOrNullSchema.optional(),
+    enabled: 'boolean?',
+    autostart: 'boolean?',
+    persistent: 'boolean?',
+    command: 'string?',
+    args: 'string[]?',
+    cwd: 'string?',
+    env: 'Record<string, string>?',
+    dataEnvs: 'Record<string, string>?',
+    bootstrap: bootstrapPatchOrNullSchema.optional(),
+    dump: backupHookPatchOrNullSchema.optional(),
+    load: backupHookPatchOrNullSchema.optional(),
+    port: portSchema.optional(),
+    bind: bindSchema.optional(),
+    onPortConflict: onPortConflictSchema.optional(),
+    restart: restartPatchSchema.optional(),
+    health: healthPatchSchema.optional(),
+    stop: stopPatchSchema.optional(),
+    logBufferLines: logBufferLinesSchema.optional(),
+    dependsOn: type('string[]').optional(),
+    envFile: 'string?',
+    resources: resourcesPatchSchema.optional(),
+    backupPaths: type('string[]').optional(),
+    backupIgnoreGenerated: 'boolean?',
+  } as const
+}
 
-export const serverPatchSchema = type(editableFields).onUndeclaredKey('reject')
+export const serverPatchSchema = lazy(() => type(editableFields()).onUndeclaredKey('reject'))
 export type ServerPatch = typeof serverPatchSchema.infer
 
-export const serverCreateSchema = type({
+export const serverCreateSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
-  ...editableFields,
+  ...editableFields(),
   command: 'string',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ServerCreate = typeof serverCreateSchema.infer
 
 /**
@@ -911,7 +914,7 @@ export type ServerCreate = typeof serverCreateSchema.infer
  * nanny as it reads it. Everything is already resolved and expanded, because
  * `Supervisor.resolveSpawn()` must stay the only resolver.
  */
-export const nannySpecSchema = type({
+export const nannySpecSchema = lazy(() => type({
   serverId: 'string',
   command: 'string',
   args: 'string[]',
@@ -923,16 +926,16 @@ export const nannySpecSchema = type({
   logs: logsSchema,
   /** How the nanny stops the child it owns. */
   stop: stopSchema,
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type NannySpec = typeof nannySpecSchema.infer
 
 /** How the child of a nanny ended, recorded for a panel that may not have been there. */
-export const nannyExitSchema = type({
+export const nannyExitSchema = lazy(() => type({
   code: 'number | null',
   signal: 'string | null',
   at: 'number',
   runtimeMs: 'number',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type NannyExit = typeof nannyExitSchema.infer
 
 /**
@@ -940,7 +943,7 @@ export type NannyExit = typeof nannyExitSchema.infer
  * read by the panel to re-adopt a survivor and to learn how a child it never saw
  * exit actually ended.
  */
-export const nannyStateSchema = type({
+export const nannyStateSchema = lazy(() => type({
   'serverId': 'string',
   'nannyPid': 'number',
   'childPid': 'number | null',
@@ -948,7 +951,7 @@ export const nannyStateSchema = type({
   'logFile': 'string',
   'heartbeatAt': 'number',
   'lastExit?': nannyExitSchema,
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type NannyState = typeof nannyStateSchema.infer
 
 /**
@@ -959,7 +962,7 @@ export type NannyState = typeof nannyStateSchema.infer
  * re-ran for the same reason. Both are decisions whose whole point is to outlast the
  * process that made them.
  */
-export const entryStateSchema = type({
+export const entryStateSchema = lazy(() => type({
   /** Attempts spent on the current crash sequence; reset once the process stays up. */
   'restarts': 'number.integer >= 0',
   /**
@@ -989,26 +992,26 @@ export const entryStateSchema = type({
    */
   'lastPid?': 'number | null',
   'lastStartedAt?': 'number | null',
-})
+}))
 export type EntryState = typeof entryStateSchema.infer
 
 /** Edits to the panel-wide settings: listener, auth, TLS policy, host vitals, backups. */
-export const settingsPatchSchema = type({
+export const settingsPatchSchema = lazy(() => type({
   control: controlPatchSchema.optional(),
   host: hostPatchSchema.optional(),
   backups: backupsPatchSchema.optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type SettingsPatch = typeof settingsPatchSchema.infer
 
 /** Edits to one workspace's settings: server defaults, log retention, notifications. */
-export const workspaceSettingsPatchSchema = type({
+export const workspaceSettingsPatchSchema = lazy(() => type({
   defaults: defaultsPatchSchema.optional(),
   logs: logsPatchSchema.optional(),
   notifications: notificationsPatchSchema.optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type WorkspaceSettingsPatch = typeof workspaceSettingsPatchSchema.infer
 
-export const authStatusSchema = type({
+export const authStatusSchema = lazy(() => type({
   enabled: 'boolean',
   passwordSet: 'boolean',
   passwordUpdatedAt: 'number | null',
@@ -1030,10 +1033,10 @@ export const authStatusSchema = type({
   trustProxy: 'boolean | "loopback"',
   maxLoginAttempts: 'number',
   lockoutMs: 'number',
-})
+}))
 export type AuthStatus = typeof authStatusSchema.infer
 
-export const tlsStatusSchema = type({
+export const tlsStatusSchema = lazy(() => type({
   enabled: 'boolean',
   certPresent: 'boolean',
   subject: 'string | null',
@@ -1044,22 +1047,22 @@ export const tlsStatusSchema = type({
   fingerprint: 'string | null',
   keyMatches: 'boolean | null',
   error: 'string | null',
-})
+}))
 export type TlsStatus = typeof tlsStatusSchema.infer
 
 /**
  * The reverse-proxy engine this panel can drive. One engine ships today; the
  * field exists so a config written now keeps working if a second one lands.
  */
-export const proxyEngineSchema = type.enumerated('caddy')
+export const proxyEngineSchema = lazy(() => type.enumerated('caddy'))
 export type ProxyEngine = typeof proxyEngineSchema.infer
 
 /** What a route forwards to: a supervised entry, the panel itself, or a literal upstream. */
-export const proxyTargetSchema = type.enumerated('server', 'panel', 'external')
+export const proxyTargetSchema = lazy(() => type.enumerated('server', 'panel', 'external'))
 export type ProxyTarget = typeof proxyTargetSchema.infer
 
 /** `auto` lets the engine decide: a public name gets ACME, a local one its own CA. */
-export const proxyTlsModeSchema = type.enumerated('auto', 'off', 'manual')
+export const proxyTlsModeSchema = lazy(() => type.enumerated('auto', 'off', 'manual'))
 export type ProxyTlsMode = typeof proxyTlsModeSchema.infer
 
 /**
@@ -1067,7 +1070,7 @@ export type ProxyTlsMode = typeof proxyTlsModeSchema.infer
  * point is one domain per service across every workspace — so a target that
  * names an entry names its workspace too.
  */
-export const proxyRouteSchema = type({
+export const proxyRouteSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   /** The public hostname this route answers for. */
   host: '/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/',
@@ -1088,23 +1091,23 @@ export const proxyRouteSchema = type({
    * account that can write TXT records.
    */
   dnsAccount: 'string = ""',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ProxyRoute = typeof proxyRouteSchema.infer
 
 /**
  * One uploaded PEM pair. The pair itself lives on disk (0600) beside the panel's
  * own; this is the entry that names it, so a route can be checked against it.
  */
-export const proxyCertificateSchema = type({
+export const proxyCertificateSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   label: 'string = ""',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * What a route's certificate situation is, for the page to show. `fallback` is a
  * public name the CA would not issue for, so the engine is serving its own CA.
  */
-export const proxyCertificateStateSchema = type.enumerated('off', 'local', 'uploaded', 'issued', 'pending', 'failed', 'fallback')
+export const proxyCertificateStateSchema = lazy(() => type.enumerated('off', 'local', 'uploaded', 'issued', 'pending', 'failed', 'fallback'))
 export type ProxyCertificateState = typeof proxyCertificateStateSchema.infer
 
 /**
@@ -1115,15 +1118,15 @@ export type ProxyCertificateState = typeof proxyCertificateStateSchema.infer
  * account a route names. `resolvers` overrides the nameservers Caddy uses to see
  * the record, which is what split-horizon DNS needs.
  */
-export const proxyDns01Schema = type({
+export const proxyDns01Schema = lazy(() => type({
   /** Off means the engine uses HTTP-01/TLS-ALPN-01, exactly as before. */
   enabled: 'boolean = false',
   /** Nameservers Caddy checks the TXT record against; empty uses its own defaults. */
   resolvers: type('string[]').default(() => []),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** Reverse proxy: expose the stack through one engine, with automatic HTTPS. */
-export const proxyConfigSchema = type({
+export const proxyConfigSchema = lazy(() => type({
   enabled: 'boolean = false',
   engine: proxyEngineSchema.default(() => 'caddy' as const),
   /** Cleartext side: ACME HTTP-01 challenges and the redirect to HTTPS. */
@@ -1137,14 +1140,14 @@ export const proxyConfigSchema = type({
   /** PEM pairs a route with `tls: "manual"` may serve; the engine picks by SNI. */
   certificates: proxyCertificateSchema.array().default(() => []),
   routes: proxyRouteSchema.array().default(() => []),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ProxyConfig = typeof proxyConfigSchema.infer
 
 /** Where the binary came from: the release we downloaded, or a path a person set. */
-export const proxyEngineSourceSchema = type.enumerated('downloaded', 'custom')
+export const proxyEngineSourceSchema = lazy(() => type.enumerated('downloaded', 'custom'))
 
 /** What the panel knows about the installed engine. */
-export const proxyEngineStatusSchema = type({
+export const proxyEngineStatusSchema = lazy(() => type({
   id: proxyEngineSchema,
   installed: 'boolean',
   /** The version the binary reports; `null` until it has been probed. */
@@ -1153,11 +1156,11 @@ export const proxyEngineStatusSchema = type({
   path: 'string | null',
   bytes: 'number | null',
   error: 'string | null',
-})
+}))
 export type ProxyEngineStatus = typeof proxyEngineStatusSchema.infer
 
 /** Engine capabilities, so the page knows which options to offer. */
-export const proxyEngineInfoSchema = type({
+export const proxyEngineInfoSchema = lazy(() => type({
   id: proxyEngineSchema,
   label: 'string',
   docsUrl: 'string',
@@ -1166,14 +1169,14 @@ export const proxyEngineInfoSchema = type({
   internalCa: 'boolean',
   dns01: 'boolean',
   tcp: 'boolean',
-})
+}))
 export type ProxyEngineInfo = typeof proxyEngineInfoSchema.infer
 
-export const proxyRouteStatusSchema = type.enumerated('ok', 'disabled', 'no-upstream', 'error')
+export const proxyRouteStatusSchema = lazy(() => type.enumerated('ok', 'disabled', 'no-upstream', 'error'))
 export type ProxyRouteStatus = typeof proxyRouteStatusSchema.infer
 
 /** A route as the page reads it: the config, plus the upstream resolved live. */
-export const proxyRouteViewSchema = type({
+export const proxyRouteViewSchema = lazy(() => type({
   'route': proxyRouteSchema,
   'status': proxyRouteStatusSchema,
   'upstream': 'string | null',
@@ -1188,14 +1191,14 @@ export const proxyRouteViewSchema = type({
      */
     'retryInMinutes?': 'number',
   }),
-}).onDeepUndeclaredKey('ignore')
+}).onDeepUndeclaredKey('ignore'))
 export type ProxyRouteView = typeof proxyRouteViewSchema.infer
 
-export const proxyRunStateSchema = type.enumerated('off', 'stopped', 'starting', 'running', 'error', 'unsupported')
+export const proxyRunStateSchema = lazy(() => type.enumerated('off', 'stopped', 'starting', 'running', 'error', 'unsupported'))
 export type ProxyRunState = typeof proxyRunStateSchema.infer
 
 /** Live engine state. */
-export const proxyStatusSchema = type({
+export const proxyStatusSchema = lazy(() => type({
   state: proxyRunStateSchema,
   pid: 'number | null',
   /** The addresses the engine serves on, for the page to show. */
@@ -1204,11 +1207,11 @@ export const proxyStatusSchema = type({
   certExpiryDays: 'number | null',
   since: 'number | null',
   lastError: 'string | null',
-})
+}))
 export type ProxyStatus = typeof proxyStatusSchema.infer
 
 /** One uploaded pair, described: what it is for, and whether it is usable. */
-export const proxyCertificateViewSchema = type({
+export const proxyCertificateViewSchema = lazy(() => type({
   id: 'string',
   label: 'string',
   /** Both halves are on disk. */
@@ -1222,14 +1225,14 @@ export const proxyCertificateViewSchema = type({
   /** Hostnames the pair covers, read from its SANs. */
   hosts: type('string[]'),
   error: 'string | null',
-})
+}))
 export type ProxyCertificateView = typeof proxyCertificateViewSchema.infer
 
 /**
  * A DNS account the route table may name, flattened across workspaces so the proxy
  * page can offer one list. The account itself stays in its workspace.
  */
-export const proxyDnsAccountViewSchema = type({
+export const proxyDnsAccountViewSchema = lazy(() => type({
   workspace: 'string',
   account: 'string',
   provider: 'string',
@@ -1238,11 +1241,11 @@ export const proxyDnsAccountViewSchema = type({
   writesTxt: 'boolean',
   /** Credentials are stored; an account without them cannot answer yet. */
   hasCredentials: 'boolean',
-})
+}))
 export type ProxyDnsAccountView = typeof proxyDnsAccountViewSchema.infer
 
 /** `GET /api/proxy`: the policy, the engine, the live state and the resolved routes. */
-export const proxyViewSchema = type({
+export const proxyViewSchema = lazy(() => type({
   'config': proxyConfigSchema,
   'engine': proxyEngineStatusSchema,
   'engines': proxyEngineInfoSchema.array(),
@@ -1252,14 +1255,14 @@ export const proxyViewSchema = type({
   'certificates': proxyCertificateViewSchema.array(),
   /** Every DNS account a route may name. Optional: an older panel omits it. */
   'dnsAccounts?': proxyDnsAccountViewSchema.array(),
-}).onDeepUndeclaredKey('ignore')
+}).onDeepUndeclaredKey('ignore'))
 export type ProxyView = typeof proxyViewSchema.infer
 
 /**
  * A route as a patch sends it: every field optional, so a client may change one
  * member of a route — or add a route with only the two fields that matter.
  */
-export const proxyRoutePatchSchema = type({
+export const proxyRoutePatchSchema = lazy(() => type({
   id: 'string',
   host: 'string',
   enabled: 'boolean?',
@@ -1270,14 +1273,14 @@ export const proxyRoutePatchSchema = type({
   path: 'string?',
   tls: proxyTlsModeSchema.optional(),
   dnsAccount: 'string?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ProxyRoutePatch = typeof proxyRoutePatchSchema.infer
 
 /**
  * The proxy block as a patch: no defaults, and `routes` is a list a patch
  * **replaces** — a key-by-key merge cannot express removing a route.
  */
-export const proxyPatchSchema = type({
+export const proxyPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   engine: proxyEngineSchema.optional(),
   httpPort: '1 <= number.integer <= 65535?',
@@ -1294,20 +1297,20 @@ export const proxyPatchSchema = type({
   }).onUndeclaredKey('reject').optional(),
   certificates: proxyCertificateSchema.array().optional(),
   routes: proxyRoutePatchSchema.array().optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type ProxyPatch = typeof proxyPatchSchema.infer
 
 /** `PUT /api/proxy/certificates/:id`: the pair itself, plus what to call it. */
-export const proxyCertificateUploadSchema = type({
+export const proxyCertificateUploadSchema = lazy(() => type({
   label: 'string = ""',
   certificate: 'string >= 1',
   privateKey: 'string >= 1',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** `POST /api/proxy/engine`: which release to install; empty means the current one. */
-export const proxyEngineInstallSchema = type({
+export const proxyEngineInstallSchema = lazy(() => type({
   version: 'string = ""',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** The policy columns a destination row carries — the values a send will actually use. */
 const notificationPolicyStatusShape = {
@@ -1329,7 +1332,7 @@ const notificationPolicyStatusShape = {
  * The policy here is the **effective** one — inherited from the general block when
  * `useOwnSettings` is false — so the page shows what will happen, not what is stored.
  */
-export const destinationStatusSchema = type({
+export const destinationStatusSchema = lazy(() => type({
   'id': 'string',
   'kind': '"telegram" | "webhook"',
   'enabled': 'boolean',
@@ -1347,7 +1350,7 @@ export const destinationStatusSchema = type({
   /** Last delivery outcome, for the page. Optional: a newer panel may not have sent one yet. */
   'lastResult?': 'string | null',
   'lastResultAt?': 'number | null',
-})
+}))
 export type DestinationStatusView = typeof destinationStatusSchema.infer
 
 /**
@@ -1356,19 +1359,19 @@ export type DestinationStatusView = typeof destinationStatusSchema.infer
  * This was declared inline in the route while `TelegramChat` in `providers/telegram.ts` described the
  * same two fields — one shape written twice, which is the drift this file exists to prevent.
  */
-export const telegramChatsSchema = type({
+export const telegramChatsSchema = lazy(() => type({
   chats: type({ id: 'string | number', title: 'string' }).array(),
-})
+}))
 
-export const notificationViewSchema = type({
+export const notificationViewSchema = lazy(() => type({
   /** The general block: what a destination inherits unless it overrides it. Optional for an older panel. */
   'defaults?': notificationDefaultsViewSchema,
   /** Every destination, in config order. Optional for an older panel. */
   'destinations?': destinationStatusSchema.array(),
-})
+}))
 export type NotificationView = typeof notificationViewSchema.infer
 
-export const sessionViewSchema = type({
+export const sessionViewSchema = lazy(() => type({
   authenticated: 'boolean',
   authRequired: 'boolean',
   passwordSet: 'boolean',
@@ -1378,41 +1381,41 @@ export const sessionViewSchema = type({
   /** The boot-time password, exposed only while it is still in use. */
   defaultPassword: 'string | null',
   sessionTtlMs: 'number',
-})
+}))
 export type SessionView = typeof sessionViewSchema.infer
 
 /** `POST /api/auth/token`: the new token, returned once, and the readable head the panel keeps. */
-export const apiTokenCreatedSchema = type({ token: 'string', hint: 'string' })
+export const apiTokenCreatedSchema = lazy(() => type({ token: 'string', hint: 'string' }))
 
-export const loginSchema = type({ password: 'string <= 512' }).onUndeclaredKey('reject')
+export const loginSchema = lazy(() => type({ password: 'string <= 512' }).onUndeclaredKey('reject'))
 export type LoginRequest = typeof loginSchema.infer
 
 /** Any non-empty password is allowed; only a sanity cap on the length. */
-export const passwordValueSchema = type('1 <= string <= 512')
+export const passwordValueSchema = lazy(() => type('1 <= string <= 512'))
 
-export const passwordSchema = type({
+export const passwordSchema = lazy(() => type({
   currentPassword: 'string?',
   newPassword: passwordValueSchema,
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type PasswordRequest = typeof passwordSchema.infer
 
-export const serverStatusSchema = type('"stopped" | "starting" | "running" | "stopping" | "backoff" | "crashed" | "conflict"')
+export const serverStatusSchema = lazy(() => type('"stopped" | "starting" | "running" | "stopping" | "backoff" | "crashed" | "conflict"'))
 export type ServerStatus = typeof serverStatusSchema.infer
 
-export const healthStateSchema = type('"disabled" | "unknown" | "healthy" | "unhealthy"')
+export const healthStateSchema = lazy(() => type('"disabled" | "unknown" | "healthy" | "unhealthy"'))
 export type HealthState = typeof healthStateSchema.infer
 
-export const portStateSchema = type('"unknown" | "free" | "in-use"')
+export const portStateSchema = lazy(() => type('"unknown" | "free" | "in-use"'))
 export type PortState = typeof portStateSchema.infer
 
-export const logStreamSchema = type('"stdout" | "stderr" | "system"')
+export const logStreamSchema = lazy(() => type('"stdout" | "stderr" | "system"'))
 export type LogStream = typeof logStreamSchema.infer
 
-export const logLineSchema = type({
+export const logLineSchema = lazy(() => type({
   ts: 'number',
   stream: logStreamSchema,
   text: 'string',
-})
+}))
 export type LogLine = typeof logLineSchema.infer
 
 /**
@@ -1422,10 +1425,10 @@ export type LogLine = typeof logLineSchema.infer
  * `user` is a signed-in browser; `agent` is a request carrying an API token; `boot` is
  * the autostart pass. Optional: events written before this field existed carry none.
  */
-export const historyActorSchema = type.enumerated('policy', 'user', 'agent', 'boot')
+export const historyActorSchema = lazy(() => type.enumerated('policy', 'user', 'agent', 'boot'))
 export type HistoryActor = typeof historyActorSchema.infer
 
-export const historyEventSchema = type({
+export const historyEventSchema = lazy(() => type({
   'serverId': 'string',
   'ts': 'number',
   'type': '"start" | "exit" | "crash" | "forced-restart" | "unhealthy" | "recovered"',
@@ -1434,11 +1437,11 @@ export const historyEventSchema = type({
   'runtimeMs': 'number?',
   /** Who caused it; absent on events from before this field existed. */
   'actor?': historyActorSchema,
-})
+}))
 export type HistoryEvent = typeof historyEventSchema.infer
 
 /** Rolling window stats derived from the persisted event log. */
-export const serverHistorySchema = type({
+export const serverHistorySchema = lazy(() => type({
   windowMs: 'number',
   /** Share of the window the process was up (null when nothing is known yet). */
   uptimeRatio: 'number | null',
@@ -1449,26 +1452,26 @@ export const serverHistorySchema = type({
   lastExitAt: 'number | null',
   lastRuntimeMs: 'number | null',
   events: historyEventSchema.array(),
-})
+}))
 export type ServerHistory = typeof serverHistorySchema.infer
 
-export const processResourcesSchema = type({
+export const processResourcesSchema = lazy(() => type({
   cpuPercent: 'number | null',
   /** RSS of the process and its descendants. */
   rssBytes: 'number | null',
   processes: 'number',
   sampledAt: 'number',
-})
+}))
 export type ProcessResources = typeof processResourcesSchema.infer
 
-export const hostDiskSchema = type({
+export const hostDiskSchema = lazy(() => type({
   path: 'string',
   totalBytes: 'number',
   freeBytes: 'number',
   usedPercent: 'number',
-})
+}))
 
-export const hostViewSchema = type({
+export const hostViewSchema = lazy(() => type({
   'enabled': 'boolean',
   'cpus': 'number',
   'loadAvg': type('number[]'),
@@ -1519,7 +1522,7 @@ export const hostViewSchema = type({
    * applies to every configured path, which is why `hostReadings` copies it onto each disk's `band`.
    */
   'diskUsedPercentAlert?': 'number',
-})
+}))
 export type HostView = typeof hostViewSchema.infer
 
 /**
@@ -1529,7 +1532,7 @@ export type HostView = typeof hostViewSchema.infer
  * helper and point `host.tempCommand` at it. `supported` is false on any other platform, which is
  * how the UI hides the whole block rather than offering a button that cannot work.
  */
-export const wslTemperatureSchema = type({
+export const wslTemperatureSchema = lazy(() => type({
   /** This process runs under WSL. */
   'wsl': 'boolean',
   /** The setup can work here — the same as `wsl` today, separate so a future bridge can differ. */
@@ -1555,16 +1558,16 @@ export const wslTemperatureSchema = type({
    * first press answers `needsDownload` and the page asks. Absent on an older panel.
    */
   'needsDownload?': 'boolean',
-})
+}))
 export type WslTemperatureStatus = typeof wslTemperatureSchema.infer
 
-export const backupFileSchema = type({
+export const backupFileSchema = lazy(() => type({
   name: 'string',
   sizeBytes: 'number',
   createdAt: 'number',
   /** The archive carries a password-protected payload. */
   encrypted: 'boolean',
-})
+}))
 
 export type BackupFile = typeof backupFileSchema.infer
 
@@ -1573,7 +1576,7 @@ export type BackupFile = typeof backupFileSchema.infer
  * `global:secrets`, `global:tls`) or a workspace, whose `items` are the
  * sub-choices a per-workspace dialog offers.
  */
-export const backupEntrySchema = type({
+export const backupEntrySchema = lazy(() => type({
   /** `global:settings` | `global:secrets` | `global:tls` | `workspace:<id>`. */
   'id': 'string',
   /**
@@ -1609,7 +1612,7 @@ export const backupEntrySchema = type({
     'noteParams?': 'Record<string, string>',
     'ignoreGenerated?': 'boolean',
   }).array(),
-})
+}))
 export type BackupEntry = typeof backupEntrySchema.infer
 
 /**
@@ -1619,9 +1622,9 @@ export type BackupEntry = typeof backupEntrySchema.infer
  * `scope` is one level deep — so the outer `.onUndeclaredKey` on the config schema is not enough:
  * a frame carrying `schedule.scope` rejected outright while this was the config shape.
  */
-export const backupScheduleViewSchema = backupScheduleSchema.onDeepUndeclaredKey('ignore')
+export const backupScheduleViewSchema = lazy(() => backupScheduleSchema.onDeepUndeclaredKey('ignore'))
 
-export const backupsViewSchema = type({
+export const backupsViewSchema = lazy(() => type({
   'enabled': 'boolean',
   'dir': 'string',
   'keep': 'number',
@@ -1659,7 +1662,7 @@ export const backupsViewSchema = type({
    */
   'entries?': backupEntrySchema.array(),
   'files?': backupFileSchema.array(),
-})
+}))
 export type BackupsView = typeof backupsViewSchema.infer
 
 /**
@@ -1669,17 +1672,17 @@ export type BackupsView = typeof backupsViewSchema.infer
  * secrets file and stats every archive — work proportional to workspaces × archives, on a path that
  * runs per frame. A dialog needs it when it opens and not otherwise.
  */
-export const backupSelectionSchema = type({
+export const backupSelectionSchema = lazy(() => type({
   /** The archive directory, so a dialog can print the path without a second read. */
   dir: 'string',
   /** Every selectable entry, global first, then each workspace. */
   entries: backupEntrySchema.array(),
   files: backupFileSchema.array(),
-})
+}))
 export type BackupSelection = typeof backupSelectionSchema.infer
 
 /** One restorable slice of an archive: a global item, a workspace item, or a data path. */
-export const restoreItemSchema = type({
+export const restoreItemSchema = lazy(() => type({
   /** A backup entry or leaf id (`workspace:<id>:servers`, `data:<path>`, ...). */
   'id': 'string',
   'label': 'string',
@@ -1694,7 +1697,7 @@ export const restoreItemSchema = type({
   'note': 'string | null',
   'noteKey?': 'string',
   'noteParams?': 'Record<string, string>',
-})
+}))
 export type RestoreItem = typeof restoreItemSchema.infer
 
 /**
@@ -1704,17 +1707,17 @@ export type RestoreItem = typeof restoreItemSchema.infer
  * `noc-console`; this is the same list in parts, so a translated UI says it in the
  * reader's language instead of showing the panel's English inside its own sentence.
  */
-export const restoreSkipSchema = type({
+export const restoreSkipSchema = lazy(() => type({
   'label': 'string',
   'labelKey?': 'string',
   'labelParams?': 'Record<string, string>',
   /** A catalog key for the parenthesis, e.g. `not selected`; absent when there is none. */
   'reasonKey?': 'string',
   'reasonParams?': 'Record<string, string>',
-})
+}))
 export type RestoreSkip = typeof restoreSkipSchema.infer
 
-export const restorePlanSchema = type({
+export const restorePlanSchema = lazy(() => type({
   'dryRun': 'boolean',
   'encrypted': 'boolean',
   /** The archive needs a password (none or a wrong one was supplied). */
@@ -1775,10 +1778,10 @@ export const restorePlanSchema = type({
    */
   'createdWorkspaces?': type('string[]'),
   'error': 'string?',
-})
+}))
 export type RestorePlan = typeof restorePlanSchema.infer
 
-export const backupCreateSchema = type({
+export const backupCreateSchema = lazy(() => type({
   /** Optional: encrypts the archive. Never stored. */
   password: passwordValueSchema.optional(),
   /** Leaf ids to capture (`global:settings`, `workspace:<id>:servers`, `data:<path>`, ...); omitted means everything. */
@@ -1791,10 +1794,10 @@ export const backupCreateSchema = type({
    * a person and as "everything" to a reader, so it must not be sent at all.
    */
   exclude: type('string[] >= 1').optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type BackupCreate = typeof backupCreateSchema.infer
 
-export const restoreRequestSchema = type({
+export const restoreRequestSchema = lazy(() => type({
   name: 'string?',
   password: passwordValueSchema.optional(),
   /** Item ids to restore; omitted means every restorable item. */
@@ -1811,11 +1814,11 @@ export const restoreRequestSchema = type({
    * as "everything" to the reader, so it must not be sent at all.
    */
   exclude: type('string[] >= 1').optional(),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 export type RestoreRequest = typeof restoreRequestSchema.infer
 
 /** Runtime view of a server: its effective config plus everything observed. */
-export const serverViewSchema = type({
+export const serverViewSchema = lazy(() => type({
   'id': 'string',
   /** The workspace that owns it; optional so an older panel's frame still parses. */
   'workspaceId?': 'string',
@@ -1849,7 +1852,7 @@ export const serverViewSchema = type({
   /** Last health probe latency (TCP connect or HTTP request). */
   'responseMs': 'number | null',
   'resources': processResourcesSchema.or(type('null')),
-}).onDeepUndeclaredKey('ignore')
+}).onDeepUndeclaredKey('ignore'))
 // `config` is emitted normalized (port is always `number | null`, never absent),
 // while the schema accepts both forms so a hand-written payload still validates.
 export type ServerView = Omit<typeof serverViewSchema.infer, 'config'> & { config: ServerConfig }
@@ -1859,14 +1862,14 @@ export type ServerView = Omit<typeof serverViewSchema.infer, 'config'> & { confi
  * which shares this response's `content` in the spec. The detail fields are optional because they are
  * only included for an authenticated caller.
  */
-export const healthResponseSchema = type({
+export const healthResponseSchema = lazy(() => type({
   'status': '"ok" | "degraded"',
   'uptimeMs': 'number',
   'servers?': type({ total: 'number', running: 'number', crashed: 'number', unhealthy: 'number' }),
   'hostAlerts?': 'string[]',
-})
+}))
 
-export const controlViewSchema = type({
+export const controlViewSchema = lazy(() => type({
   /** The configured panel name, for the shell to render. */
   'label': 'string',
   'port': 'number',
@@ -1882,7 +1885,7 @@ export const controlViewSchema = type({
   'protocol': 'string',
   'auth': authStatusSchema,
   'tls': tlsStatusSchema,
-})
+}))
 export type ControlView = typeof controlViewSchema.infer
 
 /** Everything one workspace owns, plus the live state of its servers. */
@@ -1895,7 +1898,7 @@ export type ControlView = typeof controlViewSchema.infer
  * meant a hand-written file parsed to nothing at all, taking `repo`/`tag` with it and
  * silently disabling `ui-update` for exactly the UI that declared itself.
  */
-export const uiMetaSchema = type({
+export const uiMetaSchema = lazy(() => type({
   'name?': 'string',
   'version?': 'string | null',
   /** Set by the panel, not by the author. */
@@ -1910,29 +1913,29 @@ export const uiMetaSchema = type({
   'asset?': 'string',
   /** When the UI was built, in unix epoch seconds. Stamped by the build, never committed. */
   'unix?': 'number.integer >= 0',
-})
+}))
 export type UiMeta = typeof uiMetaSchema.infer
 
-export const uiStatusSchema = type({
+export const uiStatusSchema = lazy(() => type({
   /** A user-supplied UI is being served instead of the stock one. */
   custom: 'boolean',
   /** Where that UI lives, whether or not it exists yet. */
   dir: 'string',
   meta: uiMetaSchema.or(type('null')),
-})
+}))
 export type UiStatus = typeof uiStatusSchema.infer
 
 /** One process a panel spawned that no configured entry claims any more. */
-export const serverOrphanSchema = type({
+export const serverOrphanSchema = lazy(() => type({
   /** The id it was started as, which is also the key of the state file it was found in. */
   serverId: 'string',
   pid: 'number',
   /** When the panel spawned it; null when the record predates the stamp. */
   startedAt: 'number | null',
-})
+}))
 export type ServerOrphan = typeof serverOrphanSchema.infer
 
-export const workspaceViewSchema = type({
+export const workspaceViewSchema = lazy(() => type({
   'id': 'string',
   'label': 'string',
   /** The workspace's servers config; the settings file sits beside it. */
@@ -1963,14 +1966,14 @@ export const workspaceViewSchema = type({
    */
   'orphans?': serverOrphanSchema.array(),
   'servers': serverViewSchema.array(),
-}).onDeepUndeclaredKey('ignore')
+}).onDeepUndeclaredKey('ignore'))
 export type WorkspaceView = typeof workspaceViewSchema.infer
 
 /**
  * The whole panel in one frame: global state plus every workspace. Workspace
  * pages read their own subtree; the global pages read across all of them.
  */
-export const appStateSchema = type({
+export const appStateSchema = lazy(() => type({
   'control': controlViewSchema,
   'host': hostViewSchema,
   'backups': backupsViewSchema,
@@ -1990,35 +1993,35 @@ export const appStateSchema = type({
    * older panel.
    */
   'settingsError?': type({ message: 'string', path: 'string' }).or('null'),
-}).onDeepUndeclaredKey('ignore')
+}).onDeepUndeclaredKey('ignore'))
 export type AppState = typeof appStateSchema.infer
 
 /** One SSE frame, discriminated by `type`: a client narrowing on it gets the payload that frame carries. */
-const stateFrameSchema = type({
+const stateFrameSchema = lazy(() => type({
   type: '"hello" | "state"',
   ts: 'number',
   state: appStateSchema,
-}).onDeepUndeclaredKey('ignore')
-const serverFrameSchema = type({
+}).onDeepUndeclaredKey('ignore'))
+const serverFrameSchema = lazy(() => type({
   'type': '"server"',
   'ts': 'number',
   'workspaceId?': 'string',
   'serverId': 'string',
   'server': serverViewSchema,
-}).onDeepUndeclaredKey('ignore')
-const logFrameSchema = type({
+}).onDeepUndeclaredKey('ignore'))
+const logFrameSchema = lazy(() => type({
   'type': '"log"',
   'ts': 'number',
   'workspaceId?': 'string',
   'serverId': 'string',
   'lines': logLineSchema.array(),
-}).onDeepUndeclaredKey('ignore')
-export const sseMessageSchema = stateFrameSchema.or(serverFrameSchema).or(logFrameSchema)
+}).onDeepUndeclaredKey('ignore'))
+export const sseMessageSchema = lazy(() => stateFrameSchema.or(serverFrameSchema).or(logFrameSchema))
 export type SseMessage = typeof sseMessageSchema.infer
 
-export const logQuerySchema = type({
+export const logQuerySchema = lazy(() => type({
   limit: 'string?',
-})
+}))
 
 /**
  * What a per-server lifecycle action answers with.
@@ -2027,26 +2030,26 @@ export const logQuerySchema = type({
  * script can branch without matching English, and it is **absent on success** — a code names a
  * failure.
  */
-export const actionResultSchema = type({
+export const actionResultSchema = lazy(() => type({
   'ok': 'boolean',
   'error?': 'string',
   'message?': 'string',
   'code?': 'string',
-})
+}))
 export type ActionResultBody = typeof actionResultSchema.infer
 
 /** Whether a probe (a test send, a token check) worked, and why not when it did not. */
-export const deliveryResultSchema = type({
+export const deliveryResultSchema = lazy(() => type({
   'ok': 'boolean',
   'error?': 'string',
-})
+}))
 
 /** A password was set or changed, and what that means for the caller's session. */
-export const passwordSetResponseSchema = type({
+export const passwordSetResponseSchema = lazy(() => type({
   ok: 'boolean',
   enabled: 'boolean',
   sessionsInvalidated: 'boolean',
-})
+}))
 
 /**
  * What both TLS mutation routes answer: the panel's listener and the move that is in flight.
@@ -2054,11 +2057,11 @@ export const passwordSetResponseSchema = type({
  * Declared once because the two routes return the same `review()` body — the DELETE declared
  * `okResponseSchema` while returning this, so a generated client read `undefined` for every field.
  */
-export const tlsReviewResponseSchema = type({
+export const tlsReviewResponseSchema = lazy(() => type({
   control: controlViewSchema,
   rebinding: 'boolean',
   targetUrl: 'string',
-})
+}))
 
 /**
  * The plain acknowledgement most mutations answer with.
@@ -2066,28 +2069,28 @@ export const tlsReviewResponseSchema = type({
  * Defined once because a dozen routes return it, and each was declaring its own or none at all —
  * which is why the spec had untyped `200`s where a generated client needs a shape.
  */
-export const okResponseSchema = type({ ok: 'boolean' })
+export const okResponseSchema = lazy(() => type({ ok: 'boolean' }))
 
 /** A backup was removed: the archive list it leaves behind. */
-export const backupFilesResponseSchema = type({
+export const backupFilesResponseSchema = lazy(() => type({
   ok: 'boolean',
   files: backupFileSchema.array(),
-})
+}))
 
 /** A UI build was installed (it also reports the build), or reverted. */
-export const uiInstallResponseSchema = type({
+export const uiInstallResponseSchema = lazy(() => type({
   'ok': 'boolean',
   'meta?': uiStatusSchema.get('meta'),
   'ui': uiStatusSchema,
   /** Revert only: whether there was a custom UI to remove. */
   'removed?': 'boolean',
-})
+}))
 
 /** A backup was created: the new archive and the list it belongs to. */
-export const backupCreatedResponseSchema = type({
+export const backupCreatedResponseSchema = lazy(() => type({
   file: backupFileSchema,
   files: backupFileSchema.array(),
-})
+}))
 
 /** Buffered or persisted log lines, the shape every log-reading route returns. */
 /**
@@ -2100,9 +2103,9 @@ export const backupCreatedResponseSchema = type({
  * sends a number. `test/api/panel.test.ts` only walks routes it can reach with a live fixture and
  * skipped this one, so nothing caught it.
  */
-export const bufferedLogsResponseSchema = type({
+export const bufferedLogsResponseSchema = lazy(() => type({
   lines: logLineSchema.array(),
-})
+}))
 export type BufferedLogsResponse = typeof bufferedLogsResponseSchema.infer
 
 /**
@@ -2111,7 +2114,7 @@ export type BufferedLogsResponse = typeof bufferedLogsResponseSchema.infer
  * This is the shape the UIs parse (`logHistoryViewSchema` below is the same thing with its own
  * name for the client side), and it is what `logLinesResponseSchema` should always have been.
  */
-export const logLinesResponseSchema = type({
+export const logLinesResponseSchema = lazy(() => type({
   serverId: 'string',
   enabled: 'boolean',
   sizeBytes: 'number',
@@ -2120,7 +2123,7 @@ export const logLinesResponseSchema = type({
   /** How many lines the search looked at, or null when the request carried no `search`. */
   searched: 'number | null',
   lines: logLineSchema.array(),
-})
+}))
 
 /**
  * One server's live resource reading, for `home-hosted usage`.
@@ -2129,7 +2132,7 @@ export const logLinesResponseSchema = type({
  * sampler has not seen yet, or one that just exited. Absent is **not** zero: a `0` here would read as
  * "idle" and hide a server that is not being measured at all.
  */
-export const usageEntrySchema = type({
+export const usageEntrySchema = lazy(() => type({
   'id': 'string',
   'workspaceId': 'string',
   'label': 'string',
@@ -2149,20 +2152,20 @@ export const usageEntrySchema = type({
   'crashes?': 'number',
   'uptimeRatio?': 'number',
   'lastExitAt?': 'number',
-})
+}))
 
-export const usageViewSchema = type({
+export const usageViewSchema = lazy(() => type({
   'servers': usageEntrySchema.array(),
   /** When the host-level sample was taken, so a caller can tell live numbers from a frozen frame. */
   'sampledAt?': 'number',
-})
+}))
 
 /**
  * What a `free-port` attempt did. The pids are reported so the UI can say which
  * process left, and which listeners were deliberately left alone because this
  * panel supervises them.
  */
-export const freePortResultSchema = type({
+export const freePortResultSchema = lazy(() => type({
   ok: 'boolean',
   port: 'number | null',
   /** Asked to leave with SIGTERM, and the ones that ignored it. */
@@ -2172,10 +2175,10 @@ export const freePortResultSchema = type({
   skipped: 'number[]',
   /** The port answers no more after the attempt. */
   free: 'boolean',
-})
+}))
 export type FreePortResult = typeof freePortResultSchema.infer
 
-export const logHistoryQuerySchema = type({
+export const logHistoryQuerySchema = lazy(() => type({
   tail: 'string?',
   /**
    * Case-insensitive substring filter. Both this and `stream` are filters, so the route reads a
@@ -2185,28 +2188,28 @@ export const logHistoryQuerySchema = type({
    */
   search: 'string?',
   stream: '"stdout" | "stderr" | "system"?',
-})
+}))
 
-export const logFileInfoSchema = type({
+export const logFileInfoSchema = lazy(() => type({
   name: 'string',
   sizeBytes: 'number',
-})
+}))
 
-export const logServerViewSchema = type({
+export const logServerViewSchema = lazy(() => type({
   serverId: 'string',
   label: 'string',
   status: serverStatusSchema,
   enabled: 'boolean',
   sizeBytes: 'number',
   files: logFileInfoSchema.array(),
-})
+}))
 export type LogServerView = typeof logServerViewSchema.infer
 
-export const logServersViewSchema = type({
+export const logServersViewSchema = lazy(() => type({
   servers: logServerViewSchema.array(),
-})
+}))
 
-export const logHistoryViewSchema = type({
+export const logHistoryViewSchema = lazy(() => type({
   serverId: 'string',
   enabled: 'boolean',
   sizeBytes: 'number',
@@ -2214,14 +2217,14 @@ export const logHistoryViewSchema = type({
   /** How many lines the search looked at, or null when not searching. */
   searched: 'number | null',
   lines: logLineSchema.array(),
-})
+}))
 export type LogHistoryView = typeof logHistoryViewSchema.infer
 
-export const notificationActionSchema = type({
+export const notificationActionSchema = lazy(() => type({
   /** Optional override, so the token can be tried before it is saved. */
   botToken: 'string?',
   chatId: 'string?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * The `:id` path parameter of a destination route.
@@ -2231,9 +2234,9 @@ export const notificationActionSchema = type({
  * literal secrets key `telegram.botToken`, which the reader then took for the **legacy singleton** —
  * every real destination's token became unreachable.
  */
-export const destinationIdParamSchema = type({
+export const destinationIdParamSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
-})
+}))
 
 /**
  * `POST /api/notifications/test-webhook`: the webhook to try, as a draft or by id.
@@ -2242,15 +2245,15 @@ export const destinationIdParamSchema = type({
  * and the request schema rejects undeclared keys, so the webhook shape is reused rather than a
  * second DTO that could drift from it.
  */
-export const destinationTestSchema = type({
+export const destinationTestSchema = lazy(() => type({
   target: webhookTargetSchema.omit('kind', 'id').and(type({ id: 'string?', kind: '"webhook"?' })),
   /** Echoed so the result is recorded against the right row; absent for a draft. */
   id: 'string?',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
-export const telegramTokenSchema = type({
+export const telegramTokenSchema = lazy(() => type({
   botToken: 'string >= 1',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * The single error envelope every route answers failures with.
@@ -2261,34 +2264,34 @@ export const telegramTokenSchema = type({
  * that is usually absent, and disagreed with `ApiErrorBody` in `helpers/error.ts`, which has it
  * optional because that is what it actually serialises.
  */
-export const apiErrorSchema = type({
+export const apiErrorSchema = lazy(() => type({
   'message': 'string',
   /** Stable, machine-readable; `AUTH_REQUIRED` also drives the login redirect. */
   'code': 'string',
   /** Structured context when the failure has any — a field list, the routes holding a certificate. */
   'detail?': 'unknown',
-})
+}))
 
-export const tlsUploadSchema = type({
+export const tlsUploadSchema = lazy(() => type({
   certificate: 'string >= 1',
   privateKey: 'string >= 1',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** `GET /api/settings`: the panel-wide configuration, as Global Settings reads it. */
-export const settingsViewSchema = type({
+export const settingsViewSchema = lazy(() => type({
   control: controlViewSchema,
   host: hostSchema,
   backups: backupsViewSchema,
   ui: uiStatusSchema,
-}).onDeepUndeclaredKey('ignore')
+}).onDeepUndeclaredKey('ignore'))
 export type SettingsView = typeof settingsViewSchema.infer
 
 /** `PATCH /api/settings` answers with the saved view, plus where the listener lands. */
-export const settingsSavedSchema = settingsViewSchema.and(type({
+export const settingsSavedSchema = lazy(() => settingsViewSchema.and(type({
   /** The listener is moving; reconnect at `targetUrl` when it stops being null. */
   rebinding: 'boolean',
   targetUrl: 'string | null',
-}))
+})))
 export type SettingsSaved = typeof settingsSavedSchema.infer
 
 /**
@@ -2296,7 +2299,7 @@ export type SettingsSaved = typeof settingsSavedSchema.infer
  * change on its own. Global things (listener, auth, host, backups, TLS) are not
  * here — they belong to the panel, not to any workspace.
  */
-export const workspaceSettingsViewSchema = type({
+export const workspaceSettingsViewSchema = lazy(() => type({
   id: 'string',
   label: 'string',
   settingsPath: 'string',
@@ -2305,7 +2308,7 @@ export const workspaceSettingsViewSchema = type({
   defaults: defaultsSchema,
   logs: logsSchema,
   notifications: notificationViewSchema,
-}).onDeepUndeclaredKey('ignore')
+}).onDeepUndeclaredKey('ignore'))
 export type WorkspaceSettingsView = typeof workspaceSettingsViewSchema.infer
 
 export const workspaceSettingsSavedSchema = workspaceSettingsViewSchema

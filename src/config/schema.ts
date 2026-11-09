@@ -11,6 +11,7 @@ import {
   proxyConfigSchema,
   serverSchema,
 } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 import { isRecord } from '#src/shared/shape'
 
 export { backupsSchema, controlSchema, ddnsConfigSchema, defaultsSchema, hostSchema, logsSchema, notificationsSchema, proxyConfigSchema, serverSchema }
@@ -20,41 +21,41 @@ export { backupsSchema, controlSchema, ddnsConfigSchema, defaultsSchema, hostSch
  * config from before the stamp still reads, and so an archive made by an older
  * release still restores.
  */
-export const metaSchema = type({
+export const metaSchema = lazy(() => type({
   writtenBy: 'string = ""',
   schema: 'number.integer >= 1 = 1',
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /**
  * `$HHOSTED_HOME/.hh/settings.json`: the settings that belong to the panel
  * itself — its listener, authentication, TLS policy, host vitals, backups and
  * the reverse proxy. Nothing here is per workspace.
  */
-export const globalSettingsSchema = type({
+export const globalSettingsSchema = lazy(() => type({
   $schema: 'string?',
   meta: metaSchema.optional(),
   control: controlSchema.default(() => ({})),
   host: hostSchema.default(() => ({})),
   backups: backupsSchema.default(() => ({})),
   proxy: proxyConfigSchema.default(() => ({})),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** `$HHOSTED_HOME/.hh/<id>/settings.json`: what one workspace owns on its own. */
-export const workspaceSettingsSchema = type({
+export const workspaceSettingsSchema = lazy(() => type({
   $schema: 'string?',
   meta: metaSchema.optional(),
   defaults: defaultsSchema.default(() => ({})),
   logs: logsSchema.default(() => ({})),
   notifications: notificationsSchema.default(() => ({})),
   ddns: ddnsConfigSchema.default(() => ({})),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 /** `$HHOSTED_HOME/.hh/<id>/servers.config.json`: the entries this workspace supervises. */
-export const serversFileSchema = type({
+export const serversFileSchema = lazy(() => type({
   $schema: 'string?',
   meta: metaSchema.optional(),
   servers: serverSchema.array().default(() => []),
-}).onUndeclaredKey('reject')
+}).onUndeclaredKey('reject'))
 
 export type ResolvedGlobalConfig = typeof globalSettingsSchema.infer
 export type ResolvedWorkspaceSettings = typeof workspaceSettingsSchema.infer

@@ -96,7 +96,8 @@ pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated 
 These are the ones that prevent real defects. Break one only with a reason in the commit message.
 
 **API contract**
-- ArkType at every runtime boundary. Routes use `validate(...)` + `c.req.valid(...)`. **Request schemas
+- ArkType at every runtime boundary, declared as `lazy(() => type(...))` with no schema call at module
+  level (import cost; see GOTCHAS). Routes use `validate(...)` + `c.req.valid(...)`. **Request schemas
   reject undeclared keys** (including query strings); **response schemas never do**, and a new response
   field is optional (`'x?'`) — an upgraded UI may talk to an older panel and vice versa.
 - Every failure is a `DetailedError`, rendered as `{ message, code, detail? }` by `src/helpers/error.ts`.

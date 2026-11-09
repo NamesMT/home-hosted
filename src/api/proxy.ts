@@ -19,8 +19,9 @@ import {
   proxyViewSchema,
 } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
+import { lazy } from '#src/shared/lazy'
 
-const certificateParam = type({ id: '/^[a-z0-9][a-z0-9_-]*$/' })
+const certificateParam = lazy(() => type({ id: '/^[a-z0-9][a-z0-9_-]*$/' }))
 
 /** The patch, applied to the live config the way the store would apply it. */
 function candidateConfig(current: ProxyConfig, patch: Record<string, unknown>): ProxyConfig {
