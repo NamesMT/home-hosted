@@ -460,3 +460,51 @@ describe('api tokens', () => {
     expect(older.passwordSet).toBe(false)
   })
 })
+
+/**
+ * With `trustProxy: true` the per-address key is the leftmost `X-Forwarded-For`, which srvx takes as
+ * the client when every hop is trusted — so a new spelling per attempt dodged the per-address
+ * lockout and grew the record map until the next minute's sweep.
+ */
+describe('login limits that do not trust the address', () => {
+  async function limited(limits: ConstructorParameters<typeof AuthService>[2]) {
+    const { secrets, config } = await makeAuth()
+    const auth = new AuthService(secrets, () => config, limits)
+    auth.setPassword('a-good-password')
+    return auth
+  }
+
+  it('caps the guesses across every address, a correct one included', async () => {
+    const auth = await limited({ globalFailureBudget: 3 })
+    for (let index = 0; index < 3; index++)
+      expect(auth.login('wrong', `198.51.100.${index}`)).toMatchObject({ ok: false, status: 401 })
+
+    const refused = auth.login('a-good-password', '198.51.100.99')
+    expect(refused).toMatchObject({ ok: false, status: 429 })
+    expect((refused as { retryAfterMs?: number }).retryAfterMs).toBeGreaterThan(0)
+    auth.dispose()
+  })
+
+  it('opens again once the window closes', async () => {
+    vi.useFakeTimers()
+    try {
+      const auth = await limited({ globalFailureBudget: 1, globalFailureWindowMs: 60_000 })
+      auth.login('wrong', '198.51.100.1')
+      expect(auth.login('a-good-password', '198.51.100.2')).toMatchObject({ status: 429 })
+      vi.advanceTimersByTime(60_000)
+      expect(auth.login('a-good-password', '198.51.100.2')).toMatchObject({ ok: true })
+      auth.dispose()
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('bounds the per-address records on insert, not only in the sweep', async () => {
+    const auth = await limited({ maxAttemptRecords: 3, globalFailureBudget: 1000 })
+    for (let index = 0; index < 10; index++)
+      auth.login('wrong', `203.0.113.${index}`)
+    expect(auth.attemptRecords()).toBe(3)
+    auth.dispose()
+  })
+})

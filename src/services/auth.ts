@@ -11,6 +11,20 @@ const MAX_LOCKOUT_MS = 15 * 60_000
 /** Bounds on the per-IP bookkeeping, which an attacker can otherwise grow. */
 const MAX_ATTEMPT_RECORDS = 10_000
 const ATTEMPT_RECORD_TTL_MS = 60 * 60_000
+/**
+ * Failed logins the whole panel tolerates per window, whoever they claim to come from. With
+ * `trustProxy: true` the per-address key is the leftmost `X-Forwarded-For`, which the client
+ * chooses — a new value per attempt dodged the per-address lockout entirely. This caps guessing
+ * however the address is spelled; an honest person never comes near it.
+ */
+const GLOBAL_FAILURE_BUDGET = 100
+const GLOBAL_FAILURE_WINDOW_MS = 10 * 60_000
+
+export interface AuthLimits {
+  maxAttemptRecords?: number
+  globalFailureBudget?: number
+  globalFailureWindowMs?: number
+}
 
 export interface SessionRecord {
   token: string
@@ -94,11 +108,20 @@ export class AuthService {
   private readonly attempts = new Map<string, AttemptRecord>()
   private readonly listeners = new Set<() => void>()
   private readonly timer: NodeJS.Timeout
+  private readonly limits: Required<AuthLimits>
+  /** Failures across every address in the current window, and when that window opened. */
+  private globalFailures = { count: 0, windowStart: 0 }
 
   constructor(
     private readonly secrets: SecretsStore,
     private readonly getConfig: () => AuthConfig,
+    limits: AuthLimits = {},
   ) {
+    this.limits = {
+      maxAttemptRecords: limits.maxAttemptRecords ?? MAX_ATTEMPT_RECORDS,
+      globalFailureBudget: limits.globalFailureBudget ?? GLOBAL_FAILURE_BUDGET,
+      globalFailureWindowMs: limits.globalFailureWindowMs ?? GLOBAL_FAILURE_WINDOW_MS,
+    }
     this.timer = setInterval(() => this.cleanup(), 60_000)
     this.timer.unref()
   }
@@ -291,20 +314,35 @@ export class AuthService {
       }
     }
 
+    // The panel-wide budget: once spent, nobody is checked until the window closes — a correct
+    // guess included, or the cap would bound nothing.
+    if (now - this.globalFailures.windowStart >= this.limits.globalFailureWindowMs)
+      this.globalFailures = { count: 0, windowStart: now }
+    if (this.globalFailures.count >= this.limits.globalFailureBudget) {
+      const retryAfterMs = this.globalFailures.windowStart + this.limits.globalFailureWindowMs - now
+      return {
+        ok: false,
+        status: 429,
+        error: `too many failed sign-ins on this panel, retry in ${Math.ceil(retryAfterMs / 1000)}s (or run \`home-hosted set-password\` on the machine)`,
+        retryAfterMs,
+      }
+    }
+
     const record = this.secrets.password
     if (record === null) {
       return { ok: false, status: 409, error: 'no password is set yet' }
     }
 
     if (!verifyPassword(password, record)) {
+      this.globalFailures.count += 1
       const failures = (attempt?.failures ?? 0) + 1
       if (failures >= config.maxLoginAttempts) {
         const blocks = (attempt?.blocks ?? 0) + 1
         const blockedUntil = Date.now() + Math.min(config.lockoutMs * 2 ** (blocks - 1), MAX_LOCKOUT_MS)
-        this.attempts.set(key, { failures: 0, blockedUntil, blocks, lastAttemptAt: Date.now() })
+        this.recordAttempt(key, { failures: 0, blockedUntil, blocks, lastAttemptAt: Date.now() })
       }
       else {
-        this.attempts.set(key, { failures, blockedUntil: 0, blocks: attempt?.blocks ?? 0, lastAttemptAt: Date.now() })
+        this.recordAttempt(key, { failures, blockedUntil: 0, blocks: attempt?.blocks ?? 0, lastAttemptAt: Date.now() })
       }
       return { ok: false, status: 401, error: 'invalid password' }
     }
@@ -329,6 +367,27 @@ export class AuthService {
     })
 
     return { ok: true, status: 200, token, maxAgeMs: config.sessionTtlMs }
+  }
+
+  /**
+   * Bounded on insert, not only in the minute sweep: with a client-chosen key a burst could grow the
+   * map without limit between sweeps. Re-inserting keeps the map in last-attempt order, so the first
+   * key is always the stalest.
+   */
+  private recordAttempt(key: string, record: AttemptRecord): void {
+    this.attempts.delete(key)
+    while (this.attempts.size >= this.limits.maxAttemptRecords) {
+      const oldest = this.attempts.keys().next()
+      if (oldest.done === true)
+        break
+      this.attempts.delete(oldest.value)
+    }
+    this.attempts.set(key, record)
+  }
+
+  /** How many per-address records are held, for tests and diagnostics. */
+  attemptRecords(): number {
+    return this.attempts.size
   }
 
   logout(token: string | null): void {
@@ -402,10 +461,10 @@ export class AuthService {
         this.attempts.delete(key)
     }
 
-    if (this.attempts.size > MAX_ATTEMPT_RECORDS) {
+    if (this.attempts.size > this.limits.maxAttemptRecords) {
       const oldest = [...this.attempts.entries()]
         .sort((a, b) => a[1].lastAttemptAt - b[1].lastAttemptAt)
-        .slice(0, this.attempts.size - MAX_ATTEMPT_RECORDS)
+        .slice(0, this.attempts.size - this.limits.maxAttemptRecords)
       for (const [key] of oldest) this.attempts.delete(key)
     }
   }

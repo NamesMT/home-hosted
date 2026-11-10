@@ -43,7 +43,10 @@ Reaching the panel through an **external** proxy or tunnel on a public name? Add
   (`403 SESSION_REQUIRED`). That keeps a script from doing them by accident, and keeps a leaked
   token from locking you out of the panel itself. It is **not** a boundary against someone holding
   the token: revoke a leaked one, and treat the machine as theirs until you have.
-- **Repeated login failures lock out per client address**, escalating to 15 minutes.
+- **Repeated login failures lock out per client address**, escalating to 15 minutes. On top of that,
+  the whole panel accepts at most 100 failed sign-ins per 10 minutes, whatever address they claim;
+  past that every sign-in — a correct one too — is `429` until the window closes
+  (`home-hosted set-password` on the machine always works).
 
 ## Behind a proxy
 
@@ -52,7 +55,7 @@ Reaching the panel through an **external** proxy or tunnel on a public name? Add
 | Value | Trusts it from | Use when |
 | --- | --- | --- |
 | `loopback` *(default)* | a proxy on this machine | the panel's own reverse proxy, or nginx/Caddy on the same host. Remote clients get their real address (lockout, logs) and cannot forge one |
-| `true` | any peer | the proxy runs on another machine and is the only way in. The client address is then whatever the header says, so the per-IP lockout can be dodged; the panel warns at startup |
+| `true` | any peer | the proxy runs on another machine and is the only way in. The client address is then whatever the header says, so the per-IP lockout can be dodged (the panel-wide cap above still holds); the panel warns at startup |
 | `false` | nobody | nothing in front of the panel |
 
 `cookieSecure: auto` adds `Secure` when the request arrived over https. To terminate TLS in the panel
