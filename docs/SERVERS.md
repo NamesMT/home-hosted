@@ -48,10 +48,12 @@ A preset is only a starting point, so two things to check:
 
 ## Orphaned processes
 
-A child the panel spawns is detached, so it outlives a hard panel death. The handle is
-`.state/<id>.run.json`, keyed by the id it was started under — so an entry that is **renamed** or
-**removed** while its process is still running leaves that process with no entry to own it. It keeps
-running, holding its port and its resources, and nothing in the panel lists it.
+A child the panel spawns is detached, so it outlives a hard panel death. Its output goes to a **file
+the child writes and the panel reads afterwards**, not down a pipe the panel holds — so killing the
+panel cannot close anything the child writes to, and a server that keeps logging keeps running. The
+handle is `.state/<id>.run.json`, keyed by the id it was started under — so an entry that is
+**renamed** or **removed** while its process is still running leaves that process with no entry to
+own it. It keeps running, holding its port and its resources, and nothing in the panel lists it.
 
 **Servers** now shows them: a warning above the list names each id, its pid and when it started, with
 a **Stop it** button. The state file is left alone until the process is actually gone, so a survivor
@@ -96,7 +98,7 @@ asks for a program of that name, because `command` is spawned with no shell.
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` — the spent budget is remembered on disk, so a crash loop cannot outlast `maxRetries` by outliving the panel |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
 | `dependsOn` | ids that must be healthy first. `stop-all`/`down` stop dependents before their dependencies; stopping **one** server does not cascade — the log names any dependent it left running. In a cycle (`a` → `b` → `a`) neither waits on the other |
-| `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from. The disk side is the **workspace's** `logs.maxBytes` / `logs.keep` in Workspace Settings — `keep` is a hard bound on `.hh/<workspace>/.logs`: it is how many rotations stay beside `<id>.log`, the Logs page reads all of them, and lowering it deletes the ones above the new ceiling |
+| `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from. The disk side is the **workspace's** `logs.maxBytes` / `logs.keep` in Workspace Settings — `keep` is a hard bound on `.hh/<workspace>/.logs`: it is how many rotations stay beside `<id>.log`, the Logs page reads all of them, and lowering it deletes the ones above the new ceiling. A child's raw stdout/stderr is written to `.hh/<workspace>/.state/<id>.out` and `.err` first, which the panel reads back into that log; those two files are transport, not history — they are not served, not counted against `keep` and not backed up |
 | `resources.maxRssBytes` | restart when the process tree — or, for a compose entry, the summed containers — grows past a limit. It acts on an adopted process too (`follow`, or a persistent entry reattached to its nanny), not only on one the panel spawned |
 | `bootstrap` | one command to run once before the first start (migrations, warmups) |
 | `backupPaths`, `backupIgnoreGenerated` | extra paths this entry owns, included in backups; the flag (on by default) skips the known build and dependency directories inside them — `node_modules`, `dist`, `.next`, framework caches. A symlink inside a declared path that resolves outside it is not followed — declare the target as its own path instead |
@@ -302,7 +304,9 @@ Every spawn now also records the child's pid and start time, consulted before sp
 
 - alive, **born when the record says** (a recycled pid is refused), and carrying `HHOSTED_SERVER_ID`
   → adopted, exactly like a successor above;
-- gone → the record is dropped and the start proceeds;
+- gone → the record is consumed and the run **is reported**: an exit, and — at boot — a crash with the
+  reason, because a child that was running when the panel died and is not there now is the end of a
+  run nobody watched, not a clean stop. Then the start proceeds;
 - alive but the platform **cannot confirm whose it is** → refused with the pid named, rather than
   duplicated. Stop that pid, or use `persistent: true`, which is the supported way to own a portless
   process across a panel restart.

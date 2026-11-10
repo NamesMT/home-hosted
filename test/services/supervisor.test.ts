@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { projectDir } from '#src/helpers/paths'
 import { entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { buildControlView, buildWorkspaceView } from '#src/services/state'
+import { outputFiles } from '#src/services/supervisor/output'
 import { needsAttention } from '#src/shared/server-attention'
 import { cleanups, freePort, httpServerConfig, isAlive, makeSupervisor, portAccepts, runCleanups, scratchDir, view, waitFor, waitForStatus } from '../support/supervisor-harness'
 
@@ -1421,6 +1422,30 @@ describe('a removed server', () => {
     // The same reclaim for history: otherwise the card reports "Last crash" for a server that was
     // never started. Asserted here too, because `forget` in the removal branch is its own wiring.
     expect(history.summarize('web', 86_400_000).lastCrashAt, 'nor its crash history').toBeNull()
+  })
+
+  /**
+   * The transport files go with the entry too.
+   *
+   * A child's raw output is written to `.state/<id>.out`/`.err` and read back into the log. They are
+   * a third per-id artifact, and the removal branch is a list — a new one that is not added leaves
+   * files behind for an id that no longer exists, and a re-added id would start with a dead run's
+   * bytes still on disk.
+   */
+  it('takes the transport output files with it', async () => {
+    const harness = await makeSupervisor([{ id: 'web', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] }])
+    const { supervisor, store, nannyDir } = harness
+
+    await supervisor.start('web')
+    await waitFor(() => view(supervisor, 'web').status === 'running')
+    const files = outputFiles(nannyDir, 'web')
+    expect(fs.existsSync(files.stdout), 'the running entry has its transport files').toBe(true)
+
+    store.removeServer('web')
+    await waitFor(() => supervisor.views().length === 0)
+    // The stop that follows the removal clears them; give it its moment.
+    await waitFor(() => !fs.existsSync(files.stdout) ? true : undefined)
+    expect(fs.existsSync(files.stderr)).toBe(false)
   })
 
   /**

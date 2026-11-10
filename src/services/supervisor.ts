@@ -4,6 +4,7 @@ import type { EventHub } from '#src/services/events'
 import type { NotificationReason } from '#src/services/notifications'
 import type { Entry, ResolvedSpawn, StartResult, SupervisorOptions } from '#src/services/supervisor/entry'
 import type { HealthContext } from '#src/services/supervisor/health'
+import type { OpenedOutput } from '#src/services/supervisor/output'
 import type { PersistentContext } from '#src/services/supervisor/persistent'
 import type { PortContext, SupervisedPids } from '#src/services/supervisor/port-preflight'
 import type { OrphanLivenessCache } from '#src/services/supervisor/records'
@@ -33,6 +34,7 @@ import {
   sampleResources,
   shouldForceRestart,
 } from '#src/services/supervisor/health'
+import { closeOutput, EntryOutput, openOutput, outputFiles, removeOutputFiles } from '#src/services/supervisor/output'
 import { runPendingLoad } from '#src/services/supervisor/pending-load'
 import { PersistentEntries, rememberEchoedLine } from '#src/services/supervisor/persistent'
 import { freePort, preflight, supervisedPids } from '#src/services/supervisor/port-preflight'
@@ -53,6 +55,17 @@ export type { SiblingServer, StartResult, SupervisorOptions } from '#src/service
 
 const TICK_INTERVAL_MS = 1000
 
+/**
+ * How large one entry's transport file may grow before it is emptied.
+ *
+ * A pipe throttles the child that fills it; a file never does, so this is the only thing bounding it
+ * — and it only ever applies once the reader has drained the file, so emptying it cannot lose a line
+ * the panel had not seen. 8 MB is generous on purpose: `logs.maxBytes` caps a *served* log at 2 MB by
+ * default, and this is not that log, so a burst costs a few MB of disk rather than truncating often
+ * enough for the documented race to matter.
+ */
+const OUTPUT_CAP_BYTES = 8 * 1024 * 1024
+
 type Context = PortContext & HealthContext & PersistentContext
 
 export class Supervisor {
@@ -63,6 +76,8 @@ export class Supervisor {
   private readonly entries = new Map<string, Entry>()
   private readonly ctx: Context
   private readonly persistent: PersistentEntries
+  /** The transport reader of every entry whose child currently has one (non-persistent runs). */
+  private readonly outputs = new Map<string, EntryOutput>()
   /** Processes no entry owns, refreshed by the tick; read synchronously by the state frame. */
   private orphanCache: ServerOrphan[] = []
   private readonly orphanLiveness: OrphanLivenessCache = new Map()
@@ -438,6 +453,10 @@ export class Supervisor {
         .map(entry => this.stopEntry(entry)),
     )
     this.persistent.dispose()
+    // Any reader still attached outlived its child's exit path (a stop that raced it); releasing the
+    // descriptors here keeps a disposed supervisor from holding files open.
+    for (const output of this.outputs.values()) output.stop()
+    this.outputs.clear()
   }
 
   /**
@@ -691,6 +710,8 @@ export class Supervisor {
         // lines, crash history or spent retry budget. Safe: a config that fails to parse keeps the
         // last trusted server list, so a bad edit does not read as "every server was removed".
         this.options.logFiles.clear(id)
+        // The transport files are this id's too: a re-added id must not inherit a dead run's output.
+        removeOutputFiles(outputFiles(this.options.nannyDir, id))
         this.options.history.forget(id)
         clearEntryState(entryStatePath(this.options.nannyDir, id))
         // Flagged so the stop below cannot write them back; clearing *after* it would race a re-add.
@@ -787,20 +808,62 @@ export class Supervisor {
 
     this.log(entry, 'system', `start: ${command} ${loggedArgs.join(' ')}`)
 
-    let child: ChildProcess
+    /**
+     * The child's output goes to a file it owns, not down a pipe this process holds.
+     *
+     * With `stdio: ['ignore','pipe','pipe']` the panel is the read end, so the pipe closing when the
+     * panel is killed `EPIPE`s the child on its next write — and a chatty server dies with the panel
+     * it was supposed to outlive. A descriptor the child inherits takes the panel out of that chain
+     * entirely; `EntryOutput` reads the bytes back afterwards. The files live under the workspace's
+     * `.state/` (see `outputFiles`), so `logFiles` never serves them and retention never prunes them.
+     */
+    const files = outputFiles(this.options.nannyDir, entry.config.id)
+    let opened: OpenedOutput
     try {
-      child = spawnManaged({ command, args, cwd, env })
+      opened = openOutput(files)
     }
     catch (error) {
-      return this.failSpawn(entry, (error as Error).message)
+      return this.failSpawn(entry, `could not open the output file: ${(error as Error).message}`)
     }
 
+    let child: ChildProcess
+    try {
+      child = spawnManaged({ command, args, cwd, env }, { output: opened.fds })
+    }
+    catch (error) {
+      closeOutput(opened)
+      return this.failSpawn(entry, (error as Error).message)
+    }
+    // The child holds its own duplicated descriptors now; these copies would only leak.
+    closeOutput(opened)
+
+    // One splitter per stream, exactly as the pipe path had: a half-written stdout line must not
+    // absorb stderr's. They are fed by the reader rather than by `data` events.
     const stdout = new LineSplitter((stream, text) => this.log(entry, stream, text))
     const stderr = new LineSplitter((stream, text) => this.log(entry, stream, text))
-    child.stdout?.on('data', chunk => stdout.push('stdout', chunk))
-    child.stderr?.on('data', chunk => stderr.push('stderr', chunk))
+    const splitters = { stdout, stderr }
+
+    const output = new EntryOutput(files, {
+      capBytes: () => OUTPUT_CAP_BYTES,
+      onText: (stream, text) => splitters[stream].push(stream, text),
+      // Never a silent drop: the entry's own log is the one place a person can see that output was
+      // lost, and losing output without saying so is the failure this module exists to remove.
+      onDropped: (stream, bytes) => {
+        this.log(entry, 'system', `${stream}: the server wrote faster than the panel could read it — ${Math.round(bytes / 1024)} KiB of its output was dropped`)
+      },
+    })
+    this.outputs.set(entry.config.id, output)
+    output.start()
 
     this.attachChild(entry, child, `${command} ${args.join(' ')}`.trim(), cwd, () => {
+      // Drain first, then flush: a child's last words are the lines still in the file when its exit
+      // lands, and they belong before the exit's own line, not after it.
+      output.stop()
+      this.outputs.delete(entry.config.id)
+      // The files are deliberately left alone here. A wrapper that exits can leave a grandchild
+      // holding the same descriptor, still appending; truncating or deleting now would destroy that
+      // process's output — the one thing this change exists to preserve. They are reused (and
+      // emptied) by the next start, and removed with the entry (`sync`).
       stdout.flush('stdout')
       stderr.flush('stderr')
     })

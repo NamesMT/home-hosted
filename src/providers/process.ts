@@ -142,6 +142,18 @@ export interface SpawnOptions {
    * group the panel signals — so the same one-signal semantics still reach both.
    */
   detached?: boolean
+  /**
+   * Open descriptors for the child's output, instead of a pipe this process reads.
+   *
+   * A pipe makes this process its **read end**, so the child does not survive us: kill the panel,
+   * the read end closes, and the child's next write to stdout fails with `EPIPE` — which ends a
+   * process that was supposed to outlive the panel. A file the child opens takes this process out of
+   * the chain: the descriptor belongs to the child, and the panel reads the bytes back afterwards.
+   *
+   * The caller owns these (it opens them with `openOutput` and closes its own copies after the
+   * spawn); `spawn` duplicates them onto the child's table.
+   */
+  output?: { stdout: number, stderr: number }
 }
 
 export function spawnManaged(spec: SpawnSpec, options: SpawnOptions = {}): ChildProcess {
@@ -150,7 +162,10 @@ export function spawnManaged(spec: SpawnSpec, options: SpawnOptions = {}): Child
     env: { ...process.env, ...spec.env },
     // Own process group: a stop can signal the whole tree with one kill(-pid).
     detached: options.detached ?? true,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // A descriptor the child inherits, or a pipe we hold the other end of — see `SpawnOptions`.
+    stdio: options.output === undefined
+      ? ['ignore', 'pipe', 'pipe']
+      : ['ignore', options.output.stdout, options.output.stderr],
     shell: needsShell(spec.command),
     windowsHide: true,
   })
