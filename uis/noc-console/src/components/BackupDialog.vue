@@ -9,7 +9,7 @@ import * as api from '@/lib/api'
 import { captureItems, includeIds } from '@/lib/backupSelection'
 
 const props = defineProps<{ open: boolean, selection: BackupSelection | null }>()
-const emit = defineEmits<{ close: [], done: [message: string] }>()
+const emit = defineEmits<{ close: [], done: [message: string, warnings: string[]] }>()
 
 useModalLayer(() => props.open, () => emit('close'))
 
@@ -54,8 +54,8 @@ async function submit(): Promise<void> {
   busy.value = true
   error.value = null
   try {
-    await api.createBackup({ password: password.value, include: includeIds(choices.value) })
-    emit('done', 'backup created')
+    const result = await api.createBackup({ password: password.value, include: includeIds(choices.value) })
+    emit('done', 'backup created', api.backupWarnings(result))
     emit('close')
   }
   catch (caught) {

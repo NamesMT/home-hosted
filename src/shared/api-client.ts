@@ -28,6 +28,23 @@ export class AuthRequiredError extends Error {
 }
 
 /**
+ * Thrown on a 401 that signing in cannot fix: no password is in force, so only the machine running
+ * the panel may use `/api`. `AUTH_UNARMED` is auth on without a password; `AUTH_DISABLED_REMOTE` is
+ * auth off and a caller that is not this machine. Both are answered the same way — set a password on
+ * that machine — and the message is the panel's own sentence saying so.
+ */
+export class LocalOnlyError extends Error {
+  override name = 'LocalOnlyError'
+
+  constructor(message: string, readonly code: string) {
+    super(message)
+  }
+}
+
+/** The 401 codes `LocalOnlyError` stands for. */
+export const LOCAL_ONLY_CODES: ReadonlySet<string> = new Set(['AUTH_UNARMED', 'AUTH_DISABLED_REMOTE'])
+
+/**
  * What a restore may carry. Identical in both UIs apart from one doc comment; the fuller wording is
  * kept.
  */
@@ -57,6 +74,8 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     if (response.status === 401 && isRecord(payload) && payload.code === 'AUTH_REQUIRED')
       throw new AuthRequiredError()
+    if (response.status === 401 && isRecord(payload) && typeof payload.code === 'string' && LOCAL_ONLY_CODES.has(payload.code))
+      throw new LocalOnlyError(failureMessage(payload, response.status), payload.code)
     throw new Error(failureMessage(payload, response.status))
   }
 
@@ -173,6 +192,16 @@ export function createBackupBody(options: CreateBackupOptions = {}): Record<stri
 /** The caller re-reads `/api/state` afterwards, which carries the fresh list. */
 export function createBackup(options: CreateBackupOptions = {}): Promise<unknown> {
   return request('/api/backups', { method: 'POST', body: JSON.stringify(createBackupBody(options)) })
+}
+
+/**
+ * What a created backup wants a person to look at: a declared path that held no files, say. The
+ * archive was still written. Absent on an older panel, and anything that is not a string is ignored.
+ */
+export function backupWarnings(result: unknown): string[] {
+  if (!isRecord(result) || !Array.isArray(result.warnings))
+    return []
+  return result.warnings.filter((warning): warning is string => typeof warning === 'string' && warning.length > 0)
 }
 
 /** Replaces the API token with a new one, returned once. Needs a signed-in session. */

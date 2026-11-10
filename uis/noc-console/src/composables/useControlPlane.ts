@@ -7,8 +7,9 @@ import type { ServerRef } from '@/lib/servers'
 import { runThenRefetch } from '@shared/action-outcome'
 import { errorMessage } from '@shared/error-message'
 import { createLiveStore } from '@shared/live-store'
+import { streamRecovery } from '@shared/stream-access'
 import { computed, reactive, readonly, ref } from 'vue'
-import { streamDecision, useSession } from '@/composables/useSession'
+import { useSession } from '@/composables/useSession'
 import { flash } from '@/composables/useUi'
 import * as api from '@/lib/api'
 import { allServers as refsOf, serverKey, toServerView } from '@/lib/servers'
@@ -42,15 +43,19 @@ let clock: ReturnType<typeof setInterval> | null = null
 let statePromise: Promise<void> | null = null
 
 /** After a stream closed for good: signed out goes to login, anything else reconnects. */
+/**
+ * After a stream closed for good: a signed-out session goes to the login view, a refusal signing in
+ * cannot fix ends the retries with the panel's message, and anything else reconnects.
+ */
 async function checkSession(): Promise<boolean> {
-  try {
-    if (streamDecision(await api.fetchSession()) === 'login') {
-      await useSession().refresh()
-      return false
-    }
+  const recovery = await streamRecovery(() => api.fetchSession(), () => api.fetchState())
+  if (recovery.action === 'login') {
+    await useSession().refresh()
+    return false
   }
-  catch {
-    // Unreachable: keep retrying.
+  if (recovery.action === 'refused') {
+    flash(recovery.message, 'error')
+    return false
   }
   return true
 }

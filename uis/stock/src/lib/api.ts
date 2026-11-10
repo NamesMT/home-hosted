@@ -37,10 +37,11 @@ import { type } from 'arktype'
 
 import { rpc } from '@/lib/rpc'
 
-export { AuthRequiredError } from '@shared/api-client'
+export { AuthRequiredError, LocalOnlyError } from '@shared/api-client'
 export {
   applyProxy,
   backupDownloadUrl,
+  backupWarnings,
   clearPassword,
   clearProxyCertificate,
   createBackup,

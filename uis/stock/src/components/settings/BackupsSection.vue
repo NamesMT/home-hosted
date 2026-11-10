@@ -89,9 +89,13 @@ function openRestore(name?: string): void {
   restoreOpen.value = true
 }
 
-function onCreated(result: string): void {
+/** What the last created archive wants a person to look at; cleared by the next message. */
+const warnings = ref<string[]>([])
+
+function onCreated(result: string, notes: string[] = []): void {
   error.value = null
   message.value = result
+  warnings.value = notes
   // The new archive changes `files`, which is the selection model's, not the frame's.
   selection.invalidate()
   void control.refresh()
@@ -326,6 +330,13 @@ async function removeBackup(name: string): Promise<void> {
         </Notice>
         <Notice v-if="message" tone="ok">
           {{ message }}
+        </Notice>
+        <Notice v-if="message && warnings.length > 0" tone="warn" :title="t('settings.backup.createdWarnings')">
+          <ul class="list-disc pl-4">
+            <li v-for="warning in warnings" :key="warning">
+              {{ warning }}
+            </li>
+          </ul>
         </Notice>
       </div>
     </FieldGroup>

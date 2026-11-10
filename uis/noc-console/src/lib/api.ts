@@ -44,10 +44,11 @@ import { type } from 'arktype'
 
 import { selectedWorkspaceId } from '@/lib/selection'
 
-export { AuthRequiredError } from '@shared/api-client'
+export { AuthRequiredError, LocalOnlyError } from '@shared/api-client'
 export {
   applyProxy,
   backupDownloadUrl,
+  backupWarnings,
   clearPassword,
   clearProxyCertificate,
   createBackup,

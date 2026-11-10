@@ -13,7 +13,7 @@ import { t } from '@/i18n'
 import * as api from '@/lib/api'
 
 const props = defineProps<{ selection: BackupSelection | null }>()
-const emit = defineEmits<{ created: [message: string] }>()
+const emit = defineEmits<{ created: [message: string, warnings: string[]] }>()
 
 const open = defineModel<boolean>('open', { default: false })
 
@@ -50,9 +50,9 @@ async function submit(): Promise<void> {
   busy.value = true
   error.value = null
   try {
-    await api.createBackup({ password: password.value, include: includeIds(choices.value) })
+    const result = await api.createBackup({ password: password.value, include: includeIds(choices.value) })
     open.value = false
-    emit('created', t('settings.backup.created'))
+    emit('created', t('settings.backup.created'), api.backupWarnings(result))
   }
   catch (caught) {
     error.value = errorMessage(caught)

@@ -12,8 +12,9 @@ import { createLiveStore } from '@shared/live-store'
 // Imported as well as re-exported: this module calls `serverKey` itself, and a re-export does not
 // bring the name into scope.
 import { serverKey } from '@shared/server-key'
+import { streamRecovery } from '@shared/stream-access'
 import { computed, onScopeDispose, reactive, readonly, ref, toValue, watch } from 'vue'
-import { streamDecision, useSession } from '@/composables/useSession'
+import { useSession } from '@/composables/useSession'
 import { useToasts } from '@/composables/useToasts'
 import { t } from '@/i18n'
 import * as api from '@/lib/api'
@@ -41,18 +42,18 @@ const logRevision = ref(0)
 
 /**
  * After a stream closed for good: a signed-out session goes to the login view (the shell's
- * `streamDecision` watch disconnects and routes), anything else — the panel still restarting —
- * reconnects.
+ * `streamDecision` watch disconnects and routes), a refusal signing in cannot fix ends the retries
+ * with the panel's message, and anything else — the panel still restarting — reconnects.
  */
 async function checkSession(): Promise<boolean> {
-  try {
-    if (streamDecision(await api.fetchSession()) === 'login') {
-      useSession().requireLogin()
-      return false
-    }
+  const recovery = await streamRecovery(() => api.fetchSession(), () => api.fetchState())
+  if (recovery.action === 'login') {
+    useSession().requireLogin()
+    return false
   }
-  catch {
-    // Unreachable: keep retrying.
+  if (recovery.action === 'refused') {
+    notifier.failure(t('toast.streamRefused'), recovery.message)
+    return false
   }
   return true
 }

@@ -620,9 +620,13 @@ function openScope(): void {
   scopeOpen.value = true
 }
 
-function onBackupDone(result: string): void {
+/** What the last created archive wants a person to look at (an empty declared path, say). */
+const backupWarnings = ref<string[]>([])
+
+function onBackupDone(result: string, warnings: string[] = []): void {
   backupError.value = null
   backupMessage.value = result
+  backupWarnings.value = warnings
   // The archive list is the selection's, not the frame's.
   selection.invalidate()
   void control.refresh()
@@ -631,6 +635,7 @@ function onBackupDone(result: string): void {
 function onRestoreDone(result: string): void {
   backupError.value = null
   backupMessage.value = result
+  backupWarnings.value = []
   void control.refresh()
 }
 
@@ -1251,6 +1256,14 @@ async function revertUi(): Promise<void> {
           <p v-if="backupMessage" class="note note--ok">
             {{ backupMessage }}
           </p>
+          <div v-if="backupMessage && backupWarnings.length > 0" class="note note--warn">
+            the archive was written; worth a look:
+            <ul>
+              <li v-for="warning in backupWarnings" :key="warning">
+                {{ warning }}
+              </li>
+            </ul>
+          </div>
         </div>
       </section>
 
