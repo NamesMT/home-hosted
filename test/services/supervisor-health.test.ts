@@ -115,6 +115,24 @@ describe('health of a dead entry', () => {
  * Both docs promise the opposite ("waits for a dependency to be *healthy* — not merely spawned").
  */
 describe('dependsOn readiness', () => {
+  /** Each side of a two-entry cycle waited out the other's whole `startTimeoutMs` (20 s by default). */
+  it('starts both sides of a dependsOn cycle without waiting out a timeout', async () => {
+    const worker = (id: string, dependsOn: string[]): Record<string, unknown> => ({
+      id,
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      dependsOn,
+      health: { enabled: false, startTimeoutMs: 15000 },
+      restart: { enabled: false },
+    })
+    const { supervisor } = await makeSupervisor([worker('a', ['b']), worker('b', ['a'])])
+
+    const began = Date.now()
+    expect((await supervisor.start('a')).ok).toBe(true)
+    await waitFor(() => view(supervisor, 'a').status === 'running' && view(supervisor, 'b').status === 'running', 20000)
+    expect(Date.now() - began).toBeLessThan(8000)
+  }, 30000)
+
   it('does not start the dependent until the dependency is accepting connections', async () => {
     const slowPort = await freePort()
     const needsPort = await freePort()

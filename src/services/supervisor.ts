@@ -414,6 +414,13 @@ export class Supervisor {
       const target = this.entries.get(dependency.id)
       if (!target || !dependency.enabled)
         continue
+      // A cycle: the dependency is mid-start and waiting on this entry, so waiting on it here is each
+      // waiting out the other's whole start timeout. The one already waiting gets its answer from us.
+      if ((target.starting || target.status === 'starting')
+        && dependenciesOf(target.config, this.store.servers).some(back => back.id === entry.config.id)) {
+        this.log(entry, 'system', `dependency "${dependency.id}" is starting and depends on this server — not waiting for it`)
+        continue
+      }
 
       // Start it only when it is not already on its way up — but *always* wait for it to be ready;
       // skipping the wait let a dependent serve before its dependency had bound its port.
