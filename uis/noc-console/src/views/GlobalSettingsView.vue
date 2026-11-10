@@ -827,9 +827,10 @@ async function revertUi(): Promise<void> {
             <div v-if="uiStatus?.meta" class="row">
               <span class="faint">current:</span>
               <span class="mono">{{ uiStatus.meta.name }}</span>
-              <span class="faint">v{{ uiStatus.meta.version ?? '—' }}</span>
-              <span class="faint">· {{ uiStatus.meta.files }} files</span>
-              <span class="faint">· {{ formatDateTime(uiStatus.meta.uploadedAt ?? 0) }}</span>
+              <!-- A part the metadata does not record is left out: absent is never 0 (or 1970). -->
+              <span v-if="uiStatus.meta.version != null" class="faint">v{{ uiStatus.meta.version }}</span>
+              <span v-if="uiStatus.meta.files !== undefined" class="faint">· {{ uiStatus.meta.files }} files</span>
+              <span v-if="uiStatus.meta.uploadedAt !== undefined" class="faint">· {{ formatDateTime(uiStatus.meta.uploadedAt) }}</span>
             </div>
             <p v-if="uiError" class="note note--error">
               {{ uiError }}

@@ -40,9 +40,12 @@ const uploaded = computed(() => {
   const meta = props.ui?.meta
   if (meta == null)
     return null
-  const when = meta.uploadedAt === undefined ? null : formatDateTime(meta.uploadedAt)
-  const count = t('settings.interface.fileCount', { count: meta.files ?? 0 })
-  return `${count}${when === null ? '' : ` · ${when}`}`
+  // A part the metadata does not record is left out: a hand-dropped UI has no count, and absent is never 0.
+  const parts = [
+    meta.files === undefined ? null : t('settings.interface.fileCount', { count: meta.files }),
+    meta.uploadedAt === undefined ? null : formatDateTime(meta.uploadedAt),
+  ].filter(part => part !== null)
+  return parts.length === 0 ? null : parts.join(' · ')
 })
 
 function pick(event: Event): void {
