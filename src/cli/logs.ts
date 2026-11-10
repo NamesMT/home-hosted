@@ -9,7 +9,7 @@ import { errorMessage } from '#src/shared/error-message'
 
 export const logsArgs = {
   id: { type: 'positional', required: false, description: 'show one server\'s own log instead of the panel console' },
-  lines: { type: 'string', description: 'how many lines to show (default 50, `all` for everything)' },
+  lines: { type: 'string', description: 'how many lines to show: a count of at least 1 (default 50), or `all`' },
   follow: { type: 'boolean', description: 'keep printing as the panel writes (like tail -f)' },
   json: { type: 'boolean', description: 'print machine-readable JSON' },
   workspace: { type: 'string', alias: 'w', description: 'the workspace the server is in (default: the panel\'s default workspace)' },
@@ -37,27 +37,22 @@ function isUnreadable(file: string): boolean {
 }
 
 /**
- * `all` or a negative count means the whole log; an unreadable count is a typo, not a reason to
- * fail, so it falls back to the default.
- *
- * What it does **not** do is accept a *partly* numeric argument, which is how
- * `Number.parseInt` behaves and why this is not just a `parseInt`. `--lines 1e3` meant 1 line
- * (not 1000), and `--lines 0x10` parsed as 0 — which is the "whole log" sentinel, so a bounded
- * request silently became an unbounded one. Neither is a typo falling back to a default; both are
- * a wrong answer the caller cannot see. The whole trimmed argument has to be a decimal integer.
+ * `--lines`: a whole decimal count of at least 1, or `all` — `0` inside means "the whole log", the
+ * sentinel `readLog`/`followLog` take. Anything else is refused with the reason, never read as a
+ * default: `--lines abc` and `--lines 0x10` silently printed 50 lines, and `--lines 0` (or a negative)
+ * printed the whole log, so a typo or a bounded request answered something nobody asked for and the
+ * output looked complete.
  */
-function parseLines(raw: string | undefined): number {
+export function parseLines(raw: string | undefined): { lines: number } | { error: string } {
   if (raw === undefined)
-    return DEFAULT_LINES
+    return { lines: DEFAULT_LINES }
   const trimmed = raw.trim()
   if (trimmed.toLowerCase() === 'all')
-    return 0
-  if (!/^[+-]?\d+$/.test(trimmed))
-    return DEFAULT_LINES
-  const parsed = Number.parseInt(trimmed, 10)
-  if (!Number.isSafeInteger(parsed))
-    return DEFAULT_LINES
-  return parsed < 0 ? 0 : parsed
+    return { lines: 0 }
+  const parsed = /^\d+$/.test(trimmed) ? Number.parseInt(trimmed, 10) : Number.NaN
+  if (!Number.isSafeInteger(parsed) || parsed < 1)
+    return { error: `--lines takes a whole number of at least 1, or \`all\` — got "${raw}"` }
+  return { lines: parsed }
 }
 
 export interface LogTarget {
@@ -184,7 +179,13 @@ async function refuseUnknownServer(target: LogTarget, json: boolean): Promise<bo
 
 export async function runLogs(input: { id?: string, lines?: string, follow?: boolean, json?: boolean, workspace?: string }): Promise<void> {
   const { readLog } = await import('#src/helpers/daemon-log')
-  const lines = parseLines(input.lines)
+  const count = parseLines(input.lines)
+  if ('error' in count) {
+    refusal(count.error)
+    process.exitCode = 1
+    return
+  }
+  const lines = count.lines
   const target = await resolveTarget({ id: input.id, workspace: input.workspace })
   const logPath = target.file
   // A server's log is JSONL, the panel console is text. `--json` must still hand back the **stored**
@@ -199,7 +200,7 @@ export async function runLogs(input: { id?: string, lines?: string, follow?: boo
   if (input.follow === true) {
     const { followLog } = await import('#src/helpers/daemon-log')
     // `lines` goes through unchanged: `readLog` already reads `0` as "the whole log", which is what
-    // `--lines all` (and a negative, the same sentinel) parsed to. This used to rewrite 0 to
+    // `--lines all` parsed to. This used to rewrite 0 to
     // `DEFAULT_LINES`, so `logs --lines all --follow` printed 50 lines of a 200-line log while the
     // help and synopsis advertise `[--lines <n>] [--follow]` as composable — the worst failure
     // for a diagnostic command, since the answer looked complete. Same class as `--follow --json`

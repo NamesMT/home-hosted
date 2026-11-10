@@ -174,11 +174,9 @@ describe('runLogs', () => {
     expect(output).toContain(path.join('.hh', '.logs', 'home-hosted.log'))
   })
 
-  it('honours `all`, and falls back to the default on a value it cannot read', async () => {
+  it('honours `all`', async () => {
     const root = home('old\nnew\n', 'rotated\n')
     expect(await capture(root, { lines: 'all' })).toContain('rotated')
-    // A bad count is a typo, not a reason to fail.
-    expect(await capture(root, { lines: 'seven' })).toContain('new')
   })
 
   it('emits JSON a script can read', async () => {
@@ -194,31 +192,34 @@ describe('runLogs', () => {
   })
 
   /**
-   * A *partly* numeric count is not a typo, and must not become a number nobody asked for.
+   * A count that is not a whole number of at least 1 is refused, never read as something else.
    *
-   * An unreadable count falls back to the default on purpose. But `Number.parseInt` also accepts a
-   * prefix, so `1e3` meant 1 line where the caller reasonably meant 1000, and `0x10` parsed as 0 —
-   * the "whole log" sentinel, so a bounded request became unbounded. The whole trimmed argument now
-   * has to be a decimal integer.
+   * `seven`, `1e3`, `0x10` and `3.7` all printed the default 50 lines, and `0` or a negative printed
+   * the whole log — so a typo, or a bounded request, answered with output that looked complete. The
+   * refusal is on stderr with exit 1, and `--json` prints nothing on stdout.
    */
-  it('falls back to the default rather than a partial parse', async () => {
+  it('refuses a count that is not a whole number of at least 1', async () => {
     const root = home(`${Array.from({ length: 200 }, (_, i) => `line-${i}`).join('\n')}\n`)
 
-    for (const raw of ['1e3', '0x10', '12abc', '3.7']) {
-      const printed = (await capture(root, { lines: raw })).split('\n').filter(line => line.startsWith('line-')).length
-      expect(printed, `--lines ${raw} printed ${printed} lines`).toBe(50)
+    for (const raw of ['seven', '1e3', '0x10', '12abc', '3.7', '0', '-1', '']) {
+      for (const json of [false, true]) {
+        process.exitCode = 0
+        const streams = await captureStreams(root, { lines: raw, json })
+        expect(process.exitCode, `--lines "${raw}"`).toBe(1)
+        expect(streams.stdout, `--lines "${raw}" printed an answer`).toBe('')
+        expect(streams.stderr).toContain('--lines takes a whole number')
+      }
     }
+    process.exitCode = 0
   })
 
-  it('still honours a real count, `all`, and a negative as everything', async () => {
+  it('still honours a real count and `all`', async () => {
     const root = home(`${Array.from({ length: 200 }, (_, i) => `line-${i}`).join('\n')}\n`)
     const printed = async (raw: string): Promise<number> =>
       (await capture(root, { lines: raw })).split('\n').filter(line => line.startsWith('line-')).length
 
     expect(await printed('5')).toBe(5)
     expect(await printed('150')).toBe(150)
-    // `0x10` must not reach the "everything" branch that a negative legitimately reaches.
-    expect(await printed('-1')).toBe(200)
     expect(await printed('all')).toBe(200)
   })
 
@@ -262,7 +263,6 @@ describe('runLogs', () => {
     }
 
     expect(await opening({ lines: 'all' }), '`all` means everything, in either form').toBe(200)
-    expect(await opening({ lines: '-1' }), 'a negative is the same sentinel').toBe(200)
     expect(await opening({ lines: '150' }), 'a real count is honoured').toBe(150)
     expect(await opening({}), 'and the default is still the default').toBe(50)
   })
