@@ -164,14 +164,14 @@ export class Supervisor {
       if (!entry.config.persistent || isActive(entry))
         continue
       if (entry.config.enabled) {
-        await this.persistent.resume(entry).catch((error: unknown) => {
+        await this.persistent.resume(entry, undefined, true).catch((error: unknown) => {
           logger.error(`could not reattach the persistent server ${entry.config.id}`, error)
         })
         continue
       }
       // Disabled while the panel was down: adopt the leftover nanny only to stop it.
       try {
-        if (await this.persistent.resume(entry))
+        if (await this.persistent.resume(entry, undefined, true))
           await this.stop(entry.config.id)
       }
       catch (error) {

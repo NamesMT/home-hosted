@@ -251,6 +251,33 @@ describe('persistent entries', () => {
     expect(readNannyState(nannyStatePath(nannyDir, 'keep'))).toBeNull()
   })
 
+  /**
+   * A nanny's unclean ending is a crash report at boot only. Reached from a person's Start or Stop it
+   * raised a crash notification ("exited while the panel was away") for something they had just asked.
+   */
+  it('consumes a dead nanny\'s ending quietly when a person stops the entry', async () => {
+    const harness = await makeSupervisor([persistentConfig()])
+    const sent: string[] = []
+    vi.spyOn(harness.notifications, 'notify').mockImplementation((event) => {
+      sent.push(event.reason)
+    })
+    writeNannyState(nannyStatePath(harness.nannyDir, 'keep'), {
+      serverId: 'keep',
+      nannyPid: 999_999,
+      childPid: 999_998,
+      startedAt: Date.now() - 60_000,
+      logFile: '',
+      heartbeatAt: Date.now() - 120_000,
+      lastExit: { code: 3, signal: null, at: Date.now() - 30_000, runtimeMs: 30_000 },
+    })
+
+    expect((await harness.supervisor.stop('keep')).ok).toBe(true)
+    expect(view(harness.supervisor, 'keep').status).toBe('stopped')
+    expect(sent).toEqual([])
+    expect(harness.history.all().some(event => event.type === 'crash')).toBe(false)
+    expect(readNannyState(nannyStatePath(harness.nannyDir, 'keep')), 'still consumed').toBeNull()
+  })
+
   it('ignores a state file whose recorded process is not there any more', async () => {
     const { supervisor, nannyDir } = await makeSupervisor([persistentConfig()])
     writeNannyState(nannyStatePath(nannyDir, 'keep'), {

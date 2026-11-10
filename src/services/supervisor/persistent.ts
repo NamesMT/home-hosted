@@ -169,8 +169,11 @@ export class PersistentEntries {
   /**
    * Reattaches to a nanny that is still running, or reports how it ended while nobody was watching.
    * Never starts anything — that is `start()`'s job.
+   *
+   * Only boot (`reportAway`) calls an unclean ending a crash, with its history and notification: a
+   * person pressing Start or Stop later is not told the panel was away, and their action is the news.
    */
-  async resume(entry: Entry, current: () => boolean = () => true): Promise<boolean> {
+  async resume(entry: Entry, current: () => boolean = () => true, reportAway = false): Promise<boolean> {
     const id = entry.config.id
     const { history } = this.ctx.options
     const state = this.readState(id)
@@ -212,7 +215,7 @@ export class PersistentEntries {
     history.record(id, { type: 'exit', detail: `while the panel was away: ${detail}`, runtimeMs: exit.runtimeMs })
     this.ctx.log(entry, 'system', `persistent: exited while the panel was away with ${detail} after ${ranFor}`)
 
-    if (exit.code !== 0 || exit.signal !== null) {
+    if (reportAway && (exit.code !== 0 || exit.signal !== null)) {
       entry.status = 'crashed'
       entry.lastError = `exited while the panel was away with ${detail}`
       history.record(id, { type: 'crash', detail: entry.lastError, runtimeMs: exit.runtimeMs })
