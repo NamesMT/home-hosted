@@ -11,14 +11,18 @@ import { normalizeHost } from '#src/providers/ddns/types'
 import { errorMessage } from '#src/shared/error-message'
 import { isRecord } from '#src/shared/shape'
 
-/** One network pass, however many hosts it covers. */
-const RUN_TIMEOUT_MS = 60_000
+/** One provider update (its lookups included), or one address detection. */
+const REQUEST_TIMEOUT_MS = 30_000
+/** The whole pass, only as a backstop: each request has its own deadline above. */
+const RUN_TIMEOUT_MS = 10 * 60_000
 
 interface CacheEntry {
   ip: string
   updatedAt: number
   zoneId?: string
   recordId?: string
+  /** A fingerprint of the record options sent with `ip` (ttl, proxied, zone); absent in an older cache. */
+  options?: string
 }
 
 interface DdnsStateFile {
@@ -52,6 +56,8 @@ export interface DdnsDeps {
   legacyStatePath?: string
   fetchImpl?: DdnsFetch
   now?: () => number
+  /** Overrides for the request and pass deadlines; tests only. */
+  timeouts?: { requestMs?: number, runMs?: number }
 }
 
 function emptyState(): DdnsStateFile {
@@ -213,7 +219,10 @@ export class DdnsService {
     this.running = true
 
     const config = this.deps.getConfig()
-    const signal = AbortSignal.timeout(RUN_TIMEOUT_MS)
+    // One deadline per request, the pass-wide one only as a backstop: a single 60 s signal for the
+    // whole pass timed out the later records of a long domain list before they were even sent.
+    const runSignal = AbortSignal.timeout(this.deps.timeouts?.runMs ?? RUN_TIMEOUT_MS)
+    const requestSignal = (): AbortSignal => AbortSignal.any([runSignal, AbortSignal.timeout(this.deps.timeouts?.requestMs ?? REQUEST_TIMEOUT_MS)])
     const fetchImpl = this.deps.fetchImpl ?? ((input, init) => fetch(input, init))
     let changed = 0
     let unchanged = 0
@@ -224,8 +233,8 @@ export class DdnsService {
     try {
       const wanted = this.wantedFamilies(config)
       const detected = {
-        ipv4: wanted.ipv4 ? await detectPublicAddress('A', config.ipv4.url, fetchImpl, signal) : { ip: null, error: null },
-        ipv6: wanted.ipv6 ? await detectPublicAddress('AAAA', config.ipv6.url, fetchImpl, signal) : { ip: null, error: null },
+        ipv4: wanted.ipv4 ? await detectPublicAddress('A', config.ipv4.url, fetchImpl, requestSignal()) : { ip: null, error: null },
+        ipv6: wanted.ipv6 ? await detectPublicAddress('AAAA', config.ipv6.url, fetchImpl, requestSignal()) : { ip: null, error: null },
       }
       if (detected.ipv4.ip !== null)
         this.ipv4 = detected.ipv4.ip
@@ -269,7 +278,12 @@ export class DdnsService {
             skipped += 1
             continue
           }
-          if (!options.force && this.persisted.records[key]?.ip === address) {
+          // The options travel with the address: an edited `proxied`/`ttl` must reach the provider
+          // now, not whenever the address next changes.
+          const ttl = domain.ttl ?? config.ttl
+          const recordOptions = fingerprint({ ttl, proxied: domain.proxied, zone: domain.zone ?? null })
+          const confirmed = this.persisted.records[key]
+          if (!options.force && confirmed?.ip === address && confirmed.options === recordOptions) {
             this.remember(key, 'unchanged', address, null)
             unchanged += 1
             continue
@@ -280,7 +294,7 @@ export class DdnsService {
             host: domain.host,
             type,
             ip: address,
-            ttl: domain.ttl ?? config.ttl,
+            ttl,
             proxied: domain.proxied,
             ...(domain.zone === undefined ? {} : { zone: domain.zone }),
             ...(cache === undefined ? {} : { cache: { ...(cache.zoneId === undefined ? {} : { zoneId: cache.zoneId }), ...(cache.recordId === undefined ? {} : { recordId: cache.recordId }) } }),
@@ -300,11 +314,12 @@ export class DdnsService {
           }
           this.stopped.delete(key)
 
-          const result = await update(record, { credentials: credentials ?? {}, fetch: fetchImpl, signal })
+          const result = await update(record, { credentials: credentials ?? {}, fetch: fetchImpl, signal: requestSignal() })
           if (result.ok) {
             this.persisted.records[key] = {
               ip: address,
               updatedAt: this.now(),
+              options: recordOptions,
               ...(result.cache?.zoneId === undefined ? {} : { zoneId: result.cache.zoneId }),
               ...(result.cache?.recordId === undefined ? {} : { recordId: result.cache.recordId }),
             }

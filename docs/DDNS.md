@@ -4,7 +4,9 @@ Keep a list of hostnames pointed at this machine's public IP. The panel checks t
 interval and calls a provider only when it actually changed — restart-safe, because the last
 confirmed address per hostname, account and provider is kept in the workspace's
 `.hh/<workspace>/.state/ddns.cache.json`. Saving an account's credentials forgets what that account had
-confirmed, so the next pass writes its hostnames again.
+confirmed, so the next pass writes its hostnames again. Editing a hostname's `proxied`, `ttl` or
+`zone` counts as a change too: the next pass sends it even though the address is the same. Each
+provider call has its own 30 s deadline, so one slow hostname cannot time out the rest of a long list.
 
 A refusal retrying cannot fix — bad credentials, a hostname the provider does not know, an abuse
 block — **stops** that hostname instead of retrying it every interval: its row stays an error marked

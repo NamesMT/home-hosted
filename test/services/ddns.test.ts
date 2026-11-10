@@ -280,3 +280,66 @@ describe('a permanent provider refusal', () => {
     expect(second.records[0]?.stopped).toBeUndefined()
   })
 })
+
+/**
+ * The cache short-circuit compared only the address, so an edited `proxied` or `ttl` never reached
+ * the provider until the public IP changed.
+ */
+describe('ddnsService record options', () => {
+  it('re-sends a record whose proxied or ttl changed while the address did not', async () => {
+    const config = baseConfig()
+    const { service, calls } = await harness(config)
+    await service.run()
+    const patches = (): number => calls.filter(call => call.startsWith('PATCH')).length
+    const afterFirst = providerCalls(calls).length
+
+    await service.run()
+    expect(providerCalls(calls).length, 'nothing changed').toBe(afterFirst)
+
+    config.domains = config.domains.map(domain => ({ ...domain, proxied: !domain.proxied }))
+    const before = patches()
+    await service.run()
+    expect(patches(), 'the edited option must reach the provider').toBe(before + 1)
+
+    const afterEdit = providerCalls(calls).length
+    await service.run()
+    expect(providerCalls(calls).length, 'and then it is cached again').toBe(afterEdit)
+  })
+})
+
+/**
+ * One 60 s signal covered the whole pass, so with many domains the later records timed out before
+ * they were sent. Each request now has its own deadline.
+ */
+describe('ddnsService deadlines', () => {
+  it('times out a wedged request on its own and still serves the records after it', async () => {
+    const dir = await tempDir()
+    const fetchImpl: DdnsFetch = async (url, init) => {
+      if (url.includes('ipify.org'))
+        return new Response('93.184.216.7')
+      if (url.includes('wedged'))
+        return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)))
+      if (url.includes('/zones?name='))
+        return new Response(JSON.stringify({ success: true, result: [{ id: 'zone1', name: 'example.com' }] }))
+      if (init?.method === 'PATCH')
+        return new Response(JSON.stringify({ success: true, result: { id: 'rec1' } }))
+      return new Response(JSON.stringify({ success: true, result: [{ id: 'rec1', content: '198.51.100.1', ttl: 300, proxied: false }] }))
+    }
+    const service = new DdnsService({
+      getConfig: () => baseConfig({
+        domains: [
+          { host: 'home.wedged.com', account: 'cf', types: ['A'] },
+          { host: 'home.example.com', account: 'cf', types: ['A'] },
+        ],
+      }),
+      getCredentials: () => ({ apiToken: 'tok' }),
+      notifications: { notify: vi.fn() } as unknown as NotificationService,
+      statePath: path.join(dir, 'ddns.json'),
+      fetchImpl,
+      timeouts: { requestMs: 200 },
+    })
+    const status = await service.run()
+    expect(status.records.find(record => record.host === 'home.wedged.com')?.state).toBe('error')
+    expect(status.records.find(record => record.host === 'home.example.com')?.state).toBe('ok')
+  }, 5000)
+})
