@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -25,25 +26,17 @@ function source(rel: string): string {
   return fs.readFileSync(path.join(root, rel), 'utf8')
 }
 
-/** Every `.ts`/`.vue` under the repo, minus build output and dependencies. */
+/**
+ * Every tracked `.ts`/`.vue`. Git's list, not a directory walk: a walk also read build output a
+ * parallel test had moved aside (`dist.bin-test-stash`, mid-rename) and the nested worktrees under
+ * `.claude/` — whole second checkouts, where a caller is not a caller.
+ */
 function searchableFiles(): string[] {
-  const out: string[] = []
-  const walk = (dir: string): void => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      // `.agents` is a git-ignored scratch directory that holds whole *worktrees* — second
-      // checkouts of this repo. A caller counted from one of them is not a caller: measured at
-      // 3,141 of 3,679 scanned files, enough for a dead helper to read as used.
-      if (['node_modules', 'dist', 'coverage', '.git', '.agents'].includes(entry.name))
-        continue
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory())
-        walk(full)
-      else if (/\.(?:ts|vue)$/.test(entry.name))
-        out.push(full)
-    }
-  }
-  walk(root)
-  return out
+  return execFileSync('git', ['ls-files', '-z', '--', '*.ts', '*.vue'], { cwd: root, encoding: 'utf8' })
+    .split('\0')
+    .filter(Boolean)
+    .map(file => path.join(root, file))
+    .filter(file => fs.existsSync(file))
 }
 
 describe('state builders', () => {
