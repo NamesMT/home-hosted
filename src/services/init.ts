@@ -164,7 +164,15 @@ export function nextSteps(pm: PackageManager, install: boolean, cd: string): Nex
   // out to `node_modules/.bin/home-hosted`, which `--no-install` deliberately leaves absent.
   if (!install)
     steps.push({ command: lead(installCommand(pm)), text: 'install the dependency' })
-  steps.push({ command: lead(runCommand(pm, 'up')), text: 'start the panel (default password `hh`)' })
+  /**
+   * No password is printed here, and none may be.
+   *
+   * This line used to promise "default password `hh`", which was the shared pre-0.12 boot password:
+   * a fresh scaffold generates a **random** first-run password and `up` prints it once, so following
+   * this hint answered 401 at a login screen that names no credential. Naming any fixed password is
+   * the same defect in a new spelling — there is none to name.
+   */
+  steps.push({ command: lead(runCommand(pm, 'up')), text: 'start the panel — it prints the first-run password once, on this line' })
   steps.push({ command: null, text: 'then change that password under Global settings → Authentication, and add your servers' })
   steps.push({ command: `${runCommand(pm, 'set-token')} --generate`, text: 'for scripts and agents' })
   return steps

@@ -1,8 +1,22 @@
 import type { AppDeps } from '#src/app'
 import type { ServerView } from '#src/shared/contracts'
+import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
+import { validate } from '#src/helpers/validator'
 import { hostReadings } from '#src/shared/host-readings'
+import { lazy } from '#src/shared/lazy'
+
+/**
+ * This scrape takes no query keys, and says so.
+ *
+ * Prometheus appends nothing, but an operator's `?cb=123` pasted from a dashboard, or a typo, used
+ * to answer `200` with an identical body — while every other route refused an undeclared key. The
+ * documented contract (docs/API.md) has no cache-buster exception, and a scrape that silently
+ * ignores what it was asked is the wrong half to leave open on the one route a monitoring system
+ * polls unattended.
+ */
+const metricsQuery = lazy(() => type({}).onUndeclaredKey('reject'))
 
 /**
  * Escapes a value for the quoted form of a Prometheus label, per the exposition
@@ -34,7 +48,7 @@ export function createMetricsRoute(deps: AppDeps) {
       tags: ['panel'],
       summary: 'Prometheus text for whatever scrapes the panel',
       responses: { 200: { description: 'text/plain; version=0.0.4' } },
-    }), (c) => {
+    }), validate('query', metricsQuery), (c) => {
       const servers = deps.panel.serverViews()
       const host = hostReadings(deps.panel.getState().host)
       const lines: string[] = []

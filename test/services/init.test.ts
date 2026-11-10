@@ -188,6 +188,30 @@ describe('the Next block init hands over', () => {
     }
   })
 
+  /**
+   * `init` must not name a password, because a fresh scaffold has none to name.
+   *
+   * The `up` line promised "default password `hh`" — the shared pre-0.12 boot password. A 0.12
+   * install generates a **random** first-run password and prints it once, on `up` itself, so a
+   * person following the scaffold's own handover typed `hh` at a login screen and got a 401. The
+   * fix is not a new literal: any fixed password in this text is the same defect, because the text
+   * is written before the password exists.
+   */
+  it('does not promise a password it cannot know', () => {
+    for (const install of [true, false]) {
+      for (const step of nextSteps('pnpm', install, '')) {
+        expect(step.text, `"${step.text}" names a password this scaffold did not create`)
+          .not
+          .toContain('`hh`')
+        expect(step.text).not.toMatch(/default password/i)
+      }
+    }
+    // Anti-vacuity: the line it replaced is still there, and still points at `up`.
+    const up = nextSteps('pnpm', true, '').find(step => step.command?.endsWith('pnpm run up'))
+    expect(up, 'the up step must survive').toBeDefined()
+    expect(up!.text, 'and it says where the password comes from').toContain('first-run password')
+  })
+
   it('reaches the project on the first step, and does not repeat the cd', () => {
     const cd = `cd 'my dir' && `
     const commands = nextSteps('npm', false, cd).filter(step => step.command !== null).map(step => step.command!)

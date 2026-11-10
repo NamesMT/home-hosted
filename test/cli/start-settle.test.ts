@@ -232,8 +232,74 @@ describe('usage', () => {
     // The flapping entry's crash count and share of the window are why it is worth a look.
     expect(lines[2]).toMatch(/\b9\b/)
     expect(lines[2]).toContain('25%')
-    // A restart loop the panel has not given up on shows in RESTARTS, not CRASH.
-    expect(lines[0]).toContain('RESTARTS')
+    // A restart loop the panel has not given up on shows up in the window, not in CRASH.
+    expect(lines[0]).toContain('STARTS')
     expect(lines.find(line => line.includes('loops'))).toMatch(/\b37\b/)
+  })
+
+  /**
+   * The count is **starts**, and the header must say so.
+   *
+   * It was `RESTARTS`, counting `start` events in the history window — so a server that had never
+   * been restarted showed `1`, while the API's own `server.restarts` (the crash budget spent on the
+   * current sequence) showed `0` for the same entry. Two numbers, one word, and the CLI was the one
+   * lying. "starts minus one" would not have fixed it: the window clips the first start of anything
+   * up long enough, so a server running for months and restarted twice today has two starts in the
+   * window and one real restart. The column is renamed for what is counted instead.
+   */
+  it('names the column STARTS, so it cannot be read as the API\'s crash budget', async () => {
+    writeRuntime(await panel(
+      { status: 200, body: { ok: true } },
+      {
+        status: 200,
+        body: {
+          servers: [
+            // One start, never restarted: the entry that showed "RESTARTS 1" beside an API "0".
+            { id: 'fresh', workspaceId: 'default', label: 'fresh', status: 'running', restarts: 1, crashes: 0, uptimeRatio: 1 },
+          ],
+          sampledAt: Date.now(),
+        },
+      },
+    ))
+
+    const result = await runCli(['usage'])
+    expect(result.status, result.stderr).toBe(0)
+    const header = result.stdout.split('\n')[0]!
+    expect(header).toContain('STARTS')
+    expect(header, 'RESTARTS is the API\'s crash-budget field, a different number').not.toContain('RESTARTS')
+  })
+
+  /**
+   * `--json` must not keep the old spelling: a table that says STARTS beside a JSON field called
+   * `restarts` is the same confusion moved to a second surface, and a script reading it has no way
+   * to tell the two quantities apart.
+   */
+  it('reports the count as `starts` in --json too, dropping the wire name', async () => {
+    writeRuntime(await panel(
+      { status: 200, body: { ok: true } },
+      {
+        status: 200,
+        body: {
+          servers: [
+            { id: 'a', workspaceId: 'default', label: 'a', status: 'running', restarts: 5, crashes: 2 },
+            // A panel that already sends the renamed field is read the same way.
+            { id: 'b', workspaceId: 'default', label: 'b', status: 'running', starts: 7, crashes: 0 },
+            // An entry with no history at all keeps the key absent, never `0`.
+            { id: 'c', workspaceId: 'default', label: 'c', status: 'stopped' },
+          ],
+          sampledAt: 1_700_000_000_000,
+        },
+      },
+    ))
+
+    const result = await runCli(['usage', '--json'])
+    expect(result.status, result.stderr).toBe(0)
+    const body = JSON.parse(result.stdout) as { servers: Array<Record<string, unknown>>, sampledAt?: number }
+    const byId = new Map(body.servers.map(server => [server.id as string, server]))
+    expect(byId.get('a')!.starts).toBe(5)
+    expect(byId.get('a')).not.toHaveProperty('restarts')
+    expect(byId.get('b')!.starts).toBe(7)
+    expect(byId.get('c')).not.toHaveProperty('starts')
+    expect(body.sampledAt, 'the rest of the document is passed through').toBe(1_700_000_000_000)
   })
 })

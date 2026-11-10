@@ -425,6 +425,42 @@ describe('servers route', () => {
   })
 
   /**
+   * The panel-wide reads obey the same rule as every other route.
+   *
+   * docs/API.md promises that a query key a route does not declare is refused, cache-busters
+   * included. Measured on the built panel before this: `/api/servers?cb=123` answered `400`, while
+   * `/api/state?worspace=x` and `/api/metrics?cb=123` both answered `200` — the two routes that
+   * declared no `validate('query', …)` at all, so the promise was true everywhere except where
+   * someone had looked.
+   *
+   * Walked rather than spelled out twice, so a panel-wide route added later is a line here. Neither
+   * route takes *any* query key: a `?workspace=` on `/api/state` would promise a narrowing the route
+   * does not do (the snapshot is panel-wide), so refusing it is the honest answer.
+   */
+  it('refuses an undeclared query key on the panel-wide reads too', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+
+    const ROUTES = ['/api/state', '/api/metrics']
+    const accepted: string[] = []
+    for (const path of ROUTES) {
+      for (const extra of ['worspace=staging', 'cb=1730000000', 'workspace=default']) {
+        const response = await request(created.app, `${path}?${extra}`, 'GET')
+        // 400 + the field named: what a script can act on, and the same answer `/api/servers` gives.
+        if (response.status !== 400) {
+          accepted.push(`${path}?${extra} → ${response.status}`)
+          continue
+        }
+        const body = await response.json() as { code?: string, detail?: Array<{ path?: string }> }
+        expect(body.code, `${path}?${extra}`).toBe('INVALID_INPUT')
+        expect(body.detail?.map(issue => issue.path), `${path}?${extra}`).toContain(extra.split('=')[0])
+      }
+      // And the bare request is untouched: the rule is "declared or nothing", not "refuse reads".
+      expect((await request(created.app, path, 'GET')).status, path).toBe(200)
+    }
+    expect(accepted, 'an undeclared query key was accepted on these routes').toEqual([])
+  })
+
+  /**
    * `stop-all` reads `withPersistent`, so strictness had to give the route a schema naming it —
    * and the flag has to keep working, or the fix for the typo broke the feature.
    */

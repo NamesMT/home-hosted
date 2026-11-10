@@ -22,7 +22,7 @@ function git(...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' })
 }
 
-const staged = git('diff', '--cached', '--name-only', '--diff-filter=ACMR')
+const staged = git('diff', '--cached', '--name-only', '--diff-filter=ACMRD')
   .split('\n')
   .filter(line => line.trim().length > 0)
 
@@ -33,6 +33,12 @@ const staged = git('diff', '--cached', '--name-only', '--diff-filter=ACMR')
  * `test/`, and the UI's own `README.md` — a person's notes about the UI, not a file it serves.
  * Everything else is a build input: `src/`, `public/`, `index.html`, `vite.config.ts`, and the
  * `i18n/` sheet the catalogs are generated from.
+ *
+ * **A deletion is a change too**, and it was the one this filter could not see. Staged as `D` only,
+ * the file is missing from `--diff-filter=ACMR`, so deleting a shipped source file — an export, a
+ * component, a whole module — sailed past the hook unbumped while the asset it produces changed.
+ * `uis/<name>` itself deleting its own `README.md` or `test/` stays excluded, by the same rule as
+ * writing one.
  */
 const NOT_SHIPPED = [/^test\//, /^README\.md$/]
 const touched = new Set()
