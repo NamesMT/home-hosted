@@ -230,10 +230,10 @@ export class Supervisor {
       entry.restarts = 0
       // Only a start *someone asked for* ends the health sequence and its owed outcome: the force
       // restart also comes through here as `policy`, and resetting then refilled the budget forever.
-      if (entry.actor !== 'policy')
+      if (entry.actor !== 'policy') {
         entry.healthRestarts = 0
-      if (entry.actor !== 'policy')
         entry.pendingRestart = null
+      }
       resetHealth(entry)
       // The reset has to reach disk too, or the next boot resurrects the old budget.
       this.ctx.persist(entry)
@@ -942,15 +942,8 @@ export class Supervisor {
         })
         continue
       }
-      if (shouldForceRestart(this.ctx, entry, now)) {
+      if (shouldForceRestart(this.ctx, entry, now))
         this.restartInBackground(entry.config.id)
-        continue
-      }
-      if (entry.status === 'backoff' && entry.nextRetryAt !== null && now >= entry.nextRetryAt && entry.retryTimer === null) {
-        void this.start(entry.config.id, { retry: true }).catch((error: unknown) => {
-          logger.error(`could not restart ${entry.config.id}`, error)
-        })
-      }
     }
 
     this.publishState()
