@@ -263,3 +263,18 @@ describe('a destructive action confirms in a popover, not by arming its own butt
     expect(armedFirstPress(armed), 'a planted armed revert must be visible to this scan').toHaveLength(1)
   })
 })
+
+/**
+ * The command palette is a second door to the same actions, and it skipped the confirmation.
+ *
+ * Both workspace views put "Stop all" behind a `ConfirmButton` that names its cost (and offers to
+ * include persistent entries); the stock palette's `act:stop-all` called the action directly, so two
+ * keystrokes stopped every server with no question asked. A palette entry cannot host the popover, so
+ * the action is reached from the views only.
+ */
+describe('the command palette', () => {
+  it('offers no stop-all that bypasses the views\' confirmation', () => {
+    const source = fs.readFileSync(path.join(root, 'uis/stock/src/components/shell/CommandPalette.vue'), 'utf8')
+    expect(source).not.toMatch(/\.stopAll\(/)
+  })
+})

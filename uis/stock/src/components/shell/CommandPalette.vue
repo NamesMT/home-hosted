@@ -154,7 +154,6 @@ const commands = computed<PaletteCommand[]>(() => {
     { id: 'nav:logs', title: t('palette.goLogs'), group: t('palette.groupNavigate'), icon: ScrollText, keywords: 'output files tail workspace', run: () => go(here('logs')) },
     { id: 'nav:settings', title: t('palette.goWorkspaceSettings'), group: t('palette.groupNavigate'), icon: Settings2, keywords: 'defaults notifications ddns config workspace', run: () => go(here('settings')) },
     { id: 'act:start-all', title: t('palette.startAll'), group: t('palette.groupActions'), icon: Play, keywords: 'boot all workspace', run: () => act(() => void control.startAll(workspace.activeId.value)) },
-    { id: 'act:stop-all', title: t('palette.stopAll'), group: t('palette.groupActions'), icon: Square, keywords: 'halt all workspace', run: () => act(() => void control.stopAll(workspace.activeId.value)) },
   )
 
   for (const owner of workspace.workspaces.value) {
