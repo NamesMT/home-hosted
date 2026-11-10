@@ -12,8 +12,29 @@ export function isLoopback(address: string | null): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
 }
 
-/** Headers a proxy adds; their presence means the TCP peer is a relay, not the person. */
-const FORWARDING_HEADERS = ['forwarded', 'x-forwarded-for', 'x-real-ip']
+/**
+ * Headers a proxy adds; their presence means the TCP peer is a relay, not the person.
+ *
+ * This is a **heuristic, not a guarantee**, and the docs say so: a proxy that forwards the request
+ * and strips every one of these is indistinguishable from a local client, which is unavoidable — the
+ * panel's own engine is exactly such a loopback peer. What it can do is fail closed on the
+ * misconfigurations people actually write: a minimal nginx very often forwards only
+ * `Proxy_Set_Header X-Forwarded-Proto` (or `Host`/the original port when it rewrites them), so the
+ * `x-forwarded-*` family is listed whole rather than only the address-valued ones. A relay that adds
+ * any* of them is then not "this machine", instead of handing the internet local trust.
+ */
+const FORWARDING_HEADERS = [
+  'forwarded',
+  'x-forwarded-for',
+  'x-real-ip',
+  // Not address-valued, and that is the point: a proxy that forwards only one of these used to read
+  // as a direct local client. `x-forwarded-host` is also what srvx derives the request URL from when
+  // it trusts the peer, so noticing it here is the same fact the host guard already relies on.
+  'x-forwarded-proto',
+  'x-forwarded-host',
+  'x-forwarded-port',
+  'x-forwarded-prefix',
+]
 
 /**
  * Whether the request was made on this machine, by something that did not relay it.

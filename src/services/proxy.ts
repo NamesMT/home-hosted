@@ -46,7 +46,7 @@ import {
 import { isPortFree, isProcessAlive, listPortHolders } from '#src/providers/port'
 import { processCarriesServerId } from '#src/providers/proc'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
-import { dialsPanel } from '#src/services/exposure'
+import { dialsPanel, primeUpstreamResolutions } from '#src/services/exposure'
 import { boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { TlsStore } from '#src/services/tls'
 import { errorMessage } from '#src/shared/error-message'
@@ -831,6 +831,9 @@ export class ProxyService {
 
     if (!this.config.enabled)
       return
+    // The route table is read for the exposure verdict, which has to judge hostnames by where they
+    // resolve — a boot must not declare the engine unsafe (or safe) on a cold cache.
+    await primeUpstreamResolutions(this.config)
     const blocked = this.options.exposureBlocked()
     if (blocked !== null) {
       // A hand-edited config can ask for something the settings write would have
@@ -1048,6 +1051,10 @@ export class ProxyService {
   async apply(options: { force?: boolean } = {}): Promise<void> {
     if (!this.config.enabled || !this.installed())
       return
+    // The exposure rule is synchronous and reads a cache, so the hostnames it may have to judge are
+    // resolved here — an `apply` has an `await` to spend, and publishing a route on a guess about
+    // where it dials is the failure this exists to prevent.
+    await primeUpstreamResolutions(this.config)
     // The same preflight `start()` makes: turning DNS-01 on against a running engine
     // from an older release lands here, and the user deserves the reason rather than
     // whatever Caddy says about an unknown module.
@@ -1245,6 +1252,10 @@ export class ProxyService {
       return
     if (this.status().state !== 'running')
       return
+    // `syncSignature()` embeds the exposure verdict, so a hostname's resolution has to be current
+    // before the signature is taken — otherwise a name that started resolving to the panel would
+    // not move the signature, and the route would keep being served.
+    await primeUpstreamResolutions(this.config)
     const signature = this.syncSignature()
     if (signature === this.certificateSignature)
       return
@@ -1687,6 +1698,8 @@ export class ProxyService {
     const config = this.config
     if (!config.enabled)
       throw new DetailedError('the reverse proxy is switched off', { statusCode: 400, code: 'PROXY_DISABLED' })
+    // Before the verdict, for the same reason `apply` does it: the predicate must have the answer.
+    await primeUpstreamResolutions(config)
     const blocked = this.options.exposureBlocked()
     if (blocked !== null)
       throw new DetailedError(blocked, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })

@@ -1,6 +1,6 @@
 import { type } from 'arktype'
-import { describe, expect, it } from 'vitest'
-import { checkExposure, checkProxyExposure, dialsPanel, proxyTrustWarning } from '#src/services/exposure'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { checkExposure, checkProxyExposure, dialsPanel, primeUpstreamResolutions, proxyTrustWarning, setUpstreamResolver } from '#src/services/exposure'
 import { authSchema, controlSchema, proxyConfigSchema } from '#src/shared/contracts'
 
 function control(host: string, auth: Record<string, unknown> = {}) {
@@ -188,5 +188,159 @@ describe('reverse proxy exposure', () => {
     expect(dialsPanel('http://10.0.0.5:6123', [6123])).toBe(false)
     expect(dialsPanel('http://localhost', [80])).toBe(true)
     expect(dialsPanel('ftp://localhost:6123', [6123])).toBe(false)
+  })
+})
+
+/**
+ * A route points at the panel when its **destination** is loopback, not when it is *spelled* loopback.
+ *
+ * The measured bypass: `http://panel.attacker.example:3999` with an A record of `127.0.0.1` (or
+ * `127.0.0.1.nip.io`) was an ordinary `external` route. `checkProxyExposure` saw no panel route,
+ * `reconcile()` published it, and the engine then dialled the panel from `127.0.0.1` **with no
+ * forwarding headers** — which is exactly what `isLoopbackRequest` reads as "this machine", so with
+ * auth enabled but no password set the panel served `/api` anonymously to whoever reached that name.
+ *
+ * The rule chosen, and why it is the right one: the question is "where does this go", so a hostname
+ * whose resolution includes a loopback address is a panel route — and a hostname that does not
+ * resolve **also** counts, because the two mistakes are not symmetric. Publishing a route that turns
+ * out to dial the panel hands the internet the whole panel; refusing a route the person meant to add
+ * is one retry once DNS is back. Fail closed.
+ */
+describe('an upstream named by a hostname, not spelled by an address', () => {
+  afterEach(() => {
+    setUpstreamResolver()
+    vi.restoreAllMocks()
+  })
+
+  /**
+   * A resolver that answers from a table, with no network involved.
+   *
+   * Installed through the module's own seam: patching `node:dns` does not intercept the named import
+   * this module resolves through, so a `vi.spyOn` here would leave the real resolver answering — a
+   * test that passes for the wrong reason.
+   */
+  function stubLookup(answers: Record<string, string[] | null>): ReturnType<typeof vi.fn> {
+    const resolver = vi.fn(async (host: string) => answers[host] ?? null)
+    setUpstreamResolver(resolver)
+    return resolver
+  }
+
+  it('still catches the literal loopback spellings, which need no resolver', () => {
+    // Unchanged behaviour, asserted first: the fix must not narrow what already worked.
+    for (const url of ['http://127.0.0.1:6123', 'http://localhost:6123', 'http://[::1]:6123', 'http://127.1:6123', 'http://0.0.0.0:6123']) {
+      expect(dialsPanel(url, [6123]), url).toBe(true)
+    }
+    expect(dialsPanel('http://10.0.0.5:6123', [6123])).toBe(false)
+  })
+
+  it('catches a name that resolves to loopback — the bypass', async () => {
+    stubLookup({
+      'panel.attacker.example': ['127.0.0.1'],
+      '127.0.0.1.nip.io': ['127.0.0.1'],
+      'v6.example': ['::1'],
+      'mapped.example': ['::ffff:127.0.0.1'],
+      // A name with several records is loopback if ANY of them is: the engine may pick either.
+      'mixed.example': ['10.0.0.5', '127.0.0.1'],
+    })
+    const on = proxy({
+      enabled: true,
+      routes: [
+        { id: 'sneaky', host: 'panel.attacker.example', target: 'external', url: 'http://panel.attacker.example:6123' },
+        { id: 'nip', host: 'nip.example.com', target: 'external', url: 'http://127.0.0.1.nip.io:6123' },
+        { id: 'v6', host: 'v6.example.com', target: 'external', url: 'http://v6.example:6123' },
+        { id: 'mapped', host: 'mapped.example.com', target: 'external', url: 'http://mapped.example:6123' },
+        { id: 'mixed', host: 'mixed.example.com', target: 'external', url: 'http://mixed.example:6123' },
+      ],
+    })
+    await primeUpstreamResolutions(on)
+
+    // Every one of them is a panel route, so the exposure bar applies to the whole table.
+    expect(checkProxyExposure(on, true, false, false, [6123])).toContain('no password is set')
+    expect(checkProxyExposure(on, true, true, false, [6123])).toBeNull()
+    // And the predicate itself, so a caller that asks directly gets the same answer.
+    for (const url of ['http://panel.attacker.example:6123', 'http://127.0.0.1.nip.io:6123', 'http://v6.example:6123', 'http://mixed.example:6123'])
+      expect(dialsPanel(url, [6123]), url).toBe(true)
+  })
+
+  /** A name that resolves somewhere else is an ordinary upstream — the fix is not a blanket refusal. */
+  it('leaves a name that resolves off-machine as an ordinary upstream', async () => {
+    stubLookup({ 'app.example.com': ['10.0.0.5'] })
+    const on = proxy({ enabled: true, routes: [{ id: 'app', host: 'app.example.com', target: 'external', url: 'http://app.example.com:6123' }] })
+    await primeUpstreamResolutions(on)
+
+    expect(dialsPanel('http://app.example.com:6123', [6123])).toBe(false)
+    expect(checkProxyExposure(on, false, false, false, [6123])).toBeNull()
+  })
+
+  /**
+   * A destination that cannot be established is not evidence of harmlessness.
+   *
+   * The asymmetry is the whole argument: refusing costs one retry, publishing costs the panel.
+   */
+  it('fails closed for a name that does not resolve', async () => {
+    stubLookup({}) // every name is ENOTFOUND
+    const on = proxy({ enabled: true, routes: [{ id: 'ghost', host: 'ghost.example.com', target: 'external', url: 'http://ghost.example.com:6123' }] })
+    await primeUpstreamResolutions(on)
+
+    expect(dialsPanel('http://ghost.example.com:6123', [6123]), 'an unknown destination is treated as the panel').toBe(true)
+    expect(checkProxyExposure(on, true, false, false, [6123])).toContain('no password is set')
+  })
+
+  /** The predicate is synchronous and cached: a save must never wait on a resolver. */
+  it('answers from a cache, and treats a name it has not resolved yet as the panel', async () => {
+    const resolver = stubLookup({ 'app.example.com': ['10.0.0.5'] })
+    // Never primed, so nothing is cached: the answer is still "points at the panel", and nothing was
+    // awaited on the calling path — the background resolve is deliberately fire-and-forget.
+    expect(dialsPanel('http://unprimed.example:6123', [6123])).toBe(true)
+    expect(resolver, 'the predicate itself never blocks on a resolver').not.toHaveBeenCalledWith('app.example.com')
+
+    // Priming is what puts an answer in the cache, and the second read is synchronous.
+    await primeUpstreamResolutions(proxy({ enabled: true, routes: [{ id: 'a', host: 'app.example.com', target: 'external', url: 'http://app.example.com:6123' }] }))
+    expect(dialsPanel('http://app.example.com:6123', [6123])).toBe(false)
+    // A second predicate read costs no resolver call at all.
+    const before = resolver.mock.calls.length
+    expect(dialsPanel('http://app.example.com:6123', [6123])).toBe(false)
+    expect(resolver.mock.calls.length).toBe(before)
+  })
+
+  /**
+   * A failed resolve is remembered only briefly, so a resolver outage does not keep a legitimate
+   * route refused once the network is back — while a positive answer is kept on the longer clock.
+   */
+  it('caches a failure briefly and a success for longer, on its own clock', async () => {
+    const now = vi.spyOn(Date, 'now')
+    try {
+      let clock = 1_000_000
+      now.mockImplementation(() => clock)
+
+      let answers: string[] = []
+      const resolver = vi.fn(async () => (answers.length === 0 ? null : answers))
+      setUpstreamResolver(resolver)
+
+      const config = proxy({ enabled: true, routes: [{ id: 'a', host: 'flaky.example', target: 'external', url: 'http://flaky.example:6123' }] })
+      await primeUpstreamResolutions(config)
+      expect(dialsPanel('http://flaky.example:6123', [6123]), 'a failure fails closed').toBe(true)
+
+      // The resolver recovers, but the remembered failure is still inside its short window.
+      answers = ['10.0.0.5']
+      clock += 10_000
+      await primeUpstreamResolutions(config)
+      expect(dialsPanel('http://flaky.example:6123', [6123]), 'still inside the failure window').toBe(true)
+
+      // Past it, the new answer is taken: a brief outage does not permanently refuse the route.
+      clock += 30_000
+      await primeUpstreamResolutions(config)
+      expect(dialsPanel('http://flaky.example:6123', [6123]), 'the failure window closed').toBe(false)
+
+      // And the success is not re-asked on every prime inside the longer window.
+      const settled = resolver.mock.calls.length
+      clock += 60_000
+      await primeUpstreamResolutions(config)
+      expect(resolver.mock.calls.length, 'a success is cached, not re-resolved each prime').toBe(settled)
+      expect(dialsPanel('http://flaky.example:6123', [6123])).toBe(false)
+    }
+    finally {
+      now.mockRestore()
+    }
   })
 })

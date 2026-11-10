@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
+import { setUpstreamResolver } from '#src/services/exposure'
 import { groupDns01Policies, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
 import { proxyConfigSchema } from '#src/shared/contracts'
 import { isPublicHost } from '#src/shared/proxy-form'
@@ -1822,6 +1823,44 @@ describe('applying while the exposure rule refuses the panel routes', () => {
     await service.sync()
     expect(posted).toHaveLength(2)
     expect(JSON.stringify(posted[1])).toContain('panel.example.com')
+  })
+
+  /**
+   * A panel route named by a **hostname** is withheld exactly like a literal-loopback one.
+   *
+   * `sneaky.example.com` with an A record of `127.0.0.1` is the measured bypass: `dialsPanel` used to
+   * recognise literal loopback spellings only, so the route was published, and the engine then dialled
+   * the panel from `127.0.0.1` with no forwarding headers — which `isLoopbackRequest` reads as "this
+   * machine". Asserted on the rendered configuration, because that is the artefact the engine loads:
+   * a predicate that agrees with a test and not with the renderer protects nothing.
+   */
+  it('withholds a route whose upstream is a name resolving to the panel', async () => {
+    setUpstreamResolver(async host => (host === '127.0.0.1.nip.io' ? ['127.0.0.1'] : null))
+    try {
+      const { service, settings } = await harness({ exposureBlocked: () => 'no password is set' })
+      settings.updateProxy({
+        enabled: true,
+        routes: [
+          { id: 'named', host: 'named.example.com', target: 'external', url: 'http://127.0.0.1.nip.io:3999' },
+          { id: 'other', host: 'other.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+        ],
+      })
+      vi.spyOn(service, 'installed').mockReturnValue(true)
+      vi.spyOn(service, 'status').mockReturnValue({ state: 'running' } as ReturnType<typeof service.status>)
+      stubPortPreflight()
+      const posted: unknown[] = []
+      vi.spyOn(service as unknown as { postConfiguration: (rendered: unknown) => Promise<void> }, 'postConfiguration')
+        .mockImplementation(async (rendered) => { posted.push(rendered) })
+      ;(service as unknown as { admin: unknown }).admin = { kind: 'unix', path: '/nonexistent/admin.sock' }
+
+      await service.apply()
+      const rendered = JSON.stringify(posted[0])
+      expect(rendered).toContain('other.example.com')
+      expect(rendered, 'a name that resolves to the panel is the panel').not.toContain('named.example.com')
+    }
+    finally {
+      setUpstreamResolver()
+    }
   })
 })
 
