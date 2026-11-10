@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, confirm, dim, fail, green, paint, prompt } from '#src/cli/io'
+import { bold, confirm, dim, fail, green, invocation, prompt, refusal } from '#src/cli/io'
 import { cdCommand, detectPackageManager, installArgs, nextSteps, PACKAGE_MANAGERS, scaffold } from '#src/services/init'
 import { errorMessage } from '#src/shared/error-message'
 
@@ -28,7 +28,7 @@ function which(command: string): boolean {
 export async function runInit(options: { dir?: string, name?: string, pm?: string, noInstall: boolean, yes: boolean }): Promise<void> {
   const assumeYes = options.yes
   if (!assumeYes && process.stdin.isTTY !== true) {
-    fail('init needs a terminal to ask in.\n  take the defaults with: home-hosted init --yes [--dir <dir>]')
+    fail(`init needs a terminal to ask in.\n  take the defaults with: ${invocation()} init --yes [--dir <dir>]`)
   }
 
   const defaultDir = options.dir ?? './my-servers'
@@ -64,6 +64,7 @@ export async function runInit(options: { dir?: string, name?: string, pm?: strin
     process.stdout.write(`  ${dim('git repository initialized')}\n`)
   }
 
+  let installed = install
   if (install) {
     process.stdout.write(`${dim(`installing with ${pm}…`)}\n`)
     const result = spawnSync(pm as string, installArgs(pm as never), {
@@ -71,8 +72,12 @@ export async function runInit(options: { dir?: string, name?: string, pm?: strin
       stdio: 'inherit',
       shell: process.platform === 'win32',
     })
+    // A failed install is a failed `init`: the files are there, but the next steps do not work yet.
+    // Said on stderr with exit 1, so `init --yes && …` in a script stops; "Next" then lists the install.
     if (result.status !== 0) {
-      process.stdout.write(`${paint('33', 'install failed')} — run it yourself in ${target}\n`)
+      installed = false
+      refusal(`the ${pm} install failed — the project is in ${target}, but its dependencies are not installed`)
+      process.exitCode = 1
     }
   }
 
@@ -81,7 +86,7 @@ export async function runInit(options: { dir?: string, name?: string, pm?: strin
   const where = relative.length === 0 || relative.startsWith('..') ? target : relative
   const cd = relative.length === 0 ? '' : cdCommand(where)
   process.stdout.write(`\nNext:\n`)
-  for (const step of nextSteps(pm as never, install, cd)) {
+  for (const step of nextSteps(pm as never, installed, cd)) {
     if (step.command === null) {
       process.stdout.write(`  ${dim(step.text)}\n`)
       continue

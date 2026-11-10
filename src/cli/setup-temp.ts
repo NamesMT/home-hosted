@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, fail, green, prompt } from '#src/cli/io'
+import { bold, dim, fail, green, invocation, prompt } from '#src/cli/io'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { globalSettingsPath } from '#src/helpers/paths'
 import { installLibreHardwareMonitor, lhmDirectoryWindows, lhmInstalled, probeWslTemperature, removeWslTemperatureScript, tempCommandFor, windowsScriptPath, writeWslTemperatureScript, wslScriptPath } from '#src/providers/wsl-temperature'
@@ -107,14 +107,14 @@ export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean, down
     process.stdout.write('the panel reads the temperature from the kernel when the machine exposes a sensor.\n')
     process.stdout.write(`this machine: ${host.tempCelsius > 0 ? `threshold ${host.tempCelsius}°C` : 'no temperature alert'}\n`)
     process.stdout.write(`\n${dim('if the Host vitals tile says n/a, set a source up:')}\n`)
-    process.stdout.write(`  ${bold('setup-temp --wsl')}   read it through the Windows host (WSL2)\n`)
+    process.stdout.write(`  ${bold(`${invocation()} setup-temp --wsl`)}   read it through the Windows host (WSL2)\n`)
     return
   }
 
   if (source === 'wsl') {
     const { isWsl } = await import('#src/providers/wsl-temperature')
     if (!isWsl()) {
-      fail('--wsl is for a WSL2 guest, and this is not one. Run `setup-temp` with no flag to see the options')
+      fail(`--wsl is for a WSL2 guest, and this is not one. Run \`${invocation()} setup-temp\` with no flag to see the options`)
     }
     const scriptPath = wslScriptPath()
     if (scriptPath === null) {

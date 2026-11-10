@@ -1,7 +1,7 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { runDown } from '#src/cli/down'
-import { fail, paint } from '#src/cli/io'
+import { fail, invocation, paint } from '#src/cli/io'
 import { runServerAction } from '#src/cli/server'
 import { checkedUpFlags, runUp, upArgs } from '#src/cli/up'
 
@@ -62,7 +62,7 @@ export function restartCommand(entry: string) {
 
       // The panel's own restart takes no `--workspace`: it is not a per-server idea.
       if (args.workspace !== undefined)
-        fail('restart --workspace needs a server id — `home-hosted restart <id> --workspace <id>`')
+        fail(`restart --workspace needs a server id — \`${invocation()} restart <id> --workspace <id>\``)
 
       // `--with-persistent` restarts them, it does not merely stop them. `up` would *reattach*
       // to a nanny left alive, so stopping them first is what makes this a restart at all —

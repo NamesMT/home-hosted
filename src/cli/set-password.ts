@@ -1,13 +1,13 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { dim, fail, green, promptHidden } from '#src/cli/io'
+import { dim, fail, green, invocation, promptHidden } from '#src/cli/io'
 import { SecretsStore } from '#src/config/secrets'
 import { globalSecretsPath as secretsPath } from '#src/helpers/paths'
 
 /** `set-password` sets the panel password without the API. */
 
 export const setPasswordArgs = {
-  clear: { type: 'boolean', description: 'remove the password, which disables authentication' },
+  clear: { type: 'boolean', description: 'remove the password: nobody can sign in until a new one is set' },
 } as const
 
 export async function runSetPassword(clear: boolean): Promise<void> {
@@ -15,8 +15,10 @@ export async function runSetPassword(clear: boolean): Promise<void> {
 
   if (clear) {
     store.clearPassword()
+    // Authentication stays enabled: with no password nobody can sign in, and only this machine (or
+    // an API token) reaches the API until a new one is set. It used to say auth was disabled.
     process.stdout.write(`cleared the control panel password in ${secretsPath}\n`)
-    process.stdout.write(`${dim('authentication stays disabled until you enable it again in the settings page')}\n`)
+    process.stdout.write(`${dim(`nobody can sign in until a new one is set (\`${invocation()} set-password\`); until then only this machine and an API token reach the panel`)}\n`)
     return
   }
 
@@ -37,7 +39,7 @@ export async function runSetPassword(clear: boolean): Promise<void> {
   store.setPassword(password)
   process.stdout.write(`${green('password stored')} in ${secretsPath} (mode 0600)\n`)
   if (password.length < 8)
-    process.stdout.write(`${dim(`"${password}" is short — easy to guess if the panel is reachable beyond loopback`)}\n`)
+    process.stdout.write(`${dim(`${password.length} characters is short — easy to guess if the panel is reachable beyond loopback`)}\n`)
   process.stdout.write(`${dim('a running panel picks it up immediately, and every existing browser session is signed out')}\n`)
 }
 

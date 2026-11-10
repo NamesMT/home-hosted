@@ -1,6 +1,6 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, fail, green, promptHidden } from '#src/cli/io'
+import { bold, dim, fail, green, invocation, promptHidden } from '#src/cli/io'
 import { generateApiToken, SecretsStore } from '#src/config/secrets'
 import { globalSecretsPath as secretsPath } from '#src/helpers/paths'
 
@@ -37,7 +37,7 @@ export async function runSetToken(generate: boolean, clear: boolean): Promise<vo
   if (token !== null)
     token = token.trim()
   if (token === null || token.length === 0) {
-    fail('no token given: run `home-hosted set-token --generate`, set HHOSTED_TOKEN, or paste one interactively')
+    fail(`no token given: run \`${invocation()} set-token --generate\`, set HHOSTED_TOKEN, or paste one interactively`)
   }
 
   store.setApiToken(token)
@@ -68,7 +68,7 @@ export async function runSetToken(generate: boolean, clear: boolean): Promise<vo
   process.stdout.write(`  ${bold(`curl -H "Authorization: Bearer ${generate ? token : '<token>'}" ${base}/api/state`)}\n`)
   process.stdout.write(`${dim('It needs no restart and outlives sessions, and it holds the same access as a signed-in browser — except clearing the panel password, which a token may not do.')}\n`)
   process.stdout.write(`${dim('Changing the password does NOT revoke it: `set-password` drops sessions and leaves the token working. Rotate with this command if it may have leaked.')}\n`)
-  process.stdout.write(`${dim('Remove it any time with: home-hosted set-token --clear')}\n`)
+  process.stdout.write(`${dim(`Remove it any time with: ${invocation()} set-token --clear`)}\n`)
   if (store.usingDefaultPassword)
     process.stdout.write(`${dim('The panel password is still the default — change it before the panel is reachable beyond loopback.')}\n`)
 }
