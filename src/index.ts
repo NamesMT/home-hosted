@@ -430,6 +430,20 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   if (configured.openBrowser || options.open)
     openBrowser(endpoint.url)
 
+  // Every workspace reports what a previous panel's records say about the runs it owned, whether or
+  // not this boot autostarts anything: `--no-autostart` still has to answer "the thing you left
+  // running is gone", and the only other path (a later single Start) deliberately stays quiet about
+  // it. Cheap and `enabled`-filtered, and it consumes the record so `startAll` cannot repeat it —
+  // hence awaited before `startAll()`, which would otherwise sweep the same records concurrently.
+  for (const workspace of panel.workspaces()) {
+    try {
+      await workspace.supervisor.reportAwayChildren()
+    }
+    catch (error) {
+      logger.error('reporting a child that died with the previous panel failed', error)
+    }
+  }
+
   if (options.autostart) {
     void panel.startAll().catch((error: unknown) => {
       logger.error('autostart failed', error)

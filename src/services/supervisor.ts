@@ -36,7 +36,7 @@ import {
 import { runPendingLoad } from '#src/services/supervisor/pending-load'
 import { PersistentEntries, rememberEchoedLine } from '#src/services/supervisor/persistent'
 import { freePort, preflight, supervisedPids } from '#src/services/supervisor/port-preflight'
-import { forgetRecordedChild, persistEntryState, resolveRecordedChild, scanOrphans, stopOrphanProcess } from '#src/services/supervisor/records'
+import { forgetRecordedChild, persistEntryState, pidLiveness, reportRecordedChildGone, resolveRecordedChild, scanOrphans, stopOrphanProcess, takeGoneRecordedChild } from '#src/services/supervisor/records'
 import { detectCompose, killBootstrap, resolveSpawn, runBootstrap } from '#src/services/supervisor/spawn'
 import { buildView } from '#src/services/supervisor/view'
 
@@ -158,6 +158,9 @@ export class Supervisor {
   }
 
   async startAll(options: { autostartOnly?: boolean } = {}): Promise<void> {
+    // Before anything is started: what a previous panel's record says about the runs it owned.
+    await this.reportAwayChildren()
+
     // Reattaching ignores `autostartOnly`: adopting what already runs is not starting it, and an
     // unmanaged persistent entry would look like a stranger holding its port.
     for (const entry of [...this.entries.values()]) {
@@ -185,6 +188,38 @@ export class Supervisor {
     // Dependencies first; levels are still started concurrently.
     for (const config of orderByDependencies(targets)) {
       await this.start(config.id, { actor: 'boot' })
+    }
+  }
+
+  /**
+   * Reports every non-persistent child that was running when a previous panel died and is gone now.
+   *
+   * An entry-state file with a `lastPid` exists only because that entry was running when its panel
+   * died, so a record whose process is gone is the end of that run — and at boot, that is a crash
+   * nobody watched. It is reported for **every enabled entry**, not just the ones this boot will
+   * start: an entry with `autostart: false` (or a boot with `--no-autostart`) reached no start at all,
+   * and its card read `stopped` / `lastError: null` — the clean stop this is about. Consuming the
+   * record here also means the start that follows cannot report it a second time.
+   *
+   * Runs on every `startAll()`, boot's and a user's `start-all` alike: both mean "bring this workspace
+   * up", and both would otherwise answer nothing about an entry that died with the panel. The single
+   * entry's Start stays silent about it (`reportAway: entry.actor === 'boot'` below), because there
+   * the person's own action is the news — the rule `persistent.resume({ reportAway })` already keeps.
+   *
+   * A persistent entry is skipped: its nanny's state file is its record, and `persistent.resume()`
+   * already answers "exited while the panel was away".
+   *
+   * **Call this at boot whether or not `autostart` is on.** It used to be reachable only from
+   * `startAll()`, which boot runs inside `if (options.autostart)` — so `up --no-autostart` never
+   * swept, and its entries kept the very `stopped` / `lastError: null` card this exists to end. A
+   * Start afterwards consumed the record and reported nothing (its actor is not `boot`), which lost
+   * the crash entirely rather than merely delaying it.
+   */
+  async reportAwayChildren(): Promise<void> {
+    for (const entry of [...this.entries.values()]) {
+      const gone = await takeGoneRecordedChild(this.ctx, entry)
+      if (gone !== null)
+        reportRecordedChildGone(this.ctx, entry, gone, { reportAway: true })
     }
   }
 
@@ -289,6 +324,11 @@ export class Supervisor {
         return cancelled()
       if (recorded.kind === 'blocked')
         return { ok: false, error: recorded.error }
+      // Its record exists because it was running when this panel died: it is gone now, and that is
+      // the end of that run — a crash when nobody was watching, exactly as a persistent entry's
+      // `resume({ reportAway })` answers it. Boot only: a Start someone asked for is its own news.
+      if (recorded.kind === 'gone')
+        reportRecordedChildGone(this.ctx, entry, recorded, { reportAway: entry.actor === 'boot' })
       if (recorded.kind === 'adopt')
         return this.adoptEntry(entry, recorded.pid, 'the child this panel started before it died is still running')
     }
@@ -574,9 +614,26 @@ export class Supervisor {
     // A pid that outlived SIGKILL keeps its records and the outcome is not dressed up as "stopped" —
     // any entry's: a spawned child that exited has had its pid cleared by `handleExit` already, and an
     // adopted one has no exit event to clear it.
-    const survivor = entry.pid !== null && isProcessAlive(entry.pid)
+    //
+    // Birth time and a live pid together, never `isProcessAlive` alone: a pid the OS recycled answers
+    // signal 0, so a stop would report "pid N survived the stop", keep that pid on the entry and refuse
+    // every later start beside a process that is nobody's. `'unknown'` still counts as a survivor — a
+    // platform that cannot report a birth must not have a live pid dismissed.
+    const survivorLiveness = entry.pid === null
+      ? 'gone'
+      : await pidLiveness(entry.pid, entry.startedAt ?? 0)
+    const survivor = survivorLiveness === 'live' || survivorLiveness === 'unknown'
       ? entry.pid
       : null
+    // Read here too, and not further down: both verdicts cost an await, and the tail below is
+    // deliberately await-free once it clears `stopping` (see the comment there). A recorded child
+    // that is gone must not be chased by a later boot; a survivor's record is kept, and so is a pid
+    // the OS recycled — that is not this entry's child either.
+    const recordedChild = entry.lastChild
+    const recordedLiveness = recordedChild === null
+      ? null
+      : await pidLiveness(recordedChild.pid, recordedChild.startedAt)
+    const recordedGone = recordedLiveness === 'gone' || recordedLiveness === 'recycled'
     const persistentRun = isPersistentRun(entry)
     if (persistentRun)
       this.persistent.finishStop(entry, survivor)
@@ -605,7 +662,8 @@ export class Supervisor {
     if (survivor === null || !entry.config.health.enabled)
       resetHealth(entry)
     // A recorded child that is gone must not be chased by a later boot; a survivor's record is kept.
-    if (entry.lastChild !== null && !isProcessAlive(entry.lastChild.pid)) {
+    // Awaited above, before `stopping` was cleared: this tail has no await of its own.
+    if (recordedGone) {
       entry.lastChild = null
       this.ctx.persist(entry)
     }

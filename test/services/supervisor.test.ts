@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { projectDir } from '#src/helpers/paths'
 import { entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { buildControlView, buildWorkspaceView } from '#src/services/state'
+import { needsAttention } from '#src/shared/server-attention'
 import { cleanups, freePort, httpServerConfig, isAlive, makeSupervisor, portAccepts, runCleanups, scratchDir, view, waitFor, waitForStatus } from '../support/supervisor-harness'
 
 afterEach(runCleanups)
@@ -1576,6 +1577,140 @@ describe('orphaned processes', () => {
     // Its own state file is not an orphan: the entry that owns it is right here.
     await (harness.supervisor as unknown as { refreshOrphans: (n?: number) => Promise<void> }).refreshOrphans()
     expect(harness.supervisor.orphans()).toEqual([])
+  })
+})
+
+/**
+ * A child that was running when the panel died, and is not running when the next panel boots.
+ *
+ * It was reported as a **clean stop**: `resolveRecordedChild` saw `liveness: 'gone'` and answered
+ * `{kind: 'none'}`, so the entry read `status: stopped`, `lastError: null`, `degraded: false`, no
+ * `crash` event was recorded and the restart budget was untouched. That is the same silence the
+ * persistent path already avoids ("exited while the panel was away"), and it is the half of the
+ * liveness defect a person actually feels: the server they believe is supervised is gone, and
+ * nothing anywhere says so.
+ */
+describe('a recorded child that is gone when the panel boots', () => {
+  /** A recorded pid that nothing is behind: the shape of a child killed with the panel. */
+  const DEAD_PID = 999_999
+
+  function portless(pidFile: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: 'worker',
+      command: process.execPath,
+      args: ['-e', `require("node:fs").appendFileSync(${JSON.stringify(pidFile)}, process.pid + "\\n"); setInterval(() => {}, 1000)`],
+      port: null,
+      restart: { enabled: false },
+      health: { enabled: false },
+      ...overrides,
+    }
+  }
+
+  it('is a crash with a reason at boot, not a clean stop', async () => {
+    const harness = await makeSupervisor([])
+    const pidFile = path.join(harness.dir, 'pids.txt')
+    writeEntryState(entryStatePath(harness.nannyDir, 'worker'), {
+      restarts: 0,
+      bootstrapDone: true,
+      lastPid: DEAD_PID,
+      lastStartedAt: Date.now() - 60_000,
+    })
+    // No `autostart`: this boot starts nothing, which is exactly the entry that reported nothing.
+    harness.store.addServer(portless(pidFile) as never)
+
+    await harness.supervisor.startAll({ autostartOnly: true })
+
+    const events = harness.history.all().filter(event => event.serverId === 'worker')
+    const crash = events.find(event => event.type === 'crash')
+    expect(crash, 'the end of that run must be recorded as a crash').toBeDefined()
+    expect(crash!.detail).toContain(String(DEAD_PID))
+    // An exit too: history has to read as a run that ended, not as one that vanished.
+    expect(events.some(event => event.type === 'exit')).toBe(true)
+    // The reason is on the entry and in its log, and nothing was started for it.
+    expect(harness.supervisor.logLines('worker').some(line => line.text.includes(String(DEAD_PID)))).toBe(true)
+    // A non-autostart entry is not started, so its child never ran and its file was never written.
+    expect(fs.existsSync(pidFile), 'nothing may be spawned for a non-autostart entry').toBe(false)
+
+    // The surfaced half: `crashed` is what `/healthz` and the UIs read through `needsAttention`.
+    // Left `stopped`, the panel answered `200 ok` with `degraded: false` about a server that is gone.
+    const after = view(harness.supervisor, 'worker')
+    expect(after.status, 'a run that ended while nobody watched is not a clean stop').toBe('crashed')
+    expect(after.lastError).toContain('gone now')
+    expect(needsAttention(after), 'the panel must count this as something to look at').toBe(true)
+  })
+
+  it('does not report it twice: the start that follows consumes the record', async () => {
+    const harness = await makeSupervisor([])
+    const pidFile = path.join(harness.dir, 'pids.txt')
+    writeEntryState(entryStatePath(harness.nannyDir, 'worker'), {
+      restarts: 0,
+      bootstrapDone: true,
+      lastPid: DEAD_PID,
+      lastStartedAt: Date.now() - 60_000,
+    })
+    harness.store.addServer(portless(pidFile, { autostart: true }) as never)
+
+    await harness.supervisor.startAll({ autostartOnly: true })
+    await waitForStatus(harness.supervisor, 'worker', 'running')
+
+    const crashes = harness.history.all().filter(event => event.serverId === 'worker' && event.type === 'crash')
+    expect(crashes, 'one dead run is one crash, however many paths look at the record').toHaveLength(1)
+    // The fresh start owns the card now: the crash's reason is not left describing it.
+    expect(view(harness.supervisor, 'worker').lastError).toBeNull()
+  })
+
+  /**
+   * The sweep is not the autostart's business.
+   *
+   * `up --no-autostart` starts nothing, so a sweep reachable only from `startAll()` never ran and the
+   * card stayed `stopped` / `lastError: null` about a child that had died with the panel. Worse, the
+   * Start a person then pressed entered `resolveRecordedChild`, which consumed the record and
+   * reported with `reportAway: false` (their action is the news) — so the crash was lost outright
+   * rather than merely delayed. Both halves are pinned here.
+   */
+  it('reports it on a boot that starts nothing, so a later Start cannot lose it', async () => {
+    const harness = await makeSupervisor([])
+    const pidFile = path.join(harness.dir, 'pids.txt')
+    writeEntryState(entryStatePath(harness.nannyDir, 'worker'), {
+      restarts: 0,
+      bootstrapDone: true,
+      lastPid: DEAD_PID,
+      lastStartedAt: Date.now() - 60_000,
+    })
+    harness.store.addServer(portless(pidFile) as never)
+
+    // Exactly what `runControlPlane` does for `--no-autostart`: sweep, and start nothing.
+    await harness.supervisor.reportAwayChildren()
+    expect(view(harness.supervisor, 'worker').status, 'a boot that starts nothing still reports the loss').toBe('crashed')
+    expect(harness.history.all().filter(event => event.serverId === 'worker' && event.type === 'crash'))
+      .toHaveLength(1)
+
+    // The record was consumed by the sweep, so the Start that follows cannot report it a second time
+    // (and cannot silently swallow it either, which is what happened when the sweep did not run).
+    await harness.supervisor.start('worker')
+    await waitForStatus(harness.supervisor, 'worker', 'running')
+    expect(harness.history.all().filter(event => event.serverId === 'worker' && event.type === 'crash'))
+      .toHaveLength(1)
+  })
+
+  it('reports nothing when the recorded pid belongs to a live process again', async () => {
+    // A pid the OS recycled is not a crash of the run the record describes — it is not that run at
+    // all. Recorded with a birth stamp *after* the process was born, which is `'recycled'`.
+    const harness = await makeSupervisor([])
+    const pidFile = path.join(harness.dir, 'pids.txt')
+    writeEntryState(entryStatePath(harness.nannyDir, 'worker'), {
+      restarts: 0,
+      bootstrapDone: true,
+      lastPid: process.pid,
+      lastStartedAt: Date.now(),
+    })
+    harness.store.addServer(portless(pidFile) as never)
+
+    await harness.supervisor.startAll({ autostartOnly: true })
+
+    // The panel itself is never adopted or reported as a dead child of this entry.
+    expect(harness.history.all().filter(event => event.serverId === 'worker')).toEqual([])
+    expect(fs.existsSync(pidFile), 'and it must not spawn beside a live pid').toBe(false)
   })
 })
 

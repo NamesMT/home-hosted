@@ -13,6 +13,11 @@ import { isPersistentRun } from '#src/services/supervisor/entry'
 export type RecordedChild
   = | { kind: 'none' }
     | { kind: 'adopt', pid: number }
+    /**
+     * It was recorded, so it was running when that panel died, and it is not there now. The caller
+     * reports it: a run that ended while nobody watched is a crash, never a clean stop.
+     */
+    | { kind: 'gone', pid: number, startedAt: number | null, recycled: boolean }
     | { kind: 'blocked', error: string }
 
 /** The decisions that have to survive this panel, and nothing else. */
@@ -39,6 +44,12 @@ export function persistEntryState(nannyDir: string, entry: Entry): void {
  * portless one. Birth time and the marker decide, never liveness alone, and a pid this platform
  * cannot place is never adopted on a guess. The record is cleared only once its process is known gone
  * or to be somebody else.
+ *
+ * A record whose process is **gone** is reported, not silently dropped. The file exists only because
+ * this entry was running when its panel died, so its absence is the end of that run — and a run that
+ * ended while nobody was watching is a crash. Returning `{ kind: 'none' }` made it a clean stop:
+ * `status: stopped`, `lastError: null`, no `crash` event, `degraded: false`, and the restart budget
+ * untouched, so a child that dies with the panel was invisible for ever.
  */
 export async function resolveRecordedChild(ctx: SupervisorContext, entry: Entry): Promise<RecordedChild> {
   const recorded = entry.lastChild
@@ -53,13 +64,14 @@ export async function resolveRecordedChild(ctx: SupervisorContext, entry: Entry)
   }
 
   // An older file has no birth stamp, and 0 would read as recycled, so liveness is all it can be judged by.
-  const liveness = recorded.startedAt > 0
-    ? await processLiveness(recorded.pid, recorded.startedAt)
-    : (isProcessAlive(recorded.pid) ? 'unknown' : 'gone')
+  const liveness = await pidLiveness(recorded.pid, recorded.startedAt)
   if (liveness === 'gone' || liveness === 'recycled') {
+    // The record goes here, as it always did; the *reason* is now the caller's to report.
+    const pid = recorded.pid
+    const startedAt = recorded.startedAt > 0 ? recorded.startedAt : null
     entry.lastChild = null
     ctx.persist(entry)
-    return { kind: 'none' }
+    return { kind: 'gone', pid, startedAt, recycled: liveness === 'recycled' }
   }
 
   if (await processCarriesServerId(recorded.pid, entry.config.id))
@@ -84,6 +96,96 @@ export function forgetRecordedChild(ctx: SupervisorContext, entry: Entry, pid: n
     return
   entry.lastChild = null
   ctx.persist(entry)
+}
+
+/**
+ * Reports a recorded child that is gone, as the end of a run rather than as "nothing happened".
+ *
+ * The record exists only because this entry was running when its panel died, so its absence is that
+ * run's end. It is always an exit; at **boot** it is also a crash, with the reason kept, because a
+ * person has to be told that the thing the panel was supposedly keeping alive is not there. A Start
+ * someone asked for afterwards is answered by its own outcome, the same rule a persistent entry's
+ * `resume({ reportAway })` follows.
+ *
+ * No `runtimeMs`: the child died at an instant nothing recorded, and `now - startedAt` would charge
+ * the panel's whole downtime to the server's uptime.
+ *
+ * The status becomes `crashed` — that is load-bearing, not decoration: `needsAttention` reads it, so
+ * without it `/healthz` still answered `200 ok` and the panel's own "anything wrong" count stayed
+ * zero. A caller that is about to spawn a fresh child overwrites it a moment later, which is right:
+ * the crash is history and the notification has already gone out.
+ */
+export function reportRecordedChildGone(
+  ctx: SupervisorContext,
+  entry: Entry,
+  gone: Extract<RecordedChild, { kind: 'gone' }>,
+  options: { reportAway: boolean },
+): void {
+  const why = gone.recycled
+    ? `pid ${gone.pid} belongs to another process now`
+    : `pid ${gone.pid} is not running`
+  const exit = `the child this panel started is gone (${why})`
+  ctx.options.history.record(entry.config.id, { type: 'exit', detail: exit })
+  ctx.log(entry, 'system', exit)
+  if (!options.reportAway)
+    return
+
+  const detail = `it was running when the panel died and is gone now (${why})`
+  // Only for an entry nothing is about to take over: a boot that will start it reports the crash and
+  // then publishes the fresh run's status, so a `crashed` set here would be a frame nobody sees.
+  if (entry.status !== 'starting' && entry.status !== 'running')
+    entry.status = 'crashed'
+  entry.lastError = detail
+  ctx.options.history.record(entry.config.id, { type: 'crash', detail })
+  ctx.notify(entry, 'crash', detail)
+  ctx.publishServer(entry)
+}
+
+/**
+ * The record of a child that was running when a previous panel died, when that process is gone —
+ * cleared as it is read, so the start that follows cannot report the same run twice.
+ *
+ * `resolveRecordedChild` answers the same question as part of a start, but it also blocks the entry
+ * when the pid is alive and unattributable. This is the boot sweep's narrower question, asked of the
+ * entries a boot will *not* start, and it never touches a pid that cannot be proven gone.
+ */
+export async function takeGoneRecordedChild(ctx: SupervisorContext, entry: Entry): Promise<Extract<RecordedChild, { kind: 'gone' }> | null> {
+  const recorded = entry.lastChild
+  if (recorded === null || entry.config.persistent || !entry.config.enabled || entry.removed)
+    return null
+  if (recorded.pid === process.pid) {
+    entry.lastChild = null
+    ctx.persist(entry)
+    return null
+  }
+
+  const liveness = await pidLiveness(recorded.pid, recorded.startedAt)
+  if (liveness !== 'gone' && liveness !== 'recycled')
+    return null
+
+  const pid = recorded.pid
+  entry.lastChild = null
+  ctx.persist(entry)
+  return { kind: 'gone', pid, startedAt: recorded.startedAt > 0 ? recorded.startedAt : null, recycled: liveness === 'recycled' }
+}
+
+/**
+ * The liveness of a pid a record describes, normalised in the one place both verdicts read it.
+ *
+ * A birth stamp decides `'recycled'`; a record written before `startedAt` was stored has only
+ * `isProcessAlive` to go on, and answers `'unknown'` (alive) or `'gone'`. Callers then say which
+ * verdicts matter to them — a **record** is gone on `'gone'`/`'recycled'`, a **survivor** still runs
+ * on `'live'`/`'unknown'` — because collapsing the two rules is what let a recycled pid be reported
+ * as a live survivor and a dead child as a clean stop.
+ *
+ * Not for a 1 Hz death poll: `processLiveness` costs a `ps` on macOS and a PowerShell call on
+ * Windows, so the tick's adopted-process check stays on `isProcessAlive` and lets a probe or the
+ * restart policy catch a recycled pid.
+ */
+export function pidLiveness(pid: number, startedAt: number): Promise<ProcessLiveness> {
+  return startedAt > 0
+    ? processLiveness(pid, startedAt)
+    : Promise.resolve(isProcessAlive(pid) ? 'unknown' : 'gone')
 }
 
 /** How long an orphan's birth check is trusted before it is read again. */
