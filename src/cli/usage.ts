@@ -82,11 +82,14 @@ export async function runUsage(input: { json?: boolean }): Promise<void> {
     cell(entry.processes, value => String(value)),
     // The window, not the instant: a flapping entry uses almost nothing at any sample and is
     // still the one thing on this list worth fixing.
+    // Restarts as well as crashes: an entry that exits and is brought back counts no crash until the
+    // panel gives up on it, so CRASH alone read 0 for one restarting every minute.
+    cell(entry.restarts, value => (value === 0 ? dim('0') : String(value))),
     cell(entry.crashes, value => (value === 0 ? dim('0') : paint('31', String(value)))),
     cell(entry.uptimeRatio, value => `${Math.round(value * 100)}%`),
   ])
 
-  const headers = ['SERVER', 'STATUS', 'CPU', 'MEMORY', 'PROCS', 'CRASH', 'UP']
+  const headers = ['SERVER', 'STATUS', 'CPU', 'MEMORY', 'PROCS', 'RESTARTS', 'CRASH', 'UP']
   const widths = headers.map((header, index) =>
     Math.max(header.length, ...rows.map(row => (row[index] ?? '').length)))
   const line = (columns: string[]): string =>

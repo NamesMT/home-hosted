@@ -213,6 +213,8 @@ describe('usage', () => {
           servers: [
             { id: 'steady', workspaceId: 'default', label: 'steady', status: 'running', cpuPercent: 0.4, rssBytes: 40 * 1024 * 1024, processes: 1, crashes: 0, uptimeRatio: 1 },
             { id: 'flaps', workspaceId: 'default', label: 'flaps', status: 'crashed', crashes: 9, uptimeRatio: 0.25 },
+            // Restarting every few minutes, but never given up on: no crash is counted.
+            { id: 'loops', workspaceId: 'default', label: 'loops', status: 'running', restarts: 37, crashes: 0, uptimeRatio: 0.9 },
           ],
           sampledAt: Date.now(),
         },
@@ -230,5 +232,8 @@ describe('usage', () => {
     // The flapping entry's crash count and share of the window are why it is worth a look.
     expect(lines[2]).toMatch(/\b9\b/)
     expect(lines[2]).toContain('25%')
+    // A restart loop the panel has not given up on shows in RESTARTS, not CRASH.
+    expect(lines[0]).toContain('RESTARTS')
+    expect(lines.find(line => line.includes('loops'))).toMatch(/\b37\b/)
   })
 })
