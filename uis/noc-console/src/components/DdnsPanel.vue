@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DdnsConfig, DdnsProviderInfo, DdnsRecordState, DdnsRecordType } from '@shared/contracts'
 import type { DraftAccount, DraftConfig, DraftDomain } from '@shared/ddns-form'
-import { cloneDdnsConfig, ddnsConfigEquals, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '@shared/ddns-form'
+import { cloneDdnsConfig, createDdnsReads, ddnsConfigEquals, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
 import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -113,15 +113,35 @@ function apply(next: Awaited<ReturnType<typeof api.fetchDdns>>, keepDraft = fals
   syncPatch()
 }
 
+/** Drops an answer for a workspace that is no longer shown; see `createDdnsReads`. */
+const reads = createDdnsReads(() => workspace.activeId.value)
+/** The workspace the draft on screen was read for. */
+let loadedFor: string | null = null
+
 async function load(): Promise<void> {
+  const current = reads.load()
+  const id = workspace.activeId.value
   loadError.value = null
+  // Another workspace's draft must not survive into this one, not even while (or after) its own
+  // read fails: the page saves the pending patch into whichever workspace is active.
+  if (loadedFor !== id) {
+    view.value = null
+    draft.value = null
+    baseline.value = null
+    syncPatch()
+  }
   try {
-    apply(await api.fetchDdns(workspace.activeId.value))
+    const next = await api.fetchDdns(id)
+    if (!current())
+      return
+    apply(next)
+    loadedFor = id
     newAccount.provider = providerOptions.value[0]?.value ?? 'cloudflare'
     newDomain.account = accounts.value[0]?.id ?? ''
   }
   catch (caught) {
-    loadError.value = errorMessage(caught)
+    if (current())
+      loadError.value = errorMessage(caught)
   }
 }
 
@@ -186,7 +206,10 @@ async function updateNow(): Promise<void> {
   error.value = null
   try {
     // Keeps an unsaved draft: a pass does not change the policy.
-    apply(await api.checkDdns(workspace.activeId.value), true)
+    const current = reads.action()
+    const next = await api.checkDdns(workspace.activeId.value)
+    if (current())
+      apply(next, true)
     message.value = status.value?.lastResult ?? 'dynamic DNS pass finished'
   }
   catch (caught) {
@@ -203,7 +226,10 @@ async function saveCredentials(account: DraftAccount): Promise<void> {
   credentialBusy.value = true
   error.value = null
   try {
-    apply(await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value, workspace.activeId.value), true)
+    const current = reads.action()
+    const next = await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value, workspace.activeId.value)
+    if (current())
+      apply(next, true)
     message.value = `credentials saved for ${account.id}`
     editing.value = null
   }
@@ -224,7 +250,10 @@ async function clearCredentials(account: DraftAccount): Promise<void> {
   credentialBusy.value = true
   error.value = null
   try {
-    apply(await api.clearDdnsCredentials(account.id, workspace.activeId.value), true)
+    const current = reads.action()
+    const next = await api.clearDdnsCredentials(account.id, workspace.activeId.value)
+    if (current())
+      apply(next, true)
     message.value = `credentials removed for ${account.id}`
   }
   catch (caught) {

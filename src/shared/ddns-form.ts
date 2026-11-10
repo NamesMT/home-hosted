@@ -93,3 +93,27 @@ export const DDNS_DEFAULTS = { intervalMs: 300000, ttl: 1 } as const
 export function requiredDdnsNumber(value: number | null, key: keyof typeof DDNS_DEFAULTS): number {
   return value === null || Number.isNaN(value) ? DDNS_DEFAULTS[key] : value
 }
+
+/**
+ * Which DDNS answers still belong on screen.
+ *
+ * The draft is per workspace, and its pending patch is saved by the page into whichever workspace
+ * is active **then**. A read for the previous workspace that answered after a switch filled the new
+ * one's form with the old policy, and a switch whose read failed kept the old patch — so Save wrote
+ * one workspace's DDNS policy into another. A full read is the latest of its kind or it is dropped;
+ * an action's answer (a pass, a credential change) is kept only while its workspace is still shown.
+ */
+export function createDdnsReads(active: () => string): { load: () => () => boolean, action: () => () => boolean } {
+  let generation = 0
+  return {
+    load: () => {
+      const mine = ++generation
+      const id = active()
+      return () => mine === generation && id === active()
+    },
+    action: () => {
+      const id = active()
+      return () => id === active()
+    },
+  }
+}

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { reactive, ref, toRaw as sharedToRaw } from 'vue'
 import { clonePlain } from '#src/shared/clone'
 import { ddnsConfigSchema } from '#src/shared/contracts'
-import { cloneDdnsConfig, ddnsConfigEquals, ddnsConfigPatch, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '#src/shared/ddns-form'
+import { cloneDdnsConfig, createDdnsReads, ddnsConfigEquals, ddnsConfigPatch, newDraftDomainKey, requiredDdnsNumber, toDdnsConfig } from '#src/shared/ddns-form'
 
 function config(): DdnsConfig {
   const parsed = ddnsConfigSchema({
@@ -219,5 +219,28 @@ describe('requiredDdnsNumber', () => {
     const valid = { enabled: true, intervalMs: 300000, ttl: requiredDdnsNumber(Number.NaN, 'ttl') }
     expect(JSON.parse(JSON.stringify(valid)).ttl).toBe(1)
     expect(JSON.parse(JSON.stringify({ ...valid, ttl: Number.NaN })).ttl).toBeNull()
+  })
+})
+
+describe('createDdnsReads', () => {
+  it('keeps only the latest read, and only while its workspace is shown', () => {
+    let active = 'alpha'
+    const reads = createDdnsReads(() => active)
+    const first = reads.load()
+    const second = reads.load()
+    expect(first()).toBe(false)
+    expect(second()).toBe(true)
+    active = 'beta'
+    expect(second()).toBe(false)
+  })
+
+  it('keeps an action\'s answer while its workspace is shown, whatever reads ran meanwhile', () => {
+    let active = 'alpha'
+    const reads = createDdnsReads(() => active)
+    const action = reads.action()
+    reads.load()
+    expect(action()).toBe(true)
+    active = 'beta'
+    expect(action()).toBe(false)
   })
 })
