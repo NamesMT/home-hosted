@@ -68,6 +68,8 @@ const VERSION_TOKENS = new Set(['version', '--version', '-v'])
 // option (`init --name help`), and answering that with the usage text would skip
 // the command instead of running it.
 const HELP_FLAGS = new Set(['--help', '-h'])
+/** Commands whose first bare word is a server id, so `<command> help` names a server, not help. */
+const ID_FIRST = new Set(['start', 'stop', 'free-port', 'restart', 'logs'])
 const VERSION_FLAGS = new Set(['--version', '-v'])
 
 /**
@@ -86,8 +88,9 @@ export function resolveInvocation(argv: string[], commands: readonly string[]): 
     return { kind: 'command', argv: ['up'] }
 
   const first = argv[0]!
+  // `help <command>` is `<command> --help`; `help` alone, or before anything else, is the reference.
   if (HELP_TOKENS.has(first))
-    return { kind: 'help' }
+    return argv[1] !== undefined && commands.includes(argv[1]) ? { kind: 'help', command: argv[1] } : { kind: 'help' }
   if (VERSION_TOKENS.has(first))
     return { kind: 'version' }
 
@@ -96,6 +99,11 @@ export function resolveInvocation(argv: string[], commands: readonly string[]): 
 
   if (!commands.includes(first))
     return { kind: 'unknown', command: first }
+
+  // `<command> help`, when `help` is the only word after it and the command takes no id there:
+  // `start help` may name a server called `help`, and `init --name help` is an option value.
+  if (argv.length === 2 && argv[1] === 'help' && !ID_FIRST.has(first))
+    return { kind: 'help', command: first }
 
   for (const arg of argv.slice(1)) {
     if (HELP_FLAGS.has(arg))

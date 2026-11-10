@@ -121,6 +121,15 @@ describe('resolveInvocation', () => {
     expect(resolveInvocation(['nonsense', '--json'], commands)).toEqual({ kind: 'unknown', command: 'nonsense' })
   })
 
+  it('reads `help <command>` and `<command> help` as that command\'s help', () => {
+    expect(resolveInvocation(['help', 'up'], commands)).toEqual({ kind: 'help', command: 'up' })
+    expect(resolveInvocation(['up', 'help'], commands)).toEqual({ kind: 'help', command: 'up' })
+    // Not a command: the whole reference, as before.
+    expect(resolveInvocation(['help', 'nope'], commands)).toEqual({ kind: 'help' })
+    // A bare id comes first for these, so `help` there is a server named help.
+    expect(resolveInvocation(['start', 'help'], [...commands, 'start'])).toEqual({ kind: 'command', argv: ['start', 'help'] })
+  })
+
   it('reads a bare help or version after a command as that option value', () => {
     // `ui-switch --asset help` used to print the usage and install nothing.
     expect(resolveInvocation(['ui-switch', '--asset', 'help'], commands)).toEqual({ kind: 'command', argv: ['ui-switch', '--asset', 'help'] })

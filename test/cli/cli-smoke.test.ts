@@ -26,8 +26,13 @@ describe('cli smoke', () => {
     for (const flag of ['--port', '--host', '--open', '--no-autostart', '--foreground', '--print-config', '--home', '--project'])
       expect(help.stdout, flag).toContain(flag)
 
-    expect(help.stdout).toContain('Options for up/restart')
+    expect(help.stdout).toContain('Options for up')
     expect(help.stdout).toContain('Environment')
+    // Built from every command's own section: these were once listed with no options at all.
+    for (const section of ['Options for logs', 'Options for usage', 'Arguments for backup', 'Options for setup-temp', 'Options for ui-update', 'Options for restart'])
+      expect(help.stdout, section).toContain(section)
+    for (const text of ['--free-port', 'HHOSTED_MIGRATE', 'HHOSTED_DDNS_SECRET', 'saved to settings.json'])
+      expect(help.stdout, text).toContain(text)
     // Colours are for a terminal: piped help stays plain.
     expect(help.stdout).not.toContain('\x1B[')
   })
@@ -104,6 +109,16 @@ describe('cli smoke', () => {
     expect(revert.status, revert.stderr).toBe(0)
     expect(revert.stdout).toContain('no options')
     expect(revert.stdout).not.toContain('--asset')
+  })
+
+  /** `help up` printed the whole reference and `up help` was an error; both are `up --help` now. */
+  it('answers `help <command>` and `<command> help` like `<command> --help`', () => {
+    const flag = runCli(['up', '--help'])
+    for (const argv of [['help', 'up'], ['up', 'help']]) {
+      const result = runCli(argv)
+      expect(result.status, `${argv.join(' ')}\n${result.stderr}`).toBe(0)
+      expect(result.stdout, argv.join(' ')).toBe(flag.stdout)
+    }
   })
 
   it('offers --with-persistent on both commands that take it', () => {

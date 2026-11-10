@@ -47,13 +47,13 @@ const SYNOPSIS: Record<string, string> = {
   'start': 'home-hosted start <id> [--workspace <id>] [--free-port]',
   'stop': 'home-hosted stop <id> [--workspace <id>]',
   'free-port': 'home-hosted free-port <id> [--workspace <id>]',
-  'set-password': 'home-hosted set-password',
-  'set-token': 'home-hosted set-token',
+  'set-password': 'home-hosted set-password [--clear]',
+  'set-token': 'home-hosted set-token [--generate|--clear]',
   'setup-temp': 'home-hosted setup-temp [--wsl] [--download|--no-download] [--clear]',
-  'migrate': 'home-hosted migrate',
-  'init': 'home-hosted init',
-  'ui-switch': 'home-hosted ui-switch',
-  'ui-update': 'home-hosted ui-update',
+  'migrate': 'home-hosted migrate [--dry-run] [--yes]',
+  'init': 'home-hosted init [options]',
+  'ui-switch': 'home-hosted ui-switch [options]',
+  'ui-update': 'home-hosted ui-update [options]',
   'ui-revert': 'home-hosted ui-revert',
 }
 
@@ -91,10 +91,11 @@ interface OptionSection {
 const OPTION_WIDTH = 21
 
 const UP_SECTION: OptionSection = {
-  heading: 'Options for up/restart',
+  heading: 'Options for up',
   lines: [
-    ['-p, --port <port>', 'control panel port (default: 3999)'],
-    ['--host <bind>', 'local | lan | an ipv4 address (default: local)'],
+    // Both are saved to settings.json, so the next plain `up` binds the same way.
+    ['-p, --port <port>', 'control panel port (default: 3999); saved to settings.json'],
+    ['--host <bind>', 'local | lan | an ipv4 address (default: local); saved to settings.json'],
     ['--open', 'open the panel in a browser once it is up'],
     ['--no-autostart', 'do not start the entries marked autostart'],
     ['--foreground', 'run in this process instead of detaching (systemd/docker)'],
@@ -113,7 +114,7 @@ const LOGS_SECTION: OptionSection = {
   heading: 'Options for logs',
   lines: [
     ['<id>', 'one server\'s own log instead of the panel console (optional)'],
-    ['--lines <n>', 'how many lines to show (default 50, `all` for everything)'],
+    ['--lines <n>', 'how many lines to show: 1 or more (default 50), or `all`'],
     ['--follow', 'keep printing as the panel writes (like tail -f)'],
     ['--json', 'print machine-readable JSON (one object per line with --follow)'],
     ['-w, --workspace <id>', 'the workspace the server is in (default: the panel\'s default)'],
@@ -143,7 +144,7 @@ const BACKUP_SECTION: OptionSection = {
 }
 
 const SERVER_SECTION: OptionSection = {
-  heading: 'Arguments for start/stop/free-port',
+  heading: 'Arguments for stop/free-port',
   lines: [
     ['<id>', 'the server id from servers.config.json'],
     ['-w, --workspace <id>', 'the workspace to act in (default: the default workspace)'],
@@ -172,21 +173,20 @@ const DOWN_SECTION: OptionSection = {
 }
 
 const RESTART_SECTION: OptionSection = {
-  heading: 'Options for restart',
+  heading: 'Options for restart (and every option of up)',
   lines: [
     // Its own section, not `UP_SECTION`: `restart` takes an id and `up` does not, and
     // advertising one there would document a flag `up` rejects.
     ['<id>', 'restart just this server, leaving the panel up (optional)'],
     ['-w, --workspace <id>', 'the workspace to act in, with an id'],
     PERSISTENT_LINE,
-    ...UP_SECTION.lines,
   ],
 }
 
 const SET_PASSWORD_SECTION: OptionSection = {
   heading: 'Options for set-password',
   lines: [
-    ['--clear', 'remove the password, which disables authentication'],
+    ['--clear', 'remove the password: nobody can sign in until a new one is set'],
   ],
 }
 
@@ -277,7 +277,9 @@ const ENVIRONMENT_SECTION: OptionSection = {
     ['HHOSTED_PROJECT', 'base for relative entry paths'],
     ['HHOSTED_PASSWORD', 'the password for a non-interactive set-password'],
     ['HHOSTED_TOKEN', 'the token for a non-interactive set-token'],
-    ['GITHUB_TOKEN', 'a GitHub token for ui-switch (GH_TOKEN also works)'],
+    ['HHOSTED_MIGRATE', '`allow` lets migrate apply without asking, for an unattended run'],
+    ['HHOSTED_DDNS_SECRET', 'the key DDNS credentials are sealed with'],
+    ['GITHUB_TOKEN', 'a GitHub token for ui-switch and ui-update (GH_TOKEN also works)'],
   ],
 }
 
@@ -318,38 +320,9 @@ const SHARED_TRAILER = [
   '',
 ].join('\n')
 
-/** The full reference: every command, every option, the trailer. */
-const USAGE = [
-  dim(HEADER),
-  '',
-  heading('Usage'),
-  renderCommandList(),
-  '',
-  renderSection(UP_SECTION),
-  '',
-  renderSection(SET_PASSWORD_SECTION),
-  '',
-  renderSection(SET_TOKEN_SECTION),
-  '',
-  renderSection(MIGRATE_SECTION),
-  '',
-  renderSection(INIT_SECTION),
-  '',
-  renderSection(UI_SWITCH_SECTION),
-  '',
-  renderSection(DOWN_SECTION),
-  '',
-  renderSection(STATUS_SECTION),
-  '',
-  renderSection(SERVER_SECTION),
-  '',
-  SHARED_TRAILER,
-].join('\n')
-
-// `restart` is `up` behind the scenes, so it reads `up`'s flags under its own heading.
-const UP_COMMANDS = new Set(['up', 'restart'])
-
+/** Each command's own options; a command missing here takes none. */
 const SECTIONS: Record<string, OptionSection> = {
+  'up': UP_SECTION,
   'down': DOWN_SECTION,
   'status': STATUS_SECTION,
   'logs': LOGS_SECTION,
@@ -369,6 +342,22 @@ const SECTIONS: Record<string, OptionSection> = {
 }
 
 /**
+ * The full reference: every command, then every command's options in the same order, then the
+ * trailer. Built from `SECTIONS`, the same map `<command> --help` reads, so a command cannot be
+ * listed without its options (logs, usage, backup, setup-temp and ui-update once were).
+ */
+const USAGE = [
+  dim(HEADER),
+  '',
+  heading('Usage'),
+  renderCommandList(),
+  '',
+  ...[...new Set(Object.keys(SYNOPSIS).map(name => SECTIONS[name]).filter(section => section !== undefined))]
+    .flatMap(section => [renderSection(section), '']),
+  SHARED_TRAILER,
+].join('\n')
+
+/**
  * `home-hosted <command> --help`: the usage line, that command's own options,
  * and the shared trailer. A command with no options says so instead of printing
  * an empty heading.
@@ -378,8 +367,11 @@ export function commandHelp(command: string): string {
   if (synopsis === undefined)
     return USAGE
 
-  const section = SECTIONS[command] ?? (UP_COMMANDS.has(command) ? UP_SECTION : undefined)
-  const options = section === undefined ? dim('no options') : renderSection(section)
+  const section = SECTIONS[command]
+  // `restart` is `up` behind the scenes, so it lists up's options after its own.
+  const options = section === undefined
+    ? dim('no options')
+    : [renderSection(section), ...(command === 'restart' ? ['', renderSection(UP_SECTION)] : [])].join('\n')
 
   return [
     dim(HEADER),
