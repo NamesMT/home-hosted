@@ -5,7 +5,7 @@ import type { FormSnapshots, WorkspaceFormBlock, WorkspaceSettingsForm } from '@
 import { ddnsConfigPatch, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, shallowReactive, watch } from 'vue'
 import DdnsSection from '@/components/settings/DdnsSection.vue'
 import DefaultsSection from '@/components/settings/DefaultsSection.vue'
 import DestinationsSection from '@/components/settings/DestinationsSection.vue'
@@ -71,7 +71,7 @@ const destinationStatuses = computed(() => workspace.notifications.value?.destin
 const logsDir = computed(() => workspace.logsDir.value)
 
 /** What each block held when it was last filled, so an edit is not overwritten. */
-const snapshots: FormSnapshots = {}
+const snapshots = shallowReactive<FormSnapshots>({})
 
 /** Only fields that differ from what the workspace currently holds. */
 const patch = computed<WorkspaceSettingsPatch>(() => {
@@ -80,12 +80,12 @@ const patch = computed<WorkspaceSettingsPatch>(() => {
   const logs = logsConfig.value
 
   if (defaults !== null) {
-    const diff = defaultsPatch(defaults, form.defaults)
+    const diff = defaultsPatch(defaults, form.defaults, snapshots.defaults)
     if (Object.keys(diff).length > 0)
       out.defaults = diff as WorkspaceSettingsPatch['defaults']
   }
   if (logs !== null) {
-    const diff = logsPatch(logs, form.logs)
+    const diff = logsPatch(logs, form.logs, snapshots.logs)
     if (Object.keys(diff).length > 0)
       out.logs = diff as WorkspaceSettingsPatch['logs']
   }
@@ -132,8 +132,8 @@ const currentSnapshot = computed<Record<string, unknown>>(() => {
 
 const changes = computed(() => describeChanges({ ...(patch.value as Record<string, unknown>), ...(ddnsChanges.value === null ? {} : { ddns: ddnsChanges.value }) }, currentSnapshot.value))
 
-const defaultsDirty = computed(() => defaultsView.value !== null && Object.keys(defaultsPatch(defaultsView.value, form.defaults)).length > 0)
-const logsDirty = computed(() => logsConfig.value !== null && Object.keys(logsPatch(logsConfig.value, form.logs)).length > 0)
+const defaultsDirty = computed(() => defaultsView.value !== null && Object.keys(defaultsPatch(defaultsView.value, form.defaults, snapshots.defaults)).length > 0)
+const logsDirty = computed(() => logsConfig.value !== null && Object.keys(logsPatch(logsConfig.value, form.logs, snapshots.logs)).length > 0)
 const notificationsDirty = computed(() => notificationDefaults.value !== null
   && (policyPatch(notificationDefaults.value, form.policy) !== null
     || destinationsPatch(destinationStatuses.value, form.destinations, filledDestinations(snapshots.notifications)) !== null))

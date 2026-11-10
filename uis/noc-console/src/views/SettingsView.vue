@@ -4,9 +4,9 @@ import type { DraftConfig } from '@shared/ddns-form'
 import type { Patch } from '@shared/patch-diff'
 import { ddnsConfigPatch, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
-import { countLeaves, describeChanges, diffFields, mergeReplacedList, replacedListConflicts } from '@shared/patch-diff'
+import { countLeaves, describeChanges, diffFields, mergeReplacedList, patchSinceFilled, replacedListConflicts } from '@shared/patch-diff'
 import { msToSeconds, secondsToMs } from '@shared/ui-format'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, shallowReactive, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import DdnsPanel from '@/components/DdnsPanel.vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
@@ -271,7 +271,8 @@ const FILLERS: Record<FormBlock, () => boolean> = {
 }
 
 /** What each block held when it was last filled; absent means "never filled". */
-const snapshots: Partial<Record<FormBlock, unknown>> = {}
+// Reactive: the patch is decided against these, so replacing or forgetting one must recompute it.
+const snapshots = shallowReactive<Partial<Record<FormBlock, unknown>>>({})
 
 function blockSnapshot(block: FormBlock): unknown {
   switch (block) {
@@ -369,8 +370,11 @@ function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
     )
   }
 
-  const defaultsPatch = diffFields(
+  // Against what the block was filled with, not live state: another client's change to a field this
+  // form never touched must not be written back (see `patchSinceFilled`).
+  const defaultsPatch = patchSinceFilled(
     defaults as unknown as Patch,
+    snapshots.defaults as Patch | undefined,
     { ...form.defaults } as unknown as Patch,
     ['restart', 'health', 'stop'],
   )
@@ -379,7 +383,7 @@ function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
 
   const configured = selected.value
   if (configured) {
-    const logsPatch = diffFields(configured.logs as unknown as Patch, { ...form.logs } as unknown as Patch)
+    const logsPatch = patchSinceFilled(configured.logs as unknown as Patch, snapshots.logs as Patch | undefined, { ...form.logs } as unknown as Patch)
     if (Object.keys(logsPatch).length > 0)
       patch.logs = logsPatch as WorkspaceSettingsPatch['logs']
 

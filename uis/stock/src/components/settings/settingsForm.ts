@@ -18,7 +18,7 @@ import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
 import { sameScope } from '@shared/backup-scope'
 import { linesToArray } from '@shared/fields'
-import { countLeaves, diffFields, mergeReplacedList, replacedListConflicts } from '@shared/patch-diff'
+import { countLeaves, diffFields, mergeReplacedList, patchSinceFilled, replacedListConflicts } from '@shared/patch-diff'
 import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed } from 'vue'
 import { t } from '@/i18n'
@@ -321,22 +321,32 @@ export function backupsBaseline(policy: Pick<BackupsView, 'enabled' | 'keep' | '
   }
 }
 
-export function hostPatch(current: HostConfig, form: HostForm): Patch {
+function hostWire(form: HostForm): Patch {
+  return { ...form, diskPaths: splitList(form.diskPaths) } as unknown as Patch
+}
+
+/**
+ * `filled` is the form this block was last filled with (its snapshot); see `patchSinceFilled` for
+ * why the diff is against it rather than live state.
+ */
+export function hostPatch(current: HostConfig, form: HostForm, filled?: unknown): Patch {
   // Diff against the *normalised* current, not the raw config. A field the file omits — an older
   // panel's `settings.json`, or one added by a newer release — reads as `undefined` there while the
   // form holds its default, so the page showed unsaved changes nobody made.
-  const baseline = hostBaseline(current)
-  return diffFields(
-    { ...baseline, diskPaths: splitList(baseline.diskPaths) } as unknown as Patch,
-    { ...form, diskPaths: splitList(form.diskPaths) } as unknown as Patch,
+  return patchSinceFilled(
+    hostWire(hostBaseline(current)),
+    filled === undefined ? undefined : hostWire(filled as HostForm),
+    hostWire(form),
   )
 }
 
 export function backupsPatch(
   current: Pick<BackupsView, 'enabled' | 'keep' | 'includePaths'> & { schedule?: BackupScheduleConfig },
   form: BackupsForm,
+  filled?: unknown,
 ): Patch {
-  const baseline = backupsBaseline(current)
+  // What this form was filled with decides what *it* changed; live state decides what is news.
+  const baseline = filled === undefined ? backupsBaseline(current) : filled as BackupsForm
   const schedule: Record<string, unknown> = {}
   if (form.scheduleEnabled !== baseline.scheduleEnabled || form.scheduleHours !== baseline.scheduleHours)
     schedule.intervalMs = form.scheduleEnabled ? form.scheduleHours * HOUR_MS : 0
@@ -347,21 +357,59 @@ export function backupsPatch(
   if (!sameScope(form.scheduleScope, baseline.scheduleScope))
     schedule.scope = form.scheduleScope
 
-  return diffFields({
+  const live = {
     enabled: current.enabled,
     keep: current.keep,
     includePaths: current.includePaths,
     schedule: current.schedule ?? SCHEMA_SCHEDULE,
-  } as unknown as Patch, {
-    enabled: form.enabled,
-    keep: form.keep,
-    includePaths: splitList(form.includePaths),
-    schedule,
-  } as unknown as Patch, ['schedule'])
+  } as unknown as Patch
+  const top = patchSinceFilled(
+    live,
+    filled === undefined ? undefined : { enabled: baseline.enabled, keep: baseline.keep, includePaths: splitList(baseline.includePaths) },
+    { enabled: form.enabled, keep: form.keep, includePaths: splitList(form.includePaths) },
+  )
+  return { ...top, ...diffFields(live, { schedule }, ['schedule']) }
 }
 
-/** Listener, auth and TLS in one `control` block; only changed keys survive. */
-export function controlPatch(view: ControlView, form: GlobalSettingsForm): Patch {
+/** The control block as the wire carries it. */
+function controlWire(form: Pick<GlobalSettingsForm, 'control' | 'auth'>): Patch {
+  return {
+    label: form.control.label,
+    port: form.control.port,
+    host: form.control.host,
+    openBrowser: form.control.openBrowser,
+    allowedHosts: linesToArray(form.control.allowedHosts),
+    // `formToAuth` converts the same way, so both sides of the diff are the *wire* form. Comparing a
+    // converted `next` against a string-valued `current` made every save carry a spurious `trustProxy`.
+    auth: { ...form.auth, trustProxy: toWireTrustProxy(form.auth.trustProxy) },
+    tls: { enabled: form.control.tlsEnabled },
+  }
+}
+
+/**
+ * What the control block was filled with, from its per-part snapshot. A part never filled reads as
+ * live state, which is what an unfilled part shows.
+ */
+function filledControl(view: ControlView, snapshot: unknown): Pick<GlobalSettingsForm, 'control' | 'auth'> | undefined {
+  if (snapshot === undefined || snapshot === null || typeof snapshot !== 'object')
+    return undefined
+  const parts = snapshot as Partial<Record<ControlPart, unknown>>
+  return {
+    control: {
+      ...listenerBaseline(view),
+      ...(parts.listener as Partial<GlobalSettingsForm['control']> | undefined),
+      tlsEnabled: typeof parts.tls === 'boolean' ? parts.tls : view.tls.enabled,
+    },
+    auth: (parts.auth as GlobalSettingsForm['auth'] | undefined) ?? authBaseline(view.auth),
+  }
+}
+
+/**
+ * Listener, auth and TLS in one `control` block; only keys this form changed survive.
+ *
+ * `snapshot` is the block's per-part snapshot; see `patchSinceFilled` for why the diff is against it.
+ */
+export function controlPatch(view: ControlView, form: GlobalSettingsForm, snapshot?: unknown): Patch {
   const current = {
     label: view.label,
     port: view.port,
@@ -373,27 +421,17 @@ export function controlPatch(view: ControlView, form: GlobalSettingsForm): Patch
     auth: formToAuth(view.auth),
     tls: { enabled: view.tls.enabled },
   }
-  const next = {
-    label: form.control.label,
-    port: form.control.port,
-    host: form.control.host,
-    openBrowser: form.control.openBrowser,
-    allowedHosts: linesToArray(form.control.allowedHosts),
-    // `formToAuth` above converts the same way, so both sides of the diff are the *wire* form. Comparing a
-    // converted `next` against a string-valued `current` made every save carry a spurious `trustProxy`.
-    auth: { ...form.auth, trustProxy: toWireTrustProxy(form.auth.trustProxy) },
-    tls: { enabled: form.control.tlsEnabled },
-  }
-  return diffFields(current, next, ['auth', 'tls'])
+  const filled = filledControl(view, snapshot)
+  return patchSinceFilled(current, filled === undefined ? undefined : controlWire(filled), controlWire(form), ['auth', 'tls'])
 }
 
 /** Only the changed sub-keys: the store merges a nested group rather than replacing it. */
-export function defaultsPatch(current: ServerDefaults, form: DefaultsForm): Patch {
-  return diffFields(current as unknown as Patch, form as unknown as Patch, ['restart', 'health', 'stop'])
+export function defaultsPatch(current: ServerDefaults, form: DefaultsForm, filled?: unknown): Patch {
+  return patchSinceFilled(current as unknown as Patch, filled as Patch | undefined, form as unknown as Patch, ['restart', 'health', 'stop'])
 }
 
-export function logsPatch(current: LogsConfig, form: LogsForm): Patch {
-  return diffFields(current as unknown as Patch, form as unknown as Patch)
+export function logsPatch(current: LogsConfig, form: LogsForm, filled?: unknown): Patch {
+  return patchSinceFilled(current as unknown as Patch, filled as Patch | undefined, form as unknown as Patch)
 }
 
 /** The general block as the form holds it. */

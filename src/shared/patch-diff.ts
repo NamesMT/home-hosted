@@ -161,6 +161,39 @@ export function mergeReplacedList<T>({ filled, draft, live, key }: ReplacedListM
 }
 
 /**
+ * A settings block's patch, decided against what the form was **filled** with.
+ *
+ * A block stops refilling once someone edits it, so a form diffed against *live* state treats
+ * another client's change as this form's own: a host added to `allowedHosts` in a second tab was
+ * removed again by an unrelated save in the first. So a field travels only when this form changed
+ * it (`next` differs from `filled`), a replaced list goes through `mergeReplacedList` so concurrent
+ * additions survive, and anything already equal to `live` is dropped.
+ *
+ * `filled` absent means the block was never filled; the form then *is* its live view, and the
+ * diff is against `live` as before. Lists are compared and merged entry by value.
+ */
+export function patchSinceFilled(live: Patch, filled: Patch | undefined, next: Patch, nested: readonly string[] = []): Patch {
+  if (filled === undefined)
+    return diffFields(live, next, nested)
+  const own = diffFields(filled, next, nested)
+  for (const [key, value] of Object.entries(own)) {
+    if (!Array.isArray(value))
+      continue
+    const merged = mergeReplacedList<unknown>({
+      filled: Array.isArray(filled[key]) ? filled[key] as unknown[] : [],
+      draft: value,
+      live: Array.isArray(live[key]) ? live[key] as unknown[] : [],
+      key: entry => JSON.stringify(entry),
+    })
+    if (merged === null)
+      delete own[key]
+    else
+      own[key] = merged
+  }
+  return diffFields(live, own, nested)
+}
+
+/**
  * Edits to one server entry.
  *
  * Comparing against the *effective* config (defaults already merged) means an

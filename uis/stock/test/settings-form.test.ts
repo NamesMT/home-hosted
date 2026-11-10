@@ -98,6 +98,37 @@ describe('settings form versus the live config', () => {
     expect(controlPatch(controlView(true), form)).toEqual({ auth: { enabled: false } })
   })
 
+  /**
+   * Another client's save must survive this form's.
+   *
+   * Once a block is edited it stops refilling, and the patch was diffed against *live* state: a
+   * host another tab added to `allowedHosts` read as this form removing it, and an unrelated label
+   * edit here wrote the old list back.
+   */
+  it('keeps a change another client made while this block was being edited', () => {
+    const view = controlView(true)
+    view.allowedHosts = ['a.example']
+    const form = createGlobalForm()
+    hydrate(form, view)
+    const snapshots = {}
+    rememberControlPart(form, snapshots, 'listener')
+    rememberControlPart(form, snapshots, 'auth')
+    rememberControlPart(form, snapshots, 'tls')
+
+    form.control.label = 'mine'
+    // Another tab adds a host and renames the port; the edited block does not refill.
+    const moved = { ...controlView(true), allowedHosts: ['a.example', 'b.example'], port: 4000 }
+
+    expect(controlPatch(moved, form, (snapshots as { control?: unknown }).control)).toEqual({ label: 'mine' })
+
+    // A list this form did edit is merged, so the concurrent addition is kept.
+    form.control.allowedHosts = 'a.example\nc.example'
+    expect(controlPatch(moved, form, (snapshots as { control?: unknown }).control)).toEqual({
+      label: 'mine',
+      allowedHosts: ['a.example', 'c.example', 'b.example'],
+    })
+  })
+
   it('reports to the shell whether it may be overwritten', () => {
     const view = controlView(true)
     const form = createGlobalForm()

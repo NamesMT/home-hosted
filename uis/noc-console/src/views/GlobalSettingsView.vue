@@ -3,9 +3,9 @@ import type { AuthStatus, BackupScope, BackupsView, ControlView, SettingsPatch }
 import type { Patch } from '@shared/patch-diff'
 import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
-import { countLeaves, describeChanges, diffFields } from '@shared/patch-diff'
+import { countLeaves, describeChanges, diffFields, patchSinceFilled } from '@shared/patch-diff'
 import { msToSeconds, secondsToMsOr } from '@shared/ui-format'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, shallowReactive, watch } from 'vue'
 import BackupDialog from '@/components/BackupDialog.vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import RestoreDialog from '@/components/RestoreDialog.vue'
@@ -187,7 +187,8 @@ const FILLERS: Record<FormBlock, () => boolean> = {
 }
 
 /** What each block held when it was last filled; absent means "never filled". */
-const snapshots: FormSnapshots = {}
+// Reactive: the patch is decided against these, so replacing or forgetting one must recompute it.
+const snapshots = shallowReactive<FormSnapshots>({})
 
 function blockSnapshot(block: FormBlock): unknown {
   switch (block) {
@@ -296,7 +297,24 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
   }
   repairNumbers(form.auth as unknown as Record<string, unknown>, authConfig(view.auth) as unknown as Record<string, unknown>)
 
-  const controlPatch = diffFields(
+  /**
+   * Each block is diffed against what it was **filled** with, not live state: a block stops
+   * refilling once edited, so a live diff wrote back the old value of anything another client
+   * changed meanwhile — a host added to `allowedHosts` in another tab was removed by this save.
+   */
+  const wire = (control: typeof form.control, auth: typeof form.auth): Patch => ({
+    label: control.label,
+    port: control.port,
+    host: control.host,
+    openBrowser: control.openBrowser,
+    allowedHosts: linesToArray(control.allowedHosts),
+    tls: { enabled: control.tlsEnabled },
+    // The select holds the three-way choice as a string; the wire form is `boolean | 'loopback'`.
+    auth: { ...auth, trustProxy: toWireTrustProxy(auth.trustProxy) },
+  })
+  const filledControl = snapshots.control as typeof form.control | undefined
+  const filledAuth = snapshots.auth as typeof form.auth | undefined
+  const controlPatch = patchSinceFilled(
     {
       label: view.label,
       port: view.port,
@@ -307,16 +325,13 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
       // The wire shape, matching `next` below. `authConfig` returns the *form* shape and is for hydrating.
       auth: { ...authConfig(view.auth), trustProxy: toWireTrustProxy(view.auth.trustProxy) },
     },
-    {
-      label: form.control.label,
-      port: form.control.port,
-      host: form.control.host,
-      openBrowser: form.control.openBrowser,
-      allowedHosts: linesToArray(form.control.allowedHosts),
-      tls: { enabled: form.control.tlsEnabled },
-      // The select holds the three-way choice as a string; the wire form is `boolean | 'loopback'`.
-      auth: { ...form.auth, trustProxy: toWireTrustProxy(form.auth.trustProxy) },
-    },
+    filledControl === undefined && filledAuth === undefined
+      ? undefined
+      : wire(
+          filledControl ?? { ...form.control, label: view.label, port: view.port, host: view.host, openBrowser: view.openBrowser, allowedHosts: (view.allowedHosts ?? []).join('\n'), tlsEnabled: view.tls.enabled },
+          filledAuth ?? authConfig(view.auth) as typeof form.auth,
+        ),
+    wire(form.control, form.auth),
     ['auth'],
   )
   if (Object.keys(controlPatch).length > 0)
@@ -324,8 +339,10 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
 
   const configured = settings.value
   if (configured) {
-    const hostPatch = diffFields(
+    const filledHost = snapshots.host as typeof form.host | undefined
+    const hostPatch = patchSinceFilled(
       { ...configured.host, diskPaths: configured.host.diskPaths } as unknown as Patch,
+      filledHost === undefined ? undefined : { ...filledHost, diskPaths: splitList(filledHost.diskPaths) } as unknown as Patch,
       { ...form.host, diskPaths: splitList(form.host.diskPaths) } as unknown as Patch,
     )
     if (Object.keys(hostPatch).length > 0)
@@ -334,23 +351,35 @@ function buildGlobalPatch(view: ControlView): SettingsPatch {
     // Only the members that actually changed: the hours field is a rounded view of `intervalMs`,
     // and a scope the dialog did not touch must not be re-sent. Both rules live beside the capture
     // ones, where they are tested without mounting this view.
-    const nextSchedule = schedulePatch(configured.backups.schedule, {
-      enabled: form.backups.scheduleEnabled,
-      hours: form.backups.scheduleHours,
-      keep: form.backups.scheduleKeep,
-      scope: form.backups.scheduleScope,
-    })
-
-    const backupsPatch = diffFields(
-      configured.backups as unknown as Patch,
+    const filledBackups = snapshots.backups as typeof form.backups | undefined
+    // The schedule members this form changed since it was filled, in the stored shape.
+    const ownSchedule = schedulePatch(
+      filledBackups === undefined
+        ? configured.backups.schedule
+        : {
+            intervalMs: filledBackups.scheduleEnabled ? filledBackups.scheduleHours * 3_600_000 : 0,
+            keep: filledBackups.scheduleKeep,
+            ...(filledBackups.scheduleScope === null ? {} : { scope: filledBackups.scheduleScope }),
+          },
       {
-        enabled: form.backups.enabled,
-        keep: form.backups.keep,
-        includePaths: splitList(form.backups.includePaths),
-        schedule: nextSchedule,
-      } as unknown as Patch,
-      ['schedule'],
+        enabled: form.backups.scheduleEnabled,
+        hours: form.backups.scheduleHours,
+        keep: form.backups.scheduleKeep,
+        scope: form.backups.scheduleScope,
+      },
     )
+
+    const liveBackups = configured.backups as unknown as Patch
+    const backupsPatch = {
+      ...patchSinceFilled(
+        liveBackups,
+        filledBackups === undefined
+          ? undefined
+          : { enabled: filledBackups.enabled, keep: filledBackups.keep, includePaths: splitList(filledBackups.includePaths) },
+        { enabled: form.backups.enabled, keep: form.backups.keep, includePaths: splitList(form.backups.includePaths) },
+      ),
+      ...diffFields(liveBackups, { schedule: ownSchedule }, ['schedule']),
+    }
     if (Object.keys(backupsPatch).length > 0)
       patch.backups = backupsPatch as SettingsPatch['backups']
   }

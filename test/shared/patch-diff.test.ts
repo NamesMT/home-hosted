@@ -1,7 +1,7 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import { serverSchema } from '#src/shared/contracts'
-import { countLeaves, describeChanges, diffFields, diffServerConfig, flattenLeaves, mergeReplacedList, replacedListConflicts } from '#src/shared/patch-diff'
+import { countLeaves, describeChanges, diffFields, diffServerConfig, flattenLeaves, mergeReplacedList, patchSinceFilled, replacedListConflicts } from '#src/shared/patch-diff'
 
 function config(overrides: Record<string, unknown> = {}) {
   const parsed = serverSchema({ id: 'web', command: 'node', port: 4000, ...overrides })
@@ -370,5 +370,28 @@ describe('routeConflicts', () => {
   it('says nothing when the form was never filled, because nothing is comparable', async () => {
     const { routeConflicts } = await import('#src/shared/proxy-form')
     expect(routeConflicts([route('site', 'a.example.com')], [], undefined)).toEqual([])
+  })
+})
+
+describe('patchSinceFilled', () => {
+  const filled = { label: 'old', port: 3999, hosts: ['a'], auth: { enabled: true, ttl: 60 } }
+
+  it('sends only what this form changed, never another client\'s change reverted', () => {
+    const live = { label: 'old', port: 4000, hosts: ['a', 'b'], auth: { enabled: true, ttl: 120 } }
+    const next = { label: 'mine', port: 3999, hosts: ['a'], auth: { enabled: true, ttl: 60 } }
+    expect(patchSinceFilled(live, filled, next, ['auth'])).toEqual({ label: 'mine' })
+  })
+
+  it('merges a replaced list this form edited, keeping a concurrent addition', () => {
+    const live = { ...filled, hosts: ['a', 'b'] }
+    expect(patchSinceFilled(live, filled, { ...filled, hosts: ['c'] })).toEqual({ hosts: ['c', 'b'] })
+  })
+
+  it('drops an edit that live state already holds', () => {
+    expect(patchSinceFilled({ ...filled, label: 'same' }, filled, { ...filled, label: 'same' })).toEqual({})
+  })
+
+  it('diffs against live state when the block was never filled', () => {
+    expect(patchSinceFilled(filled, undefined, { ...filled, port: 1 })).toEqual({ port: 1 })
   })
 })

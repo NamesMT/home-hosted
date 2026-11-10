@@ -4,7 +4,7 @@ import type { FormSnapshots, GlobalFormBlock, GlobalSettingsForm } from '@/compo
 import type { SettingsView } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, shallowReactive, watch } from 'vue'
 import AuthenticationSection from '@/components/settings/AuthenticationSection.vue'
 import BackupsSection from '@/components/settings/BackupsSection.vue'
 import HostSection from '@/components/settings/HostSection.vue'
@@ -75,24 +75,30 @@ const projectDir = computed(() => control.projectDir.value)
 /** The panel's own settings file, beside `workspaces.json`. */
 const settingsPath = computed(() => (dataRoot.value === null ? null : `${dataRoot.value}/settings.json`))
 
-/** Only fields that differ from what the panel currently holds. */
+/**
+ * What each block held when it was last filled. Reactive, because the patch is decided against it:
+ * forgetting or replacing a snapshot must recompute what Save would send.
+ */
+const snapshots = shallowReactive<FormSnapshots>({})
+
+/** Only fields this form changed since it was filled, and that differ from what the panel holds. */
 const patch = computed<SettingsPatch>(() => {
   const out: SettingsPatch = {}
   const view = controlView.value
   if (view !== null) {
-    const diff = controlPatch(view, form)
+    const diff = controlPatch(view, form, snapshots.control)
     if (Object.keys(diff).length > 0)
       out.control = diff as SettingsPatch['control']
   }
   const host = hostConfig.value
   if (host !== null) {
-    const diff = hostPatch(host, form.host)
+    const diff = hostPatch(host, form.host, snapshots.host)
     if (Object.keys(diff).length > 0)
       out.host = diff as SettingsPatch['host']
   }
   const backups = backupsPolicy.value
   if (backups !== null) {
-    const diff = backupsPatch(backups, form.backups)
+    const diff = backupsPatch(backups, form.backups, snapshots.backups)
     if (Object.keys(diff).length > 0)
       out.backups = diff as SettingsPatch['backups']
   }
@@ -119,10 +125,8 @@ const changes = computed(() => describeChanges(patch.value as Record<string, unk
 const listenerDirty = computed(() => controlView.value !== null && listenerChanged(controlView.value, form))
 const tlsDirty = computed(() => controlView.value !== null && tlsChanged(controlView.value, form))
 const authDirty = computed(() => controlView.value !== null && authChanged(controlView.value, form))
-const hostDirty = computed(() => hostConfig.value !== null && Object.keys(hostPatch(hostConfig.value, form.host)).length > 0)
-const backupsDirty = computed(() => backupsPolicy.value !== null && Object.keys(backupsPatch(backupsPolicy.value, form.backups)).length > 0)
-
-const snapshots: FormSnapshots = {}
+const hostDirty = computed(() => hostConfig.value !== null && Object.keys(hostPatch(hostConfig.value, form.host, snapshots.host)).length > 0)
+const backupsDirty = computed(() => backupsPolicy.value !== null && Object.keys(backupsPatch(backupsPolicy.value, form.backups, snapshots.backups)).length > 0)
 
 /** Fills each block from its own source, unless the user is editing that block. */
 function syncFromLive(): void {
