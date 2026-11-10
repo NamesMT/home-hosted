@@ -32,11 +32,22 @@ export async function makeZip(file: string, entries: Record<string, string>): Pr
   fs.writeFileSync(file, await writer.close())
 }
 
-/** A home the CLI can act on, with the `.backups` directory a person drops an archive into. */
+/**
+ * A set-up home the CLI can act on — the files a first `up` writes, with no servers — plus the
+ * `.backups` directory a person drops an archive into. Offline commands no longer seed a home, so a
+ * bare directory would back up nothing.
+ */
 export function makeHome(): { home: string, backups: string } {
   const home = scratch('hh-outcome-')
   const backups = path.join(home, '.hh', '.backups')
   fs.mkdirSync(backups, { recursive: true })
+  const dir = path.join(home, '.hh', 'default')
+  fs.mkdirSync(dir, { recursive: true })
+  const stamp = { writtenBy: 'test', schema: CONFIG_SCHEMA }
+  fs.writeFileSync(path.join(home, '.hh', 'settings.json'), `${JSON.stringify({ meta: stamp }, null, 2)}\n`)
+  fs.writeFileSync(path.join(home, '.hh', 'workspaces.json'), `${JSON.stringify({ workspaces: [{ id: 'default', label: 'Default' }] })}\n`)
+  fs.writeFileSync(path.join(dir, 'settings.json'), `${JSON.stringify({ meta: stamp }, null, 2)}\n`)
+  fs.writeFileSync(path.join(dir, 'servers.config.json'), `${JSON.stringify({ meta: stamp, servers: [] }, null, 2)}\n`)
   return { home, backups }
 }
 

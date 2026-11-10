@@ -137,7 +137,7 @@ describe('restore --from against a running panel', () => {
     fs.mkdirSync(path.dirname(archive), { recursive: true })
     fs.writeFileSync(archive, 'stub: this panel never reads it')
 
-    const result = await runCli(['backup', 'restore', '--from', archive, '--all'])
+    const result = await runCli(['backup', 'restore', '--from', archive, '--all', '--json'])
     expect(result.status, result.output).toBe(0)
     expect(created.seen, 'the restore request must have reached the panel').not.toBeNull()
     expect(created.seen?.get('from')).toBe(archive)
@@ -151,7 +151,7 @@ describe('restore --from against a running panel', () => {
     const created = await stubPanel(planBody())
     writeRuntime(created.url)
 
-    const result = await runCli(['backup', 'restore', 'nightly.zip', '--all'])
+    const result = await runCli(['backup', 'restore', 'nightly.zip', '--all', '--json'])
     expect(result.status, result.output).toBe(0)
     expect(created.seen?.get('name')).toBe('nightly.zip')
     expect(created.seen?.get('from')).toBeNull()

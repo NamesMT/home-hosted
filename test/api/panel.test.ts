@@ -716,7 +716,7 @@ describe('/_hh/backups', () => {
     const shapes = spec.paths['/_hh/backups']!.post!.responses['200']!.content!['application/json']!.schema.anyOf ?? []
     expect(shapes.map(shape => Object.keys(shape.properties ?? {}).sort())).toEqual(expect.arrayContaining([
       ['apply', 'entries', 'includePaths'],
-      ['file', 'files'],
+      ['file', 'files', 'warnings'],
     ]))
   })
 
