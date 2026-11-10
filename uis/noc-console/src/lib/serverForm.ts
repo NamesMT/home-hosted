@@ -448,6 +448,11 @@ export function fieldPresentation(variant: FormVariant, key: FieldKey): FieldPre
   }
 }
 
+/** What the page's form holds before its entry has arrived in a frame: the schema's defaults. */
+export function placeholderConfig(): ServerConfig {
+  return serverSchema.assert({ id: 'placeholder', command: 'placeholder' }) as ServerConfig
+}
+
 /**
  * The page's form: the shared fields as the strings its boxes hold, the dump/load hooks, and the
  * typed lifecycle groups its own panes bind (their boxes write strings into them).
@@ -455,9 +460,6 @@ export function fieldPresentation(variant: FormVariant, key: FieldKey): FieldPre
  * The round trip itself — what a cleared box means, seconds, the diff — is
  * `@shared/server-form`, the one `uis/stock`'s editor reads; this only translates the shape.
  */
-/** What the page's form holds before its entry has arrived in a frame: the schema's defaults. */
-export const PLACEHOLDER_CONFIG = serverSchema.assert({ id: 'placeholder', command: 'placeholder' }) as ServerConfig
-
 export type PageForm = ServerFormShape & {
   dumpEnabled: boolean
   dumpCommand: string

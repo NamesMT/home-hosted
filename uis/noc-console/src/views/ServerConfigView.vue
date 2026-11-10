@@ -13,7 +13,7 @@ import StatusChip from '@/components/StatusChip.vue'
 import { vFocusTrap } from '@/composables/useFocusTrap'
 import { configChangesOpen, flash, selectedId } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
-import { editFormFromPage, pageFormFrom, PLACEHOLDER_CONFIG } from '@/lib/serverForm'
+import { editFormFromPage, pageFormFrom, placeholderConfig } from '@/lib/serverForm'
 import { workspacePath } from '@/router'
 
 const props = defineProps<{ id: string }>()
@@ -33,7 +33,7 @@ const config = computed<ServerConfig | null>(() => server.value?.config ?? null)
  * panes bind. What every box *means* — a cleared one, the hook timeouts in seconds, the diff — is
  * `@shared/server-form`, the same round trip `uis/stock`'s editor uses.
  */
-const form = reactive(pageFormFrom(config.value ?? PLACEHOLDER_CONFIG))
+const form = reactive(pageFormFrom(config.value ?? placeholderConfig()))
 
 /**
  * The config the form was last filled from — detached, so it never moves with the store. A cleared
