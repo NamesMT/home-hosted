@@ -18,6 +18,7 @@
 import type { AppType } from '#src/app'
 import type { SseMessage } from '#src/shared/contracts'
 import { hc } from 'hono/client'
+import { isLoopbackHost } from '#src/shared/server-url'
 
 export type { AppType } from '#src/app'
 export type {
@@ -39,6 +40,11 @@ export interface ClientOptions {
   fetch?: typeof fetch
   /** Extra headers on every request. */
   headers?: Record<string, string>
+  /**
+   * Send `token` over plain `http` to a host that is not this machine. Off by default: the token is
+   * full admin, and anyone on the path could read it. Set it only for a network you trust end to end.
+   */
+  allowInsecureToken?: boolean
 }
 
 /** A failed request, carrying the panel's error envelope. */
@@ -68,8 +74,25 @@ export interface EventsQuery {
   signal?: AbortSignal
 }
 
+/** A token is sent only over https, or to this machine, unless the caller opted out. */
+function assertTokenTransport(baseUrl: string, options: ClientOptions): void {
+  if (options.token === undefined || options.allowInsecureToken === true)
+    return
+  let url: URL
+  try {
+    url = new URL(baseUrl)
+  }
+  catch {
+    throw new TypeError(`home-hosted/client: baseUrl "${baseUrl}" is not an absolute URL`)
+  }
+  if (url.protocol === 'https:' || isLoopbackHost(url.hostname))
+    return
+  throw new TypeError(`home-hosted/client: refusing to send the API token over plain http to ${url.host} — use https, a loopback address, or pass allowInsecureToken: true`)
+}
+
 export function createClient(options: ClientOptions) {
   const baseUrl = options.baseUrl.replace(/\/+$/, '')
+  assertTokenTransport(baseUrl, options)
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis)
   const headers = (): Record<string, string> => ({
     ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),

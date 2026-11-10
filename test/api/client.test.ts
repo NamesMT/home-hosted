@@ -26,6 +26,19 @@ async function clientFor(options: Parameters<typeof makeFixture>[0] = {}) {
 }
 
 describe('home-hosted/client', () => {
+  /** The token is full admin: over plain http to another host, anyone on the path reads it. */
+  it('refuses to send a token over plain http to another host, unless told to', () => {
+    const token = 'hh_x'
+    expect(() => createClient({ baseUrl: 'http://192.168.1.10:3999', token })).toThrow(/allowInsecureToken/)
+    expect(() => createClient({ baseUrl: 'http://panel.example.com', token })).toThrow(/plain http/)
+    expect(() => createClient({ baseUrl: 'https://panel.example.com', token })).not.toThrow()
+    expect(() => createClient({ baseUrl: 'http://localhost:3999', token })).not.toThrow()
+    expect(() => createClient({ baseUrl: 'http://[::1]:3999', token })).not.toThrow()
+    expect(() => createClient({ baseUrl: 'http://192.168.1.10:3999', token, allowInsecureToken: true })).not.toThrow()
+    // No token, nothing to leak: a browser on a LAN address uses its cookie.
+    expect(() => createClient({ baseUrl: 'http://192.168.1.10:3999' })).not.toThrow()
+  })
+
   it('calls a typed route with the token attached', async () => {
     const { client } = await clientFor({ views: [makeView('web')] })
     const { servers } = await client.json(client.api.servers.$get({ query: {} }))

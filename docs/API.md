@@ -183,6 +183,9 @@ for await (const frame of hh.events({ workspace: 'default', logs: false })) {
 `hh.json(...)` returns the body or throws a `HomeHostedError` (`status`, `code`, `detail`). `hh.api`
 is the raw Hono client rooted at `/api`, for when you want the `Response`; `hh.rpc` is the same client
 at the root (`hh.rpc.healthz.$get()`). Pass `fetch` to use your own (tests, custom TLS).
+With a `token`, `createClient` refuses a `baseUrl` that is plain `http` to anything but this machine
+(`localhost`, `127.x`, `::1`) — the token is full admin and would cross the network readable. Use
+https, or pass `allowInsecureToken: true` for a network you trust end to end.
 Types such as `AppState`, `ServerView` and `SseMessage` are exported too. The client and the panel
 should come from the same release: the types describe the routes of the version they shipped with.
 
