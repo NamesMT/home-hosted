@@ -269,6 +269,28 @@ describe('panelService', () => {
     }
   })
 
+  /**
+   * A restore ends in `reloadAll()`, which called a bare `settings.load()`: a restored settings file
+   * that serves the panel through the proxy with no password was adopted without the guard a hand
+   * edit meets.
+   */
+  it('refuses restored settings that would serve the panel through the proxy with no password', async () => {
+    const { panel, settings, dispose } = await makeHarness()
+
+    try {
+      const onDisk = JSON.parse(fs.readFileSync(settings.path, 'utf8')) as Record<string, any>
+      onDisk.proxy = { ...onDisk.proxy, enabled: true, routes: [{ id: 'panel', host: 'panel.example.com', target: 'panel' }] }
+      fs.writeFileSync(settings.path, JSON.stringify(onDisk, null, 2))
+
+      panel.reloadAll()
+      expect(settings.configError).toContain('not applied')
+      expect(settings.proxy.enabled).toBe(false)
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('starts an added autostart entry only when autostart is on', async () => {
     const { panel, dispose } = await makeHarness({ autostart: true })
 

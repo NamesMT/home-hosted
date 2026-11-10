@@ -407,7 +407,10 @@ export class PanelService {
   }
 
   reloadAll(): void {
-    this.options.settings.load()
+    // Through the same guard a hand edit meets, not a bare `load()`: a restored settings file that
+    // would newly expose the panel (a panel route, auth off) is refused and the running settings
+    // kept, exactly as if a person had written it. An applied proxy change is re-applied there too.
+    this.handleSettingsChange()
     for (const runtime of this.workspaces()) {
       const before = new Set(runtime.store.servers.map(server => server.id))
       runtime.store.load()

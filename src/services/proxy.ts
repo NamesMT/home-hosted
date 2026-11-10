@@ -46,6 +46,7 @@ import {
 import { isPortFree, isProcessAlive, listPortHolders } from '#src/providers/port'
 import { processCarriesServerId } from '#src/providers/proc'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
+import { dialsPanel } from '#src/services/exposure'
 import { boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { TlsStore } from '#src/services/tls'
 import { errorMessage } from '#src/shared/error-message'
@@ -1059,11 +1060,15 @@ export class ProxyService {
     }
 
     const signature = this.syncSignature()
-    const rendered = this.render()
+    // `start` and `initialize` refuse a config the exposure rule blocks, but a running engine was
+    // re-applied without asking — a restore, or a `sync` after one, served a panel route with no
+    // password behind it. The engine keeps every other route; the ones serving the panel wait.
+    const blocked = this.options.exposureBlocked()
+    const rendered = this.render(blocked === null ? undefined : this.panelServingRouteIds())
     const text = `${JSON.stringify(rendered, null, 2)}\n`
     if (options.force !== true && fs.existsSync(this.options.configPath) && fs.readFileSync(this.options.configPath, 'utf8') === text) {
       this.certificateSignature = signature
-      this.lastError = null
+      this.lastError = blocked
       return
     }
 
@@ -1083,8 +1088,18 @@ export class ProxyService {
     const swept = this.sweepUnroutedCertificates()
     if (swept > 0)
       logger.info(`proxy:    dropped ${swept} certificate(s) for names no longer routed`)
-    this.lastError = null
+    this.lastError = blocked
+    if (blocked !== null)
+      logger.error(`proxy:    not serving the panel's own routes — ${blocked}`)
     this.options.onStateChange()
+  }
+
+  /** Every route that would hand the engine the panel itself: `target: "panel"`, or an upstream on its listener. */
+  private panelServingRouteIds(): Set<string> {
+    const ports = [this.options.control().port, this.options.settings.control.port]
+    return new Set(this.config.routes
+      .filter(route => route.target === 'panel' || (route.target === 'external' && dialsPanel(route.url, ports)))
+      .map(route => route.id))
   }
 
   /**
@@ -1211,8 +1226,11 @@ export class ProxyService {
 
   /** Everything `render()` reads that moves without a config save: certificate state and live upstreams. */
   private syncSignature(): string {
+    // The exposure verdict is part of it: a password that goes away (a restore of the secrets) must
+    // take the panel's routes off a running engine without waiting for a route change.
     return this.resolveRoutes()
       .map(({ route, status, upstream, upstreamTls }) => `${route.id}:${this.certificateFor(route).state}:${status}:${upstream ?? ''}:${upstreamTls}`)
+      .concat(this.options.exposureBlocked() === null ? [] : ['exposure-blocked'])
       .join('|')
   }
 

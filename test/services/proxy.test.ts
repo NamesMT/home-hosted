@@ -1784,6 +1784,48 @@ describe('re-applying when a certificate arrives', () => {
 })
 
 /**
+ * `start` and `initialize` refused a config the exposure rule blocks, but `apply`/`sync` re-applied
+ * a running engine without asking — so a restored settings file, or a password that went away,
+ * put a panel route on the engine with nothing behind it.
+ */
+describe('applying while the exposure rule refuses the panel routes', () => {
+  it('leaves the panel-serving routes out, says why, and serves them again once allowed', async () => {
+    let blocked: string | null = 'no password is set'
+    const { service, settings } = await harness({ exposureBlocked: () => blocked })
+    settings.updateProxy({
+      enabled: true,
+      routes: [
+        { id: 'panel', host: 'panel.example.com', target: 'panel' },
+        { id: 'sneaky', host: 'sneaky.example.com', target: 'external', url: 'http://localhost:3999' },
+        { id: 'other', host: 'other.example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+      ],
+    })
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    vi.spyOn(service, 'status').mockReturnValue({ state: 'running' } as ReturnType<typeof service.status>)
+    stubPortPreflight()
+    const posted: unknown[] = []
+    vi.spyOn(service as unknown as { postConfiguration: (rendered: unknown) => Promise<void> }, 'postConfiguration')
+      .mockImplementation(async (rendered) => { posted.push(rendered) })
+    ;(service as unknown as { admin: unknown }).admin = { kind: 'unix', path: '/nonexistent/admin.sock' }
+
+    await service.apply()
+    expect(posted).toHaveLength(1)
+    const first = JSON.stringify(posted[0])
+    expect(first).toContain('other.example.com')
+    expect(first).not.toContain('panel.example.com')
+    expect(first).not.toContain('sneaky.example.com')
+    expect((service as unknown as { lastError: string | null }).lastError).toBe('no password is set')
+
+    // The verdict is part of what `sync` watches: lifting it re-applies with the panel routes back.
+    await service.sync()
+    blocked = null
+    await service.sync()
+    expect(posted).toHaveLength(2)
+    expect(JSON.stringify(posted[1])).toContain('panel.example.com')
+  })
+})
+
+/**
  * Letting the engine forget one certificate means loading a configuration with that route removed.
  * With a single route that configuration has zero servers, and a `load` the engine accepts takes
  * the site dark — so it must refuse before posting anything.
