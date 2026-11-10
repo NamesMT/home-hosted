@@ -56,17 +56,23 @@ is up.
 
 ## Run it in development
 
-`pnpm dev` starts the panel (3999) and only the stock UI's dev server. For this UI, run the two
-processes yourself:
+```sh
+pnpm dev --ui noc-console   # panel on :6000, this UI's dev server on :6001, /api proxied
+```
+
+`pnpm dev` with no `--ui` starts the stock UI instead; one UI's dev server at a time, since both
+claim port 6001. `--port`/`--ui-port`/`--home` override. To run the two processes yourself:
 
 ```sh
-pnpm run start                                           # panel on http://127.0.0.1:3999
+pnpm run start                                           # panel, on the port .dev-state/settings.json names
 pnpm exec vite --config uis/noc-console/vite.config.ts   # this UI
 ```
 
-- The Vite dev server listens on `http://127.0.0.1:3998` (`strictPort: true`), the port from
+- The Vite dev server listens on `http://127.0.0.1:6001` (`strictPort: true`), the port from
   `uis/vite.shared.ts`; the stock UI shares it, so run one dev server at a time.
-- `/api` is proxied to `http://127.0.0.1:3999`; prefix `HHOSTED_HOME=./.dev-state` for dev state.
+- `/api`, `/healthz` and `/openapi` are proxied to `http://127.0.0.1:6000`; a hand-started panel on
+  3999 needs `HHOSTED_DEV_PANEL=http://127.0.0.1:3999` (and `HHOSTED_HOME=./.dev-state` for dev
+  state).
 
 ## Build and check
 
@@ -79,7 +85,7 @@ pnpm exec vite --config uis/noc-console/vite.config.ts   # this UI
 
 ## Install it into a running panel
 
-- Settings → Interface, pick the zip, then Install UI and refresh.
+- **Global settings → Interface**, pick the zip, then Install UI and refresh.
 - Or drop the build into `$HHOSTED_HOME/.ui` yourself (`index.html` at the root).
 - Or `home-hosted ui-switch --asset home-hosted-ui-noc-console.zip` (or `--asset noc-console`).
 - `home-hosted ui-update` re-installs the build for the running panel, since this UI declares

@@ -59,7 +59,9 @@ state layout is there too.
 - `src/services/` — stateful orchestration: `panel` (one `WorkspaceRuntime` per workspace, workspace
   CRUD, the single aggregate state frame — every per-workspace service hangs off it), supervisor,
   control-server, config-watch, state, auth + exposure, dependencies, history, log-buffer/log-files,
-  notifications, host-monitor, ddns, proxy, backups, tls, ui, `init`, `nanny`, `log-relay`.
+  notifications, host-monitor, ddns, proxy, proxy-config (the Caddy JSON), acme-challenge (the
+  engine's DNS-01 channel), backups, tls, ui, ui-update (following an official UI's releases),
+  `init`, `nanny`, `log-relay`.
   **It names no server** — the scaffold must stay as neutral as the supervisor.
 - `src/middleware/auth.ts` — the `/api/*` guard, and `requestIdentity()`, the one place a request's
   credentials are read: the `hh_session` cookie or `Authorization: Bearer <api token>`. A token has
@@ -68,9 +70,15 @@ state layout is there too.
 - `src/middleware/loopback.ts` — `requestIp`/`isLoopback`/`isLoopbackRequest`, the client-address
   helpers shared by the auth guard and the setup routes. The address is srvx's, so whether it means
   anything is decided by `trustProxy`.
-- `src/helpers/` — paths (`dataRoot` vs `projectDir`), daemon (run.json + a loopback probe that
-  bypasses `fetch`, so TLS with a self-signed pair still answers), error, validator, atomic,
-  template, env-file, openapi, factory.
+- `src/helpers/` — the shared, cross-layer utilities: paths (`dataRoot` vs `projectDir`), daemon
+  (run.json + a loopback probe that bypasses `fetch`, so TLS with a self-signed pair still answers),
+  logger, error, validator, atomic, config-text, template, env-file, workspace, openapi, factory,
+  version, and the leaves a layer reaches for once it exists (cookies, sse, event-stream, bind,
+  shell, copy-tree, backoff, deferred, runtime, open, last-stop, restore-lock, ui-dir, daemon-log,
+  utf8-chunks, action-result, secret-compare). This is the **bottom** of the import graph: it may read
+  `providers`, `config`, `middleware` and `shared`, and no layer above may be *required* by it. The
+  directory is not a licence to re-implement — a formatter that already exists as
+  `src/shared/ui-format.ts` or in a provider belongs there, not here as a fourth copy.
 - `uis/<name>/` — a Vite app (Vue 3 + Tailwind v4) built through `uis/vite.shared.ts`; `stock` is
   the one shipped in the package. Aliases: `@` → that UI's `src`, `@shared` → `src/shared`,
   `@server` → `src` (**types only**). `uis/<name>/public/ui.json` is the UI's identity.
@@ -97,9 +105,19 @@ and the copies had already drifted. The rule:
 - **Nothing in it imports Vue or `node:`** (the package does not ship Vue). Reactive values are detached
   with `clonePlain` (`clone.ts`), so form logic is shared (`proxy-form.ts`, `ddns-form.ts`) and only the
   render stays per-UI.
-- A helper whose signature genuinely differs per product stays per-UI (`formatBytes`, `formatDateTime`).
+- A **per-UI** helper whose signature genuinely differs between the two products stays per-UI
+  (`formatBytes`, `formatDateTime`). This carve-out is about `uis/` only and is **not** a licence
+  inside `src/`: `formatBytes` already exists once in `src/shared/proxy-form.ts` for the shared
+  proxy form, and the panel's own byte rendering has accreted separate copies in
+  `src/cli/usage.ts`, `src/cli/backup.ts` (`human`) and `src/providers/ui-release.ts`. A new
+  formatter in `src/` should reuse one of those or move a genuinely shared rule into
+  `src/shared/ui-format.ts` — a fourth spelling is the defect this bullet keeps getting misread as
+  permission for.
 - `test/shared/ui-parity.test.ts` fails if any consumer (the UIs **or** `src/**`) re-declares a shared
   member; `isRecord` (`shape.ts`) is matched by body, not name, and its `!Array.isArray` half is pinned.
+  It guards the four modules it names (`proxy-form`, `ddns-form`, `api-client`, `shape`) plus the
+  body-matched duplicate scans — it does not enumerate every module in `src/shared/`, so a new module
+  needs its own entry there (see `AGENTS.md`).
 - **Moving code means moving its tests**: `src/shared` has a 95% coverage floor, and code the UIs
   exercised only through components counts for nothing there.
 
@@ -117,6 +135,8 @@ into `dist/ui.json` after Vite runs; the release workflow passes `HHOSTED_UI_TAG
 build stamps `v<package.json version>`. Committing either was the defect — a zip is built before its
 release is cut, so the recorded tag could never reach the panel's own version and `ui-update`
 reinstalled the same UI on every boot. `stamp-uis.mjs` only *checks* the version; it writes nothing.
+It reads the index with `--diff-filter=ACMRD`, so deleting a shipped file under a UI counts as a
+change too — without the `D`, removing an export left `ui.json` unbumped (`343b8fd`).
 
 **A shared contract is a build input, and the hook cannot see it.** `@shared` is aliased into every UI
 bundle, so a change to `src/shared/contracts.ts` alters what each UI ships — but `stamp-uis.mjs` only

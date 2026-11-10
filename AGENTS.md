@@ -12,14 +12,15 @@ contract, and the two UIs in `uis/` are ordinary clients of it. pnpm; user docs 
 | Path | Owns |
 | --- | --- |
 | `src/cli.ts`, `src/cli/*` | the CLI; one lazy-loaded module per command. `--home`/`--project` are applied before any `#src` path module loads |
-| `src/index.ts` | `runControlPlane()`: all wiring, startup guards, `run.json`, signals. Wiring lives here only |
+| `src/index.ts` | `runControlPlane()`: all wiring, startup guards, `run.json`, signals. Wiring for the **panel** lives here only — `src/cli/backup-offline.ts` builds a second, deliberately smaller service graph because `backup list/create/restore` must work with no panel running |
 | `src/app.ts` | the Hono root, one chained expression (that is what keeps `AppType` typed). Middleware order: host guard → `/_hh` + `/_acme` (own auth) → `/api/*` auth guard → routes |
 | `src/api/*` | one route factory per URL group |
-| `src/services/*` | stateful orchestration: `panel` (one `WorkspaceRuntime` per workspace), `supervisor`, `proxy`, `backups`, `ddns`, `notifications`, `auth`, … |
+| `src/services/*` | stateful orchestration: `panel` (one `WorkspaceRuntime` per workspace), `supervisor`, `proxy`, `proxy-config`, `acme-challenge`, `backups`, `ddns`, `notifications`, `auth`, `exposure`, `ui`, `ui-update`, … |
 | `src/providers/*` | stateless leaves returning plain data: processes, ports, docker, host vitals, DDNS providers, archive, … |
 | `src/config/*` | settings/workspace stores, parsing, patches, migrations, secrets |
+| `src/helpers/*` | shared utilities every layer reaches for: `paths` (state/project dirs), `daemon` (run.json + loopback probe), `error`, `validator`, `atomic`, `template`, `env-file`, `config-text`, `logger`, `factory`, `openapi`, … It is the level below `services`/`api`/`cli`, so it may read `providers`, `config`, `middleware` and `shared` — but it **must not become a dumping ground**: this directory is why the same helper (a byte formatter, a path join, a duration render) starts appearing three times, so put a new utility here only when it is genuinely cross-layer, and look here before writing one |
 | `src/middleware/*` | `host` (DNS-rebinding guard), `auth` (session/token, CSRF), `loopback` (what counts as "this machine") |
-| `src/shared/*` | the only code both the server and the UIs import: `contracts.ts` (every ArkType schema), the API client, formatters, form logic. **No Vue, no `node:`** |
+| `src/shared/*` | code both the server and the UIs import, and the only place a module may be imported by both: `contracts.ts` (every ArkType schema), the API client, formatters, form logic. Directional rule: the panel and the UIs may import from here, never the reverse. Some members are server-only (`lazy`, `shape`, `generated`) and many are UI-only — the blanket "both import everything" reading is false. **No Vue, no `node:`** |
 | `uis/<name>/` | Vite + Vue UIs: `stock` ships in the package, `noc-console` is a release asset |
 
 Depth on module rationale: [`.agentDocs/ARCHITECTURE.md`](.agentDocs/ARCHITECTURE.md). Traps already
@@ -35,7 +36,7 @@ Releasing: [`.agentDocs/RELEASING.md`](.agentDocs/RELEASING.md), with upgrade no
 | add/change an API route | `src/api/<group>.ts`, or `src/api/<group>/$.routes.ts` for `auth`, `servers`, `workspaces` (chained factory) → mounted in `src/app.ts` | request/response schemas in `src/shared/contracts.ts`; `describeRoute` + `jsonBody`; a test in `test/api/` (`test/api/fixture.ts` builds a full app) |
 | add a server field | `serverSchema` + its patch schema in `src/shared/contracts.ts` | merge keys in `src/config/patch.ts` if nested; the forms in `uis/stock/src/components/server/` **and** `uis/noc-console/src/lib/serverForm.ts`; `docs/SERVERS.md`; `test/shared/contracts.test.ts` |
 | add a panel/workspace setting | the schema + patch in `contracts.ts`, the store in `src/config/settings.ts` or `store.ts` | the view in `src/services/state.ts`; `uis/stock/src/components/settings/settingsForm.ts` (+ its section `.vue`) and `uis/noc-console/src/views/*SettingsView.vue` |
-| change process lifecycle | `src/services/supervisor.ts` (the state machine); one concern per module in `src/services/supervisor/` (`port-preflight`, `persistent`, `health`, `records`, `spawn`, `compose`, `view`) | `src/providers/process.ts`, `port.ts`, `proc.ts`, `identity.ts`; persistent entries in `src/services/nanny.ts` + `src/providers/nanny.ts`; tests in `test/services/supervisor.test.ts` (real child processes) |
+| change process lifecycle | `src/services/supervisor.ts` (the state machine); one concern per module in `src/services/supervisor/` (`entry`, `spawn`, `port-preflight`, `health`, `persistent`, `compose`, `records`, `pending-load`, `view`) | `src/providers/process.ts`, `port.ts`, `proc.ts`, `identity.ts`; persistent entries in `src/services/nanny.ts` + `src/providers/nanny.ts`; tests in `test/services/supervisor.test.ts` (real child processes) |
 | add a DDNS provider | one file in `src/providers/ddns/` + a line in its `index.ts` | the settings form and validation follow from the provider's metadata; `docs/DDNS.md` |
 | add a notification channel | `src/services/notifications.ts`, `src/providers/telegram.ts` / `webhook.ts` | `docs/NOTIFICATIONS.md` |
 | touch backups/restore | `src/services/backups.ts`, `src/providers/archive.ts`, `src/helpers/copy-tree.ts` | `src/cli/backup.ts` (CLI), `docs/BACKUPS.md` |
@@ -62,6 +63,11 @@ setting `HHOSTED_HOME` in its own body. `test/support/test-home.ts` (`setupFiles
 a throwaway home first, and `test/support/real-home-guard.ts` fails the run if the real one changed. A
 test that sets or deletes the variable itself restores it.
 
+**A caller that only reads a store loads it with `{ write: false }`.** A bare `load()` seeds every
+missing file, so a command that promises to look (`backup list`, a backup plan, `status`) creates
+`.hh` and its configs as a side effect. New directories under `.hh` go through `ensureStateDir()`
+(`0700`), never a bare `mkdirSync`.
+
 ## Commands
 
 ```sh
@@ -83,7 +89,9 @@ pnpm run build:locales         # i18n/sheets/*.csv -> the git-ignored generated 
   whole suite with coverage runs on a manual dispatch of `test.yml` and in every release. `check:fast` follows imports, so a change only a spawned CLI or a source scan
   would see waits for `check`. Its first run in a fresh checkout is the whole suite.
 - Dev and test instances stay in the **6xxx** range; never assume 3999 is free — the user may have a
-  real panel there. Tests bind fixed ports, so two full suites on one machine collide.
+  real panel there. Test ports come from the per-worker blocks in `test/support/ports.ts` (20000+,
+  under every OS's ephemeral floor), so two full suites on one machine do not collide; the 6xxx
+  advice is for a **dev** instance you start by hand.
 - `pnpm-workspace.yaml`'s `allowBuilds` is load-bearing: dropping an entry makes `pnpm install` exit 1.
 - Running the Caddy engine writes the host's trust store (a root CA per engine data dir). Use the
   stubs in tests; if you run it against a scratch home, remove the root it installed.
@@ -103,6 +111,11 @@ These are the ones that prevent real defects. Break one only with a reason in th
   are added centrally in `finishSpec` (`src/openapi.ts`).
 - Patch schemas carry no defaults; nested groups merge key by key and `null` clears a key. Lists in a
   patch are replaced whole, so a form sends a list only when *it* changed it.
+- **A merged query schema's strictness comes from the ARGUMENT of `merge`.** `merge` keeps the
+  argument's `onUndeclaredKey`, so a route adding its own query key writes
+  `extra.merge(workspaceQuerySchema)`; the reverse spelling silently loses the rejection and a
+  misspelt `?worspace=` runs against the default workspace. Same for any strict group merged into a
+  permissive one — put the strict schema last. (`src/helpers/workspace.ts`)
 - `test/shared/contracts.test.ts` pins schema boundaries and patch/schema parity — update it with any
   schema change.
 
@@ -110,7 +123,9 @@ These are the ones that prevent real defects. Break one only with a reason in th
 - Never expose beyond loopback without auth and a non-default password: `checkExposure()` and
   `checkProxyExposure()` are the one rule, at startup, on every settings write, and in the UI.
 - "This machine" means `isLoopbackRequest()`: a loopback peer **without** forwarding headers. Never
-  test the peer address alone — the panel's own proxy connects from 127.0.0.1.
+  test the peer address alone — the panel's own proxy connects from 127.0.0.1. It is a **heuristic, not
+  a guarantee** (a proxy that strips the headers looks local), so never describe it as one, and never
+  build a second trust rule on it.
 - A public `Host` must be declared (`control.allowedHosts`) or be a panel proxy route (`createHostGuard`).
 - An API token is full admin (it can run commands through entries). Do not document it as less.
 - Secrets never enter a config file; secret files are 0600 and written with `writeFileAtomic`.
@@ -138,7 +153,12 @@ These are the ones that prevent real defects. Break one only with a reason in th
   `(workspaceId, serverId)`. Reach a workspace's services through `panel.requireWorkspace(id)`.
 - A core file never names a particular server. UIs are external clients: nothing in `src/` knows
   their markup, and UIs import `@shared/*` (and `@server` for types only).
-- `src/shared` has one declaration per member (`test/shared/ui-parity.test.ts`).
+- `src/shared` has one declaration per member. `test/shared/ui-parity.test.ts` enforces that for the
+  modules it names — `proxy-form`, `shape`, `api-client`, `ddns-form` and the duplicate-detection
+  scans over every `.ts`/`.vue` in `src/` and `uis/` — **not** for all ~28 modules: the newer ones
+  (`live-store`, `server-form`, `patch-diff`, `backup-scope`, `ui-format`, …) are unpinned, so a
+  re-declaration there is caught by nothing. Adding a module to `src/shared` means adding it to that
+  test, or accepting the gap knowingly.
 
 **Readings**
 - A metric or reading with no sample is **absent**, never `0`, on the scrape and in every UI. No
@@ -146,7 +166,9 @@ These are the ones that prevent real defects. Break one only with a reason in th
   Depth: [`.agentDocs/READINGS.md`](.agentDocs/READINGS.md).
 
 **CLI**
-- One refusal, one message, on stderr; `--json` prints one document on stdout or nothing.
+- One refusal, one message, on stderr; `--json` prints one document on stdout or nothing — except a
+  stream, where there is no document to print: `logs --follow --json` emits NDJSON, one
+  `{ path, line }` object per line (`src/cli/logs.ts`).
 - A numeric flag is a whole decimal integer; a flag the command cannot honour is refused.
 - `fail()` exits — never interpolate it.
 - The CLI talks to a running panel through `/_hh` (run.json token + loopback), never `/api`.

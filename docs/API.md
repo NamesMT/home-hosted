@@ -84,7 +84,9 @@ A body that is not valid JSON is `400 INVALID_INPUT`, like any other rejected in
 
 ## Endpoints
 
-✅ takes `?workspace=<id>`; everything else is panel-wide. The spec has every route, body and response.
+✅ takes `?workspace=<id>`; everything else is panel-wide. The spec documents every `/api`, `/_hh`
+and `/healthz` operation with its body and responses — the two documents that describe it
+(`/openapi/spec.json` and `/openapi/ui`) are served but not listed in it.
 
 | Endpoint | What it is | |
 | --- | --- | --- |
@@ -163,7 +165,7 @@ throughout reads `1`, not `0.0069`.
 
 ## The TypeScript client
 
-`home-hosted/client` ships in the package: a ~3 KB runtime over `hono/client`, typed from the
+`home-hosted/client` ships in the package: a ~2 KB gzipped runtime over `hono/client`, typed from the
 panel's own route table — every path, parameter, body and response — plus the event stream.
 
 ```ts

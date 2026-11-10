@@ -15,15 +15,17 @@ Every control is at least 24 px at normal density and 44 px under `@media (point
 phone gets the real guideline without the desktop chrome being restyled. The rule is one shared file
 — `../tap-targets.css`, imported by both UIs — rather than a size at each call site; a tick and a
 switch keep their small visual box and an invisible hit area (or their wrapping label) carries the
-floor. `test/shared/ui-tap-targets.test.ts` fails a UI that stops importing it, or a class that
-re-pins a control under it.
+floor. `test/shared/ui-tap-targets.test.ts` (repo root, not under this UI) fails a UI that stops
+importing it, or a class that re-pins a control under it.
 
 ## Run it in development
 
-`pnpm dev` starts the panel (`tsx watch`, port 3999) and this UI's Vite dev server together.
+`pnpm dev` starts the panel (`tsx watch`, port 6000) and this UI's Vite dev server together.
 
-- Vite dev server: `http://127.0.0.1:3998`, from `uis/vite.shared.ts` (`strictPort: true`).
-- `/api` is proxied to `http://127.0.0.1:3999`.
+- Vite dev server: `http://127.0.0.1:6001`, from `uis/vite.shared.ts` (`strictPort: true`).
+- `/api`, `/healthz` and `/openapi` are proxied to `http://127.0.0.1:6000`.
+- Both ports are the 6xxx range on purpose — an installed panel may hold 3999. Override with
+  `pnpm dev --port 6010 --ui-port 6011`.
 - Dev state goes to `.dev-state/`; UI edits hot-reload while the API keeps running.
 
 ## Build and check
@@ -32,14 +34,16 @@ re-pins a control under it.
 - `node scripts/build-uis.mjs stock --zip` also writes `uis/dist/home-hosted-ui-stock.zip`.
 - `pnpm run build:uis` builds and zips every UI under `uis/`.
 - `pnpm run build` builds the CLI plus this UI (`pnpm run build:ui`).
-- `pnpm run quickcheck` is eslint, `tsc` and `vue-tsc`; `pnpm test` is vitest over `uis/stock/test/**`.
+- `pnpm run quickcheck` is eslint, `tsc` and `vue-tsc`; `pnpm test` is the whole repo's vitest suite
+  (this UI's tests, `uis/stock/test/**`, included) — `pnpm exec vitest run uis/stock/test` narrows it
+  to this UI.
 
 ## Install it into a running panel
 
 The stock UI is what a panel serves when no custom UI is installed. It can still be installed
 from its release bundle:
 
-- Settings → Interface, pick the zip, then Install UI and refresh.
+- **Global settings → Interface**, pick the zip, then Install UI and refresh.
 - Or drop the build into `$HHOSTED_HOME/.ui` yourself (`index.html` at the root).
 - Or `home-hosted ui-switch --asset home-hosted-ui-stock.zip` (a unique substring works: `--asset stock`).
 - `home-hosted ui-revert` removes the custom UI and serves the packaged stock panel again.

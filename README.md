@@ -10,8 +10,10 @@
 
 Point it at the things you run — a gateway, a media server, a bot, a database — and it starts them,
 watches them, restarts what dies, and shows you one page of what is going on. Split them into
-[workspaces](#-workspaces) when one panel holds more than one setup, and
-[bring your own UI](#-bring-your-own-ui-byou) when you want one that fits you exactly.
+[workspaces](#-workspaces) when one panel holds more than one setup (a workspace is just a named
+group that owns its own servers, secrets and logs), and
+[bring your own UI](#-bring-your-own-ui-byou) (BYOU: a static site the panel serves instead of the
+stock one) when you want one that fits you exactly.
 
 [![npm](https://img.shields.io/npm/v/home-hosted.svg)](https://www.npmjs.com/package/home-hosted)
 [![Downloads](https://img.shields.io/npm/dm/home-hosted.svg)](https://www.npmjs.com/package/home-hosted)
@@ -95,6 +97,15 @@ to `~/.home-hosted/.hh/default/servers.config.json` and run `npx home-hosted sta
 <sub>Needs Node 24+. `pnpm dlx home-hosted …` works too. `--port`/`--host` on `up` are saved to
 `settings.json`, so the next plain `up` binds the same way.</sub>
 
+> [!IMPORTANT]
+> **Before you expose it to anything but this machine.** It listens on `127.0.0.1` until you say
+> otherwise, and it refuses to bind further — or to be put behind its own reverse proxy — while it
+> still has the generated password. So: set your own password first, *then* bind to `lan` (UI,
+> `settings.json`, or `up --host lan`). And an API token is **full admin**: it can create and start a
+> server entry, and an entry runs any command as the panel's user. Changing the password does **not**
+> revoke a token — rotate it with `set-token --generate`. The whole model, including which actions a
+> token is refused: [SECURITY.md](./docs/SECURITY.md).
+
 <details>
 <summary><b>📦 Install it instead of npx-ing it</b></summary>
 
@@ -173,11 +184,12 @@ curl -N -H "Authorization: Bearer hh_…" http://127.0.0.1:3999/api/events      
 home-hosted status --json                                                            # where everything is
 ```
 
-Building in TypeScript? `import { createClient } from 'home-hosted/client'` — a ~3 KB client typed
-from the panel's own routes, with the live event stream ([API.md](./docs/API.md#the-typescript-client)).
-Any other language: `GET /openapi/spec.json` describes all of it (browse at `/openapi/ui`), so an
-OpenAPI generator gives you a typed client. `GET /healthz` needs no credential and is `503` while any server needs attention —
-point your uptime monitor at it.
+Building in TypeScript? `import { createClient } from 'home-hosted/client'` — a ~2 KB gzipped client
+(5.2 KB raw) typed from the panel's own routes, with the live event stream
+([API.md](./docs/API.md#the-typescript-client)).
+Any other language: `GET /openapi/spec.json` documents every API route and its bodies (browse at
+`/openapi/ui`), so an OpenAPI generator gives you a typed client. `GET /healthz` needs no credential
+and is `503` while any server needs attention — point your uptime monitor at it.
 
 > [!WARNING]
 > **A token is full admin.** It can create and start server entries, which run commands as the
@@ -216,15 +228,27 @@ Give it four things and it can run your home server without guessing:
 
 ## ✨ Features
 
+### What a plain supervisor does not do
+
+| | |
+| --- | --- |
+| ♾️ **`persistent: true` survives the panel** | The entry runs under its own tiny supervisor (a **nanny** — this same CLI in a hidden mode) that owns its pipes and log file, so `down`, an upgrade or a crash leaves it serving; the next panel re-attaches |
+| 🔗 **`dependsOn` waits for *healthy*** | A dependent is held until the health probe of what it needs has passed — not until that process merely exists — so a web app never binds before its database accepts connections |
+| 🔄 **`onPortConflict: follow` adopts a self-restarting program** | A plugin that re-execs, or an updater that hands over to a new detached process, is recognised as *this entry's own successor* and taken over — pid, health, resources, stop — instead of blocking on its own port |
+| 👻 **The orphan list** | A process this panel started that no entry owns any more — a renamed or removed entry left it behind — is listed under **Servers** by id, pid and start time, with a **Stop it** button. Nothing is killed on a guess |
+
+The rest, one line each:
+
+<details>
+<summary><b>📋 The full feature list</b></summary>
+
 | | |
 | --- | --- |
 | 🗂 **Workspaces** | One panel, many setups. Each owns its servers, secrets, logs and settings; listener, auth, backups, TLS and UI stay panel-wide |
-| 🚦 **Lifecycle** | Start, stop, restart from the panel, the CLI or the API; `autostart` entries come up with it. A process left behind by a renamed entry is listed with a stop button |
+| 🚦 **Lifecycle** | Start, stop, restart from the panel, the CLI or the API; `autostart` entries come up with it |
 | 📝 **Hand edits welcome** | Edit `servers.config.json` or the panel's `settings.json` in an editor or `git checkout` — picked up in seconds. A file it cannot read is reported in the UI, and what is running is left alone |
 | ♻️ **Auto-restart** | Exponential backoff on crash, with a retry budget that survives a panel restart |
-| 🩺 **Health that acts** | TCP or HTTP probes: warn, then force a restart. Ports checked before starting; a program that restarts itself can be [followed](./docs/SERVERS.md#when-a-program-restarts-itself) |
-| 🔗 **Ordered startup** | `dependsOn` waits for a dependency to be *healthy*, not just spawned; `down` stops dependents first |
-| ♾️ **Persistent entries** | A server that keeps running — and logging — while the panel restarts or upgrades |
+| 🩺 **Health that acts** | TCP or HTTP probes: a card warns after `unhealthyThreshold` failed probes (default 3). Forcing a restart after a set time is **opt-in** — `forceRestartAfterMs` defaults to `0`, which never fires. Ports are checked before starting, and a program that restarts itself can be [followed](./docs/SERVERS.md#when-a-program-restarts-itself) |
 | 📜 **Logs** | Live stream, rotated files, search, download, clear |
 | 📈 **Resources** | CPU and memory per process tree (summed containers for compose), with an optional memory ceiling |
 | 🌡️ **Host vitals** | CPU, memory, swap, disk, temperature and load, with thresholds that alert once and again on recovery |
@@ -236,6 +260,8 @@ Give it four things and it can run your home server without guessing:
 | 🎨 **Bring your own UI** | Upload a static build; `ui-update` follows its releases, `ui-revert` goes back |
 | 🌍 **Translated** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French, German |
 | 🖥 **Cross-platform** | Linux, macOS and Windows — no shell utilities assumed |
+
+</details>
 
 ---
 
@@ -296,14 +322,14 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 
 | command | |
 | --- | --- |
-| `home-hosted up` | start the panel detached (already running? says where, exits 0) |
+| `home-hosted up` | start the panel detached. With one already running: says where and exits `0` — **if the flags agree**. `--port`/`--host` naming something else is refused (exit `1`, "`--port X` was not honoured"), because a re-run must not report success for a move it did not make |
 | `home-hosted down` | stop it and everything it started — persistent entries stay unless `--with-persistent` |
 | `home-hosted restart [<id>]` | the panel (`down` then `up`), or just one server, leaving the panel up |
 | `home-hosted status` | running? where? how many servers up? every path (`--json`) |
 | `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one (`-w <workspace>`, `--free-port`) |
 | `home-hosted free-port <id>` | ask whatever holds that server's port to stop; supervised holders are refused |
 | `home-hosted logs [<id>]` | the panel's console, or one server's log (`--lines`, `--follow`, `--json`) |
-| `home-hosted usage` | CPU and memory per server, loudest first, with restarts and crashes |
+| `home-hosted usage` | CPU and memory per server, loudest first, plus starts and crashes over the history window |
 | `home-hosted backup` | `list`, `create`, `restore` — works with the panel stopped |
 | `home-hosted set-password` / `set-token` | credentials, without a browser |
 | `home-hosted migrate` | bring configs up to this release's schema (`--dry-run`) |
@@ -345,6 +371,7 @@ environment       HHOSTED_PASSWORD, HHOSTED_TOKEN, HHOSTED_MIGRATE=allow, HHOSTE
 ```
 
 - `--json` prints one document on stdout or nothing; refusals go to stderr. Branch on the exit code.
+  The exception is a stream: `logs --follow --json` prints one `{ path, line }` object per line.
 - A flag a command cannot honour is refused, and `backup create`/`restore` without a terminal need
   `--confirm` (without it they show the plan and exit 1). Depth: [CLI.md](./docs/CLI.md).
 - Piping into `head`/`grep -q` exits 0, so `set -o pipefail` is safe.
@@ -371,10 +398,11 @@ upgrade needs from you. **Coming from 0.6.x:** run the latest 0.7.x once first.
 <details>
 <summary><b>🤔 What <code>status --json</code> tells you</b></summary>
 
-It always carries `running` and `liveness`: `live` (it is this panel), `unknown` (alive, start time
-unavailable — counted as running), `gone`, or `recycled` (the pid now belongs to another process —
-nothing is signalled). `answering: false` means the process exists but does not respond;
-`exitedCleanly` says whether someone ran `down` or it died. More: [CLI.md](./docs/CLI.md).
+`running` and `liveness` are always present. `liveness` is `live` (it is this panel), `unknown`
+(alive, start time unavailable — counted as running), `gone`, or `recycled` (the pid now belongs to
+another process — nothing is signalled). Then `answering: false` means the process exists but does not
+respond, and `exitedCleanly` says whether someone ran `down` or it died. There is more in that
+document (paths, ports, the missing-record cases) — [CLI.md](./docs/CLI.md#what-status-tells-you).
 
 </details>
 
@@ -402,7 +430,7 @@ set your own password.
 | --- | --- |
 | **Host** | an IP, `localhost`, a local name (`.local`, `.lan`, `homeserver`, …), a panel proxy route, or listed in `control.allowedHosts` — otherwise `421`. This blocks DNS-rebinding attacks from web pages you visit |
 | **Origin** | a cookie-authenticated write must be same-origin; bearer-token requests are exempt (browsers never attach one by themselves) |
-| **"This machine"** | a loopback peer with **no** forwarding header — so nothing relayed by a proxy, the panel's own included, gets local trust |
+| **"This machine"** | a loopback peer that also carries **none** of `Forwarded`, `X-Forwarded-For`, `X-Real-IP` or the `X-Forwarded-Proto`/`-Host`/`-Port`/`-Prefix` family. That is right for the panel's own reverse proxy and for any proxy that adds at least one of them — but it is a **heuristic, not a guarantee**: a proxy that strips them all is indistinguishable from a local client. Set `trustProxy` deliberately and never put the panel behind a header-stripping proxy |
 | **Lockout** | repeated failures lock out per client address; `trustProxy: "loopback"` (default) reads the real address from a proxy on this machine |
 
 Secrets never go in a config file: every secret file is `0600`, and `.hh` is `0700` from the moment
@@ -462,15 +490,16 @@ way in; archives from a newer release are refused.
 <details>
 <summary><b>⏱️ Schedules, and what not to restore</b></summary>
 
-- A schedule writes an `auto-…` archive every N hours with its own retention; it never prunes your
-  manual ones, nor zips the panel did not write.
+- A schedule writes an `auto-…` archive every N hours with its own retention, and never prunes the
+  ones you took by hand.
 - Pick per item: whole workspaces, or one secret, one data directory.
 - **The password and token hashes are secrets too** — restoring them reinstates the old machine's
   credentials. Leave `global:secrets` unticked, or rotate afterwards.
 - **A live database copied file by file can be torn.** Stop it around the backup, or declare
   `dump`/`load` hooks so the engine writes the backup itself.
 
-Everything else — what comes back, what does not: [BACKUPS.md](./docs/BACKUPS.md).
+That is the whole of what you have to decide before ticking a box. What an id selects, how retention
+counts, which paths follow a new host: [BACKUPS.md](./docs/BACKUPS.md).
 
 </details>
 
@@ -513,8 +542,8 @@ home-hosted usage             # what is eating the machine
 <summary><b>What happens to my servers when the panel stops?</b></summary>
 
 `down`, `SIGTERM` and `SIGINT` stop every server the panel started. `persistent` entries keep running
-under their own small supervisor and are re-attached by the next panel; `down --with-persistent`
-stops them too.
+under their **nanny** (the small supervisor described [above](#-features)) and are re-attached by the
+next panel; `down --with-persistent` stops them too.
 
 </details>
 
@@ -570,10 +599,22 @@ pnpm run check      # before pushing: lint, types, doc links and the full suite 
 ```
 
 ```text
-src/        the panel: cli/, api/ (routes), services/ (stateful), providers/ (OS/vendor leaves),
-            config/, middleware/, shared/ (schemas + client code the UIs import too)
-uis/        stock (ships in the package) and noc-console — Vite + Vue, static output
-docs/       user docs, mockups and media          test/   vitest
+src/          the panel. Top level: app.ts (Hono root), cli.ts, index.ts (all wiring),
+              client.ts (the published client), openapi.ts + openapi-reference.ts.
+              Then one directory per layer:
+              cli/ (one module per command)      api/ (one route factory per URL group)
+              services/ (stateful)               providers/ (OS/vendor leaves, plain data)
+              config/ (stores, parsing, migrations)   middleware/ (host, auth, loopback)
+              helpers/ (cross-layer utilities)   shared/ (schemas + code the UIs import too;
+                                                 no Vue, no node:)
+uis/          stock (ships in the package) and noc-console — Vite + Vue, static output.
+              Shared by both: vite.shared.ts (config, aliases, dev proxy) and tap-targets.css
+test/         vitest; one directory per src/ layer, plus support/ (harnesses), fixtures/
+              and scripts/ (tests that drive a script in scripts/)
+docs/         user docs, mockups/, media/, branding/, demo/
+scripts/      build, release and check helpers — quickcheck.mjs is the gate
+.agentDocs/   internals docs for agents; not published
+bin/          the published `home-hosted` / `hh` entry point
 ```
 
 | if you want to… | read |

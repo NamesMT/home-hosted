@@ -2,8 +2,9 @@
 
 **Goal:** the non-obvious failures this codebase has already paid for, so they are not repeated.
 **Scope:** one line of trap and rule per entry. Rules already stated in `AGENTS.md` are not repeated
-here. The measured story behind an entry lives in the commit that fixed it:
-`git log -S'<identifier>'` finds it.
+here; two that earned promotion to a Rule live there now (`{ write: false }` on a read-only store
+load, under **State**, and the argument-of-`merge` strictness rule, under **API contract**). The
+measured story behind an entry lives in the commit that fixed it: `git log -S'<identifier>'` finds it.
 
 Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
@@ -96,7 +97,6 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 ## Config
 
 - **The save baseline moves only with the object a save patches** — advancing it on a read let the next save overwrite a hand edit with a typo. (`assertSaveable`; `test/config`)
-- **A read-only caller loads a store with `{ write: false }`** — `load()` seeds missing files otherwise. New dirs under `.hh` go through `ensureStateDir()` (0700), never a bare `mkdirSync`.
 - **`reloadAll()` must not call a bare `settings.load()`** — that skips the exposure guard a hand edit meets.
 - **A chunked request sends no `Content-Length`** — bound uploads with `bodyLimit`, before the body is
   parsed.
@@ -195,8 +195,11 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **A long-lived connection re-checks its credential without sliding the session** (`{ slide: false }`), or an open tab keeps an idle session alive. (`src/helpers/event-stream.ts`)
 - **With `trustProxy: true`, srvx's `req.ip` is client-chosen** — never key a security limit on the address alone.
 - **A module-level schema is `lazy(() => type(…))`, and nothing at module level calls one** — building
-  every contract at import cost ~1.2 s per CLI command and test child. A schema method at module level
-  or a `.default(…)` inside `lazy` silently undoes it. (`src/shared/lazy.ts`; `test/shared/lazy.test.ts`)
+  every contract at import cost ~1.2 s per CLI command and test child. A **method called on the
+  `lazy(…)` wrapper itself** at module level builds it on import and undoes the wrapper; `.default(…)`
+  *inside* the thunk does not — it is a method on the real schema, which is where 45 of them live in
+  `contracts.ts` and `lazy.test.ts` proves the import stays at delta 0. (`src/shared/lazy.ts`;
+  `test/shared/lazy.test.ts`)
 - **ArkType errors are not `Error`s** — assert `expect(x).not.toBeInstanceOf(type.errors)`; an
   `instanceof Error` check passes for valid and invalid input alike, and copies of it keep turning up
   in tests.
@@ -207,9 +210,6 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **`onUndeclaredKey('ignore')` does not reach a nested group** — a response schema with a nested
   strict group needs `onDeepUndeclaredKey('ignore')`, tested with an unknown key at both levels.
   (`backupScheduleViewSchema`)
-- **`merge` keeps the argument's `onUndeclaredKey`** — `extra.merge(strict)` is strict and
-  `strict.merge(extra)` is not, so a query schema puts the strict workspace schema last.
-  (`workspaceQuerySchema`)
 - **A key list paired with the parser that reads it drifts silently** (`parseGrouped`) — check such
   pairs with a mutation, not a reading.
 - **A test for "which stream" keeps stdout and stderr apart** and asserts the other one is empty.

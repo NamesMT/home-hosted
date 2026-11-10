@@ -4,7 +4,9 @@ Every supervised process is one entry in a **workspace**'s `servers.config.json`
 `$HHOSTED_HOME/.hh/<workspace-id>/servers.config.json`, default `~/.home-hosted/.hh/default/…`.
 Add it with **➕ Add server** in the panel, or write it by hand — the panel writes the same file.
 
-<sub>A workspace is the ownership boundary: its servers, secrets, logs and nanny state are its own.
+<sub>A workspace is the ownership boundary: its servers, secrets, logs and nanny state are its own (a
+**nanny** is the small supervisor a `persistent` entry runs under — this same CLI in a hidden mode —
+so the entry outlives the panel; see [Persistent entries](#persistent-entries)).
 Pick one in the header; the workspace's server defaults and log retention sit in
 **Workspace Settings**. Panel-wide things (listener, auth, TLS, host vitals, backups, UI) stay in
 **Global settings**.</sub>
@@ -90,7 +92,7 @@ asks for a program of that name, because `command` is spawned with no shell.
 | `persistent` | run it under its own nanny so it survives the panel — see below |
 | `health.mode` | `port` (TCP connect) or `http` (path, expected status, expected body — a `HEAD` carries no body, so it is warned about and the body check is skipped) |
 | `health.http.scheme`, `health.http.allowInvalidCert` | `http` (default) or `https` for a backend that serves TLS itself; the second accepts a self-signed certificate, which is the usual case on a home network. A certificate is verified unless you say otherwise |
-| `health.unhealthyThreshold`, `forceRestartAfterMs` | how many failed probes before the card warns, and when to restart anyway — bounded by `restart.maxRetries`, after which the entry is stopped rather than restarted forever, with the reason left on its card |
+| `health.unhealthyThreshold`, `forceRestartAfterMs` | how many consecutive failed probes (default 3) before the card warns, and when to restart anyway — `forceRestartAfterMs` defaults to `0`, which **never** fires, so a forced restart is opt-in. When set, it is bounded by `restart.maxRetries`, after which the entry is stopped rather than restarted forever, with the reason left on its card |
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` — the spent budget is remembered on disk, so a crash loop cannot outlast `maxRetries` by outliving the panel |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
 | `dependsOn` | ids that must be healthy first. `stop-all`/`down` stop dependents before their dependencies; stopping **one** server does not cascade — the log names any dependent it left running. In a cycle (`a` → `b` → `a`) neither waits on the other |

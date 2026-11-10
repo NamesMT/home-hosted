@@ -19,7 +19,9 @@ the one you meant. Every command and flag on one screen: the README's
 ## Scripting
 
 - `--json` prints **one JSON document on stdout, or nothing**; every refusal goes to stderr. Branch
-  on the exit code first, then the document.
+  on the exit code first, then the document. The one exception is a stream, which has no single
+  document: `logs --follow --json` prints **one object per line** (NDJSON), each `{ path, line }`, so
+  a consumer needs no out-of-band knowledge of which file it is reading.
 - Piping into `head` or `grep -q` exits 0, not with a broken-pipe error, so `set -o pipefail` is safe.
 - `start` and `restart <id>` wait to confirm the process stayed up, so `start web && curl …` works.
 - `backup create`/`restore` never write without consent: at a terminal they ask, and without one they
@@ -29,7 +31,7 @@ the one you meant. Every command and flag on one screen: the README's
 ## What `status` tells you
 
 ```text
-home-hosted 0.12.0
+home-hosted <version>
   status     running
   servers    3 of 3 up
   pid        4242 · up 2h 14m
@@ -68,8 +70,13 @@ home-hosted usage                # what is eating the machine
 
 `logs` reads files directly, so it works when the panel is wedged. An id the workspace does not
 declare is refused with a suggestion rather than answered with an empty log. In `usage`, a stopped
-server shows a dash, never `0`; `RESTARTS` and `CRASH` cover the history window, so an entry that
-keeps restarting shows up even while its live readings look idle.
+server shows a dash, never `0`. `STARTS` and `CRASH` cover the history window: `STARTS` counts start
+events, so a long-lived server shows the start it got (usually `1`) rather than `0`, and a flapping
+one climbs — which is what makes it visible while its live CPU and memory still look idle. It is
+**not** the retry budget the panel shows on a server's card: that is `server.restarts`, the crashes
+spent out of `restart.maxRetries` on the current sequence, which a deliberate start resets. `--json`
+names the count `starts` for the same reason (a panel predating the rename sends `restarts`, and this
+command reads either).
 
 ## Upgrading
 
