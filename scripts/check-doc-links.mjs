@@ -26,7 +26,6 @@ const SHIPPED = [
   'docs/CLI.md',
   'docs/DDNS.md',
   'docs/NOTIFICATIONS.md',
-  'docs/RESTORE_DEMO.md',
   'docs/REVERSE_PROXY.md',
   'docs/SECURITY.md',
   'docs/SERVERS.md',

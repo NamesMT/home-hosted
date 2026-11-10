@@ -98,7 +98,7 @@ forbidden for this credential or origin, `404` unknown id, `409` the entry canno
 | `POST`/`DELETE /api/auth/token` | generate (session only, shown once) or revoke the API token | |
 | `GET`/`POST`/`DELETE /api/host/temperature` | the WSL2 temperature bridge: whether a helper is installed, install one, remove it (`supported: false` off WSL — hide the control) | |
 | `GET /api/metrics` | Prometheus text | |
-| `GET /healthz` | **no credential**: `200`/`503` and uptime; per-server counts with a credential | |
+| `GET /healthz` | **no credential**: `200`/`503` and uptime; per-server counts with a credential; to a caller on this machine, `home` — a fingerprint of the state directory, so the CLI can tell this home's panel from another one sharing the port | |
 
 An entry body is **partial**: send only the fields the person chose, and the workspace's server
 defaults fill the rest. Sending a default explicitly freezes it against later default changes.

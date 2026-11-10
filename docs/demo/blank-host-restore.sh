@@ -99,8 +99,9 @@ note "seeded 3 documents into blog.posts"
 
 say "Taking a backup"
 
-# The plan first: what the archive would capture, written nothing.
-HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all --exclude global:secrets
+# The plan first: what the archive would capture, written nothing. With no terminal to ask, a plan
+# without --confirm exits 1 (so an unattended job cannot mistake it for a backup) — expected here.
+HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all --exclude global:secrets || true
 HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup create --all --exclude global:secrets --confirm
 ARCHIVE="$(HHOSTED_HOME="$HOST_A" "${CLI[@]}" backup list --json | node -e '
   let raw = ""
@@ -149,7 +150,7 @@ cp "$HOST_A/.hh/.backups/$ARCHIVE" "$WORK/$ARCHIVE"
 # `--from` reads the archive where it lies, which on a blank host is all there is: nothing is copied
 # into a backups directory first.
 say "Planning the restore (nothing is written yet)"
-HHOSTED_HOME="$HOST_B" "${CLI[@]}" backup restore --from "$WORK/$ARCHIVE" --all
+HHOSTED_HOME="$HOST_B" "${CLI[@]}" backup restore --from "$WORK/$ARCHIVE" --all || true
 curl -fsS -o /dev/null -X POST \
   -H "Authorization: Bearer $SETUP_TOKEN" \
   -F "file=@$WORK/$ARCHIVE" \

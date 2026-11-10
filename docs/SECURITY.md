@@ -13,8 +13,10 @@ password. Nothing is exposed until you decide it should be.
 2. **Treat an API token as the account it runs as.** A token can create and start server entries,
    which run any command as the panel's user. Changing the password does *not* revoke it; rotate or
    revoke it under Global settings → Authentication, or with `set-token --generate` / `--clear`.
-3. **Forgot the password?** `home-hosted set-password --clear` on the machine edits the secrets file
-   directly — no login needed — and the panel picks it up at once.
+3. **Forgot the password?** Run `home-hosted set-password` on the machine: it writes a new one to
+   the secrets file directly — no login needed — and the panel picks it up at once.
+   (`set-password --clear` removes the password without setting another: authentication stays on and
+   nobody can sign in, so only this machine and an API token reach the panel until one is set.)
 
 ## How a request is trusted
 
@@ -53,7 +55,8 @@ itself, upload a PEM pair under Global settings → TLS.
 
 ## Secrets on disk
 
-Never in a config file. The whole state directory is `0700`, and each of these is `0600`:
+Never in a config file. The state directory (`.hh`) is created `0700` by whichever command creates
+it first, `up` tightens an older one to `0700`, and each of these is `0600`:
 
 | What | Where |
 | --- | --- |

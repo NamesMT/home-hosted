@@ -12,8 +12,9 @@ home-hosted backup restore <name> --all --confirm
 home-hosted backup restore --from /media/usb/x.zip --all --confirm
 ```
 
-Both work with the panel **stopped**, which is when you usually need them. A worked end-to-end
-example on a blank host, database included: [RESTORE_DEMO.md](./RESTORE_DEMO.md).
+Both work with the panel **stopped**, which is when you usually need them. Without `--confirm` they
+plan first: at a terminal they ask, and without one (cron, CI) they print the plan and exit 1, so an
+unattended job never mistakes a plan for a backup. `--json` without `--confirm` is just the plan.
 
 ## What an archive holds
 
@@ -42,7 +43,7 @@ What a schedule captures:
 
 | Mode | Carries | CLI spelling |
 | --- | --- | --- |
-| **Everything** *(default)* | every workspace, plus `includePaths` — including workspaces added later | *no flag* |
+| **Everything** *(default)* | every workspace, plus `includePaths` — including workspaces added later | `--all` |
 | **Only these** | only what you tick | `--include <ids>` |
 | **Everything except** | everything but what you tick, including workspaces added later | `--all --exclude <ids>` |
 
@@ -60,12 +61,8 @@ seen are created, data lands where *this* machine's config says, and `autostart`
   excluding one secret keeps the local copy of it.
 - **The password and token hashes are secrets too.** Restoring them reinstates the old machine's
   credentials. Leave `global:secrets` unticked, or rotate afterwards (`set-token --generate`).
-- **The plaintext first-run password is never archived by the panel.** `password.initial` is what
-  `up` and `status` print until you set your own; an archive is a copy *off* the box and is
-  unencrypted unless you gave a password, so it is dropped on every selection — the default one, a
-  file saved with a BOM, a declared data path that contains the state directory, and the scratch copy
-  a crashed atomic write leaves behind. The hash travels, and it is all a restore needs. A secrets
-  file you copied and renamed yourself is yours to judge: the panel only knows the names it writes.
+- **The plaintext first-run password is never archived** — only its hash, which is all a restore
+  needs.
 - **DDNS credentials are sealed under `HHOSTED_DDNS_SECRET`**, which is not in the archive. Use the
   same value on the new host, or re-enter them.
 
@@ -82,6 +79,18 @@ seen are created, data lands where *this* machine's config says, and `autostart`
 | Logs, crash history, nanny state | ❌ | they describe the old box |
 | An entry's `envFile` | ❌ | machine-local by design — copy it, or declare its directory in `backupPaths` |
 | The panel's own environment (`HHOSTED_*`, `${ENV}` values) | ❌ | set them on the new host |
+
+## Worked example
+
+[`demo/blank-host-restore.sh`](./demo/blank-host-restore.sh) runs the whole move against real
+panels in throwaway directories (it needs Docker): host A gets one MongoDB-backed entry with data,
+an archive is taken with `backup create --all --exclude global:secrets --confirm`, host B starts
+blank, and `backup restore --from <archive> --all --confirm` brings the workspace, the entry and its
+data back — the script then reads the database on host B to prove it.
+
+```bash
+docs/demo/blank-host-restore.sh   # cleans up after itself; touches nothing of yours
+```
 
 ## Databases
 

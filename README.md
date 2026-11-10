@@ -90,7 +90,10 @@ npx home-hosted down       # stop the panel *and* everything it started
 ```
 
 Open **<http://127.0.0.1:3999>**, sign in with the printed password, and change it under **Global
-settings → Authentication**. <sub>Needs Node 24+. `pnpm dlx home-hosted …` works too.</sub>
+settings → Authentication**. Then supervise something: **➕ Add server** in the panel, or add an entry
+to `~/.home-hosted/.hh/default/servers.config.json` and run `npx home-hosted start <id>`.
+<sub>Needs Node 24+. `pnpm dlx home-hosted …` works too. `--port`/`--host` on `up` are saved to
+`settings.json`, so the next plain `up` binds the same way.</sub>
 
 <details>
 <summary><b>📦 Install it instead of npx-ing it</b></summary>
@@ -189,19 +192,11 @@ point your uptime monitor at it.
 | --- | --- | --- |
 | `GET /api/state` | the full snapshot: settings, every workspace and server, host vitals | ❌ |
 | `GET /api/events` | SSE: `hello` (full state), then `state`, `server`, `log`, `ping` | optional |
-| `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the workspace registry | ❌ |
-| `GET`/`POST /api/servers`, `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | entries — `PUT` is create-or-replace, so a re-run converges | ✅ |
-| `POST /api/servers/:id/{start,stop,restart,free-port}`, `/api/servers/{start-all,stop-all}` | lifecycle | ✅ |
-| `GET /api/servers/:id/logs`, `/api/servers/:id/stream`, `/api/logs/:id` | buffered lines, one server's SSE, files on disk | ✅ |
-| `GET`/`PATCH /api/settings`, `GET`/`PATCH /api/settings/workspace` | panel-wide / per-workspace settings | ❌ / ✅ |
-| `/api/backups`, `/api/proxy`, `/api/ddns`, `/api/notifications/…` | backups, reverse proxy, dynamic DNS, alerts | ❌ ❌ ✅ ✅ |
-| `GET /api/metrics` | Prometheus text, with a bearer token | ❌ |
-| `GET /healthz` | no credential needed — for your monitor | ❌ |
+| `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | entries — `PUT` is create-or-replace, so a re-run converges | ✅ |
+| `POST /api/servers/:id/{start,stop,restart,free-port}` | lifecycle | ✅ |
 
 Every error is one envelope — `{ "message", "code", "detail"? }` — with a stable `code` to branch on.
-On a **workspace-scoped** route an undeclared query key is refused (`400`), so a typo like `?worspace=`
-never acts on the default workspace. Full reference, SSE frames, metrics and compatibility rules:
-**[API.md](./docs/API.md)**.
+Every endpoint, SSE frames, metrics and compatibility rules: **[API.md](./docs/API.md)**.
 
 </details>
 
@@ -305,10 +300,10 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | `home-hosted down` | stop it and everything it started — persistent entries stay unless `--with-persistent` |
 | `home-hosted restart [<id>]` | the panel (`down` then `up`), or just one server, leaving the panel up |
 | `home-hosted status` | running? where? how many servers up? every path (`--json`) |
-| `home-hosted start <id>` / `stop <id>` | one server, and what it `dependsOn` (`-w <workspace>`, `--free-port`) |
+| `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one (`-w <workspace>`, `--free-port`) |
 | `home-hosted free-port <id>` | ask whatever holds that server's port to stop; supervised holders are refused |
 | `home-hosted logs [<id>]` | the panel's console, or one server's log (`--lines`, `--follow`, `--json`) |
-| `home-hosted usage` | CPU and memory per server, loudest first |
+| `home-hosted usage` | CPU and memory per server, loudest first, with restarts and crashes |
 | `home-hosted backup` | `list`, `create`, `restore` — works with the panel stopped |
 | `home-hosted set-password` / `set-token` | credentials, without a browser |
 | `home-hosted migrate` | bring configs up to this release's schema (`--dry-run`) |
@@ -321,6 +316,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 
 ```text
 up                -p/--port <port> --host <local|lan|ipv4> --open --no-autostart --foreground --print-config
+                  (--port and --host are saved to settings.json)
 down              --with-persistent
 restart           (no id) down, then up: up's flags plus --with-persistent
 restart <id>      one server through the panel: [-w/--workspace <id>] — up's flags are refused here
@@ -328,12 +324,13 @@ status            --json
 start <id>        [-w/--workspace <id>] [--free-port]
 stop <id>         [-w/--workspace <id>]
 free-port <id>    [-w/--workspace <id>]
-logs [<id>]       --lines <n|all> --follow --json [-w/--workspace <id>]
+logs [<id>]       --lines <n≥1|all> --follow --json [-w/--workspace <id>]
 usage             --json
-backup            [list|create|restore] [<name> | --from <path>] (--include <ids> | --all) [--exclude <ids>]
-                  --password <text> --confirm --json
+backup list       --json
+backup create     (--include <ids> | --all) [--exclude <ids>] --password <text> --confirm --json
+backup restore    (<name> | --from <path>) (--include <ids> | --all) [--exclude <ids>] --password <text> --confirm --json
 init              --dir <dir> --name <name> --pm <pnpm|npm|yarn|bun> --no-install -y/--yes
-set-password      --clear                      (HHOSTED_PASSWORD for a script)
+set-password      --clear                      (HHOSTED_PASSWORD for a script; --clear locks every sign-in out)
 set-token         --generate --clear           (HHOSTED_TOKEN for a script)
 migrate           --dry-run -y/--yes           (HHOSTED_MIGRATE=allow for a script)
 ui-switch         --repo <owner/name> --tag <tag> --asset <name> --file <path|url> --list --token <token> -y/--yes
@@ -342,11 +339,14 @@ ui-revert         (no flags)
 setup-temp        --wsl [--download | --no-download] | --clear
 
 every command     --home <dir> --project <dir> -h/--help -v/--version   (or $HHOSTED_HOME, $HHOSTED_PROJECT)
+help <command>    the same as <command> --help
 environment       HHOSTED_PASSWORD, HHOSTED_TOKEN, HHOSTED_MIGRATE=allow, HHOSTED_DDNS_SECRET,
                   GITHUB_TOKEN / GH_TOKEN (ui-switch, ui-update)
 ```
 
 - `--json` prints one document on stdout or nothing; refusals go to stderr. Branch on the exit code.
+- A flag a command cannot honour is refused, and `backup create`/`restore` without a terminal need
+  `--confirm` (without it they show the plan and exit 1). Depth: [CLI.md](./docs/CLI.md).
 - Piping into `head`/`grep -q` exits 0, so `set -o pipefail` is safe.
 - `start web && curl …` works: `start` waits to confirm the process stayed up.
 - A misspelled command or flag suggests the one you meant.
@@ -391,7 +391,7 @@ set your own password.
 
 1. **Set your own password before exposing it**, then bind to `lan` (UI, config, or `up --host lan`).
 2. **Treat an API token as the account it runs as** — changing the password does *not* revoke it.
-3. **Forgot the password?** `home-hosted set-password --clear` on the machine; no login needed.
+3. **Forgot the password?** Run `home-hosted set-password` on the machine to set a new one; no login needed.
 
 </details>
 
@@ -405,7 +405,8 @@ set your own password.
 | **"This machine"** | a loopback peer with **no** forwarding header — so nothing relayed by a proxy, the panel's own included, gets local trust |
 | **Lockout** | repeated failures lock out per client address; `trustProxy: "loopback"` (default) reads the real address from a proxy on this machine |
 
-Secrets never go in a config file: every secret file is `0600`, the state directory `0700`. DDNS
+Secrets never go in a config file: every secret file is `0600`, and `.hh` is `0700` from the moment
+any command creates it. DDNS
 credentials are also sealed under `HHOSTED_DDNS_SECRET` — set your own if you commit or share `.hh/`.
 Details: [SECURITY.md](./docs/SECURITY.md).
 
@@ -580,7 +581,7 @@ docs/       user docs, mockups and media          test/   vitest
 | declare a server: every field, placeholders, port conflicts | [SERVERS.md](./docs/SERVERS.md) |
 | drive it from code: endpoints, SSE, errors, metrics | [API.md](./docs/API.md) |
 | every CLI command and what `status` means | [CLI.md](./docs/CLI.md) |
-| backups and restores in depth | [BACKUPS.md](./docs/BACKUPS.md) · [RESTORE_DEMO.md](./docs/RESTORE_DEMO.md) |
+| backups and restores in depth | [BACKUPS.md](./docs/BACKUPS.md) |
 | hostnames and HTTPS | [REVERSE_PROXY.md](./docs/REVERSE_PROXY.md) · [DDNS.md](./docs/DDNS.md) |
 | alerts | [NOTIFICATIONS.md](./docs/NOTIFICATIONS.md) |
 | the security model | [SECURITY.md](./docs/SECURITY.md) |
