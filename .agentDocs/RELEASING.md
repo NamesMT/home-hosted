@@ -100,8 +100,8 @@ stays visible in the run log rather than looking like a slip.
 ## What the package ships
 
 `pnpm pack` runs `prepack` (a full build) and ships the `files` list in `package.json`: `bin/`,
-`dist/`, `uis/stock/dist`, `README.md`, the ten user-facing `docs/*.md` (`API`, `BACKUPS`, `CLI`,
-`DDNS`, `NOTIFICATIONS`, `RESTORE_DEMO`, `REVERSE_PROXY`, `SECURITY`, `SERVERS`, `UI_CREATION`), the
+`dist/`, `uis/stock/dist`, `README.md`, the nine user-facing `docs/*.md` (`API`, `BACKUPS`, `CLI`,
+`DDNS`, `NOTIFICATIONS`, `REVERSE_PROXY`, `SECURITY`, `SERVERS`, `UI_CREATION`), the
 three `docs/branding` and `docs/demo` assets, and `LICENSE`. **`AGENTS.md` is not in that list** — the
 `files` array omits it, so it is repo-only like `.agentDocs/`, even though it is not gitignored.
 Neither is published: both are for agents working in this repo, so a pointer from `AGENTS.md` into

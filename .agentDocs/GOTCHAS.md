@@ -40,6 +40,10 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Supervision
 
+- **The tick never awaits a stop or restart** — it held every entry's probes for a stop grace. Use `restartInBackground`; skip entries already `stopping`/`starting`. (`supervisor.ts`; `supervisor-tick.test.ts`)
+- **Every helper child goes through `spawnManaged`** — a bare `spawn` misses `needsShell` (a `.cmd` throws EINVAL) and its own process group. (`supervisor/spawn.ts`)
+- **`nannyStateSchema` rejects undeclared keys** — a new nanny-state field makes an older panel read the file as missing and spawn a twin. The child's birth bound is the state's `startedAt` (`nannyChildPid`).
+- **"Crashed while away" is reported only from boot** (`resume({ reportAway })`, passed by `startAll`); a user's Start/Stop consumes the record silently.
 - **Overlapping `start`/`stop` double-spawn or resurrect** — `start()` sets `starting` before its first
   await, and `stopping` is cleared on every exit path of `stopEntry()`. Tests call
   `supervisor.dispose()`. (`src/services/supervisor.ts`)
@@ -91,6 +95,9 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Config
 
+- **The save baseline moves only with the object a save patches** — advancing it on a read let the next save overwrite a hand edit with a typo. (`assertSaveable`; `test/config`)
+- **A read-only caller loads a store with `{ write: false }`** — `load()` seeds missing files otherwise. New dirs under `.hh` go through `ensureStateDir()` (0700), never a bare `mkdirSync`.
+- **`reloadAll()` must not call a bare `settings.load()`** — that skips the exposure guard a hand edit meets.
 - **A chunked request sends no `Content-Length`** — bound uploads with `bodyLimit`, before the body is
   parsed.
 - **`cookieSecure: auto` rests on srvx rewriting `url.protocol` from `x-forwarded-proto` when
@@ -184,6 +191,9 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 
 ## Schemas and types
 
+- **`jsonBody(x)` / `resolver()` builds `x`** — at module level it undoes lazy loading; use a getter (`ERROR_RESPONSES`). (`test/shared/lazy.test.ts` imports every route module)
+- **A long-lived connection re-checks its credential without sliding the session** (`{ slide: false }`), or an open tab keeps an idle session alive. (`src/helpers/event-stream.ts`)
+- **With `trustProxy: true`, srvx's `req.ip` is client-chosen** — never key a security limit on the address alone.
 - **A module-level schema is `lazy(() => type(…))`, and nothing at module level calls one** — building
   every contract at import cost ~1.2 s per CLI command and test child. A schema method at module level
   or a `.default(…)` inside `lazy` silently undoes it. (`src/shared/lazy.ts`; `test/shared/lazy.test.ts`)

@@ -16,3 +16,26 @@ version ships: its text lives on in that GitHub release's body.
 `servers.config.json` was edited on disk after the panel last read it, a write through the API is
 refused instead of silently overwriting that edit. The panel reloads the file; retry the request. A
 script that treats every non-2xx as fatal should retry this one once.
+It is also refused while the file on disk does not parse or fails validation: fix the file first, then
+retry.
+
+**With no password in force, `/api` answers only this machine or the API token.** A panel with auth
+off that you reached through nginx, Caddy or a tunnel on the same host now answers those requests
+`401 AUTH_DISABLED_REMOTE`. Set a password (`home-hosted set-password`) to use it that way.
+
+**`backup create` / `backup restore` without `--confirm` and without a terminal exit 1.** A cron job
+or CI step printed the plan and exited 0 before, so a missing `--confirm` never took a backup. Add
+`--confirm`; `--json` without it is still the plan, exit 0.
+
+**`logs --lines` takes a whole number of at least 1, or `all`.** `--lines 0` (it meant the whole
+log) is now refused: use `--lines all`.
+
+**The published client refuses to send a token over plain http to another host.** Use https, or
+pass `allowInsecureToken: true` to `createClient` if the network is yours.
+
+**Failed sign-ins are capped panel-wide** (100 per 10 minutes, on top of the per-address limit).
+Past the cap every sign-in waits out the window; `home-hosted set-password` on the machine still
+works.
+
+**DDNS sends every record once more after the upgrade**, to record its options (`ttl`, `proxied`) in
+the cache.
