@@ -140,7 +140,8 @@ never a shell string.
 
 - **A failed `dump` refuses the backup.** An archive that looks complete is worse than no archive.
 - `load` runs after the files are restored, and its entry's data directory is restored first.
-- Both have `timeoutMs`, default 10 minutes, and `env`.
+- Both have `timeoutMs`, default 10 minutes, and `env`. Both UIs edit the hooks on the entry's
+  config page, with the timeout in seconds.
 
 Verified pairs, one per engine:
 
@@ -440,7 +441,12 @@ NucBox EVO-X1, where every built-in path returned a constant 20 °C.
 
 ## Editing fields
 
-Changes from the panel are atomic and validated before they are written. Editing the file by hand —
+Changes from the panel are atomic and validated before they are written, and a save sends only the
+fields you changed. If the entry changes elsewhere while its config page holds unsaved edits, the
+page keeps your edits and says so; saving then writes only them, never back over the other change.
+A number box you clear keeps its current value rather than becoming `0`.
+
+Editing the file by hand —
 an editor, a `git checkout`, a config-management tool — is picked up within a couple of seconds, no
 restart needed:
 

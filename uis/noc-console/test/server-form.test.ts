@@ -109,10 +109,10 @@ describe('blankSharedForm', () => {
 
     expect(sheet.cwd).toBe('')
     expect(sheet.logBufferLines).toBe('')
-    expect(sheet.bootstrapTimeoutMs).toBe('')
+    expect(sheet.bootstrapTimeoutSeconds).toBe('')
     expect(page.cwd).toBe('.')
     expect(page.logBufferLines).toBe('500')
-    expect(page.bootstrapTimeoutMs).toBe('120000')
+    expect(page.bootstrapTimeoutSeconds).toBe('120')
   })
 
   it('takes everything else from the panel defaults, identically on both sides', () => {
@@ -150,8 +150,8 @@ describe('the field catalogue', () => {
 
   it('drops no field either entry point used to render', () => {
     // The fields the two files rendered before the extraction, by the name of their model.
-    const sheetFields: FieldKey[] = ['id', 'label', 'command', 'args', 'cwd', 'port', 'bind', 'autostart', 'persistent', 'enabled', 'onPortConflict', 'logBufferLines', 'maxRssMb', 'envFile', 'dependsOn', 'env', 'dataEnvs', 'backupPaths', 'backupIgnoreGenerated', 'bootstrapEnabled', 'bootstrapCommand', 'bootstrapTimeoutMs', 'bootstrapRunOnce', 'bootstrapArgs', 'bootstrapEnv']
-    const pageFields: FieldKey[] = ['label', 'command', 'cwd', 'envFile', 'args', 'env', 'dataEnvs', 'backupPaths', 'backupIgnoreGenerated', 'port', 'bind', 'customBind', 'onPortConflict', 'logBufferLines', 'liveBind', 'enabled', 'autostart', 'persistent', 'dependsOn', 'maxRssMb', 'bootstrapEnabled', 'bootstrapCommand', 'bootstrapTimeoutMs', 'bootstrapRunOnce', 'bootstrapArgs', 'bootstrapEnv']
+    const sheetFields: FieldKey[] = ['id', 'label', 'command', 'args', 'cwd', 'port', 'bind', 'autostart', 'persistent', 'enabled', 'onPortConflict', 'logBufferLines', 'maxRssMb', 'envFile', 'dependsOn', 'env', 'dataEnvs', 'backupPaths', 'backupIgnoreGenerated', 'bootstrapEnabled', 'bootstrapCommand', 'bootstrapTimeoutSeconds', 'bootstrapRunOnce', 'bootstrapArgs', 'bootstrapEnv']
+    const pageFields: FieldKey[] = ['label', 'command', 'cwd', 'envFile', 'args', 'env', 'dataEnvs', 'backupPaths', 'backupIgnoreGenerated', 'port', 'bind', 'customBind', 'onPortConflict', 'logBufferLines', 'liveBind', 'enabled', 'autostart', 'persistent', 'dependsOn', 'maxRssMb', 'bootstrapEnabled', 'bootstrapCommand', 'bootstrapTimeoutSeconds', 'bootstrapRunOnce', 'bootstrapArgs', 'bootstrapEnv', 'dumpEnabled', 'dumpCommand', 'dumpTimeoutSeconds', 'dumpArgs', 'dumpEnv', 'loadEnabled', 'loadCommand', 'loadTimeoutSeconds', 'loadArgs', 'loadEnv']
 
     for (const key of sheetFields)
       expect(FIELD_SPECS.sheet[key], `sheet lost ${key}`).toBeTruthy()
@@ -198,7 +198,7 @@ describe('the field catalogue', () => {
       'args',
       'bind',
       'bootstrapCommand',
-      'bootstrapTimeoutMs',
+      'bootstrapTimeoutSeconds',
       'command',
       'dependsOn',
       'envFile',

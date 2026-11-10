@@ -183,10 +183,13 @@ describe('detachConfig', () => {
  */
 describe('clearing the label', () => {
   it('sends null, in both UIs', () => {
+    // The payload is built once, in the shared form both editors read.
+    const shared = readFileSync(new URL('../../../src/shared/server-form.ts', import.meta.url), 'utf8')
+    expect(shared, 'the shared form must send null for an emptied label').toMatch(/label: .*\? null :/)
+    expect(shared, 'the shared form must not send a bare blank label').not.toMatch(/label: form\.label\.trim\(\),/)
     for (const file of ['../src/views/ServerConfigView.vue', '../../stock/src/components/server/ServerConfigEditor.vue']) {
       const source = readFileSync(new URL(file, import.meta.url), 'utf8')
-      expect(source, `${file} must send null for an emptied label`).toMatch(/label: .*\? null :/)
-      expect(source, `${file} must not send a bare blank label`).not.toMatch(/label: form\.label\.trim\(\),/)
+      expect(source, `${file} must build its payload through the shared form`).toMatch(/serverEditPayload\(/)
     }
   })
 })

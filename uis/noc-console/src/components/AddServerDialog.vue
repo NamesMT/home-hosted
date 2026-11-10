@@ -2,6 +2,7 @@
 import type { ServerDefaults } from '@shared/contracts'
 import { parseBind, serverCreateSchema } from '@shared/contracts'
 import { diffFields } from '@shared/patch-diff'
+import { BOOTSTRAP_TIMEOUT_MS, hookTimeoutMs } from '@shared/server-form'
 import { type } from 'arktype'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/LifecycleFields.vue'
@@ -65,7 +66,7 @@ watch(() => props.open, async (open) => {
  */
 function buildPayload(): Record<string, unknown> {
   const bufferLines = form.logBufferLines.trim()
-  const bootstrapMs = Number(form.bootstrapTimeoutMs)
+  const bootstrapMs = hookTimeoutMs(form.bootstrapTimeoutSeconds, undefined, BOOTSTRAP_TIMEOUT_MS)
   const defaults = workspace.defaults.value
   const baseline = inheritBaseline(defaults)
 
@@ -126,7 +127,7 @@ function buildPayload(): Record<string, unknown> {
       command: form.bootstrapCommand.trim(),
       args: linesToArray(form.bootstrapArgs),
       env: textToEnv(form.bootstrapEnv),
-      timeoutMs: Number.isFinite(bootstrapMs) && bootstrapMs >= 1000 ? bootstrapMs : 120000,
+      timeoutMs: bootstrapMs >= 1000 ? bootstrapMs : BOOTSTRAP_TIMEOUT_MS,
       runOnce: form.bootstrapRunOnce,
     }
   }

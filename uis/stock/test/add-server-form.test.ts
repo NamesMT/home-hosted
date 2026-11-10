@@ -229,7 +229,7 @@ describe('add-server policy groups', () => {
       bootstrapCommand: './install.sh',
       bootstrapArgs: '--verbose',
       bootstrapEnv: 'CI=1',
-      bootstrapTimeoutMs: 5,
+      bootstrapTimeoutSeconds: 0,
     })
 
     expect(payload.bootstrap).toEqual({
@@ -239,6 +239,10 @@ describe('add-server policy groups', () => {
       timeoutMs: 120000,
       runOnce: true,
     })
+    // The box is in seconds (the schema floor is a second); a cleared one is the default, not 0.
+    const timeout = (seconds: number | null): unknown => addServerPayload({ ...base, bootstrapEnabled: true, bootstrapCommand: 'x', bootstrapTimeoutSeconds: seconds }).bootstrap?.timeoutMs
+    expect(timeout(30)).toBe(30_000)
+    expect(timeout(null)).toBe(120_000)
     expect(t(addServerProblem({ ...base, bootstrapEnabled: true })!.key)).toContain('bootstrap needs a command')
   })
 })

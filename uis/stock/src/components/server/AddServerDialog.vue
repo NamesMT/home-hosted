@@ -307,7 +307,7 @@ async function submit(): Promise<void> {
               placeholder="./scripts/install.sh"
               class="font-mono text-xs"
             />
-            <NumberField v-model="form.bootstrapTimeoutMs" :label="t('serverForm.timeoutMs')" :min="1000" :step="1000" />
+            <NumberField v-model="form.bootstrapTimeoutSeconds" :label="t('serverForm.timeoutSeconds')" nullable :min="1" />
             <ToggleSwitch v-model="form.bootstrapRunOnce" :label="t('serverForm.runOnce')" :hint="t('serverForm.runOnceHint')" />
             <TextAreaField
               v-model="form.bootstrapArgs"

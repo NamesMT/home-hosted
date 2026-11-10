@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import type { HealthConfig, OnPortConflict, RestartConfig, ServerConfig, StopConfig } from '@shared/contracts'
+import type { HealthConfig, RestartConfig, ServerConfig, StopConfig } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
-import { clonePlain } from '@shared/clone'
+import type { ServerEditForm } from '@shared/server-form'
 import { serverPatchSchema } from '@shared/contracts'
-import { countLeaves, describeChanges, diffServerConfig } from '@shared/patch-diff'
+import { countLeaves, describeChanges } from '@shared/patch-diff'
+import { fillSnapshot, liveConfigUpdate, serverEditForm, serverEditPatch, serverEditPayload } from '@shared/server-form'
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
@@ -20,7 +21,6 @@ import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import TransText from '@/components/ui/TransText.vue'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { t, tc } from '@/i18n'
-import { commaList, envToText, linesToArray, textToEnv } from '@/lib/fields'
 import { formatChangeValue } from '@/lib/format'
 
 const props = defineProps<{
@@ -32,95 +32,20 @@ const props = defineProps<{
 
 const emit = defineEmits<{ saved: [], cancel: [] }>()
 
-/** Nested groups whose patch is merged sub-key by sub-key by the store. */
-const NESTED = ['restart', 'health', 'stop'] as const
-
 const control = useControlPlane()
 
 const saving = ref(false)
 const error = ref<string | null>(null)
 
-function megabytes(bytes: number): number | null {
-  return bytes > 0 ? Math.round(bytes / 1024 / 1024) : null
-}
+/**
+ * The form and its round trip live in `@shared/server-form`, which the console's page reads too.
+ * Restart/health/stop are held apart only because `LifecycleFields` binds them as typed groups.
+ */
+type EditorForm = Omit<ServerEditForm<number | null>, 'restart' | 'health' | 'stop'>
 
-interface EditorForm {
-  label: string
-  command: string
-  cwd: string
-  args: string
-  env: string
-  dataEnvs: string
-  backupPaths: string
-  backupIgnoreGenerated: boolean
-  dependsOn: string
-  envFile: string
-  maxRssMb: number | null
-  port: number | null
-  bind: string
-  onPortConflict: OnPortConflict
-  logBufferLines: number | null
-  enabled: boolean
-  autostart: boolean
-  persistent: boolean
-  bootstrapEnabled: boolean
-  bootstrapCommand: string
-  bootstrapArgs: string
-  bootstrapEnv: string
-  bootstrapTimeoutMs: number | null
-  bootstrapRunOnce: boolean
-  dumpEnabled: boolean
-  dumpCommand: string
-  dumpArgs: string
-  dumpEnv: string
-  dumpTimeoutMs: number | null
-  loadEnabled: boolean
-  loadCommand: string
-  loadArgs: string
-  loadEnv: string
-  loadTimeoutMs: number | null
-}
-
-/** Text stays text, numbers stay numbers, and a blank numeric field stays blank rather than 0. */
 function formFrom(config: ServerConfig): EditorForm {
-  return {
-    label: config.label ?? '',
-    command: config.command,
-    cwd: config.cwd,
-    args: config.args.join('\n'),
-    env: envToText(config.env),
-    dataEnvs: envToText(config.dataEnvs),
-    backupPaths: config.backupPaths.join('\n'),
-    // Absent in a payload from a panel that predates the field: the default is on.
-    backupIgnoreGenerated: config.backupIgnoreGenerated !== false,
-    dependsOn: config.dependsOn.join(', '),
-    envFile: config.envFile,
-    maxRssMb: megabytes(config.resources.maxRssBytes),
-    port: config.port,
-    bind: config.bind,
-    onPortConflict: config.onPortConflict,
-    logBufferLines: config.logBufferLines,
-    enabled: config.enabled,
-    autostart: config.autostart,
-    // Absent in a payload from a panel that predates the field: the default is off.
-    persistent: config.persistent === true,
-    bootstrapEnabled: config.bootstrap !== null && config.bootstrap !== undefined,
-    bootstrapCommand: config.bootstrap?.command ?? '',
-    bootstrapArgs: (config.bootstrap?.args ?? []).join('\n'),
-    bootstrapEnv: envToText(config.bootstrap?.env ?? {}),
-    bootstrapTimeoutMs: config.bootstrap?.timeoutMs ?? 120000,
-    bootstrapRunOnce: config.bootstrap?.runOnce ?? true,
-    dumpEnabled: config.dump !== null && config.dump !== undefined,
-    dumpCommand: config.dump?.command ?? '',
-    dumpArgs: (config.dump?.args ?? []).join('\n'),
-    dumpEnv: envToText(config.dump?.env ?? {}),
-    dumpTimeoutMs: config.dump?.timeoutMs ?? 600000,
-    loadEnabled: config.load !== null && config.load !== undefined,
-    loadCommand: config.load?.command ?? '',
-    loadArgs: (config.load?.args ?? []).join('\n'),
-    loadEnv: envToText(config.load?.env ?? {}),
-    loadTimeoutMs: config.load?.timeoutMs ?? 600000,
-  }
+  const { restart: _restart, health: _health, stop: _stop, ...rest } = serverEditForm(config)
+  return rest
 }
 
 const form = reactive<EditorForm>(formFrom(props.config))
@@ -129,136 +54,62 @@ const restart = ref<RestartConfig>({ ...props.config.restart })
 const health = ref<HealthConfig>(cloneHealth(props.config.health))
 const stop = ref<StopConfig>({ ...props.config.stop })
 
-function buildPayload(): Record<string, unknown> {
-  // A non-nullable NumberField yields NaN while it is being cleared; the log
-  // buffer has a floor of its own, and 0 would be rejected outright.
-  const maxRssMb = Number.isFinite(form.maxRssMb) ? form.maxRssMb! : 0
-  const logBufferLines = Number.isFinite(form.logBufferLines) && form.logBufferLines! >= 50 ? form.logBufferLines! : 50
-  const bootstrapTimeoutMs = Number.isFinite(form.bootstrapTimeoutMs) ? form.bootstrapTimeoutMs! : 0
-  const dumpTimeoutMs = Number.isFinite(form.dumpTimeoutMs) ? form.dumpTimeoutMs! : 0
-  const loadTimeoutMs = Number.isFinite(form.loadTimeoutMs) ? form.loadTimeoutMs! : 0
+/** The config the form was last filled from: what a cleared box falls back to, and what Save diffs against. */
+const filled = ref<ServerConfig>(fillSnapshot(props.config))
 
+/** Set when the entry changed elsewhere while this form held edits. */
+const changedElsewhere = ref(false)
+
+function wholeForm(): ServerEditForm {
   return {
-    // An emptied label sends **null**, which removes the key, so every display falls back to the id — which
-    // is what the field's own label promises. Sending `label: ''` stored an empty string instead, and
-    // `label ?? id` does not fire on an empty string, so the card went blank and a notification read
-    // ` (web) crashed`. The add dialog omits the key for a new entry, which is right there: there is
-    // nothing to clear yet.
-    label: form.label.trim().length === 0 ? null : form.label.trim(),
-    command: form.command.trim(),
-    cwd: form.cwd.trim() === '' ? '.' : form.cwd.trim(),
-    args: linesToArray(form.args),
-    env: textToEnv(form.env),
-    dataEnvs: textToEnv(form.dataEnvs),
-    backupPaths: linesToArray(form.backupPaths),
-    backupIgnoreGenerated: form.backupIgnoreGenerated,
-    dependsOn: commaList(form.dependsOn),
-    envFile: form.envFile.trim(),
-    resources: { maxRssBytes: maxRssMb > 0 ? Math.round(maxRssMb * 1024 * 1024) : 0 },
-    port: form.port === null || Number.isNaN(form.port) ? null : form.port,
-    bind: form.bind,
-    onPortConflict: form.onPortConflict,
-    logBufferLines,
-    enabled: form.enabled,
-    autostart: form.autostart,
-    persistent: form.persistent,
-    restart: { ...restart.value },
-    health: cloneHealth(health.value),
-    stop: { ...stop.value },
-    bootstrap: form.bootstrapEnabled
-      ? {
-          command: form.bootstrapCommand.trim(),
-          args: linesToArray(form.bootstrapArgs),
-          env: textToEnv(form.bootstrapEnv),
-          timeoutMs: bootstrapTimeoutMs,
-          runOnce: form.bootstrapRunOnce,
-        }
-      : null,
-    dump: form.dumpEnabled
-      ? {
-          command: form.dumpCommand.trim(),
-          args: linesToArray(form.dumpArgs),
-          env: textToEnv(form.dumpEnv),
-          timeoutMs: dumpTimeoutMs,
-        }
-      : null,
-    load: form.loadEnabled
-      ? {
-          command: form.loadCommand.trim(),
-          args: linesToArray(form.loadArgs),
-          env: textToEnv(form.loadEnv),
-          timeoutMs: loadTimeoutMs,
-        }
-      : null,
+    ...form,
+    restart: restart.value,
+    health: { ...health.value, http: { ...health.value.http, expectStatus: health.value.http.expectStatus ?? null } },
+    stop: stop.value,
   }
 }
 
-/** Only the changed sub-keys: the store merges a nested group rather than replacing it. */
-function groupPatch(payload: Record<string, unknown>, group: typeof NESTED[number]): Record<string, unknown> | null {
-  const before = (props.config[group] ?? {}) as Record<string, unknown>
-  const after = (payload[group] ?? {}) as Record<string, unknown>
-  const changed: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(after)) {
-    if (before[key] !== value)
-      changed[key] = value
-  }
-  return Object.keys(changed).length > 0 ? changed : null
-}
-
-function buildDiff(payload: Record<string, unknown>): Record<string, unknown> {
-  for (const group of NESTED) {
-    if (groupPatch(payload, group) === null)
-      delete payload[group]
-  }
-  return diffServerConfig(props.config, payload)
-}
-
-function same(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
-}
-
-/** Exactly what Save would write: the payload minus everything that did not change. */
-const patch = computed(() => buildDiff(buildPayload()))
+/** Exactly what Save would write: the payload minus everything equal to what the form was filled with. */
+const patch = computed(() => serverEditPatch(wholeForm(), filled.value))
 
 const changed = computed(() => countLeaves(patch.value))
 const canSave = computed(() => changed.value > 0)
 
 /** The pending patch as readable rows, for the review dialog. */
-const changes = computed(() => describeChanges(patch.value, props.config as unknown as Patch))
+const changes = computed(() => describeChanges(patch.value, filled.value as unknown as Patch))
 const showChanges = ref(false)
-
-/** The inbound config the form was last synced to, so a state refresh does not wipe unsaved edits. */
-let source: ServerConfig = clonePlain(props.config)
 
 function resetFrom(config: ServerConfig): void {
   Object.assign(form, formFrom(config))
   restart.value = { ...config.restart }
   health.value = cloneHealth(config.health)
   stop.value = { ...config.stop }
-  source = clonePlain(config)
+  filled.value = fillSnapshot(config)
+  changedElsewhere.value = false
   error.value = null
 }
 
 watch(() => props.config, (next) => {
-  // The control plane re-creates every config object on each state refresh; only
-  // a genuine change replaces what the user has typed so far.
-  if (!same(next, source))
+  // The control plane re-creates every config object on each state refresh. A genuine change
+  // refills a clean form; a form holding edits keeps them and says the entry moved underneath it.
+  const action = liveConfigUpdate(next, filled.value, changed.value > 0)
+  if (action === 'refill')
     resetFrom(next)
+  else if (action === 'notice')
+    changedElsewhere.value = true
 })
 
 async function save(): Promise<void> {
   error.value = null
   saving.value = true
   try {
-    const payload = buildPayload()
-
-    const parsed = serverPatchSchema(payload)
+    const parsed = serverPatchSchema(serverEditPayload(wholeForm(), filled.value))
     if (parsed instanceof type.errors) {
       error.value = parsed.summary
       return
     }
 
-    const pending = buildDiff(payload)
+    const pending = patch.value
     if (Object.keys(pending).length === 0) {
       emit('saved')
       return
@@ -307,6 +158,13 @@ async function save(): Promise<void> {
       </div>
     </header>
 
+    <p v-if="changedElsewhere" class="mb-3 flex flex-wrap items-center gap-2 rounded-control border border-warn/40 bg-warn-soft px-2.5 py-1.5 text-2xs leading-4 text-warn" role="status">
+      <span class="min-w-0 flex-1">{{ t('editor.changedElsewhere') }}</span>
+      <AppButton size="sm" variant="ghost" @click="resetFrom(props.config)">
+        {{ t('editor.reloadChanged') }}
+      </AppButton>
+    </p>
+
     <div class="flex flex-col gap-3">
       <FieldGroup
         :title="t('editor.process')"
@@ -352,7 +210,7 @@ async function save(): Promise<void> {
           wide
         />
         <TextField v-model="form.dependsOn" :label="t('serverForm.dependsOn')" placeholder="postgres, redis" :hint="t('serverForm.dependsOnHint')" class="font-mono text-xs" />
-        <NumberField v-model="form.maxRssMb" :label="t('serverForm.maxRssMb')" :min="0" :hint="t('serverForm.maxRssHint')" />
+        <NumberField v-model="form.maxRssMb" nullable :label="t('serverForm.maxRssMb')" :min="0" :hint="t('serverForm.maxRssHint')" />
       </FieldGroup>
 
       <FieldGroup
@@ -373,7 +231,7 @@ async function save(): Promise<void> {
             { value: 'kill', label: t('onPortConflict.kill') },
           ]"
         />
-        <NumberField v-model="form.logBufferLines" :label="t('serverForm.logBufferLines')" :min="50" :max="100000" :step="50" />
+        <NumberField v-model="form.logBufferLines" nullable :label="t('serverForm.logBufferLines')" :min="50" :max="100000" :step="50" />
       </FieldGroup>
 
       <FieldGroup
@@ -398,31 +256,31 @@ async function save(): Promise<void> {
         :columns="2"
       >
         <ToggleSwitch
-          v-model="form.bootstrapEnabled"
+          v-model="form.bootstrap.enabled"
           :label="t('serverForm.runBootstrap')"
           :hint="t('serverForm.bootstrapHint')"
           wide
         />
-        <template v-if="form.bootstrapEnabled">
+        <template v-if="form.bootstrap.enabled">
           <TextField
-            v-model="form.bootstrapCommand"
+            v-model="form.bootstrap.command"
             :label="t('common.command')"
             placeholder="./scripts/install.sh"
             class="font-mono text-xs"
           />
-          <NumberField v-model="form.bootstrapTimeoutMs" :label="t('serverForm.timeoutMs')" :min="1000" :step="1000" />
-          <ToggleSwitch v-model="form.bootstrapRunOnce" :label="t('serverForm.runOnce')" :hint="t('serverForm.runOnceHint')" />
+          <NumberField v-model="form.bootstrap.timeoutSeconds" :label="t('serverForm.timeoutSeconds')" nullable :min="1" />
+          <ToggleSwitch v-model="form.bootstrap.runOnce" :label="t('serverForm.runOnce')" :hint="t('serverForm.runOnceHint')" />
         </template>
         <TextAreaField
-          v-if="form.bootstrapEnabled"
-          v-model="form.bootstrapArgs"
+          v-if="form.bootstrap.enabled"
+          v-model="form.bootstrap.args"
           :label="t('serverForm.bootstrapArgs')"
           :rows="2"
           :hint="t('serverForm.bootstrapArgsHint')"
         />
         <TextAreaField
-          v-if="form.bootstrapEnabled"
-          v-model="form.bootstrapEnv"
+          v-if="form.bootstrap.enabled"
+          v-model="form.bootstrap.env"
           :label="t('serverForm.bootstrapEnv')"
           :rows="2"
           :hint="t('serverForm.bootstrapEnvHint')"
@@ -435,28 +293,28 @@ async function save(): Promise<void> {
         :columns="2"
       >
         <ToggleSwitch
-          v-model="form.dumpEnabled"
+          v-model="form.dump.enabled"
           :label="t('serverForm.dumpEnabled')"
           :hint="t('serverForm.dumpEnabledHint')"
           wide
         />
-        <template v-if="form.dumpEnabled">
+        <template v-if="form.dump.enabled">
           <TextField
-            v-model="form.dumpCommand"
+            v-model="form.dump.command"
             :label="t('serverForm.dumpCommand')"
             placeholder="mongodump"
             class="font-mono text-xs"
           />
-          <NumberField v-model="form.dumpTimeoutMs" :label="t('serverForm.timeoutMs')" :min="1000" :step="1000" />
+          <NumberField v-model="form.dump.timeoutSeconds" :label="t('serverForm.timeoutSeconds')" nullable :min="1" />
           <TextAreaField
-            v-model="form.dumpArgs"
+            v-model="form.dump.args"
             :label="t('serverForm.dumpArgs')"
             :rows="2"
             :hint="t('serverForm.dumpArgsHint')"
             wide
           />
           <TextAreaField
-            v-model="form.dumpEnv"
+            v-model="form.dump.env"
             :label="t('serverForm.hookEnv')"
             :rows="2"
             wide
@@ -464,28 +322,28 @@ async function save(): Promise<void> {
         </template>
 
         <ToggleSwitch
-          v-model="form.loadEnabled"
+          v-model="form.load.enabled"
           :label="t('serverForm.loadEnabled')"
           :hint="t('serverForm.loadEnabledHint')"
           wide
         />
-        <template v-if="form.loadEnabled">
+        <template v-if="form.load.enabled">
           <TextField
-            v-model="form.loadCommand"
+            v-model="form.load.command"
             :label="t('serverForm.loadCommand')"
             placeholder="mongorestore"
             class="font-mono text-xs"
           />
-          <NumberField v-model="form.loadTimeoutMs" :label="t('serverForm.timeoutMs')" :min="1000" :step="1000" />
+          <NumberField v-model="form.load.timeoutSeconds" :label="t('serverForm.timeoutSeconds')" nullable :min="1" />
           <TextAreaField
-            v-model="form.loadArgs"
+            v-model="form.load.args"
             :label="t('serverForm.loadArgs')"
             :rows="2"
             :hint="t('serverForm.loadArgsHint')"
             wide
           />
           <TextAreaField
-            v-model="form.loadEnv"
+            v-model="form.load.env"
             :label="t('serverForm.hookEnv')"
             :rows="2"
             wide

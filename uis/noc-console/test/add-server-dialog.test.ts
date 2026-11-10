@@ -133,11 +133,11 @@ describe('the add-server dialog', () => {
     // The bootstrap `command` and `timeout` are the second fields of those names.
     const commandFields = wrapper.findAll('label').filter(node => node.text().includes('command'))
     await commandFields[1]!.find('input').setValue('./install.sh')
-    // Scoped to the bootstrap group: the health pane also has a `timeout (ms)` box, and a
-    // form-wide search silently fills in the wrong one.
+    // Scoped to the bootstrap group: the health pane also has a timeout box, and a form-wide
+    // search silently fills in the wrong one. The hook's is in seconds (its floor is 1000 ms).
     const bootstrap = wrapper.findAll('.group').find(node => node.text().includes('once per up session'))!
-    const timeout = bootstrap.findAll('label').find(node => node.find('.field__label').text() === 'timeout (ms)')!
-    await timeout.find('input').setValue('5000')
+    const timeout = bootstrap.findAll('label').find(node => node.find('.field__label').text() === 'timeout (s)')!
+    await timeout.find('input').setValue('5')
     await wrapper.find('form').trigger('submit')
     await vi.waitFor(() => expect(created).toHaveLength(2))
 

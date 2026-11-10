@@ -2,7 +2,8 @@
 import type { ServerConfig } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import { parseBind, serverPatchSchema } from '@shared/contracts'
-import { countLeaves, describeChanges, diffServerConfig } from '@shared/patch-diff'
+import { countLeaves, describeChanges } from '@shared/patch-diff'
+import { fillSnapshot, liveConfigUpdate, serverEditPatch, serverEditPayload } from '@shared/server-form'
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -12,9 +13,7 @@ import StatusChip from '@/components/StatusChip.vue'
 import { vFocusTrap } from '@/composables/useFocusTrap'
 import { configChangesOpen, flash, selectedId } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
-import { envToText, linesToArray, textToEnv } from '@/lib/fields'
-import { detachConfig, isLiveConfigChange } from '@/lib/forms'
-import { blankSharedForm, rssBytesFromForm, rssMegabytesFromConfig } from '@/lib/serverForm'
+import { editFormFromPage, pageFormFrom, PLACEHOLDER_CONFIG } from '@/lib/serverForm'
 import { workspacePath } from '@/router'
 
 const props = defineProps<{ id: string }>()
@@ -30,204 +29,60 @@ const server = computed(() => workspace.serverById(props.id))
 const config = computed<ServerConfig | null>(() => server.value?.config ?? null)
 
 /**
- * The page's own form: the shared fields, plus the flat lifecycle boxes it alone has.
- *
- * The sheet represents restart/health/stop as typed nested groups through
- * `LifecycleFields`; this page edits the same policy as 22 string boxes. The two are kept
- * apart deliberately — a page that showed nested groups the way the dialog does would
- * change how every one of these values is entered — so the shared component draws the
- * rest and this file owns its lifecycle panes and their `load`/`buildPayload` halves.
+ * The page's own form: the shared fields as strings, plus the restart/health/stop groups its own
+ * panes bind. What every box *means* — a cleared one, the hook timeouts in seconds, the diff — is
+ * `@shared/server-form`, the same round trip `uis/stock`'s editor uses.
  */
-const form = reactive({
-  ...blankSharedForm('page', workspace.defaults.value),
-  customBind: '',
+const form = reactive(pageFormFrom(config.value ?? PLACEHOLDER_CONFIG))
 
-  restartEnabled: true,
-  maxRetries: '3',
-  baseDelayMs: '1000',
-  factor: '2',
-  maxDelayMs: '30000',
-  resetAfterMs: '60000',
+/**
+ * The config the form was last filled from — detached, so it never moves with the store. A cleared
+ * box falls back to it, and Save diffs against it: diffing against live state would write back the
+ * old value of anything another client changed meanwhile.
+ */
+const filled = ref<ServerConfig | null>(null)
 
-  healthEnabled: true,
-  healthMode: 'port' as 'port' | 'http',
-  httpScheme: 'http' as 'http' | 'https',
-  httpAllowInvalidCert: false,
-  httpPath: '/',
-  httpMethod: 'GET' as 'GET' | 'HEAD',
-  httpExpectStatus: '',
-  httpExpectStatusBelow: '400',
-  httpExpectBody: '',
-  intervalMs: '5000',
-  timeoutMs: '1500',
-  unhealthyThreshold: '3',
-  forceRestartAfterMs: '0',
-  startTimeoutMs: '20000',
-
-  signal: 'SIGTERM' as 'SIGTERM' | 'SIGINT' | 'SIGKILL',
-  killGroup: true,
-  graceMs: '5000',
-  killPortHolders: false,
-})
-
-/** The config the form was last loaded from; a live frame equal to it must not reload the form. */
-let source: ServerConfig | null = null
+/** Set when the entry changed elsewhere while this page held edits. */
+const changedElsewhere = ref(false)
 
 function load(cfg: ServerConfig): void {
-  const standard = cfg.bind === 'local' || cfg.bind === 'lan'
-  Object.assign(form, {
-    label: cfg.label ?? '',
-    command: cfg.command,
-    args: cfg.args.join('\n'),
-    cwd: cfg.cwd,
-    env: envToText(cfg.env),
-    dataEnvs: envToText(cfg.dataEnvs),
-    backupPaths: cfg.backupPaths.join('\n'),
-    port: cfg.port === null ? '' : String(cfg.port),
-    bind: standard ? cfg.bind : 'custom',
-    customBind: standard ? '' : cfg.bind,
-    onPortConflict: cfg.onPortConflict,
-    logBufferLines: String(cfg.logBufferLines),
-    enabled: cfg.enabled,
-    autostart: cfg.autostart,
-    // Absent in a payload from a panel that predates the field: the default is off.
-    persistent: cfg.persistent === true,
-    backupIgnoreGenerated: cfg.backupIgnoreGenerated !== false,
-    dependsOn: cfg.dependsOn.join(', '),
-    envFile: cfg.envFile,
-    maxRssMb: rssMegabytesFromConfig(cfg.resources.maxRssBytes),
-    bootstrapEnabled: cfg.bootstrap !== null && cfg.bootstrap !== undefined,
-    bootstrapCommand: cfg.bootstrap?.command ?? '',
-    bootstrapArgs: (cfg.bootstrap?.args ?? []).join('\n'),
-    bootstrapEnv: envToText(cfg.bootstrap?.env ?? {}),
-    bootstrapTimeoutMs: String(cfg.bootstrap?.timeoutMs ?? 120000),
-    bootstrapRunOnce: cfg.bootstrap?.runOnce ?? true,
-    restartEnabled: cfg.restart.enabled,
-    maxRetries: String(cfg.restart.maxRetries),
-    baseDelayMs: String(cfg.restart.baseDelayMs),
-    factor: String(cfg.restart.factor),
-    maxDelayMs: String(cfg.restart.maxDelayMs),
-    resetAfterMs: String(cfg.restart.resetAfterMs),
-    healthEnabled: cfg.health.enabled,
-    healthMode: cfg.health.mode,
-    httpScheme: cfg.health.http.scheme,
-    httpAllowInvalidCert: cfg.health.http.allowInvalidCert,
-    httpPath: cfg.health.http.path,
-    httpMethod: cfg.health.http.method,
-    httpExpectStatus: cfg.health.http.expectStatus == null ? '' : String(cfg.health.http.expectStatus),
-    httpExpectStatusBelow: String(cfg.health.http.expectStatusBelow),
-    httpExpectBody: cfg.health.http.expectBody,
-    intervalMs: String(cfg.health.intervalMs),
-    timeoutMs: String(cfg.health.timeoutMs),
-    unhealthyThreshold: String(cfg.health.unhealthyThreshold),
-    forceRestartAfterMs: String(cfg.health.forceRestartAfterMs),
-    startTimeoutMs: String(cfg.health.startTimeoutMs),
-    signal: cfg.stop.signal,
-    killGroup: cfg.stop.killGroup,
-    graceMs: String(cfg.stop.graceMs),
-    killPortHolders: cfg.stop.killPortHolders,
-  })
-  // Detached, not the live reference: `source` is what a later frame is compared against, so an
-  // alias would move with the store and the guard would stop noticing real changes. `uis/stock`
-  // detaches for the same reason, and the aliasing trap is recorded in AGENTS.md.
-  source = detachConfig(cfg)
+  Object.assign(form, pageFormFrom(cfg))
+  filled.value = fillSnapshot(cfg)
+  changedElsewhere.value = false
 }
 
-// The control plane rebuilds every config object on each state frame; only a
-// genuine change may replace what the user has typed so far.
+const payload = computed(() => (filled.value === null ? {} : serverEditPayload(editFormFromPage(form), filled.value)))
+const patch = computed<Patch>(() => (filled.value === null ? {} : serverEditPatch(editFormFromPage(form), filled.value)))
+const changedCount = computed(() => countLeaves(patch.value))
+const changes = computed(() => describeChanges(
+  patch.value,
+  filled.value === null ? {} : { ...filled.value, label: filled.value.label ?? '' } as Patch,
+))
+
+// The control plane rebuilds every config object on each state frame. A genuine change refills a
+// clean page; a page holding edits keeps them and says the entry moved underneath it.
 watch(config, (next) => {
-  if (isLiveConfigChange(next, source))
-    load(next as ServerConfig)
+  if (next === null)
+    return
+  if (filled.value === null) {
+    load(next)
+    return
+  }
+  const action = liveConfigUpdate(next, filled.value, changedCount.value > 0)
+  if (action === 'refill')
+    load(next)
+  else if (action === 'notice')
+    changedElsewhere.value = true
 }, { immediate: true })
 
-const bindValue = computed(() => (form.bind === 'custom' ? form.customBind.trim() : form.bind))
-
-function buildPayload(): Record<string, unknown> {
-  const expectStatus = form.httpExpectStatus.trim()
-  return {
-    // An emptied label sends **null**, which removes the key so every display falls back to the id. Sending
-    // `label: ''` stored an empty string, and the name is rendered with `v-if="config.label"` / `label ?? id`
-    // — both of which read an empty string as "no name" without falling back, so the entry lost its name.
-    label: form.label.trim().length === 0 ? null : form.label.trim(),
-    command: form.command.trim(),
-    args: linesToArray(form.args),
-    cwd: form.cwd.trim() === '' ? '.' : form.cwd.trim(),
-    dependsOn: form.dependsOn.split(',').map(entry => entry.trim()).filter(entry => entry.length > 0),
-    envFile: form.envFile.trim(),
-    resources: { maxRssBytes: rssBytesFromForm(form.maxRssMb) },
-    env: textToEnv(form.env),
-    dataEnvs: textToEnv(form.dataEnvs),
-    backupPaths: linesToArray(form.backupPaths),
-    backupIgnoreGenerated: form.backupIgnoreGenerated,
-    port: form.port.trim() === '' ? null : Number(form.port),
-    bind: bindValue.value,
-    onPortConflict: form.onPortConflict,
-    logBufferLines: Number(form.logBufferLines),
-    enabled: form.enabled,
-    autostart: form.autostart,
-    persistent: form.persistent,
-    restart: {
-      enabled: form.restartEnabled,
-      maxRetries: Number(form.maxRetries),
-      baseDelayMs: Number(form.baseDelayMs),
-      factor: Number(form.factor),
-      maxDelayMs: Number(form.maxDelayMs),
-      resetAfterMs: Number(form.resetAfterMs),
-    },
-    health: {
-      enabled: form.healthEnabled,
-      mode: form.healthMode,
-      http: {
-        scheme: form.httpScheme,
-        allowInvalidCert: form.httpAllowInvalidCert,
-        path: form.httpPath,
-        method: form.httpMethod,
-        // `null` clears the exact-status check; omitting it would keep an existing value.
-        expectStatus: expectStatus.length === 0 ? null : Number(expectStatus),
-        expectStatusBelow: Number(form.httpExpectStatusBelow),
-        expectBody: form.httpExpectBody,
-      },
-      intervalMs: Number(form.intervalMs),
-      timeoutMs: Number(form.timeoutMs),
-      unhealthyThreshold: Number(form.unhealthyThreshold),
-      forceRestartAfterMs: Number(form.forceRestartAfterMs),
-      startTimeoutMs: Number(form.startTimeoutMs),
-    },
-    stop: {
-      signal: form.signal,
-      killGroup: form.killGroup,
-      graceMs: Number(form.graceMs),
-      killPortHolders: form.killPortHolders,
-    },
-    bootstrap: form.bootstrapEnabled
-      ? {
-          command: form.bootstrapCommand.trim(),
-          args: linesToArray(form.bootstrapArgs),
-          env: textToEnv(form.bootstrapEnv),
-          timeoutMs: Number(form.bootstrapTimeoutMs),
-          runOnce: form.bootstrapRunOnce,
-        }
-      : null,
-  }
+function reload(): void {
+  if (config.value !== null)
+    load(config.value)
 }
 
 function back(): void {
   void router.push(workspacePath(activeId.value, 'servers'))
 }
-
-const payload = computed(() => buildPayload())
-/**
- * `diffServerConfig` compares nested group members by reference, and `health.http`
- * is the only object down there: drop it again when its contents did not change,
- * or every load would report a phantom "unsaved changes". A blank exact status is
- * `null` in the payload and an absent key in the config — both mean "any below".
- */
-const patch = computed<Patch>(() => (config.value === null ? {} : diffServerConfig(config.value, payload.value)))
-const changedCount = computed(() => countLeaves(patch.value))
-const changes = computed(() => describeChanges(
-  patch.value,
-  config.value === null ? {} : { ...config.value, label: config.value.label ?? '' } as Patch,
-))
 
 function formatChangeValue(value: unknown): string {
   if (value === undefined)
@@ -344,6 +199,12 @@ async function remove(): Promise<void> {
       <p v-if="error" class="banner banner--error">
         {{ error }}
       </p>
+      <p v-if="changedElsewhere" class="banner banner--warn" role="status">
+        this entry changed elsewhere while you were editing — saving writes only your own edits.
+        <button type="button" class="btn btn--xs btn--ghost" @click="reload">
+          reload and drop mine
+        </button>
+      </p>
 
       <ServerFormFields
         :form="form"
@@ -355,7 +216,7 @@ async function remove(): Promise<void> {
             <div class="pane__head">
               <span class="pane__title">restart</span>
               <label class="field field--check" style="padding-top: 0">
-                <input v-model="form.restartEnabled" type="checkbox">
+                <input v-model="form.restart.enabled" type="checkbox">
                 <span class="field__label">enabled</span>
               </label>
             </div>
@@ -363,23 +224,23 @@ async function remove(): Promise<void> {
               <div class="grid">
                 <label class="field">
                   <span class="field__label">max retries</span>
-                  <input v-model="form.maxRetries" inputmode="numeric">
+                  <input v-model="form.restart.maxRetries" inputmode="numeric">
                 </label>
                 <label class="field">
                   <span class="field__label">base delay (ms)</span>
-                  <input v-model="form.baseDelayMs" inputmode="numeric">
+                  <input v-model="form.restart.baseDelayMs" inputmode="numeric">
                 </label>
                 <label class="field">
                   <span class="field__label">factor</span>
-                  <input v-model="form.factor" inputmode="numeric">
+                  <input v-model="form.restart.factor" inputmode="numeric">
                 </label>
                 <label class="field">
                   <span class="field__label">max delay (ms)</span>
-                  <input v-model="form.maxDelayMs" inputmode="numeric">
+                  <input v-model="form.restart.maxDelayMs" inputmode="numeric">
                 </label>
                 <label class="field">
                   <span class="field__label">reset after (ms)</span>
-                  <input v-model="form.resetAfterMs" inputmode="numeric">
+                  <input v-model="form.restart.resetAfterMs" inputmode="numeric">
                   <span class="field__hint">alive this long counts as healthy again</span>
                 </label>
               </div>
@@ -390,10 +251,10 @@ async function remove(): Promise<void> {
             <div class="pane__head">
               <span class="pane__title">health</span>
               <label class="field field--check" style="padding-top: 0">
-                <input v-model="form.healthEnabled" type="checkbox">
+                <input v-model="form.health.enabled" type="checkbox">
                 <span class="field__label">enabled</span>
               </label>
-              <select v-if="form.healthEnabled" v-model="form.healthMode">
+              <select v-if="form.health.enabled" v-model="form.health.mode">
                 <option value="port">
                   tcp port
                 </option>
@@ -406,70 +267,70 @@ async function remove(): Promise<void> {
               <div class="grid">
                 <label class="field">
                   <span class="field__label">interval (ms)</span>
-                  <input v-model="form.intervalMs" inputmode="numeric">
+                  <input v-model="form.health.intervalMs" inputmode="numeric">
                 </label>
                 <label class="field">
                   <span class="field__label">timeout (ms)</span>
-                  <input v-model="form.timeoutMs" inputmode="numeric">
+                  <input v-model="form.health.timeoutMs" inputmode="numeric">
                 </label>
                 <label class="field">
                   <span class="field__label">unhealthy after</span>
-                  <input v-model="form.unhealthyThreshold" inputmode="numeric">
+                  <input v-model="form.health.unhealthyThreshold" inputmode="numeric">
                   <span class="field__hint">consecutive failed probes</span>
                 </label>
                 <label class="field">
                   <span class="field__label">force restart after (ms)</span>
-                  <input v-model="form.forceRestartAfterMs" inputmode="numeric">
+                  <input v-model="form.health.forceRestartAfterMs" inputmode="numeric">
                   <span class="field__hint">0 = never</span>
                 </label>
                 <label class="field">
                   <span class="field__label">start timeout (ms)</span>
-                  <input v-model="form.startTimeoutMs" inputmode="numeric">
+                  <input v-model="form.health.startTimeoutMs" inputmode="numeric">
                   <span class="field__hint">wait for the port after spawn</span>
                 </label>
               </div>
 
-              <div v-if="form.healthEnabled && form.healthMode === 'http'" class="grid" style="margin-top: 0.5rem">
+              <div v-if="form.health.enabled && form.health.mode === 'http'" class="grid" style="margin-top: 0.5rem">
                 <label class="field">
                   <span class="field__label">scheme</span>
-                  <select v-model="form.httpScheme">
+                  <select v-model="form.health.http.scheme">
                     <option value="http">http</option>
                     <option value="https">https</option>
                   </select>
                 </label>
                 <label class="field">
                   <span class="field__label">http path</span>
-                  <input v-model="form.httpPath" placeholder="/healthz">
+                  <input v-model="form.health.http.path" placeholder="/healthz">
                 </label>
                 <label class="field">
                   <span class="field__label">method</span>
-                  <select v-model="form.httpMethod">
+                  <select v-model="form.health.http.method">
                     <option value="GET">GET</option>
                     <option value="HEAD">HEAD</option>
                   </select>
                 </label>
                 <label class="field">
                   <span class="field__label">expect status</span>
-                  <input v-model="form.httpExpectStatus" inputmode="numeric" placeholder="blank = any below">
+                  <input v-model="form.health.http.expectStatus" inputmode="numeric" placeholder="blank = any below">
                 </label>
                 <label class="field">
                   <span class="field__label">healthy below status</span>
-                  <input v-model="form.httpExpectStatusBelow" inputmode="numeric">
+                  <input v-model="form.health.http.expectStatusBelow" inputmode="numeric">
                 </label>
-                <label v-if="form.httpScheme === 'https'" class="field grid__full">
+                <label v-if="form.health.http.scheme === 'https'" class="field grid__full">
                   <span class="field__label">accept any certificate</span>
-                  <input v-model="form.httpAllowInvalidCert" type="checkbox">
+                  <input v-model="form.health.http.allowInvalidCert" type="checkbox">
                   <span class="field__hint">for a self-signed backend</span>
                 </label>
                 <label class="field grid__full">
                   <span class="field__label">body must contain</span>
-                  <input v-model="form.httpExpectBody" placeholder="optional substring">
+                  <input v-model="form.health.http.expectBody" placeholder="optional substring">
                   <!--
                     A HEAD carries no response body, so the panel's probe skips this check and the server
                     warns at load (`config/parse.ts`). Said here, where the mistake is made, rather than
                     only on the workspace settings page.
                   -->
-                  <span v-if="form.httpMethod === 'HEAD' && form.httpExpectBody.length > 0" class="field__hint" style="color: var(--warn)">
+                  <span v-if="form.health.http.method === 'HEAD' && form.health.http.expectBody.length > 0" class="field__hint" style="color: var(--warn)">
                     HEAD has no body, so this is ignored — use GET to check it, or clear it.
                   </span>
                 </label>
@@ -485,7 +346,7 @@ async function remove(): Promise<void> {
               <div class="grid">
                 <label class="field">
                   <span class="field__label">signal</span>
-                  <select v-model="form.signal">
+                  <select v-model="form.stop.signal">
                     <option value="SIGTERM">SIGTERM</option>
                     <option value="SIGINT">SIGINT</option>
                     <option value="SIGKILL">SIGKILL</option>
@@ -493,14 +354,14 @@ async function remove(): Promise<void> {
                 </label>
                 <label class="field">
                   <span class="field__label">grace (ms)</span>
-                  <input v-model="form.graceMs" inputmode="numeric">
+                  <input v-model="form.stop.graceMs" inputmode="numeric">
                 </label>
                 <label class="field field--check">
-                  <input v-model="form.killGroup" type="checkbox">
+                  <input v-model="form.stop.killGroup" type="checkbox">
                   <span class="field__label">kill the process group</span>
                 </label>
                 <label class="field field--check">
-                  <input v-model="form.killPortHolders" type="checkbox">
+                  <input v-model="form.stop.killPortHolders" type="checkbox">
                   <span class="field__label">kill port holders</span>
                 </label>
               </div>

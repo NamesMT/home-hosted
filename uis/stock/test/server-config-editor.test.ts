@@ -76,6 +76,28 @@ describe('server config editor', () => {
     expect(valueOf(wrapper, 'Label')).toBe('renamed-elsewhere')
   })
 
+  /**
+   * A frame that really changed the entry used to refill the form whatever it held, wiping what the
+   * person had typed. A form holding edits keeps them now and says the entry moved underneath it.
+   */
+  it('keeps typed edits when the entry changes elsewhere, and says so', async () => {
+    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', workspaceId, config: demoConfig() } })
+
+    await inputFor(wrapper, 'Label').setValue('mine')
+    await wrapper.setProps({ config: { ...demoConfig(), command: 'bun' } })
+
+    expect(valueOf(wrapper, 'Label')).toBe('mine')
+    expect(wrapper.text()).toContain('changed elsewhere')
+    // Only this form's own edit is pending: the other client's `command` is not reverted.
+    expect(wrapper.text()).toMatch(/1\s*unsaved change/)
+  })
+
+  it('edits the hook timeouts in seconds', async () => {
+    const config = { ...demoConfig(), bootstrap: { command: 'install.sh', args: [], env: {}, timeoutMs: 90_000, runOnce: true } }
+    const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', workspaceId, config } })
+    expect(valueOf(wrapper, 'Timeout (s)')).toBe('90')
+  })
+
   it('lists a health edit among what Save would write', async () => {
     const wrapper = mount(ServerConfigEditor, { props: { serverId: 'demo', workspaceId, config: demoConfig() } })
 

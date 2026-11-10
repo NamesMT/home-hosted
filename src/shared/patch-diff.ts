@@ -169,8 +169,12 @@ export function mergeReplacedList<T>({ filled, draft, live, key }: ReplacedListM
  */
 export function diffServerConfig(current: ServerConfig, next: Patch): Patch {
   const before = current as unknown as Patch
-  // An absent label and an empty one mean the same thing to the UI.
-  return diffFields({ ...before, label: before.label ?? '' }, next, NESTED_GROUPS)
+  // An absent, `null` and empty label all mean "no name": a form sends `null` to clear one, and an
+  // entry that never had a label must not show that as a pending change.
+  const patch = diffFields({ ...before, label: before.label ?? '' }, next, NESTED_GROUPS)
+  if (patch.label === null && (before.label ?? '') === '')
+    delete patch.label
+  return patch
 }
 
 export interface FieldChange {

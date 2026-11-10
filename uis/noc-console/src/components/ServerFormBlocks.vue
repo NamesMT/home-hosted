@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { FieldKey, FieldPresentation, FieldValue, FormModel, FormSection, FormVariant } from '@/lib/serverForm'
-import { computed } from 'vue'
 import ServerFormField from '@/components/ServerFormField.vue'
 import { fieldPresentation, fieldSpec } from '@/lib/serverForm'
 
@@ -32,9 +31,6 @@ const props = defineProps<{
  */
 const form = defineModel<FormModel>('form', { required: true })
 
-/** The bootstrap boxes go inert while the section's own toggle is off. */
-const bootstrapOff = computed(() => form.value?.bootstrapEnabled !== true)
-
 function update(key: FieldKey, value: FieldValue): void {
   if (form.value)
     form.value[key] = value
@@ -52,7 +48,8 @@ function drawn(key: FieldKey): FieldPresentation & { disabled: boolean, readout?
   return {
     ...fieldPresentation(props.variant, key),
     placeholder: spec.inheritedPlaceholder ? `inherited (${props.inheritedLogLines ?? 500})` : spec.placeholder,
-    disabled: spec.withoutBootstrap === true && bootstrapOff.value,
+    // A hook's boxes go inert while its section's own toggle is off.
+    disabled: spec.enabledBy !== undefined && form.value?.[spec.enabledBy] !== true,
     readout: key === 'liveBind' ? props.liveBind : undefined,
   }
 }

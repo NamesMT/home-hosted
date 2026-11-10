@@ -1,5 +1,6 @@
 import type { HealthConfig, RestartConfig, ServerCreate, ServerDefaults, StopConfig } from '@shared/contracts'
 import { diffFields } from '@shared/patch-diff'
+import { BOOTSTRAP_TIMEOUT_MS, hookTimeoutMs } from '@shared/server-form'
 import { cloneHealth, SCHEMA_HEALTH, SCHEMA_RESTART, SCHEMA_STOP } from '@/components/settings/settingsForm'
 import { commaList, linesToArray, textToEnv } from '@/lib/fields'
 
@@ -42,7 +43,8 @@ export interface AddServerForm {
   bootstrapCommand: string
   bootstrapArgs: string
   bootstrapEnv: string
-  bootstrapTimeoutMs: number | null
+  /** Seconds: the schema floor is 1000 ms. */
+  bootstrapTimeoutSeconds: number | null
   bootstrapRunOnce: boolean
 }
 
@@ -76,7 +78,7 @@ export function blankAddServerForm(defaults?: ServerDefaults): AddServerForm {
     bootstrapCommand: '',
     bootstrapArgs: '',
     bootstrapEnv: '',
-    bootstrapTimeoutMs: 120_000,
+    bootstrapTimeoutSeconds: 120,
     bootstrapRunOnce: true,
   }
 }
@@ -143,7 +145,7 @@ export function addServerPortError(port: number | null): string | null {
  */
 export function addServerPayload(form: AddServerForm, defaults?: ServerDefaults): ServerCreate {
   const rssMb = finite(form.maxRssMb)
-  const bootstrapMs = finite(form.bootstrapTimeoutMs)
+  const bootstrapMs = hookTimeoutMs(form.bootstrapTimeoutSeconds, undefined, BOOTSTRAP_TIMEOUT_MS)
   const baseline = inheritBaseline(defaults)
 
   // A policy group is compared as a whole, against the same baseline: untouched,
@@ -190,7 +192,7 @@ export function addServerPayload(form: AddServerForm, defaults?: ServerDefaults)
             command: form.bootstrapCommand.trim(),
             args: linesToArray(form.bootstrapArgs),
             env: textToEnv(form.bootstrapEnv),
-            timeoutMs: bootstrapMs >= 1000 ? bootstrapMs : 120_000,
+            timeoutMs: bootstrapMs >= 1000 ? bootstrapMs : BOOTSTRAP_TIMEOUT_MS,
             runOnce: form.bootstrapRunOnce,
           },
         }

@@ -1,5 +1,7 @@
-import type { HealthConfig, OnPortConflict, RestartConfig, ServerDefaults, StopConfig } from '@shared/contracts'
-import { healthSchema, restartSchema, stopSchema } from '@shared/contracts'
+import type { HealthConfig, OnPortConflict, RestartConfig, ServerConfig, ServerDefaults, StopConfig } from '@shared/contracts'
+import type { HookForm, ServerEditForm } from '@shared/server-form'
+import { healthSchema, restartSchema, serverSchema, stopSchema } from '@shared/contracts'
+import { serverEditForm } from '@shared/server-form'
 
 /**
  * The server form's shared half.
@@ -75,8 +77,10 @@ export type FieldKey
     | 'enabled' | 'autostart' | 'persistent' | 'onPortConflict' | 'logBufferLines'
     | 'liveBind' | 'dependsOn' | 'maxRssMb' | 'envFile'
     | 'env' | 'dataEnvs' | 'backupPaths' | 'backupIgnoreGenerated'
-    | 'bootstrapEnabled' | 'bootstrapCommand' | 'bootstrapTimeoutMs' | 'bootstrapRunOnce'
+    | 'bootstrapEnabled' | 'bootstrapCommand' | 'bootstrapTimeoutSeconds' | 'bootstrapRunOnce'
     | 'bootstrapArgs' | 'bootstrapEnv'
+    | 'dumpEnabled' | 'dumpCommand' | 'dumpTimeoutSeconds' | 'dumpArgs' | 'dumpEnv'
+    | 'loadEnabled' | 'loadCommand' | 'loadTimeoutSeconds' | 'loadArgs' | 'loadEnv'
 
 export type FieldValue = string | boolean
 
@@ -87,7 +91,7 @@ export type FormModel = Partial<Record<FieldKey, FieldValue>>
  * The fields both entry points carry, as a form object.
  *
  * The two disagree in exactly three of them, and each disagreement is deliberate: the
- * sheet writes `cwd`, `logBufferLines` and `bootstrapTimeoutMs` blank so its placeholder
+ * sheet writes `cwd`, `logBufferLines` and `bootstrapTimeoutSeconds` blank so its placeholder
  * can say what will be inherited, while the page shows the value it is actually editing
  * and must start from the panel default. Everything else is one value, so it is written
  * once; `test/server-form.test.ts` pins all three per variant.
@@ -117,7 +121,7 @@ export function blankSharedForm(variant: FormVariant, defaults?: ServerDefaults 
     bootstrapCommand: '',
     bootstrapArgs: '',
     bootstrapEnv: '',
-    bootstrapTimeoutMs: sheet ? '' : '120000',
+    bootstrapTimeoutSeconds: sheet ? '' : '120',
     bootstrapRunOnce: true,
   }
 }
@@ -147,7 +151,8 @@ interface ServerFormShape {
   bootstrapCommand: string
   bootstrapArgs: string
   bootstrapEnv: string
-  bootstrapTimeoutMs: string
+  /** Seconds: the schema floor is 1000 ms. */
+  bootstrapTimeoutSeconds: string
   bootstrapRunOnce: boolean
 }
 
@@ -174,8 +179,8 @@ export interface FieldSpec {
   /** `grid__full`: the field spans every column. */
   full?: boolean
   options?: Array<{ value: string, label: string }>
-  /** A bootstrap box, disabled until the section's own toggle is on. */
-  withoutBootstrap?: boolean
+  /** A hook box, disabled until its section's own toggle is on. */
+  enabledBy?: 'bootstrapEnabled' | 'dumpEnabled' | 'loadEnabled'
   /** `:placeholder="`inherited (N)`"`, from the workspace's own `logBufferLines`. */
   inheritedPlaceholder?: boolean
   /** The page's explicit-IPv4 box, shown only while `bind` is `custom`. */
@@ -225,9 +230,19 @@ const COMMON = {
     full: true,
   },
   bootstrapEnabled: { label: 'run before the first start', control: 'check' },
-  bootstrapRunOnce: { label: 'once per up session', control: 'check', withoutBootstrap: true },
-  bootstrapArgs: { label: 'args — one per line', control: 'textarea', rows: 2, withoutBootstrap: true, full: true },
-  bootstrapEnv: { label: 'env — KEY=value per line', control: 'textarea', rows: 2, withoutBootstrap: true, full: true },
+  bootstrapRunOnce: { label: 'once per up session', control: 'check', enabledBy: 'bootstrapEnabled' },
+  bootstrapArgs: { label: 'args — one per line', control: 'textarea', rows: 2, enabledBy: 'bootstrapEnabled', full: true },
+  bootstrapEnv: { label: 'env — KEY=value per line', control: 'textarea', rows: 2, enabledBy: 'bootstrapEnabled', full: true },
+  dumpEnabled: { label: 'dump before a backup', control: 'check', hint: 'a failed dump refuses the backup' },
+  dumpCommand: { label: 'command', control: 'text', placeholder: 'mongodump', enabledBy: 'dumpEnabled' },
+  dumpTimeoutSeconds: { label: 'timeout (s)', control: 'text', numeric: true, enabledBy: 'dumpEnabled' },
+  dumpArgs: { label: 'args — one per line', control: 'textarea', rows: 2, hint: '--archive={dumpDir}/db.archive writes into the directory the archive carries', enabledBy: 'dumpEnabled', full: true },
+  dumpEnv: { label: 'env — KEY=value per line', control: 'textarea', rows: 2, enabledBy: 'dumpEnabled', full: true },
+  loadEnabled: { label: 'load after a restore', control: 'check', hint: 'runs on the entry’s next start, reading from {dumpDir}' },
+  loadCommand: { label: 'command', control: 'text', placeholder: 'mongorestore', enabledBy: 'loadEnabled' },
+  loadTimeoutSeconds: { label: 'timeout (s)', control: 'text', numeric: true, enabledBy: 'loadEnabled' },
+  loadArgs: { label: 'args — one per line', control: 'textarea', rows: 2, enabledBy: 'loadEnabled', full: true },
+  loadEnv: { label: 'env — KEY=value per line', control: 'textarea', rows: 2, enabledBy: 'loadEnabled', full: true },
 } satisfies Partial<Record<FieldKey, FieldSpec>>
 /**
  * What the sheet spells differently. A key here **replaces** its common entry outright,
@@ -254,8 +269,8 @@ const SHEET: Record<DifferingKey, FieldSpec> = {
   dependsOn: { label: 'depends on — comma separated ids', control: 'text', placeholder: 'db, cache' },
   maxRssMb: { label: 'max rss (MiB)', control: 'text', numeric: true, placeholder: 'empty = no guard' },
   envFile: { label: 'env file', control: 'text', placeholder: 'empty = none' },
-  bootstrapCommand: { label: 'command', control: 'text', placeholder: './scripts/install.sh', withoutBootstrap: true },
-  bootstrapTimeoutMs: { label: 'timeout (ms)', control: 'text', numeric: true, placeholder: '120000', withoutBootstrap: true },
+  bootstrapCommand: { label: 'command', control: 'text', placeholder: './scripts/install.sh', enabledBy: 'bootstrapEnabled' },
+  bootstrapTimeoutSeconds: { label: 'timeout (s)', control: 'text', numeric: true, placeholder: '120', enabledBy: 'bootstrapEnabled' },
 }
 /** What the page spells differently from the sheet, field by field. */
 /** What the page words differently, and the fields only it places. */
@@ -285,8 +300,8 @@ const PAGE: Record<DifferingKey, FieldSpec> = {
   },
   maxRssMb: { label: 'max rss (MiB)', control: 'text', numeric: true, placeholder: 'empty = no guard', hint: 'restart when the process tree exceeds it' },
   envFile: { label: 'env file', control: 'text', placeholder: 'empty = none', hint: 'loaded at spawn; its values override env' },
-  bootstrapCommand: { label: 'command', control: 'text', withoutBootstrap: true },
-  bootstrapTimeoutMs: { label: 'timeout (ms)', control: 'text', numeric: true, withoutBootstrap: true },
+  bootstrapCommand: { label: 'command', control: 'text', enabledBy: 'bootstrapEnabled' },
+  bootstrapTimeoutSeconds: { label: 'timeout (s)', control: 'text', numeric: true, enabledBy: 'bootstrapEnabled' },
 }
 /**
  * The fields, resolved: the common definition under whatever that variant overrides.
@@ -353,7 +368,7 @@ export const FORM_LAYOUT: Record<FormVariant, FormSection[]> = {
           container: 'group',
           title: 'bootstrap',
           toggle: 'bootstrapEnabled',
-          fields: ['bootstrapCommand', 'bootstrapTimeoutMs', 'bootstrapRunOnce', 'bootstrapArgs', 'bootstrapEnv'],
+          fields: ['bootstrapCommand', 'bootstrapTimeoutSeconds', 'bootstrapRunOnce', 'bootstrapArgs', 'bootstrapEnv'],
         },
       ],
     },
@@ -371,7 +386,19 @@ export const FORM_LAYOUT: Record<FormVariant, FormSection[]> = {
       container: 'pane',
       title: 'bootstrap',
       toggle: 'bootstrapEnabled',
-      fields: ['bootstrapCommand', 'bootstrapTimeoutMs', 'bootstrapRunOnce', 'bootstrapArgs', 'bootstrapEnv'],
+      fields: ['bootstrapCommand', 'bootstrapTimeoutSeconds', 'bootstrapRunOnce', 'bootstrapArgs', 'bootstrapEnv'],
+    },
+    {
+      container: 'pane',
+      title: 'backup dump',
+      toggle: 'dumpEnabled',
+      fields: ['dumpCommand', 'dumpTimeoutSeconds', 'dumpArgs', 'dumpEnv'],
+    },
+    {
+      container: 'pane',
+      title: 'restore load',
+      toggle: 'loadEnabled',
+      fields: ['loadCommand', 'loadTimeoutSeconds', 'loadArgs', 'loadEnv'],
     },
   ],
 }
@@ -418,5 +445,128 @@ export function fieldPresentation(variant: FormVariant, key: FieldKey): FieldPre
     numeric: spec.numeric,
     full: spec.full,
     options: spec.options,
+  }
+}
+
+/**
+ * The page's form: the shared fields as the strings its boxes hold, the dump/load hooks, and the
+ * typed lifecycle groups its own panes bind (their boxes write strings into them).
+ *
+ * The round trip itself — what a cleared box means, seconds, the diff — is
+ * `@shared/server-form`, the one `uis/stock`'s editor reads; this only translates the shape.
+ */
+/** What the page's form holds before its entry has arrived in a frame: the schema's defaults. */
+export const PLACEHOLDER_CONFIG = serverSchema.assert({ id: 'placeholder', command: 'placeholder' }) as ServerConfig
+
+export type PageForm = ServerFormShape & {
+  dumpEnabled: boolean
+  dumpCommand: string
+  dumpTimeoutSeconds: string
+  dumpArgs: string
+  dumpEnv: string
+  loadEnabled: boolean
+  loadCommand: string
+  loadTimeoutSeconds: string
+  loadArgs: string
+  loadEnv: string
+  restart: ServerEditForm['restart']
+  health: ServerEditForm['health']
+  stop: ServerEditForm['stop']
+}
+
+function text(value: unknown): string {
+  return value === null || value === undefined || (typeof value === 'number' && Number.isNaN(value)) ? '' : String(value)
+}
+
+/** A config as the page's boxes show it. */
+export function pageFormFrom(config: ServerConfig): PageForm {
+  const edit = serverEditForm(config)
+  const standard = edit.bind === 'local' || edit.bind === 'lan'
+  return {
+    label: edit.label,
+    command: edit.command,
+    args: edit.args,
+    cwd: edit.cwd,
+    env: edit.env,
+    dataEnvs: edit.dataEnvs,
+    backupPaths: edit.backupPaths,
+    backupIgnoreGenerated: edit.backupIgnoreGenerated,
+    dependsOn: edit.dependsOn,
+    envFile: edit.envFile,
+    maxRssMb: text(edit.maxRssMb),
+    port: text(edit.port),
+    bind: standard ? edit.bind : 'custom',
+    customBind: standard ? '' : edit.bind,
+    onPortConflict: edit.onPortConflict,
+    logBufferLines: text(edit.logBufferLines),
+    enabled: edit.enabled,
+    autostart: edit.autostart,
+    persistent: edit.persistent,
+    bootstrapEnabled: edit.bootstrap.enabled,
+    bootstrapCommand: edit.bootstrap.command,
+    bootstrapArgs: edit.bootstrap.args,
+    bootstrapEnv: edit.bootstrap.env,
+    bootstrapTimeoutSeconds: text(edit.bootstrap.timeoutSeconds),
+    bootstrapRunOnce: edit.bootstrap.runOnce,
+    dumpEnabled: edit.dump.enabled,
+    dumpCommand: edit.dump.command,
+    dumpTimeoutSeconds: text(edit.dump.timeoutSeconds),
+    dumpArgs: edit.dump.args,
+    dumpEnv: edit.dump.env,
+    loadEnabled: edit.load.enabled,
+    loadCommand: edit.load.command,
+    loadTimeoutSeconds: text(edit.load.timeoutSeconds),
+    loadArgs: edit.load.args,
+    loadEnv: edit.load.env,
+    restart: edit.restart,
+    health: edit.health,
+    stop: edit.stop,
+  }
+}
+
+function hook(form: PageForm, prefix: 'dump' | 'load'): HookForm {
+  return {
+    enabled: form[`${prefix}Enabled`],
+    command: form[`${prefix}Command`],
+    args: form[`${prefix}Args`],
+    env: form[`${prefix}Env`],
+    timeoutSeconds: form[`${prefix}TimeoutSeconds`],
+  }
+}
+
+/** The page's boxes as the shared form, for the shared payload and diff. */
+export function editFormFromPage(form: PageForm): ServerEditForm {
+  return {
+    label: form.label,
+    command: form.command,
+    cwd: form.cwd,
+    args: form.args,
+    env: form.env,
+    dataEnvs: form.dataEnvs,
+    backupPaths: form.backupPaths,
+    backupIgnoreGenerated: form.backupIgnoreGenerated,
+    dependsOn: form.dependsOn,
+    envFile: form.envFile,
+    maxRssMb: form.maxRssMb,
+    port: form.port,
+    bind: form.bind === 'custom' ? form.customBind : form.bind,
+    onPortConflict: form.onPortConflict,
+    logBufferLines: form.logBufferLines,
+    enabled: form.enabled,
+    autostart: form.autostart,
+    persistent: form.persistent,
+    restart: form.restart,
+    health: form.health,
+    stop: form.stop,
+    bootstrap: {
+      enabled: form.bootstrapEnabled,
+      command: form.bootstrapCommand,
+      args: form.bootstrapArgs,
+      env: form.bootstrapEnv,
+      timeoutSeconds: form.bootstrapTimeoutSeconds,
+      runOnce: form.bootstrapRunOnce,
+    },
+    dump: hook(form, 'dump'),
+    load: hook(form, 'load'),
   }
 }
