@@ -6,8 +6,7 @@ import { appFactory } from '#src/helpers/factory'
 import { jsonBody } from '#src/helpers/openapi'
 import { homeFingerprint } from '#src/helpers/paths'
 import { secretEqual } from '#src/helpers/secret-compare'
-import { requestIdentity } from '#src/middleware/auth'
-import { isLoopbackRequest } from '#src/middleware/loopback'
+import { isLoopbackRequest, requestIdentity } from '#src/middleware/auth'
 import { healthResponseSchema } from '#src/shared/contracts'
 import { needsAttention } from '#src/shared/server-attention'
 
@@ -85,10 +84,14 @@ export function createHealthRoute(deps: AppDeps) {
  * Whether the caller proved itself with the local channel's token.
  *
  * The same secret `assertLocalCall` reads, checked the same constant-time way — it means "a process
- * that can read this home's `run.json`", which is exactly the trust the CLI already has. Loopback
- * alone is deliberately not enough: any local user could reach the port.
+ * that can read this home's `run.json`", which is exactly the trust the CLI already has. It needs a
+ * loopback peer too, and loopback alone is deliberately not enough: any local user could reach the port.
  */
 function localTokenValid(c: Context, deps: AppDeps): boolean {
+  // The local channel's token is only ever honoured from this machine, as on `/_hh`: a copy that
+  // leaked off the box must not read anything through a proxy or from the LAN.
+  if (!isLoopbackRequest(c))
+    return false
   const token = c.req.header('x-home-hosted-token')
   return token !== undefined && secretEqual(token, deps.runtimeToken)
 }

@@ -2046,4 +2046,14 @@ describe('/healthz detail for the local channel', () => {
     expect(anonymous, 'the status line stays public').toHaveProperty('status')
     expect(anonymous).not.toHaveProperty('servers')
   })
+
+  /** The local token means "this machine", as on `/_hh`: a leaked copy reads nothing from elsewhere. */
+  it('ignores the local token from another machine, or relayed by a proxy', async () => {
+    const remote = await fixture({ ip: '10.0.0.5', views: [makeView('web')] })
+    expect(await (await remote.app.request('/healthz', { headers: local })).json()).not.toHaveProperty('servers')
+
+    const relayed = await fixture({ views: [makeView('web')] })
+    const body = await (await relayed.app.request('/healthz', { headers: { ...local, 'x-forwarded-for': '203.0.113.9' } })).json()
+    expect(body).not.toHaveProperty('servers')
+  })
 })
