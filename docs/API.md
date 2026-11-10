@@ -78,6 +78,9 @@ text as `message`) for older clients. Status codes: `400` bad input, `401` no cr
 forbidden for this credential or origin, `404` unknown id, `409` the entry cannot do that now (or
 `CONFIG_CHANGED_ON_DISK`: the config file was edited since the panel read it — it reloads, so retry),
 `413` too large, `421` unknown host, `502` the reverse-proxy engine or its download failed.
+A body that is not valid JSON is `400 INVALID_INPUT`, like any other rejected input. A path under
+`/api`, `/_hh` or `/openapi` that matches no route — or any non-`GET` request that matches none — is
+`404 NOT_FOUND` in the same envelope, never the UI's `index.html`.
 
 ## Endpoints
 

@@ -55,6 +55,12 @@ function fakeDetailedError(fields: { statusCode?: unknown, code?: string, detail
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
 describe('errorHandler over the wire', () => {
+  it('maps a 400 HTTPException (a malformed body) to INVALID_INPUT', async () => {
+    const { status, body } = await throughHono(new HTTPException(400, { message: 'Malformed JSON in request body' }))
+    expect(status).toBe(400)
+    expect(body).toEqual({ message: 'Malformed JSON in request body', code: 'INVALID_INPUT' })
+  })
+
   it('maps an HTTPException to HTTP_EXCEPTION with its own status', async () => {
     const { status, body } = await throughHono(new HTTPException(401, { message: 'sign in first' }))
     expect(status).toBe(401)

@@ -50,8 +50,18 @@ function reply(message: { fqdn: string, value: string }, status = 200): Response
   return new Response(JSON.stringify(message), { status, headers: { 'content-type': 'application/json' } })
 }
 
+const FAILURE_CODES: Record<number, string> = {
+  400: 'INVALID_INPUT',
+  401: 'AUTH_REQUIRED',
+  403: 'DNS01_DISABLED',
+  404: 'NOT_FOUND',
+  502: 'DNS_PROVIDER_FAILED',
+}
+
+/** The panel's `{ message, code }` envelope; `error` stays for an engine that logs it. */
 function failure(status: number, message: string): Response {
-  return new Response(JSON.stringify({ error: message }), { status, headers: { 'content-type': 'application/json' } })
+  const body = { message, code: FAILURE_CODES[status] ?? 'ACME_CHALLENGE_FAILED', error: message }
+  return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 }
 
 /**

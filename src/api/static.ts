@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
 import fs from 'node:fs'
 import path from 'node:path'
+import { DetailedError } from '@namesmt/utils'
 import { Hono } from 'hono'
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -48,7 +49,7 @@ export function createStaticRoute(options: StaticRouteOptions): Hono {
     // mistake — never a UI route. Falling through to `index.html` answered a typo'd API call
     // with `200 text/html`, which `curl --fail` and a `.json()` parse both treat as success.
     if (isApiPath(pathname))
-      return c.json({ message: `no route for ${c.req.method} ${pathname}`, code: 'NOT_FOUND' }, 404)
+      throw noRoute(c)
 
     const file = resolveWithin(root, pathname)
     if (file !== null) {
@@ -67,12 +68,24 @@ export function createStaticRoute(options: StaticRouteOptions): Hono {
     return c.text('no UI is installed — build one and upload it under Settings → Interface', 503)
   })
 
+  // Only `GET` serves the UI; any other method that got this far matched no route, and answers the
+  // API's envelope rather than Hono's plain-text 404, which a JSON client cannot parse.
+  route.all('*', (c) => {
+    throw noRoute(c)
+  })
+
   return route
 }
 
-/** `/api` itself and everything under it is the JSON surface, never a UI route. */
+function noRoute(c: Context): DetailedError {
+  return new DetailedError(`no route for ${c.req.method} ${new URL(c.req.url).pathname}`, { statusCode: 404, code: 'NOT_FOUND' })
+}
+
+/** The panel's own JSON surfaces: never a UI route, so a miss there is a 404, not `index.html`. */
+const API_PREFIXES = ['/api', '/_hh', '/_acme', '/openapi']
+
 function isApiPath(pathname: string): boolean {
-  return pathname === '/api' || pathname.startsWith('/api/')
+  return API_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`))
 }
 
 function safeDecode(value: string): string | null {

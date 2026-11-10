@@ -1060,6 +1060,34 @@ describe('/_hh/servers/:id/start|stop|restart', () => {
 })
 
 describe('static UI', () => {
+  /**
+   * Every miss on a JSON surface answers the `{ message, code }` envelope. A non-GET fell past the
+   * GET-only catch-all to Hono's plain-text 404 (the shared client then threw a SyntaxError), and a
+   * GET under `/_hh` or `/openapi` was answered with the SPA's `index.html` and a 200.
+   */
+  it('answers every unmatched API-side request with the JSON envelope', async () => {
+    const created = await fixture()
+    const misses: Array<[string, string]> = [
+      ['POST', '/api/nope'],
+      ['DELETE', '/api/servers'],
+      ['GET', '/_hh/nope'],
+      ['GET', '/openapi/nope'],
+      ['PUT', '/somewhere'],
+    ]
+    for (const [method, url] of misses) {
+      const response = await created.app.request(url, { method })
+      expect(response.status, `${method} ${url}`).toBe(404)
+      expect(await response.json(), `${method} ${url}`).toMatchObject({ code: 'NOT_FOUND', message: expect.any(String) })
+    }
+  })
+
+  it('names a malformed JSON body as INVALID_INPUT', async () => {
+    const created = await fixture()
+    const response = await created.app.request('/api/servers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{not json' })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
   it('serves index.html for / and for a client-side route', async () => {
     const created = await fixture()
 

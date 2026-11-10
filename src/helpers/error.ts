@@ -48,8 +48,10 @@ export const errorHandler: HonoErrorHandler = (raw, c) => {
 }
 
 function toErrorBody(error: unknown): ApiErrorBody {
+  // Hono's own 400s (a malformed JSON body, an unparsable form) are the client's input, and say so
+  // with the code every other rejected input carries.
   if (error instanceof HTTPException)
-    return { message: error.message, code: 'HTTP_EXCEPTION' }
+    return { message: error.message, code: error.status === 400 ? 'INVALID_INPUT' : 'HTTP_EXCEPTION' }
 
   // `DetailedError` can come from this code or from Hono's own parsing helpers,
   // so a name check is safer than `instanceof` across module instances.

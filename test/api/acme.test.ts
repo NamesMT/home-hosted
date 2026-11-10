@@ -116,6 +116,8 @@ describe('the engine DNS-01 channel', () => {
 
     const response = await challenge(fixture, { fqdn: '_acme-challenge.git.example.com.', value: 'token-1' }, auth)
     expect(response.status).toBe(403)
+    // The panel's one envelope, not a hand-rolled `{ error }`.
+    expect(await response.json()).toMatchObject({ message: expect.any(String), code: 'NOT_LOOPBACK' })
   })
 
   it('writes nothing at all while DNS-01 is off, even for a name a route claims', async () => {
@@ -128,6 +130,7 @@ describe('the engine DNS-01 channel', () => {
     const response = await challenge(fixture, { fqdn: '_acme-challenge.git.example.com.', value: 'token-1' })
 
     expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ message: expect.any(String), code: 'DNS01_DISABLED' })
     expect(cloudflare.calls).toEqual([])
   })
 

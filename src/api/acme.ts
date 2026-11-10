@@ -1,4 +1,5 @@
 import type { AppDeps } from '#src/app'
+import { DetailedError } from '@namesmt/utils'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
@@ -25,7 +26,7 @@ export function createAcmeChallengeRoute(deps: AppDeps) {
       async (c) => {
         if (!isLoopbackRequest(c)) {
           logger.warn('proxy:    refused a DNS-01 challenge from a non-loopback caller')
-          return c.json({ error: 'only this machine may answer a challenge' }, 403)
+          throw new DetailedError('only this machine may answer a challenge', { statusCode: 403, code: 'NOT_LOOPBACK' })
         }
         return await deps.challenge.handle(c.req.raw, c.req.param('action') ?? '')
       },

@@ -52,7 +52,7 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   const text = await response.text()
-  const payload: unknown = text.length > 0 ? JSON.parse(text) : null
+  const payload = parsePayload(text, response.ok)
 
   if (!response.ok) {
     if (response.status === 401 && isRecord(payload) && payload.code === 'AUTH_REQUIRED')
@@ -61,6 +61,23 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return payload as T
+}
+
+/**
+ * A failure's body may not be JSON (a proxy in front of the panel, an older panel's plain-text 404),
+ * and a SyntaxError would hide the status the person needs; a success that is not JSON is a fault.
+ */
+function parsePayload(text: string, ok: boolean): unknown {
+  if (text.length === 0)
+    return null
+  try {
+    return JSON.parse(text)
+  }
+  catch (error) {
+    if (ok)
+      throw error
+    return null
+  }
 }
 
 /**

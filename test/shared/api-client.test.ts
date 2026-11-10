@@ -120,6 +120,11 @@ describe('request', () => {
     await expect(logout()).resolves.toBeNull()
   })
 
+  it('reports the status of a failure whose body is not JSON, rather than a SyntaxError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('404 Not Found', { status: 404 })))
+    await expect(fetchSettings()).rejects.toThrow('request failed with 404')
+  })
+
   it('turns the envelope into an Error, and the bare `error` field too', async () => {
     stub({ message: 'nope', code: 'X', detail: null }, 400)
     await expect(fetchSettings()).rejects.toThrow('nope')
