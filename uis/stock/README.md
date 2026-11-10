@@ -86,6 +86,7 @@ chosen, so a panel serving one language pays for one.
 - Vue 3 and Tailwind v4, built through `uis/vite.shared.ts`.
 - Aliases: `@` is `uis/stock/src`, `@shared` is `src/shared`, `@server` is `src` (types only;
   never import runtime server code into a UI).
-- The API and SSE contract is `../../docs/UI_CREATION.md`. `src/lib/api.ts` and `src/lib/rpc.ts` are the clients.
+- The API and SSE contract is `../../docs/UI_CREATION.md`. `src/lib/api.ts` is a barrel over
+  `@shared/api-client`, which is the one client both UIs use.
 - Views live in `src/views/`, the shell in `src/components/shell/`, settings in `src/components/settings/`.
 - Tests live in `uis/stock/test/`; component tests mount under `// @vitest-environment happy-dom`.

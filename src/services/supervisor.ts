@@ -849,6 +849,11 @@ export class Supervisor {
       // Never a silent drop: the entry's own log is the one place a person can see that output was
       // lost, and losing output without saying so is the failure this module exists to remove.
       onDropped: (stream, bytes) => {
+        // The reader discarded from a byte offset, so any half-line the splitter is holding can never
+        // be completed — the bytes that would have finished it are inside the gap. Dropping it here
+        // too is what keeps the gap a gap: without it the fragment is spliced onto the first
+        // surviving line and emitted as a line the child never wrote.
+        splitters[stream].discard()
         this.log(entry, 'system', `${stream}: the server wrote faster than the panel could read it — ${Math.round(bytes / 1024)} KiB of its output was dropped`)
       },
     })

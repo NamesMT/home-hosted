@@ -112,7 +112,7 @@ async function loadTail(): Promise<void> {
       // and an empty string as a filter that matches nothing.
       ...(stream.value.length > 0 ? { stream: stream.value } : {}),
       ...(search.value.trim().length > 0 ? { search: search.value.trim() } : {}),
-    })
+    }, workspace.activeId.value)
     if (token !== tailRequest)
       return
     diskLines.value = history.lines

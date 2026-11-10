@@ -426,7 +426,10 @@ export function useWorkspaceResolver(resolve: () => string | null): void {
  */
 export function scoped(path: string, workspace?: string | null, extra?: URLSearchParams): string {
   const params = extra === undefined ? new URLSearchParams() : new URLSearchParams(extra)
-  const named = workspace ?? resolveWorkspace()
+  // A blank id is "not named", so it falls through to the resolver like an omission. `??` alone
+  // would keep `''` (not nullish) and silently skip the resolver, which is the answer this
+  // function's contract promises it will not do.
+  const named = workspace !== null && workspace !== undefined && workspace.length > 0 ? workspace : resolveWorkspace()
   if (named !== null && named !== undefined && named.length > 0)
     params.set('workspace', named)
   const query = params.toString()

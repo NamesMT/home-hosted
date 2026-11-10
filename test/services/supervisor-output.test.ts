@@ -203,6 +203,49 @@ describe('a child\'s output read back from its file', () => {
   })
 
   /**
+   * A drop must not splice a stale fragment onto the first surviving line.
+   *
+   * The reader discards from a byte offset, so a half-line `LineSplitter` was holding can never be
+   * completed — the bytes that finished it are inside the gap. If the carry survives the drop, the
+   * next complete line is emitted **joined to it**: text the child never wrote, presented as a real
+   * line. Measured before the fix: a held `PREFIX-` followed by a dropped backlog emitted
+   * `PREFIX-LINE41868`. A gap is honest; a fabricated line is corruption.
+   *
+   * The drop is announced either way, so this is not about silence — it is about what the log claims
+   * the server said.
+   */
+  it('does not splice a held fragment onto the first line after a drop', () => {
+    const dir = scratch()
+    const files = outputFiles(dir, 'web')
+    const opened = openOutput(files)
+    const lines: string[] = []
+    const splitter = new LineSplitter((_stream, text) => lines.push(text))
+    const reader = new EntryOutput(files, {
+      capBytes: () => 1024,
+      // The production wiring: the splitter consumes the reader's text, and the drop clears its
+      // carry. Reproduced without the `discard()` and this assertion fails with `PREFIX-LINE…`.
+      onText: (stream, text) => splitter.push(stream, text),
+      onDropped: () => splitter.discard(),
+    })
+
+    // A half-written line, read in full, so the splitter is holding it.
+    fs.appendFileSync(files.stdout, 'PREFIX-')
+    reader.poll()
+    expect(lines, 'nothing complete yet: the line has no newline').toEqual([])
+
+    // Now a backlog far past one poll's read budget, so the drop fires.
+    fs.appendFileSync(files.stdout, `${'LINE\n'.repeat(80_000)}`)
+    reader.poll()
+    reader.stop()
+
+    expect(lines.length, 'the surviving lines were read').toBeGreaterThan(0)
+    expect(lines[0], 'the first surviving line is the child\'s own').toBe('LINE')
+    expect(lines.join('\n'), 'no line may begin with the discarded fragment').not.toContain('PREFIX-')
+
+    closeOutput(opened)
+  })
+
+  /**
    * Lossless across **our own** truncation that lands inside a line.
    *
    * The reader is drained, but `LineSplitter` is still holding a half-written line — and the child's

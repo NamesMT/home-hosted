@@ -91,4 +91,17 @@ export class LineSplitter {
     this.emit(stream, this.pending.replace(/\r$/, ''))
     this.pending = ''
   }
+
+  /**
+   * Throws away a held partial line, because the bytes that would have finished it are gone.
+   *
+   * Only the file-transport reader calls this, when it drops a backlog: it discards from a byte
+   * offset, so whatever half-line it was holding can never be completed by what follows. Keeping it
+   * would splice the fragment onto the first surviving line and emit text the child never wrote —
+   * corrupted output presented as real, which is worse than the gap it was meant to describe.
+   */
+  discard(): void {
+    this.pending = ''
+    this.decoder.reset()
+  }
 }

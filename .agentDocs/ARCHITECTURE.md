@@ -101,7 +101,8 @@ Every module in `src/shared/` exists because the same code lived in both UIs (or
 and the copies had already drifted. The rule:
 
 - A module moves in when its dependencies resolve within `src/shared/`; it stays out when it would
-  import *upward* — `uis/stock/src/lib/rpc.ts` needs `AppType` from `src/app.ts`.
+  import *upward* — a typed Hono client (`hc<AppType>`) needs `AppType` from `src/app.ts`, which is why
+  the UIs call the shared client instead of deriving a client from the route type.
 - **Nothing in it imports Vue or `node:`** (the package does not ship Vue). Reactive values are detached
   with `clonePlain` (`clone.ts`), so form logic is shared (`proxy-form.ts`, `ddns-form.ts`) and only the
   render stays per-UI.

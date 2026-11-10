@@ -96,11 +96,13 @@ reads. It is bounded, and the bounds are worth knowing before you see them:
   delivered to the log before the file is truncated, and a half-written line continues into the
   child's next write. This is invisible in normal use.
 - **A writer faster than the reader can drain is throttled by dropping.** Past a backlog of
-  `max(8 MB, 256 KiB)` the oldest unread bytes go, cut on a **line boundary** so the gap is whole
-  lines rather than a torn one, and the entry's own log says so: `the server wrote faster than the
-  panel could read it — N KiB of its output was dropped`. That line is the point — a silent drop is
-  the failure this exists to avoid — but it does mean a genuinely firehose-level server can show
-  those lines in its log instead of every line it wrote.
+  `max(8 MB, 256 KiB)` the oldest unread bytes go, the cut is moved forward to the next **line
+  boundary** so the gap is whole lines rather than a torn one, and the entry's own log says so: `the
+  server wrote faster than the panel could read it — N KiB of its output was dropped`. That line is
+  the point — a silent drop is the failure this exists to avoid — but it does mean a genuinely
+  firehose-level server can show those lines in its log instead of every line it wrote. A line the
+  server had not finished writing when the gap began is discarded rather than completed, so a
+  fragment is never spliced onto the first surviving line.
 - **One rare write window.** A byte written in the instant between the panel measuring the file and
   emptying it is lost unread. It is one small window per 8 MB of output, and only for a child writing
   at that exact moment.
