@@ -222,6 +222,11 @@ function noticeMatcher(route: ProxyUpstreamRoute): Record<string, unknown> {
   return { host: [route.host], not: [{ path: ['/.well-known/acme-challenge/*'] }] }
 }
 
+/** The length of a route's path prefix as matched (trailing slashes dropped); 0 for the whole host. */
+function prefixLength(route: ProxyUpstreamRoute): number {
+  return route.path.trim().replace(/^\/*/, '').replace(/\/+$/, '').length
+}
+
 function matchFor(route: ProxyUpstreamRoute): Record<string, unknown> {
   const match: Record<string, unknown> = { host: [route.host] }
   const prefix = route.path.trim()
@@ -276,7 +281,11 @@ export function boundPorts(rendered: Record<string, unknown>): number[] {
  * carries our `httpsPort`, which is not necessarily 443.
  */
 export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unknown> {
-  const { config, admin, engineDir, routes } = input
+  const { config, admin, engineDir } = input
+  // Caddy tries routes in order and stops at the first terminal match, so a bare-host route listed
+  // before `/api` on the same host swallowed it. Most specific prefix first, bare host last; stable,
+  // so equal prefixes keep the order they were configured in.
+  const routes = [...input.routes].sort((left, right) => prefixLength(right) - prefixLength(left))
   const managed = routes.filter(route => route.tls !== 'off')
   const plain = routes.filter(route => route.tls === 'off')
   const suffix = config.httpsPort === 443 ? '' : `:${config.httpsPort}`

@@ -130,6 +130,29 @@ describe('renderCaddyConfig', () => {
     expect(http.servers.http.routes[0].handle[0].headers.Location).toEqual(['https://{http.request.host}:4443{http.request.uri}'])
   })
 
+  /**
+   * Caddy stops at the first terminal match, so a bare-host route listed before `/api` on the same
+   * host swallowed every `/api` request.
+   */
+  it('orders each host\'s routes most specific prefix first, bare host last', () => {
+    const rendered = render({
+      config: config({}),
+      admin: unixAdmin,
+      engineDir: '/state/engine',
+      manual: [],
+      routes: [
+        { host: 'app.example.com', path: '', dial: '127.0.0.1:3000', upstreamTls: false, tls: 'auto' },
+        { host: 'app.example.com', path: '/api', dial: '127.0.0.1:4000', upstreamTls: false, tls: 'auto' },
+        { host: 'app.example.com', path: '/api/v2/', dial: '127.0.0.1:5000', upstreamTls: false, tls: 'auto' },
+        { host: 'plain.lan', path: '', dial: '127.0.0.1:3001', upstreamTls: false, tls: 'off' },
+        { host: 'plain.lan', path: 'docs', dial: '127.0.0.1:3002', upstreamTls: false, tls: 'off' },
+      ],
+    })
+    const dials = (routes: any[]): string[] => routes.filter(entry => entry.handle?.[0]?.handler === 'reverse_proxy').map(entry => entry.handle[0].upstreams[0].dial)
+    expect(dials(routesOf(rendered, 'https'))).toEqual(['127.0.0.1:5000', '127.0.0.1:4000', '127.0.0.1:3000'])
+    expect(dials(routesOf(rendered, 'http'))).toEqual(['127.0.0.1:3002', '127.0.0.1:3001'])
+  })
+
   it('omits the port from the redirect when it is the default one', () => {
     const rendered = render({
       config: config({ email: 'me@example.com' }),
