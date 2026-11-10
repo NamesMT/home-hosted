@@ -1272,6 +1272,9 @@ export class BackupService {
             restorable: true,
             note: null,
           }, () => {
+            // The whole entry, when it is applied, already merges every field this one carries.
+            if (actions.has('global:secrets'))
+              return
             mergeIntoFile(sources.globalSecretsPath, globalSecrets, part.fields)
           })
         }
@@ -1388,6 +1391,8 @@ export class BackupService {
                 restorable: true,
                 note: null,
               }, () => {
+                if (actions.has(`workspace:${id}:secrets`))
+                  return
                 ensureStateDir(path.dirname(workspace.secretsPath))
                 mergeIntoFile(workspace.secretsPath, secrets, part.fields)
               })
@@ -1612,10 +1617,9 @@ export class BackupService {
         if (!plan.appliedIds.some(id => id.startsWith(`workspace:${entry.workspaceId}:`)))
           continue
         // Deselecting `workspace:<id>:dump:<server>` must not load it, exactly as for any other item.
-        if (!actions.has(`workspace:${entry.workspaceId}:dump:${entry.serverId}`)
-          && !actions.has(`workspace:${entry.workspaceId}`)) {
+        // (`actions` is keyed by item id, and `workspace:<id>` is only ever an alias, never an item.)
+        if (!actions.has(`workspace:${entry.workspaceId}:dump:${entry.serverId}`))
           continue
-        }
         // The **archive's** config, not the live one: `sources` was read before the restore wrote
         // anything, so it still describes the host as it was. The hooks being restored are the
         // archive's, which is the whole point of a migration onto a blank machine.

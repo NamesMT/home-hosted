@@ -1338,6 +1338,37 @@ function fixtureRootForHooks(): string {
   return hookScratch
 }
 
+describe('restoring a secrets file', () => {
+  /** `global:secrets` and each `global:secrets:<part>` were all applied, merging the one file 1 + N times. */
+  it('writes it once when the whole entry is selected, and per part otherwise', async () => {
+    const fixture = await makeFixture({ globalSecrets: '{ "password": "HASH", "apiToken": "TOKEN" }\n' })
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+    const archive = path.join(fixture.service.directory, created.file!.name)
+    const secretsWrites = (rename: { mock: { calls: unknown[][] } }): number =>
+      rename.mock.calls.filter(([, target]) => String(target) === fixture.globalSecretsPath).length
+
+    const rename = vi.spyOn(fs, 'renameSync')
+    try {
+      const plan = await fixture.service.restore(archive, { confirm: true })
+      expect(plan.error).toBeUndefined()
+      expect(secretsWrites(rename)).toBe(1)
+
+      rename.mockClear()
+      fs.writeFileSync(fixture.globalSecretsPath, '{ "password": "LIVE", "apiToken": "LIVE" }\n', { mode: 0o600 })
+      const partial = await fixture.service.restore(archive, { confirm: true, include: ['global:secrets:password'] })
+      expect(partial.error).toBeUndefined()
+      expect(secretsWrites(rename)).toBe(1)
+      const live = JSON.parse(fs.readFileSync(fixture.globalSecretsPath, 'utf8')) as Record<string, unknown>
+      expect(live.password).toBe('HASH')
+      expect(live.apiToken).toBe('LIVE')
+    }
+    finally {
+      rename.mockRestore()
+    }
+  })
+})
+
 describe('excluding a selection', () => {
   /**
    * `--all --exclude global:secrets` is the recommended default: everything but the machine's
