@@ -106,7 +106,7 @@ async function loadTail(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const history = await api.fetchLogHistory(workspace.activeId.value, id, {
+    const history = await api.fetchLogHistory(id, {
       tail: Number(tail.value),
       // Absent, not empty, for both filters: the server treats a missing key as "no filter",
       // and an empty string as a filter that matches nothing.
@@ -136,7 +136,7 @@ async function clearFile(): Promise<void> {
     return
   confirmClear.value = false
   try {
-    await api.clearLogHistory(workspace.activeId.value, id)
+    await api.clearLogHistory(id, workspace.activeId.value)
     diskLines.value = []
     diskVersion.value += 1
     await loadServers()
@@ -322,7 +322,7 @@ onMounted(async () => {
           <a
             v-for="file in current.files"
             :key="file.name"
-            :href="api.logDownloadUrl(workspace.activeId.value, current.serverId, file.name)"
+            :href="api.logDownloadUrl(current.serverId, file.name, workspace.activeId.value)"
             :download="file.name"
             class="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 font-mono text-2xs text-muted transition-colors duration-150 hover:border-accent/40 hover:text-accent"
           >

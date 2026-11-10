@@ -1,9 +1,10 @@
 import type { DdnsConfig } from '@shared/contracts'
 import { readFileSync } from 'node:fs'
+import { clonePlain } from '@shared/clone'
 import { ddnsConfigSchema, settingsPatchSchema, workspaceSettingsPatchSchema } from '@shared/contracts'
 import { cloneDdnsConfig, ddnsConfigPatch, newDraftDomainKey } from '@shared/ddns-form'
 import { describe, expect, it } from 'vitest'
-import { detachConfig, isLiveConfigChange, repairNumbers, secondsOf } from '../src/lib/forms'
+import { isLiveConfigChange, repairNumbers, secondsOf } from '../src/lib/forms'
 
 /**
  * `v-model.number` writes an empty **string** when an `<input type="number">` is cleared —
@@ -136,26 +137,26 @@ describe('isLiveConfigChange', () => {
 
   it('treats a re-sent but equal config as no change, so typed edits survive', () => {
     // The control plane re-creates every object each frame: equal by value is not a change.
-    expect(isLiveConfigChange({ ...live, restart: { maxRetries: 3 } }, detachConfig(live))).toBe(false)
+    expect(isLiveConfigChange({ ...live, restart: { maxRetries: 3 } }, clonePlain(live))).toBe(false)
   })
 
   it('treats a real server-side change as one', () => {
-    expect(isLiveConfigChange({ ...live, label: 'renamed-elsewhere' }, detachConfig(live))).toBe(true)
+    expect(isLiveConfigChange({ ...live, label: 'renamed-elsewhere' }, clonePlain(live))).toBe(true)
   })
 
   it('ignores a null or absent config rather than reloading on it', () => {
     // A frame before the server is known must not clear the form.
-    expect(isLiveConfigChange(null, detachConfig(live))).toBe(false)
-    expect(isLiveConfigChange(undefined, detachConfig(live))).toBe(false)
+    expect(isLiveConfigChange(null, clonePlain(live))).toBe(false)
+    expect(isLiveConfigChange(undefined, clonePlain(live))).toBe(false)
   })
 
   it('compares by value, so mutating the snapshot shape is still detected', () => {
-    const snapshot = detachConfig(live)
+    const snapshot = clonePlain(live)
     expect(isLiveConfigChange({ ...live, port: null }, snapshot)).toBe(true)
   })
 })
 
-describe('detachConfig', () => {
+describe('the snapshot the guard compares against', () => {
   /**
    * The guard's snapshot must not alias live state. If it did, a store that mutated a config in
    * place would move the snapshot with it and `isLiveConfigChange` would answer `false` for a
@@ -164,7 +165,7 @@ describe('detachConfig', () => {
    */
   it('returns a copy that does not move with the original', () => {
     const original = { label: 'web', restart: { maxRetries: 3 } }
-    const snapshot = detachConfig(original)
+    const snapshot = clonePlain(original)
     original.restart.maxRetries = 9
     expect(snapshot.restart.maxRetries).toBe(3)
     expect(isLiveConfigChange(original, snapshot)).toBe(true)

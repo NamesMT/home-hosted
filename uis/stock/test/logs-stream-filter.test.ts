@@ -23,7 +23,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   return {
     ...actual,
-    fetchLogHistory: (_workspace: string, _id: string, query: Record<string, unknown>) => {
+    fetchLogHistory: (_id: string, query: Record<string, unknown>) => {
       pending.push({ query })
       return Promise.resolve({ lines: [{ ts: 1, stream: 'stderr', text: 'boom' }], searched: null })
     },

@@ -216,7 +216,7 @@ async function save(): Promise<void> {
       }
     }
     if (ddns !== null) {
-      await api.saveDdns(workspace.activeId.value, ddns)
+      await api.saveDdns(ddns, workspace.activeId.value)
       await ddnsSection.value?.reload()
     }
     saveMessage.value = t('views.settings.saved')

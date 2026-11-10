@@ -262,7 +262,7 @@ async function saveCredentials(): Promise<void> {
   credentialError.value = null
   try {
     const current = reads.action()
-    const next = await api.saveDdnsCredentials(workspace.activeId.value, account.id, account.provider, credentialDraft.value)
+    const next = await api.saveDdnsCredentials(account.id, account.provider, credentialDraft.value, workspace.activeId.value)
     if (current())
       apply(next, true)
     toasts.success(t('settings.ddns.credentialsSaved', { account: account.id }))
@@ -284,7 +284,7 @@ async function clearCredentials(): Promise<void> {
   credentialError.value = null
   try {
     const current = reads.action()
-    const next = await api.clearDdnsCredentials(workspace.activeId.value, account.id)
+    const next = await api.clearDdnsCredentials(account.id, workspace.activeId.value)
     if (current())
       apply(next, true)
     toasts.success(t('settings.ddns.credentialsRemoved', { account: account.id }))

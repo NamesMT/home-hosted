@@ -115,7 +115,8 @@ node scripts/build-uis.mjs <name> --zip   # → uis/dist/home-hosted-ui-<name>.z
 ```
 
 Inside the repo, `@shared/…` is `src/shared/` (contracts, the API client, formatters) and `@server`
-gives types only — `hc<AppType>` from `hono/client` is a fully typed client (`uis/stock/src/lib/rpc.ts`).
+gives types only. The API client is `@shared/api-client`: both UIs import it, and the workspace-scoped
+calls take an optional workspace so each UI decides where that comes from (`useWorkspaceResolver`).
 
 ## A worked example, outside this repo
 

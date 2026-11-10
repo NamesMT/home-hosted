@@ -17,6 +17,7 @@ import type {
 import type { Patch } from '@shared/patch-diff'
 import type { WritableComputedRef } from 'vue'
 import { sameScope } from '@shared/backup-scope'
+import { healthSchema, restartSchema, stopSchema } from '@shared/contracts'
 import { linesToArray } from '@shared/fields'
 import { countLeaves, diffFields, mergeReplacedList, patchSinceFilled, replacedListConflicts } from '@shared/patch-diff'
 import { msToSeconds, secondsToMs } from '@shared/ui-format'
@@ -159,33 +160,18 @@ export interface WorkspaceSettingsForm {
   destinations: DestinationForm[]
 }
 
-/** The schema's own defaults, for a form that has not been filled yet. */
-export const SCHEMA_RESTART: RestartConfig = {
-  enabled: true,
-  maxRetries: 3,
-  baseDelayMs: 1000,
-  factor: 2,
-  maxDelayMs: 30000,
-  resetAfterMs: 60000,
-}
-
-export const SCHEMA_HEALTH: HealthConfig = {
-  enabled: true,
-  mode: 'port',
-  http: { scheme: 'http', allowInvalidCert: false, path: '/', method: 'GET', expectStatusBelow: 400, expectBody: '' },
-  intervalMs: 5000,
-  timeoutMs: 1500,
-  unhealthyThreshold: 3,
-  forceRestartAfterMs: 0,
-  startTimeoutMs: 20000,
-}
-
-export const SCHEMA_STOP: StopConfig = {
-  signal: 'SIGTERM',
-  killGroup: true,
-  graceMs: 5000,
-  killPortHolders: false,
-}
+/**
+ * The schema's own defaults, for a form that has not been filled yet.
+ *
+ * Asked of the schemas rather than re-typed. These were three literal objects duplicating the
+ * defaults in `contracts.ts`, and the console's form already derived them — so a default that moved
+ * on one side left this form diffing against a value the panel no longer had, and the diff then
+ * wrote that stale default into `servers.config.json`. `test/shared/server-form.test.ts` pins the
+ * values, so a change in `contracts.ts` shows up there rather than silently here.
+ */
+export const SCHEMA_RESTART: RestartConfig = restartSchema.assert({})
+export const SCHEMA_HEALTH: HealthConfig = healthSchema.assert({})
+export const SCHEMA_STOP: StopConfig = stopSchema.assert({})
 
 /** A copy of the health group, nested `http` included. */
 export function cloneHealth(health: HealthConfig): HealthConfig {

@@ -15,6 +15,8 @@ import { describeScope, schedulePatch } from '../src/lib/backupSelection'
  */
 
 const VIEW = readFileSync(new URL('../src/views/GlobalSettingsView.vue', import.meta.url), 'utf8')
+/** The extracted settings policy, where the schedule patch is now called. */
+const PATCH_POLICY = readFileSync(new URL('../src/lib/settingsPatch.ts', import.meta.url), 'utf8')
 
 /** A stored schedule, in the shape the config file holds. */
 function stored(overrides: Partial<BackupScheduleConfig> = {}): BackupScheduleConfig {
@@ -91,13 +93,18 @@ describe('the schedule in a settings patch', () => {
   })
 })
 
-describe('the view keeps using them', () => {
+describe('the page keeps using them', () => {
   it('reads both from the module instead of re-inlining them', () => {
     // A second copy is how the two drift apart, and the module's own tests would stay green.
     expect(VIEW, 'the summary must come from the module').toContain('describeScope(')
-    expect(VIEW, 'the patch must come from the module').toContain('schedulePatch(')
+    // The schedule patch is called from `@/lib/settingsPatch` now — the settings policy moved out of
+    // the view into a module of its own, so the call is one level down rather than in this file. Both
+    // halves are still asserted: that module holds the call, and the view reaches it.
+    expect(PATCH_POLICY, 'the schedule patch must be called').toContain('schedulePatch(')
+    expect(VIEW, 'the view must go through the extracted policy').toContain('buildGlobalPatch')
     // The modes' wording belongs in one place, not in the view's template.
     expect(VIEW).not.toContain('everything (the default scope)')
     expect(VIEW, 'the view must not compare scopes itself').not.toMatch(/sameScope\(/)
+    expect(PATCH_POLICY, 'the policy must not compare scopes itself either').not.toMatch(/sameScope\(/)
   })
 })

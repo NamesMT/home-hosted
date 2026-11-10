@@ -135,7 +135,7 @@ async function saveToken(form: DestinationForm): Promise<void> {
   busy.value = form.id
   error.value = null
   try {
-    const result = await api.saveTelegramToken(workspace.activeId.value, form.id, token)
+    const result = await api.saveTelegramToken(form.id, token, workspace.activeId.value)
     tokenInputs.value[form.id] = ''
     tokenMessages.value[form.id] = result.username === null
       ? t('settings.telegram.tokenSaved')
@@ -154,7 +154,7 @@ async function removeToken(form: DestinationForm): Promise<void> {
   busy.value = form.id
   error.value = null
   try {
-    await api.clearTelegramToken(workspace.activeId.value, form.id)
+    await api.clearTelegramToken(form.id, workspace.activeId.value)
     tokenMessages.value[form.id] = t('settings.telegram.tokenRemoved')
     control.refresh()
   }
@@ -170,7 +170,7 @@ async function detectChats(form: DestinationForm): Promise<void> {
   busy.value = form.id
   error.value = null
   try {
-    const { chats } = await api.detectTelegramChats(workspace.activeId.value, form.id, {
+    const { chats } = await api.detectTelegramChats(form.id, {
       botToken: (tokenInputs.value[form.id] ?? '').trim() || undefined,
     })
     if (chats.length === 0)
@@ -191,7 +191,7 @@ async function sendTest(form: DestinationForm): Promise<void> {
   error.value = null
   try {
     if (form.kind === 'telegram') {
-      await api.sendTelegramTest(workspace.activeId.value, form.id, { chatId: form.chatId || undefined })
+      await api.sendTelegramTest(form.id, { chatId: form.chatId || undefined }, workspace.activeId.value)
     }
     else {
       // The draft travels whole, so an unsaved URL and headers are what gets tested.

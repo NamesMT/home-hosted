@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import type { DdnsConfig, DestinationStatusView, LogsConfig, ServerDefaults, WorkspaceSettingsPatch } from '@shared/contracts'
+import type { DdnsConfig, LogsConfig, ServerDefaults } from '@shared/contracts'
 import type { DraftConfig } from '@shared/ddns-form'
 import type { Patch } from '@shared/patch-diff'
+import type { DestinationDraft, PolicyDraft } from '@/lib/workspaceSettingsPatch'
 import { ddnsConfigPatch, toDdnsConfig } from '@shared/ddns-form'
 import { errorMessage } from '@shared/error-message'
-import { countLeaves, describeChanges, diffFields, mergeReplacedList, patchSinceFilled, replacedListConflicts } from '@shared/patch-diff'
+import { countLeaves, describeChanges, replacedListConflicts } from '@shared/patch-diff'
 import { msToSeconds, secondsToMs } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, shallowReactive, watch } from 'vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
@@ -15,7 +16,15 @@ import { vFocusTrap } from '@/composables/useFocusTrap'
 import { changesOpen } from '@/composables/useUi'
 import { useWorkspaces } from '@/composables/useWorkspaces'
 import * as api from '@/lib/api'
-import { repairNumbers, secondsOf } from '@/lib/forms'
+import { secondsOf } from '@/lib/forms'
+import {
+  buildWorkspacePatch,
+  cloneHealth,
+  destinationConfig,
+  filledDestinations,
+  policyConfig,
+  repairWorkspaceForm,
+} from '@/lib/workspaceSettingsPatch'
 
 /**
  * The selected workspace's own groups: server defaults, log retention,
@@ -24,19 +33,6 @@ import { repairNumbers, secondsOf } from '@/lib/forms'
  */
 const control = useControlPlane()
 const workspace = useWorkspaces()
-
-/** The general block as this page edits it. */
-interface PolicyDraft {
-  onCrash: boolean
-  onUnhealthy: boolean
-  onForcedRestart: boolean
-  onRecovered: boolean
-  onHost: boolean
-  onDdns: boolean
-  cooldownMs: number
-}
-/** One destination as the config carries it: the status row minus its derived fields. */
-type DestinationDraft = Omit<DestinationStatusView, 'lastResult' | 'lastResultAt'>
 
 const activeId = computed(() => workspace.activeId.value)
 const selected = computed(() => workspace.selected.value)
@@ -91,58 +87,30 @@ const form = reactive({
   },
 })
 
-/** The general block as the form holds it. */
-function policyConfig(status: Omit<PolicyDraft, 'onDdns'> & { onDdns?: boolean }): PolicyDraft {
-  return {
-    onCrash: status.onCrash,
-    onUnhealthy: status.onUnhealthy,
-    onForcedRestart: status.onForcedRestart,
-    onRecovered: status.onRecovered,
-    onHost: status.onHost,
-    // A panel from before DDNS sends no flag; absent means "on".
-    onDdns: status.onDdns !== false,
-    cooldownMs: status.cooldownMs,
-  }
-}
-
 /**
- * One destination in the shape the API *stores* — the only shape a diff may compare.
+ * One webhook draft as the route's `target`, with the view's nullable columns resolved.
  *
- * `tokenSet` is derived and never written, so it must not appear on either side of the diff; the
- * policy columns are written only for a destination that carries its own. Comparing the form's
- * richer shape against the wire shape made every untouched row look edited, so the change dialog
- * always claimed an edit and a save rewrote the list in its reduced form.
+ * A `DestinationStatusView` is one row shape for both kinds, so `url`/`method`/`format`/`headers`
+ * are null on a Telegram row and the policy columns are optional. The test route validates its body
+ * strictly, so sending the form object straight through meant a null reached `target.url` and the
+ * whole request was refused with a schema summary instead of "the test message failed".
  */
-function destinationWire(entry: DestinationDraft): Record<string, unknown> {
+function webhookTargetOf(entry: DestinationDraft): api.WebhookTestTarget {
   return {
-    kind: entry.kind,
-    id: entry.id,
+    url: entry.url ?? '',
+    method: entry.method ?? 'POST',
+    format: entry.format ?? 'json',
+    headers: entry.headers ?? '',
     enabled: entry.enabled,
-    useOwnSettings: entry.useOwnSettings,
-    ...(entry.kind === 'telegram' ? { chatId: entry.chatId } : { url: entry.url, method: entry.method, format: entry.format, headers: entry.headers }),
-    ...(entry.useOwnSettings
-      ? { onCrash: entry.onCrash, onUnhealthy: entry.onUnhealthy, onForcedRestart: entry.onForcedRestart, onRecovered: entry.onRecovered, onHost: entry.onHost, onDdns: entry.onDdns, cooldownMs: entry.cooldownMs }
-      : {}),
-  }
-}
-
-/**
- * One destination as the form holds it. The row carries its *effective* policy, which is what a
- * read-only view should show for an inheriting destination.
- */
-function destinationConfig(row: DestinationStatusView): DestinationDraft {
-  return {
-    id: row.id,
-    kind: row.kind,
-    enabled: row.enabled,
-    useOwnSettings: row.useOwnSettings,
-    chatId: row.chatId ?? '',
-    tokenSet: row.tokenSet,
-    url: row.url ?? '',
-    method: row.method ?? 'POST',
-    format: row.format ?? 'json',
-    headers: row.headers ?? '',
-    ...policyConfig(row),
+    cooldownMs: entry.cooldownMs,
+    onCrash: entry.onCrash,
+    onUnhealthy: entry.onUnhealthy,
+    onForcedRestart: entry.onForcedRestart,
+    onRecovered: entry.onRecovered,
+    onHost: entry.onHost,
+    // `onDdns` is optional on the view (a panel from before DDNS sends no flag) and absent means on,
+    // which is the same reading `policyConfig` applies when it fills the form.
+    onDdns: entry.onDdns !== false,
   }
 }
 
@@ -214,7 +182,10 @@ async function testDestination(entry: DestinationDraft): Promise<void> {
     if (entry.kind === 'telegram')
       await api.sendTelegramTest(entry.id, { chatId: entry.chatId || undefined }, activeId.value)
     else
-      await api.testWebhook(activeId.value, { target: { url: entry.url, method: entry.method, format: entry.format, headers: entry.headers, enabled: entry.enabled, cooldownMs: entry.cooldownMs, onCrash: entry.onCrash, onUnhealthy: entry.onUnhealthy, onForcedRestart: entry.onForcedRestart, onRecovered: entry.onRecovered, onHost: entry.onHost, onDdns: entry.onDdns }, id: entry.id })
+      // The view's own fields are nullable (`url`/`method`/`format`/`headers` are null on a Telegram
+      // row), while the route's target requires them. `destinationConfig` is the one normalizer that
+      // already resolves those defaults, so the test sends exactly what a save would store.
+      await api.testWebhook(activeId.value, { target: webhookTargetOf(entry), id: entry.id })
     hookResults.value[entry.id] = 'test sent'
   }
   catch (caught) {
@@ -224,11 +195,6 @@ async function testDestination(entry: DestinationDraft): Promise<void> {
 }
 
 type FormBlock = 'defaults' | 'logs' | 'notifications'
-
-/** A copy of the health group, nested `http` included. */
-function cloneHealth(health: ServerDefaults['health']): ServerDefaults['health'] {
-  return { ...health, http: { ...health.http } }
-}
 
 function fillDefaults(): boolean {
   const defaults = defaultsView.value
@@ -302,19 +268,6 @@ function isBlockEdited(block: FormBlock): boolean {
   return snapshot !== undefined && JSON.stringify(snapshot) !== JSON.stringify(blockSnapshot(block))
 }
 
-/**
- * The destination list this block was filled with, or `undefined` when it never was.
- *
- * A replaced list is all-or-nothing on the wire, so what decides "send it" is this baseline — the
- * only record of which entries the form has seen, and so of which absences are its deletions.
- */
-function filledDestinations(snapshot: unknown): DestinationDraft[] | undefined {
-  if (snapshot === null || typeof snapshot !== 'object')
-    return undefined
-  const destinations = (snapshot as { destinations?: unknown }).destinations
-  return Array.isArray(destinations) ? (destinations as DestinationDraft[]) : undefined
-}
-
 function remember(block: FormBlock): void {
   snapshots[block] = blockSnapshot(block)
 }
@@ -352,73 +305,16 @@ watch(activeId, () => {
   applySettings()
 })
 
-/** The workspace-scoped patch: server defaults, log retention, notifications, DDNS. */
-function buildWorkspacePatch(defaults: ServerDefaults): WorkspaceSettingsPatch {
-  const patch: WorkspaceSettingsPatch = {}
-
-  /**
-   * An emptied number box reports `''`, which the patch schema rejects for the whole body.
-   * Put the live value back first, so the field drops out of the diff instead of failing it.
-   */
-  repairNumbers(form.defaults as unknown as Record<string, unknown>, defaults as unknown as Record<string, unknown>)
-  const live = selected.value
-  if (live !== null) {
-    repairNumbers(form.logs as unknown as Record<string, unknown>, live.logs as unknown as Record<string, unknown>)
-    repairNumbers(
-      form.notifications.policy as unknown as Record<string, unknown>,
-      (live.notifications.defaults ?? form.notifications.policy) as unknown as Record<string, unknown>,
-    )
-  }
-
-  // Against what the block was filled with, not live state: another client's change to a field this
-  // form never touched must not be written back (see `patchSinceFilled`).
-  const defaultsPatch = patchSinceFilled(
-    defaults as unknown as Patch,
-    snapshots.defaults as Patch | undefined,
-    { ...form.defaults } as unknown as Patch,
-    ['restart', 'health', 'stop'],
-  )
-  if (Object.keys(defaultsPatch).length > 0)
-    patch.defaults = defaultsPatch as WorkspaceSettingsPatch['defaults']
-
-  const configured = selected.value
-  if (configured) {
-    const logsPatch = patchSinceFilled(configured.logs as unknown as Patch, snapshots.logs as Patch | undefined, { ...form.logs } as unknown as Patch)
-    if (Object.keys(logsPatch).length > 0)
-      patch.logs = logsPatch as WorkspaceSettingsPatch['logs']
-
-    // The general block merges; the list is **replaced** — a merge cannot express removing one.
-    // An inheriting destination sends no policy columns: they would be ignored anyway, and writing
-    // them would make the config say something the page does not mean.
-    const notificationsPatch = diffFields(
-      { defaults: policyConfig(configured.notifications.defaults ?? form.notifications.policy) } as unknown as Patch,
-      { defaults: { ...form.notifications.policy } } as unknown as Patch,
-      ['defaults'],
-    )
-    // The list is all-or-nothing on the wire, so it travels only when *this form* changed it, and
-    // merged against what it was filled with — sending the draft alone deletes a destination another
-    // client added while the page was open.
-    const filled = filledDestinations(snapshots.notifications)
-    const destinations = mergeReplacedList({
-      filled,
-      draft: form.notifications.destinations,
-      live: (configured.notifications.destinations ?? []).map(destinationConfig),
-      key: entry => entry.id,
-    })
-    if (destinations !== null)
-      notificationsPatch.destinations = destinations.map(destinationWire)
-    if (Object.keys(notificationsPatch).length > 0)
-      patch.notifications = notificationsPatch as WorkspaceSettingsPatch['notifications']
-  }
-
-  return patch
-}
-
 const pendingPatch = computed(() => {
   const defaults = defaultsView.value
+  const live = selected.value
   if (!defaults || activeId.value.length === 0)
     return null
-  return buildWorkspacePatch(defaults)
+  // The policy itself is `@/lib/workspaceSettingsPatch`: a rule about what a save writes, tested
+  // there without mounting this page. This view owns the form and its snapshots.
+  if (live !== null)
+    repairWorkspaceForm(form, defaults, live)
+  return buildWorkspacePatch({ form, defaults, live, snapshots })
 })
 
 /**
@@ -495,7 +391,9 @@ async function saveSettings(): Promise<void> {
       return
     }
 
-    const patch = buildWorkspacePatch(defaults)
+    if (selected.value !== null)
+      repairWorkspaceForm(form, defaults, selected.value)
+    const patch = buildWorkspacePatch({ form, defaults, live: selected.value, snapshots })
     if (Object.keys(patch).length === 0 && ddnsPatch.value === null) {
       settingsMessage.value = 'nothing changed'
       return

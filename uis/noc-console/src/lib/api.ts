@@ -1,114 +1,52 @@
-import type {
-  AppState,
-  BackupEntry,
-  BackupFile,
-  BackupSelection,
-  BackupsView,
-  DdnsConfig,
-  DdnsView,
-  LogHistoryView,
-  LogServerView,
-  RestorePlan,
-  ServerCreate,
-  ServerPatch,
-  SettingsPatch,
-  SettingsView,
-  UiMeta,
-  WorkspaceCreate,
-  WorkspaceSettingsPatch,
-  WorkspaceSettingsView,
-  WorkspaceView,
-} from '@shared/contracts'
-// The calls and helpers both UIs make identically now live in `src/shared/api-client.ts`. Imported
-// (not only re-exported) because this file's workspace-scoped wrappers call them.
-import {
-  ddnsView,
-  failureMessage,
-  request,
-} from '@shared/api-client'
-import {
-  backupSelectionSchema,
-  logHistoryViewSchema,
-  logServersViewSchema,
-  settingsPatchSchema,
-  settingsSavedSchema,
-  workspaceCreateSchema,
-  workspaceRenameSchema,
-  workspaceSettingsPatchSchema,
-  workspaceSettingsSavedSchema,
-  workspaceSettingsViewSchema,
-  workspaceViewSchema,
-} from '@shared/contracts'
-import { parseState } from '@shared/live-frames'
-import { type } from 'arktype'
-
+/**
+ * This UI's view of the panel API.
+ *
+ * The calls are the shared client's — `@shared/api-client` holds the workspace-scoped wrappers and
+ * their validation now. What is genuinely this UI's is the resolver: the console lets a call omit
+ * the workspace and falls back to whatever the shell has selected, which is a reactive ref it owns.
+ * `src/shared` may not import Vue, so that ref cannot move into the shared client — this short
+ * adapter is the seam instead.
+ */
+import type { SettingsSaved, UiMeta, WorkspaceSettingsView } from '@shared/contracts'
+import { useWorkspaceResolver } from '@shared/api-client'
 import { selectedWorkspaceId } from '@/lib/selection'
 
-export { AuthRequiredError, LocalOnlyError } from '@shared/api-client'
-export {
-  applyProxy,
-  backupDownloadUrl,
-  backupWarnings,
-  clearPassword,
-  clearProxyCertificate,
-  createBackup,
-  deleteBackup,
-  fetchProxy,
-  fetchSession,
-  fetchSettings,
-  generateApiToken,
-  installProxyEngine,
-  login,
-  logout,
-  patchProxy,
-  restoreStoredBackup,
-  restoreUploadedBackup,
-  retryProxyCertificate,
-  revertProxy,
-  revertUi,
-  revokeApiToken,
-  setPassword,
-  startProxy,
-  stopProxy,
-  uploadProxyCertificate,
-  uploadUi,
-} from '@shared/api-client'
+export * from '@shared/api-client'
+// Named rather than left to the star export: these are the two helpers a settings page reaches for,
+// and the scan that keeps them shared (`test/shared/ui-parity.test.ts`) reads this file by name.
+export { restoreStoredBackup, restoreUploadedBackup, uploadUi } from '@shared/api-client'
+export type { RestoreOptions } from '@shared/api-client'
 
+useWorkspaceResolver(() => selectedWorkspaceId.value)
+
+// The contract types a view names through this barrel rather than reaching for `@shared/contracts`.
 export type {
   BackupEntry,
   BackupFile,
   BackupsView,
   RestorePlan,
+  SettingsSaved,
   SettingsView,
-}
-// The restore options are the shared type, not a per-UI copy — see `restoreUploadedBackup`.
-export type { RestoreOptions } from '@shared/api-client'
+  UiMeta,
+  WorkspaceSettingsView,
+  WorkspaceView,
+} from '@shared/contracts'
+
+/** The shared saved answer, under the name this UI's views already import. */
+export type SettingsSaveResult = SettingsSaved
+
+/** `GET /api/settings/workspace`: what the pinned workspace owns on its own. */
+export type WorkspaceSettings = WorkspaceSettingsView
 
 /**
- * The installed UI's identity. The contract keeps every field optional (a
- * hand-written `ui.json` has no `uploadedAt`/`files`); a panel that installs one
- * always fills them in, and the settings page reads them as present.
+ * The installed UI's identity. The contract keeps every field optional (a hand-written `ui.json` has
+ * no `uploadedAt`/`files`); a panel that installs one always fills them in, and the settings page
+ * reads them as present.
  */
 export interface UiStatus {
   custom: boolean
   dir: string
   meta: (UiMeta & { name: string, version: string | null, uploadedAt: number, files: number }) | null
-}
-
-export interface ActionResult {
-  ok: boolean
-  error?: string
-}
-
-/** `GET /api/settings/workspace`: what the pinned workspace owns on its own. */
-export type WorkspaceSettings = WorkspaceSettingsView
-
-export interface LogServerInfo extends LogServerView {}
-
-export interface LogQuery {
-  tail?: number
-  search?: string
-  stream?: string
 }
 
 /** A data path a backup would capture, flattened out of the entry tree. */
@@ -119,268 +57,4 @@ export interface BackupPathEntry {
   origin: string
   included: boolean
   note: string | null
-}
-
-export interface SettingsSaveResult extends SettingsView {
-  /** The listener is being moved; wait for `targetUrl` before redirecting. */
-  rebinding: boolean
-  /** The address the panel is moving to, or null when it stays put. */
-  targetUrl: string | null
-}
-
-/**
- * Every server, log, DDNS and notification route is workspace-scoped; omitting
- * the parameter means the panel's own default workspace. The shell keeps the
- * selected workspace in `selectedWorkspaceId`, so the scoped calls default to it.
- */
-function scoped(path: string, workspace?: string | null, extra?: URLSearchParams): string {
-  const id = workspace ?? selectedWorkspaceId.value
-  const params = extra ?? new URLSearchParams()
-  if (id !== null && id !== undefined && id.length > 0)
-    params.set('workspace', id)
-  const query = params.toString()
-  if (query.length === 0)
-    return path
-  const separator = path.includes('?') ? '&' : '?'
-  return `${path}${separator}${query}`
-}
-
-/** Appends the workspace to a URLSearchParams body for the streaming routes. */
-function scopedParams(workspace?: string | null): URLSearchParams {
-  const params = new URLSearchParams()
-  const id = workspace ?? selectedWorkspaceId.value
-  if (id !== null && id !== undefined && id.length > 0)
-    params.set('workspace', id)
-  return params
-}
-
-/** The per-server event stream URL, workspace-scoped like every other route. */
-export function serverStreamUrl(id: string, workspace?: string | null): string {
-  return scoped(`/api/servers/${encodeURIComponent(id)}/stream`, workspace)
-}
-
-/** Validated at the boundary: contract drift fails loudly here, not in the UI. */
-export async function fetchState(): Promise<AppState> {
-  const payload = await request<unknown>('/api/state')
-  // Tolerant of an enum value a newer panel added: one unknown status must not blank the UI.
-  const parsed = parseState(payload)
-  if (parsed === null)
-    throw new Error('state contract mismatch')
-  // The schema accepts both `port` forms; the control plane always sends the
-  // normalized one (`number | null`), which is what AppState describes.
-  return parsed as AppState
-}
-
-/** Writes the panel-wide groups; `defaults`/`logs`/`notifications` go to the workspace route. */
-export async function patchSettings(patch: SettingsPatch): Promise<SettingsSaveResult> {
-  const parsed = settingsPatchSchema(patch)
-  if (parsed instanceof type.errors)
-    throw new Error(parsed.summary)
-  const payload = await request<unknown>('/api/settings', { method: 'PATCH', body: JSON.stringify(parsed) })
-  const saved = settingsSavedSchema(payload)
-  if (saved instanceof type.errors)
-    throw new Error(`settings contract mismatch: ${saved.summary}`)
-  return saved as SettingsSaveResult
-}
-
-/** One workspace's own settings, validated at the boundary like the global ones. */
-export async function fetchWorkspaceSettings(workspace?: string | null): Promise<WorkspaceSettings> {
-  const payload = await request<unknown>(scoped('/api/settings/workspace', workspace))
-  const parsed = workspaceSettingsViewSchema(payload)
-  if (parsed instanceof type.errors)
-    throw new Error(`workspace settings contract mismatch: ${parsed.summary}`)
-  return parsed as WorkspaceSettings
-}
-
-export async function patchWorkspaceSettings(patch: WorkspaceSettingsPatch, workspace?: string | null): Promise<WorkspaceSettings> {
-  const parsed = workspaceSettingsPatchSchema(patch)
-  if (parsed instanceof type.errors)
-    throw new Error(parsed.summary)
-  const payload = await request<unknown>(scoped('/api/settings/workspace', workspace), {
-    method: 'PATCH',
-    body: JSON.stringify(parsed),
-  })
-  const saved = workspaceSettingsSavedSchema(payload)
-  if (saved instanceof type.errors)
-    throw new Error(`workspace settings contract mismatch: ${saved.summary}`)
-  return saved as WorkspaceSettings
-}
-
-async function workspaceView(payload: unknown): Promise<WorkspaceView> {
-  const parsed = workspaceViewSchema(payload)
-  if (parsed instanceof type.errors)
-    throw new Error(`workspace contract mismatch: ${parsed.summary}`)
-  return parsed as WorkspaceView
-}
-
-export async function createWorkspace(payload: WorkspaceCreate = {}): Promise<WorkspaceView> {
-  const parsed = workspaceCreateSchema(payload)
-  if (parsed instanceof type.errors)
-    throw new Error(parsed.summary)
-  const response = await request<unknown>('/api/workspaces', { method: 'POST', body: JSON.stringify(parsed) })
-  return workspaceView((response as { workspace?: unknown } | null)?.workspace)
-}
-
-export async function renameWorkspace(id: string, label: string): Promise<WorkspaceView> {
-  const parsed = workspaceRenameSchema({ label })
-  if (parsed instanceof type.errors)
-    throw new Error(parsed.summary)
-  const response = await request<unknown>(`/api/workspaces/${encodeURIComponent(id)}`, {
-    method: 'PATCH',
-    body: JSON.stringify(parsed),
-  })
-  return workspaceView((response as { workspace?: unknown } | null)?.workspace)
-}
-
-export function removeWorkspace(id: string): Promise<{ ok: boolean, removed: { id: string, label: string } }> {
-  return request(`/api/workspaces/${encodeURIComponent(id)}`, { method: 'DELETE' })
-}
-
-export async function fetchLogServers(workspace?: string | null): Promise<LogServerInfo[]> {
-  const payload = await request<unknown>(scoped('/api/logs', workspace))
-  const parsed = logServersViewSchema(payload)
-  if (parsed instanceof type.errors)
-    throw new Error(`logs contract mismatch: ${parsed.summary}`)
-  return parsed.servers as LogServerInfo[]
-}
-
-export async function fetchLogHistory(id: string, query: LogQuery, workspace?: string | null): Promise<LogHistoryView> {
-  const params = scopedParams(workspace)
-  if (query.tail !== undefined)
-    params.set('tail', String(query.tail))
-  if (query.search !== undefined && query.search.length > 0)
-    params.set('search', query.search)
-  if (query.stream !== undefined && query.stream.length > 0)
-    params.set('stream', query.stream)
-
-  const payload = await request<unknown>(`/api/logs/${encodeURIComponent(id)}?${params.toString()}`)
-  const parsed = logHistoryViewSchema(payload)
-  if (parsed instanceof type.errors)
-    throw new Error(`log history contract mismatch: ${parsed.summary}`)
-  return parsed as LogHistoryView
-}
-
-export function clearLogHistory(id: string, workspace?: string | null): Promise<unknown> {
-  return request(scoped(`/api/logs/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' })
-}
-
-/** Direct link; the session cookie is sent by the browser. */
-export function logDownloadUrl(id: string, file: string, workspace?: string | null): string {
-  return scoped(`/api/logs/${encodeURIComponent(id)}/download?file=${encodeURIComponent(file)}`, workspace)
-}
-
-export async function fetchBackups(): Promise<BackupSelection> {
-  const payload = await request<unknown>('/api/backups')
-  const parsed = backupSelectionSchema(payload)
-  if (parsed instanceof type.errors)
-    throw new Error(`backups contract mismatch: ${parsed.summary}`)
-  return parsed as BackupSelection
-}
-
-/**
- * Tests one webhook target. The whole target travels, so an unsaved URL and header block are
- * what gets tried — `id` is echoed so the result lands against the right row.
- */
-export function testWebhook(workspace: string, payload: { target: Record<string, unknown>, id?: string }): Promise<{ ok: boolean, error?: string }> {
-  return request(scoped('/api/notifications/test-webhook', workspace), { method: 'POST', body: JSON.stringify(payload) })
-}
-
-/** A Telegram destination's bot token, keyed by destination id: one workspace may hold several. */
-export function saveTelegramToken(id: string, botToken: string, workspace?: string | null): Promise<{ ok: boolean, username: string | null }> {
-  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/token`, workspace), { method: 'PUT', body: JSON.stringify({ botToken }) })
-}
-
-export function clearTelegramToken(id: string, workspace?: string | null): Promise<unknown> {
-  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/token`, workspace), { method: 'DELETE' })
-}
-
-export function sendTelegramTest(id: string, payload: { chatId?: string }, workspace?: string | null): Promise<{ ok: boolean, error?: string }> {
-  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/test`, workspace), { method: 'POST', body: JSON.stringify(payload) })
-}
-
-export function detectTelegramChats(id: string, payload: { botToken?: string }, workspace?: string | null): Promise<{ chats: Array<{ id: number | string, title: string }> }> {
-  return request(scoped(`/api/notifications/destinations/${encodeURIComponent(id)}/detect-chats`, workspace), { method: 'POST', body: JSON.stringify(payload) })
-}
-
-export async function fetchDdns(workspace?: string | null): Promise<DdnsView> {
-  return ddnsView(await request<unknown>(scoped('/api/ddns', workspace)))
-}
-
-export async function saveDdns(config: DdnsConfig, workspace?: string | null): Promise<DdnsView> {
-  return ddnsView(await request<unknown>(scoped('/api/ddns', workspace), { method: 'PUT', body: JSON.stringify(config) }))
-}
-
-/** The provider travels with the request: the account may still be an unsaved draft. */
-export async function saveDdnsCredentials(id: string, provider: string, credentials: Record<string, string>, workspace?: string | null): Promise<DdnsView> {
-  return ddnsView(await request<unknown>(scoped(`/api/ddns/credentials/${encodeURIComponent(id)}`, workspace), { method: 'PUT', body: JSON.stringify({ provider, credentials }) }))
-}
-
-export async function clearDdnsCredentials(id: string, workspace?: string | null): Promise<DdnsView> {
-  return ddnsView(await request<unknown>(scoped(`/api/ddns/credentials/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' }))
-}
-
-/** Runs a pass now; the answer carries the fresh status. */
-export async function checkDdns(workspace?: string | null): Promise<DdnsView> {
-  return ddnsView(await request<unknown>(scoped('/api/ddns/check', workspace), { method: 'POST' }))
-}
-
-export function uploadTls(certificate: string, privateKey: string): Promise<SettingsSaveResult> {
-  return request('/api/settings/tls', { method: 'POST', body: JSON.stringify({ certificate, privateKey }) })
-}
-
-export function clearTls(): Promise<SettingsSaveResult> {
-  return request('/api/settings/tls', { method: 'DELETE' })
-}
-
-/** Empty version installs the current release; a version asks for a named one. */
-
-/**
- * Lifecycle calls are plain `fetch`: the route is workspace-scoped, and a
- * missing one must surface as an error the UI can show, never as a build break
- * in an unrelated app module.
- */
-export async function serverAction(id: string, action: 'start' | 'stop' | 'restart', workspace?: string | null): Promise<ActionResult> {
-  const response = await fetch(scoped(`/api/servers/${encodeURIComponent(id)}/${action}`, workspace), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  })
-  const payload = await response.json().catch(() => null) as (ActionResult & { message?: string }) | null
-  if (!response.ok)
-    // A lifecycle refusal answers `{ ok: false, error }`, not the `{ message }` envelope — read both,
-    // or "port 3000 is already in use" reaches the toast as "request failed with 409".
-    throw new Error(failureMessage(payload, response.status))
-  return payload ?? { ok: true }
-}
-
-export function startAll(workspace?: string | null): Promise<unknown> {
-  return request(scoped('/api/servers/start-all', workspace), { method: 'POST' })
-}
-
-/** `withPersistent` is the CLI's `--with-persistent`: also end the entries that outlive the panel. */
-export function stopAll(workspace?: string | null, options: { withPersistent?: boolean } = {}): Promise<unknown> {
-  const extra = options.withPersistent === true ? new URLSearchParams({ withPersistent: 'true' }) : undefined
-  return request(scoped('/api/servers/stop-all', workspace, extra), { method: 'POST' })
-}
-
-export function clearLogs(id: string, workspace?: string | null): Promise<unknown> {
-  return request(scoped(`/api/servers/${encodeURIComponent(id)}/clear-logs`, workspace), { method: 'POST' })
-}
-
-export type ServerPatchPayload = Partial<ServerPatch> & Record<string, unknown>
-
-export function patchServer(id: string, patch: ServerPatchPayload, workspace?: string | null): Promise<unknown> {
-  return request(scoped(`/api/servers/${encodeURIComponent(id)}`, workspace), {
-    method: 'PATCH',
-    body: JSON.stringify(patch),
-  })
-}
-
-export function removeServer(id: string, workspace?: string | null): Promise<unknown> {
-  return request(scoped(`/api/servers/${encodeURIComponent(id)}`, workspace), { method: 'DELETE' })
-}
-
-export type CreateServerPayload = ServerCreate
-
-export function createServer(payload: CreateServerPayload, workspace?: string | null): Promise<unknown> {
-  return request(scoped('/api/servers', workspace), { method: 'POST', body: JSON.stringify(payload) })
 }

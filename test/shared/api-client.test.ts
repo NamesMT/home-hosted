@@ -123,6 +123,10 @@ describe('request', () => {
   it('reports the status of a failure whose body is not JSON, rather than a SyntaxError', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('404 Not Found', { status: 404 })))
     await expect(fetchSettings()).rejects.toThrow('request failed with 404')
+    // The same rule on a mutating call: a 5xx from something in front of the panel answers HTML, and
+    // a SyntaxError there would hide both the status and the fact that nothing was changed.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('not json at all', { status: 500 })))
+    await expect(clearPassword()).rejects.toThrow('request failed with 500')
   })
 
   it('turns the envelope into an Error, and the bare `error` field too', async () => {

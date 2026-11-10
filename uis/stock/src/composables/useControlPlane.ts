@@ -61,7 +61,7 @@ async function checkSession(): Promise<boolean> {
 const store = createLiveStore({
   openEventSource: url => new EventSource(url),
   eventsUrl: '/api/events?logs=0',
-  serverStreamUrl: (workspaceId, serverId) => `/api/servers/${encodeURIComponent(serverId)}/stream${api.workspaceQuery(workspaceId)}`,
+  serverStreamUrl: (workspaceId, serverId) => api.serverStreamUrl(serverId, workspaceId),
   state: {
     get: () => appState.value as AppState | null,
     set: (state) => {
@@ -283,9 +283,9 @@ export function useControlPlane() {
 
     refresh,
 
-    start: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'start'), { title: t('toast.startFailed', { id }) }),
-    stop: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'stop'), { title: t('toast.stopFailed', { id }) }),
-    restart: (workspaceId: string, id: string) => run(() => api.serverAction(workspaceId, id, 'restart'), { title: t('toast.restartFailed', { id }) }),
+    start: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'start', workspaceId), { title: t('toast.startFailed', { id }) }),
+    stop: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'stop', workspaceId), { title: t('toast.stopFailed', { id }) }),
+    restart: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'restart', workspaceId), { title: t('toast.restartFailed', { id }) }),
     startAll: (workspaceId: string) => run(() => api.startAll(workspaceId), { title: t('toast.startAllFailed'), success: t('toast.startAllStarted') }),
     /**
      * Stops a process the panel started that no entry owns any more. The workspace view reports
@@ -296,13 +296,13 @@ export function useControlPlane() {
       title: t('toast.stopAllFailed'),
       success: t(options.withPersistent === true ? 'toast.stopAllWithPersistent' : 'toast.stopAllStarted'),
     }),
-    setAutostart: (workspaceId: string, id: string, autostart: boolean) => run(() => api.patchServer(workspaceId, id, { autostart }), { title: t('toast.autostartFailed', { id }) }),
-    setEnabled: (workspaceId: string, id: string, enabled: boolean) => run(() => api.patchServer(workspaceId, id, { enabled }), { title: t('toast.changeFailed', { id }) }),
+    setAutostart: (workspaceId: string, id: string, autostart: boolean) => run(() => api.patchServer(id, { autostart }, workspaceId), { title: t('toast.autostartFailed', { id }) }),
+    setEnabled: (workspaceId: string, id: string, enabled: boolean) => run(() => api.patchServer(id, { enabled }, workspaceId), { title: t('toast.changeFailed', { id }) }),
     /**
      * Frees the port a blocked entry wants. The endpoint reports what it did, so
      * the toast can say whether the port actually came free.
      */
-    freePort: (workspaceId: string, id: string) => run(() => api.freePort(workspaceId, id), {
+    freePort: (workspaceId: string, id: string) => run(() => api.freePort(id, workspaceId), {
       title: t('toast.freePortFailed', { id }),
       success: result => (result.free
         ? t('toast.portFree', { port: result.port, id })
@@ -315,18 +315,18 @@ export function useControlPlane() {
         notifier.failure(t('toast.bindFailed', { id }), error)
         return Promise.resolve({ ok: false, error })
       }
-      return run(() => api.patchServer(workspaceId, id, { bind: parsed }), { title: t('toast.bindFailed', { id }) })
+      return run(() => api.patchServer(id, { bind: parsed }, workspaceId), { title: t('toast.bindFailed', { id }) })
     },
-    saveConfig: (workspaceId: string, id: string, patch: Record<string, unknown>) => run(() => api.patchServer(workspaceId, id, patch), { title: t('toast.saveServerFailed', { id }), success: t('toast.serverUpdated', { id }) }),
+    saveConfig: (workspaceId: string, id: string, patch: Record<string, unknown>) => run(() => api.patchServer(id, patch, workspaceId), { title: t('toast.saveServerFailed', { id }), success: t('toast.serverUpdated', { id }) }),
     saveGlobalSettings: (patch: SettingsPatch) => run(() => api.patchSettings(patch), { title: t('toast.saveSettingsFailed') }),
-    saveWorkspaceSettings: (workspaceId: string, patch: WorkspaceSettingsPatch) => run(() => api.patchWorkspaceSettings(workspaceId, patch), { title: t('toast.saveSettingsFailed') }),
+    saveWorkspaceSettings: (workspaceId: string, patch: WorkspaceSettingsPatch) => run(() => api.patchWorkspaceSettings(patch, workspaceId), { title: t('toast.saveSettingsFailed') }),
     clearLogs: (workspaceId: string, id: string) => run(async () => {
-      await api.clearLogs(workspaceId, id)
+      await api.clearLogs(id, workspaceId)
       resetLogs(serverKey(workspaceId, id))
     }, { title: t('toast.clearLogsFailed', { id }), success: t('toast.logsCleared') }),
-    create: (workspaceId: string, payload: api.CreateServerPayload) => run(() => api.createServer(workspaceId, payload), { title: t('toast.addServerFailed'), success: t('toast.serverAdded') }),
+    create: (workspaceId: string, payload: api.CreateServerPayload) => run(() => api.createServer(payload, workspaceId), { title: t('toast.addServerFailed'), success: t('toast.serverAdded') }),
     remove: (workspaceId: string, id: string) => run(async () => {
-      await api.removeServer(workspaceId, id)
+      await api.removeServer(id, workspaceId)
       store.forget(workspaceId, id)
     }, { title: t('toast.removeServerFailed', { id }), success: t('toast.serverRemoved', { id }) }),
   }

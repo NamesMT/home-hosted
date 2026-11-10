@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import type { AuthStatus, BackupScope, BackupsView, ControlView, SettingsPatch } from '@shared/contracts'
+import type { AuthStatus, BackupScope, BackupsView, ControlView } from '@shared/contracts'
 import type { Patch } from '@shared/patch-diff'
 import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
-import { countLeaves, describeChanges, diffFields, patchSinceFilled } from '@shared/patch-diff'
+import { countLeaves, describeChanges } from '@shared/patch-diff'
 import { msToSeconds, secondsToMsOr } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, shallowReactive, watch } from 'vue'
 import BackupDialog from '@/components/BackupDialog.vue'
@@ -16,11 +16,11 @@ import { vFocusTrap } from '@/composables/useFocusTrap'
 import { useSession } from '@/composables/useSession'
 import { changesOpen } from '@/composables/useUi'
 import * as api from '@/lib/api'
-import { describeScope, schedulePatch } from '@/lib/backupSelection'
+import { describeScope } from '@/lib/backupSelection'
 import { waitForEndpoint } from '@/lib/endpoint'
-import { linesToArray } from '@/lib/fields'
 import { formatBytes, formatDateTime } from '@/lib/format'
-import { repairNumbers, secondsOf } from '@/lib/forms'
+import { secondsOf } from '@/lib/forms'
+import { authConfig, buildGlobalPatch, repairGlobalForm } from '@/lib/settingsPatch'
 
 /**
  * The panel-wide groups: listener, authentication, TLS, host vitals and backups.
@@ -81,33 +81,9 @@ const form = reactive({
   },
 })
 
-function splitList(value: string): string[] {
-  return value.split(',').map(entry => entry.trim()).filter(entry => entry.length > 0)
-}
-
+/** A stored string list as the comma-separated box the page edits. */
 function joinList(values: readonly string[]): string {
   return values.join(', ')
-}
-
-/** Only the config-facing fields of the auth status; the rest is derived. */
-/** The wire value of the three-way choice, from either side — one definition, so a diff cannot compare
- *  a string against a boolean and report a change nobody made. */
-function toWireTrustProxy(value: boolean | 'loopback' | 'off' | 'any' | string): boolean | 'loopback' {
-  if (value === 'loopback')
-    return 'loopback'
-  return value === 'any' || value === true
-}
-
-function authConfig(status: AuthStatus): Record<string, unknown> {
-  return {
-    enabled: status.enabled,
-    sessionTtlMs: status.sessionTtlMs,
-    cookieSecure: status.cookieSecure,
-    // Held as a three-way string for the select below, the shape `cookieSecure` already uses.
-    trustProxy: status.trustProxy === 'loopback' ? 'loopback' : status.trustProxy ? 'any' : 'off',
-    maxLoginAttempts: status.maxLoginAttempts,
-    lockoutMs: status.lockoutMs,
-  }
 }
 
 async function loadSettings(): Promise<void> {
@@ -283,115 +259,20 @@ const usingDefaultPassword = computed(() => controlView.value?.auth.usingDefault
 const authEnabledWithoutPassword = computed(() => form.auth.enabled && !passwordSet.value)
 
 /** Listener, auth, TLS, host vitals and backups — the panel-wide groups. */
-function buildGlobalPatch(view: ControlView): SettingsPatch {
-  const patch: SettingsPatch = {}
-
-  /**
-   * An emptied number box reports `''`, which the patch schema rejects for the whole body.
-   * Put the live value back first, so the field drops out of the diff instead of failing it.
-   */
-  if (settings.value !== null) {
-    repairNumbers(form.control as unknown as Record<string, unknown>, view as unknown as Record<string, unknown>)
-    repairNumbers(form.host as unknown as Record<string, unknown>, settings.value.host as unknown as Record<string, unknown>)
-    repairNumbers(form.backups as unknown as Record<string, unknown>, settings.value.backups as unknown as Record<string, unknown>)
-  }
-  repairNumbers(form.auth as unknown as Record<string, unknown>, authConfig(view.auth) as unknown as Record<string, unknown>)
-
-  /**
-   * Each block is diffed against what it was **filled** with, not live state: a block stops
-   * refilling once edited, so a live diff wrote back the old value of anything another client
-   * changed meanwhile — a host added to `allowedHosts` in another tab was removed by this save.
-   */
-  const wire = (control: typeof form.control, auth: typeof form.auth): Patch => ({
-    label: control.label,
-    port: control.port,
-    host: control.host,
-    openBrowser: control.openBrowser,
-    allowedHosts: linesToArray(control.allowedHosts),
-    tls: { enabled: control.tlsEnabled },
-    // The select holds the three-way choice as a string; the wire form is `boolean | 'loopback'`.
-    auth: { ...auth, trustProxy: toWireTrustProxy(auth.trustProxy) },
-  })
-  const filledControl = snapshots.control as typeof form.control | undefined
-  const filledAuth = snapshots.auth as typeof form.auth | undefined
-  const controlPatch = patchSinceFilled(
-    {
-      label: view.label,
-      port: view.port,
-      host: view.host,
-      openBrowser: view.openBrowser,
-      allowedHosts: view.allowedHosts ?? [],
-      tls: { enabled: view.tls.enabled },
-      // The wire shape, matching `next` below. `authConfig` returns the *form* shape and is for hydrating.
-      auth: { ...authConfig(view.auth), trustProxy: toWireTrustProxy(view.auth.trustProxy) },
-    },
-    filledControl === undefined && filledAuth === undefined
-      ? undefined
-      : wire(
-          filledControl ?? { ...form.control, label: view.label, port: view.port, host: view.host, openBrowser: view.openBrowser, allowedHosts: (view.allowedHosts ?? []).join('\n'), tlsEnabled: view.tls.enabled },
-          filledAuth ?? authConfig(view.auth) as typeof form.auth,
-        ),
-    wire(form.control, form.auth),
-    ['auth'],
-  )
-  if (Object.keys(controlPatch).length > 0)
-    patch.control = controlPatch as SettingsPatch['control']
-
-  const configured = settings.value
-  if (configured) {
-    const filledHost = snapshots.host as typeof form.host | undefined
-    const hostPatch = patchSinceFilled(
-      { ...configured.host, diskPaths: configured.host.diskPaths } as unknown as Patch,
-      filledHost === undefined ? undefined : { ...filledHost, diskPaths: splitList(filledHost.diskPaths) } as unknown as Patch,
-      { ...form.host, diskPaths: splitList(form.host.diskPaths) } as unknown as Patch,
-    )
-    if (Object.keys(hostPatch).length > 0)
-      patch.host = hostPatch as SettingsPatch['host']
-
-    // Only the members that actually changed: the hours field is a rounded view of `intervalMs`,
-    // and a scope the dialog did not touch must not be re-sent. Both rules live beside the capture
-    // ones, where they are tested without mounting this view.
-    const filledBackups = snapshots.backups as typeof form.backups | undefined
-    // The schedule members this form changed since it was filled, in the stored shape.
-    const ownSchedule = schedulePatch(
-      filledBackups === undefined
-        ? configured.backups.schedule
-        : {
-            intervalMs: filledBackups.scheduleEnabled ? filledBackups.scheduleHours * 3_600_000 : 0,
-            keep: filledBackups.scheduleKeep,
-            ...(filledBackups.scheduleScope === null ? {} : { scope: filledBackups.scheduleScope }),
-          },
-      {
-        enabled: form.backups.scheduleEnabled,
-        hours: form.backups.scheduleHours,
-        keep: form.backups.scheduleKeep,
-        scope: form.backups.scheduleScope,
-      },
-    )
-
-    const liveBackups = configured.backups as unknown as Patch
-    const backupsPatch = {
-      ...patchSinceFilled(
-        liveBackups,
-        filledBackups === undefined
-          ? undefined
-          : { enabled: filledBackups.enabled, keep: filledBackups.keep, includePaths: splitList(filledBackups.includePaths) },
-        { enabled: form.backups.enabled, keep: form.backups.keep, includePaths: splitList(form.backups.includePaths) },
-      ),
-      ...diffFields(liveBackups, { schedule: ownSchedule }, ['schedule']),
-    }
-    if (Object.keys(backupsPatch).length > 0)
-      patch.backups = backupsPatch as SettingsPatch['backups']
-  }
-
-  return patch
-}
-
 const pendingPatch = computed(() => {
   const view = controlView.value
   if (!view)
     return null
-  return buildGlobalPatch(view)
+  // The policy itself is `@/lib/settingsPatch`: a rule about what a save writes, tested there
+  // without mounting this page. This view owns only the form and its snapshots.
+  if (settings.value !== null)
+    repairGlobalForm(form, view, settings.value.host, settings.value.backups)
+  return buildGlobalPatch({
+    form,
+    view,
+    configured: settings.value === null ? null : { host: settings.value.host, backups: settings.value.backups },
+    snapshots,
+  })
 })
 
 const changedCount = computed(() => (pendingPatch.value === null ? 0 : countLeaves(pendingPatch.value as Patch)))
@@ -457,7 +338,14 @@ async function saveSettings(): Promise<void> {
       return
     }
 
-    const globalPatch = buildGlobalPatch(view)
+    if (settings.value !== null)
+      repairGlobalForm(form, view, settings.value.host, settings.value.backups)
+    const globalPatch = buildGlobalPatch({
+      form,
+      view,
+      configured: settings.value === null ? null : { host: settings.value.host, backups: settings.value.backups },
+      snapshots,
+    })
     if (Object.keys(globalPatch).length === 0) {
       settingsMessage.value = 'nothing changed'
       return

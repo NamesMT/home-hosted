@@ -186,7 +186,7 @@ async function killPortHolder(): Promise<void> {
   }
 }
 
-const downloadUrl = computed(() => api.logDownloadUrl(workspace.activeId.value, serverId.value, `${serverId.value}.log`))
+const downloadUrl = computed(() => api.logDownloadUrl(serverId.value, `${serverId.value}.log`, workspace.activeId.value))
 
 const SECTIONS = [
   { value: 'output', labelKey: 'views.serverDetail.sectionOutput' },

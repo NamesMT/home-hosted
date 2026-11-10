@@ -101,7 +101,7 @@ export function useWorkspaces() {
 
   async function remove(id: string): Promise<boolean> {
     try {
-      await api.removeWorkspace(id)
+      await api.deleteWorkspace(id)
       await control.refresh()
       flash('workspace deleted')
       return true

@@ -198,8 +198,9 @@ pnpm dlx openapi-typescript http://127.0.0.1:3999/openapi/spec.json -o src/home-
 ```
 
 Any OpenAPI generator works: the document declares `bearerAuth`, gives every error a body and every
-2xx a schema. Inside this repository, the UIs use the typed Hono client instead
-(`hc<AppType>`, see `uis/stock/src/lib/rpc.ts`).
+2xx a schema. Inside this repository the UIs call the published client instead — `@shared/api-client`,
+which both UIs import and which validates each response against the same ArkType schema the route
+validates its request with.
 
 ## For an AI agent
 

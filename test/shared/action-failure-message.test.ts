@@ -281,14 +281,23 @@ describe('every UI reads a failed action through failureMessage', () => {
 
   it('is what both UIs actually use for a lifecycle action', () => {
     // Anti-vacuity: the scan above passes trivially if the call sites simply stopped existing, or if
-    // the shared reader were deleted. Both UIs must still route their action through it.
+    // the shared reader were deleted. The lifecycle action is what a person presses when a server
+    // will not start, so it must be answered through the shared reader.
+    //
+    // It is asserted on the **shared client**, where that action lives: the two `lib/api.ts` copies
+    // were collapsed into `src/shared/api-client.ts`, so naming either UI's file here would pin a
+    // location the shared module deliberately took over. Both UIs still route through it — they call
+    // the exported `serverAction`, and neither re-implements the reader.
+    const client = fs.readFileSync(path.join(root, 'src/shared/api-client.ts'), 'utf8')
+    expect(client, 'the shared client owns the lifecycle action').toContain('export async function serverAction')
+    const action = /export async function serverAction[\s\S]*?\n\}/.exec(client)?.[0] ?? ''
+    expect(action, 'serverAction must use the shared reader').toContain('failureMessage(')
+    // And the helper itself is one definition, in the shared client.
+    expect(action, 'serverAction must not re-implement it').not.toContain('function failureMessage')
     for (const ui of ['stock', 'noc-console']) {
       const api = fs.readFileSync(path.join(root, 'uis', ui, 'src', 'lib', 'api.ts'), 'utf8')
-      expect(api, `${ui} must import the shared reader`).toContain('failureMessage')
-      const action = /export async function serverAction[\s\S]*?\n\}/.exec(api)?.[0] ?? ''
-      expect(action, `${ui}'s serverAction must use the shared reader`).toContain('failureMessage(')
-      // And the helper itself is one definition, in the shared client.
-      expect(action, `${ui} must not re-implement it`).not.toContain('function failureMessage')
+      expect(api, `${ui} must reach the shared action`).toContain('@shared/api-client')
+      expect(api, `${ui} must not re-implement the reader`).not.toContain('function failureMessage')
     }
     // And the walk reaches the sources, or an empty list would pass both scans.
     for (const ui of ['stock', 'noc-console'])
