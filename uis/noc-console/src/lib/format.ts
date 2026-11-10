@@ -1,8 +1,4 @@
 // The subset both UIs share; see that module for why only these four live there.
-// Imported as well as re-exported: `formatMsHint` below calls `formatDuration`, and a re-export
-// does not bring the name into this module's scope.
-import { formatDuration } from '@shared/ui-format'
-
 export { formatAgo, formatClock, formatDuration, formatRatio, relativeFrom } from '@shared/ui-format'
 
 export function formatStamp(ts: number): string {
@@ -51,13 +47,6 @@ export function formatMs(value: number | null): string {
   if (value < 1000)
     return `${value.toFixed(value < 10 ? 1 : 0)}ms`
   return `${(value / 1000).toFixed(2)}s`
-}
-
-/** `90000` -> `1m 30s`; used for config durations where a raw ms reads badly. */
-export function formatMsHint(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0)
-    return 'off'
-  return formatDuration(ms)
 }
 
 export function clamp(value: number, min: number, max: number): number {

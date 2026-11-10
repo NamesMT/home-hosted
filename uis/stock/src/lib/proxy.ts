@@ -1,10 +1,10 @@
-import type { ProxyCertificateState, ProxyConfig, ProxyDnsAccountView, ProxyRoute, ProxyRouteStatus, ProxyRouteView, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
-import type { ListenerDraft, ProxyWorkspace, RouteErrorMessages, RouteSummaryLabels } from '@shared/proxy-form'
+import type { ProxyCertificateState, ProxyDnsAccountView, ProxyRoute, ProxyRouteStatus, ProxyRouteView, ProxyRunState, ProxyTarget, ProxyTlsMode } from '@shared/contracts'
+import type { ProxyWorkspace, RouteErrorMessages, RouteSummaryLabels } from '@shared/proxy-form'
 import type { Tone } from '@/lib/status'
 import { isPublicHost, retryInLabel as sharedRetryInLabel, targetSummary as sharedTargetSummary } from '@shared/proxy-form'
 import { t, tc } from '@/i18n'
 
-export { applyRouteDraft, certificateTitle, cloneRoutes, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
+export { applyRouteDraft, certificateTitle, cloneListenerDraft, cloneRoutes, firstPublicHost, formatBytes, HOST_PATTERN, isPrivilegedPort, isPublicHost, listenerPatch, LOCAL_LISTENER, newRouteDraft, newRouteKey, parseResolvers, parseUpstream, proxyPatch, requiresEmail, ROUTE_ID_PATTERN, routeConflicts, routesEqual, routesPatch, routeUrl, sameWire, slugifyCertificateId, slugifyId, slugifyRouteId, toProxyRoutes, toRouteWire, uniqueCertificateId, uniqueRouteId, UNPRIVILEGED_HTTP_PORT, UNPRIVILEGED_HTTPS_PORT, usesFallbackPorts, validateRouteDraft } from '@shared/proxy-form'
 export type { CertificateErrors, ListenerDraft, ProxyWorkspace, RouteDraft, RouteErrors } from '@shared/proxy-form'
 
 /**
@@ -71,18 +71,6 @@ export function routeCertificate(view: ProxyRouteView): { labelKey: string, tone
   return { ...meta, message: certificate.message, retryInMinutes: certificate.retryInMinutes ?? null }
 }
 
-export function listenerDraft(config: ProxyConfig): ListenerDraft {
-  return {
-    enabled: config.enabled,
-    httpPort: config.httpPort,
-    httpsPort: config.httpsPort,
-    email: config.email,
-    staging: config.staging,
-    dns01: config.dns01.enabled,
-    resolvers: config.dns01.resolvers.join(', '),
-  }
-}
-
 /**
  * The account picker's options. The empty value is the single-account fallback, so a
  * one-account setup needs no per-route choice; an account that cannot answer a
@@ -102,10 +90,6 @@ export function dnsAccountOptions(accounts: readonly ProxyDnsAccountView[]): Arr
     })
   }
   return options
-}
-
-export function cloneListenerDraft(config: ProxyConfig): ListenerDraft {
-  return { ...listenerDraft(config) }
 }
 
 /** How a route's TLS mode reads once the engine picks the certificate. */

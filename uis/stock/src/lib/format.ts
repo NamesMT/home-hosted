@@ -120,10 +120,6 @@ export function formatDateTime(ts: number): string {
   })
 }
 
-export function formatDate(ts: number): string {
-  return new Date(ts).toLocaleDateString(activeLocaleTag(), { year: 'numeric', month: 'short', day: '2-digit' })
-}
-
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes))
     return '—'

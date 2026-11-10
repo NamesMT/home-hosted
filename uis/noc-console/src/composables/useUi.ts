@@ -30,20 +30,6 @@ export function flash(text: string, kind: 'info' | 'error' = 'info'): void {
   }, 4200)
 }
 
-export function toggleDrawer(): void {
-  drawerOpen.value = !drawerOpen.value
-}
-
-export function closeOverlays(): void {
-  helpOpen.value = false
-  addOpen.value = false
-  drawerOpen.value = false
-  workspaceOpen.value = false
-  changesOpen.value = false
-  configChangesOpen.value = false
-  keyPrefix.value = null
-}
-
 export function useUi() {
   return {
     selectedId,
@@ -57,7 +43,5 @@ export function useUi() {
     keyPrefix,
     toast,
     flash,
-    toggleDrawer,
-    closeOverlays,
   }
 }

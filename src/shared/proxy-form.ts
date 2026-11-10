@@ -44,6 +44,19 @@ export interface ListenerDraft {
   resolvers: string
 }
 
+/** The listener form filled from a config: a fresh object, so editing it never touches live state. */
+export function cloneListenerDraft(config: ProxyConfig): ListenerDraft {
+  return {
+    enabled: config.enabled,
+    httpPort: config.httpPort,
+    httpsPort: config.httpsPort,
+    email: config.email,
+    staging: config.staging,
+    dns01: config.dns01.enabled,
+    resolvers: config.dns01.resolvers.join(', '),
+  }
+}
+
 export interface ProxyWorkspace {
   id: string
   label: string

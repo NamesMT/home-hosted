@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { briefBytes, clamp, formatAgo, formatBytes, formatDuration, formatMs, formatMsHint, formatRatio, pct, relativeFrom, sparkSegments } from '../src/lib/format'
+import { briefBytes, clamp, formatAgo, formatBytes, formatDuration, formatMs, formatRatio, pct, relativeFrom, sparkSegments } from '../src/lib/format'
 
 /**
  * `lib/format.ts` renders every number this UI shows, and had no test.
@@ -56,16 +56,6 @@ describe('formatBytes', () => {
     expect(formatBytes(1024)).toBe('1 KiB')
     expect(formatBytes(1024 * 1024)).toBe('1.0 MiB')
     expect(formatBytes(1024 ** 3)).toBe('1.00 GiB')
-  })
-})
-
-describe('formatMsHint', () => {
-  it('reads a disabled duration as off rather than 0s', () => {
-    // A config field set to 0 means "off", and "0s" would read as an instant rather than a switch.
-    expect(formatMsHint(0)).toBe('off')
-    expect(formatMsHint(-1)).toBe('off')
-    expect(formatMsHint(Number.NaN)).toBe('off')
-    expect(formatMsHint(90_000)).toBe('1m 30s')
   })
 })
 
