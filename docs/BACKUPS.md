@@ -45,7 +45,10 @@ declared path gets its own place in the archive, however alike two names read (`
 A schedule writes one archive every N hours, named `auto-…`, with its own retention. `Keep` bounds
 the archives you take by hand; a scheduled pass never prunes those. Only archives the panel wrote
 are ever pruned — another tool's zips in the same directory are left alone. A scheduled pass is
-skipped while a restore is running.
+skipped while a restore is running. Age is read from the archive's name, not its file date, so
+copying archives between disks does not change which are newest or which get pruned. The panel
+remembers when the last scheduled archive was written; an `auto-…` file dropped into the directory
+by hand is noticed after the next restart.
 
 What a schedule captures:
 

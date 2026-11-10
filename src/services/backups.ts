@@ -79,6 +79,23 @@ const AUTO_PREFIX = 'auto'
 const MANUAL_PREFIX = 'backup'
 /** The names `create()` writes; retention counts and prunes only these, never a zip someone else put here. */
 const ARCHIVE_NAME = new RegExp(`^(${AUTO_PREFIX}|${MANUAL_PREFIX})-\\d{4}(?:-\\d{2}){5}-\\d{1,3}\\.zip$`)
+const ARCHIVE_STAMP = /-(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{1,3})\.zip$/
+
+/**
+ * When `create()` wrote an archive, read from its name (UTC, to the millisecond), or null for a name
+ * it did not write. The name survives a copy, a sync tool or a restore from another disk; the mtime
+ * does not, and ordering by it made retention prune the wrong archive.
+ */
+function archiveStamp(name: string): number | null {
+  if (!ARCHIVE_NAME.test(name))
+    return null
+  const parts = ARCHIVE_STAMP.exec(name)?.slice(1).map(Number)
+  if (parts === undefined || parts.length !== 7)
+    return null
+  const [year, month, day, hour, minute, second, ms] = parts as [number, number, number, number, number, number, number]
+  const at = Date.UTC(year, month - 1, day, hour, minute, second, ms)
+  return Number.isFinite(at) ? at : null
+}
 /** A workspace leaf that carries state the panel re-reads after a restore. */
 const RELOADABLE = /^global:settings$|^workspace:[^:]+:(?:settings|servers)$/
 
@@ -713,6 +730,12 @@ export class BackupService {
    * long as the failure lasts. This is the in-memory backstop for that case.
    */
   private lastAttemptAt: number | null = null
+  /**
+   * The newest automatic archive, remembered rather than re-listed: `tick()` and `view()` run every
+   * second, and each used to `readdir` + `stat` the whole archive directory. Seeded once per
+   * directory, moved forward by `create()`, dropped when an archive is removed.
+   */
+  private lastAutomaticSeen: { dir: string, at: number | null } | null = null
   /** Logs a pass deferred by a running restore once, not on every tick. */
   private deferredForRestore = false
   /** Why the most recent scheduled pass failed, cleared by the next that works. */
@@ -1035,7 +1058,9 @@ export class BackupService {
       this.sweepStaging()
 
       const stats = fs.statSync(destination)
-      this.flags.set(name, { key: `${stats.size}:${Math.round(stats.mtimeMs)}`, encrypted: password !== null })
+      this.flags.set(name, { key: cacheKey({ sizeBytes: stats.size, createdAt }), encrypted: password !== null })
+      if (options.automatic === true && this.lastAutomaticSeen !== null && this.lastAutomaticSeen.dir === dir)
+        this.lastAutomaticSeen = { dir, at: Math.max(this.lastAutomaticSeen.at ?? 0, createdAt) }
       return { ok: true, file: { name, sizeBytes: stats.size, createdAt, encrypted: password !== null }, ...(warnings.length === 0 ? {} : { warnings }) }
     }
     catch (error) {
@@ -1051,6 +1076,8 @@ export class BackupService {
       return false
     fs.rmSync(file, { force: true })
     this.flags.delete(name)
+    if (isAutomatic({ name }))
+      this.lastAutomaticSeen = null
     return true
   }
 
@@ -1845,7 +1872,7 @@ export class BackupService {
       .flatMap((name) => {
         try {
           const stats = fs.statSync(path.join(dir, name))
-          return [{ name, sizeBytes: stats.size, createdAt: Math.round(stats.mtimeMs) }]
+          return [{ name, sizeBytes: stats.size, createdAt: archiveStamp(name) ?? Math.round(stats.mtimeMs) }]
         }
         catch {
           return []
@@ -1963,7 +1990,10 @@ export class BackupService {
 
   /** When the newest automatic archive was written, or null when there is none. */
   private lastAutomatic(): number | null {
-    return this.list().find(isAutomatic)?.createdAt ?? null
+    const dir = this.resolveDir()
+    if (this.lastAutomaticSeen?.dir !== dir)
+      this.lastAutomaticSeen = { dir, at: this.scan().find(isAutomatic)?.createdAt ?? null }
+    return this.lastAutomaticSeen.at
   }
 
   /**

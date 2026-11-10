@@ -2391,6 +2391,44 @@ describe('the backup schedule', () => {
     await vi.waitFor(() => expect(fixture.service.list()).toHaveLength(2), { timeout: 15_000 })
   })
 
+  /** `tick()` and `view()` run every second; each used to `readdir` + `stat` the archive directory. */
+  it('checks the schedule without listing the archive directory on every tick', async () => {
+    const fixture = await makeFixture({ schedule: { intervalMs: 60_000, keep: 7 } })
+    const now = Date.now()
+    fixture.service.tick(now)
+    await vi.waitFor(() => expect(fixture.service.list()).toHaveLength(1), { timeout: 15_000 })
+    await vi.waitFor(() => expect(fixture.service.view().lastAutomaticAt).not.toBeNull())
+
+    const readdir = vi.spyOn(fs, 'readdirSync')
+    try {
+      for (let second = 1; second <= 30; second++) {
+        fixture.service.tick(now + second * 1000)
+        fixture.service.view()
+      }
+      expect(readdir.mock.calls.filter(([target]) => String(target) === fixture.service.directory)).toHaveLength(0)
+    }
+    finally {
+      readdir.mockRestore()
+    }
+  })
+
+  /** A copy, a sync tool or another disk rewrites the mtime; the name is what `create()` stamped. */
+  it('orders archives by the time in their name, not their mtime', async () => {
+    const fixture = await makeFixture()
+    const dir = fixture.service.directory
+    fs.mkdirSync(dir, { recursive: true })
+    const older = path.join(dir, 'backup-2025-01-01-00-00-00-5.zip')
+    const newer = path.join(dir, 'backup-2025-06-01-00-00-00-7.zip')
+    fs.writeFileSync(older, 'x')
+    fs.writeFileSync(newer, 'x')
+    fs.utimesSync(newer, new Date('2020-01-01'), new Date('2020-01-01'))
+    fs.utimesSync(older, new Date('2026-01-01'), new Date('2026-01-01'))
+
+    const listed = fixture.service.list()
+    expect(listed.map(file => path.basename(file.name))).toEqual([path.basename(newer), path.basename(older)])
+    expect(listed[0]!.createdAt).toBe(Date.UTC(2025, 5, 1, 0, 0, 0, 7))
+  })
+
   it('stays off at intervalMs 0, and while backups are disabled', async () => {
     const off = await makeFixture({ schedule: { intervalMs: 0, keep: 7 } })
     off.service.tick(Date.now())
