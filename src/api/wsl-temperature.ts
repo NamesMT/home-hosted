@@ -8,6 +8,9 @@ import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { installLibreHardwareMonitor, lhmInstalled, probeWslTemperature, removeWslTemperatureScript, tempCommandFor, writeWslTemperatureScript, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
 import { wslTemperatureSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
+
+const installQuery = lazy(() => type({ 'download?': '"true" | "false"' }).onUndeclaredKey('reject'))
 
 /**
  * The helper's location, or null when the Windows drive is not mounted.
@@ -57,7 +60,7 @@ export function createWslTemperatureRoute(deps: AppDeps) {
         summary: 'Write the WSL helper script and point the temperature command at it',
         responses: { 200: { description: 'Set up', content: jsonBody(wslTemperatureSchema) }, 400: ERROR_RESPONSES[400] },
       }),
-      validate('query', type({ 'download?': '"true" | "false"' }).onUndeclaredKey('reject')),
+      validate('query', installQuery),
       async (c) => {
         const current = status(deps)
         if (!current.supported) {

@@ -28,7 +28,7 @@ const serversResponse = lazy(() => type({ servers: serverViewSchema.array() }))
 // `serverSchema` rejects undeclared keys at every depth (it validates writes); an answer must not,
 // or a generated client refuses the next field a newer panel adds.
 const storedServerResponse = lazy(() => type({ server: serverSchema }).onDeepUndeclaredKey('ignore'))
-const bufferedLogsQuery = logQuerySchema.merge(workspaceQuerySchema)
+const bufferedLogsQuery = lazy(() => logQuerySchema.merge(workspaceQuerySchema))
 /**
  * `stop-all`'s own query: the workspace, plus `withPersistent`.
  *

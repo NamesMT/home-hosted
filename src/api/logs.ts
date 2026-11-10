@@ -24,7 +24,7 @@ const idParam = lazy(() => type({ id: 'string >= 1' }))
 // misspelt key while `workspaceQuerySchema.merge(extra)` would have lost the rejection and run the
 // request against the default workspace.
 const downloadQuery = lazy(() => type({ 'file?': 'string' }).merge(workspaceQuerySchema))
-const historyQuery = logHistoryQuerySchema.merge(workspaceQuerySchema)
+const historyQuery = lazy(() => logHistoryQuerySchema.merge(workspaceQuerySchema))
 
 export function createLogsRoute(deps: AppDeps) {
   return appFactory.createApp()

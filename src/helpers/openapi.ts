@@ -11,11 +11,24 @@ export function jsonBody(schema: StandardSchemaV1): { 'application/json': { sche
   return { 'application/json': { schema: resolver(schema as never) } }
 }
 
+/**
+ * A documented failure. `content` is read when a route is described, not when this module loads:
+ * `resolver()` builds the schema it is handed, and a module-level call would build it on import.
+ */
+function errorResponse(description: string): { description: string, readonly content: ReturnType<typeof jsonBody> } {
+  return {
+    description,
+    get content() {
+      return jsonBody(apiErrorSchema)
+    },
+  }
+}
+
 /** The envelope every failing request gets (see `src/helpers/error.ts`). */
 export const ERROR_RESPONSES = {
-  400: { description: 'The request was rejected', content: jsonBody(apiErrorSchema) },
-  401: { description: 'No valid session', content: jsonBody(apiErrorSchema) },
-  404: { description: 'Unknown id', content: jsonBody(apiErrorSchema) },
-  409: { description: 'The config file was edited on disk since the panel read it (`CONFIG_CHANGED_ON_DISK`); the panel reloads it — retry', content: jsonBody(apiErrorSchema) },
-  413: { description: 'The body is larger than this route accepts', content: jsonBody(apiErrorSchema) },
+  400: errorResponse('The request was rejected'),
+  401: errorResponse('No valid session'),
+  404: errorResponse('Unknown id'),
+  409: errorResponse('The config file was edited on disk since the panel read it (`CONFIG_CHANGED_ON_DISK`); the panel reloads it — retry'),
+  413: errorResponse('The body is larger than this route accepts'),
 } as const

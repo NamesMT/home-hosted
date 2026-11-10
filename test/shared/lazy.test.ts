@@ -1,6 +1,11 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { type } from 'arktype'
 import { describe, expect, it, vi } from 'vitest'
 import { lazy } from '#src/shared/lazy'
+
+const packageRoot = fileURLToPath(new URL('../..', import.meta.url))
 
 /**
  * `lazy()` stands in for an ArkType schema until first use. Everything that composes or calls a
@@ -56,6 +61,23 @@ describe('the shared contracts', () => {
     const before = lazyBuilds()
     await import('#src/shared/contracts')
     await import('#src/config/schema')
+    expect(lazyBuilds() - before).toBe(0)
+  })
+
+  /**
+   * A route module that composes a schema at its top level (`x.merge(y)`, an inline `type(...)`)
+   * builds it — and everything it names — on import, which undoes the above for every `up`.
+   */
+  it('builds nothing when the route modules and the app are imported', async () => {
+    vi.resetModules()
+    const { lazyBuilds } = await import('#src/shared/lazy')
+    const before = lazyBuilds()
+    const dir = path.join(packageRoot, 'src/api')
+    const modules = fs.readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter(file => file.endsWith('.ts'))
+    expect(modules.length).toBeGreaterThan(15)
+    for (const file of modules)
+      await import(pathToFileURL(path.join(dir, file)).href)
+    await import('#src/app')
     expect(lazyBuilds() - before).toBe(0)
   })
 
