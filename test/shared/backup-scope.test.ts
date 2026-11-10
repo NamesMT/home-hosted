@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   capturedIds,
   excludedIds,
+  GLOBAL_RESTORE_ITEMS,
   sameScope,
   scopeOf,
   scopeSelection,
+  selectedBy,
   selectionOf,
+  selectionTouches,
+  selectionWritesCredentials,
   unknownBackupIds,
 } from '#src/shared/backup-scope'
 
@@ -113,5 +117,103 @@ describe('sameScope', () => {
     expect(sameScope({ mode: 'only', ids: ['a'] }, { mode: 'except', ids: ['a'] })).toBe(false)
     expect(sameScope(null, undefined), 'both mean the default scope').toBe(true)
     expect(sameScope(null, { mode: 'only', ids: ['a'] })).toBe(false)
+  })
+})
+
+/**
+ * The credential guard and the restore's own item selection must answer "did you pick this item"
+ * identically, and they did not.
+ *
+ * The restore's `addItem` selected an item through its id **or any of its aliases**, while
+ * `selectionWritesCredentials` tested only the exact ids `global:secrets` / `global:secrets:<field>`.
+ * The credential item's alias is `secrets`, so `include: ["secrets"]` selected `.control-secrets.json`
+ * for writing and skipped the session bar: a token-only restore could replace the panel's password and
+ * API-token hashes — the exact takeover the guard exists to refuse.
+ *
+ * Pinned as a property, not as two literals: for the same selection, the alias spelling and the id
+ * spelling must produce the same verdict, whichever way the answer goes.
+ */
+describe('the credential guard and the restore selection agree', () => {
+  const credentials = GLOBAL_RESTORE_ITEMS.credentials
+  const verdict = (include: string[]): boolean => selectionWritesCredentials({ include })
+
+  it('treats the alias exactly as the id — the measured bypass', () => {
+    expect(verdict(['global:secrets'])).toBe(true)
+    // This was `false` while the restore still selected the same item: the bypass.
+    expect(verdict(['secrets']), 'the alias selects the file, so the guard has to see it too').toBe(true)
+  })
+
+  it('agrees on the leaves, and on the field a person actually asked for', () => {
+    for (const field of ['password', 'apiToken']) {
+      expect(verdict([`global:secrets:${field}`]), field).toBe(true)
+      // The alias spelling of a leaf names the same field, and the restore writes it: the leaf items
+      // carry `${alias}:${key}` for exactly this reason. A guard that answered false here while the
+      // restore wrote the password hash was the bypass, not a strictness worth keeping.
+      expect(verdict([`secrets:${field}`]), `${field} under the alias`).toBe(true)
+    }
+  })
+
+  it('agrees on the exclusions, which are what the docs recommend', () => {
+    // No `include` at all is "everything", credentials included.
+    expect(selectionWritesCredentials({})).toBe(true)
+    // `--all --exclude global:secrets` is the documented way for a token to restore everything else.
+    expect(selectionWritesCredentials({ exclude: ['global:secrets'] })).toBe(false)
+    expect(selectionWritesCredentials({ exclude: ['secrets'] }), 'the alias excludes it too').toBe(false)
+    // An exclusion still beats the other spelling selecting it back in.
+    expect(selectionWritesCredentials({ include: ['secrets'], exclude: ['global:secrets'] })).toBe(false)
+    expect(selectionWritesCredentials({ include: ['global:secrets'], exclude: ['secrets'] })).toBe(false)
+  })
+
+  it('names only the credential file, never its neighbours', () => {
+    // A guard that fired on the whole panel would make the alias fix meaningless by refusing
+    // every restore a token is allowed to make.
+    for (const include of [['global:settings'], ['config'], ['global:tls'], ['tls'], ['workspace:default']])
+      expect(verdict(include), include.join()).toBe(false)
+    expect(selectionWritesCredentials({ exclude: ['global:settings'] })).toBe(true)
+  })
+
+  /**
+   * The exclusion the docs recommend must actually leave the credentials behind.
+   *
+   * Measured against the real `addItem` rule, `{"exclude":["secrets"]}` used to select the *leaf*
+   * items (`global:secrets:password`, `…:apiToken`) while the guard answered "the store is not
+   * touched" — the alias excluded the parent entry and nothing reached the leaves, so a token-only
+   * restore re-implemented the very lockout this guard exists to prevent. Every credential the
+   * restore can write must be covered by the same verdict, or the guard is decorative.
+   */
+  it('treats an alias exclusion as covering the leaves it selects', () => {
+    for (const exclude of [['secrets'], ['global:secrets']]) {
+      // Both spellings name the same file, so no field of it may be written. The leaf items carry
+      // their own alias spelling (`secrets:password`) for exactly this: without it the parent was
+      // excluded while `addItem` still selected the leaf, and the password hash was rewritten.
+      const selects = selectionOf({ exclude })
+      for (const field of ['password', 'apiToken']) {
+        const leaf = {
+          id: `${GLOBAL_RESTORE_ITEMS.credentials.id}:${field}`,
+          aliases: GLOBAL_RESTORE_ITEMS.credentials.aliases.map(alias => `${alias}:${field}`),
+        }
+        expect(selectedBy(selects, leaf), `${exclude[0]} excludes ${field}`).toBe(false)
+      }
+      expect(selectionWritesCredentials({ exclude }), exclude.join()).toBe(false)
+    }
+    // And an explicit include of one field is still exactly that one field, not the whole file.
+    expect(selectionWritesCredentials({ include: ['global:secrets:password'] })).toBe(true)
+    expect(selectionWritesCredentials({ include: ['global:secrets:password'], exclude: ['global:secrets:password'] })).toBe(false)
+  })
+
+  /**
+   * The class, stated once: the guard is `selectionTouches` against the declared item, and `addItem`
+   * is `selectedBy` against the same declaration. A change to either — a new alias, a new item — has
+   * to move both, because there is only one place that knows.
+   */
+  it('shares one declaration of the item, aliases included', () => {
+    const selectsSecretsById = selectedBy(selectionOf({ include: ['secrets'] }), credentials)
+    expect(selectsSecretsById, 'the restore selects it').toBe(true)
+    expect(selectionTouches({ include: ['secrets'] }, credentials), 'and the guard agrees').toBe(true)
+    // Every alias the item declares is honoured by both, whatever it is called.
+    for (const alias of credentials.aliases) {
+      expect(selectedBy(selectionOf({ include: [alias] }), credentials), alias).toBe(true)
+      expect(selectionTouches({ include: [alias] }, credentials), alias).toBe(true)
+    }
   })
 })

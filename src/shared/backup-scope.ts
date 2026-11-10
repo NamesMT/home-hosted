@@ -43,6 +43,73 @@ export function selectionOf(options: { include?: readonly string[], exclude?: re
 }
 
 /**
+ * One entry of the capture tree as a **selection** sees it: its id, plus the short ids that name it.
+ *
+ * The alias is not a second way to spell the id, it is part of the item: `config` is what the person
+ * ticks in a UI, `global:settings` is what the archive stores, and both name one file.
+ */
+export interface SelectableItem {
+  id: string
+  /** Coarse ids that select this item too (`config` for `global:settings`). */
+  aliases?: readonly string[]
+}
+
+/**
+ * The panel-wide entries, declared once.
+ *
+ * The restore's own item list and the credential guard both read this, so "which item is the
+ * credential file" cannot be answered two ways — which it was: the guard tested the exact id while
+ * the restore also honoured the alias, so `include: ["secrets"]` selected the item and skipped the
+ * guard. A second string literal at the guard would be the same defect one rename later.
+ */
+export const GLOBAL_RESTORE_ITEMS = {
+  settings: { id: 'global:settings', aliases: ['config'] },
+  credentials: { id: 'global:secrets', aliases: ['secrets'] },
+  tls: { id: 'global:tls', aliases: ['tls'] },
+} as const satisfies Record<string, SelectableItem>
+
+/**
+ * The one rule for "does this selection choose this item", aliases included.
+ *
+ * An exclusion beats an alias (`--exclude global:secrets` must not be undone by the item's own
+ * short alias selecting it back in), then any of the item's ids may select it.
+ */
+export function selectedBy(
+  selects: ((id: string) => boolean) & { isExcluded: (id: string) => boolean },
+  item: SelectableItem,
+): boolean {
+  const aliases = item.aliases ?? []
+  const excluded = selects.isExcluded(item.id) || aliases.some(alias => selects.isExcluded(alias))
+  return !excluded && (selects(item.id) || aliases.some(alias => selects(alias)))
+}
+
+/**
+ * Whether a selection reaches anything inside one item: the item itself, an alias, or a leaf of it.
+ *
+ * A leaf counts because selection is downwards only — naming `global:secrets:password` does not
+ * select `global:secrets` — yet the restore still writes that one field of the same file.
+ *
+ * Both spellings of a leaf are recognised (`global:secrets:password` and its alias
+ * `secrets:password`), because an exclusion the person wrote as `--exclude secrets` reaches the
+ * leaves of that item through `selectionOf`'s prefix rule. Answering "the item is untouched" there
+ * while the restore still wrote its leaves was a real bypass: `{"exclude":["secrets"]}` — the
+ * spelling the docs recommend to leave credentials behind — rewrote the password and token hashes.
+ */
+export function selectionTouches(
+  options: { include?: readonly string[], exclude?: readonly string[] },
+  item: SelectableItem,
+): boolean {
+  const selects = selectionOf(options)
+  const prefixes = [item.id, ...(item.aliases ?? [])]
+  // A leaf the request names explicitly, and that survives exclusion.
+  const namesLeaf = (options.include ?? []).some(id => prefixes.some(prefix => id.startsWith(`${prefix}:`)) && selects(id))
+  if (namesLeaf)
+    return true
+  // Otherwise the whole item is written unless it, or an alias, is excluded.
+  return selectedBy(selects, item)
+}
+
+/**
  * Whether a restore selection would write the panel's own credential store.
  *
  * `global:secrets` holds the password hash and the API token hash, so a restore that carries it can
@@ -55,10 +122,7 @@ export function selectionOf(options: { include?: readonly string[], exclude?: re
  * site. It answers *whether* the store is touched; who may touch it is the route's decision.
  */
 export function selectionWritesCredentials(options: { include?: readonly string[], exclude?: readonly string[] }): boolean {
-  const selects = selectionOf(options)
-  // The entry itself, any field under it, and the alias older archives may carry — all one file.
-  return selects('global:secrets')
-    || ['password', 'apiToken', 'telegram', 'ddns'].some(key => selects(`global:secrets:${key}`))
+  return selectionTouches(options, GLOBAL_RESTORE_ITEMS.credentials)
 }
 
 /** One entry of the panel's two-level capture tree, with the person's ticks on it. */

@@ -25,7 +25,7 @@ import { createZip, extractZip, isInvalidPassword, isZipArchive, listZip } from 
 import { hookFailure, runBackupHook } from '#src/providers/backup-hook'
 import { isProcessAlive } from '#src/providers/port'
 import { serverTemplateVars } from '#src/providers/server-vars'
-import { scopeSelection, selectionOf } from '#src/shared/backup-scope'
+import { GLOBAL_RESTORE_ITEMS, scopeSelection, selectedBy, selectionOf } from '#src/shared/backup-scope'
 import { serverSchema, workspaceIdSchema } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
 import { isGeneratedPath } from '#src/shared/generated'
@@ -1212,14 +1212,12 @@ export class BackupService {
           })
           return
         }
-        // An alias is a coarse id (`workspace:<id>` for every leaf), so any of them selecting the
-        // item counts too.
-        // An exclusion beats an alias: `--exclude global:secrets` must not be undone by the item's
-        // own short alias (`secrets`) selecting it back in.
-        // An alias works for both directions, because the item already carries them and the person
-        // who typed `--exclude config` meant this row.
-        const excluded = selects.isExcluded(item.id) || aliases.some(alias => selects.isExcluded(alias))
-        const selected = !excluded && (selects(item.id) || aliases.some(alias => selects(alias)))
+        // Whether the selection chooses this item is `selectedBy`, the same rule the credential guard
+        // asks at the route: an alias is a coarse id (`workspace:<id>`, `secrets`) and selection also
+        // matches on it, so the two must not answer "is this item selected" differently. They did:
+        // `include: ["secrets"]` selected the credential file here while `selectionWritesCredentials`
+        // tested only `global:secrets`, so a token-only restore rewrote the panel's own credentials.
+        const selected = selectedBy(selects, aliases.length === 0 ? item : { ...item, aliases })
         plan.items.push({ ...item, selected })
         if (selected) {
           actions.set(item.id, apply)
@@ -1247,24 +1245,25 @@ export class BackupService {
         // The **lifted** config is what gets written: the archive's file carries the schema it was
         // written with, and writing it back verbatim restores a file this release then refuses.
         const globalText = `${JSON.stringify(liftedGlobal, null, 2)}\n`
-        addItem({ id: 'global:settings', label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', kind: 'settings', restorable: true, note: null }, () => {
+        addItem({ id: GLOBAL_RESTORE_ITEMS.settings.id, label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', kind: 'settings', restorable: true, note: null }, () => {
           writeFileAtomic(sources.globalSettingsPath, globalText)
-        }, ['config'])
+        }, [...GLOBAL_RESTORE_ITEMS.settings.aliases])
       }
 
       const globalSecrets = readText(path.join(staging, 'global', 'secrets.json'))
       if (globalSecrets !== null) {
         addItem(
-          { id: 'global:secrets', label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null },
-          secretsApply('global', 'global:secrets', sources.globalSecretsPath, globalSecrets),
-          ['secrets'],
+          { id: GLOBAL_RESTORE_ITEMS.credentials.id, label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null },
+          secretsApply('global', GLOBAL_RESTORE_ITEMS.credentials.id, sources.globalSecretsPath, globalSecrets),
+          [...GLOBAL_RESTORE_ITEMS.credentials.aliases],
         )
         // One item per secret the archive carries, so the password can come back without
         // the API token. Applying one merges by field: writing the whole archived file
         // would reinstate every secret in it, which is exactly what the person unpicked.
         for (const part of secretParts('global', presentSecretKeys(parseSecrets(globalSecrets)))) {
+          const leafId = `${GLOBAL_RESTORE_ITEMS.credentials.id}:${part.key}`
           addItem({
-            id: `global:secrets:${part.key}`,
+            id: leafId,
             label: `Global secrets: ${SECRET_LABELS[part.key]?.en ?? part.key}`,
             labelKey: 'settings.backup.restoreItemLabel',
             labelParams: { workspace: 'global', item: part.key },
@@ -1273,23 +1272,27 @@ export class BackupService {
             note: null,
           }, () => {
             // The whole entry, when it is applied, already merges every field this one carries.
-            if (actions.has('global:secrets'))
+            if (actions.has(GLOBAL_RESTORE_ITEMS.credentials.id))
               return
             mergeIntoFile(sources.globalSecretsPath, globalSecrets, part.fields)
-          })
+          },
+          // The leaf's own alias spelling (`secrets:password`), so `--exclude secrets` reaches this
+          // leaf the same way it reaches its parent entry. Without it the parent was excluded while
+          // the leaf was still written — a token-only restore could replace the password hash.
+          GLOBAL_RESTORE_ITEMS.credentials.aliases.map(alias => `${alias}:${part.key}`))
         }
       }
 
       const tlsInArchive = path.join(staging, 'global', 'tls')
       if (fs.existsSync(tlsInArchive)) {
         const files = fs.readdirSync(tlsInArchive).filter(file => fs.statSync(path.join(tlsInArchive, file)).isFile())
-        addItem({ id: 'global:tls', label: 'TLS certificate', labelKey: 'settings.backup.entryTlsCertificate', kind: 'tls', restorable: true, note: null }, () => {
+        addItem({ id: GLOBAL_RESTORE_ITEMS.tls.id, label: 'TLS certificate', labelKey: 'settings.backup.entryTlsCertificate', kind: 'tls', restorable: true, note: null }, () => {
           ensureStateDir(sources.tlsDir)
           for (const file of files) {
             const mode = file.endsWith('.key.pem') ? { mode: 0o600 } : {}
             writeFileAtomic(path.join(sources.tlsDir, file), fs.readFileSync(path.join(tlsInArchive, file), 'utf8'), mode)
           }
-        }, ['tls'])
+        }, [...GLOBAL_RESTORE_ITEMS.tls.aliases])
       }
 
       // ------------------------------------------------------- workspace registry
@@ -1536,7 +1539,9 @@ export class BackupService {
         // Recorded at *plan* time, not inside the apply closure: a dry run has to report the
         // same list, otherwise the person cannot see what to stop before applying.
         const ownerId = target.origin.split(':')[0] ?? ''
-        const covered = !selects.isExcluded(base.id) && (selects(base.id) || aliases.some(alias => selects(alias)))
+        // The same rule `addItem` uses, so a route named by its alias is as covered as one named by
+        // its id when deciding whether the apply replaces a running entry's path.
+        const covered = selectedBy(selects, { ...base, aliases })
         if (covered && runningOwners.has(`${target.workspace}:${ownerId}`))
           plan.replacedUnderRunning.push({ workspaceId: target.workspace, serverId: ownerId, path: target.path })
 

@@ -849,6 +849,61 @@ describe('/api/backups restore and the credential store', () => {
     })
     expect(response.status).toBe(200)
   })
+
+  /**
+   * The alias that walked around the guard above.
+   *
+   * `addItem` selected the credential item through its id **or its alias** — `secrets` — while
+   * `selectionWritesCredentials` tested only `global:secrets` and `global:secrets:<field>`. So a
+   * token-only restore naming the alias selected `.control-secrets.json` for writing and skipped the
+   * session bar entirely: the archive's password and token hashes replaced the victim's, and the
+   * remedy the docs name (revoke the leaked token) needs the session that takeover removes.
+   *
+   * Every spelling of the item, and the leaves under it, must reach the same refusal — and the
+   * neighbours the docs let a token restore must still be allowed, which is what keeps this a fix
+   * rather than a lock-out.
+   */
+  it('refuses a token-only restore naming the credential item by any of its spellings', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+    const reached: unknown[] = []
+    created.backups.restore = async (_archive, options) => {
+      reached.push(options)
+      return restorePlan({ dryRun: false, applied: ['global:secrets'] })
+    }
+    const name = await archiveName(created)
+
+    for (const include of [['global:secrets'], ['secrets'], ['global:secrets:password']]) {
+      const response = await created.app.request('/api/backups/restore?confirm=true', {
+        method: 'POST',
+        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ name, include }),
+      })
+      expect(response.status, include.join()).toBe(403)
+      expect(await response.json(), include.join()).toMatchObject({ code: 'SESSION_REQUIRED' })
+    }
+    // And the service was never reached: a refusal after the write would be no refusal at all.
+    expect(reached).toEqual([])
+  })
+
+  /** The other half of the guard: the neighbours are still restorable with only a token. */
+  it('still lets a token restore everything except the credentials, by either spelling', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const token = generateApiToken()
+    setApiToken(created, token)
+    created.backups.restore = async () => restorePlan({ dryRun: false, applied: ['global:settings'] })
+    const name = await archiveName(created)
+
+    for (const body of [{ include: ['config'] }, { exclude: ['global:secrets'] }, { exclude: ['secrets'] }]) {
+      const response = await created.app.request('/api/backups/restore?confirm=true', {
+        method: 'POST',
+        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ name, ...body }),
+      })
+      expect(response.status, JSON.stringify(body)).toBe(200)
+    }
+  })
 })
 
 describe('/_hh/shutdown', () => {

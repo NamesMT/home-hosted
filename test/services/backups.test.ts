@@ -1339,6 +1339,46 @@ function fixtureRootForHooks(): string {
 }
 
 describe('restoring a secrets file', () => {
+  /**
+   * The restore honours an item's alias as a way to select it; the credential guard did not.
+   *
+   * Measured over HTTP before the fix: `include: ["secrets"]` selected `global:secrets` here and
+   * `selectionWritesCredentials` answered false, so a token-only restore replaced the panel's own
+   * password and token hashes and locked its owner out. Pinned at the service so the selection rule
+   * itself is asserted, not just the route's reading of it: both spellings must select the file.
+   */
+  it('selects the credentials by the alias exactly as by the id', async () => {
+    const fixture = await makeFixture({ globalSecrets: '{ "password": "HASH", "apiToken": "TOKEN" }\n' })
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    for (const include of [['global:secrets'], ['secrets']]) {
+      fs.writeFileSync(fixture.globalSecretsPath, '{ "password": "LIVE", "apiToken": "LIVE" }\n', { mode: 0o600 })
+      const plan = await fixture.service.restore(archive, { confirm: true, include })
+      expect(plan.error, include.join()).toBeUndefined()
+      expect(plan.items.find(item => item.id === 'global:secrets')?.selected, include.join()).toBe(true)
+      const live = JSON.parse(fs.readFileSync(fixture.globalSecretsPath, 'utf8')) as Record<string, unknown>
+      // The same field the id spelling would have written: both really apply the file.
+      expect(live.password, include.join()).toBe('HASH')
+    }
+  })
+
+  /** The alias is not a way around the exclusion, which is already the rule and must stay true. */
+  it('does not let the alias undo an exclusion of the id', async () => {
+    const fixture = await makeFixture({ globalSecrets: '{ "password": "HASH", "apiToken": "TOKEN" }\n' })
+    const created = await fixture.service.create()
+    expect(created.ok, created.error).toBe(true)
+    const archive = path.join(fixture.service.directory, created.file!.name)
+
+    fs.writeFileSync(fixture.globalSecretsPath, '{ "password": "LIVE", "apiToken": "LIVE" }\n', { mode: 0o600 })
+    const plan = await fixture.service.restore(archive, { confirm: true, include: ['secrets'], exclude: ['global:secrets'] })
+    expect(plan.error).toBeUndefined()
+    expect(plan.items.find(item => item.id === 'global:secrets')?.selected).toBe(false)
+    const live = JSON.parse(fs.readFileSync(fixture.globalSecretsPath, 'utf8')) as Record<string, unknown>
+    expect(live.password, 'the excluded file was never written').toBe('LIVE')
+  })
+
   /** `global:secrets` and each `global:secrets:<part>` were all applied, merging the one file 1 + N times. */
   it('writes it once when the whole entry is selected, and per part otherwise', async () => {
     const fixture = await makeFixture({ globalSecrets: '{ "password": "HASH", "apiToken": "TOKEN" }\n' })
