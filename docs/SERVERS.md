@@ -48,17 +48,67 @@ A preset is only a starting point, so two things to check:
 
 ## Orphaned processes
 
-A child the panel spawns is detached, so it outlives a hard panel death. Its output goes to a **file
-the child writes and the panel reads afterwards**, not down a pipe the panel holds — so killing the
-panel cannot close anything the child writes to, and a server that keeps logging keeps running. The
-handle is `.state/<id>.run.json`, keyed by the id it was started under — so an entry that is
-**renamed** or **removed** while its process is still running leaves that process with no entry to
-own it. It keeps running, holding its port and its resources, and nothing in the panel lists it.
+**A supervised server outlives the panel.** The child runs in its own process group, so nothing here
+signals it when the panel dies, and its output goes to a **file the child holds open and the panel
+reads back afterwards** rather than down a pipe the panel owns. That second half is what makes the
+survival real: a pipe's read end *is* the panel, so killing the panel closes it and the child's next
+write would fail and take the process with it. A file the child owns cannot be closed by anyone else,
+so a server that keeps writing keeps running.
 
-**Servers** now shows them: a warning above the list names each id, its pid and when it started, with
-a **Stop it** button. The state file is left alone until the process is actually gone, so a survivor
-of `SIGKILL` is still findable on the next boot. There is no automatic kill — a pid whose identity the
-platform cannot confirm is exactly what the rest of this file refuses to signal on a guess.
+The panel keeps a handle per entry — `.hh/<workspace>/.state/<id>.run.json`, keyed by the id the
+child was started under — and uses it to **adopt** that child on the next boot, with its pid, start
+time and process-group identity intact. Surviving a panel death is therefore normal and handled, not
+a defect.
+
+An **orphan** is the case that handle cannot cover: an entry **renamed** or **removed** while its
+process is still running, with the panel **not running** at the time, leaves that process with no
+entry to own it. It keeps running, holding its port and its resources, and nothing else in the panel
+lists it. (Edit the config while the panel *is* up and it handles the change directly — it stops that
+entry and reclaims its state, rather than orphaning it.)
+
+**Servers** shows those: a warning above the list names each id, its pid and when it started, with a
+**Stop it** button. The state file is kept until the process is actually gone, so a survivor of
+`SIGKILL` — of the panel or of the server — is still findable on the next boot. There is no automatic
+kill: a pid whose identity the platform cannot confirm is exactly what the rest of this file refuses
+to signal on a guess.
+
+## Where a server's output goes
+
+Two files per entry, in the workspace's state directory: `.hh/<workspace>/.state/<id>.out` and
+`<id>.err`, one per stream. The child writes to them itself; the panel reads the bytes back, splits
+them into lines and feeds the log, the Logs page and SSE from there — so a server's output reaches
+you exactly as before, whichever of the two wrote it.
+
+They are **transport, not history**, and are treated as such: not served to a browser, not counted
+against `logs.keep`, not included in a backup, and deleted with the entry. Do not put them in a
+backup path or expect them to survive a restore — `.logs/<id>.log` is the file to keep.
+
+<sub>A `persistent` entry does not use these files: its output goes through the **nanny**, which owns
+the child's pipes and writes the log directly. That is safe because the nanny's lifetime is the
+entry's, not the panel's.</sub>
+
+### A server that outruns the reader
+
+A file never slows a writer down the way a pipe does, so a server can write faster than the panel
+reads. It is bounded, and the bounds are worth knowing before you see them:
+
+- **An 8 MB file is emptied once it has been fully read.** Nothing is lost — every byte was already
+  delivered to the log before the file is truncated, and a half-written line continues into the
+  child's next write. This is invisible in normal use.
+- **A writer faster than the reader can drain is throttled by dropping.** Past a backlog of
+  `max(8 MB, 256 KiB)` the oldest unread bytes go, cut on a **line boundary** so the gap is whole
+  lines rather than a torn one, and the entry's own log says so: `the server wrote faster than the
+  panel could read it — N KiB of its output was dropped`. That line is the point — a silent drop is
+  the failure this exists to avoid — but it does mean a genuinely firehose-level server can show
+  those lines in its log instead of every line it wrote.
+- **One rare write window.** A byte written in the instant between the panel measuring the file and
+  emptying it is lost unread. It is one small window per 8 MB of output, and only for a child writing
+  at that exact moment.
+
+The panel reads at most 256 KiB per stream per pass, four times a second — roughly 1 MB/s each for
+stdout and stderr — while the drop path needs an 8 MB backlog, so a server has to sustain output near
+that rate to reach it. That is far more than a normal home service writes. If the lines do appear on
+a server that is not meant to be that loud, read them as a symptom: something is in a log loop.
 
 ## `PATH`, and the program an entry runs
 
@@ -98,7 +148,7 @@ asks for a program of that name, because `command` is spawned with no shell.
 | `restart.*` | backoff: `maxRetries`, `baseDelayMs`, `factor`, `maxDelayMs`, `resetAfterMs` — the spent budget is remembered on disk, so a crash loop cannot outlast `maxRetries` by outliving the panel |
 | `stop.*` | `signal`, `killGroup`, `graceMs`, and `killPortHolders` to sweep a leftover listener |
 | `dependsOn` | ids that must be healthy first. `stop-all`/`down` stop dependents before their dependencies; stopping **one** server does not cascade — the log names any dependent it left running. In a cycle (`a` → `b` → `a`) neither waits on the other |
-| `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from. The disk side is the **workspace's** `logs.maxBytes` / `logs.keep` in Workspace Settings — `keep` is a hard bound on `.hh/<workspace>/.logs`: it is how many rotations stay beside `<id>.log`, the Logs page reads all of them, and lowering it deletes the ones above the new ceiling. A child's raw stdout/stderr is written to `.hh/<workspace>/.state/<id>.out` and `.err` first, which the panel reads back into that log; those two files are transport, not history — they are not served, not counted against `keep` and not backed up |
+| `logBufferLines` | how many lines of live output the panel keeps in memory per entry (50–100000, default 500). The file on disk is separate: this is the buffer the Logs page streams from. The disk side is the **workspace's** `logs.maxBytes` / `logs.keep` in Workspace Settings — `keep` is a hard bound on `.hh/<workspace>/.logs`: it is how many rotations stay beside `<id>.log`, the Logs page reads all of them, and lowering it deletes the ones above the new ceiling. The raw transport files a child writes to first are separate again — [Where a server's output goes](#where-a-servers-output-goes) |
 | `resources.maxRssBytes` | restart when the process tree — or, for a compose entry, the summed containers — grows past a limit. It acts on an adopted process too (`follow`, or a persistent entry reattached to its nanny), not only on one the panel spawned |
 | `bootstrap` | one command to run once before the first start (migrations, warmups) |
 | `backupPaths`, `backupIgnoreGenerated` | extra paths this entry owns, included in backups; the flag (on by default) skips the known build and dependency directories inside them — `node_modules`, `dist`, `.next`, framework caches. A symlink inside a declared path that resolves outside it is not followed — declare the target as its own path instead |
@@ -295,18 +345,20 @@ this panel runs.
 
 ### An entry with no port that outlived the panel
 
-A port is what makes the checks above possible, so an entry with **no port** has none of them. A
-non-persistent child is spawned detached, so it survives a panel killed hard — while nothing recorded
-that it existed. With no port to check, the next boot started a **second copy** of a server already
-running: the dangerous kind of duplicate for a worker.
+A port is what makes the checks above possible, so an entry with **no port** has none of them — and
+that used to be a way to start a server twice. A non-persistent child survives a panel killed hard,
+and nothing recorded that it existed: with no port to check, the next boot started a **second copy**
+of a server that was already running. For a worker that consumes a queue, a duplicate is the
+dangerous kind of failure.
 
 Every spawn now also records the child's pid and start time, consulted before spawning:
 
 - alive, **born when the record says** (a recycled pid is refused), and carrying `HHOSTED_SERVER_ID`
   → adopted, exactly like a successor above;
-- gone → the record is consumed and the run **is reported**: an exit, and — at boot — a crash with the
-  reason, because a child that was running when the panel died and is not there now is the end of a
-  run nobody watched, not a clean stop. Then the start proceeds;
+- **gone** → the record is consumed and the run is **reported as ended**: an exit always, and — at
+  boot — a crash with the reason. An entry that was running when the panel died and is not there now
+  is the end of a run nobody was watching, not a clean stop, and it is also not something to start
+  over silently. The start then proceeds;
 - alive but the platform **cannot confirm whose it is** → refused with the pid named, rather than
   duplicated. Stop that pid, or use `persistent: true`, which is the supported way to own a portless
   process across a panel restart.
@@ -340,6 +392,10 @@ holder it cannot prove is yours.
 `"persistent": true` means "keep this running whatever happens to the panel". It is off by default,
 it is per entry (not a **Workspace Settings → Server defaults** field), and it covers the three ways
 the panel can go away: `down`, a restart, or being killed outright.
+
+<sub>Ordinary entries already survive being *killed* — see [Orphaned processes](#orphaned-processes).
+What `persistent` adds is surviving the panel's **deliberate** stops, `down` and `restart` included,
+with its output still being captured and its restart policy still the panel's job.</sub>
 
 How it works: the panel does not run the entry directly. It spawns a **nanny** — the same CLI, hidden
 `__nanny` mode — which starts the entry, owns its pipes and writes its output to the entry's own log

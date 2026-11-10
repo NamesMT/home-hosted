@@ -545,6 +545,9 @@ home-hosted usage             # what is eating the machine
 under their **nanny** (the small supervisor described [above](#-features)) and are re-attached by the
 next panel; `down --with-persistent` stops them too.
 
+Being **killed** is the other case: a panel that dies hard cannot stop anything, so its servers keep
+running and the next panel adopts them — [SERVERS.md](./docs/SERVERS.md#orphaned-processes).
+
 </details>
 
 <details>
