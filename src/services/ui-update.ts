@@ -78,18 +78,23 @@ export async function syncOfficialUi(ui: UiService, runningVersion = appVersion(
   try {
     const release = await fetchRelease(repo, target, context)
     const names = release.assets.map(asset => asset.name ?? '').filter(isUiAsset)
+
+    // Each of these is an answer, not an exception: the caller has no retry and no alternate
+    // path, so a `throw` here only travelled ten lines to be turned back into this same object.
+    const failure = (error: string): UiSyncResult => ({ kind: 'failed', error })
+
     if (names.length === 0)
-      throw new Error(`no UI asset in ${DEFAULT_REPO}@${release.tag}`)
+      return failure(`no UI asset in ${DEFAULT_REPO}@${release.tag}`)
 
     // The asset this UI came from, or the only one on offer when it never said.
     const wanted = meta.asset ?? ''
     const matched = wanted.length > 0 ? matchAsset(names, wanted) : { ok: true as const, name: names[0]! }
     if (!matched.ok)
-      throw new Error(matched.error)
+      return failure(matched.error)
 
     const asset = release.assets.find(entry => entry.name === matched.name)
     if (asset === undefined)
-      throw new Error(`no asset named ${matched.name} in ${release.tag}`)
+      return failure(`no asset named ${matched.name} in ${release.tag}`)
 
     const download = await downloadToTemp(assetDownloadUrl(asset), {
       'accept': 'application/octet-stream',
@@ -100,9 +105,10 @@ export async function syncOfficialUi(ui: UiService, runningVersion = appVersion(
       // The tag is the release we just fetched, never what the archive claims.
       const result = await ui.install(download.file, matched.name.replace(/\.zip$/i, ''), release.tag)
       if (!result.ok)
-        throw new Error(result.error)
+        return failure(result.error)
     }
     finally {
+      // The temp dir must go on every path, including the returns above.
       const fs = await import('node:fs')
       fs.rmSync(download.dir, { recursive: true, force: true })
     }
@@ -110,6 +116,8 @@ export async function syncOfficialUi(ui: UiService, runningVersion = appVersion(
     return { kind: 'updated', tag: release.tag }
   }
   catch (error) {
+    // Only a real surprise reaches here now: a failed fetch, a download that died, an install that
+    // threw. The expected outcomes are the returns above.
     return { kind: 'failed', error: errorMessage(error) }
   }
 }
