@@ -39,3 +39,20 @@ works.
 
 **DDNS sends every record once more after the upgrade**, to record its options (`ttl`, `proxied`) in
 the cache.
+
+**`home-hosted usage` names its column `STARTS`, and `--json` emits `starts`.** The column used to be
+`RESTARTS` and counted start events, so a server that had never restarted read `1`. If a script reads
+that JSON, switch it to `starts`; the panel's own `server.restarts` — the crash budget spent out of
+`restart.maxRetries` — is a different quantity and is unchanged.
+
+**A supervised child now survives a hard panel death, and its output is a file.** Entries run as
+before; what moved is where a child's stdout and stderr land, from a pipe the panel held to
+`.hh/<workspace>/.state/<id>.out` and `.err`, which the panel reads back into the usual
+`.logs/<id>.log`. Those two files are transport: not served, not counted against `logs.keep`, not
+backed up, and removed with the entry. A server that writes faster than the panel reads now has the
+oldest unread bytes dropped, cut on a line boundary, with `<stream>: the server wrote faster than the
+panel could read it — N KiB of its output was dropped` in its own log rather than a silently growing file.
+
+**A restore that would write the panel's own credentials needs a signed-in session.** `include`
+naming `global:secrets`, a field of it, or its short alias `secrets` now answers `403 SESSION_REQUIRED`
+to an API token. That was always the intent; the alias spelling was not covered.
