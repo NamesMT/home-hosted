@@ -15,7 +15,7 @@ import { acquireRestoreLock } from '#src/helpers/restore-lock'
 import { appVersion } from '#src/helpers/version'
 import * as archive from '#src/providers/archive'
 import { createZip as createZipFile, extractZip, isZipArchive, listZip } from '#src/providers/archive'
-import { admitArchive, BackupService, isInside, isSafeArchiveEntry, resolveBackupPaths, slugifyPath } from '#src/services/backups'
+import { admitArchive, BackupService, isInside, isInsideResolved, isSafeArchiveEntry, resolveBackupPaths, slugifyPath } from '#src/services/backups'
 import { backupsSchema, serverSchema } from '#src/shared/contracts'
 
 // An absolute path in the platform's own syntax: these fixtures used POSIX `/srv/…`,
@@ -2806,7 +2806,12 @@ describe('backup and restore defects', () => {
     const seen: number[] = []
     const cpSync = fs.cpSync
     vi.spyOn(fs, 'cpSync').mockImplementation(((source: string, ...rest: unknown[]) => {
-      if (isInside(fixture.dataDir, source))
+      // `isInsideResolved`, not `isInside`: `os.tmpdir()` is `/var/folders/…` on macOS, which is a
+      // symlink to `/private/var`, so `cpSync` is handed a resolved source while `dataDir` keeps the
+      // unresolved prefix. The plain comparison then matches nothing, `seen` stays empty and this
+      // assertion fails on macOS while the behaviour under test is fine — the codebase's own rule is
+      // that a path comparison resolves symlinked ancestors first.
+      if (isInsideResolved(fixture.dataDir, source))
         seen.push(turns)
       return (cpSync as (...args: unknown[]) => unknown)(source, ...rest)
     }) as never)
