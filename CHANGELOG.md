@@ -1,6 +1,172 @@
 # Changelog
 
 
+## v0.13.0
+
+[compare changes](https://github.com/NamesMT/home-hosted/compare/v0.12.0...v0.13.0)
+
+### 🚀 Enhancements
+
+- **ui:** Show a broken settings.json in both UIs, not only the log ([abf163f](https://github.com/NamesMT/home-hosted/commit/abf163f))
+- **uis:** Stop reconnecting on a local-only refusal; show backup-create warnings ([648a0a4](https://github.com/NamesMT/home-hosted/commit/648a0a4))
+
+### 🔥 Performance
+
+- **proc:** One process scan per second for every workspace ([9c62a92](https://github.com/NamesMT/home-hosted/commit/9c62a92))
+- **logs:** Read a log tail backwards once, without blocking the event loop ([584801d](https://github.com/NamesMT/home-hosted/commit/584801d))
+- **stock:** Load the heavier pages on first visit ([8718d2d](https://github.com/NamesMT/home-hosted/commit/8718d2d))
+- Build ArkType schemas on first use, not at import ([8dd29b0](https://github.com/NamesMT/home-hosted/commit/8dd29b0))
+- **supervisor:** One tick at a time, restarts off the tick, cached orphan births ([a85ca1b](https://github.com/NamesMT/home-hosted/commit/a85ca1b))
+- Route modules build no schema at import ([8e05507](https://github.com/NamesMT/home-hosted/commit/8e05507))
+- **backups:** Remember the last scheduled archive instead of listing every second ([c74c42b](https://github.com/NamesMT/home-hosted/commit/c74c42b))
+- **noc-console:** Build the config page's placeholder entry on use, not at import ([1c310cb](https://github.com/NamesMT/home-hosted/commit/1c310cb))
+
+### 🩹 Fixes
+
+- **host:** No blocking vm_stat, and a hung mount cannot exhaust the thread pool ([9cf6221](https://github.com/NamesMT/home-hosted/commit/9cf6221))
+- **webhook:** A failure message quotes the URL as configured, not expanded ([4f15060](https://github.com/NamesMT/home-hosted/commit/4f15060))
+- **supervisor:** Give a bootstrap's stdout and stderr their own line splitter ([29005af](https://github.com/NamesMT/home-hosted/commit/29005af))
+- **logs:** Decode a multibyte character split across two chunks ([6ab192b](https://github.com/NamesMT/home-hosted/commit/6ab192b))
+- **logs:** Drain the old file before following a rotation ([b89498a](https://github.com/NamesMT/home-hosted/commit/b89498a))
+- **config:** Keep the running defaults when settings.json fails the schema ([f3ba0ca](https://github.com/NamesMT/home-hosted/commit/f3ba0ca))
+- **panel:** Reserve a workspace removal before awaiting, and drop it from the registry first ([586a781](https://github.com/NamesMT/home-hosted/commit/586a781))
+- **panel:** Watch the global settings.json and reload hand edits ([934149b](https://github.com/NamesMT/home-hosted/commit/934149b))
+- **config:** Refuse a save over an on-disk edit the panel has not read ([abd1770](https://github.com/NamesMT/home-hosted/commit/abd1770))
+- **history:** Flush only a pending save on dispose ([57c4a7a](https://github.com/NamesMT/home-hosted/commit/57c4a7a))
+- **secrets:** Carry unknown top-level keys through a write ([4108d29](https://github.com/NamesMT/home-hosted/commit/4108d29))
+- **uis:** One shared live store, which reconnects after a panel restart ([4cd502d](https://github.com/NamesMT/home-hosted/commit/4cd502d))
+- **stock:** Log search keeps its place when new lines arrive ([2ff9340](https://github.com/NamesMT/home-hosted/commit/2ff9340))
+- **noc-console:** Keep following the log once its buffer is full ([1ba91b3](https://github.com/NamesMT/home-hosted/commit/1ba91b3))
+- **noc-console:** Modal dialogs keep focus and close one per Escape ([aee3066](https://github.com/NamesMT/home-hosted/commit/aee3066))
+- **supervisor:** A compose entry's memory ceiling waits for its containers ([b068bed](https://github.com/NamesMT/home-hosted/commit/b068bed))
+- **supervisor:** A run keeps the persistent mode it started with ([c586f5c](https://github.com/NamesMT/home-hosted/commit/c586f5c))
+- **supervisor:** A staged load waits for its own run, or stays staged ([a16431c](https://github.com/NamesMT/home-hosted/commit/a16431c))
+- **process:** A bare command PATH resolves to a .cmd is spawned through a shell ([7f1aa98](https://github.com/NamesMT/home-hosted/commit/7f1aa98))
+- **supervisor:** A bootstrap runs in its own group, through a shell for a .cmd ([8a88678](https://github.com/NamesMT/home-hosted/commit/8a88678))
+- **nanny:** Signal a nanny's recorded child only while it is that child ([b2f8433](https://github.com/NamesMT/home-hosted/commit/b2f8433))
+- **supervisor:** Any entry's pid that survives its stop is a conflict ([13387df](https://github.com/NamesMT/home-hosted/commit/13387df))
+- **supervisor:** A restart whose stop left a survivor does not start ([589fd4d](https://github.com/NamesMT/home-hosted/commit/589fd4d))
+- **supervisor:** Only boot reports a nanny that died while the panel was away ([49c39cf](https://github.com/NamesMT/home-hosted/commit/49c39cf))
+- **supervisor:** A dependsOn cycle does not wait out its start timeout ([1b88841](https://github.com/NamesMT/home-hosted/commit/1b88841))
+- **state:** Read-only commands no longer seed a fresh home; .hh is 0700 whoever creates it ([ae193eb](https://github.com/NamesMT/home-hosted/commit/ae193eb))
+- **cli:** Backup refuses unattended apply without --confirm, and flags its action ignores ([05c3b85](https://github.com/NamesMT/home-hosted/commit/05c3b85))
+- **cli:** Restart validates up's flags first and stops when down fails; a shared port is not ours ([b6162d1](https://github.com/NamesMT/home-hosted/commit/b6162d1))
+- **cli:** Logs refuses a --lines that is not a whole number of at least 1 ([253fe9d](https://github.com/NamesMT/home-hosted/commit/253fe9d))
+- **cli:** Honest set-password wording, hints that keep --home, a failed init install exits 1 ([df66892](https://github.com/NamesMT/home-hosted/commit/df66892))
+- **cli:** Usage shows RESTARTS, so a restart loop is visible ([6e5331c](https://github.com/NamesMT/home-hosted/commit/6e5331c))
+- **cli:** Full --help is built from every command's section; help <cmd> is <cmd> --help ([2792e96](https://github.com/NamesMT/home-hosted/commit/2792e96))
+- **security:** ⚠️  With no password in force, /api answers only this machine; logout is public ([9c75ab0](https://github.com/NamesMT/home-hosted/commit/9c75ab0))
+- **security:** Only this machine sets the first password, not a remote API token ([dcc8b88](https://github.com/NamesMT/home-hosted/commit/dcc8b88))
+- **security:** Installing a custom UI needs a session, not an API token ([2fddaae](https://github.com/NamesMT/home-hosted/commit/2fddaae))
+- **security:** Event streams end when their credential stops being valid ([cbcfb99](https://github.com/NamesMT/home-hosted/commit/cbcfb99))
+- **api:** Validate POST /api/backups/restore's confirm query ([4d40dc5](https://github.com/NamesMT/home-hosted/commit/4d40dc5))
+- **api:** Spec POST /_hh/backups as the plan or the archive it answers ([a06ad8b](https://github.com/NamesMT/home-hosted/commit/a06ad8b))
+- **api:** The stored-entry response no longer publishes additionalProperties: false ([b65299f](https://github.com/NamesMT/home-hosted/commit/b65299f))
+- **api:** The spec names /api/auth/logout as public, from the guard's own list ([d39ad50](https://github.com/NamesMT/home-hosted/commit/d39ad50))
+- **api:** Every failure speaks the { message, code } envelope ([a852374](https://github.com/NamesMT/home-hosted/commit/a852374))
+- **security:** The client refuses to send a token over plain http to another host ([722edb2](https://github.com/NamesMT/home-hosted/commit/722edb2))
+- **security:** /healthz honours the local run.json token only from this machine ([6edfa1d](https://github.com/NamesMT/home-hosted/commit/6edfa1d))
+- **security:** A panel-wide cap on failed sign-ins; attempt records bounded on insert ([4b897ad](https://github.com/NamesMT/home-hosted/commit/4b897ad))
+- **backups:** Capture a declared path that is itself a symlink, and warn on an empty capture ([c10b21f](https://github.com/NamesMT/home-hosted/commit/c10b21f))
+- **backups:** Give every declared data path its own archive slug ([6167170](https://github.com/NamesMT/home-hosted/commit/6167170))
+- **config:** Never let an unusable hand edit become the save baseline ([0dfa4db](https://github.com/NamesMT/home-hosted/commit/0dfa4db))
+- **notifications:** Never follow a webhook receiver's redirect ([6fb1415](https://github.com/NamesMT/home-hosted/commit/6fb1415))
+- **proxy:** Hold an external route to the panel's own listener to the exposure rule ([da034a8](https://github.com/NamesMT/home-hosted/commit/da034a8))
+- **proxy:** Apply the exposure rule on restore and on every engine re-apply ([6f62726](https://github.com/NamesMT/home-hosted/commit/6f62726))
+- **proxy:** Route the most specific path first on a shared hostname ([96377e7](https://github.com/NamesMT/home-hosted/commit/96377e7))
+- **ddns:** Resend edited record options, and give each request its own deadline ([19ebdce](https://github.com/NamesMT/home-hosted/commit/19ebdce))
+- **uis:** Each action reports its own outcome; a failed refresh no longer fails it ([0bdf830](https://github.com/NamesMT/home-hosted/commit/0bdf830))
+- **uis:** One shared server edit form; cleared boxes keep their value, hooks in seconds ([a5219ca](https://github.com/NamesMT/home-hosted/commit/a5219ca))
+- **stock:** The command palette no longer stops every server without confirming ([4372154](https://github.com/NamesMT/home-hosted/commit/4372154))
+- **uis:** An uploaded UI's missing file count and upload time are left out, not shown as 0 ([5674519](https://github.com/NamesMT/home-hosted/commit/5674519))
+- **uis:** Settings saves no longer revert another client's change ([047c9c7](https://github.com/NamesMT/home-hosted/commit/047c9c7))
+- **uis:** A DDNS draft is never saved into another workspace ([11f7006](https://github.com/NamesMT/home-hosted/commit/11f7006))
+- **supervisor:** A child that died with the panel is a crash, not a clean stop ([72d286e](https://github.com/NamesMT/home-hosted/commit/72d286e))
+- **security:** A credential restore is refused to a token, whichever way it is spelled ([566a369](https://github.com/NamesMT/home-hosted/commit/566a369))
+- **security:** An exposure rule that asks where a route goes, not what it is called ([27043c2](https://github.com/NamesMT/home-hosted/commit/27043c2))
+- **cli:** Honest names for what the commands report, and a guard that sees deletions ([fea541a](https://github.com/NamesMT/home-hosted/commit/fea541a))
+- **supervisor:** A supervised child outlives the panel, by writing to a file it owns ([61a63d0](https://github.com/NamesMT/home-hosted/commit/61a63d0))
+- **uis:** The stock Logs page lost its workspace, and a dropped backlog could fabricate a line ([2379edf](https://github.com/NamesMT/home-hosted/commit/2379edf))
+- The cross-platform gate was red for four reasons, one of them mine ([e7eb773](https://github.com/NamesMT/home-hosted/commit/e7eb773))
+
+### 💅 Refactors
+
+- **client:** Root `api` at /api, so calls read `hh.api.servers` ([7dba05d](https://github.com/NamesMT/home-hosted/commit/7dba05d))
+- **telegram:** Call the Bot API with fetch, drop grammy ([13ae063](https://github.com/NamesMT/home-hosted/commit/13ae063))
+- **panel:** Drop the history load reloadAll could never perform ([baad77a](https://github.com/NamesMT/home-hosted/commit/baad77a))
+- Delete exports and methods nothing calls ([91acc5c](https://github.com/NamesMT/home-hosted/commit/91acc5c))
+- **supervisor:** Drop the tick's unreachable backoff retry ([1474520](https://github.com/NamesMT/home-hosted/commit/1474520))
+- **backups:** Merge a restored secrets file once, and drop a dead dump check ([2a26f99](https://github.com/NamesMT/home-hosted/commit/2a26f99))
+- **uis:** One cloneListenerDraft in src/shared; drop unused exports ([576ce57](https://github.com/NamesMT/home-hosted/commit/576ce57))
+- **uis:** One API client for both UIs, so a new route costs one wrapper ([23dd894](https://github.com/NamesMT/home-hosted/commit/23dd894))
+- **backups:** Split applyRestore into named phases ([a3a8f70](https://github.com/NamesMT/home-hosted/commit/a3a8f70))
+- **backups:** Cut planDataItems into the three things it was doing ([7a927a3](https://github.com/NamesMT/home-hosted/commit/7a927a3))
+- **ui-update:** Return the failure instead of throwing it ten lines down ([c5a25e8](https://github.com/NamesMT/home-hosted/commit/c5a25e8))
+- **contracts:** Un-export the 58 schemas nothing outside the module reads ([37c90ee](https://github.com/NamesMT/home-hosted/commit/37c90ee))
+- **proxy:** Move the certificate desk out of the 2233-line service ([61d7051](https://github.com/NamesMT/home-hosted/commit/61d7051))
+
+### 📖 Documentation
+
+- **agents:** Condense GOTCHAS to one line of trap and rule per entry ([7e5cd99](https://github.com/NamesMT/home-hosted/commit/7e5cd99))
+- **agents:** Fix stale architecture facts and trim the history ([407ec03](https://github.com/NamesMT/home-hosted/commit/407ec03))
+- **agents:** Keep only the unreleased version in UPGRADING ([bc6678a](https://github.com/NamesMT/home-hosted/commit/bc6678a))
+- **agents:** Name the directory route files and shorten the test-home rule ([93580bf](https://github.com/NamesMT/home-hosted/commit/93580bf))
+- **servers:** A dependsOn cycle does not wait on itself ([e5b562c](https://github.com/NamesMT/home-hosted/commit/e5b562c))
+- Match the CLI fixes; drop RESTORE_DEMO.md for a worked example in BACKUPS.md ([bee8ed1](https://github.com/NamesMT/home-hosted/commit/bee8ed1))
+- **agents:** Upgrade notes and traps from the audit fixes ([01f8e52](https://github.com/NamesMT/home-hosted/commit/01f8e52))
+- Make the docs true, and lead the README with what a plain supervisor cannot do ([9d08b58](https://github.com/NamesMT/home-hosted/commit/9d08b58))
+- **servers:** Say where a server's output goes, and what the bounds actually are ([b22654e](https://github.com/NamesMT/home-hosted/commit/b22654e))
+- **agents:** Record that the patch mirror is hand-written on purpose ([8f1fe42](https://github.com/NamesMT/home-hosted/commit/8f1fe42))
+- **upgrading:** The three things 0.13.0 asks a person to do ([9e7d76f](https://github.com/NamesMT/home-hosted/commit/9e7d76f))
+
+### 📦 Build
+
+- A cached parallel quickcheck, and dev gates between it and the full one ([7098ff1](https://github.com/NamesMT/home-hosted/commit/7098ff1))
+- **test:** Check:fast is the sinceLastRun gate; record test dependencies ([cd9de7e](https://github.com/NamesMT/home-hosted/commit/cd9de7e))
+
+### 🏡 Chore
+
+- **noc-console:** Drop the unused typed RPC client ([343b8fd](https://github.com/NamesMT/home-hosted/commit/343b8fd))
+- **stock:** Drop 54 catalog rows nothing reads ([acd7ed5](https://github.com/NamesMT/home-hosted/commit/acd7ed5))
+- **state:** Drop a re-export barrel nothing imported ([bdcaa6b](https://github.com/NamesMT/home-hosted/commit/bdcaa6b))
+
+### ✅ Tests
+
+- **noc-console:** The add-server mock answers an action result ([c5c9e8a](https://github.com/NamesMT/home-hosted/commit/c5c9e8a))
+- **cli:** The EPIPE case reports the CLI's stderr when it fails ([2a4349d](https://github.com/NamesMT/home-hosted/commit/2a4349d))
+- Split the supervisor suite into three files ([16a9f78](https://github.com/NamesMT/home-hosted/commit/16a9f78))
+- Split the CLI smoke suite into four files ([be60428](https://github.com/NamesMT/home-hosted/commit/be60428))
+- Split the backup restore outcome suite into four files ([3f18c3e](https://github.com/NamesMT/home-hosted/commit/3f18c3e))
+- Split the server-action CLI suite into three files ([9e907bd](https://github.com/NamesMT/home-hosted/commit/9e907bd))
+- Split the backup flag guards into two files ([a39c002](https://github.com/NamesMT/home-hosted/commit/a39c002))
+- Split the down --with-persistent suite into two files ([487dd97](https://github.com/NamesMT/home-hosted/commit/487dd97))
+- Split the PanelService suite into two files ([7563364](https://github.com/NamesMT/home-hosted/commit/7563364))
+- Give print-config and restore --from their own files ([da9ec09](https://github.com/NamesMT/home-hosted/commit/da9ec09))
+- One port allocator, per-worker blocks below every ephemeral range ([d2950a2](https://github.com/NamesMT/home-hosted/commit/d2950a2))
+- Assert the server patch parse against type.errors, not Error ([65259d6](https://github.com/NamesMT/home-hosted/commit/65259d6))
+- Merge the three cli-status suites into one file with one panel ([6b6d529](https://github.com/NamesMT/home-hosted/commit/6b6d529))
+- Drop the duplicate name-and---from refusal from restore --from ([2f7b6d7](https://github.com/NamesMT/home-hosted/commit/2f7b6d7))
+- Launch the CLI through run-cli instead of hand-rolled spawnSync calls ([d26108c](https://github.com/NamesMT/home-hosted/commit/d26108c))
+- Drop source-scan tests a behaviour test already covers ([3f0d088](https://github.com/NamesMT/home-hosted/commit/3f0d088))
+- **api:** Allow the optional backup-create warnings in the declared-keys check ([225be53](https://github.com/NamesMT/home-hosted/commit/225be53))
+- Fixtures for an offline CLI that no longer seeds a home ([96ab0d9](https://github.com/NamesMT/home-hosted/commit/96ab0d9))
+- The reachability scans read git's file list, not a directory walk ([4014e29](https://github.com/NamesMT/home-hosted/commit/4014e29))
+- **backups:** Compare the copied path to a resolved root, so macOS passes ([5d664a7](https://github.com/NamesMT/home-hosted/commit/5d664a7))
+- **contracts:** Guard every nested patch group, not three of them ([08e52be](https://github.com/NamesMT/home-hosted/commit/08e52be))
+- Two folds — a restated conversion rule, and a guard filed under one UI ([f2db7ba](https://github.com/NamesMT/home-hosted/commit/f2db7ba))
+
+### 🤖 CI
+
+- Test what a push reaches since the last green run; full suite on dispatch and release ([1813109](https://github.com/NamesMT/home-hosted/commit/1813109))
+
+#### ⚠️ Breaking Changes
+
+- **security:** ⚠️  With no password in force, /api answers only this machine; logout is public ([9c75ab0](https://github.com/NamesMT/home-hosted/commit/9c75ab0))
+
+### ❤️ Contributors
+
+- NamesMT ([@NamesMT](https://github.com/NamesMT))
+
 ## v0.12.0
 
 [compare changes](https://github.com/NamesMT/home-hosted/compare/v0.11.0...v0.12.0)
