@@ -29,7 +29,15 @@ describe('the supervisor tick', () => {
     expect(most).toBe(1)
   })
 
-  it('keeps ticking while a memory restart waits out a slow stop', async () => {
+  /**
+   * Windows cannot exercise this: `process.kill(pid, 'SIGTERM')` there is `TerminateProcess`, which
+   * ends the child outright however it handles the signal. The test needs a stop that *waits* its
+   * grace period, and on Windows there is no such stop — so the entry reaches `stopped` before the
+   * 3 s check and the premise ("still in its grace period") cannot hold. The behaviour under test
+   * — the tick keeps publishing while a stop is pending — is exercised by the other case in this
+   * file, which does not depend on signal handling.
+   */
+  it.skipIf(process.platform === 'win32')('keeps ticking while a memory restart waits out a slow stop', async () => {
     const harness = await makeSupervisor([{
       id: 'hog',
       command: process.execPath,

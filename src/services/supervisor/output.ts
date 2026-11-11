@@ -70,22 +70,30 @@ export interface OpenedOutput {
  * Creates both files and returns the descriptors to hand the child.
  *
  * A previous run's bytes are dropped: they belong to a process that is gone, and the fresh reader
- * would otherwise serve an old run's output as the new one's. `'a'` is load-bearing, not style — an
- * `O_APPEND` descriptor is what makes the truncation below land the child's next write at position 0
- * instead of at a stale offset, which would leave a run of NUL bytes at the head of the file.
+ * would otherwise serve an old run's output as the new one's.
+ *
+ * The emptying is `truncateSync` **by path**, not `ftruncateSync` on the descriptor: on Windows a
+ * descriptor opened with `O_APPEND` cannot be truncated — `ftruncateSync` fails there and the old
+ * bytes stay, which is exactly the "a dead run's output served as this run's" case this exists to
+ * prevent. (Measured: the same call succeeds on Linux and macOS, so only the CI matrix sees it.)
+ *
+ * `'a'` is still load-bearing, not style — an `O_APPEND` descriptor is what makes the *runtime*
+ * truncation in `truncate()` land the child's next write at position 0 instead of at a stale offset,
+ * which would leave a run of NUL bytes at the head of the file.
  */
 export function openOutput(files: OutputFiles): OpenedOutput {
   fs.mkdirSync(path.dirname(files.stdout), { recursive: true })
   const fds = {} as Record<Stream, number>
   for (const stream of STREAMS) {
-    const fd = fs.openSync(files[stream], 'a', 0o600)
-    fds[stream] = fd
+    // Empty before opening for append, so the descriptor never sees a stale length.
     try {
-      fs.ftruncateSync(fd, 0)
+      fs.truncateSync(files[stream], 0)
     }
     catch {
-      // A file that cannot be emptied still appends; the reader starts at its head either way.
+      // Created below; a file that does not exist yet has nothing to empty.
     }
+    const fd = fs.openSync(files[stream], 'a', 0o600)
+    fds[stream] = fd
   }
   return { files, fds }
 }

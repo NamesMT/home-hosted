@@ -36,7 +36,16 @@ afterEach(async () => {
       // Already gone, which is the usual case.
     }
   }
-  await Promise.all(homes.splice(0).map(home => fs.promises.rm(home, { recursive: true, force: true })))
+  /*
+   * A survivor holds its transport files open — that is the whole point of the change these tests
+   * cover — and Windows refuses to remove a directory holding an open handle. The kill above is
+   * asynchronous there (it maps to `TerminateProcess`), so the handles are released after the pid
+   * stops answering. Retry rather than fail the suite on teardown: an `EBUSY` here says nothing
+   * about the behaviour under test.
+   */
+  await new Promise(resolve => setTimeout(resolve, 100))
+  await Promise.all(homes.splice(0).map(home =>
+    fs.promises.rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })))
 })
 
 function makeHome(): string {

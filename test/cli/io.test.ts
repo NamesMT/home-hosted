@@ -115,7 +115,11 @@ describe('cli io', () => {
 
     // Linux.
     expect(isClosedReaderError(Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))).toBe(true)
-    // macOS/libuv, and a write after the stream ended.
+    // macOS. `ENOTCONN` is what the macOS runner actually produced — stdout is a socket there, and a
+    // peer that has gone away reads as "socket is not connected", not as a broken pipe. Labelling
+    // `ERR_STREAM_DESTROYED` "macOS" was wrong: it is the same everywhere, and the real macOS code
+    // was missing, so the cross-platform gate failed while this test stayed green.
+    expect(isClosedReaderError(Object.assign(new Error('write ENOTCONN'), { code: 'ENOTCONN' }))).toBe(true)
     expect(isClosedReaderError(Object.assign(new Error('write'), { code: 'ERR_STREAM_DESTROYED' }))).toBe(true)
     expect(isClosedReaderError(Object.assign(new Error('write'), { code: 'ERR_STREAM_WRITE_AFTER_END' }))).toBe(true)
     // A destroyed stream reports no code, only the message.

@@ -86,10 +86,16 @@ function invocationProgram(): string {
  * nothing was explained, because the error was a stream state, not a failed write. So the test is
  * "does this error say the reader went away"; a full disk or an EIO still ends the process.
  *
+ * `ENOTCONN` is the one the macOS runner actually produced: a stdout **socket** whose peer has closed
+ * reports "socket is not connected", not a broken pipe (measured in the cross-platform workflow —
+ * `write ENOTCONN` at the write site, with the reader long gone). It means the same thing here and
+ * nowhere else in this codebase: nothing in the CLI opens a socket of its own, so a write reaching
+ * this handler with `ENOTCONN` is always the stdout pipe's reader having hung up.
+ *
  * Installed once at the entry so every command shares it. A per-command copy is the shape that leaves
  * the next command broken, and every release adds more write sites.
  */
-const READER_GONE = /^(?:EPIPE|ERR_STREAM_DESTROYED|ERR_STREAM_WRITE_AFTER_END|ECONNRESET)$/
+const READER_GONE = /^(?:EPIPE|ENOTCONN|ERR_STREAM_DESTROYED|ERR_STREAM_WRITE_AFTER_END|ECONNRESET)$/
 
 export function isClosedReaderError(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | null)?.code

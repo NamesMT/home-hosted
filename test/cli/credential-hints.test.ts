@@ -19,6 +19,15 @@ afterAll(() => {
   fs.rmSync(scratch, { recursive: true, force: true })
 })
 
+/**
+ * How a hint quotes the `--home` path, per platform.
+ *
+ * `shellQuote` picks the quoting the person's shell needs: `'…'` on POSIX, `"…"` on Windows (where a
+ * single-quoted path is not a string at all). These assertions used to hardcode `'…'`, so the whole
+ * file failed on Windows against correct output — a test bug that hid real regressions there.
+ */
+const quotedHome = process.platform === 'win32' ? `"${home}"` : `'${home}'`
+
 describe('set-password', () => {
   it('names a short password\'s length, never the password itself', () => {
     const result = runCli(['set-password'], { home, env: { HHOSTED_PASSWORD: 'abc' } })
@@ -36,7 +45,7 @@ describe('set-password', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('nobody can sign in')
     expect(result.stdout).not.toContain('authentication stays disabled')
-    expect(result.stdout).toContain(`--home '${home}' set-password`)
+    expect(result.stdout).toContain(`--home ${quotedHome} set-password`)
   })
 })
 
@@ -44,11 +53,11 @@ describe('set-token', () => {
   it('keeps --home in its hints', () => {
     const missing = runCli(['set-token'], { home, env: { HHOSTED_TOKEN: undefined } })
     expect(missing.status).toBe(1)
-    expect(missing.stderr).toContain(`--home '${home}' set-token --generate`)
+    expect(missing.stderr).toContain(`--home ${quotedHome} set-token --generate`)
 
     const generated = runCli(['set-token', '--generate'], { home })
     expect(generated.status, generated.stderr).toBe(0)
-    expect(generated.stdout).toContain(`--home '${home}' set-token --clear`)
+    expect(generated.stdout).toContain(`--home ${quotedHome} set-token --clear`)
   })
 })
 
