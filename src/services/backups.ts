@@ -1,3 +1,4 @@
+import type { ResolvedGlobalConfig } from '#src/config/schema'
 import type { SecretScope } from '#src/config/secret-parts'
 import type { TemplateVars } from '#src/helpers/template'
 import type { BackupEntry, BackupFile, BackupsConfig, BackupSelection, BackupsView, RestoreItem, RestorePlan, RestoreSkip, ServerConfig } from '#src/shared/contracts'
@@ -703,6 +704,69 @@ function readText(file: string): string | null {
 }
 
 /**
+ * What every phase of a restore reads and writes.
+ *
+ * A record passed explicitly rather than state on `this`, so each phase's signature says which
+ * parts it touches — and the two only one phase writes (`archivedServers`, `createdWorkspaces`)
+ * are visible as such instead of being hidden among twenty fields.
+ */
+interface RestoreContext {
+  plan: AppRestorePlan
+  options: RestoreOptions
+  sources: BackupSources
+  /** Where the archive was unpacked; removed by `applyRestore`'s `finally`. */
+  staging: string
+  manifest: BackupManifest
+  selects: ReturnType<typeof selectionOf>
+  /**
+   * The writes to run, keyed by item id in the order they were **planned**.
+   *
+   * Filled by `addItem` while the phases plan, then drained by `runApply` — so the iteration order
+   * is the apply order, which is why the phases must add their items in the original sequence.
+   */
+  actions: Map<string, () => void | Promise<void>>
+  /** Every archived servers file this release can read, selected or not. Written by `planWorkspaceItems`. */
+  archivedServers: Map<string, ServerConfig[]>
+  /** Workspaces the archive names that this host lacks. Written by `planWorkspaceItems`. */
+  createdWorkspaces: Map<string, BackupWorkspaceSource>
+}
+
+/** The plan, narrowed to the fields this side always fills. */
+type AppRestorePlan = RestorePlan & { appliedIds: string[], skippedItems: RestoreSkip[], createdWorkspaces: string[], replacedUnderRunning: NonNullable<RestorePlan['replacedUnderRunning']> }
+
+/** The two facts about the archive's own settings that the data and restart phases need. */
+interface ArchivedGlobal {
+  /** The archive's `settings.json` text, or null when it carried none. */
+  settingsText: string | null
+  /** The archive's settings, lifted to this release's schema, or null when unreadable. */
+  parsedGlobal: ResolvedGlobalConfig | null
+}
+
+/** What `openArchive` returns once the archive is admitted, unpacked and validated. */
+interface OpenedArchive {
+  ok: true
+  manifest: BackupManifest
+}
+
+/** The plan a restore starts from: every field filled, so a refusal is a plan and not a throw. */
+function newRestorePlan(options: RestoreOptions): AppRestorePlan {
+  return {
+    dryRun: !options.confirm,
+    encrypted: false,
+    needsPassword: false,
+    items: [],
+    applied: [],
+    appliedIds: [],
+    skipped: [],
+    skippedItems: [],
+    restartRequired: false,
+    reloaded: false,
+    createdWorkspaces: [],
+    replacedUnderRunning: [],
+  }
+}
+
+/**
  * Archives of the control plane's own state plus whatever paths the configs
  * declare. Two rules keep restore safe: the archive layout is an allowlist, and
  * a data path is only written back when a *config* still declares it — a current
@@ -1108,493 +1172,41 @@ export class BackupService {
     }
   }
 
+  // ------------------------------------------------------------- restore
+
   private async applyRestore(archivePath: string, options: RestoreOptions): Promise<RestorePlan> {
     const password = options.password !== undefined && options.password.length > 0 ? options.password : null
-    // The two structured lists are optional on the wire (a new UI reads an older panel), but this
-    // side always fills them, so it builds them as required.
-    const plan: RestorePlan & { appliedIds: string[], skippedItems: RestoreSkip[], createdWorkspaces: string[], replacedUnderRunning: NonNullable<RestorePlan['replacedUnderRunning']> } = {
-      dryRun: !options.confirm,
-      encrypted: false,
-      needsPassword: false,
-      items: [],
-      applied: [],
-      appliedIds: [],
-      skipped: [],
-      skippedItems: [],
-      restartRequired: false,
-      reloaded: false,
-      createdWorkspaces: [],
-      replacedUnderRunning: [],
-    }
+    const plan = newRestorePlan(options)
 
     const admitted = await admitArchive(archivePath)
     if (!admitted.ok)
       return { ...plan, error: admitted.error }
-    const entries = admitted.entries
 
     const staging = path.join(this.resolveDir(), stagingDirName('restore'))
 
     try {
-      plan.encrypted = entries.some(entry => entry.encrypted)
-      if (plan.encrypted && password === null)
-        return { ...plan, needsPassword: true, error: 'this backup is password-protected' }
+      const opened = await this.openArchive(plan, admitted.entries, archivePath, staging, password)
+      // A refusal before anything is written is answered, not thrown: the plan is the answer.
+      if (!('ok' in opened))
+        return opened
 
-      ensureStateDir(staging)
-      const extracted = await extractZip(archivePath, staging, {
-        names: entries.map(entry => entry.name),
-        ...(password === null ? {} : { password }),
-      })
-      for (const name of extracted.skipped) {
-        plan.skipped.push(`${name} (symbolic link, skipped)`)
-        plan.skippedItems.push({ label: name, reasonKey: 'settings.restore.reasonSymbolicLink' })
-      }
+      const ctx = this.restoreContext(plan, options, opened.manifest, staging)
 
-      const manifestPath = path.join(staging, MANIFEST)
-      if (!fs.existsSync(manifestPath))
-        return { ...plan, error: 'the archive has no manifest' }
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as BackupManifest
-
-      // An archive naming a schema this release cannot read is refused outright: the
-      // per-file readability gates below would each skip their own piece and report a
-      // half-restored setup, which reads as a partial success rather than the refusal
-      // it is. Optional, so an archive written before this stamp still restores.
-      plan.archive = manifestInfo(manifest)
-      if (manifest.schema !== undefined && manifest.schema > CONFIG_SCHEMA) {
-        return {
-          ...plan,
-          error: `written by home-hosted ${manifest.writtenBy ?? 'a newer release'} (config schema ${manifest.schema}); this release understands schema ${CONFIG_SCHEMA}`,
-        }
-      }
-
-      // The dump ids are joined into paths below, and an uploaded manifest is attacker controlled.
-      const dumpsValid = manifest.dumps === undefined || (Array.isArray(manifest.dumps) && manifest.dumps.every(dump =>
-        isRecord(dump) && !(workspaceIdSchema(dump.workspaceId) instanceof type.errors) && !(serverIdSchema(dump.serverId) instanceof type.errors)))
-      if (!dumpsValid)
-        return { ...plan, error: 'the archive\'s manifest names a dump with an invalid workspace or server id' }
-
-      const sources = this.options.getSources()
-      const selects = selectionOf(options)
-      const actions = new Map<string, () => void | Promise<void>>()
-
-      /**
-       * Writes one archived secrets file, **always** by field.
-       *
-       * Replacing the live file wholesale when nothing was excluded looked like the identity case, but
-       * an archive only carries what its own selection captured: restoring `global:secrets` from an
-       * archive taken with `--exclude global:secrets:apiToken` replaced the file with a document that
-       * had no `apiToken` in it, silently signing every script out. The live file may also hold a secret
-       * the archive predates. `mergeIntoFile` copies exactly the fields the archive carries and leaves
-       * every other key of the live file alone, which is the behaviour both cases want — and what every
-       * restore did before this rewrite.
-       */
-      const secretsApply = (scope: SecretScope, entryId: string, target: string, archived: string): (() => void) => {
-        const parts = secretParts(scope, presentSecretKeys(parseSecrets(archived)))
-        const take = parts.filter(part => !selects.isExcluded(`${entryId}:${part.key}`)
-          && !part.fields.some(field => selects.isExcluded(`${entryId}:${field}`)))
-        return (): void => {
-          ensureStateDir(path.dirname(target))
-          mergeIntoFile(target, archived, take.flatMap(part => part.fields))
-        }
-      }
-
-      const addItem = (item: Omit<RestoreItem, 'selected'>, apply: (() => void | Promise<void>) | null, aliases: string[] = []): void => {
-        if (apply === null) {
-          plan.items.push({ ...item, selected: false })
-          plan.skipped.push(`${item.label}${item.note === null ? '' : ` (${item.note})`}`)
-          plan.skippedItems.push({
-            label: item.label,
-            ...(item.labelKey === undefined ? {} : { labelKey: item.labelKey }),
-            ...(item.labelParams === undefined ? {} : { labelParams: item.labelParams }),
-            // The note is already the reason when there is one; otherwise the row is simply not
-            // something this instance can write back.
-            reasonKey: item.noteKey ?? 'settings.restore.reasonUnrestorable',
-            ...(item.noteParams === undefined ? {} : { reasonParams: item.noteParams }),
-          })
-          return
-        }
-        // Whether the selection chooses this item is `selectedBy`, the same rule the credential guard
-        // asks at the route: an alias is a coarse id (`workspace:<id>`, `secrets`) and selection also
-        // matches on it, so the two must not answer "is this item selected" differently. They did:
-        // `include: ["secrets"]` selected the credential file here while `selectionWritesCredentials`
-        // tested only `global:secrets`, so a token-only restore rewrote the panel's own credentials.
-        const selected = selectedBy(selects, aliases.length === 0 ? item : { ...item, aliases })
-        plan.items.push({ ...item, selected })
-        if (selected) {
-          actions.set(item.id, apply)
-        }
-        else {
-          plan.skipped.push(`${item.label} (not selected)`)
-          plan.skippedItems.push({
-            label: item.label,
-            ...(item.labelKey === undefined ? {} : { labelKey: item.labelKey }),
-            ...(item.labelParams === undefined ? {} : { labelParams: item.labelParams }),
-            reasonKey: 'settings.restore.reasonNotSelected',
-          })
-        }
-      }
-
-      // ---------------------------------------------------------------- global
-      const settingsText = readText(path.join(staging, 'global', 'settings.json'))
-      const liftedGlobal = readableGlobalSettings(settingsText)
-      const parsedGlobal = liftedGlobal === null ? null : parseGlobalSettings(liftedGlobal).config
-      if (settingsText !== null && parsedGlobal === null) {
-        plan.skipped.push('Global settings (the archive\'s settings are not valid)')
-        plan.skippedItems.push({ label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', reasonKey: 'settings.restore.reasonInvalidSettings' })
-      }
-      if (parsedGlobal !== null && liftedGlobal !== null) {
-        // The **lifted** config is what gets written: the archive's file carries the schema it was
-        // written with, and writing it back verbatim restores a file this release then refuses.
-        const globalText = `${JSON.stringify(liftedGlobal, null, 2)}\n`
-        addItem({ id: GLOBAL_RESTORE_ITEMS.settings.id, label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', kind: 'settings', restorable: true, note: null }, () => {
-          writeFileAtomic(sources.globalSettingsPath, globalText)
-        }, [...GLOBAL_RESTORE_ITEMS.settings.aliases])
-      }
-
-      const globalSecrets = readText(path.join(staging, 'global', 'secrets.json'))
-      if (globalSecrets !== null) {
-        addItem(
-          { id: GLOBAL_RESTORE_ITEMS.credentials.id, label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null },
-          secretsApply('global', GLOBAL_RESTORE_ITEMS.credentials.id, sources.globalSecretsPath, globalSecrets),
-          [...GLOBAL_RESTORE_ITEMS.credentials.aliases],
-        )
-        // One item per secret the archive carries, so the password can come back without
-        // the API token. Applying one merges by field: writing the whole archived file
-        // would reinstate every secret in it, which is exactly what the person unpicked.
-        for (const part of secretParts('global', presentSecretKeys(parseSecrets(globalSecrets)))) {
-          const leafId = `${GLOBAL_RESTORE_ITEMS.credentials.id}:${part.key}`
-          addItem({
-            id: leafId,
-            label: `Global secrets: ${SECRET_LABELS[part.key]?.en ?? part.key}`,
-            labelKey: 'settings.backup.restoreItemLabel',
-            labelParams: { workspace: 'global', item: part.key },
-            kind: 'secrets',
-            restorable: true,
-            note: null,
-          }, () => {
-            // The whole entry, when it is applied, already merges every field this one carries.
-            if (actions.has(GLOBAL_RESTORE_ITEMS.credentials.id))
-              return
-            mergeIntoFile(sources.globalSecretsPath, globalSecrets, part.fields)
-          },
-          // The leaf's own alias spelling (`secrets:password`), so `--exclude secrets` reaches this
-          // leaf the same way it reaches its parent entry. Without it the parent was excluded while
-          // the leaf was still written — a token-only restore could replace the password hash.
-          GLOBAL_RESTORE_ITEMS.credentials.aliases.map(alias => `${alias}:${part.key}`))
-        }
-      }
-
-      const tlsInArchive = path.join(staging, 'global', 'tls')
-      if (fs.existsSync(tlsInArchive)) {
-        const files = fs.readdirSync(tlsInArchive).filter(file => fs.statSync(path.join(tlsInArchive, file)).isFile())
-        addItem({ id: GLOBAL_RESTORE_ITEMS.tls.id, label: 'TLS certificate', labelKey: 'settings.backup.entryTlsCertificate', kind: 'tls', restorable: true, note: null }, () => {
-          ensureStateDir(sources.tlsDir)
-          for (const file of files) {
-            const mode = file.endsWith('.key.pem') ? { mode: 0o600 } : {}
-            writeFileAtomic(path.join(sources.tlsDir, file), fs.readFileSync(path.join(tlsInArchive, file), 'utf8'), mode)
-          }
-        }, [...GLOBAL_RESTORE_ITEMS.tls.aliases])
-      }
-
-      // ------------------------------------------------------- workspace registry
-      /**
-       * The workspaces the archive names, from its registry file.
-       *
-       * Optional: an archive written before the registry was captured carries none, and
-       * then every archived workspace is still restorable under its own id — the label is
-       * the only thing the registry adds.
-       */
-      const archivedWorkspaces = new Map<string, ArchivedWorkspace>()
-      for (const entry of readArchivedRegistry(path.join(staging, 'global', REGISTRY))) {
-        archivedWorkspaces.set(entry.id, entry)
-      }
-
-      // ------------------------------------------------------------ workspaces
-      /** Every archived servers file this release can read, selected or not. */
-      const archivedServers = new Map<string, ServerConfig[]>()
-      /**
-       * Workspaces the archive names that this host does not have, with the paths a
-       * restore will create them under. The directories are made only when one of
-       * their leaves is actually applied, so a dry run writes nothing.
-       */
-      const createdWorkspaces = new Map<string, BackupWorkspaceSource>()
-
-      const archiveWorkspaces = path.join(staging, 'workspaces')
-      if (fs.existsSync(archiveWorkspaces)) {
-        for (const entry of fs.readdirSync(archiveWorkspaces, { withFileTypes: true })) {
-          if (!entry.isDirectory())
-            continue
-          const id = entry.name
-          const dir = path.join(archiveWorkspaces, id)
-          const settings = readText(path.join(dir, 'settings.json'))
-          const servers = readText(path.join(dir, 'servers.config.json'))
-          const secrets = readText(path.join(dir, 'secrets.json'))
-          // A label the archive's registry carried, else the id: the registry is the
-          // only place a label lives, so an archive without it still restores under a
-          // name the person can find afterwards.
-          const archivedLabel = archivedWorkspaces.get(id)?.label ?? id
-
-          // A workspace this host does not have is created, not skipped: an archive is the whole
-          // setup. Skipping it also let the data pass match by origin alone, writing one
-          // workspace's database into another's declared directory.
-          const workspace = sources.workspaces.find(candidate => candidate.id === id)
-            ?? createdWorkspaces.get(id)
-            ?? (workspaceIdSchema(id) instanceof type.errors
-              ? undefined
-              : { id, label: archivedLabel, ...workspacePathsFor(this.options.dataRoot, id), servers: [] as ServerConfig[] })
-          if (workspace === undefined) {
-            plan.skipped.push(`${id} (not a usable workspace id)`)
-            plan.skippedItems.push({ label: id, reasonKey: 'settings.restore.reasonInvalidWorkspace' })
-            continue
-          }
-          if (!sources.workspaces.some(candidate => candidate.id === id))
-            createdWorkspaces.set(id, workspace)
-
-          if (settings !== null) {
-            const liftedSettings = readableWorkspaceSettings(settings)
-            if (liftedSettings !== null) {
-              const settingsText = `${JSON.stringify(liftedSettings, null, 2)}\n`
-              addItem({ id: `workspace:${id}:settings`, label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, kind: 'settings', workspaceId: id, restorable: true, note: null }, () => {
-                ensureStateDir(path.dirname(workspace.settingsPath))
-                writeFileAtomic(workspace.settingsPath, settingsText)
-              })
-            }
-            else {
-              plan.skipped.push(`${workspace.label}: Settings (the archive's settings are not valid)`)
-              plan.skippedItems.push({ label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, reasonKey: 'settings.restore.reasonInvalidSettings' })
-            }
-          }
-
-          if (servers !== null) {
-            const parsed = readableServersFile(servers)
-            const liftedServers = parsed === null ? null : liftArchived(JSON.parse(servers))
-            if (parsed !== null && liftedServers !== null) {
-              const serversText = `${JSON.stringify(liftedServers, null, 2)}\n`
-              archivedServers.set(id, parsed)
-              addItem({ id: `workspace:${id}:servers`, label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, kind: 'servers', workspaceId: id, restorable: true, note: null }, () => {
-                ensureStateDir(path.dirname(workspace.serversPath))
-                writeFileAtomic(workspace.serversPath, serversText)
-              })
-            }
-            else {
-              plan.skipped.push(`${workspace.label}: Servers (the archive's servers are not valid)`)
-              plan.skippedItems.push({ label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, reasonKey: 'settings.restore.reasonInvalidServers' })
-            }
-          }
-
-          if (secrets !== null) {
-            addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'secrets' }, kind: 'secrets', workspaceId: id, restorable: true, note: null }, secretsApply('workspace', `workspace:${id}:secrets`, workspace.secretsPath, secrets))
-            for (const part of secretParts('workspace', presentSecretKeys(parseSecrets(secrets)))) {
-              addItem({
-                id: `workspace:${id}:secrets:${part.key}`,
-                label: `${workspace.label}: ${SECRET_LABELS[part.key]?.en ?? part.key}`,
-                labelKey: 'settings.backup.restoreItemLabel',
-                labelParams: { workspace: workspace.label, item: part.key },
-                kind: 'secrets',
-                workspaceId: id,
-                restorable: true,
-                note: null,
-              }, () => {
-                if (actions.has(`workspace:${id}:secrets`))
-                  return
-                ensureStateDir(path.dirname(workspace.secretsPath))
-                mergeIntoFile(workspace.secretsPath, secrets, part.fields)
-              })
-            }
-          }
-        }
-      }
-
-      // ------------------------------------------------------------------ data
-      // A data path is written to a path a *config* declares — this instance's,
-      // or the servers file the archive brings and the restore is about to apply.
-      const instanceTargets: DataTarget[] = []
-      for (const workspace of sources.workspaces) {
-        for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
-          if (!declared.included)
-            continue
-          instanceTargets.push({ workspace: workspace.id, path: declared.path, origin: declared.origin })
-        }
-      }
-
-      const archivedIncludePaths = actions.has('global:settings') && parsedGlobal !== null
-        ? parsedGlobal.backups.includePaths
-        : sources.includePaths
-      const archiveAll: DataTarget[] = []
-      const archiveTargets: DataTarget[] = []
-      for (const [id, servers] of archivedServers) {
-        for (const declared of this.declaredData(servers, archivedIncludePaths)) {
-          if (!declared.included)
-            continue
-          const target = { workspace: id, path: declared.path, origin: declared.origin }
-          archiveAll.push(target)
-          // Only a servers file this restore is applying may name a destination.
-          if (actions.has(`workspace:${id}:servers`))
-            archiveTargets.push(target)
-        }
-      }
-
-      // A `global` include path and a second `backupPaths` value share one origin, so an
-      // origin match alone would write both to the first candidate. Pair same-origin
-      // declarations by order instead — the archive wrote them in the same resolve order.
-      const usedArchive = new Set<DataTarget>()
-      const usedInstance = new Set<DataTarget>()
-      const take = (list: DataTarget[], used: Set<DataTarget>, test: (target: DataTarget) => boolean): DataTarget | undefined => {
-        const found = list.find(target => !used.has(target) && test(target))
-        if (found === undefined)
-          return undefined
-        used.add(found)
-        return found
-      }
-      /**
-       * Where one archived data path lands, never across a workspace boundary.
-       *
-       * An archive that names a workspace is only ever matched against that workspace's
-       * declarations: the un-scoped fallbacks below exist to survive a re-labelled or
-       * re-ordered config, and letting them cross workspaces wrote one workspace's data
-       * over a path another one had declared. A path only one workspace declares has no
-       * candidate at all in the other, so the entry is reported instead of guessed at.
-       */
-      const matchTarget = (origin: string | undefined, workspace: string | undefined, archivedPath: string): DataTarget | undefined => {
-        const inScope = (target: DataTarget): boolean => workspace === undefined || target.workspace === workspace
-        const archive = archiveTargets.filter(inScope)
-        const instance = instanceTargets.filter(inScope)
-        if (origin !== undefined) {
-          return take(archive, usedArchive, target => target.origin === origin)
-            ?? take(instance, usedInstance, target => target.origin === origin)
-            ?? take(archive, usedArchive, target => target.path === archivedPath)
-            ?? take(instance, usedInstance, target => target.path === archivedPath)
-        }
-        return take(archive, usedArchive, target => target.path === archivedPath)
-          ?? take(instance, usedInstance, target => target.path === archivedPath)
-      }
-
-      /**
-       * `workspace:serverId` for every entry running at this moment.
-       *
-       * Built once, before anything is copied: a data path whose owner is running is about to be
-       * replaced under a live process, and the plan has to name it. Read here rather than in the
-       * apply closure so a dry run reports the same list the apply would.
-       */
-      const runningOwners = new Set(
-        (sources.runningServers?.() ?? []).map(entry => `${entry.workspaceId}:${entry.serverId}`),
-      )
-
-      // A dump is a restorable item in its own right: it is the thing the engine reads, and leaving
-      // it out of the plan meant `--all` reported nothing to restore and the load hook never ran.
-      for (const dump of manifest.dumps ?? []) {
-        const from = path.join(staging, 'dumps', dump.workspaceId, dump.serverId)
-        if (!fs.existsSync(from))
-          continue
-        const id = `workspace:${dump.workspaceId}:dump:${dump.serverId}`
-        addItem({
-          id,
-          label: `dump:${dump.serverId}`,
-          kind: 'data',
-          restorable: true,
-          workspaceId: dump.workspaceId,
-          note: null,
-        }, () => {
-          // Nothing is written over this host's files: the dump is replayed by the entry's `load`
-          // hook, which runs after everything landed. The item exists so the selection can name it.
-        })
-      }
-
-      const archivedEntries = Array.isArray(manifest.data) ? manifest.data.filter(isRecord) : []
-      for (const entry of archivedEntries) {
-        const archivedPath = typeof entry.path === 'string' ? entry.path : ''
-        const origin = typeof entry.origin === 'string' ? entry.origin : undefined
-        const workspace = typeof entry.workspace === 'string' ? entry.workspace : undefined
-        const from = path.join(staging, 'data', safeSlug(entry.slug) ?? legacySlug(archivedPath))
-        const target = matchTarget(origin, workspace, archivedPath)
-        const targetWorkspace = target?.workspace ?? workspace
-        const base: Omit<RestoreItem, 'selected'> = {
-          id: target === undefined ? `data:${archivedPath}` : `workspace:${target.workspace}:data:${target.path}`,
-          label: target?.path ?? archivedPath,
-          kind: 'data',
-          restorable: false,
-          note: null,
-          ...(targetWorkspace === undefined ? {} : { workspaceId: targetWorkspace }),
-        }
-        const aliases = [`data:${archivedPath}`]
-
-        if (target === undefined) {
-          const declaredByBackup = archiveAll.some(candidate => candidate.origin === origin && (workspace === undefined || candidate.workspace === workspace))
-          addItem({
-            ...base,
-            note: declaredByBackup
-              ? 'declared by the backup\'s config, which is not being restored'
-              : 'not declared by this config, nor by the backup',
-            noteKey: declaredByBackup
-              ? 'settings.backup.noteDeclaredByBackup'
-              : 'settings.backup.noteNotDeclared',
-          }, null, aliases)
-          continue
-        }
-        if (!fs.existsSync(from)) {
-          addItem({ ...base, note: 'missing from the archive', noteKey: 'settings.backup.noteMissingFromArchive' }, null, aliases)
-          continue
-        }
-
-        // The entry that declares this path, so a restore can name it if it is running.
-        // Recorded at *plan* time, not inside the apply closure: a dry run has to report the
-        // same list, otherwise the person cannot see what to stop before applying.
-        const ownerId = target.origin.split(':')[0] ?? ''
-        // The same rule `addItem` uses, so a route named by its alias is as covered as one named by
-        // its id when deciding whether the apply replaces a running entry's path.
-        const covered = selectedBy(selects, { ...base, aliases })
-        if (covered && runningOwners.has(`${target.workspace}:${ownerId}`))
-          plan.replacedUnderRunning.push({ workspaceId: target.workspace, serverId: ownerId, path: target.path })
-
-        addItem(
-          { ...base, restorable: true, ...(target.path === archivedPath ? { note: null } : { note: `restored from ${archivedPath}`, noteKey: 'settings.backup.noteRestoredFrom', noteParams: { path: archivedPath } }) },
-          // `cpSync` follows symlinks already in the destination tree, so a link
-          // standing inside the declared path would carry the archive's files out of
-          // it. The destination of each entry is what is checked, because that is
-          // where the link is resolved; the links themselves are never recreated,
-          // which is the stated invariant.
-          () => copyTree(from, target.path, (_source, destination) => isInsideResolved(target.path, destination)),
-          aliases,
-        )
-      }
-
-      // The plan has to say whether a restart is needed even in a dry run: only
-      // the panel's own listener does, its servers are re-read from the file.
-      if (parsedGlobal !== null && actions.has('global:settings') && settingsText !== null) {
-        const currentText = readText(sources.globalSettingsPath)
-        const current = readableGlobalSettings(currentText)
-        plan.restartRequired = JSON.stringify(parsedGlobal.control) !== JSON.stringify(current === null ? null : (parseGlobalSettings(current).config?.control ?? null))
-      }
+      const global = this.planGlobalItems(ctx)
+      this.planWorkspaceItems(ctx)
+      this.planDataItems(ctx, global)
+      this.noteRestartRequired(ctx, global)
 
       if (!options.confirm) {
         // A dry run reports what *would* happen, so the UI can show the plan
         // and the selection before anything is written.
-        plan.applied = [...actions.keys()].map(id => labelOf(plan, id))
-        plan.appliedIds = [...actions.keys()]
+        plan.applied = [...ctx.actions.keys()].map(id => labelOf(plan, id))
+        plan.appliedIds = [...ctx.actions.keys()]
         return plan
       }
 
-      let failure: unknown = null
-      for (const [id, apply] of actions) {
-        try {
-          await apply()
-        }
-        catch (error) {
-          failure = error
-          break
-        }
-        plan.applied.push(labelOf(plan, id))
-        plan.appliedIds.push(id)
-      }
-
-      // The registry entries come last, and only once their leaves landed: a workspace
-      // the panel knows about but whose files were never written would be a workspace
-      // that exists and is empty, which is worse than one that is plainly absent.
-      for (const workspace of createdWorkspaces.values()) {
-        if (!plan.appliedIds.some(id => id.startsWith(`workspace:${workspace.id}:`)))
-          continue
-        this.options.ensureWorkspace?.({ id: workspace.id, label: workspace.label })
-        plan.createdWorkspaces.push(workspace.id)
-      }
+      const failure = await this.runApply(ctx)
+      this.registerCreatedWorkspaces(ctx)
 
       // A restore that failed partway still reloads what it wrote, so memory matches the disk.
       if (failure !== null) {
@@ -1602,66 +1214,7 @@ export class BackupService {
         throw failure
       }
 
-      /**
-       * The load phase: let each restored entry put its own dump back.
-       *
-       * After the files landed and before the panel reloads, so the engine reads a config this
-       * release has just written rather than the one it replaced. Only the entries the archive
-       * actually brought a dump for — an archive taken before the hook existed has none, and running
-       * `mongorestore` on a directory that is not there fails the whole restore for no reason.
-       */
-      // Only dumps the selection actually applied: deselecting `workspace:<id>:dump:<server>` must not
-      // load it, exactly as for any other item.
-      // `actions` is filled while the plan is built, which happens after this line — so the
-      // selection is checked inside the loop below, not here.
-      const archivedDumps = manifest.dumps ?? []
-      // Recorded after `onRestored`: on a blank host the workspace and its entry are created by this
-      // restore, so there is no supervisor to hold the pending load until that reload has run.
-      const pendingLoads: Array<{ workspaceId: string, serverId: string, staged: string }> = []
-      for (const entry of archivedDumps) {
-        if (!plan.appliedIds.some(id => id.startsWith(`workspace:${entry.workspaceId}:`)))
-          continue
-        // Deselecting `workspace:<id>:dump:<server>` must not load it, exactly as for any other item.
-        // (`actions` is keyed by item id, and `workspace:<id>` is only ever an alias, never an item.)
-        if (!actions.has(`workspace:${entry.workspaceId}:dump:${entry.serverId}`))
-          continue
-        // The **archive's** config, not the live one: `sources` was read before the restore wrote
-        // anything, so it still describes the host as it was. The hooks being restored are the
-        // archive's, which is the whole point of a migration onto a blank machine.
-        const archivedServers = readArchivedServers(staging, entry.workspaceId)
-        const server = archivedServers.find(candidate => candidate.id === entry.serverId)
-        // The entry survives the restore (its config came from the archive) but may have no `load`
-        // hook: the dump is still restored as a file, and saying so is better than silence.
-        if (server?.load === undefined || server.load === null) {
-          plan.skipped.push(`the dump for "${entry.serverId}" was restored but this entry has no load hook`)
-          continue
-        }
-        const dumpDir = path.join(staging, 'dumps', entry.workspaceId, entry.serverId)
-        if (!fs.existsSync(dumpDir)) {
-          plan.skipped.push(`the dump for "${entry.serverId}" is missing from the archive`)
-          continue
-        }
-        // Staged, not run. A load hook talks to a server that is answering — `mongorestore`,
-        // `pg_restore`, `redis-cli` all connect — and this entry is stopped at this point. The dump
-        // is copied where the entry can reach it after a restart, and its next `start` runs the hook
-        // once the port accepts a connection.
-        const staged = path.join(this.options.dataRoot, PENDING_LOAD, entry.workspaceId, entry.serverId)
-        await copyTree(dumpDir, staged, () => true)
-        pendingLoads.push({ workspaceId: entry.workspaceId, serverId: entry.serverId, staged })
-        plan.hooks = [...(plan.hooks ?? []), {
-          serverId: entry.serverId,
-          workspaceId: entry.workspaceId,
-          action: 'load',
-          ok: true,
-          output: 'staged — runs when this entry next starts',
-        }]
-      }
-
-      // Staged **before** the reload. `onRestored` re-reads the config and starts autostart entries,
-      // and `createEntry` reads `pendingLoad` from disk at that moment — so recording it afterwards
-      // missed both triggers: the entry was already running, and its state had been read already.
-      for (const load of pendingLoads)
-        this.options.onLoadPending?.(load.workspaceId, load.serverId, load.staged)
+      await this.stagePendingLoads(ctx)
 
       this.reloadRestored(plan)
       return plan
@@ -1682,6 +1235,618 @@ export class BackupService {
       // the next moment the directory is known not to be in use.
       this.sweepStaging()
     }
+  }
+
+  /** The state every phase reads and writes, built once from the plan and the live sources. */
+  private restoreContext(plan: AppRestorePlan, options: RestoreOptions, manifest: BackupManifest, staging: string): RestoreContext {
+    return {
+      plan,
+      options,
+      sources: this.options.getSources(),
+      staging,
+      manifest,
+      selects: selectionOf(options),
+      actions: new Map<string, () => void | Promise<void>>(),
+      archivedServers: new Map<string, ServerConfig[]>(),
+      createdWorkspaces: new Map<string, BackupWorkspaceSource>(),
+    }
+  }
+
+  /**
+   * Unpacks the archive and refuses it before anything is written.
+   *
+   * Everything here answers with a plan rather than throwing, because a refusal at this point has
+   * changed nothing — `applyRestore` passes the answer straight back. The one throw is a wrong
+   * password, which `extractZip` raises and `applyRestore`'s `catch` maps to `needsPassword`.
+   *
+   * Returns null when the archive is usable, after unpacking it into `staging`.
+   */
+  private async openArchive(
+    plan: AppRestorePlan,
+    entries: Awaited<ReturnType<typeof listZip>>,
+    archivePath: string,
+    staging: string,
+    password: string | null,
+  ): Promise<OpenedArchive | RestorePlan> {
+    plan.encrypted = entries.some(entry => entry.encrypted)
+    if (plan.encrypted && password === null)
+      return { ...plan, needsPassword: true, error: 'this backup is password-protected' }
+
+    ensureStateDir(staging)
+    const extracted = await extractZip(archivePath, staging, {
+      names: entries.map(entry => entry.name),
+      ...(password === null ? {} : { password }),
+    })
+    for (const name of extracted.skipped) {
+      plan.skipped.push(`${name} (symbolic link, skipped)`)
+      plan.skippedItems.push({ label: name, reasonKey: 'settings.restore.reasonSymbolicLink' })
+    }
+
+    const manifestPath = path.join(staging, MANIFEST)
+    if (!fs.existsSync(manifestPath))
+      return { ...plan, error: 'the archive has no manifest' }
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as BackupManifest
+
+    // An archive naming a schema this release cannot read is refused outright: the
+    // per-file readability gates below would each skip their own piece and report a
+    // half-restored setup, which reads as a partial success rather than the refusal
+    // it is. Optional, so an archive written before this stamp still restores.
+    plan.archive = manifestInfo(manifest)
+    if (manifest.schema !== undefined && manifest.schema > CONFIG_SCHEMA) {
+      return {
+        ...plan,
+        error: `written by home-hosted ${manifest.writtenBy ?? 'a newer release'} (config schema ${manifest.schema}); this release understands schema ${CONFIG_SCHEMA}`,
+      }
+    }
+
+    // The dump ids are joined into paths below, and an uploaded manifest is attacker controlled.
+    const dumpsValid = manifest.dumps === undefined || (Array.isArray(manifest.dumps) && manifest.dumps.every(dump =>
+      isRecord(dump) && !(workspaceIdSchema(dump.workspaceId) instanceof type.errors) && !(serverIdSchema(dump.serverId) instanceof type.errors)))
+    if (!dumpsValid)
+      return { ...plan, error: 'the archive\'s manifest names a dump with an invalid workspace or server id' }
+    return { ok: true, manifest }
+  }
+
+  /**
+   * The three global slices: settings, secrets (plus one leaf per secret), and the TLS pair.
+   *
+   * Returns the archive's own settings for the later phases, which decide data paths and whether
+   * the listener must restart.
+   */
+  private planGlobalItems(ctx: RestoreContext): ArchivedGlobal {
+    const { plan, sources, staging, actions } = ctx
+    const { secretsApply, addItem } = this.itemWriters(ctx)
+
+    // ---------------------------------------------------------------- global
+    const settingsText = readText(path.join(staging, 'global', 'settings.json'))
+    const liftedGlobal = readableGlobalSettings(settingsText)
+    const parsedGlobal = liftedGlobal === null ? null : parseGlobalSettings(liftedGlobal).config
+    if (settingsText !== null && parsedGlobal === null) {
+      plan.skipped.push('Global settings (the archive\'s settings are not valid)')
+      plan.skippedItems.push({ label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', reasonKey: 'settings.restore.reasonInvalidSettings' })
+    }
+    if (parsedGlobal !== null && liftedGlobal !== null) {
+      // The **lifted** config is what gets written: the archive's file carries the schema it was
+      // written with, and writing it back verbatim restores a file this release then refuses.
+      const globalText = `${JSON.stringify(liftedGlobal, null, 2)}\n`
+      addItem({ id: GLOBAL_RESTORE_ITEMS.settings.id, label: 'Global settings', labelKey: 'settings.backup.entryGlobalSettings', kind: 'settings', restorable: true, note: null }, () => {
+        writeFileAtomic(sources.globalSettingsPath, globalText)
+      }, [...GLOBAL_RESTORE_ITEMS.settings.aliases])
+    }
+
+    const globalSecrets = readText(path.join(staging, 'global', 'secrets.json'))
+    if (globalSecrets !== null) {
+      addItem(
+        { id: GLOBAL_RESTORE_ITEMS.credentials.id, label: 'Global secrets (password, API token)', labelKey: 'settings.backup.entryGlobalSecrets', kind: 'secrets', restorable: true, note: null },
+        secretsApply('global', GLOBAL_RESTORE_ITEMS.credentials.id, sources.globalSecretsPath, globalSecrets),
+        [...GLOBAL_RESTORE_ITEMS.credentials.aliases],
+      )
+      // One item per secret the archive carries, so the password can come back without
+      // the API token. Applying one merges by field: writing the whole archived file
+      // would reinstate every secret in it, which is exactly what the person unpicked.
+      for (const part of secretParts('global', presentSecretKeys(parseSecrets(globalSecrets)))) {
+        const leafId = `${GLOBAL_RESTORE_ITEMS.credentials.id}:${part.key}`
+        addItem({
+          id: leafId,
+          label: `Global secrets: ${SECRET_LABELS[part.key]?.en ?? part.key}`,
+          labelKey: 'settings.backup.restoreItemLabel',
+          labelParams: { workspace: 'global', item: part.key },
+          kind: 'secrets',
+          restorable: true,
+          note: null,
+        }, () => {
+          // The whole entry, when it is applied, already merges every field this one carries.
+          if (actions.has(GLOBAL_RESTORE_ITEMS.credentials.id))
+            return
+          mergeIntoFile(sources.globalSecretsPath, globalSecrets, part.fields)
+        },
+        // The leaf's own alias spelling (`secrets:password`), so `--exclude secrets` reaches this
+        // leaf the same way it reaches its parent entry. Without it the parent was excluded while
+        // the leaf was still written — a token-only restore could replace the password hash.
+        GLOBAL_RESTORE_ITEMS.credentials.aliases.map(alias => `${alias}:${part.key}`))
+      }
+    }
+
+    const tlsInArchive = path.join(staging, 'global', 'tls')
+    if (fs.existsSync(tlsInArchive)) {
+      const files = fs.readdirSync(tlsInArchive).filter(file => fs.statSync(path.join(tlsInArchive, file)).isFile())
+      addItem({ id: GLOBAL_RESTORE_ITEMS.tls.id, label: 'TLS certificate', labelKey: 'settings.backup.entryTlsCertificate', kind: 'tls', restorable: true, note: null }, () => {
+        ensureStateDir(sources.tlsDir)
+        for (const file of files) {
+          const mode = file.endsWith('.key.pem') ? { mode: 0o600 } : {}
+          writeFileAtomic(path.join(sources.tlsDir, file), fs.readFileSync(path.join(tlsInArchive, file), 'utf8'), mode)
+        }
+      }, [...GLOBAL_RESTORE_ITEMS.tls.aliases])
+    }
+    return { settingsText, parsedGlobal }
+  }
+
+  /**
+   * The two closures every planning phase writes through.
+   *
+   * **`addItem` fills `actions` in call order, and `runApply` drains that map in the same order** —
+   * so the sequence of `addItem` calls across the phases *is* the apply order. Splitting the phases
+   * did not change that order; it must not.
+   */
+  private itemWriters(ctx: RestoreContext): {
+    secretsApply: (scope: SecretScope, entryId: string, target: string, archived: string) => () => void
+    addItem: (item: Omit<RestoreItem, 'selected'>, apply: (() => void | Promise<void>) | null, aliases?: string[]) => void
+  } {
+    const { plan, selects, actions } = ctx
+
+    /**
+     * Writes one archived secrets file, **always** by field.
+     *
+     * Replacing the live file wholesale when nothing was excluded looked like the identity case, but
+     * an archive only carries what its own selection captured: restoring `global:secrets` from an
+     * archive taken with `--exclude global:secrets:apiToken` replaced the file with a document that
+     * had no `apiToken` in it, silently signing every script out. The live file may also hold a secret
+     * the archive predates. `mergeIntoFile` copies exactly the fields the archive carries and leaves
+     * every other key of the live file alone, which is the behaviour both cases want — and what every
+     * restore did before this rewrite.
+     */
+    const secretsApply = (scope: SecretScope, entryId: string, target: string, archived: string): (() => void) => {
+      const parts = secretParts(scope, presentSecretKeys(parseSecrets(archived)))
+      const take = parts.filter(part => !selects.isExcluded(`${entryId}:${part.key}`)
+        && !part.fields.some(field => selects.isExcluded(`${entryId}:${field}`)))
+      return (): void => {
+        ensureStateDir(path.dirname(target))
+        mergeIntoFile(target, archived, take.flatMap(part => part.fields))
+      }
+    }
+
+    const addItem = (item: Omit<RestoreItem, 'selected'>, apply: (() => void | Promise<void>) | null, aliases: string[] = []): void => {
+      if (apply === null) {
+        plan.items.push({ ...item, selected: false })
+        plan.skipped.push(`${item.label}${item.note === null ? '' : ` (${item.note})`}`)
+        plan.skippedItems.push({
+          label: item.label,
+          ...(item.labelKey === undefined ? {} : { labelKey: item.labelKey }),
+          ...(item.labelParams === undefined ? {} : { labelParams: item.labelParams }),
+          // The note is already the reason when there is one; otherwise the row is simply not
+          // something this instance can write back.
+          reasonKey: item.noteKey ?? 'settings.restore.reasonUnrestorable',
+          ...(item.noteParams === undefined ? {} : { reasonParams: item.noteParams }),
+        })
+        return
+      }
+      // Whether the selection chooses this item is `selectedBy`, the same rule the credential guard
+      // asks at the route: an alias is a coarse id (`workspace:<id>`, `secrets`) and selection also
+      // matches on it, so the two must not answer "is this item selected" differently. They did:
+      // `include: ["secrets"]` selected the credential file here while `selectionWritesCredentials`
+      // tested only `global:secrets`, so a token-only restore rewrote the panel's own credentials.
+      const selected = selectedBy(selects, aliases.length === 0 ? item : { ...item, aliases })
+      plan.items.push({ ...item, selected })
+      if (selected) {
+        actions.set(item.id, apply)
+      }
+      else {
+        plan.skipped.push(`${item.label} (not selected)`)
+        plan.skippedItems.push({
+          label: item.label,
+          ...(item.labelKey === undefined ? {} : { labelKey: item.labelKey }),
+          ...(item.labelParams === undefined ? {} : { labelParams: item.labelParams }),
+          reasonKey: 'settings.restore.reasonNotSelected',
+        })
+      }
+    }
+    return { secretsApply, addItem }
+  }
+
+  /**
+   * One item group per workspace the archive names, plus the archived servers each carries.
+   *
+   * A workspace this host does not have is *created* rather than skipped: an archive is the whole
+   * setup. Its directories are made only when one of its leaves is applied, so a dry run writes
+   * nothing.
+   */
+  private planWorkspaceItems(ctx: RestoreContext): void {
+    const { plan, sources, staging, actions, archivedServers, createdWorkspaces } = ctx
+    /**
+     * The workspaces the archive names, from its registry file.
+     *
+     * Optional: an archive written before the registry was captured carries none, and then every
+     * archived workspace is still restorable under its own id — the label is all the registry adds.
+     */
+    const archivedWorkspaces = new Map<string, ArchivedWorkspace>()
+    for (const entry of readArchivedRegistry(path.join(staging, 'global', REGISTRY)))
+      archivedWorkspaces.set(entry.id, entry)
+    const { secretsApply, addItem } = this.itemWriters(ctx)
+
+    const archiveWorkspaces = path.join(staging, 'workspaces')
+    if (fs.existsSync(archiveWorkspaces)) {
+      for (const entry of fs.readdirSync(archiveWorkspaces, { withFileTypes: true })) {
+        if (!entry.isDirectory())
+          continue
+        const id = entry.name
+        const dir = path.join(archiveWorkspaces, id)
+        const settings = readText(path.join(dir, 'settings.json'))
+        const servers = readText(path.join(dir, 'servers.config.json'))
+        const secrets = readText(path.join(dir, 'secrets.json'))
+        // A label the archive's registry carried, else the id: the registry is the
+        // only place a label lives, so an archive without it still restores under a
+        // name the person can find afterwards.
+        const archivedLabel = archivedWorkspaces.get(id)?.label ?? id
+
+        // A workspace this host does not have is created, not skipped: an archive is the whole
+        // setup. Skipping it also let the data pass match by origin alone, writing one
+        // workspace's database into another's declared directory.
+        const workspace = sources.workspaces.find(candidate => candidate.id === id)
+          ?? createdWorkspaces.get(id)
+          ?? (workspaceIdSchema(id) instanceof type.errors
+            ? undefined
+            : { id, label: archivedLabel, ...workspacePathsFor(this.options.dataRoot, id), servers: [] as ServerConfig[] })
+        if (workspace === undefined) {
+          plan.skipped.push(`${id} (not a usable workspace id)`)
+          plan.skippedItems.push({ label: id, reasonKey: 'settings.restore.reasonInvalidWorkspace' })
+          continue
+        }
+        if (!sources.workspaces.some(candidate => candidate.id === id))
+          createdWorkspaces.set(id, workspace)
+
+        if (settings !== null) {
+          const liftedSettings = readableWorkspaceSettings(settings)
+          if (liftedSettings !== null) {
+            const settingsText = `${JSON.stringify(liftedSettings, null, 2)}\n`
+            addItem({ id: `workspace:${id}:settings`, label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, kind: 'settings', workspaceId: id, restorable: true, note: null }, () => {
+              ensureStateDir(path.dirname(workspace.settingsPath))
+              writeFileAtomic(workspace.settingsPath, settingsText)
+            })
+          }
+          else {
+            plan.skipped.push(`${workspace.label}: Settings (the archive's settings are not valid)`)
+            plan.skippedItems.push({ label: `${workspace.label}: Settings`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'settings' }, reasonKey: 'settings.restore.reasonInvalidSettings' })
+          }
+        }
+
+        if (servers !== null) {
+          const parsed = readableServersFile(servers)
+          const liftedServers = parsed === null ? null : liftArchived(JSON.parse(servers))
+          if (parsed !== null && liftedServers !== null) {
+            const serversText = `${JSON.stringify(liftedServers, null, 2)}\n`
+            archivedServers.set(id, parsed)
+            addItem({ id: `workspace:${id}:servers`, label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, kind: 'servers', workspaceId: id, restorable: true, note: null }, () => {
+              ensureStateDir(path.dirname(workspace.serversPath))
+              writeFileAtomic(workspace.serversPath, serversText)
+            })
+          }
+          else {
+            plan.skipped.push(`${workspace.label}: Servers (the archive's servers are not valid)`)
+            plan.skippedItems.push({ label: `${workspace.label}: Servers`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'servers' }, reasonKey: 'settings.restore.reasonInvalidServers' })
+          }
+        }
+
+        if (secrets !== null) {
+          addItem({ id: `workspace:${id}:secrets`, label: `${workspace.label}: Secrets`, labelKey: 'settings.backup.restoreItemLabel', labelParams: { workspace: workspace.label, item: 'secrets' }, kind: 'secrets', workspaceId: id, restorable: true, note: null }, secretsApply('workspace', `workspace:${id}:secrets`, workspace.secretsPath, secrets))
+          for (const part of secretParts('workspace', presentSecretKeys(parseSecrets(secrets)))) {
+            addItem({
+              id: `workspace:${id}:secrets:${part.key}`,
+              label: `${workspace.label}: ${SECRET_LABELS[part.key]?.en ?? part.key}`,
+              labelKey: 'settings.backup.restoreItemLabel',
+              labelParams: { workspace: workspace.label, item: part.key },
+              kind: 'secrets',
+              workspaceId: id,
+              restorable: true,
+              note: null,
+            }, () => {
+              if (actions.has(`workspace:${id}:secrets`))
+                return
+              ensureStateDir(path.dirname(workspace.secretsPath))
+              mergeIntoFile(workspace.secretsPath, secrets, part.fields)
+            })
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Data-path items and dumps.
+   *
+   * A data path is written to a path a *config* declares — this instance's, or the servers file the
+   * archive brings and the restore is about to apply. Nothing here is guessed from the archive's
+   * manifest alone.
+   *
+   * Runs **after** the workspace phase on purpose: it reads `archivedServers` and asks
+   * `actions.has(...)` about the workspace items, both of which that phase fills.
+   */
+  private planDataItems(ctx: RestoreContext, global: ArchivedGlobal): void {
+    const { plan, sources, staging, manifest, selects, actions, archivedServers } = ctx
+    const { parsedGlobal } = global
+    const { addItem } = this.itemWriters(ctx)
+
+    // ------------------------------------------------------------------ data
+    // A data path is written to a path a *config* declares — this instance's,
+    // or the servers file the archive brings and the restore is about to apply.
+    const instanceTargets: DataTarget[] = []
+    for (const workspace of sources.workspaces) {
+      for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
+        if (!declared.included)
+          continue
+        instanceTargets.push({ workspace: workspace.id, path: declared.path, origin: declared.origin })
+      }
+    }
+
+    const archivedIncludePaths = actions.has('global:settings') && parsedGlobal !== null
+      ? parsedGlobal.backups.includePaths
+      : sources.includePaths
+    const archiveAll: DataTarget[] = []
+    const archiveTargets: DataTarget[] = []
+    for (const [id, servers] of archivedServers) {
+      for (const declared of this.declaredData(servers, archivedIncludePaths)) {
+        if (!declared.included)
+          continue
+        const target = { workspace: id, path: declared.path, origin: declared.origin }
+        archiveAll.push(target)
+        // Only a servers file this restore is applying may name a destination.
+        if (actions.has(`workspace:${id}:servers`))
+          archiveTargets.push(target)
+      }
+    }
+
+    // A `global` include path and a second `backupPaths` value share one origin, so an
+    // origin match alone would write both to the first candidate. Pair same-origin
+    // declarations by order instead — the archive wrote them in the same resolve order.
+    const usedArchive = new Set<DataTarget>()
+    const usedInstance = new Set<DataTarget>()
+    const take = (list: DataTarget[], used: Set<DataTarget>, test: (target: DataTarget) => boolean): DataTarget | undefined => {
+      const found = list.find(target => !used.has(target) && test(target))
+      if (found === undefined)
+        return undefined
+      used.add(found)
+      return found
+    }
+    /**
+     * Where one archived data path lands, never across a workspace boundary.
+     *
+     * An archive that names a workspace is only ever matched against that workspace's
+     * declarations: the un-scoped fallbacks below exist to survive a re-labelled or
+     * re-ordered config, and letting them cross workspaces wrote one workspace's data
+     * over a path another one had declared. A path only one workspace declares has no
+     * candidate at all in the other, so the entry is reported instead of guessed at.
+     */
+    const matchTarget = (origin: string | undefined, workspace: string | undefined, archivedPath: string): DataTarget | undefined => {
+      const inScope = (target: DataTarget): boolean => workspace === undefined || target.workspace === workspace
+      const archive = archiveTargets.filter(inScope)
+      const instance = instanceTargets.filter(inScope)
+      if (origin !== undefined) {
+        return take(archive, usedArchive, target => target.origin === origin)
+          ?? take(instance, usedInstance, target => target.origin === origin)
+          ?? take(archive, usedArchive, target => target.path === archivedPath)
+          ?? take(instance, usedInstance, target => target.path === archivedPath)
+      }
+      return take(archive, usedArchive, target => target.path === archivedPath)
+        ?? take(instance, usedInstance, target => target.path === archivedPath)
+    }
+
+    /**
+     * `workspace:serverId` for every entry running at this moment.
+     *
+     * Built once, before anything is copied: a data path whose owner is running is about to be
+     * replaced under a live process, and the plan has to name it. Read here rather than in the
+     * apply closure so a dry run reports the same list the apply would.
+     */
+    const runningOwners = new Set(
+      (sources.runningServers?.() ?? []).map(entry => `${entry.workspaceId}:${entry.serverId}`),
+    )
+
+    // A dump is a restorable item in its own right: it is the thing the engine reads, and leaving
+    // it out of the plan meant `--all` reported nothing to restore and the load hook never ran.
+    for (const dump of manifest.dumps ?? []) {
+      const from = path.join(staging, 'dumps', dump.workspaceId, dump.serverId)
+      if (!fs.existsSync(from))
+        continue
+      const id = `workspace:${dump.workspaceId}:dump:${dump.serverId}`
+      addItem({
+        id,
+        label: `dump:${dump.serverId}`,
+        kind: 'data',
+        restorable: true,
+        workspaceId: dump.workspaceId,
+        note: null,
+      }, () => {
+        // Nothing is written over this host's files: the dump is replayed by the entry's `load`
+        // hook, which runs after everything landed. The item exists so the selection can name it.
+      })
+    }
+
+    const archivedEntries = Array.isArray(manifest.data) ? manifest.data.filter(isRecord) : []
+    for (const entry of archivedEntries) {
+      const archivedPath = typeof entry.path === 'string' ? entry.path : ''
+      const origin = typeof entry.origin === 'string' ? entry.origin : undefined
+      const workspace = typeof entry.workspace === 'string' ? entry.workspace : undefined
+      const from = path.join(staging, 'data', safeSlug(entry.slug) ?? legacySlug(archivedPath))
+      const target = matchTarget(origin, workspace, archivedPath)
+      const targetWorkspace = target?.workspace ?? workspace
+      const base: Omit<RestoreItem, 'selected'> = {
+        id: target === undefined ? `data:${archivedPath}` : `workspace:${target.workspace}:data:${target.path}`,
+        label: target?.path ?? archivedPath,
+        kind: 'data',
+        restorable: false,
+        note: null,
+        ...(targetWorkspace === undefined ? {} : { workspaceId: targetWorkspace }),
+      }
+      const aliases = [`data:${archivedPath}`]
+
+      if (target === undefined) {
+        const declaredByBackup = archiveAll.some(candidate => candidate.origin === origin && (workspace === undefined || candidate.workspace === workspace))
+        addItem({
+          ...base,
+          note: declaredByBackup
+            ? 'declared by the backup\'s config, which is not being restored'
+            : 'not declared by this config, nor by the backup',
+          noteKey: declaredByBackup
+            ? 'settings.backup.noteDeclaredByBackup'
+            : 'settings.backup.noteNotDeclared',
+        }, null, aliases)
+        continue
+      }
+      if (!fs.existsSync(from)) {
+        addItem({ ...base, note: 'missing from the archive', noteKey: 'settings.backup.noteMissingFromArchive' }, null, aliases)
+        continue
+      }
+
+      // The entry that declares this path, so a restore can name it if it is running.
+      // Recorded at *plan* time, not inside the apply closure: a dry run has to report the
+      // same list, otherwise the person cannot see what to stop before applying.
+      const ownerId = target.origin.split(':')[0] ?? ''
+      // The same rule `addItem` uses, so a route named by its alias is as covered as one named by
+      // its id when deciding whether the apply replaces a running entry's path.
+      const covered = selectedBy(selects, { ...base, aliases })
+      if (covered && runningOwners.has(`${target.workspace}:${ownerId}`))
+        plan.replacedUnderRunning.push({ workspaceId: target.workspace, serverId: ownerId, path: target.path })
+
+      addItem(
+        { ...base, restorable: true, ...(target.path === archivedPath ? { note: null } : { note: `restored from ${archivedPath}`, noteKey: 'settings.backup.noteRestoredFrom', noteParams: { path: archivedPath } }) },
+        // `cpSync` follows symlinks already in the destination tree, so a link
+        // standing inside the declared path would carry the archive's files out of
+        // it. The destination of each entry is what is checked, because that is
+        // where the link is resolved; the links themselves are never recreated,
+        // which is the stated invariant.
+        () => copyTree(from, target.path, (_source, destination) => isInsideResolved(target.path, destination)),
+        aliases,
+      )
+    }
+  }
+
+  /**
+   * Whether the plan must say a restart is needed — computed even for a dry run.
+   *
+   * Only the panel's own listener does; its servers are re-read from the file.
+   */
+  private noteRestartRequired(ctx: RestoreContext, global: ArchivedGlobal): void {
+    const { plan, sources, actions } = ctx
+    const { settingsText, parsedGlobal } = global
+
+    if (parsedGlobal !== null && actions.has('global:settings') && settingsText !== null) {
+      const currentText = readText(sources.globalSettingsPath)
+      const current = readableGlobalSettings(currentText)
+      plan.restartRequired = JSON.stringify(parsedGlobal.control) !== JSON.stringify(current === null ? null : (parseGlobalSettings(current).config?.control ?? null))
+    }
+  }
+
+  /**
+   * Runs every planned write in order, stopping at the first failure.
+   *
+   * A partial failure records nothing for the item that failed, then hands the error back so the
+   * caller can reload what did land and rethrow — a restore is not transactional, and the plan has
+   * to say so.
+   */
+  private async runApply(ctx: RestoreContext): Promise<unknown> {
+    const { plan, actions } = ctx
+
+    let failure: unknown = null
+    for (const [id, apply] of actions) {
+      try {
+        await apply()
+      }
+      catch (error) {
+        failure = error
+        break
+      }
+      plan.applied.push(labelOf(plan, id))
+      plan.appliedIds.push(id)
+    }
+    return failure
+  }
+
+  /**
+   * Registers the workspaces this restore created, once their leaves have landed.
+   *
+   * Last, and only for a workspace something was applied to: a workspace the panel knows about but
+   * whose files were never written would be a workspace that exists and is empty, which is worse
+   * than one that is plainly absent.
+   */
+  private registerCreatedWorkspaces(ctx: RestoreContext): void {
+    const { plan, createdWorkspaces } = ctx
+
+    // The registry entries come last, and only once their leaves landed: a workspace
+    // the panel knows about but whose files were never written would be a workspace
+    // that exists and is empty, which is worse than one that is plainly absent.
+    for (const workspace of createdWorkspaces.values()) {
+      if (!plan.appliedIds.some(id => id.startsWith(`workspace:${workspace.id}:`)))
+        continue
+      this.options.ensureWorkspace?.({ id: workspace.id, label: workspace.label })
+      plan.createdWorkspaces.push(workspace.id)
+    }
+  }
+
+  /**
+   * Stages each restored dump where its entry can reach it, for that entry's own `load` hook.
+   *
+   * Staged rather than run: a load hook talks to a server that is answering, and this entry is
+   * stopped at this point. The hook runs on its next `start`, once the port accepts a connection.
+   *
+   * Staged **before** the caller reloads, because the reload reads `pendingLoad` from disk.
+   */
+  private async stagePendingLoads(ctx: RestoreContext): Promise<void> {
+    const { plan, staging, manifest, actions } = ctx
+    // The archive's entries, so this cannot be confused with the `archivedServers` the planning
+    // phase filled.
+    const archivedDumps = manifest.dumps ?? []
+
+    const pendingLoads: Array<{ workspaceId: string, serverId: string, staged: string }> = []
+    for (const entry of archivedDumps) {
+      if (!plan.appliedIds.some(id => id.startsWith(`workspace:${entry.workspaceId}:`)))
+        continue
+      // Deselecting `workspace:<id>:dump:<server>` must not load it, exactly as for any other item.
+      // (`actions` is keyed by item id, and `workspace:<id>` is only ever an alias, never an item.)
+      if (!actions.has(`workspace:${entry.workspaceId}:dump:${entry.serverId}`))
+        continue
+      // The **archive's** config, not the live one: `sources` was read before the restore wrote
+      // anything, so it still describes the host as it was. The hooks being restored are the
+      // archive's, which is the whole point of a migration onto a blank machine.
+      const archivedServers = readArchivedServers(staging, entry.workspaceId)
+      const server = archivedServers.find(candidate => candidate.id === entry.serverId)
+      // The entry survives the restore (its config came from the archive) but may have no `load`
+      // hook: the dump is still restored as a file, and saying so is better than silence.
+      if (server?.load === undefined || server.load === null) {
+        plan.skipped.push(`the dump for "${entry.serverId}" was restored but this entry has no load hook`)
+        continue
+      }
+      const dumpDir = path.join(staging, 'dumps', entry.workspaceId, entry.serverId)
+      if (!fs.existsSync(dumpDir)) {
+        plan.skipped.push(`the dump for "${entry.serverId}" is missing from the archive`)
+        continue
+      }
+      // Staged, not run. A load hook talks to a server that is answering — `mongorestore`,
+      // `pg_restore`, `redis-cli` all connect — and this entry is stopped at this point. The dump
+      // is copied where the entry can reach it after a restart, and its next `start` runs the hook
+      // once the port accepts a connection.
+      const staged = path.join(this.options.dataRoot, PENDING_LOAD, entry.workspaceId, entry.serverId)
+      await copyTree(dumpDir, staged, () => true)
+      pendingLoads.push({ workspaceId: entry.workspaceId, serverId: entry.serverId, staged })
+      plan.hooks = [...(plan.hooks ?? []), {
+        serverId: entry.serverId,
+        workspaceId: entry.workspaceId,
+        action: 'load',
+        ok: true,
+        output: 'staged — runs when this entry next starts',
+      }]
+    }
+
+    for (const load of pendingLoads)
+      this.options.onLoadPending?.(load.workspaceId, load.serverId, load.staged)
   }
 
   /** The panel re-reads the restored settings and servers, so what the archive brought exists immediately. */
