@@ -190,12 +190,17 @@ describe('the unit is decided by the schema floor, not by the page', () => {
     ] as const) {
       expect(floors.get(key), `${key} must be declared in src/shared/contracts.ts`).toBe(floor)
     }
-    // Three of those boxes edit seconds; the probe keeps ms, because 500 rounds to nothing there.
-    expect(shownInSeconds(floors.get('authSchema.sessionTtlMs')!)).toBe(true)
-    expect(shownInSeconds(floors.get('hostSchema.intervalMs')!)).toBe(true)
-    expect(shownInSeconds(floors.get('ddnsConfigSchema.intervalMs')!)).toBe(true)
+    /**
+     * The verdict, applied to what the schemas actually declare.
+     *
+     * `ui-format-duration.test.ts` pins `shownInSeconds` itself on constants (500 is false, 1000 is
+     * true); what this adds is that the floors are read from `contracts.ts` rather than restated, so
+     * a schema floor that moves takes a UI label with it. Only the disagreement between the two is
+     * asserted here.
+     */
     expect(shownInSeconds(floors.get('healthSchema.intervalMs')!), 'the 500 ms probe floor rounds to nothing in seconds').toBe(false)
     expect(shownInSeconds(floors.get('healthSchema.timeoutMs')!), 'the 100 ms probe floor rounds to nothing in seconds').toBe(false)
+    expect(shownInSeconds(floors.get('authSchema.lockoutMs')!), 'a 1 s floor is the first with no sub-second value').toBe(true)
     // A name is not a field: the four `intervalMs` floors differ, which is why the pages name the
     // object they read through and this map is keyed by the schema that declares it.
     expect(new Set([...floors].filter(([key]) => key.endsWith('.intervalMs')).map(([, floor]) => floor)).size)

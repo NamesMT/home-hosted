@@ -158,7 +158,9 @@ former changes the asset, and it bumps every UI that calls it.
 - `uis/stock/test/untranslated-copy.test.ts` fails on a literal word in a `.vue` template or accessible
   name (`<code>` is exempt: it holds a token the reader types); `uis/stock/test/toast-copy.test.ts`
   does the same for toast titles and messages in `.ts` and `.vue`, following the receiver
-  `useToasts()` was bound to.
+  `useToasts()` was bound to. It stays under `stock` because it resolves keys through that UI's own
+  `@/i18n`; a guard that scans **both** UIs belongs in `test/shared/`, which is why
+  `commands-in-copy.test.ts` (a command printed in copy must exist in `package.json`) moved there.
 
 ## How to test
 

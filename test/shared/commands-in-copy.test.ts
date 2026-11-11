@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { stripComments } from '../../../test/helpers/strip-comments'
+import { stripComments } from '../helpers/strip-comments'
 
 /**
  * A command printed in the UI is a promise the package has to keep.
@@ -13,8 +13,8 @@ import { stripComments } from '../../../test/helpers/strip-comments'
  * a person following it found out. A UI must name the CLI, which is versioned with the panel,
  * rather than a package script that only someone inside this repo can run.
  */
-const root = path.dirname(fileURLToPath(new URL('.', import.meta.url)))
-const repoRoot = path.resolve(root, '..', '..')
+const root = fileURLToPath(new URL('../..', import.meta.url))
+const repoRoot = root
 
 /** Any `pnpm …` mention, for the second guard which only needs to know one exists. */
 const ANY_PNPM = /\bpnpm (?:run\s+)?[a-z][\w:-]*/g
