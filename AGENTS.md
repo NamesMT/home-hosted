@@ -111,6 +111,15 @@ These are the ones that prevent real defects. Break one only with a reason in th
   are added centrally in `finishSpec` (`src/openapi.ts`).
 - Patch schemas carry no defaults; nested groups merge key by key and `null` clears a key. Lists in a
   patch are replaced whole, so a form sends a list only when *it* changed it.
+- **A patch is hand-written, and that is deliberate.** It cannot be `.partial()`ed from its config
+  schema — ArkType keeps a default through `.partial()`, so a derived patch injects the code defaults
+  into every PATCH body and overwrites stored values nobody sent (the bug `bootstrap`/`dump`/`load`
+  were fixed for). Deriving from the field literals is possible for a flat group but was **tried and
+  rejected** — a value-level transform loses ArkType's inference (a generic `PatchShape<F>` handed to
+  `type()` widens to `undefined`), a type-level one needed a materialised module-scope const at every
+  call site, and the helper costs more lines than the 21 of real duplication it removes — while
+  leaving two conventions in one file for 7 of 22 groups. `test/shared/patch-guard.test.ts` guards the
+  mirror instead; if you add a field to a base group, add it to the patch and let that test tell you.
 - **A merged query schema's strictness comes from the ARGUMENT of `merge`.** `merge` keeps the
   argument's `onUndeclaredKey`, so a route adding its own query key writes
   `extra.merge(workspaceQuerySchema)`; the reverse spelling silently loses the rejection and a
