@@ -3,8 +3,6 @@ import type { AuthService } from '#src/services/auth'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { TlsStore } from '#src/services/tls'
 import type { ControlConfig, ControlView, DdnsStatus, DestinationStatusView, LogsConfig, NotificationDefaults, ServerDefaults, ServerOrphan, ServerView, WorkspaceView } from '#src/shared/contracts'
-import { dataRoot, projectDir } from '#src/helpers/paths'
-import { appVersion } from '#src/helpers/version'
 import { checkExposure } from '#src/services/exposure'
 
 export interface WorkspaceViewSource {
@@ -94,5 +92,3 @@ export function buildWorkspaceView(source: WorkspaceViewSource): WorkspaceView {
     servers,
   }
 }
-
-export { appVersion, dataRoot, projectDir }
