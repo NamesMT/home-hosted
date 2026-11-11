@@ -530,6 +530,52 @@ interface DataTarget {
 }
 
 /**
+ * Pairs each archived data path with the declaration that will receive it.
+ *
+ * A **factory**, not a plain function: pairing consumes both lists — one target is claimed by one
+ * archive entry — so the two `used` sets are the state a naive call would lose. A pair of same-origin
+ * declarations is the case that needs it: a `global` include path and a second `backupPaths` value
+ * share one origin, so matching by origin alone would write both onto the first candidate. Pairing by
+ * order instead, because the archive wrote them in the same resolve order.
+ *
+ * Never across a workspace boundary: an archive entry that names a workspace is only matched against
+ * that workspace's declarations. The un-scoped fallbacks exist to survive a re-labelled or re-ordered
+ * config, and letting them cross workspaces wrote one workspace's data over a path another one had
+ * declared. A path only one workspace declares has no candidate in the other, so the entry is
+ * reported rather than guessed at.
+ */
+function dataTargetMatcher(archiveTargets: DataTarget[], instanceTargets: DataTarget[]): (
+  origin: string | undefined,
+  workspace: string | undefined,
+  archivedPath: string,
+) => DataTarget | undefined {
+  const usedArchive = new Set<DataTarget>()
+  const usedInstance = new Set<DataTarget>()
+
+  const take = (list: DataTarget[], used: Set<DataTarget>, test: (target: DataTarget) => boolean): DataTarget | undefined => {
+    const found = list.find(target => !used.has(target) && test(target))
+    if (found === undefined)
+      return undefined
+    used.add(found)
+    return found
+  }
+
+  return (origin, workspace, archivedPath) => {
+    const inScope = (target: DataTarget): boolean => workspace === undefined || target.workspace === workspace
+    const archive = archiveTargets.filter(inScope)
+    const instance = instanceTargets.filter(inScope)
+    if (origin !== undefined) {
+      return take(archive, usedArchive, target => target.origin === origin)
+        ?? take(instance, usedInstance, target => target.origin === origin)
+        ?? take(archive, usedArchive, target => target.path === archivedPath)
+        ?? take(instance, usedInstance, target => target.path === archivedPath)
+    }
+    return take(archive, usedArchive, target => target.path === archivedPath)
+      ?? take(instance, usedInstance, target => target.path === archivedPath)
+  }
+}
+
+/**
  * An archived config, lifted to the schema this release reads.
  *
  * An archive is a snapshot, so the release that wrote it is often **older** than the one restoring
@@ -1571,73 +1617,13 @@ export class BackupService {
    * `actions.has(...)` about the workspace items, both of which that phase fills.
    */
   private planDataItems(ctx: RestoreContext, global: ArchivedGlobal): void {
-    const { plan, sources, staging, manifest, selects, actions, archivedServers } = ctx
-    const { parsedGlobal } = global
+    const { plan, sources, staging, manifest, selects } = ctx
     const { addItem } = this.itemWriters(ctx)
 
-    // ------------------------------------------------------------------ data
-    // A data path is written to a path a *config* declares — this instance's,
-    // or the servers file the archive brings and the restore is about to apply.
-    const instanceTargets: DataTarget[] = []
-    for (const workspace of sources.workspaces) {
-      for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
-        if (!declared.included)
-          continue
-        instanceTargets.push({ workspace: workspace.id, path: declared.path, origin: declared.origin })
-      }
-    }
+    const { archiveAll, archiveTargets, instanceTargets } = this.collectDataTargets(ctx, global)
 
-    const archivedIncludePaths = actions.has('global:settings') && parsedGlobal !== null
-      ? parsedGlobal.backups.includePaths
-      : sources.includePaths
-    const archiveAll: DataTarget[] = []
-    const archiveTargets: DataTarget[] = []
-    for (const [id, servers] of archivedServers) {
-      for (const declared of this.declaredData(servers, archivedIncludePaths)) {
-        if (!declared.included)
-          continue
-        const target = { workspace: id, path: declared.path, origin: declared.origin }
-        archiveAll.push(target)
-        // Only a servers file this restore is applying may name a destination.
-        if (actions.has(`workspace:${id}:servers`))
-          archiveTargets.push(target)
-      }
-    }
-
-    // A `global` include path and a second `backupPaths` value share one origin, so an
-    // origin match alone would write both to the first candidate. Pair same-origin
-    // declarations by order instead — the archive wrote them in the same resolve order.
-    const usedArchive = new Set<DataTarget>()
-    const usedInstance = new Set<DataTarget>()
-    const take = (list: DataTarget[], used: Set<DataTarget>, test: (target: DataTarget) => boolean): DataTarget | undefined => {
-      const found = list.find(target => !used.has(target) && test(target))
-      if (found === undefined)
-        return undefined
-      used.add(found)
-      return found
-    }
-    /**
-     * Where one archived data path lands, never across a workspace boundary.
-     *
-     * An archive that names a workspace is only ever matched against that workspace's
-     * declarations: the un-scoped fallbacks below exist to survive a re-labelled or
-     * re-ordered config, and letting them cross workspaces wrote one workspace's data
-     * over a path another one had declared. A path only one workspace declares has no
-     * candidate at all in the other, so the entry is reported instead of guessed at.
-     */
-    const matchTarget = (origin: string | undefined, workspace: string | undefined, archivedPath: string): DataTarget | undefined => {
-      const inScope = (target: DataTarget): boolean => workspace === undefined || target.workspace === workspace
-      const archive = archiveTargets.filter(inScope)
-      const instance = instanceTargets.filter(inScope)
-      if (origin !== undefined) {
-        return take(archive, usedArchive, target => target.origin === origin)
-          ?? take(instance, usedInstance, target => target.origin === origin)
-          ?? take(archive, usedArchive, target => target.path === archivedPath)
-          ?? take(instance, usedInstance, target => target.path === archivedPath)
-      }
-      return take(archive, usedArchive, target => target.path === archivedPath)
-        ?? take(instance, usedInstance, target => target.path === archivedPath)
-    }
+    // Where one archived data path lands. See `dataTargetMatcher` for the pairing rule.
+    const matchTarget = dataTargetMatcher(archiveTargets, instanceTargets)
 
     /**
      * `workspace:serverId` for every entry running at this moment.
@@ -1652,23 +1638,7 @@ export class BackupService {
 
     // A dump is a restorable item in its own right: it is the thing the engine reads, and leaving
     // it out of the plan meant `--all` reported nothing to restore and the load hook never ran.
-    for (const dump of manifest.dumps ?? []) {
-      const from = path.join(staging, 'dumps', dump.workspaceId, dump.serverId)
-      if (!fs.existsSync(from))
-        continue
-      const id = `workspace:${dump.workspaceId}:dump:${dump.serverId}`
-      addItem({
-        id,
-        label: `dump:${dump.serverId}`,
-        kind: 'data',
-        restorable: true,
-        workspaceId: dump.workspaceId,
-        note: null,
-      }, () => {
-        // Nothing is written over this host's files: the dump is replayed by the entry's `load`
-        // hook, which runs after everything landed. The item exists so the selection can name it.
-      })
-    }
+    this.planDumpItems(ctx)
 
     const archivedEntries = Array.isArray(manifest.data) ? manifest.data.filter(isRecord) : []
     for (const entry of archivedEntries) {
@@ -1689,16 +1659,7 @@ export class BackupService {
       const aliases = [`data:${archivedPath}`]
 
       if (target === undefined) {
-        const declaredByBackup = archiveAll.some(candidate => candidate.origin === origin && (workspace === undefined || candidate.workspace === workspace))
-        addItem({
-          ...base,
-          note: declaredByBackup
-            ? 'declared by the backup\'s config, which is not being restored'
-            : 'not declared by this config, nor by the backup',
-          noteKey: declaredByBackup
-            ? 'settings.backup.noteDeclaredByBackup'
-            : 'settings.backup.noteNotDeclared',
-        }, null, aliases)
+        this.planUnplacedDataItem(ctx, archiveAll, { base, aliases, origin, workspace })
         continue
       }
       if (!fs.existsSync(from)) {
@@ -1727,6 +1688,121 @@ export class BackupService {
         aliases,
       )
     }
+  }
+
+  /**
+   * A dump is a restorable item in its own right — it is the thing the engine reads.
+   *
+   * Leaving it out of the plan meant `--all` reported nothing to restore and the `load` hook never
+   * ran. Nothing is written over this host's files when this item applies: the dump is replayed by
+   * that hook after everything has landed, and the item exists so the selection can name it (and so
+   * deselecting it is expressible).
+   */
+  private planDumpItems(ctx: RestoreContext): void {
+    const { staging, manifest } = ctx
+    const { addItem } = this.itemWriters(ctx)
+
+    for (const dump of manifest.dumps ?? []) {
+      const from = path.join(staging, 'dumps', dump.workspaceId, dump.serverId)
+      if (!fs.existsSync(from))
+        continue
+      const id = `workspace:${dump.workspaceId}:dump:${dump.serverId}`
+      addItem({
+        id,
+        label: `dump:${dump.serverId}`,
+        kind: 'data',
+        restorable: true,
+        workspaceId: dump.workspaceId,
+        note: null,
+      }, () => {
+        // Nothing is written over this host's files: the dump is replayed by the entry's `load`
+        // hook, which runs after everything landed. The item exists so the selection can name it.
+      })
+    }
+  }
+
+  /**
+   * How an archived data path is reported when nothing on this host will receive it.
+   *
+   * Two reasons, and the difference is what the person acts on: "the backup's config declares it but
+   * that config is not being restored" says tick the servers item; "neither config declares it" says
+   * this path has nowhere to go. Both are reported rather than skipped silently — the archive holds
+   * those bytes and a restore that says nothing about them reads as a complete one.
+   */
+  private planUnplacedDataItem(
+    ctx: RestoreContext,
+    archiveAll: DataTarget[],
+    placed: {
+      base: Omit<RestoreItem, 'selected'>
+      aliases: string[]
+      origin: string | undefined
+      workspace: string | undefined
+    },
+  ): void {
+    const { addItem } = this.itemWriters(ctx)
+    const { base, aliases, origin, workspace } = placed
+    const declaredByBackup = archiveAll.some(candidate =>
+      candidate.origin === origin && (workspace === undefined || candidate.workspace === workspace))
+    addItem({
+      ...base,
+      note: declaredByBackup
+        ? 'declared by the backup\'s config, which is not being restored'
+        : 'not declared by this config, nor by the backup',
+      noteKey: declaredByBackup
+        ? 'settings.backup.noteDeclaredByBackup'
+        : 'settings.backup.noteNotDeclared',
+    }, null, aliases)
+  }
+
+  /**
+   * Every data path a restore could write, from both sides of the comparison.
+   *
+   * A data path is only ever written to a path a **config** declares: this instance's, or the servers
+   * file the archive brings and this restore is about to apply. `archivedIncludePaths` follows the
+   * same rule for the archive side — a `global:settings` item that is being applied brings its own
+   * `backups.includePaths`, and using this host's list instead would look for the archive's paths
+   * where *this* config declares them.
+   *
+   * `archiveAll` is the archive's declarations *whether or not* they are applied, because it answers
+   * a different question: "was this path declared by the backup's own config?" is what tells a person
+   * why an entry could not be placed. `archiveTargets` is the narrower list a restore may write to —
+   * only a servers file this restore is actually applying may name a destination.
+   */
+  private collectDataTargets(ctx: RestoreContext, global: ArchivedGlobal): {
+    archiveAll: DataTarget[]
+    archiveTargets: DataTarget[]
+    instanceTargets: DataTarget[]
+  } {
+    const { sources, actions, archivedServers } = ctx
+    const { parsedGlobal } = global
+
+    const instanceTargets: DataTarget[] = []
+    for (const workspace of sources.workspaces) {
+      for (const declared of this.declaredData(workspace.servers, sources.includePaths)) {
+        if (!declared.included)
+          continue
+        instanceTargets.push({ workspace: workspace.id, path: declared.path, origin: declared.origin })
+      }
+    }
+
+    const archivedIncludePaths = actions.has('global:settings') && parsedGlobal !== null
+      ? parsedGlobal.backups.includePaths
+      : sources.includePaths
+    const archiveAll: DataTarget[] = []
+    const archiveTargets: DataTarget[] = []
+    for (const [id, servers] of archivedServers) {
+      for (const declared of this.declaredData(servers, archivedIncludePaths)) {
+        if (!declared.included)
+          continue
+        const target = { workspace: id, path: declared.path, origin: declared.origin }
+        archiveAll.push(target)
+        // Only a servers file this restore is applying may name a destination.
+        if (actions.has(`workspace:${id}:servers`))
+          archiveTargets.push(target)
+      }
+    }
+
+    return { archiveAll, archiveTargets, instanceTargets }
   }
 
   /**
