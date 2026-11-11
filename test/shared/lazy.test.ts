@@ -81,19 +81,30 @@ describe('the shared contracts', () => {
     expect(lazyBuilds() - before).toBe(0)
   })
 
-  it('every exported schema builds — a definition error no longer fails the import, so this does', async () => {
-    const contracts = await import('#src/shared/contracts')
-    const schemas = Object.entries(contracts).filter(([name, value]) => name.endsWith('Schema') && typeof value === 'function')
-    expect(schemas.length).toBeGreaterThan(100)
+  /**
+   * Every schema `contracts.ts` declares must build, whether or not it is exported.
+   *
+   * A definition error no longer fails the import — that is what `lazy` buys — so something has to
+   * build them to find one. This walked the module's **exports** until un-exporting 58 internal-only
+   * schemas quietly dropped its coverage from 153 to 95 and the threshold here caught it. `lazy()`
+   * now registers each schema it wraps, so the check follows what the module *declares*: a schema
+   * that is not public API is still a schema that must parse.
+   */
+  it('every declared schema builds — a definition error no longer fails the import, so this does', async () => {
+    const { lazySchemas } = await import('#src/shared/lazy')
+    await import('#src/shared/contracts')
+    const schemas = lazySchemas()
+    // The floor is the real count, so deleting a schema is a deliberate act that edits this line.
+    expect(schemas.length).toBeGreaterThan(140)
     const broken: string[] = []
-    for (const [name, schema] of schemas) {
+    for (const schema of schemas) {
       try {
-        const real = (schema as () => unknown)()
+        const real = schema()
         if (typeof real !== 'function' || !('~standard' in real))
-          broken.push(`${name}: not a schema`)
+          broken.push('not a schema')
       }
       catch (error) {
-        broken.push(`${name}: ${(error as Error).message}`)
+        broken.push((error as Error).message)
       }
     }
     expect(broken).toEqual([])

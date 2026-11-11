@@ -10,7 +10,7 @@ import { lazy } from './lazy'
  */
 
 /** `local` -> 127.0.0.1, `lan` -> 0.0.0.0, or an explicit IPv4 to bind. */
-export const bindSchema = lazy(() => type('"local" | "lan" | /^\\d{1,3}(?:\\.\\d{1,3}){3}$/'))
+const bindSchema = lazy(() => type('"local" | "lan" | /^\\d{1,3}(?:\\.\\d{1,3}){3}$/'))
 export type Bind = typeof bindSchema.infer
 
 /**
@@ -66,7 +66,7 @@ export const restartSchema = lazy(() => type({
 
 export type RestartConfig = typeof restartSchema.infer
 
-export const httpCheckSchema = lazy(() => type({
+const httpCheckSchema = lazy(() => type({
   /** `https` is for a backend that serves TLS itself; pair it with `allowInvalidCert` when it is self-signed. */
   scheme: '"http" | "https" = "http"',
   /** Accept any certificate. A self-signed pair is the normal case here, and the probe is local. */
@@ -83,7 +83,7 @@ export const httpCheckSchema = lazy(() => type({
 export type HttpCheckConfig = typeof httpCheckSchema.infer
 
 /** Restart guards for the process tree. */
-export const resourcesSchema = lazy(() => type({
+const resourcesSchema = lazy(() => type({
   /** Restart when the tree's RSS exceeds this; 0 disables. */
   maxRssBytes: 'number.integer >= 0 = 0',
 }).onUndeclaredKey('reject'))
@@ -115,7 +115,7 @@ export const stopSchema = lazy(() => type({
 
 export type StopConfig = typeof stopSchema.infer
 
-export const bootstrapSchema = lazy(() => type({
+const bootstrapSchema = lazy(() => type({
   command: 'string',
   args: type('string[]').default(() => []),
   env: type('Record<string, string>').default(() => ({})),
@@ -137,14 +137,14 @@ export const bootstrapOrNullSchema = lazy(() => bootstrapSchema.or(type('null'))
  * became `120000`. The group is still replaced, so a caller sends the fields it means to keep;
  * what changes is that the panel no longer invents the ones it did not send.
  */
-export const bootstrapPatchSchema = lazy(() => type({
+const bootstrapPatchSchema = lazy(() => type({
   command: 'string >= 1?',
   args: 'string[]?',
   env: 'Record<string, string>?',
   timeoutMs: 'number >= 1000?',
   runOnce: 'boolean?',
 }).onUndeclaredKey('reject'))
-export const bootstrapPatchOrNullSchema = lazy(() => bootstrapPatchSchema.or(type('null')))
+const bootstrapPatchOrNullSchema = lazy(() => bootstrapPatchSchema.or(type('null')))
 
 /**
  * A command run around a backup, for engines that need one to produce a consistent copy.
@@ -157,7 +157,7 @@ export const bootstrapPatchOrNullSchema = lazy(() => bootstrapPatchSchema.or(typ
  * `{dumpDir}` is created before `dump` runs and captured by the archive; on restore the same
  * directory is filled again before `load` runs, so the two hooks see the same path.
  */
-export const backupHookSchema = lazy(() => type({
+const backupHookSchema = lazy(() => type({
   // Non-empty: an empty command is accepted by `spawn`'s type but fails at run time, and a `dump`
   // hook that cannot start refuses **every** backup — a config mistake that reads as a broken feature.
   command: 'string >= 1',
@@ -174,7 +174,7 @@ export const backupHookSchema = lazy(() => type({
    */
   waitMs: 'number >= 0 = 2000',
 }).onUndeclaredKey('reject'))
-export const backupHookOrNullSchema = lazy(() => backupHookSchema.or(type('null')))
+const backupHookOrNullSchema = lazy(() => backupHookSchema.or(type('null')))
 
 /**
  * The `dump`/`load` group as a patch carries it: every field optional, and **no defaults**.
@@ -184,14 +184,14 @@ export const backupHookOrNullSchema = lazy(() => backupHookSchema.or(type('null'
  * reset `args`, `env`, `timeoutMs` and `waitMs` to values nobody sent. `waitMs` is the one that
  * bites hardest — a `load` waiting on a slow database would silently drop back to 2 s.
  */
-export const backupHookPatchSchema = lazy(() => type({
+const backupHookPatchSchema = lazy(() => type({
   command: 'string >= 1?',
   args: 'string[]?',
   env: 'Record<string, string>?',
   timeoutMs: 'number >= 1000?',
   waitMs: 'number >= 0?',
 }).onUndeclaredKey('reject'))
-export const backupHookPatchOrNullSchema = lazy(() => backupHookPatchSchema.or(type('null')))
+const backupHookPatchOrNullSchema = lazy(() => backupHookPatchSchema.or(type('null')))
 
 export type BackupHookConfig = typeof backupHookSchema.infer
 
@@ -203,7 +203,7 @@ export type BackupHookConfig = typeof backupHookSchema.infer
  * `servers[0] ("web"): label must be a string (was null)`. The write side already tolerates `null`, and every
  * display falls back with `label ?? id` — which `null` satisfies and `''` does not.
  */
-export const labelOrNullSchema = lazy(() => type('string | null'))
+const labelOrNullSchema = lazy(() => type('string | null'))
 
 export const logBufferLinesSchema = lazy(() => type('50 <= number.integer <= 100000'))
 
@@ -318,7 +318,7 @@ export type NotificationDefaults = typeof notificationDefaultsSchema.infer
  * build's whole app. Reusing the strict schema in the view did exactly that: one additive key in
  * `defaults` rejected the state frame and the page went blank.
  */
-export const notificationDefaultsViewSchema = lazy(() => type({
+const notificationDefaultsViewSchema = lazy(() => type({
   ...notificationPolicyShape,
 }))
 
@@ -360,7 +360,7 @@ const telegramDestinationSchema = lazy(() => type({
  * all three; a per-service adapter would be a code change per service.
  */
 /** One webhook destination. */
-export const webhookTargetSchema = lazy(() => type({
+const webhookTargetSchema = lazy(() => type({
   kind: '"webhook"',
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   /** Empty only while the target is a draft; the page will not save one without it. */
@@ -381,7 +381,7 @@ export const webhookTargetSchema = lazy(() => type({
 export type WebhookTarget = typeof webhookTargetSchema.infer
 
 /** A destination is one of the kinds this build can deliver to. */
-export const notificationTargetSchema = lazy(() => telegramDestinationSchema.or(webhookTargetSchema))
+const notificationTargetSchema = lazy(() => telegramDestinationSchema.or(webhookTargetSchema))
 export type NotificationTarget = typeof notificationTargetSchema.infer
 
 /**
@@ -467,14 +467,14 @@ export const hostSchema = lazy(() => type({
 export type HostConfig = typeof hostSchema.infer
 
 /** A record family the DDNS engine can point at this host. */
-export const ddnsRecordTypeSchema = lazy(() => type.enumerated('A', 'AAAA'))
+const ddnsRecordTypeSchema = lazy(() => type.enumerated('A', 'AAAA'))
 export type DdnsRecordType = typeof ddnsRecordTypeSchema.infer
 
 /**
  * One DNS provider account. Its credentials are secrets and live in the secrets
  * file keyed by this `id`, never in the config.
  */
-export const ddnsAccountSchema = lazy(() => type({
+const ddnsAccountSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   provider: 'string >= 1',
   label: 'string = ""',
@@ -504,13 +504,13 @@ export const ddnsDomainSchema = lazy(() => type({
 export type DdnsDomain = typeof ddnsDomainSchema.infer
 
 /** Which public IP families to detect; a provider is only called for the ones declared. */
-export const ddnsIpv4Schema = lazy(() => type({
+const ddnsIpv4Schema = lazy(() => type({
   enabled: 'boolean = true',
   /** Override the public-IP endpoint; empty uses the built-in list. */
   url: 'string = ""',
 }).onUndeclaredKey('reject'))
 
-export const ddnsIpv6Schema = lazy(() => type({
+const ddnsIpv6Schema = lazy(() => type({
   enabled: 'boolean = false',
   url: 'string = ""',
 }).onUndeclaredKey('reject'))
@@ -534,11 +534,11 @@ export const ddnsConfigSchema = lazy(() => type({
 }).onUndeclaredKey('reject'))
 export type DdnsConfig = typeof ddnsConfigSchema.infer
 
-export const ddnsRecordStateSchema = lazy(() => type('"pending" | "ok" | "unchanged" | "error" | "skipped"'))
+const ddnsRecordStateSchema = lazy(() => type('"pending" | "ok" | "unchanged" | "error" | "skipped"'))
 export type DdnsRecordState = typeof ddnsRecordStateSchema.infer
 
 /** What happened to one hostname on the last pass. */
-export const ddnsRecordViewSchema = lazy(() => type({
+const ddnsRecordViewSchema = lazy(() => type({
   'host': 'string',
   'account': 'string',
   'provider': 'string',
@@ -565,7 +565,7 @@ export const ddnsStatusSchema = lazy(() => type({
 export type DdnsStatus = typeof ddnsStatusSchema.infer
 
 /** What a provider needs from the person configuring it. */
-export const ddnsProviderFieldSchema = lazy(() => type({
+const ddnsProviderFieldSchema = lazy(() => type({
   key: 'string',
   label: 'string',
   hint: 'string = ""',
@@ -574,7 +574,7 @@ export const ddnsProviderFieldSchema = lazy(() => type({
 export type DdnsProviderField = typeof ddnsProviderFieldSchema.infer
 
 /** Provider capabilities, so the UI knows which options to show. */
-export const ddnsProviderInfoSchema = lazy(() => type({
+const ddnsProviderInfoSchema = lazy(() => type({
   id: 'string',
   label: 'string',
   docsUrl: 'string',
@@ -613,7 +613,7 @@ export const ddnsCredentialsSchema = lazy(() => type({
  * patch **replaces** — a key-by-key merge cannot express removing a hostname.
  * `ipv4`/`ipv6` still merge, so a patch may decide just one of their members.
  */
-export const ddnsPatchSchema = lazy(() => type({
+const _ddnsPatchSchema = lazy(() => type({
   enabled: 'boolean?',
   intervalMs: 'number >= 60000?',
   ipv4: type({ enabled: 'boolean?', url: 'string?' }).onUndeclaredKey('reject').optional(),
@@ -622,7 +622,7 @@ export const ddnsPatchSchema = lazy(() => type({
   accounts: ddnsAccountSchema.array().optional(),
   domains: ddnsDomainSchema.array().optional(),
 }).onUndeclaredKey('reject'))
-export type DdnsPatch = typeof ddnsPatchSchema.infer
+export type DdnsPatch = typeof _ddnsPatchSchema.infer
 
 /** Tar archives of config, secrets, TLS and declared data paths. */
 /**
@@ -635,7 +635,7 @@ export type DdnsPatch = typeof ddnsPatchSchema.infer
  * An empty `ids` is refused rather than read as either "nothing" or "everything": those are the two
  * readings a person cannot tell apart from the file, and one of them captures nothing at all.
  */
-export const backupScopeSchema = lazy(() => type({
+const backupScopeSchema = lazy(() => type({
   mode: '"only" | "except"',
   ids: type('string >= 1').array().atLeastLength(1),
 }).onUndeclaredKey('reject'))
@@ -930,7 +930,7 @@ export const nannySpecSchema = lazy(() => type({
 export type NannySpec = typeof nannySpecSchema.infer
 
 /** How the child of a nanny ended, recorded for a panel that may not have been there. */
-export const nannyExitSchema = lazy(() => type({
+const nannyExitSchema = lazy(() => type({
   code: 'number | null',
   signal: 'string | null',
   at: 'number',
@@ -1011,7 +1011,7 @@ export const workspaceSettingsPatchSchema = lazy(() => type({
 }).onUndeclaredKey('reject'))
 export type WorkspaceSettingsPatch = typeof workspaceSettingsPatchSchema.infer
 
-export const authStatusSchema = lazy(() => type({
+const authStatusSchema = lazy(() => type({
   enabled: 'boolean',
   passwordSet: 'boolean',
   passwordUpdatedAt: 'number | null',
@@ -1036,7 +1036,7 @@ export const authStatusSchema = lazy(() => type({
 }))
 export type AuthStatus = typeof authStatusSchema.infer
 
-export const tlsStatusSchema = lazy(() => type({
+const tlsStatusSchema = lazy(() => type({
   enabled: 'boolean',
   certPresent: 'boolean',
   subject: 'string | null',
@@ -1054,15 +1054,15 @@ export type TlsStatus = typeof tlsStatusSchema.infer
  * The reverse-proxy engine this panel can drive. One engine ships today; the
  * field exists so a config written now keeps working if a second one lands.
  */
-export const proxyEngineSchema = lazy(() => type.enumerated('caddy'))
+const proxyEngineSchema = lazy(() => type.enumerated('caddy'))
 export type ProxyEngine = typeof proxyEngineSchema.infer
 
 /** What a route forwards to: a supervised entry, the panel itself, or a literal upstream. */
-export const proxyTargetSchema = lazy(() => type.enumerated('server', 'panel', 'external'))
+const proxyTargetSchema = lazy(() => type.enumerated('server', 'panel', 'external'))
 export type ProxyTarget = typeof proxyTargetSchema.infer
 
 /** `auto` lets the engine decide: a public name gets ACME, a local one its own CA. */
-export const proxyTlsModeSchema = lazy(() => type.enumerated('auto', 'off', 'manual'))
+const proxyTlsModeSchema = lazy(() => type.enumerated('auto', 'off', 'manual'))
 export type ProxyTlsMode = typeof proxyTlsModeSchema.infer
 
 /**
@@ -1107,7 +1107,7 @@ export const proxyCertificateSchema = lazy(() => type({
  * What a route's certificate situation is, for the page to show. `fallback` is a
  * public name the CA would not issue for, so the engine is serving its own CA.
  */
-export const proxyCertificateStateSchema = lazy(() => type.enumerated('off', 'local', 'uploaded', 'issued', 'pending', 'failed', 'fallback'))
+const proxyCertificateStateSchema = lazy(() => type.enumerated('off', 'local', 'uploaded', 'issued', 'pending', 'failed', 'fallback'))
 export type ProxyCertificateState = typeof proxyCertificateStateSchema.infer
 
 /**
@@ -1118,7 +1118,7 @@ export type ProxyCertificateState = typeof proxyCertificateStateSchema.infer
  * account a route names. `resolvers` overrides the nameservers Caddy uses to see
  * the record, which is what split-horizon DNS needs.
  */
-export const proxyDns01Schema = lazy(() => type({
+const proxyDns01Schema = lazy(() => type({
   /** Off means the engine uses HTTP-01/TLS-ALPN-01, exactly as before. */
   enabled: 'boolean = false',
   /** Nameservers Caddy checks the TXT record against; empty uses its own defaults. */
@@ -1144,7 +1144,7 @@ export const proxyConfigSchema = lazy(() => type({
 export type ProxyConfig = typeof proxyConfigSchema.infer
 
 /** Where the binary came from: the release we downloaded, or a path a person set. */
-export const proxyEngineSourceSchema = lazy(() => type.enumerated('downloaded', 'custom'))
+const proxyEngineSourceSchema = lazy(() => type.enumerated('downloaded', 'custom'))
 
 /** What the panel knows about the installed engine. */
 export const proxyEngineStatusSchema = lazy(() => type({
@@ -1160,7 +1160,7 @@ export const proxyEngineStatusSchema = lazy(() => type({
 export type ProxyEngineStatus = typeof proxyEngineStatusSchema.infer
 
 /** Engine capabilities, so the page knows which options to offer. */
-export const proxyEngineInfoSchema = lazy(() => type({
+const proxyEngineInfoSchema = lazy(() => type({
   id: proxyEngineSchema,
   label: 'string',
   docsUrl: 'string',
@@ -1172,7 +1172,7 @@ export const proxyEngineInfoSchema = lazy(() => type({
 }))
 export type ProxyEngineInfo = typeof proxyEngineInfoSchema.infer
 
-export const proxyRouteStatusSchema = lazy(() => type.enumerated('ok', 'disabled', 'no-upstream', 'error'))
+const proxyRouteStatusSchema = lazy(() => type.enumerated('ok', 'disabled', 'no-upstream', 'error'))
 export type ProxyRouteStatus = typeof proxyRouteStatusSchema.infer
 
 /** A route as the page reads it: the config, plus the upstream resolved live. */
@@ -1194,7 +1194,7 @@ export const proxyRouteViewSchema = lazy(() => type({
 }).onDeepUndeclaredKey('ignore'))
 export type ProxyRouteView = typeof proxyRouteViewSchema.infer
 
-export const proxyRunStateSchema = lazy(() => type.enumerated('off', 'stopped', 'starting', 'running', 'error', 'unsupported'))
+const proxyRunStateSchema = lazy(() => type.enumerated('off', 'stopped', 'starting', 'running', 'error', 'unsupported'))
 export type ProxyRunState = typeof proxyRunStateSchema.infer
 
 /** Live engine state. */
@@ -1211,7 +1211,7 @@ export const proxyStatusSchema = lazy(() => type({
 export type ProxyStatus = typeof proxyStatusSchema.infer
 
 /** One uploaded pair, described: what it is for, and whether it is usable. */
-export const proxyCertificateViewSchema = lazy(() => type({
+const proxyCertificateViewSchema = lazy(() => type({
   id: 'string',
   label: 'string',
   /** Both halves are on disk. */
@@ -1232,7 +1232,7 @@ export type ProxyCertificateView = typeof proxyCertificateViewSchema.infer
  * A DNS account the route table may name, flattened across workspaces so the proxy
  * page can offer one list. The account itself stays in its workspace.
  */
-export const proxyDnsAccountViewSchema = lazy(() => type({
+const proxyDnsAccountViewSchema = lazy(() => type({
   workspace: 'string',
   account: 'string',
   provider: 'string',
@@ -1262,7 +1262,7 @@ export type ProxyView = typeof proxyViewSchema.infer
  * A route as a patch sends it: every field optional, so a client may change one
  * member of a route — or add a route with only the two fields that matter.
  */
-export const proxyRoutePatchSchema = lazy(() => type({
+const proxyRoutePatchSchema = lazy(() => type({
   id: 'string',
   host: 'string',
   enabled: 'boolean?',
@@ -1332,7 +1332,7 @@ const notificationPolicyStatusShape = {
  * The policy here is the **effective** one — inherited from the general block when
  * `useOwnSettings` is false — so the page shows what will happen, not what is stored.
  */
-export const destinationStatusSchema = lazy(() => type({
+const destinationStatusSchema = lazy(() => type({
   'id': 'string',
   'kind': '"telegram" | "webhook"',
   'enabled': 'boolean',
@@ -1363,7 +1363,7 @@ export const telegramChatsSchema = lazy(() => type({
   chats: type({ id: 'string | number', title: 'string' }).array(),
 }))
 
-export const notificationViewSchema = lazy(() => type({
+const notificationViewSchema = lazy(() => type({
   /** The general block: what a destination inherits unless it overrides it. Optional for an older panel. */
   'defaults?': notificationDefaultsViewSchema,
   /** Every destination, in config order. Optional for an older panel. */
@@ -1402,16 +1402,16 @@ export type PasswordRequest = typeof passwordSchema.infer
 export const serverStatusSchema = lazy(() => type('"stopped" | "starting" | "running" | "stopping" | "backoff" | "crashed" | "conflict"'))
 export type ServerStatus = typeof serverStatusSchema.infer
 
-export const healthStateSchema = lazy(() => type('"disabled" | "unknown" | "healthy" | "unhealthy"'))
+const healthStateSchema = lazy(() => type('"disabled" | "unknown" | "healthy" | "unhealthy"'))
 export type HealthState = typeof healthStateSchema.infer
 
-export const portStateSchema = lazy(() => type('"unknown" | "free" | "in-use"'))
+const portStateSchema = lazy(() => type('"unknown" | "free" | "in-use"'))
 export type PortState = typeof portStateSchema.infer
 
 export const logStreamSchema = lazy(() => type('"stdout" | "stderr" | "system"'))
 export type LogStream = typeof logStreamSchema.infer
 
-export const logLineSchema = lazy(() => type({
+const logLineSchema = lazy(() => type({
   ts: 'number',
   stream: logStreamSchema,
   text: 'string',
@@ -1425,10 +1425,10 @@ export type LogLine = typeof logLineSchema.infer
  * `user` is a signed-in browser; `agent` is a request carrying an API token; `boot` is
  * the autostart pass. Optional: events written before this field existed carry none.
  */
-export const historyActorSchema = lazy(() => type.enumerated('policy', 'user', 'agent', 'boot'))
+const historyActorSchema = lazy(() => type.enumerated('policy', 'user', 'agent', 'boot'))
 export type HistoryActor = typeof historyActorSchema.infer
 
-export const historyEventSchema = lazy(() => type({
+const historyEventSchema = lazy(() => type({
   'serverId': 'string',
   'ts': 'number',
   'type': '"start" | "exit" | "crash" | "forced-restart" | "unhealthy" | "recovered"',
@@ -1441,7 +1441,7 @@ export const historyEventSchema = lazy(() => type({
 export type HistoryEvent = typeof historyEventSchema.infer
 
 /** Rolling window stats derived from the persisted event log. */
-export const serverHistorySchema = lazy(() => type({
+const serverHistorySchema = lazy(() => type({
   windowMs: 'number',
   /** Share of the window the process was up (null when nothing is known yet). */
   uptimeRatio: 'number | null',
@@ -1455,7 +1455,7 @@ export const serverHistorySchema = lazy(() => type({
 }))
 export type ServerHistory = typeof serverHistorySchema.infer
 
-export const processResourcesSchema = lazy(() => type({
+const processResourcesSchema = lazy(() => type({
   cpuPercent: 'number | null',
   /** RSS of the process and its descendants. */
   rssBytes: 'number | null',
@@ -1464,14 +1464,14 @@ export const processResourcesSchema = lazy(() => type({
 }))
 export type ProcessResources = typeof processResourcesSchema.infer
 
-export const hostDiskSchema = lazy(() => type({
+const hostDiskSchema = lazy(() => type({
   path: 'string',
   totalBytes: 'number',
   freeBytes: 'number',
   usedPercent: 'number',
 }))
 
-export const hostViewSchema = lazy(() => type({
+const hostViewSchema = lazy(() => type({
   'enabled': 'boolean',
   'cpus': 'number',
   'loadAvg': type('number[]'),
@@ -1561,7 +1561,7 @@ export const wslTemperatureSchema = lazy(() => type({
 }))
 export type WslTemperatureStatus = typeof wslTemperatureSchema.infer
 
-export const backupFileSchema = lazy(() => type({
+const backupFileSchema = lazy(() => type({
   name: 'string',
   sizeBytes: 'number',
   createdAt: 'number',
@@ -1871,7 +1871,7 @@ export const healthResponseSchema = lazy(() => type({
   'home?': 'string',
 }))
 
-export const controlViewSchema = lazy(() => type({
+const controlViewSchema = lazy(() => type({
   /** The configured panel name, for the shell to render. */
   'label': 'string',
   'port': 'number',
@@ -1918,7 +1918,7 @@ export const uiMetaSchema = lazy(() => type({
 }))
 export type UiMeta = typeof uiMetaSchema.infer
 
-export const uiStatusSchema = lazy(() => type({
+const uiStatusSchema = lazy(() => type({
   /** A user-supplied UI is being served instead of the stock one. */
   custom: 'boolean',
   /** Where that UI lives, whether or not it exists yet. */
@@ -1928,7 +1928,7 @@ export const uiStatusSchema = lazy(() => type({
 export type UiStatus = typeof uiStatusSchema.infer
 
 /** One process a panel spawned that no configured entry claims any more. */
-export const serverOrphanSchema = lazy(() => type({
+const serverOrphanSchema = lazy(() => type({
   /** The id it was started as, which is also the key of the state file it was found in. */
   serverId: 'string',
   pid: 'number',
@@ -2100,7 +2100,7 @@ export const backupCreatedResponseSchema = lazy(() => type({
  * `POST /_hh/backups` without `confirm=true`: what a backup would capture, and nothing written.
  * The local channel plans by default; `POST /api/backups` creates at once.
  */
-export const backupPlanResponseSchema = lazy(() => type({
+const backupPlanResponseSchema = lazy(() => type({
   apply: 'false',
   entries: backupEntrySchema.array(),
   includePaths: 'string[]',
@@ -2149,7 +2149,7 @@ export const logLinesResponseSchema = lazy(() => type({
  * sampler has not seen yet, or one that just exited. Absent is **not** zero: a `0` here would read as
  * "idle" and hide a server that is not being measured at all.
  */
-export const usageEntrySchema = lazy(() => type({
+const usageEntrySchema = lazy(() => type({
   'id': 'string',
   'workspaceId': 'string',
   'label': 'string',
@@ -2207,12 +2207,12 @@ export const logHistoryQuerySchema = lazy(() => type({
   stream: '"stdout" | "stderr" | "system"?',
 }))
 
-export const logFileInfoSchema = lazy(() => type({
+const logFileInfoSchema = lazy(() => type({
   name: 'string',
   sizeBytes: 'number',
 }))
 
-export const logServerViewSchema = lazy(() => type({
+const logServerViewSchema = lazy(() => type({
   serverId: 'string',
   label: 'string',
   status: serverStatusSchema,

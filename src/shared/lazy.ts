@@ -18,6 +18,25 @@ export function lazyBuilds(): number {
   return builds
 }
 
+/**
+ * Every lazy schema declared so far, in declaration order.
+ *
+ * A definition error in a schema no longer fails the import — that is the point of `lazy` — so
+ * something has to actually build them to find one. `test/shared/lazy.test.ts` used to walk the
+ * **exports** of `contracts.ts` for that, which meant a schema that stopped being exported also
+ * stopped being checked (found the hard way: un-exporting 58 internal-only schemas silently took the
+ * guard's coverage from 153 to 95 and the test said so). Registering here instead makes the check
+ * cover every schema the module declares, exported or not.
+ *
+ * Bounded: `lazy()` is called at module scope once per schema, so this holds one thunk per schema
+ * for the life of the process.
+ */
+const declared: Array<() => unknown> = []
+
+export function lazySchemas(): ReadonlyArray<() => unknown> {
+  return declared
+}
+
 export function lazy<T extends object>(build: () => T): T {
   let built: T | undefined
   const real = (): T => {
@@ -27,6 +46,8 @@ export function lazy<T extends object>(build: () => T): T {
     }
     return built
   }
+  // Registered once per schema, at module scope, so the build-guard test can reach every one.
+  declared.push(real)
   /** Methods bound once to the real schema, so `this` inside ArkType is never the wrapper. */
   const bound = new Map<PropertyKey, unknown>()
 
