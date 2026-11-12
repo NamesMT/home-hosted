@@ -28,6 +28,23 @@ the one you meant. Every command and flag on one screen: the README's
   print the plan and **exit 1** unless `--confirm` is given — a cron job without it fails loudly
   instead of silently taking no backup. `--json` without `--confirm` is the plan request and exits 0.
 
+## Declaring servers
+
+```bash
+home-hosted add web --port 4000 -- node server.js            # everything after -- is the command
+home-hosted add api --cwd ./api --autostart -- pnpm start    # --cwd relative to --project
+home-hosted add db -w media --persistent -- ./start-db.sh
+home-hosted ls                                               # ID STATUS PORT COMMAND
+home-hosted ls -w media --json
+```
+
+With the panel up, `add` and `ls` go through it (`POST`/`GET /_hh/servers`), so the entry appears at
+once with the same validation as **➕ Add server**. With it down they read and write the workspace's
+`servers.config.json` directly, through the same store and checks, atomically; `ls` then shows no
+status. An added entry is **not started**, `autostart` or not — `autostart` means "comes up with the
+panel", so it starts at the next `up`; run `start <id>` to start it now. An id the workspace already
+has is refused (`SERVER_EXISTS`), and `add` never creates a workspace.
+
 ## What `status` tells you
 
 ```text

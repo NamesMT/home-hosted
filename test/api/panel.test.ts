@@ -720,6 +720,44 @@ describe('the state frame carries no backup selection model', () => {
   })
 })
 
+/** `home-hosted add` and `ls` while the panel is up: the same body and refusals as `/api/servers`. */
+describe('/_hh/servers', () => {
+  const token = { 'x-home-hosted-token': 'runtime-token' }
+  const json = { ...token, 'content-type': 'application/json' }
+
+  it('adds an entry with the /api validation, and lists it', async () => {
+    const created = await fixture()
+    const added = await created.app.request('/_hh/servers', { method: 'POST', headers: json, body: JSON.stringify({ id: 'web', command: 'node', args: ['server.js'], port: 6820 }) })
+    expect(added.status).toBe(201)
+    expect(await added.json()).toMatchObject({ server: { id: 'web', command: 'node', port: 6820 } })
+
+    const duplicate = await created.app.request('/_hh/servers', { method: 'POST', headers: json, body: JSON.stringify({ id: 'web', command: 'node' }) })
+    expect(duplicate.status).toBe(409)
+    expect(await duplicate.json()).toMatchObject({ code: 'SERVER_EXISTS' })
+
+    // Undeclared keys are refused, as on /api.
+    const typo = await created.app.request('/_hh/servers', { method: 'POST', headers: json, body: JSON.stringify({ id: 'api', command: 'node', prot: 1 }) })
+    expect(typo.status).toBe(400)
+
+    const listed = await created.app.request('/_hh/servers', { headers: token })
+    expect(listed.status).toBe(200)
+    expect(await listed.json()).toMatchObject({ servers: expect.any(Array) })
+  })
+
+  it('refuses a missing token, and a caller off this machine', async () => {
+    expect((await (await fixture()).app.request('/_hh/servers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'web', command: 'node' }) })).status).toBe(403)
+    const remote = await fixture({ ip: '10.0.0.5' })
+    expect((await remote.app.request('/_hh/servers', { headers: token })).status).toBe(403)
+  })
+
+  it('is documented in the spec', async () => {
+    const spec = await (await (await fixture()).app.request('/openapi/spec.json')).json() as { paths: Record<string, Record<string, { responses: Record<string, unknown> }>> }
+    expect(Object.keys(spec.paths['/_hh/servers']!).sort()).toEqual(['get', 'post'])
+    expect(spec.paths['/_hh/servers']!.post!.responses).toHaveProperty('201')
+    expect(spec.paths['/_hh/servers']!.post!.responses).toHaveProperty('409')
+  })
+})
+
 describe('/_hh/backups', () => {
   const token = { 'x-home-hosted-token': 'runtime-token' }
 

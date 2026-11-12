@@ -56,6 +56,8 @@ const SYNOPSIS: Record<string, string> = {
   'ui-update': 'home-hosted ui-update [options]',
   'ui-revert': 'home-hosted ui-revert',
   'service': 'home-hosted service [install|uninstall|status] [--user|--system] [--print]',
+  'add': 'home-hosted add <id> [--port <n>] [--cwd <dir>] [--workspace <id>] [--persistent] [--autostart] -- <command> [args…]',
+  'ls': 'home-hosted ls [--workspace <id>] [--json]',
 }
 
 const SUMMARIES: Record<string, string> = {
@@ -78,6 +80,8 @@ const SUMMARIES: Record<string, string> = {
   'ui-update': 'bring the installed UI up to date, or pick a release',
   'ui-revert': 'go back to the stock control panel UI',
   'service': 'start the panel at boot with systemd, launchd or Task Scheduler',
+  'add': 'declare a server, through the panel or straight into servers.config.json',
+  'ls': 'list the servers a workspace declares, live when the panel is up',
 }
 
 /** One option line, as the left column and the description that follows it. */
@@ -265,6 +269,27 @@ const SERVICE_SECTION: OptionSection = {
   ],
 }
 
+const ADD_SECTION: OptionSection = {
+  heading: 'Arguments for add',
+  lines: [
+    ['<id>', 'the new server id (a-z, 0-9, - and _)'],
+    ['-- <command> [args…]', 'the command it runs, after a bare --'],
+    ['--port <n>', 'the port it listens on'],
+    ['--cwd <dir>', 'its working directory (relative: to --project)'],
+    ['-w, --workspace <id>', 'the workspace to add it to (default: the default workspace)'],
+    ['--persistent', 'keep it running when the panel stops'],
+    ['--autostart', 'start it whenever the panel starts (an add does not start it)'],
+  ],
+}
+
+const LS_SECTION: OptionSection = {
+  heading: 'Options for ls',
+  lines: [
+    ['-w, --workspace <id>', 'the workspace to list (default: the default workspace)'],
+    ['--json', 'print machine-readable JSON'],
+  ],
+}
+
 const EVERYWHERE_SECTION: OptionSection = {
   heading: 'Everywhere',
   lines: [
@@ -352,6 +377,8 @@ const SECTIONS: Record<string, OptionSection> = {
   'ui-switch': UI_SWITCH_SECTION,
   'ui-update': UI_UPDATE_SECTION,
   'service': SERVICE_SECTION,
+  'add': ADD_SECTION,
+  'ls': LS_SECTION,
 }
 
 /**
@@ -425,6 +452,8 @@ const COMMANDS = {
   'ui-revert': () => import('#src/cli/ui-revert').then(module => module.uiRevertCommand),
   'backup': () => import('#src/cli/backup').then(module => module.backupCommand),
   'service': () => import('#src/cli/service').then(module => module.serviceCommand(CLI_ENTRY)),
+  'add': () => import('#src/cli/add').then(module => module.addCommand),
+  'ls': () => import('#src/cli/ls').then(module => module.lsCommand),
 } satisfies SubCommandsDef
 
 const rootCommand = defineCommand({

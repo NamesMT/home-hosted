@@ -1,4 +1,5 @@
 import type { ProcessLiveness } from '#src/providers/port'
+import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -242,8 +243,8 @@ export interface ControlAnswer {
  * The wait is generous on purpose: a start may have to run a bootstrap, which has a
  * 120s default timeout of its own. Past this it is a wedged panel, not a slow one.
  */
-export async function requestControl(runtime: Runtime, path: string, timeoutMs = 150000, method: 'GET' | 'POST' = 'POST'): Promise<ControlAnswer | null> {
-  const answer = await localCall(runtime.probeUrl, path, method, runtime.token, timeoutMs)
+export async function requestControl(runtime: Runtime, path: string, timeoutMs = 150000, method: 'GET' | 'POST' = 'POST', payload?: unknown): Promise<ControlAnswer | null> {
+  const answer = await localCall(runtime.probeUrl, path, method, runtime.token, timeoutMs, payload === undefined ? undefined : JSON.stringify(payload))
   if (answer === null)
     return null
 
@@ -263,7 +264,7 @@ export async function requestControl(runtime: Runtime, path: string, timeoutMs =
  * `status`, the graceful `down` and the local start/stop — so this speaks
  * http/https directly.
  */
-function localCall(base: string, path: string, method: 'GET' | 'POST', token: string | undefined, timeoutMs: number): Promise<{ status: number, body: string } | null> {
+function localCall(base: string, path: string, method: 'GET' | 'POST', token: string | undefined, timeoutMs: number, payload?: string): Promise<{ status: number, body: string } | null> {
   return new Promise((resolve) => {
     const url = new URL(`${base}${path}`)
     const secure = url.protocol === 'https:'
@@ -275,7 +276,11 @@ function localCall(base: string, path: string, method: 'GET' | 'POST', token: st
       method,
       // Only ever pointed at our own listener on this machine.
       ...(secure ? { rejectUnauthorized: false } : {}),
-      headers: token === undefined ? {} : { 'x-home-hosted-token': token },
+      headers: {
+        ...(token === undefined ? {} : { 'x-home-hosted-token': token }),
+        // A JSON body (`POST /_hh/servers`); every other local call sends none.
+        ...(payload === undefined ? {} : { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) }),
+      },
       timeout: timeoutMs,
     }, (response) => {
       let body = ''
@@ -297,6 +302,6 @@ function localCall(base: string, path: string, method: 'GET' | 'POST', token: st
       request.destroy()
       resolve(null)
     })
-    request.end()
+    request.end(payload)
   })
 }

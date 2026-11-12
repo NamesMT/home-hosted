@@ -92,8 +92,14 @@ npx home-hosted down       # stop the panel *and* everything it started
 ```
 
 Open **<http://127.0.0.1:3999>**, sign in with the printed password, and change it under **Global
-settings → Authentication**. Then supervise something: **➕ Add server** in the panel, or add an entry
-to `~/.home-hosted/.hh/default/servers.config.json` and run `npx home-hosted start <id>`.
+settings → Authentication**. Then supervise something — **➕ Add server** in the panel, or:
+
+```bash
+npx home-hosted add web --port 4000 -- node server.js   # declare it (panel up or not)
+npx home-hosted start web                               # and start it
+npx home-hosted ls                                      # what this workspace declares
+```
+
 <sub>Needs Node 24+. `pnpm dlx home-hosted …` works too. `--port`/`--host` on `up` are saved to
 `settings.json`, so the next plain `up` binds the same way.</sub>
 
@@ -325,6 +331,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | `home-hosted down` | stop it and everything it started — persistent entries stay unless `--with-persistent` |
 | `home-hosted restart [<id>]` | the panel (`down` then `up`), or just one server, leaving the panel up |
 | `home-hosted status` | running? where? how many servers up? every path (`--json`) |
+| `home-hosted add <id> -- <command…>` / `ls` | declare a server (`--port`, `--cwd`, `--persistent`, `--autostart`, `-w`) or list them — through the panel, or into `servers.config.json` when it is down |
 | `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one, and works on a persistent entry with the panel down (`-w <workspace>`, `--free-port`) |
 | `home-hosted free-port <id>` | ask whatever holds that server's port to stop; supervised holders are refused |
 | `home-hosted logs [<id>]` | the panel's console, or one server's log (`--lines`, `--follow`, `--json`) |
@@ -347,6 +354,8 @@ down              --with-persistent
 restart           (no id) down, then up: up's flags plus --with-persistent
 restart <id>      one server through the panel: [-w/--workspace <id>] — up's flags are refused here
 status            --json
+add <id>          [--port <n>] [--cwd <dir>] [-w/--workspace <id>] [--persistent] [--autostart] -- <command> [args…]
+ls                [-w/--workspace <id>] --json
 start <id>        [-w/--workspace <id>] [--free-port]
 stop <id>         [-w/--workspace <id>]
 free-port <id>    [-w/--workspace <id>]

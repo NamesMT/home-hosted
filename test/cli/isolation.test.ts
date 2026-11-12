@@ -46,6 +46,8 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
   'set-password': new Set(['passwordLengthVerdict']),
   'set-token': new Set(),
   // The generators read only their arguments; the installer's state reads are dynamic imports.
+  'add': new Set(['buildServerEntry', 'commandAfterDashes']),
+  'ls': new Set(['lsLines', 'rowFromView']),
   'service': new Set(['systemdUnit', 'launchdPlist', 'scheduledTaskXml', 'renderService', 'serviceDir', 'managerCommands', 'serviceArgv', 'launchdLabel', 'runService', 'ServiceRunner', 'ServiceSpec', 'servicePath']),
 }
 

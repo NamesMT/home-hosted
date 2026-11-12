@@ -11,12 +11,13 @@ import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { secretEqual } from '#src/helpers/secret-compare'
+import { addServerEntry } from '#src/helpers/server-create'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 
 import { selectionOf } from '#src/shared/backup-scope'
-import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverCreateSchema, serverSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 
 /**
@@ -29,6 +30,9 @@ import { lazy } from '#src/shared/lazy'
 /** The local channel's query keys, declared so a typo is refused and the spec names them. */
 const shutdownQuery = lazy(() => type({ 'withPersistent?': 'string' }).onUndeclaredKey('reject'))
 const backupQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string' }).onUndeclaredKey('reject'))
+const serversListResponse = lazy(() => type({ servers: serverViewSchema.array() }))
+// A stored entry, as `POST /api/servers` answers it; an answer never rejects a newer field.
+const storedServerResponse = lazy(() => type({ server: serverSchema }).onDeepUndeclaredKey('ignore'))
 const restoreQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string', 'name?': 'string', 'from?': 'string' }).onUndeclaredKey('reject'))
 
 export function createControlRoute(deps: AppDeps) {
@@ -79,6 +83,51 @@ export function createControlRoute(deps: AppDeps) {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         const result = await runtime.supervisor.start(c.req.param('id'), { actor: 'user' })
         return c.json(actionAnswer(result), statusForAction(result))
+      },
+    )
+
+    /**
+     * Every server in one workspace, over the local channel — `home-hosted ls`. The same views
+     * `GET /api/servers` answers, so the CLI and the panel cannot disagree about what is declared.
+     */
+    .get(
+      '/servers',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Every server in one workspace with its live state (local token required)',
+        responses: { 200: { description: 'The servers', content: jsonBody(serversListResponse) }, 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', workspaceQuerySchema),
+      (c) => {
+        assertLocalCall(c, 'list servers')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        return c.json({ servers: runtime.supervisor.views() })
+      },
+    )
+
+    /**
+     * Add one entry, over the local channel — `home-hosted add` while the panel is up. The same body,
+     * validation and refusals as `POST /api/servers` (`addServerEntry`); like it, the entry is not
+     * started, `autostart` or not.
+     */
+    .post(
+      '/servers',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Add a server to a workspace (local token required)',
+        responses: {
+          201: { description: 'Created; not started', content: jsonBody(storedServerResponse) },
+          400: ERROR_RESPONSES[400],
+          403: { description: 'Bad token, or not a local caller' },
+          409: { description: 'An entry with this id already exists (`SERVER_EXISTS`), or the config changed on disk (`CONFIG_CHANGED_ON_DISK`)', content: ERROR_RESPONSES[409].content },
+        },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('json', serverCreateSchema),
+      (c) => {
+        assertLocalCall(c, 'add a server')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        return c.json({ server: addServerEntry(runtime.store, c.req.valid('json')) }, 201)
       },
     )
 
