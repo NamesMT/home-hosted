@@ -72,7 +72,7 @@ stack.
 | ❌ **"Is it still running?"** | Health, CPU/memory, uptime and live logs per server |
 | ❌ **Silent deaths** | Restarted automatically, and you are told — in the panel, Telegram or a webhook |
 | ❌ **Fragile reboots** | `autostart` brings the stack back; one `down` stops it all cleanly |
-| ❌ **"Move it to the new box"** | One archive — config **and** data — restored on a blank host |
+| ❌ **"Move it to the new box"** | One archive — config **and** declared data — restored on a blank host (your code and `envFile`s travel in git or `backupPaths`) |
 | ✅ **home-hosted** | Declare it once, watch it forever |
 
 It ships with **no servers configured**: a server is a command, its arguments and its environment.
@@ -329,7 +329,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | --- | --- |
 | `home-hosted up` | start the panel detached. With one already running: says where and exits `0` — **if the flags agree**. `--port`/`--host` naming something else is refused (exit `1`, "`--port X` was not honoured"), because a re-run must not report success for a move it did not make |
 | `home-hosted down` | stop it and everything it started — persistent entries stay unless `--with-persistent` |
-| `home-hosted restart [<id>]` | the panel (`down` then `up`), or just one server, leaving the panel up |
+| `home-hosted restart [<id>]` | the panel (`down` then `up` — every non-persistent server restarts with it), or just one server, leaving the panel up. To move the panel's port or bind without stopping anything, use **Global settings → Listener** |
 | `home-hosted status` | running? where? how many servers up? every path (`--json`) |
 | `home-hosted add <id> -- <command…>` / `ls` | declare a server (`--port`, `--cwd`, `--persistent`, `--autostart`, `-w`) or list them — through the panel, or into `servers.config.json` when it is down |
 | `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one, and works on a persistent entry with the panel down (`-w <workspace>`, `--free-port`) |
@@ -485,7 +485,9 @@ home-hosted backup restore <name> --all --confirm
 home-hosted backup restore --from /media/usb/x.zip --all --confirm
 ```
 
-Both work with the panel **stopped**, which is when you usually need them.
+Both work with the panel **stopped**, which is when you usually need them. **Not in the archive:** a
+server's code (its `cwd`) and its `envFile` — keep the code in git, and declare anything else that must
+travel in the entry's `backupPaths`.
 
 <details>
 <summary><b>🚚 One archive is a whole setup</b></summary>
