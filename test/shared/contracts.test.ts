@@ -23,6 +23,7 @@ import {
   hostSchema,
   logBufferLinesSchema,
   logsSchema,
+  nannyStateSchema,
   notificationDefaultsSchema,
   notificationsSchema,
   onPortConflictSchema,
@@ -141,6 +142,14 @@ describe('server schema', () => {
     // A patch carries only what changed, so it must not fill the default in.
     expect(unwrap(serverPatchSchema({}))).toEqual({})
     expect(unwrap(serverPatchSchema({ onPortConflict: 'kill' }))).toEqual({ onPortConflict: 'kill' })
+  })
+})
+
+describe('nanny files', () => {
+  it('ignore a key another release added, at both levels', () => {
+    const state = { serverId: 'a', nannyPid: 1, childPid: null, startedAt: 1, logFile: 'x', heartbeatAt: 1, extra: 1, lastExit: { code: 0, signal: null, at: 1, runtimeMs: 1, extra: 1 } }
+    expect(nannyStateSchema(state) instanceof type.errors).toBe(false)
+    expect(nannyStateSchema({ ...state, nannyPid: 'x' })).toBeInstanceOf(type.errors)
   })
 })
 

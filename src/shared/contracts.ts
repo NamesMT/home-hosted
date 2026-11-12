@@ -933,7 +933,10 @@ export const nannySpecSchema = lazy(() => type({
   logs: logsSchema,
   /** How the nanny stops the child it owns. */
   stop: stopSchema,
-}).onUndeclaredKey('reject'))
+  // These three files cross panel versions (a panel upgraded under a running nanny, or an older one
+  // still running beside a newer nanny), so a key one side does not know is ignored, at every level:
+  // a state read as unreadable is "no nanny", and the panel spawned a twin.
+}).onDeepUndeclaredKey('ignore'))
 export type NannySpec = typeof nannySpecSchema.infer
 
 /** How the child of a nanny ended, recorded for a panel that may not have been there. */
@@ -942,7 +945,7 @@ const nannyExitSchema = lazy(() => type({
   signal: 'string | null',
   at: 'number',
   runtimeMs: 'number',
-}).onUndeclaredKey('reject'))
+}).onDeepUndeclaredKey('ignore'))
 export type NannyExit = typeof nannyExitSchema.infer
 
 /**
@@ -958,7 +961,7 @@ export const nannyStateSchema = lazy(() => type({
   'logFile': 'string',
   'heartbeatAt': 'number',
   'lastExit?': nannyExitSchema,
-}).onUndeclaredKey('reject'))
+}).onDeepUndeclaredKey('ignore'))
 export type NannyState = typeof nannyStateSchema.infer
 
 /**
