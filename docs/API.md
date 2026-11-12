@@ -209,18 +209,20 @@ and `/healthz` operation with its body and responses — the two documents that 
 | `GET /api/state` | the whole snapshot: settings, every workspace and server, host vitals | |
 | `GET /api/events` | the live feed (below) | ✅ optional |
 | `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the workspace registry | |
-| `GET`/`POST /api/servers` | one workspace's entries | ✅ |
-| `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | one entry. `PUT` is create-or-replace (201, then 200): the idempotent form for config management. It writes config only — restart to apply, and the view's `restartRequired` says when that is needed | ✅ |
-| `POST /api/servers/:id/{start,stop,restart,free-port,clear-logs}` | lifecycle; `free-port` asks whatever holds the port to stop (a supervised holder is refused) | ✅ |
+| `GET`/`POST /api/servers` | one workspace's entries. A create answers an optional `warnings` list when the entry cannot start as written (`command` holding a whole command line) | ✅ |
+| `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | one entry. `PUT` is create-or-replace (201, then 200): the idempotent form for config management. **A `PUT` body must repeat the path `id`** — a mismatch is `400 ID_MISMATCH`, never a rename. It writes config only — restart to apply, and the view's `restartRequired` says when that is needed; `warnings` appears here too | ✅ |
+| `POST /api/servers/:id/{start,stop,restart,free-port,clear-logs}` | lifecycle; `free-port` asks whatever holds the port to stop (a supervised holder is refused). A refusal's `code` names it: `SERVER_DISABLED`, `SERVER_BUSY`, `PORT_IN_USE`, `DEPENDENCY_FAILED`, else `ACTION_FAILED` | ✅ |
+| `POST /api/servers/orphans/:id/stop` | stop a process the panel started that no entry claims any more (the orphan list is on the workspace view) | ✅ |
 | `POST /api/servers/{start-all,stop-all}` | the whole workspace (`?withPersistent=true` includes persistent entries) | ✅ |
-| `GET /api/servers/:id/logs`, `GET /api/servers/:id/stream` | buffered lines; one server's SSE (replays its last 200 lines first) | ✅ |
-| `GET /api/logs`, `/api/logs/:id?tail=&search=`, `/api/logs/:id/download` | log files on disk | ✅ |
+| `GET /api/servers/:id/logs?limit=` | the in-memory buffer (1–100000 lines; a value outside that is a `400`, not a clamp) | ✅ |
+| `GET /api/servers/:id/stream` | one server's SSE: `server` frame, then its last 200 `log` lines, then live frames | ✅ |
+| `GET /api/logs`, `/api/logs/:id?tail=&search=&stream=`, `DELETE /api/logs/:id`, `/api/logs/:id/download?file=` | log files on disk. `tail` is 50–5000 and **refused outside it** rather than clamped; `stream` filters `stdout`/`stderr`/`system`; `file` names one rotation (another name is `404 UNKNOWN_LOG_FILE`) | ✅ |
 | `GET`/`PATCH /api/settings` | panel-wide settings: listener, auth, TLS, host vitals, backups, UI | |
 | `GET`/`PATCH /api/settings/workspace` | server defaults, log retention, notifications | ✅ |
 | `GET`/`PUT /api/ddns`, `PUT`/`DELETE /api/ddns/credentials/:id`, `POST /api/ddns/check` | dynamic DNS | ✅ |
 | `PUT`/`DELETE /api/notifications/destinations/:id/token`, `POST …/{test,detect-chats}`, `POST /api/notifications/test-webhook` | notification credentials and test sends | ✅ |
-| `GET`/`PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `PUT`/`DELETE /api/proxy/certificates/:id` | the reverse proxy | |
-| `GET`/`POST /api/backups`, `POST /api/backups/restore`, `GET /api/backups/:name/download` | archives; `GET` is the selection model, fetch it when a dialog opens. `POST /api/backups` creates at once; a restore only plans unless `?confirm=true` | |
+| `GET`/`PATCH /api/proxy`, `POST /api/proxy/{engine,start,stop,apply,revert}`, `POST /api/proxy/routes/:id/retry-certificate`, `PUT`/`DELETE /api/proxy/certificates/:id` | the reverse proxy. `retry-certificate` drops and re-requests one name's certificate | |
+| `GET`/`POST /api/backups`, `DELETE /api/backups/:name`, `POST /api/backups/restore`, `GET /api/backups/:name/download` | archives; `GET` is the selection model, fetch it when a dialog opens. `POST /api/backups` creates at once; a restore only plans unless `?confirm=true`. A missing archive is `404 BACKUP_NOT_FOUND` on every one of these | |
 | `POST`/`DELETE /api/settings/ui`, `POST`/`DELETE /api/settings/tls` | install a UI zip / a PEM pair | |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout`, `POST`/`DELETE /api/auth/password` | the session and the password | |
 | `POST`/`DELETE /api/auth/token` | generate (session only, shown once) or revoke the API token | |
@@ -243,13 +245,18 @@ does **not** set it. A stopped entry never sets it.
 `GET /api/events` is a standard SSE stream. Browsers use `EventSource` (cookie auth); anything else
 reads it with a streaming `fetch` and the bearer header.
 
+**Every frame's `data` is one JSON object carrying a `type` field** (`"hello"`, `"state"`,
+`"server"`, `"log"`, `"ping"`), and the `event:` line repeats it for `EventSource` users. Read the
+`type` when you parse the payload: a client that switches on the parsed object does not depend on the
+SSE machinery the transport happens to use.
+
 | `event:` | `data:` |
 | --- | --- |
-| `hello` | `{ ts, state }` — always first: the complete snapshot |
-| `state` | `{ ts, state }` — something changed |
-| `server` | `{ ts, workspaceId, serverId, server }` — one entry |
-| `log` | `{ ts, workspaceId, serverId, lines }` — new output |
-| `ping` | the time, every 15 s |
+| `hello` | `{ type: "hello", ts, state }` — always first: the complete snapshot |
+| `state` | `{ type: "state", ts, state }` — something changed |
+| `server` | `{ type: "server", ts, workspaceId, serverId, server }` — one entry |
+| `log` | `{ type: "log", ts, workspaceId, serverId, lines }` — new output |
+| `ping` | `{ type: "ping", ts }`, every 15 s |
 
 A stream is authorised when it opens **and** re-checked on every ping and whenever credentials
 change (sign-out, a password set, changed or cleared, the token rotated, auth settings saved): once

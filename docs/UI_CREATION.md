@@ -19,13 +19,22 @@ Directions to borrow from live in [`mockups/`](./mockups).
 
 ```text
 $HHOSTED_HOME/.hh/.ui/        ← where your build lives
-  index.html                  ← required, at the root (or inside one wrapper directory)
+  index.html                  ← required
   assets/…
   ui.json                     ← optional, see below
 ```
 
+**A hand-copied UI must put `index.html` at the root of `.ui`.** The "one wrapper directory" allowance
+below belongs to the **zip upload**, which unpacks into a staging directory and looks one level down
+for `index.html` (`zip -r ui.zip dist` is a common shape). Copying a `dist/` folder into `.ui/`
+instead leaves the shell at `.ui/dist/index.html`, where nothing serves it.
+
 **Global settings → Interface → Install UI** takes a `.zip` (refresh to see it), or copy the files
-into `$HHOSTED_HOME/.hh/.ui` yourself. From the CLI, `home-hosted ui-switch` installs one from a
+into `$HHOSTED_HOME/.hh/.ui` yourself. The upload is `multipart/form-data` with one `file` part, and
+it is **session-only**: an API token is refused `403 SESSION_REQUIRED` before the archive is read — a
+UI is script on the panel's own origin, so installing one is a person's act. On success the panel
+rewrites `ui.json` in the installed directory with `uploadedAt` and `files` (the count it unpacked),
+keeping whatever `name`/`version`/`repo`/`asset` the archive declared. From the CLI, `home-hosted ui-switch` installs one from a
 GitHub release asset, a local zip (`--file ./ui.zip`) or an https URL (plain `http://` is refused
 unless you pass `--insecure`). A release asset is checked against the sha256 digest GitHub publishes
 for it, and the startup update of an official UI never replaces one you installed meanwhile.
@@ -152,11 +161,22 @@ cd dist && zip -r ../my-panel.zip . && cd ..
 ```
 
 For development, proxy `/api` from your dev server to a panel (`pnpm dev` in this repo runs one on
-`http://127.0.0.1:6000`, password `dev`).
+`http://127.0.0.1:6000`, password `dev`). Two settings matter, and both are visible only in the dev
+server:
+
+- **`changeOrigin: false`.** The panel's host guard answers `421 HOST_NOT_ALLOWED` to a `Host` it does
+  not know, and a proxy that rewrites it to the target's sends one the panel never accepted. Your dev
+  server keeps the browser's `Host`, which is what a same-origin UI already is.
+- **Proxy `/healthz` and `/openapi` too**, not only `/api`. They are the panel's two unauthenticated
+  non-`/api` reads, and a UI reaches them same-origin: proxying only `/api` makes the dev server
+  answer `index.html` for both, so a health tile reads `—` and an OpenAPI fetch parses a page.
+  (`uis/vite.shared.ts` is the working configuration.)
 
 ## Checklist
 
-- [ ] `index.html` at the root of the zip, assets referenced relatively
+- [ ] `index.html` at the root of the zip (or of `.ui/` when you copy by hand), assets
+      **root-absolute** (`/assets/…`, never `./assets/…` — a relative path breaks on a deep link
+      like `/servers/web`, which is served `index.html` and then resolves against the wrong base)
 - [ ] only relative `/api/...` calls
 - [ ] `401 AUTH_REQUIRED` → login screen
 - [ ] live data from SSE
