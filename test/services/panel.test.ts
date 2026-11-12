@@ -115,6 +115,30 @@ describe('panelService', () => {
     }
   })
 
+  it('registers a new workspace only once its directory exists', async () => {
+    const { panel, registry, hhDir, dispose } = await makeHarness()
+
+    try {
+      // A file where the directory should go: the filesystem refuses the mkdir.
+      const blocker = path.join(hhDir, 'blocked')
+      fs.writeFileSync(blocker, 'not a directory')
+      expect(() => panel.create({ id: 'blocked', label: 'Blocked' })).toThrow()
+      expect(registry.has('blocked')).toBe(false)
+      expect(fs.readFileSync(registry.path, 'utf8')).not.toContain('"blocked"')
+      expect(panel.workspace('blocked')).toBeUndefined()
+      // It was not ours to remove.
+      expect(fs.readFileSync(blocker, 'utf8')).toBe('not a directory')
+
+      // An id no filesystem can carry is refused before anything is made.
+      expect(() => panel.create({ id: 'a'.repeat(300) })).toThrow(/at most 40/)
+      expect(() => panel.create({ id: 'nul' })).toThrow(/Windows device name/)
+      expect(registry.all().map(entry => entry.id)).toEqual(['default'])
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('removes a workspace with its directory, and never the last one', async () => {
     const { panel, dispose } = await makeHarness({
       workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],

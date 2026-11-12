@@ -284,9 +284,7 @@ export class PanelService {
   }
 
   create(input: { id?: string, label?: string }): WorkspaceView {
-    const workspace = this.options.registry.create(input)
-    const runtime = this.createRuntime(workspace)
-    this.runtimes.set(workspace.id, runtime)
+    const { workspace, runtime } = this.addWorkspace(input)
     logger.info(`workspace "${workspace.id}" created at ${workspaceDir(workspace.id)}`)
     this.scheduleState()
     return runtime.view()
@@ -302,9 +300,7 @@ export class PanelService {
   ensureWorkspace(input: { id: string, label: string }): void {
     if (this.options.registry.has(input.id))
       return
-    const workspace = this.options.registry.create(input)
-    const runtime = this.createRuntime(workspace)
-    this.runtimes.set(workspace.id, runtime)
+    const { workspace, runtime } = this.addWorkspace(input)
     logger.info(`workspace "${workspace.id}" restored from an archive`)
     // Its leaves were written before this ran, so `createRuntime` already loaded them —
     // which means the `reloadAll()` that follows sees no *new* ids here. Start them now,
@@ -480,6 +476,33 @@ export class PanelService {
   }
 
   // ------------------------------------------------------------------ internals
+
+  /**
+   * Builds a new workspace's directory and runtime, and registers it only once both exist. Written
+   * the other way round, a directory the filesystem refused left an entry in `workspaces.json` that
+   * every later `up` died on. A failure rolls back what this call made.
+   */
+  private addWorkspace(input: { id?: string, label?: string }): { workspace: Workspace, runtime: WorkspaceRuntime } {
+    const workspace = this.options.registry.prepare(input)
+    const dir = workspaceDir(workspace.id)
+    const existed = fs.existsSync(dir)
+    let runtime: WorkspaceRuntime | undefined
+    try {
+      runtime = this.createRuntime(workspace)
+      this.options.registry.create(workspace)
+    }
+    catch (error) {
+      if (runtime !== undefined) {
+        void runtime.supervisor.dispose()
+        this.disposeRuntime(runtime)
+      }
+      if (!existed)
+        fs.rmSync(dir, { recursive: true, force: true })
+      throw error
+    }
+    this.runtimes.set(workspace.id, runtime)
+    return { workspace, runtime }
+  }
 
   private createRuntime(workspace: Workspace): WorkspaceRuntime {
     const id = workspace.id

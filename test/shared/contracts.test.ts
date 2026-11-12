@@ -49,6 +49,8 @@ import {
   settingsPatchSchema,
   settingsViewSchema,
   telegramChatsSchema,
+  workspaceCreateSchema,
+  workspaceIdSchema,
   workspaceSettingsPatchSchema,
   workspaceViewSchema,
 } from '#src/shared/contracts'
@@ -139,6 +141,22 @@ describe('server schema', () => {
     // A patch carries only what changed, so it must not fill the default in.
     expect(unwrap(serverPatchSchema({}))).toEqual({})
     expect(unwrap(serverPatchSchema({ onPortConflict: 'kill' }))).toEqual({ onPortConflict: 'kill' })
+  })
+})
+
+describe('workspace ids', () => {
+  it('caps a new id at 40 characters and refuses a Windows device name', () => {
+    expect(workspaceCreateSchema({ id: 'a'.repeat(40) }) instanceof type.errors).toBe(false)
+    expect(workspaceCreateSchema({ id: 'a'.repeat(41) })).toBeInstanceOf(type.errors)
+    for (const reserved of ['con', 'prn', 'aux', 'nul', 'com1', 'com9', 'lpt1', 'lpt9'])
+      expect(workspaceCreateSchema({ id: reserved }), reserved).toBeInstanceOf(type.errors)
+    for (const allowed of ['console', 'com10', 'nul-2', 'com', 'lpt'])
+      expect(workspaceCreateSchema({ id: allowed }) instanceof type.errors, allowed).toBe(false)
+  })
+
+  it('still reads an id an older release registered', () => {
+    expect(workspaceIdSchema('a'.repeat(60)) instanceof type.errors).toBe(false)
+    expect(workspaceIdSchema('con') instanceof type.errors).toBe(false)
   })
 })
 

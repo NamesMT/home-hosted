@@ -19,6 +19,13 @@ export type Bind = typeof bindSchema.infer
  * changes; the label is what a person reads and may rename at will.
  */
 export const workspaceIdSchema = lazy(() => type('/^[a-z0-9][a-z0-9_-]*$/'))
+/**
+ * What a *new* workspace may be called: at most 40 characters (what `slugifyWorkspaceId` derives),
+ * and never a Windows device name, which no directory can carry there. Kept apart from
+ * `workspaceIdSchema` so a registry an older release wrote with a longer id still loads.
+ */
+export const newWorkspaceIdSchema = lazy(() => type(/^(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$)[a-z0-9][a-z0-9_-]{0,39}$/)
+  .describe('a lowercase id of at most 40 letters, digits, - or _, starting with a letter or digit, and not a Windows device name (con, prn, aux, nul, com1-9, lpt1-9)'))
 export const workspaceSchema = lazy(() => type({
   id: workspaceIdSchema,
   label: '1 <= string <= 60',
@@ -27,7 +34,7 @@ export type Workspace = typeof workspaceSchema.infer
 
 /** `id` is optional; when omitted it is derived from the label. */
 export const workspaceCreateSchema = lazy(() => type({
-  'id?': workspaceIdSchema,
+  'id?': newWorkspaceIdSchema,
   'label?': '1 <= string <= 60',
 }).onUndeclaredKey('reject'))
 export type WorkspaceCreate = typeof workspaceCreateSchema.infer

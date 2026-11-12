@@ -5,7 +5,7 @@ import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { DEFAULT_WORKSPACE_ID, workspacesPath } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
-import { workspaceSchema } from '#src/shared/contracts'
+import { newWorkspaceIdSchema, workspaceSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 
 /**
@@ -102,19 +102,24 @@ export class WorkspaceError extends Error {
 
 const seed = (): Workspace[] => [{ id: DEFAULT_WORKSPACE_ID, label: 'Default' }]
 
-/** `My Project AB!` -> `my-project-ab`, and never an empty id. */
+const ID_LENGTH = 40
+/** Names Windows reserves for devices: no directory can carry one there. */
+const RESERVED_IDS = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/
+
+/** `My Project AB!` -> `my-project-ab`, and never an empty id, a reserved name or one over 40 characters. */
 export function slugifyWorkspaceId(label: string, taken: Iterable<string> = []): string {
   const base = label
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
+    .slice(0, ID_LENGTH)
   const used = new Set(taken)
   const candidate = base.length > 0 ? base : 'workspace'
-  if (!used.has(candidate))
+  if (!used.has(candidate) && !RESERVED_IDS.test(candidate))
     return candidate
   for (let index = 2; index < 1000; index++) {
-    const next = `${candidate}-${index}`
+    const suffix = `-${index}`
+    const next = `${candidate.slice(0, ID_LENGTH - suffix.length).replace(/-+$/, '')}${suffix}`
     if (!used.has(next))
       return next
   }
@@ -195,18 +200,29 @@ export class WorkspaceRegistry {
     this.notify()
   }
 
-  create(input: { id?: string, label?: string }): Workspace {
+  /**
+   * The workspace `create(input)` would register, validated, without writing anything — so the
+   * panel can build its directory and runtime first and register it last. A registry entry whose
+   * directory could not be made broke every later `up`.
+   */
+  prepare(input: { id?: string, label?: string }): Workspace {
     const label = (input.label ?? input.id ?? '').trim()
     const id = input.id ?? slugifyWorkspaceId(label, this.list.map(entry => entry.id))
 
+    const checkedId = newWorkspaceIdSchema(id)
+    if (checkedId instanceof type.errors)
+      throw new WorkspaceError(`id ${checkedId.summary}`)
     const validated = workspaceSchema({ id, label: label.length > 0 ? label : id })
     if (validated instanceof type.errors)
       throw new WorkspaceError(validated.summary)
     if (this.has(id))
       throw new WorkspaceError(`workspace "${id}" already exists`, 'WORKSPACE_EXISTS')
+    return validated
+  }
 
-    const next = [...this.list, validated]
-    this.commit(next)
+  create(input: { id?: string, label?: string }): Workspace {
+    const validated = this.prepare(input)
+    this.commit([...this.list, validated])
     return validated
   }
 

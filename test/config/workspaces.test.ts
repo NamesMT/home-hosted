@@ -113,6 +113,17 @@ describe('workspace registry', () => {
     expect(() => registry.create({ id: 'Not Safe!', label: 'x' })).toThrow(WorkspaceError)
     expect(() => registry.create({ id: 'Upper', label: 'x' })).toThrow(WorkspaceError)
     expect(() => registry.create({ id: '-leading', label: 'x' })).toThrow(WorkspaceError)
+    expect(() => registry.create({ id: 'a'.repeat(41), label: 'x' })).toThrow(/at most 40/)
+    for (const reserved of ['con', 'prn', 'aux', 'nul', 'com1', 'lpt9'])
+      expect(() => registry.create({ id: reserved, label: 'x' })).toThrow(/Windows device name/)
+    expect(registry.create({ id: 'a'.repeat(40), label: 'x' }).id).toHaveLength(40)
+    expect(registry.create({ id: 'console', label: 'x' }).id).toBe('console')
+  })
+
+  it('still reads a registry an older release wrote with a longer id', async () => {
+    const { registry } = await loaded({ workspaces: [{ id: 'a'.repeat(60), label: 'Long' }, { id: 'con', label: 'Con' }] })
+    expect(registry.configError).toBeNull()
+    expect(registry.all()).toHaveLength(2)
   })
 
   it('renames a workspace without changing its id', async () => {
@@ -188,7 +199,13 @@ describe('slugifyWorkspaceId', () => {
     expect(slugifyWorkspaceId('home', ['home', 'home-2'])).toBe('home-3')
   })
 
-  it('caps the base at 40 characters', () => {
+  it('caps the id at 40 characters, suffix included', () => {
     expect(slugifyWorkspaceId('a'.repeat(80))).toBe('a'.repeat(40))
+    expect(slugifyWorkspaceId('a'.repeat(80), ['a'.repeat(40)])).toBe(`${'a'.repeat(38)}-2`)
+  })
+
+  it('never derives a Windows device name', () => {
+    expect(slugifyWorkspaceId('NUL')).toBe('nul-2')
+    expect(slugifyWorkspaceId('Com1')).toBe('com1-2')
   })
 })

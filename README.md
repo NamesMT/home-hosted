@@ -268,7 +268,9 @@ The rest, one line each:
 ## 🗂 Workspaces
 
 A workspace is the ownership boundary: its own servers, secrets, logs and settings. The first boot
-creates `default`. A server id is unique only inside its workspace.
+creates `default`. A server id is unique only inside its workspace. A workspace id is its directory
+name: lowercase letters, digits, `-` and `_`, at most 40 characters, and never a Windows device name
+(`con`, `nul`, `com1`, …).
 
 | page | url | scope |
 | --- | --- | --- |
