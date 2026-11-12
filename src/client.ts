@@ -70,6 +70,14 @@ export interface EventsQuery {
   serverId?: string
   /** `false` drops log frames. */
   logs?: boolean
+  /**
+   * Resume after this sequence — the `id:` of the last frame already consumed.
+   *
+   * The stream answers with one current snapshot first, then the buffered `log` frames published
+   * after it, so a reconnecting reader neither misses lines nor re-applies a stale snapshot. The
+   * `id` of each frame is on the `id:` line; `readEventStream` exposes it as `lastId`.
+   */
+  since?: number
   /** Stops the stream. */
   signal?: AbortSignal
 }
@@ -121,6 +129,8 @@ export function createClient(options: ClientOptions) {
       params.set('serverId', query.serverId)
     if (query.logs === false)
       params.set('logs', '0')
+    if (query.since !== undefined)
+      params.set('since', String(query.since))
     const suffix = params.size > 0 ? `?${params}` : ''
     const response = await fetcher(`${baseUrl}/api/events${suffix}`, {
       headers: { ...headers(), accept: 'text/event-stream' },
@@ -176,11 +186,19 @@ async function cancelBody(reader: ReadableStreamDefaultReader<Uint8Array>): Prom
   }
 }
 
-/** Parses a `text/event-stream` body into `{ event, data }` frames (the subset the panel sends). */
-export async function* readEventStream(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string, data: string }> {
+/**
+ * Parses a `text/event-stream` body into `{ event, data }` frames (the subset the panel sends).
+ *
+ * `id` is the frame's `id:` line — the panel-wide sequence — and it is on every frame the panel
+ * sends. A consumer that keeps the last one can hand it back as `events({ since })` to resume. It is
+ * **absent**, not `null`, on a frame that carried no `id:` line, so a body without one yields the
+ * same objects it always did.
+ */
+export async function* readEventStream(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string, data: string, id?: string }> {
   const decoder = new TextDecoder()
   let buffer = ''
   let event = 'message'
+  let id: string | null = null
   let data: string[] = []
   const reader = body.getReader()
   try {
@@ -195,12 +213,17 @@ export async function* readEventStream(body: ReadableStream<Uint8Array>): AsyncG
         buffer = buffer.slice(newline + 1)
         if (line === '') {
           if (data.length > 0)
-            yield { event, data: data.join('\n') }
+            yield { event, data: data.join('\n'), ...(id === null ? {} : { id }) }
           event = 'message'
+          id = null
           data = []
         }
         else if (line.startsWith('event:')) {
           event = line.slice(6).trim()
+        }
+        else if (line.startsWith('id:')) {
+          // The SSE grammar strips one leading space after the colon.
+          id = line.slice(3).replace(/^ /, '')
         }
         else if (line.startsWith('data:')) {
           data.push(line.slice(5).replace(/^ /, ''))

@@ -1410,18 +1410,91 @@ const notificationViewSchema = lazy(() => type({
 }))
 export type NotificationView = typeof notificationViewSchema.infer
 
+/** What answered a request: the browser's session cookie, an API token, or this machine with auth unarmed. */
+export const credentialKindSchema = lazy(() => type.enumerated('session', 'token', 'local'))
+export type CredentialKind = typeof credentialKindSchema.infer
+
+/**
+ * Which credential answered, for a caller that wants to know what it is holding.
+ *
+ * `name` is the readable head of an API token, so a script can tell two tokens apart without
+ * being shown either. Absent for the other two kinds, and on an older panel.
+ */
+export const credentialViewSchema = lazy(() => type({
+  'kind': credentialKindSchema,
+  'name?': 'string',
+}))
+export type CredentialView = typeof credentialViewSchema.infer
+
 export const sessionViewSchema = lazy(() => type({
-  authenticated: 'boolean',
-  authRequired: 'boolean',
-  passwordSet: 'boolean',
+  'authenticated': 'boolean',
+  'authRequired': 'boolean',
+  'passwordSet': 'boolean',
   /** A long-lived API token is configured; optional for the same reason as above. */
-  apiTokenSet: 'boolean?',
-  usingDefaultPassword: 'boolean',
-  /** The boot-time password, exposed only while it is still in use. */
-  defaultPassword: 'string | null',
-  sessionTtlMs: 'number',
+  'apiTokenSet': 'boolean?',
+  'usingDefaultPassword': 'boolean',
+  /**
+   * The boot-time password, exposed only while it is still in use.
+   *
+   * **Optional and absent**, not `null`: the panel never sends it over the API (the first-run
+   * password is shown on the machine that started it), so a constantly-`null` field promised a
+   * value that could never arrive. A UI reads `session.defaultPassword ?? null`.
+   */
+  'defaultPassword?': 'string',
+  'sessionTtlMs': 'number',
+  /** Which credential answered this request. Optional: an older panel says nothing. */
+  'credential?': credentialViewSchema,
 }))
 export type SessionView = typeof sessionViewSchema.infer
+
+/**
+ * `GET /api/meta` — what this panel is, who is asking, and what that credential may not do.
+ *
+ * One request answers the questions a client otherwise probes for one by one: which release and API
+ * version it is talking to, which credential it is holding, which actions that credential is refused,
+ * which optional subsystems are switched on here, every error code it may answer with, and which
+ * event names its streams send. Everything except `version`/`apiVersion` is derived from live state,
+ * so the answer describes the panel as it is now rather than as it was configured once.
+ */
+export const metaViewSchema = lazy(() => type({
+  /** The release running, from the package manifest. */
+  version: 'string',
+  /**
+   * The response-shape version, `1` today.
+   *
+   * Bumped only when a change cannot be read by an older client. Fields are otherwise added
+   * optionally, so a client checks this once and then reads defensively forever.
+   */
+  apiVersion: 'number.integer',
+  /** Which credential answered, and for an API token its readable head. */
+  credential: credentialViewSchema,
+  /** Who this is, as a history event names them: `user`, `agent` or `policy`. */
+  actor: 'string',
+  /**
+   * The actions this credential may **not** take.
+   *
+   * Empty for a signed-in session and for `local`. An API token is refused the set below, each
+   * because it is a way for a stolen token to end up holding the panel: clearing the password,
+   * switching authentication off, minting or revoking a token, setting the *first* password,
+   * installing a custom UI (script on the panel's origin), and restoring an archive that carries the
+   * panel's own credentials.
+   */
+  refused: 'string[]',
+  /** Whether each optional subsystem is switched on **right now**. */
+  features: type({
+    /** The reverse proxy (`settings.proxy.enabled`). */
+    proxy: 'boolean',
+    /** Dynamic DNS, on if any workspace has it enabled (`workspace.ddns.enabled`). */
+    ddns: 'boolean',
+    /** The WSL2 temperature bridge is configured (`host.tempCommand` names one). */
+    temperature: 'boolean',
+  }),
+  /** Every code this panel may answer with, from `src/shared/error-codes.ts`. */
+  errorCodes: 'string[]',
+  /** The SSE `event:` names its streams send. */
+  events: 'string[]',
+}).onDeepUndeclaredKey('ignore'))
+export type MetaView = typeof metaViewSchema.infer
 
 /** `POST /api/auth/token`: the new token, returned once, and the readable head the panel keeps. */
 export const apiTokenCreatedSchema = lazy(() => type({ token: 'string', hint: 'string' }))
@@ -2292,6 +2365,19 @@ export const logHistoryQuerySchema = lazy(() => type({
    */
   'search': 'string?',
   'stream': '"stdout" | "stderr" | "system"?',
+  /**
+   * Return the lines **after** this cursor, for a client that keeps one and polls forward.
+   *
+   * A cursor is a line's `ts` — the one identity a log line has across a rotation, and what the SSE
+   * `log` frames already carry per line. `since` and `before` are the two halves of one window: a
+   * caller that names neither gets the tail, as it always did.
+   *
+   * A negative cursor is refused at the boundary rather than clamped to zero: it names nothing, and
+   * silently reading it as "from the beginning" would answer a question the caller did not ask.
+   */
+  'since?': integerParam(0, 9_999_999_999_999),
+  /** Return the lines **before** this cursor — the other direction, for backfill. */
+  'before?': integerParam(0, 9_999_999_999_999),
 }))
 
 const logFileInfoSchema = lazy(() => type({

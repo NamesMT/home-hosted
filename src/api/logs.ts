@@ -78,13 +78,33 @@ export function createLogsRoute(deps: AppDeps) {
         const stream = query.stream ?? ''
 
         /**
+         * `since`/`before` are cursors, not counts: they select *which* lines to answer with, and the
+         * window they can select is bounded like `tail` is. A cursor with no reachable line inside the
+         * readable window is refused rather than answered with a silently short list — "here are 0 of
+         * the 5000 you asked for" reads as "nothing was logged", which is the one answer a log route
+         * must never give when it simply did not look far enough.
+         */
+        const since = query.since
+        const before = query.before
+        if (since !== undefined && before !== undefined && since >= before) {
+          throw new DetailedError('`since` must be an earlier cursor than `before` — they select opposite halves of one window', {
+            statusCode: 400,
+            code: 'INVALID_INPUT',
+          })
+        }
+
+        /**
          * A filter that keeps only *some* of the lines has to read a wider window than the
          * display tail, or "the last 500 stderr lines" silently means "the stderr lines among
          * the last 500 overall" — 50 of them, in a log where every tenth line is stderr, and
          * 500 exist. `search` already widened for exactly this reason; `stream` is the same
          * shape of filter and did not, so it was short whenever the two streams interleave.
          */
-        const window = search.length > 0 || stream.length > 0 ? Math.max(tail, MAX_TAIL) : tail
+        const filterWindow = search.length > 0 || stream.length > 0 ? Math.max(tail, MAX_TAIL) : tail
+        // A cursor may name a line anywhere in the readable history, so it reads the widest window
+        // this route offers: sizing by `tail` would answer "nothing after that cursor" for a cursor
+        // older than `tail`, which reads as "nothing was logged".
+        const window = since !== undefined || before !== undefined ? MAX_TAIL : filterWindow
 
         let lines = await runtime.logFiles.readTail(id, window)
         if (stream.length > 0)
@@ -99,6 +119,57 @@ export function createLogsRoute(deps: AppDeps) {
         if (search.length > 0) {
           const needle = search.toLowerCase()
           lines = lines.filter(line => line.text.toLowerCase().includes(needle))
+        }
+
+        /**
+         * A cursor older than everything this route reads is **refused**, not answered with a short
+         * list: the window is capped at `MAX_TAIL` lines, so a cursor below the oldest line here means
+         * lines are on disk that were not read. Answering `[]` (or just the visible remainder) would
+         * say "nothing was logged in between" — the one thing a log route must never claim when it did
+         * not look far enough. The refusal names the way to look properly.
+         */
+        const windowFull = windowLines >= window
+        const oldest = lines[0]?.ts
+        if (windowFull && (since !== undefined || before !== undefined)) {
+          const belowWindow = since !== undefined
+            ? since < (oldest ?? Infinity)
+            : before !== undefined && before <= (oldest ?? Infinity)
+          if (belowWindow) {
+            throw new DetailedError(`the cursor is older than the ${window} lines this route reads — read further back with \`GET /api/logs/${id}/download\`, or read the log file on disk`, {
+              statusCode: 400,
+              code: 'CURSOR_OUT_OF_RANGE',
+            })
+          }
+        }
+
+        /**
+         * The cursors are exclusive on both ends — "after this line" / "before this line" — so a client
+         * polling in both directions never sees a line twice. Each keeps at most `tail` lines **in the
+         * direction it is paging** (`since` hands back the oldest first, so a client can continue from
+         * the last id it received; `before` hands back the newest), and a page that comes back exactly
+         * `tail` long means "ask again from the new cursor".
+         */
+        if (since !== undefined) {
+          lines = lines.filter(line => line.ts > since)
+          return c.json({
+            serverId: id,
+            enabled: info.enabled,
+            sizeBytes: info.sizeBytes,
+            files: info.files.map(file => file.name),
+            searched: search.length > 0 ? windowLines : null,
+            lines: lines.slice(0, tail),
+          })
+        }
+        if (before !== undefined) {
+          lines = lines.filter(line => line.ts < before)
+          return c.json({
+            serverId: id,
+            enabled: info.enabled,
+            sizeBytes: info.sizeBytes,
+            files: info.files.map(file => file.name),
+            searched: search.length > 0 ? windowLines : null,
+            lines: lines.slice(-tail),
+          })
         }
 
         return c.json({

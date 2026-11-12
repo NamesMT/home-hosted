@@ -7,7 +7,7 @@ import { describeRoute } from 'hono-openapi'
 import { ConfigError } from '#src/config/store'
 import { actionAnswer, actionCode, statusForAction, unknownServerError } from '#src/helpers/action-result'
 import { configFailure } from '#src/helpers/error'
-import { serveEventStream } from '#src/helpers/event-stream'
+import { resumePoint, serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody, sseResponse } from '#src/helpers/openapi'
 import { addServerEntry, serverWarnings } from '#src/helpers/server-create'
@@ -17,7 +17,7 @@ import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
 import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverViewSchema, serverWriteResponseSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
-import { booleanParam } from '#src/shared/query-params'
+import { booleanParam, integerParam } from '#src/shared/query-params'
 
 const idParam = lazy(() => type({ id: 'string >= 1' }))
 const serverResponse = lazy(() => type({ server: serverViewSchema }))
@@ -32,6 +32,15 @@ const serversResponse = lazy(() => type({ servers: serverViewSchema.array() }))
 // or a generated client refuses the next field a newer panel adds.
 const storedServerResponse = lazy(() => serverWriteResponseSchema)
 const bufferedLogsQuery = lazy(() => logQuerySchema.merge(workspaceQuerySchema))
+/**
+ * The stream route's query: the workspace, plus how far back to resume.
+ *
+ * `?since=<seq>` is what a `fetch`-based reader sends; an `EventSource` sends `Last-Event-ID` by
+ * itself. The workspace schema is the **argument**, which is what keeps the merged schema strict.
+ */
+const streamQuery = lazy(() => type({
+  'since?': integerParam(0, 9_999_999_999_999),
+}).merge(workspaceQuerySchema))
 /**
  * The answer to a create or a `PUT`, with a warning beside it when the entry cannot start.
  *
@@ -230,8 +239,13 @@ export function createServersRoute(deps: AppDeps) {
 
     .get(
       '/:id/stream',
-      describeRoute({ tags: ['servers'], summary: 'Server state and logs as server-sent events', responses: { 200: sseResponse('one `server` frame, then its last 200 `log` lines, then live frames'), 404: ERROR_RESPONSES[404] } }),
-      validate('query', workspaceQuerySchema),
+      describeRoute({
+        tags: ['servers'],
+        summary: 'Server state and logs as server-sent events',
+        description: 'Every frame carries an `id:` sequence. Reconnect with `Last-Event-ID` (or `?since=<seq>`) to replay buffered `log` frames after one current `server` snapshot.',
+        responses: { 200: sseResponse('one `server` frame, then its last 200 `log` lines, then live frames'), 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', streamQuery),
       validate('param', idParam),
       (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
@@ -239,13 +253,22 @@ export function createServersRoute(deps: AppDeps) {
         if (!runtime.store.getServer(id))
           throw unknownServerError(id)
 
-        return serveEventStream(c, deps.auth, (send) => {
-          const unsubscribe = deps.hub.subscribe(serverKey(runtime.id, id), send)
+        const since = resumePoint(c, c.req.valid('query').since)
+
+        return serveEventStream(c, deps.auth, (send, resumeFrom) => {
+          // The snapshots go first, always: a resuming client gets current state before the replay,
+          // and neither is replayed later (they are snapshots, and an older one regresses state).
           const server = runtime.supervisor.views().find(entry => entry.id === id)
           send({ type: 'server', ts: Date.now(), workspaceId: runtime.id, serverId: id, server } as StreamFrame)
-          send({ type: 'log', ts: Date.now(), workspaceId: runtime.id, serverId: id, lines: runtime.supervisor.logLines(id, 200) } as StreamFrame)
-          return unsubscribe
-        })
+          // A fresh stream is seeded with its buffered lines. A resume replays from the sequence
+          // instead, so seeding here would duplicate what the replay carries.
+          if (resumeFrom === null)
+            send({ type: 'log', ts: Date.now(), workspaceId: runtime.id, serverId: id, lines: runtime.supervisor.logLines(id, 200) } as StreamFrame)
+
+          if (resumeFrom === null)
+            return deps.hub.subscribe(serverKey(runtime.id, id), send)
+          return deps.hub.subscribeFrom(serverKey(runtime.id, id), resumeFrom, send)
+        }, { since, currentSeq: () => deps.hub.lastSeq })
       },
     )
 

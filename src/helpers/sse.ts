@@ -8,6 +8,10 @@ interface Frame {
   data: string
   /** Frames sharing a key supersede each other; `null` is a frame that never coalesces. */
   key: string | null
+  /** The SSE `id:` line: the panel-wide sequence, which is what a resume addresses. */
+  id?: number
+  /** The SSE `retry:` line, a reconnect delay in ms. Sent once, on open, and never on a frame. */
+  retry?: number
 }
 
 /**
@@ -29,7 +33,12 @@ export function sseChannel(stream: SSEStreamingApi) {
     try {
       while (!state.closed && queue.length > 0) {
         const frame = queue.shift()!
-        await stream.writeSSE({ event: frame.event, data: frame.data })
+        await stream.writeSSE({
+          event: frame.event,
+          data: frame.data,
+          ...(frame.id === undefined ? {} : { id: String(frame.id) }),
+          ...(frame.retry === undefined ? {} : { retry: frame.retry }),
+        })
       }
     }
     catch {
@@ -49,22 +58,30 @@ export function sseChannel(stream: SSEStreamingApi) {
       state.closed = true
       queue.length = 0
     },
-    /** Queue a frame: `key` makes it supersede a queued frame with the same key; `droppable` caps it. */
-    send(event: string, data: string, options: { key?: string, droppable?: boolean } = {}): void {
+    /**
+     * Queue a frame: `key` makes it supersede a queued frame with the same key; `droppable` caps it.
+     *
+     * `id` and `retry` are the SSE control lines. A coalesced frame **takes the newer id** along with
+     * its newer data — keeping the superseded one would leave the queue holding an id behind the frame
+     * it carries, and a client resuming from it would be replayed frames it already has.
+     */
+    send(event: string, data: string, options: { key?: string, droppable?: boolean, id?: number, retry?: number } = {}): void {
       if (state.closed)
         return
       const key = options.key ?? null
+      const id = options.id
+      const retry = options.retry
       if (key !== null) {
         const index = queue.findIndex(frame => frame.key === key)
         if (index !== -1) {
-          queue[index] = { event, data, key }
+          queue[index] = { event, data, key, ...(id === undefined ? {} : { id }), ...(retry === undefined ? {} : { retry }) }
           return
         }
       }
       else if (options.droppable === true && queue.filter(frame => frame.event === event).length >= MAX_QUEUED_LOGS) {
         return
       }
-      queue.push({ event, data, key })
+      queue.push({ event, data, key, ...(id === undefined ? {} : { id }), ...(retry === undefined ? {} : { retry }) })
       void pump()
     },
   }

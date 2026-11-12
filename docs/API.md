@@ -151,6 +151,7 @@ arrives with.
 | `UNKNOWN_ORPHAN` | 404 | no orphaned process is running under that id |
 | `ORPHAN_SURVIVED` | 409 | an orphaned process ignored the stop |
 | `UNKNOWN_LOG_FILE` | 404 | that file is not one of this entry's log rotations |
+| `CURSOR_OUT_OF_RANGE` | 400 | a `?since=`/`?before=` cursor is older than the lines this route reads; download the log file for the full history |
 | `INVALID_PROXY` | 400 | the proxy configuration failed validation; `detail` lists the problems |
 | `PROXY_DISABLED` | 400 | the reverse proxy is switched off |
 | `PROXY_ROUTE_UNKNOWN` | 404 | no proxy route has that id |
@@ -216,7 +217,7 @@ and `/healthz` operation with its body and responses — the two documents that 
 | `POST /api/servers/{start-all,stop-all}` | the whole workspace (`?withPersistent=true` includes persistent entries) | ✅ |
 | `GET /api/servers/:id/logs?limit=` | the in-memory buffer (1–100000 lines; a value outside that is a `400`, not a clamp) | ✅ |
 | `GET /api/servers/:id/stream` | one server's SSE: `server` frame, then its last 200 `log` lines, then live frames | ✅ |
-| `GET /api/logs`, `/api/logs/:id?tail=&search=&stream=`, `DELETE /api/logs/:id`, `/api/logs/:id/download?file=` | log files on disk. `tail` is 50–5000 and **refused outside it** rather than clamped; `stream` filters `stdout`/`stderr`/`system`; `file` names one rotation (another name is `404 UNKNOWN_LOG_FILE`) | ✅ |
+| `GET /api/logs`, `/api/logs/:id?tail=&search=&stream=&since=&before=`, `DELETE /api/logs/:id`, `/api/logs/:id/download?file=` | log files on disk. `tail` is 50–5000 and **refused outside it** rather than clamped; `stream` filters `stdout`/`stderr`/`system`; `file` names one rotation (another name is `404 UNKNOWN_LOG_FILE`). `since`/`before` are **cursors** (a line's `ts`), exclusive on both ends: `since` pages forward and `before` backfills, so a client polling both ways never sees a line twice. A cursor older than the readable window is a `400 CURSOR_OUT_OF_RANGE`, never a short answer | ✅ |
 | `GET`/`PATCH /api/settings` | panel-wide settings: listener, auth, TLS, host vitals, backups, UI | |
 | `GET`/`PATCH /api/settings/workspace` | server defaults, log retention, notifications | ✅ |
 | `GET`/`PUT /api/ddns`, `PUT`/`DELETE /api/ddns/credentials/:id`, `POST /api/ddns/check` | dynamic DNS | ✅ |
@@ -263,6 +264,45 @@ change (sign-out, a password set, changed or cleared, the token rotated, auth se
 the caller would no longer be let in, the panel ends the stream, and the reconnect meets the usual
 `401`. The re-check does not count as activity, so an open stream does not keep an idle session
 alive.
+
+### Resuming a stream
+
+**Every frame carries an `id:`**, the panel-wide sequence number of what it reports. The stream also
+sends `retry: 3000` **once, on its opening frame** — the reconnection delay, in ms — and never
+repeats it.
+
+A client that reconnects says where it got to, in whichever way suits it:
+
+| How | Who sends it |
+| --- | --- |
+| `Last-Event-ID: <seq>` header | an `EventSource` re-sends the last `id:` it saw, by itself |
+| `?since=<seq>` query | a `fetch`-based reader (the TypeScript client's `events({ since })`) |
+
+If both are present `?since=` wins, and a `Last-Event-ID` that is not a whole number is ignored
+rather than resumed from — it names nothing, so the stream starts fresh.
+
+**A resumed stream answers with one current snapshot first, then the replay.** Concretely: `hello`
+(current state), then the buffered `log` frames published after the sequence you named, oldest first.
+The snapshot is *newer* than the replay, and its `id:` is your resume point rather than a new number —
+so read as a cursor, everything you are sent after it is genuinely new to you. That ordering is the
+contract:
+
+- **Apply the snapshot as state; apply the replay to your log buffer only.** A `log` frame that
+  arrives before the snapshot's sequence is an old line you missed, not fresher state.
+- **`hello`, `state` and `server` frames are snapshots and are never replayed.** Replaying an older
+  one would roll your state backwards, which is exactly what the snapshot-first ordering avoids.
+- **Do not refetch `/api/state` on a successful resume** — `hello` already is that snapshot. Refetch
+  only when the connection could not be resumed (no `id:` was ever received, or the stream was
+  refused with a non-`200`).
+- **A gap is possible and is log-only.** Only the last 200 `log` frames (and at most 256 KB of them)
+  are kept, so a client away long enough resumes with the retained tail rather than the whole gap.
+  The log routes keep the full history: `/api/logs/:id?since=` pages forward from a line's `ts`, and
+  `/api/logs/:id/download` gives the rotation itself. State is never subject to a gap — `hello`
+  is always current.
+
+A per-server stream (`GET /api/servers/:id/stream`) resumes the same way, and seeds a **fresh** stream
+with that entry's last 200 buffered lines; a resumed one replays from the sequence instead, so the
+lines are not delivered twice.
 
 `state.settingsError` is `{ message, path }` while the panel-wide `settings.json` cannot be applied
 (the running settings are kept), `null` when it is fine, and absent on an older panel. A workspace's

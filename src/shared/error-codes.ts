@@ -79,6 +79,7 @@ export const ERROR_CODES = {
   UNKNOWN_ORPHAN: { status: 404, meaning: 'no orphaned process is running under that id' },
   ORPHAN_SURVIVED: { status: 409, meaning: 'an orphaned process ignored the stop' },
   UNKNOWN_LOG_FILE: { status: 404, meaning: 'that file is not one of this entry\'s log rotations' },
+  CURSOR_OUT_OF_RANGE: { status: 400, meaning: 'a `?since=`/`?before=` cursor is older than the lines this route reads; download the log file for the full history' },
 
   // ── Reverse proxy ────────────────────────────────────────────────────────────────────────────────
   INVALID_PROXY: { status: 400, meaning: 'the proxy configuration failed validation; `detail` lists the problems' },
