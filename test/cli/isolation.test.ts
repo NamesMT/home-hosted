@@ -45,6 +45,8 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
   // `runSetPassword` imports its state modules lazily, so the verdict reads only its arguments.
   'set-password': new Set(['passwordLengthVerdict']),
   'set-token': new Set(),
+  // The generators read only their arguments; the installer's state reads are dynamic imports.
+  'service': new Set(['systemdUnit', 'launchdPlist', 'scheduledTaskXml', 'renderService', 'serviceDir', 'managerCommands', 'serviceArgv', 'launchdLabel', 'runService', 'ServiceRunner', 'ServiceSpec', 'servicePath']),
 }
 
 /** Modules that are pure by construction, so nothing in them is a host action. */

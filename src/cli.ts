@@ -55,6 +55,7 @@ const SYNOPSIS: Record<string, string> = {
   'ui-switch': 'home-hosted ui-switch [options]',
   'ui-update': 'home-hosted ui-update [options]',
   'ui-revert': 'home-hosted ui-revert',
+  'service': 'home-hosted service [install|uninstall|status] [--user|--system] [--print]',
 }
 
 const SUMMARIES: Record<string, string> = {
@@ -76,6 +77,7 @@ const SUMMARIES: Record<string, string> = {
   'ui-switch': 'install a UI from a release asset, a zip file or a URL',
   'ui-update': 'bring the installed UI up to date, or pick a release',
   'ui-revert': 'go back to the stock control panel UI',
+  'service': 'start the panel at boot with systemd, launchd or Task Scheduler',
 }
 
 /** One option line, as the left column and the description that follows it. */
@@ -253,6 +255,16 @@ const UI_UPDATE_SECTION: OptionSection = {
   ],
 }
 
+const SERVICE_SECTION: OptionSection = {
+  heading: 'Options for service',
+  lines: [
+    ['install | uninstall | status', 'what to do (default: status)'],
+    ['--user', 'a service for this account (default); on Linux, see loginctl enable-linger'],
+    ['--system', 'a machine-wide service started at boot (needs sudo / an administrator)'],
+    ['--print', 'with install: print the unit to stdout and install nothing'],
+  ],
+}
+
 const EVERYWHERE_SECTION: OptionSection = {
   heading: 'Everywhere',
   lines: [
@@ -339,6 +351,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'init': INIT_SECTION,
   'ui-switch': UI_SWITCH_SECTION,
   'ui-update': UI_UPDATE_SECTION,
+  'service': SERVICE_SECTION,
 }
 
 /**
@@ -411,6 +424,7 @@ const COMMANDS = {
   'ui-update': () => import('#src/cli/ui-update').then(module => module.uiUpdateCommand),
   'ui-revert': () => import('#src/cli/ui-revert').then(module => module.uiRevertCommand),
   'backup': () => import('#src/cli/backup').then(module => module.backupCommand),
+  'service': () => import('#src/cli/service').then(module => module.serviceCommand(CLI_ENTRY)),
 } satisfies SubCommandsDef
 
 const rootCommand = defineCommand({

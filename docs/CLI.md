@@ -84,6 +84,32 @@ spent out of `restart.maxRetries` on the current sequence, which a deliberate st
 names the count `starts` for the same reason (a panel predating the rename sends `restarts`, and this
 command reads either).
 
+## Starting at boot
+
+```bash
+home-hosted service install           # this account: systemd --user, a LaunchAgent, a logon task
+home-hosted service install --system  # the machine, at boot: /etc/systemd/system, a LaunchDaemon, a SYSTEM boot task
+home-hosted service install --print   # the unit on stdout, nothing written or run
+home-hosted service status            # whether it is installed, and what the manager says
+home-hosted service uninstall         # stop it, unregister it, remove the file
+```
+
+The unit runs `<node> <cli> --home <home> --project <project> up --foreground` with absolute paths,
+`HHOSTED_HOME`/`HHOSTED_PROJECT`, and the installing shell's `PATH` (this node's directory first;
+fnm's per-shell directories are dropped, since they vanish at reboot). It is named `home-hosted` for
+the default home and `home-hosted-<8 hex>` for any other, so two homes get two units.
+
+- **Only the panel is signalled on stop** (`KillMode=process`; launchd `AbandonProcessGroup`): the
+  panel stops its own servers, and persistent entries keep running as they do on `down`.
+- **It restarts only after a failure.** `down` exits 0, so the panel stays down until the next boot
+  or `systemctl start`.
+- **A Linux user service** stops at logout and waits for a login after a reboot; `loginctl
+  enable-linger <you>` keeps it running without one.
+- An install over an existing unit is refused — `uninstall` first, or edit the file it names.
+- On Windows the task XML is kept in `.hh/.service/` as the record of what was registered; a task
+  cannot carry environment variables, so the home and project travel as flags and `PATH` is the
+  account's own.
+
 ## Upgrading
 
 ```bash

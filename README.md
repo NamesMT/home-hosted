@@ -142,28 +142,25 @@ own panel port (`control.port`, e.g. `4399`) so two can run side by side. Call i
 </details>
 
 <details>
-<summary><b>🧰 Start it at boot: systemd or Docker</b></summary>
+<summary><b>🧰 Start it at boot: systemd, launchd or Task Scheduler</b></summary>
 
-```ini
-[Unit]
-Description=home-hosted
-After=network-online.target
-
-[Service]
-User=youruser
-WorkingDirectory=/srv/home-hosted
-Environment=HHOSTED_HOME=/srv/home-hosted
-ExecStart=/usr/local/bin/home-hosted up --foreground
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
+```bash
+hh service install              # a user service: systemd on Linux, launchd on macOS, Task Scheduler on Windows
+hh service install --system     # machine-wide, at boot (sudo / an administrator)
+hh service install --print      # just print the unit, install nothing
+hh service status               # installed? running?
+hh service uninstall
 ```
 
+The unit runs `up --foreground` with the absolute `node` and CLI path, this home and project, and your
+current `PATH` (so an nvm/fnm `node` still resolves at boot). A stop signals only the panel
+(`KillMode=process`), so persistent entries keep running, and it restarts only on a failure: stop it
+with `systemctl --user stop home-hosted` (or `down`, which it then leaves down). A Linux user service
+waits for a login after a reboot unless you run `loginctl enable-linger` — the install says so.
+
 > [!CAUTION]
-> **Set `WorkingDirectory`.** Relative paths in your servers (`cwd`, `{projectDir}`, `dataEnvs`)
-> resolve against the directory the panel starts in, and systemd starts in `/`. Docker does the same
-> without `-w`. Or pin it with `HHOSTED_PROJECT`.
+> **Under Docker, set the working directory** (`-w`) or `HHOSTED_PROJECT`: relative paths in your
+> servers (`cwd`, `{projectDir}`, `dataEnvs`) resolve against it. `service install` pins both for you.
 
 </details>
 
@@ -338,6 +335,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | `home-hosted init` | scaffold a self-contained project |
 | `home-hosted ui-switch` / `ui-update` / `ui-revert` | install, update or remove a custom UI |
 | `home-hosted setup-temp --wsl` | read the CPU temperature through the Windows host on WSL2 |
+| `home-hosted service install` | start the panel at boot (systemd, launchd, Task Scheduler); `uninstall`, `status`, `--print` |
 
 <details>
 <summary><b>⚙️ Every command and its flags</b></summary>
@@ -365,6 +363,7 @@ ui-switch         --repo <owner/name> --tag <tag> --asset <name> --file <path|ur
 ui-update         --check --tag <tag> --asset <name> --old --repo <owner/name> --token <token> -y/--yes
 ui-revert         (no flags)
 setup-temp        --wsl [--download | --no-download] | --clear
+service           [install|uninstall|status] [--user | --system] [--print]   (--print: install only)
 
 every command     --home <dir> --project <dir> -h/--help -v/--version   (or $HHOSTED_HOME, $HHOSTED_PROJECT)
 help <command>    the same as <command> --help
