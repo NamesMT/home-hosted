@@ -703,8 +703,8 @@ export class PanelService {
     const auth = this.options.auth
     const liveHost = this.options.control().host
     const blocked = (config: ResolvedGlobalConfig): string | null =>
-      checkExposure({ ...config.control, host: liveHost }, auth.passwordSet, auth.usingDefaultPassword).blockedReason
-      ?? checkProxyExposure(config.proxy, config.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword, [this.options.control().port, config.control.port])
+      checkExposure({ ...config.control, host: liveHost }, auth.passwordSet, auth.usingDefaultPassword, auth.passwordTooShort).blockedReason
+      ?? checkProxyExposure(config.proxy, config.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword, [this.options.control().port, config.control.port], auth.passwordTooShort)
     const next = blocked(candidate)
     return next !== null && blocked(this.options.settings.config) === null ? next : null
   }

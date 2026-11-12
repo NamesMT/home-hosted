@@ -6,6 +6,7 @@ import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { logger } from '#src/helpers/logger'
 import { errorMessage } from '#src/shared/error-message'
+import { EXPOSED_PASSWORD_MIN_LENGTH, passwordLength } from '#src/shared/password-policy'
 import { isRecord } from '#src/shared/shape'
 
 /** Node's scrypt defaults, pinned so a hash stays verifiable across versions. */
@@ -27,6 +28,12 @@ export interface PasswordRecord {
    * `up`/`status` can show it on the machine. Never sent over the API; gone with the first change.
    */
   initial?: string
+  /**
+   * The password was shorter than `EXPOSED_PASSWORD_MIN_LENGTH` when it was hashed, so exposure
+   * beyond loopback stays blocked. Recorded at write time because a hash cannot be measured later;
+   * a record without it (written before the flag existed) reads as long enough.
+   */
+  short?: boolean
 }
 
 /**
@@ -136,6 +143,7 @@ export function hashPassword(password: string, options: { now?: number, isDefaul
     updatedAt: options.now ?? Date.now(),
     ...(options.isDefault === true ? { isDefault: true } : {}),
     ...(options.isDefault === true && options.initial === true ? { initial: password } : {}),
+    ...(passwordLength(password) < EXPOSED_PASSWORD_MIN_LENGTH ? { short: true } : {}),
   }
 }
 
@@ -393,6 +401,11 @@ export class SecretsStore {
 
   get usingDefaultPassword(): boolean {
     return this.password?.isDefault === true
+  }
+
+  /** The stored password is too short to expose the panel behind; see `PasswordRecord.short`. */
+  get passwordTooShort(): boolean {
+    return this.password?.short === true
   }
 
   get apiToken(): ApiTokenRecord | null {

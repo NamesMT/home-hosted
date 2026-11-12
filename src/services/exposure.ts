@@ -1,7 +1,9 @@
 import type { ControlConfig, ProxyConfig } from '#src/shared/contracts'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { invocation } from '#src/cli/io'
 import { isExposed } from '#src/helpers/bind'
+import { EXPOSED_PASSWORD_MIN_LENGTH } from '#src/shared/password-policy'
 import { upstreamTarget } from '#src/shared/proxy-form'
 
 export interface ExposureState {
@@ -11,12 +13,21 @@ export interface ExposureState {
   blockedReason: string | null
 }
 
+/** The command that sets the password, spelled the way this process was invoked (`--home` included). */
+function setPasswordCommand(): string {
+  return `\`${invocation()} set-password\``
+}
+
 /**
  * Exposing the panel beyond loopback is only allowed with authentication fully
  * configured — this is checked at startup, on every settings write, and shown in
  * the UI, so the three can never disagree.
+ *
+ * "Fully configured" includes a password long enough to stand up to guessing from the network:
+ * `passwordTooShort` is the stored record's own flag (set when it was hashed), because the hash
+ * cannot be measured afterwards. A record written before the flag existed reads as long enough.
  */
-export function checkExposure(control: ControlConfig, passwordSet: boolean, usingDefaultPassword = false): ExposureState {
+export function checkExposure(control: ControlConfig, passwordSet: boolean, usingDefaultPassword = false, passwordTooShort = false): ExposureState {
   const exposed = isExposed(control.host)
   if (!exposed)
     return { exposed, blockedReason: null }
@@ -33,13 +44,19 @@ export function checkExposure(control: ControlConfig, passwordSet: boolean, usin
   if (!passwordSet) {
     return {
       exposed,
-      blockedReason: `the control panel is bound to ${control.host} but no password is set (run \`home-hosted set-password\`)`,
+      blockedReason: `the control panel is bound to ${control.host} but no password is set (run ${setPasswordCommand()})`,
     }
   }
   if (usingDefaultPassword) {
     return {
       exposed,
-      blockedReason: `the control panel is bound to ${control.host} but still uses the default password — change it first`,
+      blockedReason: `can't listen on ${control.host} while the panel still has its first-run password — run ${setPasswordCommand()} or change it in Global settings → Authentication`,
+    }
+  }
+  if (passwordTooShort) {
+    return {
+      exposed,
+      blockedReason: `can't listen on ${control.host} with a password shorter than ${EXPOSED_PASSWORD_MIN_LENGTH} characters — set a longer one with ${setPasswordCommand()} or in Global settings → Authentication`,
     }
   }
   return { exposed, blockedReason: null }
@@ -57,6 +74,7 @@ export function checkProxyExposure(
   usingDefaultPassword = false,
   /** The ports the panel listens on (live, and configured): an `external` route dialing one on this machine is a panel route. */
   panelPorts: readonly number[] = [],
+  passwordTooShort = false,
 ): string | null {
   if (!proxy.enabled)
     return null
@@ -80,9 +98,11 @@ export function checkProxyExposure(
   if (!authEnabled)
     return `the reverse proxy would serve the control panel at ${hosts} but authentication is disabled`
   if (!passwordSet)
-    return `the reverse proxy would serve the control panel at ${hosts} but no password is set (run \`home-hosted set-password\`)`
+    return `the reverse proxy would serve the control panel at ${hosts} but no password is set (run ${setPasswordCommand()})`
   if (usingDefaultPassword)
-    return `the reverse proxy would serve the control panel at ${hosts} but it still uses the default password — change it first`
+    return `the reverse proxy can't serve the control panel at ${hosts} while it still has its first-run password — run ${setPasswordCommand()} or change it in Global settings → Authentication`
+  if (passwordTooShort)
+    return `the reverse proxy can't serve the control panel at ${hosts} with a password shorter than ${EXPOSED_PASSWORD_MIN_LENGTH} characters — set a longer one with ${setPasswordCommand()} or in Global settings → Authentication`
   return null
 }
 

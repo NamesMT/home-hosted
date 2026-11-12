@@ -58,7 +58,7 @@ describe('control panel exposure', () => {
     // Asserted against `null` first: `.toContain` on a null reason reports a vitest argument error
     // rather than the property that failed.
     expect(state.blockedReason, 'an armed panel on the boot password is still a way in').not.toBeNull()
-    expect(state.blockedReason!).toContain('default password')
+    expect(state.blockedReason!).toContain('first-run password')
 
     // And it does not fire where the other two guards would, so the ordering is real.
     expect(checkExposure(control('local'), true, true).blockedReason).toBeNull()
@@ -80,7 +80,7 @@ describe('control panel exposure', () => {
    */
   it('tells the person a command that exists', () => {
     const reason = checkExposure(control('lan', { enabled: true }), false).blockedReason!
-    expect(reason).toContain('home-hosted set-password')
+    expect(reason).toMatch(/`home-hosted( --home \S+)? set-password`/)
     expect(reason, 'a repository script is not a command a user has').not.toContain('pnpm run')
   })
 
@@ -98,7 +98,26 @@ describe('control panel exposure', () => {
   it('blocks exposure while the default password is still in use', () => {
     const state = checkExposure(control('lan', { enabled: true }), true, true)
     expect(state.exposed).toBe(true)
-    expect(state.blockedReason).toContain('default password')
+    expect(state.blockedReason).toContain('first-run password')
+  })
+
+  /**
+   * A one-character password used to be enough to put the panel on the LAN: the schema floor is 1,
+   * and the exposure rule only asked whether *a* password was set.
+   */
+  it('refuses an exposed bind behind a password shorter than 12 characters', () => {
+    const state = checkExposure(control('lan', { enabled: true }), true, false, true)
+    expect(state.exposed).toBe(true)
+    expect(state.blockedReason).not.toBeNull()
+    expect(state.blockedReason!).toContain('shorter than 12 characters')
+    expect(state.blockedReason!).toContain('set-password')
+    // On loopback any length is fine.
+    expect(checkExposure(control('local'), true, false, true).blockedReason).toBeNull()
+  })
+
+  it('names the fix for the first-run password in one sentence', () => {
+    const reason = checkExposure(control('lan', { enabled: true }), true, true).blockedReason!
+    expect(reason).toMatch(/^can't listen on lan while the panel still has its first-run password — run `.+ set-password` or change it in Global settings → Authentication$/)
   })
 
   it('rejects unknown auth keys', () => {
@@ -153,7 +172,8 @@ describe('reverse proxy exposure', () => {
     expect(checkProxyExposure(on, false, false)).toContain('authentication is disabled and no password is set')
     expect(checkProxyExposure(on, false, true)).toContain('authentication is disabled')
     expect(checkProxyExposure(on, true, false)).toContain('no password is set')
-    expect(checkProxyExposure(on, true, true, true)).toContain('default password')
+    expect(checkProxyExposure(on, true, true, true)).toContain('first-run password')
+    expect(checkProxyExposure(on, true, true, false, [], true)).toContain('shorter than 12 characters')
     // The hostname is named, so the message points at the route to change.
     expect(checkProxyExposure(on, true, false)).toContain('panel.example.com')
   })

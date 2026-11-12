@@ -414,12 +414,12 @@ document (paths, ports, the missing-record cases) — [CLI.md](./docs/CLI.md#wha
 
 **Safe out of the box.** The panel listens on `127.0.0.1` only, behind a password generated on first
 start. It refuses to listen anywhere else — or to be served through its own reverse proxy — until you
-set your own password.
+set your own password of at least 12 characters.
 
 <details>
 <summary><b>🛡️ The three things you actually have to do</b></summary>
 
-1. **Set your own password before exposing it**, then bind to `lan` (UI, config, or `up --host lan`).
+1. **Set your own password (12+ characters) before exposing it**, then bind to `lan` (UI, config, or `up --host lan`).
 2. **Treat an API token as the account it runs as** — changing the password does *not* revoke it.
 3. **Forgot the password?** Run `home-hosted set-password` on the machine to set a new one; no login needed.
 

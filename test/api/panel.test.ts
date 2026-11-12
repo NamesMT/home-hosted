@@ -237,6 +237,48 @@ describe('auth routes', () => {
     expect(wrong.status).toBe(401)
     expect(await wrong.json()).toMatchObject({ code: 'CURRENT_PASSWORD_WRONG' })
   })
+
+  /**
+   * A short password on an exposed panel would make its next start refuse (`checkExposure` holds
+   * the listener to 12 characters), so the change is refused while the panel is exposed.
+   */
+  it('refuses a password shorter than 12 characters while the panel is exposed', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    created.settings.updateControl({ host: 'lan' })
+    const cookie = await signIn(created, 'correct horse')
+
+    const response = await created.app.request('/api/auth/password', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'correct horse', newPassword: 'short' }),
+    })
+    expect(response.status).toBe(400)
+    const body = await response.json() as { code: string, message: string }
+    expect(body.code).toBe('PASSWORD_TOO_SHORT')
+    expect(body.message).toContain('shorter than 12 characters')
+    expect(created.auth.passwordTooShort).toBe(false)
+  })
+
+  it('accepts a short password on a loopback-only panel, and flags it', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const cookie = await signIn(created, 'correct horse')
+
+    const response = await created.app.request('/api/auth/password', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'correct horse', newPassword: 'short' }),
+    })
+    expect(response.status).toBe(200)
+    expect(created.auth.passwordTooShort).toBe(true)
+    // And moving the listener to the LAN is then refused with the reason.
+    const moved = await created.app.request('/api/settings', {
+      method: 'PATCH',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ control: { host: 'lan' } }),
+    })
+    expect(moved.status).toBe(400)
+    expect(await moved.json()).toMatchObject({ code: 'EXPOSURE_BLOCKED' })
+  })
 })
 
 describe('healthz', () => {

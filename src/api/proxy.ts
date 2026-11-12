@@ -54,7 +54,7 @@ export function createProxyRoute(deps: AppDeps) {
     if (problems.length > 0)
       throw new DetailedError(`invalid reverse proxy configuration: ${problems.join('; ')}`, { statusCode: 400, code: 'INVALID_PROXY', detail: problems })
 
-    const exposure = checkProxyExposure(candidate, deps.panel.settings.control.auth.enabled, deps.auth.passwordSet, deps.auth.usingDefaultPassword, [deps.controlServer.endpoint.port, deps.panel.settings.control.port])
+    const exposure = checkProxyExposure(candidate, deps.panel.settings.control.auth.enabled, deps.auth.passwordSet, deps.auth.usingDefaultPassword, [deps.controlServer.endpoint.port, deps.panel.settings.control.port], deps.auth.passwordTooShort)
     if (exposure !== null)
       throw new DetailedError(exposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })
   }

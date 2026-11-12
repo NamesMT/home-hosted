@@ -139,6 +139,11 @@ export class AuthService {
     return this.secrets.usingDefaultPassword
   }
 
+  /** Shorter than the exposure bar: the panel stays on loopback until it is changed. */
+  get passwordTooShort(): boolean {
+    return this.secrets.passwordTooShort
+  }
+
   /** The feature is on. */
   isEnabled(): boolean {
     return this.getConfig().enabled

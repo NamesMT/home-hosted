@@ -13,6 +13,7 @@ import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middle
 import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { apiTokenCreatedSchema, loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchema, sessionViewSchema } from '#src/shared/contracts'
+import { EXPOSED_PASSWORD_MIN_LENGTH, passwordLength } from '#src/shared/password-policy'
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
 function secureCookie(c: Context, deps: AppDeps): boolean {
@@ -100,7 +101,7 @@ export function createAuthRoute(deps: AppDeps) {
       describeRoute({
         tags: ['auth'],
         summary: 'Set, change or enable the panel password',
-        responses: { 200: { description: 'Updated', content: jsonBody(passwordSetResponseSchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'The first password must be set from this machine, not with an API token' } },
+        responses: { 200: { description: 'Updated', content: jsonBody(passwordSetResponseSchema) }, 400: { description: 'Invalid input, a missing current password, or a password shorter than 12 characters while the panel is exposed beyond loopback (`PASSWORD_TOO_SHORT`)', content: ERROR_RESPONSES[400].content }, 401: ERROR_RESPONSES[401], 403: { description: 'The first password must be set from this machine, not with an API token' } },
       }),
       validate('json', passwordSchema),
       (c) => {
@@ -128,6 +129,19 @@ export function createAuthRoute(deps: AppDeps) {
             throw new DetailedError('currentPassword is required to change an existing password', { statusCode: 400, code: 'CURRENT_PASSWORD_REQUIRED' })
           if (!deps.auth.verifyCurrentPassword(body.currentPassword))
             throw new DetailedError('current password is incorrect', { statusCode: 401, code: 'CURRENT_PASSWORD_WRONG' })
+        }
+
+        // A password too short for exposure would leave an exposed panel refusing its next start, so
+        // it is refused while the listener (or a proxy route to the panel) is exposed. On loopback any
+        // length is accepted.
+        const tooShort = passwordLength(body.newPassword) < EXPOSED_PASSWORD_MIN_LENGTH
+        if (tooShort) {
+          const control = deps.panel.settings.control
+          const reason = checkExposure({ ...control, host: deps.controlServer.endpoint.host }, true, false, true).blockedReason
+            ?? checkExposure(control, true, false, true).blockedReason
+            ?? checkProxyExposure(deps.proxy.config, control.auth.enabled, true, false, [deps.controlServer.endpoint.port, control.port], true)
+          if (reason !== null)
+            throw new DetailedError(reason, { statusCode: 400, code: 'PASSWORD_TOO_SHORT' })
         }
 
         // Keep the caller signed in: every *other* session is dropped. A token

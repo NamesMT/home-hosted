@@ -41,7 +41,8 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
   'migrate': new Set(),
   'init': new Set(),
   'nanny': new Set(),
-  'set-password': new Set(),
+  // `runSetPassword` imports its state modules lazily, so the verdict reads only its arguments.
+  'set-password': new Set(['passwordLengthVerdict']),
   'set-token': new Set(),
 }
 

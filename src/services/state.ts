@@ -35,7 +35,7 @@ export function buildControlView(
   tls: TlsStore,
 ): ControlView {
   const config: ControlConfig = settings.control
-  const exposure = checkExposure(config, auth.passwordSet, auth.usingDefaultPassword)
+  const exposure = checkExposure(config, auth.passwordSet, auth.usingDefaultPassword, auth.passwordTooShort)
 
   return {
     label: config.label,

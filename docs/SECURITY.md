@@ -2,14 +2,17 @@
 
 **Safe out of the box.** The panel listens on `127.0.0.1` only, behind a password, and refuses to
 listen anywhere else — or to be served through its own reverse proxy — until you set your own
-password. Nothing is exposed until you decide it should be.
+password of at least 12 characters. Nothing is exposed until you decide it should be.
 
 ## The three things you actually have to do
 
-1. **Set your own password before exposing the panel.** The first `up` generates a random one and
-   prints it; `home-hosted status` shows it again on the machine until you change it (Global
-   settings → Authentication, or `home-hosted set-password`). Then bind to `lan` — in the UI, the
-   config, or `up --host lan`. All three go through the same check.
+1. **Set your own password before exposing the panel.** The first `up` generates a random
+   first-run password and prints it; `home-hosted status` shows it again on the machine until you
+   change it (Global settings → Authentication, or `home-hosted set-password`). Then bind to `lan`
+   — in the UI, the config, or `up --host lan`. All three go through the same check, which also
+   wants the password to be **at least 12 characters**: any length works on loopback, but a shorter
+   one keeps the panel there (and `set-password` refuses one while the panel is already exposed).
+   A password set before this rule existed is not measured — set it again to be sure.
 2. **Treat an API token as the account it runs as.** A token can create and start server entries,
    which run any command as the panel's user. Changing the password does *not* revoke it; rotate or
    revoke it under Global settings → Authentication, or with `set-token --generate` / `--clear`.

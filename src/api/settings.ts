@@ -92,6 +92,7 @@ export function createSettingsRoute(deps: AppDeps) {
         },
         deps.auth.passwordSet,
         deps.auth.usingDefaultPassword,
+        deps.auth.passwordTooShort,
       )
       if (exposure.blockedReason !== null)
         throw new DetailedError(exposure.blockedReason, { statusCode: 400, code: 'EXPOSURE_BLOCKED' })
@@ -106,6 +107,7 @@ export function createSettingsRoute(deps: AppDeps) {
         deps.auth.passwordSet,
         deps.auth.usingDefaultPassword,
         [deps.controlServer.endpoint.port, current.port],
+        deps.auth.passwordTooShort,
       )
       if (proxyExposure !== null)
         throw new DetailedError(proxyExposure, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })

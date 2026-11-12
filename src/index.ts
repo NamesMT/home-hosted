@@ -215,7 +215,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // A listener this release would refuse is reported as a warning rather than a refusal, because the
   // config is exactly what the person asked to see.
   if (options.printConfig) {
-    const planned = checkExposure({ ...configured, host: intended.host }, auth.passwordSet, auth.usingDefaultPassword)
+    const planned = checkExposure({ ...configured, host: intended.host }, auth.passwordSet, auth.usingDefaultPassword, auth.passwordTooShort)
     if (planned.blockedReason !== null)
       logger.warn(`this config would be refused at startup: ${planned.blockedReason}`)
     printEffectiveConfig(settings, registry)
@@ -232,7 +232,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   }
 
   // Never serve the panel beyond loopback without a password behind it.
-  const exposure = checkExposure({ ...configured, host: intended.host }, auth.passwordSet, auth.usingDefaultPassword)
+  const exposure = checkExposure({ ...configured, host: intended.host }, auth.passwordSet, auth.usingDefaultPassword, auth.passwordTooShort)
   if (exposure.blockedReason !== null) {
     logger.error(`refusing to start: ${exposure.blockedReason}`)
     logger.info('bind the panel back to `local`, or set a password with `home-hosted set-password` and enable auth in Global Settings')
@@ -311,7 +311,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     },
     listDnsAccounts: () => panel?.listDnsAccounts() ?? [],
     defaultWorkspaceId: () => registry.defaultId,
-    exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword, [controlServer.endpoint.port, settings.control.port]),
+    exposureBlocked: () => checkProxyExposure(settings.proxy, settings.control.auth.enabled, auth.passwordSet, auth.usingDefaultPassword, [controlServer.endpoint.port, settings.control.port], auth.passwordTooShort),
     onStateChange: () => panel?.notifyStateChange(),
   })
 

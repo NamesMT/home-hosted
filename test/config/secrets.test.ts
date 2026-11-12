@@ -379,3 +379,34 @@ describe('an unreadable secrets file', () => {
     expect(store.configError).toBeNull()
   })
 })
+
+describe('a password too short for exposure', () => {
+  it('is flagged when it is hashed, because the hash cannot be measured afterwards', async () => {
+    const file = await tempFile()
+    const store = new SecretsStore(file, undefined, 'global')
+    store.setPassword('a')
+    expect(store.passwordTooShort).toBe(true)
+    expect(read(file).password.short).toBe(true)
+
+    store.setPassword('twelve-chars')
+    expect(store.passwordTooShort).toBe(false)
+    expect(read(file).password.short).toBeUndefined()
+  })
+
+  it('counts characters, not UTF-16 units', async () => {
+    const file = await tempFile()
+    const store = new SecretsStore(file, undefined, 'global')
+    // Six emoji are twelve UTF-16 units and six characters.
+    store.setPassword('🔑🔑🔑🔑🔑🔑')
+    expect(store.passwordTooShort).toBe(true)
+  })
+
+  it('reads a record written before the flag existed as long enough', async () => {
+    const file = await tempFile()
+    new SecretsStore(file, undefined, 'global').setPassword('a')
+    const raw = read(file)
+    delete raw.password.short
+    fs.writeFileSync(file, JSON.stringify(raw))
+    expect(new SecretsStore(file, undefined, 'global').passwordTooShort).toBe(false)
+  })
+})
