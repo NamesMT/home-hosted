@@ -12,7 +12,7 @@ import { isPersistentRun } from '#src/services/supervisor/entry'
 /** What this entry's own state file says about the child the last panel spawned. */
 export type RecordedChild
   = | { kind: 'none' }
-    | { kind: 'adopt', pid: number }
+    | { kind: 'adopt', pid: number, startedAt: number | null }
     /**
      * It was recorded, so it was running when that panel died, and it is not there now. The caller
      * reports it: a run that ended while nobody watched is a crash, never a clean stop.
@@ -75,7 +75,7 @@ export async function resolveRecordedChild(ctx: SupervisorContext, entry: Entry)
   }
 
   if (await processCarriesServerId(recorded.pid, entry.config.id))
-    return { kind: 'adopt', pid: recorded.pid }
+    return { kind: 'adopt', pid: recorded.pid, startedAt: recorded.startedAt > 0 ? recorded.startedAt : null }
 
   // Alive and unattributable (Windows has no per-process env). With a port the preflight still has
   // witnesses; without one, refusing beats a duplicate portless worker.

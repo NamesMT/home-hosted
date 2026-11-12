@@ -15,7 +15,10 @@ function summarizeHistory(entry: Entry, history: HistoryStore): ServerView['hist
   if (cached !== null && cached.revision === revision && now - cached.at < HISTORY_CACHE_MS)
     return cached.summary
 
-  const runningSince = entry.child !== null && entry.startedAt !== null ? entry.startedAt : null
+  // Any live run, not only one this panel spawned: a reattached persistent entry or an adopted
+  // process has no child handle, and read 0% up for as long as it ran.
+  const live = entry.child !== null || (entry.adopted && entry.pid !== null)
+  const runningSince = live && entry.startedAt !== null ? entry.startedAt : null
   const summary = history.summarize(entry.config.id, HISTORY_WINDOW_MS, now, runningSince)
   entry.historyCache = { revision, at: now, summary }
   return summary

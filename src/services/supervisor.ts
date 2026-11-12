@@ -345,7 +345,7 @@ export class Supervisor {
       if (recorded.kind === 'gone')
         reportRecordedChildGone(this.ctx, entry, recorded, { reportAway: entry.actor === 'boot' })
       if (recorded.kind === 'adopt')
-        return this.adoptEntry(entry, recorded.pid, 'the child this panel started before it died is still running')
+        return this.adoptEntry(entry, recorded.pid, 'the child this panel started before it died is still running', recorded.startedAt)
     }
 
     await runBootstrap(this.ctx, entry, current)
@@ -753,14 +753,15 @@ export class Supervisor {
    * a persistent entry's, which its nanny still writes to the log file the relay follows. `reason` is
    * the only place a person sees *why* this pid is ours.
    */
-  private adoptEntry(entry: Entry, pid: number, reason: string): StartResult {
+  private adoptEntry(entry: Entry, pid: number, reason: string, startedAt: number | null = null): StartResult {
     entry.adopted = true
     entry.runPersistent = entry.config.persistent
     entry.pid = pid
     entry.child = null
     entry.status = 'running'
     resetHealth(entry)
-    entry.startedAt = Date.now()
+    // The process's own start when this panel recorded it: uptime counts from there, not from now.
+    entry.startedAt = startedAt ?? Date.now()
     entry.lastError = null
     // History first, then this line, so the buffer stays in order.
     if (entry.config.persistent)

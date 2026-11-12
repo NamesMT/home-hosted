@@ -1240,6 +1240,7 @@ describe('a non-persistent child that outlived the panel', () => {
     // is what proves it is really up.
     await waitFor(() => recordedPids(pidFile).length === 1 ? true : undefined)
     const firstPid = view(harness.supervisor, 'worker').pid!
+    const firstStartedAt = view(harness.supervisor, 'worker').startedAt
     cleanupPids([firstPid])
     expect(recordedPids(pidFile)).toEqual([firstPid])
 
@@ -1282,6 +1283,9 @@ describe('a non-persistent child that outlived the panel', () => {
     if (process.platform === 'linux' || process.platform === 'darwin') {
       expect(after.pid, 'the second panel must adopt the survivor, not spawn beside it').toBe(firstPid)
       expect(after.adopted).toBe(true)
+      // Its run began when the first panel spawned it, not when the second one found it: uptime and
+      // "up for" count from there.
+      expect(after.startedAt, 'the adopted run keeps its recorded start').toBe(firstStartedAt)
       expect(second.supervisor.logLines('worker').some(line => line.text.includes(`adopted pid ${firstPid}`) && line.text.includes('before it died'))).toBe(true)
     }
     else {
