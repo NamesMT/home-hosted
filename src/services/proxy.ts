@@ -50,7 +50,7 @@ import { processCarriesServerId } from '#src/providers/proc'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
 import { dialsPanel, primeUpstreamResolutions } from '#src/services/exposure'
 import { CertificateDesk, coversHost } from '#src/services/proxy-certificates/certificates'
-import { boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
+import { adminBlock, boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { errorMessage } from '#src/shared/error-message'
 import { lazy } from '#src/shared/lazy'
 import { canonicalRoutePath, isPublicHost, routeHostKey, routeKey, upstreamTarget } from '#src/shared/proxy-form'
@@ -1010,15 +1010,28 @@ export class ProxyService {
     const current = fs.existsSync(this.options.configPath) ? fs.readFileSync(this.options.configPath, 'utf8') : null
     const previous = fs.readFileSync(this.options.previousConfigPath, 'utf8')
 
+    // The gates `apply()` passes: a stored revision may serve a panel route the exposure rule now
+    // refuses, or bind a port a stranger took since.
+    const blocked = this.options.exposureBlocked()
+    if (blocked !== null)
+      throw new DetailedError(blocked, { statusCode: 400, code: 'PROXY_EXPOSURE_BLOCKED' })
+    const admin = this.admin ?? this.readAdmin()
+    if (admin === null)
+      throw new DetailedError('the proxy engine is not running', { statusCode: 400, code: 'ENGINE_NOT_RUNNING' })
+    this.admin = admin
+    // The admin block is the current one, not the stored one: on Windows the admin port is chosen
+    // per start, and a revision from an earlier run would move the engine off the port the panel uses.
+    const restored = { ...(JSON.parse(previous) as Record<string, unknown>), admin: adminBlock(admin) }
+    await this.assertPortsFree(...boundPorts(restored))
+
     // Routed through the same helper as every other load: this path used to let a bare
     // request failure escape without recording `lastError`, and without the one error shape
     // the rest of the panel speaks.
-    const restored = JSON.parse(previous) as Record<string, unknown>
     await this.postConfiguration(restored)
 
     // 0600 here too: reverting must not hand back a world-readable configuration
     // that carries the DNS-01 challenge password.
-    writeFileAtomic(this.options.configPath, previous, { mode: 0o600 })
+    writeFileAtomic(this.options.configPath, `${JSON.stringify(restored, null, 2)}\n`, { mode: 0o600 })
     // The record follows the engine, not the file: a revert moves it to another revision, so
     // leaving the old ports recorded makes `assertPortsFree` refuse this panel's own engine and
     // admit a stranger standing on a port the reverted document no longer binds.
@@ -1647,7 +1660,7 @@ export class ProxyService {
    * An attributable pid that is neither the nanny nor the engine is always foreign, whatever the
    * records say.
    */
-  private async assertPortsFree(httpPort: number, httpsPort: number): Promise<void> {
+  private async assertPortsFree(...ports: number[]): Promise<void> {
     const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
     const live = state !== null && await nannyIsAlive(state, PROXY_ID)
     // What the engine is actually listening on, per the record written when it last applied. NOT
@@ -1657,7 +1670,7 @@ export class ProxyService {
     const binds = new Set([applied?.httpPort ?? null, applied?.httpsPort ?? null].filter((port): port is number => port !== null))
     const enginePids = state === null ? [] : [state.nannyPid, state.childPid].filter((pid): pid is number => pid !== null)
 
-    for (const port of [httpPort, httpsPort]) {
+    for (const port of ports) {
       if (await isPortFree(port))
         continue
       const holders = await listPortHolders(port)

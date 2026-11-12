@@ -2175,6 +2175,41 @@ describe('retrying a certificate when the re-apply fails', () => {
  * port the reverted document no longer binds.
  */
 describe('reverting follows the engine', () => {
+  async function withPrevious(overrides: Partial<ProxyServiceOptions> = {}) {
+    const made = await harness(overrides)
+    const { service, options } = made
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    // The stored revision carries the admin port of an earlier run, as on Windows.
+    const previous = { admin: { listen: '127.0.0.1:45001', enforce_origin: true, origins: ['http://127.0.0.1:45001'] }, apps: { http: { servers: { http: { listen: [':18080'] } } } } }
+    fs.mkdirSync(path.dirname(options.previousConfigPath), { recursive: true })
+    fs.writeFileSync(options.previousConfigPath, JSON.stringify(previous))
+    ;(service as unknown as { admin: unknown }).admin = { kind: 'tcp', host: '127.0.0.1', port: 47777, origin: 'http://127.0.0.1:47777' }
+    const posted: any[] = []
+    vi.spyOn(service as unknown as { postConfiguration: (rendered: unknown) => Promise<void> }, 'postConfiguration')
+      .mockImplementation(async (rendered) => { posted.push(rendered) })
+    return { ...made, posted }
+  }
+
+  it('loads the revision with the admin endpoint the engine is on now', async () => {
+    const { service, posted } = await withPrevious()
+    stubPortPreflight()
+    await service.revert()
+    expect(posted[0].admin).toEqual({ config: { persist: false }, listen: '127.0.0.1:47777', enforce_origin: true, origins: ['http://127.0.0.1:47777'] })
+  })
+
+  it('passes the exposure rule and the port preflight first, as an apply does', async () => {
+    const blocked = await withPrevious({ exposureBlocked: () => 'no password is set' })
+    await expect(blocked.service.revert()).rejects.toMatchObject({ code: 'PROXY_EXPOSURE_BLOCKED' })
+    expect(blocked.posted).toEqual([])
+
+    const ported = await withPrevious()
+    const preflight = vi.spyOn(ProxyService.prototype as unknown as { assertPortsFree: (...ports: number[]) => Promise<void> }, 'assertPortsFree')
+      .mockRejectedValue(Object.assign(new Error('port 18080 is already in use'), { code: 'PROXY_PORT_IN_USE' }))
+    await expect(ported.service.revert()).rejects.toMatchObject({ code: 'PROXY_PORT_IN_USE' })
+    expect(preflight).toHaveBeenCalledWith(18080)
+    expect(ported.posted).toEqual([])
+  })
+
   it('records the ports of the revision it reverted to', async () => {
     const { service, options } = await harness()
     vi.spyOn(service, 'installed').mockReturnValue(true)
@@ -2195,6 +2230,8 @@ describe('reverting follows the engine', () => {
     // The record still describes the revision we are leaving.
     fs.writeFileSync(path.join(options.stateDir, 'applied.json'), JSON.stringify({ httpPort: 18080, httpsPort: 18443, at: Date.now() }))
     vi.spyOn(service as unknown as { postConfiguration: () => Promise<void> }, 'postConfiguration').mockResolvedValue(undefined)
+    stubPortPreflight()
+    ;(service as unknown as { admin: unknown }).admin = { kind: 'unix', path: '/nonexistent/admin.sock' }
 
     await service.revert()
 

@@ -272,6 +272,18 @@ export function boundPorts(rendered: Record<string, unknown>): number[] {
 }
 
 /**
+ * The engine's admin block for one transport. Its own function because a stored revision is
+ * re-rendered with the *current* one on revert: on Windows the admin port is chosen per start.
+ */
+export function adminBlock(admin: ProxyAdminTransport): Record<string, unknown> {
+  if (admin.kind === 'unix')
+    return { config: { persist: false }, listen: `unix/${admin.path}` }
+  // No auth on the admin API, so a loopback listener still refuses a browser
+  // from another origin. Our own client sends the matching `Origin`.
+  return { config: { persist: false }, listen: `${admin.host}:${admin.port}`, enforce_origin: true, origins: [admin.origin] }
+}
+
+/**
  * The whole engine configuration, generated from the panel's route table.
  *
  * Two servers on purpose: one terminates TLS for the names that ask for it, the
@@ -341,18 +353,6 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
     }
   }
 
-  const adminBlock: Record<string, unknown> = { config: { persist: false } }
-  if (admin.kind === 'unix') {
-    adminBlock.listen = `unix/${admin.path}`
-  }
-  else {
-    adminBlock.listen = `${admin.host}:${admin.port}`
-    // No auth on the admin API, so a loopback listener still refuses a browser
-    // from another origin. Our own client sends the matching `Origin`.
-    adminBlock.enforce_origin = true
-    adminBlock.origins = [admin.origin]
-  }
-
   const tlsApp: Record<string, unknown> = {}
   if (input.manual.length > 0)
     tlsApp.certificates = { load_files: input.manual }
@@ -386,7 +386,7 @@ export function renderCaddyConfig(input: ProxyConfigInput): Record<string, unkno
     tlsApp.automation = { policies }
 
   return {
-    admin: adminBlock,
+    admin: adminBlock(admin),
     storage: { module: 'file_system', root: `${engineDir}/data` },
     logging: { logs: { default: { level: 'INFO' } } },
     apps: {
