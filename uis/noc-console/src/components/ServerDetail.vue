@@ -101,6 +101,8 @@ function cpuColor(): string {
  * the row, and `?? 0` painted a probe that never ran as a healthy one.
  */
 const probeVerdict = computed(() => probeBand(responseMs.value))
+/** `kind` defaults to `service`, and only an explicit `job` changes what the box describes. */
+const isJob = computed(() => props.server.config.kind === 'job')
 
 /** Whether this entry has deploy steps, and how its last deploy went. */
 const deploy = computed(() => props.server.deploy)
@@ -547,7 +549,16 @@ function ledClass(status: ServerStatus): string {
           <span v-for="id in config.dependsOn" :key="id" class="chip chip--neutral">{{ id }}</span>
         </span>
       </div>
-      <div class="detailbox__row">
+      <!--
+        A job is run-to-completion, so the schema refuses `health`, `restart` and `stop` on one. Showing
+        them as "off" describes a setting a person never chose — and invites them to turn it on, which
+        the save will refuse. Omitted instead, with the job's own row standing in for them.
+      -->
+      <div v-if="isJob" class="detailbox__row">
+        <span class="detailbox__k">kind</span>
+        <span class="detailbox__v">job — run to completion, exit code is the outcome</span>
+      </div>
+      <div v-if="!isJob" class="detailbox__row">
         <span class="detailbox__k">health</span>
         <span class="detailbox__v">
           <template v-if="!config.health.enabled">off</template>
@@ -564,7 +575,7 @@ function ledClass(status: ServerStatus): string {
           </template>
         </span>
       </div>
-      <div class="detailbox__row">
+      <div v-if="!isJob" class="detailbox__row">
         <span class="detailbox__k">restart</span>
         <span class="detailbox__v">
           <template v-if="!config.restart.enabled">off</template>
@@ -574,7 +585,7 @@ function ledClass(status: ServerStatus): string {
           </template>
         </span>
       </div>
-      <div class="detailbox__row">
+      <div v-if="!isJob" class="detailbox__row">
         <span class="detailbox__k">stop</span>
         <span class="detailbox__v">
           {{ config.stop.signal }} · grace {{ formatMs(config.stop.graceMs) }}
