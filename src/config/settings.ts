@@ -218,8 +218,8 @@ export class GlobalSettingsStore {
     }
 
     const before = this.resolvedConfig
-    this.trustedText = text
-    this.apply(parsed)
+    if (this.apply(parsed))
+      this.trustedText = text
     this.notify()
     return { changed: true, applied: this.resolvedConfig !== before, error: this.configError }
   }
@@ -258,8 +258,10 @@ export class GlobalSettingsStore {
       return
     }
 
-    this.trustedText = text
-    this.apply(parsed)
+    // A revision with a schema problem (a newer release's file, say) is reported but never becomes
+    // the baseline a save patches, or the next save rewrites it stamped as this release's schema.
+    if (this.apply(parsed))
+      this.trustedText = text
   }
 
   private notify(): void {
@@ -330,7 +332,7 @@ export class GlobalSettingsStore {
   private commit(draft: Record<string, unknown>): void {
     // A save patches the last trusted read; a hand edit the watcher has not picked up yet would be
     // overwritten without a word.
-    assertSaveable(this.file, { trusted: this.trustedText, seen: this.seenText, unusable: this.parseError ?? this.refusedError }, this.conflictListeners)
+    assertSaveable(this.file, { trusted: this.trustedText, seen: this.seenText, unusable: this.parseError ?? this.refusedError ?? this.error }, this.conflictListeners)
     const stamped = stampConfig(draft)
     const text = `${JSON.stringify(stamped, null, 2)}\n`
     writeFileAtomic(this.file, text)
@@ -355,9 +357,9 @@ export class GlobalSettingsStore {
     return { control, host, backups, proxy }
   }
 
-  private apply(raw: unknown): void {
+  /** Adopts `raw` when it parses, and says whether it did; a file with errors only reports them. */
+  private apply(raw: unknown): boolean {
     const parsed = parseGlobalSettings(raw)
-    this.raw = structuredClone(raw as Record<string, unknown>)
     this.error = parsed.errors.length > 0 ? parsed.errors.join('; ') : null
     this.schemaVersion = parsed.schemaVersion
     this.warnings = [
@@ -366,9 +368,13 @@ export class GlobalSettingsStore {
         ? []
         : [`${path.basename(this.file)} carries ${parsed.unknownKeys.length} unrecognized key(s) this release ignores: ${parsed.unknownKeys.join(', ')}`]),
     ]
-    if (parsed.config !== null)
+    if (parsed.config !== null) {
+      this.raw = structuredClone(raw as Record<string, unknown>)
       this.resolvedConfig = parsed.config
-    else if (this.resolvedConfig === undefined)
+      return true
+    }
+    if (this.resolvedConfig === undefined)
       this.resolvedConfig = this.resolveFallback()
+    return false
   }
 }

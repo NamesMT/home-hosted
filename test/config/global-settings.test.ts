@@ -219,6 +219,26 @@ describe('globalSettingsStore', () => {
     expect(await fs.promises.readFile(file, 'utf8')).toBe('{ nope')
   })
 
+  it('never rewrites a file a newer release wrote as its own schema', async () => {
+    const newer = `${JSON.stringify({ meta: { writtenBy: '9.0.0', schema: 99 }, control: { port: 3999 }, future: { x: 1 } }, null, 2)}\n`
+
+    // Read at startup…
+    const { store, file } = await makeStore({})
+    await fs.promises.writeFile(file, newer)
+    store.load()
+    expect(store.configError).toMatch(/schema 99/)
+    expect(() => store.updateBackups({ keep: 2 })).toThrow(/cannot be used .*schema 99/)
+    expect(await fs.promises.readFile(file, 'utf8')).toBe(newer)
+
+    // …and picked up by the watcher of a panel already running on a good file.
+    const running = await makeStore({})
+    await fs.promises.writeFile(running.file, newer)
+    expect(running.store.reloadFromDisk().applied).toBe(false)
+    expect(() => running.store.updateBackups({ keep: 2 })).toThrow(/cannot be used .*schema 99/)
+    expect(await fs.promises.readFile(running.file, 'utf8')).toBe(newer)
+    expect(running.store.rawConfig.future).toBeUndefined()
+  })
+
   it('reports a settings file that went away instead of re-seeding it', async () => {
     const { store, file } = await makeStore({})
 
