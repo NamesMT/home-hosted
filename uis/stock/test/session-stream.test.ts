@@ -8,7 +8,6 @@ function session(overrides: Partial<SessionView> = {}): SessionView {
     authRequired: false,
     passwordSet: true,
     usingDefaultPassword: false,
-    defaultPassword: null,
     sessionTtlMs: 604_800_000,
     ...overrides,
   }

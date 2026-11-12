@@ -1438,7 +1438,9 @@ export const sessionViewSchema = lazy(() => type({
    *
    * **Optional and absent**, not `null`: the panel never sends it over the API (the first-run
    * password is shown on the machine that started it), so a constantly-`null` field promised a
-   * value that could never arrive. A UI reads `session.defaultPassword ?? null`.
+   * value that could never arrive. A UI that needs to branch reads it as
+   * `session.defaultPassword === undefined` — the field is absent, which is a different question
+   * from "present and empty".
    */
   'defaultPassword?': 'string',
   'sessionTtlMs': 'number',

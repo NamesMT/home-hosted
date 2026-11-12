@@ -10,7 +10,7 @@ vi.mock('../src/lib/api', () => ({
       authRequired: true,
       passwordSet: true,
       usingDefaultPassword: false,
-      defaultPassword: null,
+      // Absent, not `null`: the panel omits the field unless it is still on its first-run password.
       sessionTtlMs: 604_800_000,
     }
   },

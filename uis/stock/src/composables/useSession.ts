@@ -70,7 +70,9 @@ export function useSession() {
       passwordSet: session.value?.passwordSet ?? true,
       apiTokenSet: session.value?.apiTokenSet ?? false,
       usingDefaultPassword: session.value?.usingDefaultPassword ?? false,
-      defaultPassword: session.value?.defaultPassword ?? null,
+      // Omitted rather than `null`: the field is `defaultPassword?: string`, absent unless the
+      // panel is still on its first-run password.
+      ...(session.value?.defaultPassword === undefined ? {} : { defaultPassword: session.value.defaultPassword }),
       sessionTtlMs: session.value?.sessionTtlMs ?? 0,
     }
   }
