@@ -34,6 +34,8 @@ describe('print-config leaves the home alone', () => {
         fs.existsSync(path.join(dir, '.hh', '.control-secrets.json')),
         'a read-only command must not arm a password',
       ).toBe(false)
+      for (const name of ['settings.json', 'settings.schema.json', 'workspaces.json'])
+        expect(fs.existsSync(path.join(dir, '.hh', name)), `${name} must not be seeded`).toBe(false)
     }
     finally {
       fs.rmSync(dir, { recursive: true, force: true })

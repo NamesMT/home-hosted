@@ -123,8 +123,10 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     clearRuntime()
 
   const settings = new GlobalSettingsStore()
-  settings.load()
-  settings.writeJsonSchema()
+  // `--print-config` only looks: a fresh home stays as it was.
+  settings.load({ write: !options.printConfig })
+  if (!options.printConfig)
+    settings.writeJsonSchema()
 
   // A settings file this release cannot read is refused rather than run with
   // defaults: for `control` that would mean a different port, bind and auth policy
@@ -149,7 +151,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   }
 
   const registry = new WorkspaceRegistry()
-  registry.load()
+  registry.load({ write: !options.printConfig })
   if (registry.configError !== null) {
     logger.error(`refusing to start: ${registry.configError}`)
     process.exit(1)
