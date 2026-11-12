@@ -17,8 +17,13 @@ import { cronDueAt, nextCronRun, parseCron, previousCronRun } from '#src/shared/
  *  - **One run per occurrence, decided from the occurrence and not the tick.** `tick()` asks cron for
  *    the last scheduled minute at or before now (`previousCronRun`), and remembers which occurrence it
  *    last started. A tick that lands a few hundred ms late, or a panel whose loop was busy for ten
- *    seconds, still starts exactly one run for that minute — never two, and never none. This is why
- *    the second and later ticks of the same minute do nothing.
+ *    seconds, still starts exactly one run for that minute — **never two**. This is why the second and
+ *    later ticks of the same minute do nothing.
+ *
+ *    It is *not* a promise that nothing is skipped: a loop stalled across several occurrences runs
+ *    the one due when it resumes and drops the ones between (measured: 10:00 then 10:17 on
+ *    a five-minute schedule runs 10:00 and 10:15, not 10:05 or 10:10). Replaying them would turn one stall
+ *    into a burst, which is worse than a documented gap.
  *  - **An overlapping run is skipped, and said so.** A job still running when its next occurrence
  *    arrives is not queued behind itself: two copies of a backup writing the same files is the
  *    failure this avoids. The skip is logged on the entry and recorded as an `overlap` in its

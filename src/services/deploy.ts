@@ -29,9 +29,21 @@ export interface DeployOutcome {
   durationMs: number
 }
 
-/** The seams a test needs: spawn, the log sink, and the clock. */
+/** The seams a test needs: spawn, the log sink, the clock, and the environment. */
 export interface DeployContext {
   log: (stream: 'stdout' | 'stderr' | 'system', text: string) => void
+  /**
+   * The environment every step runs with — the **entry's own**, resolved the way its spawn resolves
+   * it: `env` < `envFile` < `dataEnvs` < `secretEnv`.
+   *
+   * Supplied rather than re-derived here, because only the supervisor holds the secrets store and the
+   * `envFile` loader. Re-deriving a subset was a real defect: a step saw the tracked `env` and neither
+   * `envFile` nor a declared secret, so a deploy needing a registry token silently ran without it —
+   * while the comment claimed the opposite.
+   *
+   * A function, so it is resolved when the deploy runs rather than when it was configured.
+   */
+  env?: () => Record<string, string>
   /** Injected so a test's child is real but the panel's process module is not. */
   spawn?: typeof spawnManaged
   now?: () => number
@@ -86,10 +98,9 @@ export async function runDeploy(
 
     let child: ChildProcess
     try {
-      // The entry's own environment, so a step sees what the service sees — including `dataEnvs`.
-      // Declared secrets are merged by the supervisor, which holds the store; a deploy that needs a
-      // registry token reads the same variable the service does.
-      child = spawnImpl({ command, args, cwd, env: resolveRecord({ ...config.env, ...config.dataEnvs }, vars) })
+      // The entry's own environment, from the caller that resolved it — the same one the service
+      // spawns with, so a step that needs a registry token reads the variable it already has.
+      child = spawnImpl({ command, args, cwd, env: context.env?.() ?? resolveRecord({ ...config.env, ...config.dataEnvs }, vars) })
     }
     catch (error) {
       const message = (error as Error).message

@@ -216,7 +216,12 @@ with an expression before you save rather than after the panel refuses it.
 ### How a run is scheduled
 
 - **One run per occurrence.** The panel derives the due occurrence from the clock, not from how often
-  it ticks, so a late tick or a busy loop still starts exactly one run for that minute — never two.
+  it ticks, so a late tick or a busy loop still starts exactly one run for that minute — **never
+  two**. What it does not promise is that nothing is *missed*: a tick stalled across several
+  occurrences runs only the one that is due when it resumes, and the ones between are skipped.
+  Measured: ticking at 10:00 and then not again until 10:17 on `*/5 * * * *` runs 10:00 and 10:15,
+  never 10:05 or 10:10. A panel whose loop stalls for a quarter of an hour is not a case this can
+  replay without turning a schedule into a burst of catch-up runs.
 - **An overlap is skipped and recorded.** A job still running when its next occurrence arrives is not
   queued behind itself: two copies of a backup writing the same files is the failure this avoids. The
   skip is logged, and its history event carries `overlap`.

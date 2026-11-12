@@ -470,6 +470,9 @@ export class Supervisor {
         },
       }, {
         log: (stream, text) => this.log(entry, stream, text),
+        // The entry's real environment — `env` < `envFile` < `dataEnvs` < `secretEnv` — resolved by
+        // the same function its spawn uses, so a deploy step sees exactly what the service sees.
+        env: () => resolveSpawn(this.ctx, entry).env,
       })
 
       entry.deployChild = null

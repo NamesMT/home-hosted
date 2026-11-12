@@ -98,3 +98,47 @@ describe('a deploy through the supervisor', () => {
     void view
   })
 })
+
+/**
+ * A deploy step sees the **entry's own environment**, not a subset of it.
+ *
+ * The review measured `PLAIN=from-config` present but `envFile` and `secretEnv` both empty, which
+ * contradicted both the code's comment and `docs/SERVERS.md` — a deploy needing a registry token
+ * silently ran without it. The step below writes what it sees to a file, so the assertion is about
+ * the child's real environment rather than the panel's intent.
+ */
+describe('the environment a step runs with', () => {
+  it('carries env, envFile and a declared secret', async () => {
+    const harness = await makeSupervisor([])
+    const out = path.join(harness.dir, 'env.json')
+    harness.secrets.setServerEnv('app', { REGISTRY_TOKEN: 'from-secret' })
+    const envFile = path.join(harness.dir, 'app.env')
+    fs.writeFileSync(envFile, 'FROM_FILE=from-file\n')
+
+    harness.store.addServer({
+      id: 'app',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      port: null,
+      restart: { enabled: false },
+      health: { enabled: false },
+      env: { PLAIN: 'from-config' },
+      envFile,
+      secretEnv: ['REGISTRY_TOKEN'],
+      deploy: {
+        steps: [{
+          command: process.execPath,
+          args: ['-e', `require("node:fs").writeFileSync(${JSON.stringify(out)}, JSON.stringify({ plain: process.env.PLAIN, file: process.env.FROM_FILE, secret: process.env.REGISTRY_TOKEN }))`],
+        }],
+        restart: false,
+      },
+    } as never)
+
+    const result = await harness.supervisor.deploy('app')
+    expect(result.ok, result.error).toBe(true)
+    const seen = JSON.parse(fs.readFileSync(out, 'utf8')) as Record<string, string | undefined>
+    expect(seen.plain, 'the tracked env').toBe('from-config')
+    expect(seen.file, 'envFile is part of the entry\'s environment').toBe('from-file')
+    expect(seen.secret, 'and so is a declared secret').toBe('from-secret')
+  }, 45_000)
+})
