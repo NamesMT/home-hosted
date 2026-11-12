@@ -77,7 +77,7 @@ export function createBackupsRoute(deps: AppDeps) {
       async (c) => {
         const file = deps.backups.resolve(c.req.valid('param').name)
         if (file === null)
-          throw new DetailedError('unknown backup', { statusCode: 404, code: 'UNKNOWN_BACKUP' })
+          throw new DetailedError('unknown backup', { statusCode: 404, code: 'BACKUP_NOT_FOUND' })
 
         // Streamed, not read into memory. An archive has **no size ceiling** — it carries whatever the
         // declared data paths hold — so `readFileSync` blocked the event loop for the whole read and
@@ -107,7 +107,7 @@ export function createBackupsRoute(deps: AppDeps) {
       validate('param', nameParam),
       (c) => {
         if (!deps.backups.remove(c.req.valid('param').name))
-          throw new DetailedError('unknown backup', { statusCode: 404, code: 'UNKNOWN_BACKUP' })
+          throw new DetailedError('unknown backup', { statusCode: 404, code: 'BACKUP_NOT_FOUND' })
         return c.json({ ok: true, files: deps.backups.list() })
       },
     )
@@ -206,7 +206,7 @@ export function createBackupsRoute(deps: AppDeps) {
             throw new DetailedError('expected a backup name or a file upload', { statusCode: 400, code: 'MISSING_ARCHIVE' })
           archive = deps.backups.resolve(request.name)
           if (archive === null)
-            throw new DetailedError('unknown backup', { statusCode: 404, code: 'UNKNOWN_BACKUP' })
+            throw new DetailedError('unknown backup', { statusCode: 404, code: 'BACKUP_NOT_FOUND' })
         }
 
         // A restore that writes `global:secrets` replaces the password and token hashes of *this*

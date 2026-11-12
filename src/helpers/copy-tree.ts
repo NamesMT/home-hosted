@@ -49,7 +49,7 @@ export async function copyTree(source: string, target: string, filter: (source: 
     }
     const existing = fs.lstatSync(to, { throwIfNoEntry: false })
     if (existing !== undefined && !existing.isDirectory())
-      throw new DetailedError(`cannot overwrite non-directory ${to} with directory ${from}`, { code: 'ERR_FS_CP_DIR_TO_NON_DIR' })
+      throw new DetailedError(`cannot overwrite non-directory ${to} with directory ${from}`, { statusCode: 400, code: 'CONFIG_COPY_CONFLICT' })
     if (existing === undefined)
       fs.mkdirSync(to)
     for (const name of fs.readdirSync(from))

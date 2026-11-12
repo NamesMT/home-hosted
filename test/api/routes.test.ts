@@ -804,13 +804,19 @@ describe('backups route', () => {
     expect(await response.json()).toMatchObject({ code: 'BACKUP_FAILED', message: 'nothing to capture' })
   })
 
-  it('404s a download and a delete for an archive that is not there', async () => {
+  /**
+   * One code for "no such backup", whichever route says it.
+   *
+   * `/api/backups/:name` answered `UNKNOWN_BACKUP` while `/_hh/backups/restore` answered
+   * `BACKUP_NOT_FOUND` for the same condition, so a client handling one missed the other.
+   */
+  it('404s a download and a delete for an archive that is not there, with the one code', async () => {
     const created = await fixture()
 
     expect((await request(created.app, '/api/backups/ghost.zip/download')).status).toBe(404)
     const removed = await request(created.app, '/api/backups/ghost.zip', 'DELETE')
     expect(removed.status).toBe(404)
-    expect(await removed.json()).toMatchObject({ code: 'UNKNOWN_BACKUP' })
+    expect(await removed.json()).toMatchObject({ code: 'BACKUP_NOT_FOUND' })
   })
 
   /** `confirm` was read raw: a typo (`confrim=true`, `confirm=yes`) silently planned, and the spec never named it. */

@@ -108,6 +108,96 @@ A body that is not valid JSON is `400 INVALID_INPUT`, like any other rejected in
 `/api`, `/_hh` or `/openapi` that matches no route — or any non-`GET` request that matches none — is
 `404 NOT_FOUND` in the same envelope, never the UI's `index.html`.
 
+### Every code
+
+`src/shared/error-codes.ts` is the one catalogue, and a test walks every literal `code:` in `src/` and
+fails on one that is not in it — so this table and the code cannot drift, in either direction. Use it
+to decide without a lookup: the left column is what a client branches on, the number is the status it
+arrives with.
+
+| `code` | status | meaning |
+| --- | --- | --- |
+| `INVALID_INPUT` | 400 | the body, query or path did not validate; `detail` lists the fields |
+| `ID_MISMATCH` | 400 | a `PUT` body's `id` does not match the path id |
+| `NOT_FOUND` | 404 | no route matches this method and path |
+| `PAYLOAD_TOO_LARGE` | 413 | the sign-in body was larger than the panel accepts |
+| `INTERNAL_ERROR` | 500 | a failure with no more specific code; the panel logged it |
+| `DETAILED_ERROR` | 500 | a `DetailedError` thrown without a code — a bug in the panel |
+| `AUTH_REQUIRED` | 401 | no valid session or token; show the login screen |
+| `AUTH_UNARMED` | 401 | authentication is on but no password is set, and the caller is not this machine |
+| `AUTH_DISABLED_REMOTE` | 401 | authentication is off and the caller is not this machine (a proxy counts) |
+| `LOGIN_FAILED` | 401 | a sign-in failed: wrong password (401), no password set (409), or too many attempts (429) |
+| `SESSION_REQUIRED` | 403 | this operation needs a signed-in session, not an API token |
+| `CURRENT_PASSWORD_REQUIRED` | 400 | changing an existing password needs `currentPassword` |
+| `CURRENT_PASSWORD_WRONG` | 401 | `currentPassword` was incorrect |
+| `PASSWORD_TOO_SHORT` | 400 | a password below the 12-character bar while the panel is exposed |
+| `EXPOSED_WITHOUT_PASSWORD` | 400 | this would expose the panel with authentication off or no password |
+| `EXPOSURE_BLOCKED` | 400 | the listener change would expose the panel without auth and a long-enough password |
+| `PROXY_EXPOSURE_BLOCKED` | 400 | a proxy route to the panel would expose it without auth and a long-enough password |
+| `CROSS_ORIGIN` | 403 | a cookie-authenticated write from another origin |
+| `HOST_NOT_ALLOWED` | 421 | the `Host` header names a host this panel does not answer to |
+| `INVALID_TOKEN` | 403 | the local `/_hh` token does not match `run.json` |
+| `NOT_LOOPBACK` | 403 | this local-only operation was called from another machine |
+| `INVALID_SETTINGS` | 400 | the settings patch was rejected by the store |
+| `CONFIG_CHANGED_ON_DISK` | 409 | the config file was edited since the panel read it; it reloads, so retry |
+| `UNKNOWN_WORKSPACE` | 404 | `?workspace=` names no workspace this panel has |
+| `SERVER_EXISTS` | 409 | a server with this id already exists in the workspace |
+| `UNKNOWN_SERVER` | 404 | no server has that id in the workspace |
+| `SERVER_DISABLED` | 409 | the entry is switched off (`enabled: false`) |
+| `SERVER_BUSY` | 409 | a stop, or the same action, is already in flight |
+| `PORT_IN_USE` | 409 | the entry's port is held and could not be freed |
+| `DEPENDENCY_FAILED` | 409 | an entry in `dependsOn` could not be started |
+| `ACTION_FAILED` | 409 | a lifecycle refusal none of the more specific codes describes |
+| `UNKNOWN_ORPHAN` | 404 | no orphaned process is running under that id |
+| `ORPHAN_SURVIVED` | 409 | an orphaned process ignored the stop |
+| `UNKNOWN_LOG_FILE` | 404 | that file is not one of this entry's log rotations |
+| `INVALID_PROXY` | 400 | the proxy configuration failed validation; `detail` lists the problems |
+| `PROXY_DISABLED` | 400 | the reverse proxy is switched off |
+| `PROXY_ROUTE_UNKNOWN` | 404 | no proxy route has that id |
+| `PROXY_CERT_NOT_MANAGED` | 400 | that host is not one a CA issues for, so there is no certificate to retry |
+| `PROXY_CERT_RETRY_LAST_ROUTE` | 409 | that is the only route on its name; the certificate could not be dropped for a retry |
+| `PROXY_TLS_IN_USE` | 400 | that certificate is still used by a route |
+| `PROXY_PORT_IN_USE` | 409 | a proxy port is held by something else; `detail.holders` names them |
+| `PROXY_CONFIG_REJECTED` | 400 | the engine refused the generated configuration |
+| `PROXY_NO_PREVIOUS` | 400 | there is no earlier engine configuration to revert to |
+| `PROXY_NO_ADMIN_PORT` | 500 | no free loopback port was found for the engine admin endpoint |
+| `INVALID_CERTIFICATE` | 400 | an uploaded PEM pair was rejected |
+| `UNKNOWN_ENGINE` | 500 | the configured proxy engine name is not one this panel implements |
+| `ENGINE_MISSING` | 400 | the proxy engine is not installed yet |
+| `ENGINE_NOT_RUNNING` | 400 | the proxy engine is not running |
+| `ENGINE_NOT_READY` | 502 | the engine started but never answered on its admin endpoint |
+| `ENGINE_UNREACHABLE` | 502 | the engine admin endpoint did not answer |
+| `ENGINE_ALREADY_RUNNING` | 409 | an engine is running whose admin endpoint the panel does not know |
+| `ENGINE_BUSY` | 409 | the engine is running, so it cannot be replaced |
+| `ENGINE_INTEGRITY` | 409 | the installed engine binary is not the one the panel downloaded |
+| `ENGINE_MODULE_NOT_INSTALLED` | 400 | the engine module is not available in this install |
+| `ENGINE_DOWNLOAD_FAILED` | 502 | the engine download or its verification failed |
+| `ENGINE_DOWNLOAD_UNTRUSTED` | 502 | the engine download did not come from where it should |
+| `INVALID_ENGINE_VERSION` | 400 | that is not a version of this engine |
+| `UNSUPPORTED_PLATFORM` | 400 | the engine has no build for this platform/architecture |
+| `BACKUP_FAILED` | 400 | the archive could not be written |
+| `BACKUP_NOT_FOUND` | 404 | no archive has that name |
+| `MISSING_ARCHIVE` | 400 | a restore needs a backup name or an uploaded file |
+| `MISSING_FILE` | 400 | the multipart body carried no `file` field |
+| `MISSING_NAME` | 400 | a restore needs `name` (or `from`) |
+| `NAME_AND_FROM` | 400 | a restore takes `name` or `from`, not both |
+| `FROM_NOT_ABSOLUTE` | 400 | `from` must be an absolute path |
+| `RESTORE_FAILED` | 400 | the restore plan could not be applied; `detail` names the items |
+| `RESTORE_IN_PROGRESS` | 409 | a restore is already running |
+| `INVALID_UI` | 400 | the uploaded UI zip was rejected |
+| `UPLOAD_TOO_LARGE` | 413 | the upload is larger than the limit |
+| `CONFIG_COPY_CONFLICT` | 400 | a directory could not be copied over a non-directory (this used to leak the Node code `ERR_FS_CP_DIR_TO_NON_DIR`) |
+| `TELEGRAM_TOKEN_REJECTED` | 400 | Telegram did not accept the bot token |
+| `TELEGRAM_LIST_FAILED` | 400 | listing chats from Telegram failed |
+| `WEBHOOK_SEND_FAILED` | 400 | the test webhook could not be delivered |
+| `INVALID_DDNS` | 400 | the DDNS configuration failed validation; `detail` lists the problems |
+| `INVALID_DDNS_CREDENTIALS` | 400 | the DDNS account credentials were rejected by their provider |
+| `UNKNOWN_DDNS_PROVIDER` | 400 | no DDNS provider has that id |
+| `NOT_WSL` | 400 | the temperature bridge is WSL2-only |
+| `WINDOWS_DRIVE_MISSING` | 400 | the Windows drive is not mounted where the helper must be written |
+| `SCRIPT_WRITE_FAILED` | 400 | the temperature helper could not be written |
+| `LIBRARY_INSTALL_FAILED` | 400 | LibreHardwareMonitor could not be installed |
+
 ## Endpoints
 
 ✅ takes `?workspace=<id>`; everything else is panel-wide. The spec documents every `/api`, `/_hh`
