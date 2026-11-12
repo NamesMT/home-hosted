@@ -38,6 +38,13 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **`pnpm run media` needs Playwright's Chromium, which `pnpm install` does not fetch** — run
   `pnpm exec playwright install chromium`; a bare container also needs fonts (`FONTCONFIG_PATH`) and
   the X/NSS/Mesa libraries, or Skia panics. (`scripts/capture-media.mjs`)
+- **A Node child that calls `process.exit` loses its own unflushed pipe output** — 64 KB of a 512 KB
+  write reached the reader. A fixture whose output the test reads back sets `process.exitCode` and lets
+  the process end instead, or the assertion races the pipe. (`test/services/nanny.test.ts`;
+  `test/services/supervisor.test.ts`)
+- **The WSL temperature helper is machine-wide, and a test that writes it breaks every home on the
+  machine** — tests reach it only through `HHOSTED_TEST_PROGRAMDATA`, which `test-home.ts` points at a
+  per-file temp directory. (`test/support/test-home.ts`; `test/support/real-home-guard.ts`)
 
 ## Supervision
 
@@ -48,6 +55,15 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **Overlapping `start`/`stop` double-spawn or resurrect** — `start()` sets `starting` before its first
   await, and `stopping` is cleared on every exit path of `stopEntry()`. Tests call
   `supervisor.dispose()`. (`src/services/supervisor.ts`)
+- **A sample or a reading written after an `await` re-checks the run token *and* pid** — a stop that
+  lands mid-probe owns the entry by then, and a writing probe left the stopped entry publishing a
+  container's CPU/RSS. Capture `runToken`/`pid` before the await and compare both after it, never the
+  status alone. (`src/services/supervisor/health.ts`; `test/services/resource-sampling.test.ts`)
+- **Only the nanny rotates `<id>.log` while its persistent run is alive** — both the panel and the
+  nanny appended and both rotated on size, so the second rename moved the first one's fresh file into
+  `.1` and pushed real history out. The panel appends with `{ rotate: false }` for exactly that window.
+  (`src/services/log-files.ts`; `test/services/log-files.test.ts`, "appends without rotating when told
+  the rotation is not its own")
 - **A timer or `void`-ed promise without `.catch` is an unhandled rejection, which ends Node 24.**
 - **An adopted process is not a `ChildProcess`** — nothing reports its exit (the tick polls liveness)
   and its output is not captured, except a persistent entry's, through its nanny's JSONL.
@@ -93,6 +109,16 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **A compose stack is not a process tree**, so the wrapper's reading watched nothing — sample the
   project's containers via one batched, 10 s-cached `docker stats`, attributed by compose labels; when
   docker cannot answer, keep the wrapper's reading, never `0`. (`src/providers/docker.ts`)
+- **The docker cache answers only for the targets it asked about** — a cache filled for the entry due
+  on one second stood in for a second entry due on another, so that entry never got a container
+  reading and its memory ceiling could not fire. Ask about every live compose entry each tick, and
+  treat a target the cached answer never covered as stale. (`src/providers/docker.ts`;
+  `test/providers/docker.test.ts`, "refreshes inside the window for a stack the cached answer never
+  asked about")
+- **A cooldown is per destination and reason, not per state** — a state change swallowed by a running
+  window is kept and sent when it ends, because a receiver left on the previous state reads a
+  standing alert as a live one. (`src/services/notifications.ts`;
+  `test/services/notifications.test.ts`, "sends the state the server is left in once the window ends")
 
 ## Config
 
@@ -109,6 +135,31 @@ Format: `- **<trap>** — <rule>. (<file>; <test>)`
 - **A header is a Latin-1 byte string and names are case-insensitive** — validate at save
   (`headerProblem`), and a configured `Content-Type` replaces the default. A stubbed `fetch` hides it.
   (`test/services/notifications.test.ts`)
+- **A store adopts a revision only once it parsed *and* passed the schema** — the pair (raw object,
+  trusted bytes) moves together, so a save patches the object whose bytes it holds. Restamping the
+  bytes of a file this release merely read is how an older panel rewrites a newer one; a revision with
+  a schema problem is reported and never becomes the baseline. (`src/config/settings.ts`;
+  `test/config/global-settings.test.ts`)
+- **An unstamped file is pending only the migration steps for its own kind** — the chain is filtered
+  by `ConfigMigration.kinds`, so a `servers.config.json` is not asked for a notification migration it
+  never needed. (`src/config/migrations.ts`; `test/config/compat.test.ts`)
+
+## Proxy
+
+- **An unroutable route is left out of the render, never thrown for** — one broken or disabled route
+  would otherwise take the whole table down, including routes to servers that are fine. Only a save
+  refuses a route it adds or changes (`routeProblems`); a route that broke later is reported on its
+  view. (`src/services/proxy.ts`; `test/services/proxy.test.ts`, "leaves an unroutable route out and
+  keeps serving the rest")
+- **A manual certificate is loaded by path, so the rendered configuration cannot carry its content** —
+  a pair replaced in place rendered byte-identical JSON and the engine skipped the load. The
+  certificate carries its content's fingerprint as a `tags` entry, which is what makes the render
+  change. (`src/services/proxy.ts`; `test/services/proxy.test.ts`, "an uploaded pair replaced in
+  place")
+- **A host, a path and an upstream each have exactly one parser** — `routeHostKey`,
+  `canonicalRoutePath` and `upstreamTarget` in `src/shared/proxy-form.ts`, shared by the clash check,
+  the Caddy render and both UIs. A second spelling of "same host" or "same prefix" is how a route
+  shadowed another. (`src/shared/proxy-form.ts`; `test/services/proxy-config.test.ts`)
 
 ## UI
 
