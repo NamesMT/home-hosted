@@ -125,6 +125,42 @@ export function failureMessage(payload: unknown, status: number): string {
   return `request failed with ${status}`
 }
 
+/**
+ * What a lifecycle refusal's **code** means to do about it.
+ *
+ * The panel answers one refusal per reason now (`SERVER_DISABLED`, `SERVER_BUSY`, `PORT_IN_USE`,
+ * `DEPENDENCY_FAILED`) instead of one `ACTION_FAILED`, and each is a different fix. A UI showing only
+ * the server's sentence is honest but leaves the reader to work out the remedy; this names it, and
+ * keeps the sentence beside it so the advice and the evidence cannot disagree.
+ *
+ * One home, in `src/shared`, because both UIs and the CLI read the same refusals — two copies of
+ * this table would be two places for the wording to drift, which is the defect that put this module
+ * together in the first place.
+ *
+ * `''` for a success: there is no refusal to describe.
+ */
+const REFUSAL_ADVICE: Record<string, string> = {
+  SERVER_DISABLED: 'switch this server on first',
+  SERVER_BUSY: 'a change is already in progress — try again in a moment',
+  PORT_IN_USE: 'free the port, or choose another',
+  DEPENDENCY_FAILED: 'start the entry it depends on first',
+}
+
+export function refusalMessage(payload: unknown): string {
+  if (!isRecord(payload) || payload.ok !== false)
+    return ''
+  const code = typeof payload.code === 'string' ? payload.code : ''
+  const said = typeof payload.error === 'string' && payload.error.length > 0
+    ? payload.error
+    : typeof payload.message === 'string' ? payload.message : ''
+  const advice = REFUSAL_ADVICE[code]
+  // With advice, both: the instruction and the panel's own words. Without it, the words are all
+  // there is — and inventing a generic instruction would be worse than none.
+  if (advice === undefined)
+    return said
+  return said.length === 0 ? advice : `${said} — ${advice}`
+}
+
 /** Validated at the boundary: contract drift fails loudly here, not in the UI. */
 export async function proxyView(payload: unknown): Promise<ProxyView> {
   const parsed = proxyViewSchema(payload)
@@ -674,8 +710,13 @@ export async function serverAction(id: string, action: 'start' | 'stop' | 'resta
     headers: { 'Content-Type': 'application/json' },
   })
   const payload = await response.json().catch(() => null) as (ActionResult & { message?: string }) | null
-  if (!response.ok)
-    throw new Error(failureMessage(payload, response.status))
+  if (!response.ok) {
+    // A refusal names what to do about it (`refusalMessage`), so a `SERVER_DISABLED` does not read
+    // as a dead end. The panel's own sentence is kept inside it, and an unclassified refusal is
+    // still just that sentence.
+    const refusal = refusalMessage(payload)
+    throw new Error(refusal.length > 0 ? refusal : failureMessage(payload, response.status))
+  }
   return payload ?? { ok: true }
 }
 
@@ -735,8 +776,20 @@ export function removeServer(id: string, workspace?: string | null): Promise<unk
 /** The create body is exactly the strict, defaulted schema the route validates. */
 export type CreateServerPayload = ServerCreate
 
-export function createServer(payload: CreateServerPayload, workspace?: string | null): Promise<unknown> {
-  return request(scoped('/api/servers', workspace), { method: 'POST', body: JSON.stringify(payload) })
+/**
+ * A create, answering the stored entry and anything wrong with it that only shows up when it runs.
+ *
+ * `warnings` is optional and absent when there is nothing to say: the panel reports an entry whose
+ * `command` holds a whole command line here, rather than letting it fail at spawn after every retry.
+ * Both UIs surface it — a warning the API sends and no page shows is a warning nobody reads.
+ */
+export interface ServerWriteResult {
+  server?: unknown
+  warnings?: string[]
+}
+
+export function createServer(payload: CreateServerPayload, workspace?: string | null): Promise<ServerWriteResult> {
+  return request<ServerWriteResult>(scoped('/api/servers', workspace), { method: 'POST', body: JSON.stringify(payload) })
 }
 
 /** The per-server event stream, addressed by the workspace that owns it. */

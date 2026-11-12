@@ -3,6 +3,7 @@ import type { ControlView } from '@shared/contracts'
 import type { AuthForm } from '@/components/settings/settingsForm'
 import { generateApiToken, revokeApiToken } from '@shared/api-client'
 import { errorMessage } from '@shared/error-message'
+import { EXPOSED_PASSWORD_MIN_LENGTH, WEAK_PASSWORD_LENGTH } from '@shared/password-policy'
 import { computed, ref } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
@@ -52,7 +53,16 @@ const passwordError = ref<string | null>(null)
 const passwordSaving = ref(false)
 
 const mismatch = computed(() => confirmPassword.value.length > 0 && confirmPassword.value !== newPassword.value)
-const short = computed(() => newPassword.value.length > 0 && newPassword.value.length < 8)
+/**
+ * Two bars, and the second is the one the panel enforces.
+ *
+ * `WEAK_PASSWORD_LENGTH` warns for any panel; `EXPOSED_PASSWORD_MIN_LENGTH` is what `checkExposure`
+ * and `POST /api/auth/password` refuse below — so a person typing nine characters on a panel they
+ * have bound to the LAN is told here, rather than saving, being refused with `PASSWORD_TOO_SHORT`,
+ * and not knowing why. Both come from the shared policy, never a literal.
+ */
+const short = computed(() => newPassword.value.length > 0 && newPassword.value.length < WEAK_PASSWORD_LENGTH)
+const belowExposureBar = computed(() => newPassword.value.length > 0 && newPassword.value.length < EXPOSED_PASSWORD_MIN_LENGTH)
 const canSubmit = computed(() => newPassword.value.length > 0 && !mismatch.value && (!passwordSet.value || currentPassword.value.length > 0))
 
 async function submitPassword(): Promise<void> {
@@ -277,6 +287,14 @@ async function clearPasswordValue(): Promise<void> {
       <template v-if="short || passwordError || passwordMessage">
         <Notice v-if="short" tone="warn" :title="t('settings.auth.shortPasswordTitle')" class="sm:col-span-2">
           {{ t('settings.auth.shortPasswordText') }}
+        </Notice>
+        <!--
+          The bar the panel actually enforces for exposure. Stated while typing, so a save is not
+          the first place a person learns it — `POST /api/auth/password` answers
+          `400 PASSWORD_TOO_SHORT` and this page used to show that as an unexplained failure.
+        -->
+        <Notice v-if="belowExposureBar" tone="warn" :title="t('settings.auth.exposureLengthTitle')" class="sm:col-span-2">
+          {{ t('settings.auth.exposureLength', { n: EXPOSED_PASSWORD_MIN_LENGTH }) }}
         </Notice>
         <Notice v-if="passwordError" tone="danger" class="sm:col-span-2">
           {{ passwordError }}

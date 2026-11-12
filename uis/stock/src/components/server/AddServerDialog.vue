@@ -7,6 +7,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { addServerPayload, addServerPortError, addServerProblem, blankAddServerForm } from '@/components/server/addServerForm'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
 import { applyPreset, SERVER_PRESETS } from '@/components/server/serverPresets'
+import Notice from '@/components/settings/Notice.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import BindField from '@/components/ui/BindField.vue'
 import Disclosure from '@/components/ui/Disclosure.vue'
@@ -30,6 +31,8 @@ const open = defineModel<boolean>('open', { default: false })
 const control = useControlPlane()
 
 const creating = ref(false)
+/** What the panel said about the entry it just created, while the dialog stays open. */
+const warningsShown = ref<string[]>([])
 const formError = ref<string | null>(null)
 /** Which input the error is about, so it can be flagged and scrolled to instead of only printed. */
 const errorField = ref<AddServerField | null>(null)
@@ -76,6 +79,7 @@ function reset(): void {
   Object.assign(form, blankAddServerForm(panelDefaults.value))
   formError.value = null
   errorField.value = null
+  warningsShown.value = []
   // Every open starts at the gallery: a second server is usually the same kind as the first, and
   // the presets are one click.
   showPresets.value = true
@@ -122,7 +126,18 @@ async function submit(): Promise<void> {
   try {
     const outcome = await control.create(props.workspaceId, parsed)
     if (!outcome.ok) {
+      // `SERVER_EXISTS` is the one refusal a person fixes by typing a different id, so it says so
+      // rather than leaving them to read "server … already exists" against a form with no id field
+      // in sight.
       showError(outcome.error, null)
+      return
+    }
+    // A warning is not a refusal: the entry was created. Keep the dialog open showing what will
+    // go wrong, rather than closing on a success the next minute contradicts.
+    const warnings = outcome.value?.warnings ?? []
+    if (warnings.length > 0) {
+      warningsShown.value = warnings
+      emit('created')
       return
     }
     emit('created')
@@ -146,6 +161,20 @@ async function submit(): Promise<void> {
       Sticky, above the fields: the error belongs where the eye lands on submit, not after ten
       placeholders at the bottom of a scrollable form.
     -->
+    <!-- The entry was created, and will fail the first time it starts: say so while it is in view. -->
+    <div v-if="warningsShown.length > 0" class="mb-3 space-y-2">
+      <Notice
+        v-for="warning in warningsShown"
+        :key="warning"
+        tone="warn"
+        :title="t('addServer.warningTitle')"
+      >
+        {{ warning }}
+      </Notice>
+      <AppButton size="sm" @click="open = false; reset()">
+        {{ t('addServer.warningDismiss') }}
+      </AppButton>
+    </div>
     <p
       v-if="formError"
       role="alert"

@@ -19,6 +19,8 @@ const emit = defineEmits<{ close: [] }>()
 
 const workspace = useWorkspaces()
 const error = ref<string | null>(null)
+/** What the panel said about the entry it just created, while the dialog stays open. */
+const warningsShown = ref<string[]>([])
 const busy = ref(false)
 const fields = ref<InstanceType<typeof ServerFormFields> | null>(null)
 
@@ -172,6 +174,15 @@ async function submit(): Promise<void> {
     }
 
     selectedId.value = parsed.id
+    // A warning is not a refusal: the entry exists and will fail the first time it starts. Show it
+    // here rather than closing on a success the next minute contradicts.
+    const warnings = outcome.value?.warnings ?? []
+    if (warnings.length > 0) {
+      warningsShown.value = warnings
+      reset()
+      return
+    }
+
     flash(`added ${parsed.id}`)
     reset()
     emit('close')
@@ -209,6 +220,16 @@ async function submit(): Promise<void> {
             </template>
           </ServerFormFields>
 
+          <div v-if="warningsShown.length > 0" class="stack">
+            <p v-for="warning in warningsShown" :key="warning" class="note note--warn">
+              {{ warning }}
+            </p>
+            <div class="actions">
+              <button type="button" class="btn btn--sm" @click="emit('close')">
+                understood — close
+              </button>
+            </div>
+          </div>
           <p v-if="error" class="note note--error">
             {{ error }}
           </p>

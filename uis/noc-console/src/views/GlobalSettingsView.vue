@@ -3,6 +3,7 @@ import type { AuthStatus, BackupScope, BackupsView, ControlView } from '@shared/
 import type { Patch } from '@shared/patch-diff'
 import type { BackupFile, BackupPathEntry, SettingsSaveResult, SettingsView } from '@/lib/api'
 import { errorMessage } from '@shared/error-message'
+import { EXPOSED_PASSWORD_MIN_LENGTH } from '@shared/password-policy'
 import { countLeaves, describeChanges } from '@shared/patch-diff'
 import { msToSeconds, secondsToMsOr } from '@shared/ui-format'
 import { computed, onMounted, reactive, ref, shallowReactive, watch } from 'vue'
@@ -392,6 +393,15 @@ const confirmPassword = ref('')
 const passwordMessage = ref<string | null>(null)
 const passwordError = ref<string | null>(null)
 const passwordSaving = ref(false)
+
+/**
+ * The bar the panel enforces for a panel reachable from the network.
+ *
+ * `checkExposure` and `POST /api/auth/password` refuse a shorter one with `400 PASSWORD_TOO_SHORT`,
+ * and this page would show that only after a save. Stating it while typing means the refusal is not
+ * the first place a person hears it. The constant comes from the shared policy, never a literal.
+ */
+const belowExposureBar = computed(() => newPassword.value.length > 0 && newPassword.value.length < EXPOSED_PASSWORD_MIN_LENGTH)
 
 async function savePassword(): Promise<void> {
   passwordError.value = null
@@ -824,8 +834,8 @@ async function revertUi(): Promise<void> {
             </div>
 
             <p v-if="usingDefaultPassword" class="note note--warn">
-              The panel is still using the default password. Change it below — binding
-              beyond <code>127.0.0.1</code> stays refused until you do.
+              The panel is still using the first-run password it started with. Change it below —
+              binding beyond <code>127.0.0.1</code> stays refused until you do.
             </p>
             <p v-if="blockedReason" class="note note--error">
               {{ blockedReason }}
@@ -869,6 +879,10 @@ async function revertUi(): Promise<void> {
             <p v-if="newPassword.length > 0 && newPassword.length < 8" class="note note--warn">
               That is a short password. It is allowed, but only you can guess it — exposure
               beyond <code>127.0.0.1</code> stays available once the default is replaced.
+            </p>
+            <p v-if="belowExposureBar" class="note note--warn">
+              {{ EXPOSED_PASSWORD_MIN_LENGTH }} characters is the bar for a panel reachable from the
+              network — below it, binding beyond <code>127.0.0.1</code> stays refused.
             </p>
             <p v-if="passwordError" class="note note--error">
               {{ passwordError }}
