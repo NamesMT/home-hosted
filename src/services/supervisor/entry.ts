@@ -37,7 +37,44 @@ export interface SupervisorOptions {
    * supervisor (a unit harness) has no siblings.
    */
   siblingServers?: () => Promise<SiblingServer[]>
+  /**
+   * When a schedule next comes due, asked of the scheduler that owns the clock.
+   *
+   * A function rather than the service, so a unit harness with no scheduler simply omits it and the
+   * view reports `nextRunAt: null`. The view runs many times per second; the scheduler's search is
+   * cheap but it is still its question, not the view's.
+   */
+  nextRunAt?: (schedule: string | undefined) => number | null
 }
+
+/**
+ * One run of a job, in flight. `startedAt` is when the child was spawned (the duration's start) and
+ * `cancelled` is set by a stop so an interrupted run reports "stopped", not a failure it did not have.
+ */
+export interface JobRun {
+  child: ChildProcess
+  startedAt: number
+  pid: number | null
+  /** Set by `stop()`: the exit that follows is this run's end, not a failure. */
+  cancelled: boolean
+  /** Resolves when the child has exited and its outcome has been recorded. */
+  done: Promise<JobOutcome>
+}
+
+/** How one job run ended: its exit code, how long it took, and whether it was cut short. */
+export interface JobOutcome {
+  /** `null` when a signal killed it (or a stop interrupted it), which is not an exit status. */
+  exitCode: number | null
+  signal: string | null
+  durationMs: number
+  /** A stop ended this run, so its non-zero status is not a failure to report. */
+  cancelled: boolean
+}
+
+/** What `runJob` answers: whether a run happened, and how it ended when it did. */
+export type JobRunResult
+  = | { ok: true, outcome: JobOutcome }
+    | { ok: false, error: string, code: 'UNKNOWN_SERVER' | 'NOT_A_JOB' | 'SERVER_DISABLED' | 'JOB_RUNNING' | 'JOB_FAILED' | 'JOB_START_FAILED' }
 
 export interface StartResult {
   ok: boolean
@@ -132,6 +169,26 @@ export interface Entry {
    */
   stopTask: Promise<StartResult> | null
   bootstrapChild: ChildProcess | null
+  /** A deploy is running right now: a second one answers `DEPLOY_RUNNING`. */
+  deploying: boolean
+  /** The step's process, so a stop can kill its whole group. `null` between steps. */
+  deployChild: ChildProcess | null
+  /** When the last deploy finished, and how it went — what the view reports. */
+  deployLastAt: number | null
+  deployLastOutcome: 'ok' | 'failed' | null
+  deployLastError: string | null
+  /**
+   * The job run in flight, if any — a run-to-completion child whose exit *is* the outcome.
+   *
+   * Kept apart from `child`/`pid`, which mean "a service this entry supervises": a job's process is
+   * never probed, never restarted and never adopted, and putting it in those fields would make every
+   * health and liveness path treat a finished run as a crashed service.
+   */
+  job: JobRun | null
+  /** When the scheduler last started this job and how it ended, kept in memory by the scheduler. */
+  jobLastExitCode: number | null
+  jobLastRunAt: number | null
+  jobLastOverlapAt: number | null
   /** Who asked for the start in flight, recorded on its history event. */
   actor: HistoryActor
   /**
@@ -211,6 +268,15 @@ export function createEntry(config: ServerConfig, nannyDir: string): Entry {
     bootstrapChild: null,
     actor: 'policy',
     stopActor: null,
+    deploying: false,
+    deployChild: null,
+    deployLastAt: null,
+    deployLastOutcome: null,
+    deployLastError: null,
+    job: null,
+    jobLastExitCode: null,
+    jobLastRunAt: null,
+    jobLastOverlapAt: null,
     startedFrom: null,
     removed: false,
     bootstrapDone: persisted?.bootstrapDone ?? !config.bootstrap,

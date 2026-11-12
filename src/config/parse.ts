@@ -19,6 +19,7 @@ import {
   WORKSPACE_SETTINGS_KEYS,
 } from '#src/config/schema'
 import { appVersion } from '#src/helpers/version'
+import { serverKindProblems } from '#src/shared/contracts'
 import { isRecord } from '#src/shared/shape'
 
 export interface ConfigParse<T> {
@@ -283,6 +284,20 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
     const server = parsed.value as ServerConfig
     if (seen.has(server.id)) {
       errors.push(`${label}: duplicate id "${server.id}"`)
+      return
+    }
+    // A `kind`/`schedule` pair the schema cannot judge (a job with a port, a service with a cron
+    // expression, a schedule that does not parse). Refused here rather than warned: a job whose
+    // expression is nonsense would either never run or run at a time nobody chose, and `up` refusing
+    // with the sentence is how a person finds out before the schedule silently does nothing.
+    const kindProblems = serverKindProblems({
+      kind: server.kind,
+      schedule: server.schedule,
+      port: server.port,
+      declaredKeys: isRecord(entry) ? Object.keys(entry) : [],
+    })
+    if (kindProblems.length > 0) {
+      errors.push(`${label} ("${server.id}"): ${kindProblems.join('; ')}`)
       return
     }
     seen.add(server.id)

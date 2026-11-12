@@ -76,6 +76,8 @@ export type FieldKey
   = | 'id' | 'label' | 'command' | 'args' | 'cwd' | 'port' | 'bind' | 'customBind'
     | 'enabled' | 'autostart' | 'persistent' | 'onPortConflict' | 'logBufferLines'
     | 'liveBind' | 'dependsOn' | 'maxRssMb' | 'envFile' | 'secretEnv'
+    | 'kind' | 'schedule'
+    | 'deploySteps' | 'deployRestart'
     | 'env' | 'dataEnvs' | 'backupPaths' | 'backupIgnoreGenerated'
     | 'bootstrapEnabled' | 'bootstrapCommand' | 'bootstrapTimeoutSeconds' | 'bootstrapRunOnce'
     | 'bootstrapArgs' | 'bootstrapEnv'
@@ -115,6 +117,10 @@ export function blankSharedForm(variant: FormVariant, defaults?: ServerDefaults 
     dependsOn: '',
     envFile: '',
     secretEnv: '',
+    kind: 'service',
+    schedule: '',
+    deploySteps: '',
+    deployRestart: true,
     maxRssMb: '',
     onPortConflict: defaults?.onPortConflict ?? 'block',
     logBufferLines: sheet ? '' : '500',
@@ -147,6 +153,14 @@ interface ServerFormShape {
   envFile: string
   /** The declared secret **names**, one per line. A value never enters this model. */
   secretEnv: string
+  /** `service` or `job` — a job runs to completion on a schedule and its exit code is the outcome. */
+  kind: 'service' | 'job'
+  /** The job's 5-field cron expression; blank means "no schedule". */
+  schedule: string
+  /** Deploy steps, one per line: `command arg arg`. Blank means "no deploy action". */
+  deploySteps: string
+  /** Whether a successful deploy restarts the entry. */
+  deployRestart: boolean
   maxRssMb: string
   onPortConflict: OnPortConflict
   logBufferLines: string
@@ -247,6 +261,15 @@ const COMMON = {
   loadArgs: { label: 'args — one per line', control: 'textarea', rows: 2, enabledBy: 'loadEnabled', full: true },
   loadEnv: { label: 'env — KEY=value per line', control: 'textarea', rows: 2, enabledBy: 'loadEnabled', full: true },
   secretEnv: { label: 'secret env names', control: 'textarea', rows: 2, placeholder: 'DATABASE_URL', hint: 'one name per line; the values live in the workspace secrets file, never in this config', full: true },
+  kind: {
+    label: 'entry kind',
+    control: 'select',
+    options: [{ value: 'service', label: 'service — supervised continuously' }, { value: 'job', label: 'job — runs to completion, exit code is the outcome' }],
+    hint: 'a job has no port, no health check and no restart policy',
+  },
+  schedule: { label: 'schedule (5-field cron)', control: 'text', placeholder: '0 3 * * *', hint: 'minute hour day-of-month month day-of-week, host local time. Only a job takes one' },
+  deploySteps: { label: 'deploy steps', control: 'textarea', rows: 3, placeholder: 'git pull', hint: 'one step per line: `command arg arg`. A failed step stops the sequence and leaves the running process alone', full: true },
+  deployRestart: { label: 'restart after a successful deploy', control: 'check' },
 } satisfies Partial<Record<FieldKey, FieldSpec>>
 /**
  * What the sheet spells differently. A key here **replaces** its common entry outright,
@@ -358,7 +381,7 @@ export interface FormSection {
  */
 export const FORM_LAYOUT: Record<FormVariant, FormSection[]> = {
   sheet: [
-    { container: 'grid', fields: ['id', 'label', 'command', 'args', 'cwd', 'port', 'bind', 'customBind', 'autostart', 'persistent'] },
+    { container: 'grid', fields: ['id', 'kind', 'label', 'command', 'args', 'cwd', 'port', 'bind', 'customBind', 'schedule', 'autostart', 'persistent'] },
     {
       container: 'fold',
       fields: [],
@@ -379,7 +402,7 @@ export const FORM_LAYOUT: Record<FormVariant, FormSection[]> = {
     },
   ],
   page: [
-    { container: 'pane', title: 'process', fields: ['label', 'command', 'cwd', 'envFile', 'args', 'env', 'dataEnvs', 'backupPaths', 'backupIgnoreGenerated'] },
+    { container: 'pane', title: 'process', fields: ['kind', 'schedule', 'label', 'command', 'cwd', 'envFile', 'args', 'env', 'dataEnvs', 'backupPaths', 'backupIgnoreGenerated'] },
     {
       container: 'pane',
       title: 'port & binding',
@@ -501,6 +524,10 @@ export function pageFormFrom(config: ServerConfig): PageForm {
     dependsOn: edit.dependsOn,
     envFile: edit.envFile,
     secretEnv: edit.secretEnv,
+    kind: edit.kind,
+    schedule: edit.schedule,
+    deploySteps: edit.deploySteps,
+    deployRestart: edit.deployRestart,
     maxRssMb: text(edit.maxRssMb),
     port: text(edit.port),
     bind: standard ? edit.bind : 'custom',
@@ -556,6 +583,10 @@ export function editFormFromPage(form: PageForm): ServerEditForm {
     dependsOn: form.dependsOn,
     envFile: form.envFile,
     secretEnv: form.secretEnv,
+    kind: form.kind,
+    schedule: form.schedule,
+    deploySteps: form.deploySteps,
+    deployRestart: form.deployRestart,
     maxRssMb: form.maxRssMb,
     port: form.port,
     bind: form.bind === 'custom' ? form.customBind : form.bind,

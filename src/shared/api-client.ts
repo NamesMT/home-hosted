@@ -15,7 +15,7 @@
  * names, and three drifts. The only genuine difference was *where the workspace comes from*, which
  * is now one injected resolver — see `useWorkspaceResolver`.
  */
-import type { AppState, BackupSelection, DdnsConfig, DdnsView, FreePortResult, LogHistoryView, LogServerView, ProxyPatch, ProxyView, RestorePlan, ServerCreate, ServerPatch, ServerView, SessionView, SettingsPatch, SettingsSaved, SettingsView, UiStatus, WorkspaceCreate, WorkspaceSettingsPatch, WorkspaceSettingsView, WorkspaceView, WslTemperatureStatus } from './contracts'
+import type { AppState, BackupSelection, DdnsConfig, DdnsView, FreePortResult, JobRunResultBody, LogHistoryView, LogServerView, ProxyPatch, ProxyView, RestorePlan, ServerCreate, ServerPatch, ServerView, SessionView, SettingsPatch, SettingsSaved, SettingsView, UiStatus, WorkspaceCreate, WorkspaceSettingsPatch, WorkspaceSettingsView, WorkspaceView, WslTemperatureStatus } from './contracts'
 import { type } from 'arktype'
 import { backupSelectionSchema, ddnsViewSchema, freePortResultSchema, logHistoryViewSchema, loginSchema, logServersViewSchema, passwordSchema, proxyCertificateUploadSchema, proxyPatchSchema, proxyViewSchema, settingsPatchSchema, settingsSavedSchema, tlsReviewResponseSchema, tlsUploadSchema, workspaceCreateSchema, workspaceRenameSchema, workspaceSettingsPatchSchema, workspaceSettingsViewSchema, workspaceViewSchema } from './contracts'
 import { parseState } from './live-frames'
@@ -721,6 +721,31 @@ export async function checkDdns(workspace?: string | null): Promise<DdnsView> {
  * `{ ok: false, error }` rather than the `{ message }` envelope, and `failureMessage` reads both, so
  * "port 3000 is already in use" still reaches the toast instead of "request failed with 409".
  */
+/**
+ * Runs an entry's deploy steps. **Waits** for the outcome, because that is what the caller asked for;
+ * the steps' output goes to the entry's log, not to this answer.
+ *
+ * A refusal is a `DetailedError` the caller shows as it is: `NO_DEPLOY` says the entry has no steps,
+ * `DEPLOY_RUNNING` that one is already going, and `DEPLOY_FAILED` that a step failed and the old
+ * process is still what runs.
+ */
+export function deployServer(id: string, workspace?: string | null): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(scoped(`/api/servers/${encodeURIComponent(id)}/deploy`, workspace), { method: 'POST' })
+}
+
+/**
+ * Runs a job **now**, and waits for its outcome.
+ *
+ * A job is run-to-completion, so `exitCode` is the answer and it travels beside the boolean: a caller
+ * that must tell "exited 3" from "killed by a signal" has both. A non-zero exit answers `409
+ * JOB_FAILED` with `exitCode` in `detail`, which `failureMessage` turns into the sentence a card shows.
+ *
+ * `nextRunAt`/`lastRunAt` on the view refresh from the scheduler, so the caller re-reads state after.
+ */
+export function runJob(id: string, workspace?: string | null): Promise<JobRunResultBody> {
+  return request<JobRunResultBody>(scoped(`/api/servers/${encodeURIComponent(id)}/run`, workspace), { method: 'POST' })
+}
+
 export async function serverAction(id: string, action: 'start' | 'stop' | 'restart', workspace?: string | null): Promise<ActionResult> {
   const response = await fetch(scoped(`/api/servers/${encodeURIComponent(id)}/${action}`, workspace), {
     method: 'POST',

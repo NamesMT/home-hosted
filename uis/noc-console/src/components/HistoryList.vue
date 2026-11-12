@@ -11,6 +11,10 @@ const tone: Record<HistoryEvent['type'], string> = {
   'forced-restart': 'warn',
   'unhealthy': 'warn',
   'recovered': 'ok',
+  // A deploy's tone comes from its outcome; the row prints that, so the type is neutral here.
+  'deploy': 'neutral',
+  // A run's tone is its outcome too (`ok`/`failed`), which the detail line spells out.
+  'job-run': 'neutral',
 }
 </script>
 

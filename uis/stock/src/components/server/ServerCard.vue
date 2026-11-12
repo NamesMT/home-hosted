@@ -4,6 +4,7 @@ import type { ServerSeries } from '@/lib/telemetry'
 import {
   CircleAlert,
   CircleCheck,
+  Download,
   ExternalLink,
   MoreHorizontal,
   Play,
@@ -19,6 +20,7 @@ import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
 import { DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuTrigger } from 'reka-ui'
 import { computed, ref } from 'vue'
+import { jobScheduleText } from '@/components/server/jobSchedule'
 import KillPortButton from '@/components/server/KillPortButton.vue'
 import MetricSpark from '@/components/telemetry/MetricSpark.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -52,11 +54,20 @@ const EVENT_ICONS = {
   'forced-restart': RotateCw,
   'unhealthy': TriangleAlert,
   'recovered': CircleCheck,
+  // A deploy's icon matches the button that triggers it, so a person scanning history sees the
+  // same shape they pressed.
+  'deploy': Download,
+  // A run's icon is the Run now button's, for the same reason a deploy's is.
+  'job-run': Play,
 } as const
 
 const control = useControlPlane()
 const workspace = useWorkspaces()
 const busy = ref(false)
+/** A deploy's refusal, shown beside the button that produced it. */
+const deployError = ref<string | null>(null)
+/** A run's refusal, for the same reason and in the same place. */
+const jobError = ref<string | null>(null)
 const confirmRemove = ref(false)
 
 const config = computed(() => props.server.config)
@@ -136,8 +147,70 @@ const meta = computed(() => {
     rows.splice(5, 0, { key: 'crashes', label: t('serverCard.crashes24h'), value: String(server.history.crashes) })
   if (server.history.lastCrashAt !== null)
     rows.push({ key: 'lastcrash', label: t('serverCard.lastCrash'), value: formatAgo(server.history.lastCrashAt, props.now) })
+  /**
+   * A job's two clocks replace the process readings above, which describe a service.
+   *
+   * A job has no PID between runs, no uptime and no probe, so a card that kept `PID —` and
+   * `Probe —` beside `Stopped` said nothing about what a job actually is. `nextRunAt` is `null` on a
+   * panel from before this release (and on a broken expression), which reads as the honest `—`.
+   */
+  if (server.config.kind === 'job') {
+    const schedule = server.config.schedule
+    const nextRunAt = server.job?.nextRunAt ?? null
+    return [
+      { key: 'schedule', label: t('job.schedule'), value: schedule ?? '—', title: schedule === undefined ? undefined : jobScheduleText(schedule) },
+      { key: 'nextrun', label: t('serverCard.nextRun'), value: nextRunAt === null ? '—' : relativeFrom(nextRunAt, props.now) },
+      { key: 'lastrun', label: t('serverCard.lastRun'), value: server.job?.lastRunAt == null ? t('serverCard.neverRan') : formatAgo(server.job.lastRunAt, props.now) },
+      { key: 'lastexit', label: t('serverCard.lastExit'), value: server.job?.lastExitCode == null ? '—' : String(server.job.lastExitCode) },
+    ]
+  }
   return rows
 })
+
+/** Whether this entry has deploy steps, and what the last deploy did. */
+const deploy = computed(() => props.server.deploy)
+
+/** A job's schedule and its last run, from the view the panel builds. */
+const job = computed(() => props.server.job)
+
+/**
+ * Runs the job now, and shows the panel's answer where the button is.
+ *
+ * A job's exit code is its outcome, so a failed run is a sentence a person needs, not a silent
+ * no-op: `JOB_FAILED` already carries "exit code 3", and the run's own output is in its log.
+ */
+async function runJobNow(): Promise<void> {
+  busy.value = true
+  jobError.value = null
+  try {
+    await control.runJob(props.workspaceId, props.server.id)
+  }
+  catch (caught) {
+    jobError.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    busy.value = false
+  }
+}
+
+/**
+ * Runs the deploy and waits: the panel's own answer says which step failed, and the restart that
+ * follows a success is part of the same action.
+ */
+async function runDeploy(): Promise<void> {
+  busy.value = true
+  try {
+    await control.deploy(props.workspaceId, props.server.id)
+  }
+  catch (caught) {
+    // The refusal is already a sentence a person can act on (`NO_DEPLOY`, `DEPLOY_RUNNING`,
+    // `DEPLOY_FAILED` naming the step), so it is shown as it is.
+    deployError.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    busy.value = false
+  }
+}
 
 async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
   busy.value = true
@@ -360,20 +433,51 @@ function openDetail(): void {
          row: unwrapped they held the card open wider than the screen and pushed the `…`
          menu off the right edge. Wrapping keeps every action reachable. -->
     <div class="mt-auto flex flex-wrap items-center gap-1.5 border-t border-line-soft px-4 py-2.5">
-      <AppButton
-        variant="primary"
-        size="xs"
-        :disabled="busy || !canStart"
-        @click="act('start')"
-      >
-        <Play class="size-3" />{{ t('serverCard.start') }}
-      </AppButton>
-      <AppButton size="xs" :disabled="busy || !canStop" @click="act('stop')">
-        <Square class="size-3" />{{ t('serverCard.stop') }}
-      </AppButton>
-      <AppButton size="xs" :disabled="busy || !config.enabled" @click="act('restart')">
-        <RotateCw class="size-3" />{{ t('serverCard.restart') }}
-      </AppButton>
+      <!--
+        A job's primary action is Run now, not Start: it has no long-running process to start, and
+        `start` on a job would mean something the person did not ask for. The stop button doubles as
+        "end the run in flight", which is why it stays.
+      -->
+      <template v-if="config.kind === 'job'">
+        <Tip :label="t('serverCard.runHint')">
+          <AppButton
+            variant="primary"
+            size="xs"
+            :disabled="busy || !config.enabled || job?.running === true"
+            @click="runJobNow"
+          >
+            <Play class="size-3" />{{ job?.running === true ? t('serverCard.running') : t('serverCard.runNow') }}
+          </AppButton>
+        </Tip>
+        <AppButton size="xs" :disabled="busy || job?.running !== true" @click="act('stop')">
+          <Square class="size-3" />{{ t('serverCard.stop') }}
+        </AppButton>
+      </template>
+      <template v-else>
+        <AppButton
+          variant="primary"
+          size="xs"
+          :disabled="busy || !canStart"
+          @click="act('start')"
+        >
+          <Play class="size-3" />{{ t('serverCard.start') }}
+        </AppButton>
+        <AppButton size="xs" :disabled="busy || !canStop" @click="act('stop')">
+          <Square class="size-3" />{{ t('serverCard.stop') }}
+        </AppButton>
+        <AppButton size="xs" :disabled="busy || !config.enabled" @click="act('restart')">
+          <RotateCw class="size-3" />{{ t('serverCard.restart') }}
+        </AppButton>
+      </template>
+      <!--
+        Only for an entry that declares deploy steps: a button that always refused would be a
+        permanent error sitting next to the two that work.
+      -->
+      <Tip v-if="deploy !== undefined" :label="t('serverCard.deployHint')">
+        <AppButton size="xs" :disabled="busy || deploy.running === true" @click="runDeploy">
+          <Download class="size-3" />{{ deploy.running === true ? t('serverCard.deploying') : t('serverCard.deploy') }}
+        </AppButton>
+      </Tip>
 
       <Tip :label="t('serverCard.detailsHint')">
         <RouterLink :to="detailPath" @click="openDetail">
@@ -428,6 +532,21 @@ function openDetail(): void {
         </DropdownMenuPortal>
       </DropdownMenuRoot>
     </div>
+
+    <!-- A deploy refusal, under the buttons that produced it. The sentence names the step, so it is
+         shown as the panel wrote it rather than re-worded here. -->
+    <p v-if="jobError" class="mt-2 flex items-start gap-1.5 text-2xs leading-4 text-danger">
+      <CircleAlert class="mt-0.5 size-3 shrink-0" />
+      <span class="min-w-0 break-words">{{ jobError }}</span>
+    </p>
+    <p v-if="deployError" class="mt-2 flex items-start gap-1.5 text-2xs leading-4 text-danger">
+      <CircleAlert class="mt-px size-3 shrink-0" />
+      <span>{{ deployError }}</span>
+    </p>
+    <p v-else-if="deploy?.lastOutcome === 'failed'" class="mt-2 flex items-start gap-1.5 text-2xs leading-4 text-danger">
+      <CircleAlert class="mt-px size-3 shrink-0" />
+      <span>{{ t('serverCard.lastDeployFailed') }}</span>
+    </p>
 
     <Modal
       v-model:open="confirmRemove"

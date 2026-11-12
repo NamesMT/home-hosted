@@ -86,6 +86,14 @@ export interface ServerEditForm<N extends NumericInput = NumericInput> {
    * into whatever a browser keeps; the values go through their own write-only route.
    */
   secretEnv: string
+  /** `service` or `job` — a job is a run-to-completion entry with its own lifecycle. */
+  kind: 'service' | 'job'
+  /** The job's 5-field cron expression; blank means "no schedule". */
+  schedule: string
+  /** One deploy step per line: `command arg arg`. Blank means "no deploy action". */
+  deploySteps: string
+  /** Whether a successful deploy restarts the entry. */
+  deployRestart: boolean
   /** MiB; blank is "no guard". */
   maxRssMb: N
   /** Blank is "no port". */
@@ -130,6 +138,11 @@ export function serverEditForm(config: ServerConfig): ServerEditForm<number | nu
     envFile: config.envFile,
     // Absent on a panel that predates the field, and on an entry that declares no secrets.
     secretEnv: (config.secretEnv ?? []).join('\n'),
+    // Absent on a panel that predates the field, and on every config written before jobs existed.
+    kind: config.kind === 'job' ? 'job' : 'service',
+    schedule: config.schedule ?? '',
+    deploySteps: (config.deploy?.steps ?? []).map(step => [step.command, ...step.args].join(' ')).join('\n'),
+    deployRestart: config.deploy?.restart !== false,
     maxRssMb: config.resources.maxRssBytes > 0 ? Math.round(config.resources.maxRssBytes / 1024 / 1024) : null,
     port: config.port ?? null,
     bind: config.bind,
@@ -202,6 +215,35 @@ function lifecycle<T>(group: object, filled: T): T {
  * `filled` is the config the form was filled from: a box that decided nothing falls back to its
  * value. That is also what `serverEditPatch` diffs against, so an untouched field never travels.
  */
+/**
+ * The `deploy` group from the editor's textarea, or `null` to remove it.
+ *
+ * `null` — not an empty list — is what "no deploy action" means, and the schema refuses an empty step
+ * list on purpose, so an emptied box must send `null` rather than `{ steps: [] }`.
+ *
+ * A step's own `cwd` and `timeoutMs` are **kept** from the config when the line is unchanged: the
+ * textarea edits commands and arguments, and a save must not silently drop a timeout a person set
+ * elsewhere. Matching is by position, which is the only identity a one-line-per-step list has.
+ */
+function deployPayload(text: string, restart: boolean, filled: ServerConfig) {
+  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0)
+  if (lines.length === 0)
+    return null
+  return {
+    steps: lines.map((line, index) => {
+      const [command = '', ...args] = line.split(/\s+/)
+      const previous = filled.deploy?.steps[index]
+      return {
+        command,
+        args,
+        ...(previous?.cwd === undefined ? {} : { cwd: previous.cwd }),
+        ...(previous?.timeoutMs === undefined ? {} : { timeoutMs: previous.timeoutMs }),
+      }
+    }),
+    restart,
+  }
+}
+
 export function serverEditPayload(form: ServerEditForm, filled: ServerConfig): Patch {
   const maxRssMb = readFormNumber(form.maxRssMb)
   const logBufferLines = readFormNumber(form.logBufferLines)
@@ -221,6 +263,11 @@ export function serverEditPayload(form: ServerEditForm, filled: ServerConfig): P
     dependsOn: commaList(form.dependsOn),
     envFile: form.envFile.trim(),
     secretEnv: linesToArray(form.secretEnv),
+    kind: form.kind,
+    // Blank sends `null`, which removes the key: "no schedule" has to be expressible, and an omitted
+    // key cannot say it (a patch that omits it keeps the stored one).
+    schedule: form.schedule.trim().length === 0 ? null : form.schedule.trim(),
+    deploy: deployPayload(form.deploySteps, form.deployRestart, filled),
     resources: { maxRssBytes: Number.isFinite(maxRssMb) && maxRssMb > 0 ? Math.round(maxRssMb * 1024 * 1024) : 0 },
     // Blank is "no port"; something unreadable stays NaN so validation names it.
     port: isBlankInput(form.port) ? null : readFormNumber(form.port),

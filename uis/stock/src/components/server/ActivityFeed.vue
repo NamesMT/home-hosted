@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { HistoryEvent, ServerView } from '@shared/contracts'
 import type { HistoryType } from '@/lib/status'
-import { CircleAlert, CircleCheck, Play, RotateCw, Square, TriangleAlert } from '@lucide/vue'
+import { CircleAlert, CircleCheck, Download, Play, RotateCw, Square, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { useWorkspaces } from '@/composables/useWorkspaces'
@@ -38,6 +38,8 @@ const ICONS = {
   'forced-restart': RotateCw,
   'unhealthy': TriangleAlert,
   'recovered': CircleCheck,
+  'deploy': Download,
+  'job-run': Play,
 } as const
 
 interface Row extends HistoryEvent {

@@ -254,5 +254,40 @@ export function useControlPlane() {
       }
       return outcome
     },
+
+    /**
+     * Runs an entry's deploy steps and waits. The refusal (`NO_DEPLOY`, `DEPLOY_RUNNING`,
+     * `DEPLOY_FAILED` naming the step) is **thrown**, not flashed: the detail view shows it beside the
+     * button, which is where the person is looking.
+     */
+    /**
+     * Runs a job now and waits. The refusal (`NOT_A_JOB`, `JOB_RUNNING`, `JOB_FAILED` carrying the
+     * exit code) is **thrown**, like a deploy's: the detail view shows it beside the button.
+     */
+    async runJob(workspaceId: string, id: string): Promise<void> {
+      const key = serverKey(workspaceId, id)
+      inFlight.add(key)
+      try {
+        await api.runJob(id, workspaceId)
+        flash(`${id}: ran`)
+        await useControlPlane().refresh()
+      }
+      finally {
+        inFlight.delete(key)
+      }
+    },
+
+    async deploy(workspaceId: string, id: string): Promise<void> {
+      const key = serverKey(workspaceId, id)
+      inFlight.add(key)
+      try {
+        await api.deployServer(id, workspaceId)
+        flash(`${id}: deployed`)
+        await useControlPlane().refresh()
+      }
+      finally {
+        inFlight.delete(key)
+      }
+    },
   }
 }

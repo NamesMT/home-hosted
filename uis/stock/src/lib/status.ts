@@ -96,6 +96,8 @@ export const HISTORY_TYPE_LABEL_KEY = {
   'forced-restart': 'history.forcedRestart',
   'unhealthy': 'history.unhealthy',
   'recovered': 'history.recovered',
+  'deploy': 'history.deploy',
+  'job-run': 'history.jobRun',
 } as const
 
 export type HistoryType = keyof typeof HISTORY_TYPE_LABEL_KEY
@@ -107,4 +109,10 @@ export const HISTORY_TYPE_TONE: Record<HistoryType, Tone> = {
   'forced-restart': 'warn',
   'unhealthy': 'warn',
   'recovered': 'info',
+  // A deploy's tone comes from its outcome, not the type; `ok` is the neutral case and the card's
+  // own failure line colours the other. Keeping it a plain record means the maps stay exhaustive.
+  'deploy': 'neutral',
+  // So does a job run's: `neutral` here, and the row itself is coloured by its `outcome` (`ok`,
+  // `failed`, `cancelled`, `overlap`).
+  'job-run': 'neutral',
 }

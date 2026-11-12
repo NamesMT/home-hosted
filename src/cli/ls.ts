@@ -24,17 +24,29 @@ export interface LsRow {
   autostart: boolean
   persistent: boolean
   enabled: boolean
+  /** `job` rows carry a schedule; a service is supervised continuously and has none. */
+  kind: 'service' | 'job'
+  /** The job's expression, as written. Absent on a service. */
+  schedule?: string
+  /**
+   * When the job next runs, from the panel's scheduler. `null` with no panel — the clock lives in the
+   * panel, and a config file cannot say whether it is running — and for a job whose expression is
+   * broken, which is the honest answer rather than a guess.
+   */
+  nextRunAt: number | null
 }
 
 interface ViewLike {
   id: string
   status?: string
-  config?: { port?: number | null, command?: string, args?: string[], autostart?: boolean, persistent?: boolean, enabled?: boolean }
+  job?: { nextRunAt?: number | null, running?: boolean }
+  config?: { port?: number | null, command?: string, args?: string[], autostart?: boolean, persistent?: boolean, enabled?: boolean, kind?: 'service' | 'job', schedule?: string }
 }
 
 /** A live view as a row; the view's config is the stored entry. */
 export function rowFromView(view: ViewLike): LsRow {
   const config = view.config ?? {}
+  const kind = config.kind === 'job' ? 'job' : 'service'
   return {
     id: view.id,
     status: view.status ?? null,
@@ -44,24 +56,70 @@ export function rowFromView(view: ViewLike): LsRow {
     autostart: config.autostart === true,
     persistent: config.persistent === true,
     enabled: config.enabled !== false,
+    kind,
+    ...(kind === 'job' && config.schedule !== undefined ? { schedule: config.schedule } : {}),
+    nextRunAt: kind === 'job' ? view.job?.nextRunAt ?? null : null,
   }
 }
 
-/** The table: `ID STATUS PORT COMMAND`, flags after the command. */
-export function lsLines(rows: readonly LsRow[]): string[] {
-  const header = ['ID', 'STATUS', 'PORT', 'COMMAND']
+/**
+ * The table: `ID STATUS PORT COMMAND`, flags after the command, and a `NEXT RUN` column once a job is
+ * listed.
+ *
+ * The column is **only** added when the workspace has a job: a services-only list keeps the four
+ * columns it has always had, and a column of dashes beside every row would be noise in the common case.
+ * A job's own `PORT` cell is a dash by contract (a job serves nothing), so the two new facts — its
+ * expression and its next run — take the space the port never used.
+ */
+export function lsLines(rows: readonly LsRow[], now = Date.now()): string[] {
+  const withJobs = rows.some(row => row.kind === 'job')
+  const header = withJobs ? ['ID', 'STATUS', 'PORT', 'COMMAND', 'NEXT RUN'] : ['ID', 'STATUS', 'PORT', 'COMMAND']
   const cells = rows.map((row) => {
-    const flags = [row.autostart ? 'autostart' : '', row.persistent ? 'persistent' : '', row.enabled ? '' : 'disabled'].filter(Boolean)
-    return [
+    const flags = [
+      row.kind === 'job' ? 'job' : '',
+      row.autostart ? 'autostart' : '',
+      row.persistent ? 'persistent' : '',
+      row.enabled ? '' : 'disabled',
+    ].filter(Boolean)
+    const columns = [
       row.id,
       row.status ?? '—',
       row.port === null ? '—' : String(row.port),
       `${[row.command, ...row.args].map(word => /[\s'"$`\\;()&|<>*?]/.test(word) ? shellQuote(word) : word).join(' ')}${flags.length === 0 ? '' : `  (${flags.join(', ')})`}`,
     ]
+    if (withJobs)
+      columns.push(row.kind === 'job' ? nextRunCell(row, now) : '—')
+    return columns
   })
-  const widths = header.slice(0, 3).map((title, index) => Math.max(title.length, ...cells.map(cell => cell[index]!.length)))
-  const line = (columns: string[]): string => [...columns.slice(0, 3).map((column, index) => column.padEnd(widths[index]!)), columns[3]!].join('  ').trimEnd()
+  const widths = header.slice(0, -1).map((title, index) => Math.max(title.length, ...cells.map(cell => cell[index]!.length)))
+  const line = (columns: string[]): string => [
+    ...columns.slice(0, -1).map((column, index) => column.padEnd(widths[index]!)),
+    columns[columns.length - 1]!,
+  ].join('  ').trimEnd()
   return [line(header), ...cells.map(line)]
+}
+
+/**
+ * A job's next run, short enough for a table: `in 4h 12m`, `running`, or `—`.
+ *
+ * `running` wins over the countdown, because that is the fact a person watching a long job needs. The
+ * wording is relative and unstyled: this is a terminal table, not a translated sentence.
+ */
+function nextRunCell(row: LsRow, now: number): string {
+  if (row.status === 'running')
+    return 'running'
+  if (row.nextRunAt === null)
+    return '—'
+  const delta = row.nextRunAt - now
+  if (delta <= 0)
+    return 'due'
+  const minutes = Math.round(delta / 60_000)
+  if (minutes < 60)
+    return `in ${Math.max(1, minutes)}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 48)
+    return `in ${hours}h ${minutes % 60}m`
+  return `in ${Math.floor(hours / 24)}d`
 }
 
 export async function runLs(input: { workspace?: string, json?: boolean }): Promise<void> {
@@ -98,16 +156,24 @@ export async function runLs(input: { workspace?: string, json?: boolean }): Prom
     const read = (await serversReader())(workspaceId)
     if (!read.complete)
       fail(`cannot read the servers of workspace "${workspaceId}" — \`${invocation()} up\` names the problem`)
-    rows = read.servers.map(server => ({
-      id: server.id,
-      status: null,
-      port: server.port ?? null,
-      command: server.command,
-      args: server.args,
-      autostart: server.autostart,
-      persistent: server.persistent,
-      enabled: server.enabled,
-    }))
+    rows = read.servers.map((server) => {
+      const kind = server.kind === 'job' ? 'job' : 'service'
+      return {
+        id: server.id,
+        status: null,
+        port: server.port ?? null,
+        command: server.command,
+        args: server.args,
+        autostart: server.autostart,
+        persistent: server.persistent,
+        enabled: server.enabled,
+        kind,
+        ...(kind === 'job' && server.schedule !== undefined ? { schedule: server.schedule } : {}),
+        // No panel, no clock: a job's next run is the panel's scheduler's to report, and guessing one
+        // from the file would be a number nobody computed.
+        nextRunAt: null,
+      }
+    })
   }
 
   if (input.json === true) {

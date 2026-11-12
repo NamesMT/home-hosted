@@ -1,0 +1,151 @@
+import type { ChildProcess } from 'node:child_process'
+import type { ServerConfig } from '#src/shared/contracts'
+import path from 'node:path'
+import { projectDir } from '#src/helpers/paths'
+import { resolveRecord, resolveTemplates } from '#src/helpers/template'
+import { forceKillTree, resolveCommand, resolveCwd, spawnManaged } from '#src/providers/process'
+import { serverTemplateVars } from '#src/providers/server-vars'
+import { LineSplitter } from '#src/services/log-buffer'
+
+/**
+ * Running an entry's `deploy` steps: in order, in its own environment, and stopping at the first
+ * failure.
+ *
+ * The shape is `runBootstrap`'s — the panel has one idea of what a declared command is, and both are
+ * "run this, stream its output into the entry's log, and let a stop interrupt it". What is different
+ * is the **outcome**: a bootstrap is best-effort on the way to a start, while a deploy *is* the
+ * action, so a failed step stops the sequence, notifies and leaves the running process alone —
+ * half-deployed is the state this exists to avoid, and the old process is the thing a person still
+ * has.
+ */
+
+/** What a deploy run produced. */
+export interface DeployOutcome {
+  ok: boolean
+  /** Which step failed, 1-based, and its message — absent on success. */
+  failedStep?: number
+  error?: string
+  /** How long every step took together. */
+  durationMs: number
+}
+
+/** The seams a test needs: spawn, the log sink, and the clock. */
+export interface DeployContext {
+  log: (stream: 'stdout' | 'stderr' | 'system', text: string) => void
+  /** Injected so a test's child is real but the panel's process module is not. */
+  spawn?: typeof spawnManaged
+  now?: () => number
+}
+
+/**
+ * Runs every step, then answers whether the whole deploy worked.
+ *
+ * **Never throws for a step failure** — a failed deploy is an outcome the caller records and reports,
+ * not an exception that leaves a route halfway through its answer.
+ *
+ * `cancelled()` is re-checked between steps *and* while one runs: a stop during a deploy kills the
+ * step's process group (`spawnManaged` gives it one), and the sequence ends there rather than
+ * carrying on to install the second half of a stopped entry.
+ */
+export async function runDeploy(
+  config: ServerConfig,
+  cancel: { cancelled: () => boolean, onChild?: (child: ChildProcess | null) => void },
+  context: DeployContext,
+): Promise<DeployOutcome> {
+  const started = context.now?.() ?? Date.now()
+  const deploy = config.deploy
+  if (deploy === undefined || deploy === null || deploy.steps.length === 0)
+    return { ok: false, error: 'this entry has no deploy steps', durationMs: 0 }
+
+  const spawnImpl = context.spawn ?? spawnManaged
+  const vars = serverTemplateVars(config)
+  const baseCwd = resolveCwd(config.cwd)
+
+  for (const [index, step] of deploy.steps.entries()) {
+    const position = index + 1
+    if (cancel.cancelled())
+      return { ok: false, failedStep: position, error: 'the deploy was stopped', durationMs: (context.now?.() ?? Date.now()) - started }
+
+    // A step's own `cwd` is resolved the same way the entry's is, then against the entry's — so a
+    // step may name a subdirectory, or a project-relative path, and both mean what they look like.
+    const cwd = step.cwd === undefined ? baseCwd : path.resolve(baseCwd, step.cwd)
+    const args = resolveTemplates(step.args, vars)
+    const command = resolveCommand(step.command, cwd, projectDir)
+    context.log('system', `deploy ${position}/${deploy.steps.length}: ${step.command} ${args.join(' ')}`.trim())
+
+    // One splitter per stream, tagged `deploy` so a person reading the log sees which phase a line
+    // came from — the same reason a bootstrap line is prefixed.
+    // The line's own stream is kept: a deploy's stderr reading as stdout would hide the one thing a
+    // failure is usually told by.
+    const emit = (stream: 'stdout' | 'stderr' | 'system', text: string): void => {
+      if (text.trim().length > 0)
+        context.log(stream, `[deploy] ${text}`)
+    }
+    const stdout = new LineSplitter(emit)
+    const stderr = new LineSplitter(emit)
+
+    let child: ChildProcess
+    try {
+      // The entry's own environment, so a step sees what the service sees — including `dataEnvs`.
+      // Declared secrets are merged by the supervisor, which holds the store; a deploy that needs a
+      // registry token reads the same variable the service does.
+      child = spawnImpl({ command, args, cwd, env: resolveRecord({ ...config.env, ...config.dataEnvs }, vars) })
+    }
+    catch (error) {
+      const message = (error as Error).message
+      context.log('system', `deploy step ${position} could not start: ${message}`)
+      return { ok: false, failedStep: position, error: message, durationMs: (context.now?.() ?? Date.now()) - started }
+    }
+    cancel.onChild?.(child)
+    child.stdout?.on('data', chunk => stdout.push('stdout', chunk))
+    child.stderr?.on('data', chunk => stderr.push('stderr', chunk))
+    child.once('close', () => {
+      stdout.flush('stdout')
+      stderr.flush('stderr')
+    })
+
+    let timedOut = false
+    let exitCode: number | null = null
+    let spawnError: string | null = null
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        timedOut = true
+        // Its own group, so a step that started something gets that too.
+        forceKillTree(child)
+      }, step.timeoutMs)
+      child.once('exit', (code) => {
+        clearTimeout(timer)
+        exitCode = code
+        resolve()
+      })
+      child.once('error', (error) => {
+        clearTimeout(timer)
+        spawnError = (error as Error).message
+        resolve()
+      })
+    })
+    cancel.onChild?.(null)
+
+    if (cancel.cancelled()) {
+      context.log('system', 'deploy stopped')
+      return { ok: false, failedStep: position, error: 'the deploy was stopped', durationMs: (context.now?.() ?? Date.now()) - started }
+    }
+    if (timedOut) {
+      const message = `step ${position} timed out after ${step.timeoutMs}ms`
+      context.log('system', `deploy failed: ${message}`)
+      return { ok: false, failedStep: position, error: message, durationMs: (context.now?.() ?? Date.now()) - started }
+    }
+    if (spawnError !== null && exitCode === null) {
+      context.log('system', `deploy step ${position} did not run: ${spawnError}`)
+      return { ok: false, failedStep: position, error: spawnError, durationMs: (context.now?.() ?? Date.now()) - started }
+    }
+    if (exitCode !== 0) {
+      const message = `step ${position} exited with code ${exitCode}`
+      context.log('system', `deploy failed: ${message}`)
+      return { ok: false, failedStep: position, error: message, durationMs: (context.now?.() ?? Date.now()) - started }
+    }
+    context.log('system', `deploy step ${position}/${deploy.steps.length} finished`)
+  }
+
+  return { ok: true, durationMs: (context.now?.() ?? Date.now()) - started }
+}

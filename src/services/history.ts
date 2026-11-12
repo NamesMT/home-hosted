@@ -72,6 +72,23 @@ export class HistoryStore {
     this.scheduleSave()
   }
 
+  /**
+   * When a server last recorded an event of one type, or `null` when it never has.
+   *
+   * The scheduler's boot catch-up asks this: a `job-run` event is the **durable** record of a run
+   * (the panel's in-memory clock is not), so it is what decides whether a panel that was down across
+   * an occurrence still owes one. Bounded by the same event log every other read is.
+   */
+  lastEventAt(serverId: string, type: HistoryEvent['type']): number | null {
+    this.load()
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const event = this.events[index]!
+      if (event.serverId === serverId && event.type === type)
+        return event.ts
+    }
+    return null
+  }
+
   /** `runningSince` adds the in-flight up-interval so a long-running server shows its real ratio. */
   summarize(serverId: string, windowMs: number, now = Date.now(), runningSince: number | null = null): ServerHistory {
     this.load()

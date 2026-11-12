@@ -62,6 +62,8 @@ const SYNOPSIS: Record<string, string> = {
   'secret': 'home-hosted secret set|unset|ls <id> [NAME] [--stdin] [--workspace <id>] [--json]',
   'import': 'home-hosted import pm2|compose <file> [--confirm] [--dry-run] [--allow-js] [--workspace <id>]',
   'token': 'home-hosted token create|ls|revoke [--name <name>] [--scope <scopes>] [--workspace <ids>]',
+  'deploy': 'home-hosted deploy <id> [--workspace <id>] [--json]',
+  'run': 'home-hosted run <id> [--workspace <id>] [--json]',
 }
 
 const SUMMARIES: Record<string, string> = {
@@ -89,6 +91,8 @@ const SUMMARIES: Record<string, string> = {
   'secret': 'a server\'s secret environment — the names are listed, the values never printed',
   'import': 'bring a pm2 ecosystem or a compose stack in as server entries',
   'token': 'named, scoped API tokens — create, list or revoke',
+  'deploy': 'run an entry\'s deploy steps and report the outcome',
+  'run': 'run a job now and report its exit code',
 }
 
 /** One option line, as the left column and the description that follows it. */
@@ -331,6 +335,24 @@ const TOKEN_SECTION: OptionSection = {
   ],
 }
 
+const DEPLOY_SECTION: OptionSection = {
+  heading: 'Options for deploy',
+  lines: [
+    ['<id>', 'the server whose `deploy` steps to run'],
+    ['-w, --workspace <id>', 'the workspace that owns it (default: the default workspace)'],
+    ['--json', 'print one document on stdout'],
+  ],
+}
+
+const RUN_SECTION: OptionSection = {
+  heading: 'Options for run',
+  lines: [
+    ['<id>', 'the `kind: "job"` entry to run now (a service is started with `start`)'],
+    ['-w, --workspace <id>', 'the workspace that owns it (default: the panel\'s default workspace)'],
+    ['--json', 'print one document on stdout'],
+  ],
+}
+
 const EVERYWHERE_SECTION: OptionSection = {
   heading: 'Everywhere',
   lines: [
@@ -423,6 +445,8 @@ const SECTIONS: Record<string, OptionSection> = {
   'secret': SECRET_SECTION,
   'import': IMPORT_SECTION,
   'token': TOKEN_SECTION,
+  'deploy': DEPLOY_SECTION,
+  'run': RUN_SECTION,
 }
 
 /**
@@ -501,6 +525,8 @@ const COMMANDS = {
   'secret': () => import('#src/cli/secret').then(module => module.secretCommand),
   'import': () => import('#src/cli/import').then(module => module.importCommand),
   'token': () => import('#src/cli/token').then(module => module.tokenCommand),
+  'deploy': () => import('#src/cli/run-deploy').then(module => module.deployCommand),
+  'run': () => import('#src/cli/run-job').then(module => module.runCommand),
 } satisfies SubCommandsDef
 
 const rootCommand = defineCommand({

@@ -32,7 +32,7 @@ import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { validateDdnsConfig } from '#src/providers/ddns'
 import { targetProblem } from '#src/providers/webhook'
-import { duplicateWebhookIds } from '#src/shared/contracts'
+import { duplicateWebhookIds, serverKindProblems } from '#src/shared/contracts'
 
 export { ConfigError }
 export type { ResolvedServersFile, ResolvedWorkspaceSettings }
@@ -485,11 +485,28 @@ export class WorkspaceStore {
     return parsed.value as T
   }
 
+  /**
+   * One entry against the schema **and** the rules a schema cannot state.
+   *
+   * `serverKindProblems` sees the entry's own keys before the workspace defaults are merged in, which
+   * is what lets a job be refused a `health` group the file declares while an untouched entry keeps the
+   * resolved one nobody wrote. Both refusals are `ConfigError`s, so `POST`/`PATCH` answer the same way
+   * (`INVALID_SERVER`) and a save never lands half-valid.
+   */
   private validateServer(entry: Record<string, unknown>, label: string): ServerConfig {
     const parsed = serverSchema(mergeDefaults(this.defaults as unknown as Record<string, unknown>, entry))
     if (parsed instanceof type.errors)
       throw new ConfigError(`${label}: ${parsed.summary}`)
-    return { ...parsed, port: parsed.port ?? null }
+    const server = { ...parsed, port: parsed.port ?? null }
+    const problems = serverKindProblems({
+      kind: server.kind,
+      schedule: server.schedule,
+      port: server.port,
+      declaredKeys: Object.keys(entry),
+    })
+    if (problems.length > 0)
+      throw new ConfigError(`${label}: ${problems.join('; ')}`)
+    return server
   }
 
   private commitSettings(draft: Record<string, unknown>): void {

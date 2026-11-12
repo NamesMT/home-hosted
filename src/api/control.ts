@@ -17,7 +17,7 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 
 import { selectionOf } from '#src/shared/backup-scope'
-import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverCreateSchema, serverSchema, serverSecretsSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, jobRunResultSchema, okResponseSchema, restorePlanSchema, serverCreateSchema, serverSchema, serverSecretsSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam } from '#src/shared/query-params'
 
@@ -105,6 +105,84 @@ export function createControlRoute(deps: AppDeps) {
         assertLocalCall(c, 'list servers')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         return c.json({ servers: runtime.supervisor.views() })
+      },
+    )
+
+    /**
+     * Run one entry's deploy steps, over the local channel — `home-hosted deploy` while the panel
+     * runs.
+     *
+     * `POST` like every other `/_hh` write, and it **waits** for the outcome: the CLI prints what
+     * happened, and a "started" answer would leave the caller believing a deploy succeeded that may
+     * still be on its first step.
+     */
+    .post(
+      '/servers/:id/deploy',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Run a server\'s deploy steps and wait for the outcome (local token required)',
+        responses: { 200: { description: 'Deployed', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404], 409: ERROR_RESPONSES[409] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      async (c) => {
+        assertLocalCall(c, 'deploy a server')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.deploy(c.req.valid('param').id)
+        if (result.ok)
+          return c.json({ ok: true })
+        const status = result.code === 'UNKNOWN_SERVER' ? 404 : result.code === 'NO_DEPLOY' ? 400 : 409
+        throw new DetailedError(result.error ?? 'the deploy failed', { statusCode: status, code: result.code ?? 'DEPLOY_FAILED' })
+      },
+    )
+
+    /**
+     * Run a job now, over the local channel — `home-hosted run <id>` while the panel is up.
+     *
+     * The same `supervisor.runJob` the schedule calls, and it **waits**: the exit code is the outcome,
+     * and the CLI prints it. A failure answers the body a script needs (`exitCode`, `durationMs`) under
+     * the `JOB_FAILED` code, so `home-hosted run nightly || alert` works on the answer rather than on
+     * English.
+     */
+    .post(
+      '/servers/:id/run',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Run a job now and wait for its outcome (local token required)',
+        responses: {
+          200: { description: 'The run finished and succeeded', content: jsonBody(jobRunResultSchema) },
+          400: ERROR_RESPONSES[400],
+          403: { description: 'Bad token, or not a local caller' },
+          404: ERROR_RESPONSES[404],
+          409: ERROR_RESPONSES[409],
+        },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      async (c) => {
+        assertLocalCall(c, 'run a job')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const result = await runtime.supervisor.runJob(c.req.valid('param').id, { actor: 'user' })
+        if (!result.ok) {
+          const status = result.code === 'UNKNOWN_SERVER' ? 404 : result.code === 'JOB_START_FAILED' ? 400 : 409
+          throw new DetailedError(result.error, { statusCode: status, code: result.code })
+        }
+        const { outcome } = result
+        const body = {
+          ok: !outcome.cancelled && outcome.exitCode === 0,
+          exitCode: outcome.exitCode,
+          signal: outcome.signal,
+          durationMs: outcome.durationMs,
+          cancelled: outcome.cancelled,
+        }
+        if (body.ok)
+          return c.json(body)
+        throw new DetailedError(
+          outcome.cancelled
+            ? `the run was stopped after ${Math.round(outcome.durationMs / 1000)}s`
+            : `the run failed (exit code ${outcome.exitCode ?? 'none'})`,
+          { statusCode: 409, code: 'JOB_FAILED', detail: [{ path: 'exitCode', message: String(outcome.exitCode) }] },
+        )
       },
     )
 

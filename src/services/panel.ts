@@ -41,6 +41,7 @@ import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { HistoryStore } from '#src/services/history'
 import { LogFiles } from '#src/services/log-files'
 import { NotificationService } from '#src/services/notifications'
+import { JobScheduler } from '#src/services/scheduler'
 import { buildControlView, buildWorkspaceView } from '#src/services/state'
 import { Supervisor } from '#src/services/supervisor'
 import { errorMessage } from '#src/shared/error-message'
@@ -56,6 +57,8 @@ export interface WorkspaceRuntime {
   notifications: NotificationService
   ddns: DdnsService
   supervisor: Supervisor
+  /** When this workspace's jobs run; ticked by the panel's own clock, beside backups and DDNS. */
+  scheduler: JobScheduler
   watches: ConfigWatch[]
   logsDir: string
   /** The config error last written to the log, so a standing typo is reported once. */
@@ -534,6 +537,15 @@ export class PanelService {
       legacyStatePath: workspaceLegacyDdnsStatePath(id),
     })
 
+    /**
+     * How the supervisor answers "when does this schedule next come due".
+     *
+     * Bound after the scheduler exists (the supervisor is constructed first, and the scheduler needs
+     * the supervisor's entry map), so it reads through a holder rather than capturing the service.
+     * With no scheduler yet — construction order, a dispose — the honest answer is `null`.
+     */
+    let nextRunAt: (schedule: string | undefined) => number | null = () => null
+
     const supervisor = new Supervisor(store, this.options.hub, {
       workspaceId: id,
       configPath: store.path,
@@ -549,7 +561,30 @@ export class PanelService {
       // Read through the runtime's own store, so a value written by `set-password`, a restore or an
       // offline CLI is picked up on the next spawn without restarting the panel.
       serverEnv: serverId => this.runtimes.get(id)?.secrets.serverEnv(serverId) ?? {},
+      nextRunAt: schedule => nextRunAt(schedule),
     })
+
+    /**
+     * The job scheduler, built after the supervisor because it reads that supervisor's entry map.
+     *
+     * The two functions below are the whole seam: the scheduler decides *when*, the supervisor owns
+     * how* (spawn, log, history, notification). Split this way, the timing rules are testable with no
+     * child process, and a person's `run now` and the clock's occurrence are literally the same call.
+     */
+    const scheduler: JobScheduler = new JobScheduler({
+      servers: () => store.servers,
+      isRunning: serverId => supervisor.isJobRunning(serverId),
+      run: async (serverId) => {
+        const result = await supervisor.runJob(serverId, { actor: 'policy' })
+        return { exitCode: result.ok ? result.outcome.exitCode : null }
+      },
+      noteOverlap: (serverId, occurrence) => supervisor.noteJobOverlap(serverId, occurrence),
+      // The durable record: a run's history event outlives the panel, and it is what decides whether
+      // the first tick after boot owes a missed occurrence.
+      lastRunAt: serverId => history.lastEventAt(serverId, 'job-run'),
+      onStateChange: () => this.scheduleState(),
+    })
+    nextRunAt = schedule => scheduler.nextRunAt(schedule)
 
     const runtime: WorkspaceRuntime = {
       id,
@@ -561,6 +596,7 @@ export class PanelService {
       notifications,
       ddns,
       supervisor,
+      scheduler,
       watches: [],
       logsDir: logFiles.directory,
       reportedConfigError: store.configError,
@@ -593,6 +629,7 @@ export class PanelService {
     runtime.logFiles.dispose()
     runtime.history.dispose()
     runtime.ddns.dispose()
+    runtime.scheduler.dispose()
   }
 
   private reportWorkspaceErrors(id: string): void {
@@ -724,6 +761,9 @@ export class PanelService {
       // Deliberately not awaited: a provider that is slow to answer must not hold
       // up anything else.
       runtime.ddns.tick(now)
+      // Beside the backup schedule, on the same tick: a job's occurrence is decided from the clock,
+      // so this is a map read plus one cron search per job — never a per-second syscall.
+      runtime.scheduler.tick(now)
     }
     // A certificate that arrives (or expires) changes what the proxy serves on the
     // cleartext port, so the engine is re-applied when that state moves. Cheap: the

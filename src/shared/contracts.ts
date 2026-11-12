@@ -1,4 +1,5 @@
 import { type } from 'arktype'
+import { cronProblem } from './cron'
 import { HOST_ALERT_DEFAULTS, LOAD_ALERT_PER_CPU_DEFAULT } from './host-readings'
 import { lazy } from './lazy'
 import { integerParam } from './query-params'
@@ -122,6 +123,87 @@ export const stopSchema = lazy(() => type({
 }).onUndeclaredKey('reject'))
 
 export type StopConfig = typeof stopSchema.infer
+
+/**
+ * One deploy step: a program, its arguments, and where it runs.
+ *
+ * The same shape `bootstrap`/`dump` describe — the panel has **one** idea of a declared command, and
+ * a deploy step is that plus its own timeout. `cwd` resolves against the entry's own working
+ * directory (the templates are the server's), so a step may run from the repo root or a subdirectory.
+ */
+const deployStepSchema = lazy(() => type({
+  'command': 'string >= 1',
+  'args': type('string[]').default(() => []),
+  /** Relative to `{projectDir}` unless absolute; absent means the entry's own `cwd`. */
+  'cwd?': 'string',
+  'timeoutMs': 'number >= 1000 = 300000',
+}).onUndeclaredKey('reject'))
+
+/**
+ * `deploy`: an ordered list of steps, run in the entry's environment, then a restart.
+ *
+ * A failed step **stops the deploy** and keeps the old process running — half-deployed is the state
+ * this exists to avoid, and the running service is the thing a person still has. `restart` defaults
+ * to **true**: the point of a deploy is that the process picks it up, and a false default would make
+ * every deploy a no-op nobody noticed.
+ *
+ * The steps are a **list a patch replaces whole**, like `args` and `backupPaths`: a deploy is a
+ * sequence, and merging two sequences key by key would interleave them.
+ */
+const deploySchema = lazy(() => type({
+  steps: deployStepSchema.array().atLeastLength(1),
+  restart: 'boolean = true',
+}).onUndeclaredKey('reject'))
+
+/**
+ * The `deploy` group as a patch carries it: every field optional, and **no defaults**.
+ *
+ * The group is replaced whole, so a default here would arrive with a one-step edit and re-arm a
+ * deploy nobody touched — the defect `bootstrapPatchSchema` exists for, in the same `editableFields`.
+ */
+const deployStepPatchSchema = lazy(() => type({
+  'command': 'string >= 1?',
+  'args': 'string[]?',
+  'cwd?': 'string',
+  'timeoutMs': 'number >= 1000?',
+}).onUndeclaredKey('reject'))
+const deployPatchSchema = lazy(() => type({
+  'steps?': deployStepPatchSchema.array(),
+  'restart?': 'boolean',
+}).onUndeclaredKey('reject'))
+const deployOrNullSchema = lazy(() => deploySchema.or(type('null')))
+const deployPatchOrNullSchema = lazy(() => deployPatchSchema.or(type('null')))
+
+/**
+ * What a deploy is doing right now, on the server view.
+ *
+ * Optional fields, like every response addition: `running` is the one a UI needs, and `last*` describe
+ * the last **finished** attempt so a person sees the outcome without opening a log.
+ */
+const deployStatusSchema = lazy(() => type({
+  'running': 'boolean',
+  'lastAt?': 'number',
+  'lastOutcome?': '"ok" | "failed"',
+  'lastError?': 'string',
+}))
+
+/**
+ * What a job's schedule is doing, on the server view.
+ *
+ * Every field is optional and `running` is required, which is the one bit a UI cannot derive: the
+ * scheduler knows whether a run is in flight. `nextRunAt`/`lastRunAt` are epoch milliseconds computed
+ * from the entry's own expression in the host's local timezone, so a card can say "next in 4h" without
+ * parsing cron itself. `lastExitCode` is the previous run's exit status — `0` succeeded, anything else
+ * failed — and is `null` when that run was killed by a signal rather than exiting.
+ */
+const jobViewSchema = lazy(() => type({
+  'running': 'boolean',
+  'nextRunAt?': 'number | null',
+  'lastRunAt?': 'number | null',
+  'lastExitCode?': 'number | null',
+  /** Set when the panel skipped a run because the previous one was still going. */
+  'lastOverlapAt?': 'number',
+}).onDeepUndeclaredKey('ignore'))
 
 const bootstrapSchema = lazy(() => type({
   command: 'string',
@@ -254,11 +336,54 @@ export function duplicateSecretEnvNames(names: readonly string[]): string[] {
   return [...duplicates]
 }
 
+/**
+ * What an entry is: a long-running **service**, or a run-to-completion **job**.
+ *
+ * The distinction is not cosmetic — it changes the lifecycle. A service is supervised: health
+ * probes, readiness on its port, a restart policy. A job has none of those, because there is nothing
+ * to probe and nothing to restart: it starts, it runs, it exits, and **the exit code is its outcome**
+ * (`0` succeeded, anything else failed). `schedule` is what makes it recur.
+ *
+ * Defaulted to `service`, so every config written before this field existed keeps its meaning.
+ */
+export const serverKindSchema = lazy(() => type.enumerated('service', 'job'))
+export type ServerKind = typeof serverKindSchema.infer
+
+/**
+ * The **shape** of a cron expression: exactly five whitespace-separated fields.
+ *
+ * A schema can prove this much without a predicate (which `toJsonSchema` cannot render, and every
+ * route's OpenAPI document needs that). The *contents* — ranges, steps, names, bounds — are proved by
+ * `cronProblem()` in `src/shared/cron.ts`, which `serverKindProblems()` calls at every write. The
+ * split is the one `duplicateSecretEnvNames` already makes, for the same reason.
+ *
+ * Five fields, deliberately: a 6-field expression (seconds first) read as 5 would run on a schedule
+ * nobody typed, and the `@daily`-style macros are a different language. Both are refused by name.
+ */
+export const cronExpressionSchema = lazy(() => type(/^\S+(?: +\S+){4}$/)
+  .describe('a 5-field cron expression (minute hour day-of-month month day-of-week); no seconds field, no @macros'))
+
 export const serverSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   label: labelOrNullSchema.optional(),
   enabled: 'boolean = true',
   autostart: 'boolean = false',
+  /**
+   * A supervised **service**, or a run-to-completion **job** whose exit code is its outcome.
+   *
+   * Defaulted, so every entry written before this field existed stays a service. The rules a `job`
+   * must obey (no `port`, no `health`, no `restart`) are cross-field, so they are enforced by
+   * `serverKindProblems()` at the write — a schema `narrow` cannot be rendered to JSON Schema, and
+   * every route's document calls `toJsonSchema()`.
+   */
+  kind: serverKindSchema.default(() => 'service' as const),
+  /**
+   * When a job runs, as a 5-field cron expression in the **host's local timezone**.
+   *
+   * Only a job may carry one: a service is supervised continuously, so a schedule on it would mean
+   * two different lifecycles for one entry. The contents are validated by `cronProblem()`.
+   */
+  schedule: cronExpressionSchema.optional(),
   /**
    * Handed to a nanny process that owns the pipes, so the entry keeps running when
    * this panel stops, restarts or is killed. `down`/`stop-all` leave it alone and
@@ -275,6 +400,12 @@ export const serverSchema = lazy(() => type({
    */
   dataEnvs: type('Record<string, string>').default(() => ({})),
   bootstrap: bootstrapOrNullSchema.optional(),
+  /**
+   * The deploy steps: what to run to bring this entry up to date, and whether to restart after.
+   *
+   * Absent means "no deploy action"; `POST /api/servers/:id/deploy` answers `400 NO_DEPLOY` for it.
+   */
+  deploy: deployOrNullSchema.optional(),
   /**
    * Run before this entry's data is captured, writing into `{dumpDir}`.
    *
@@ -316,6 +447,69 @@ export const serverSchema = lazy(() => type({
   secretEnv: secretEnvNamesSchema.default(() => []),
 }).onUndeclaredKey('reject'))
 export type ServerConfig = Omit<typeof serverSchema.infer, 'port'> & { port: number | null }
+
+/**
+ * What is wrong with an entry's `kind`/`schedule` **as a pair** — a list, empty when the pair is fine.
+ *
+ * These rules cannot live in the schema: each is about the *relationship* between fields, and an
+ * ArkType `narrow` breaks `toJsonSchema`, which every route's OpenAPI document calls.
+ *
+ *  1. **A job has no lifecycle to supervise.** `port`, `health`, `restart` and `persistent` are
+ *     meaningless for a run-to-completion process: a port is something to serve on, a health probe is
+ *     for something that stays up, a restart policy would re-run work that already finished, and a
+ *     nanny exists to keep a *service* alive. Accepting one would leave a config declaring supervision
+ *     that silently does nothing, so each is refused by name — and the name is the fix ("remove
+ *     `port`, or make it a service").
+ *  2. **Only a job may carry a `schedule`.** A service runs under supervision, so a cron expression on
+ *     it would mean two lifecycles for one entry, and the scheduler would either ignore it or fight
+ *     the supervisor.
+ *  3. **A schedule must actually parse.** The schema proves the field *shape*; `cronProblem` proves
+ *     the contents, in the terms the person typed (`minute must be between 0 and 59`).
+ *
+ * `declaredKeys` is the entry's own keys **before defaults are merged in**, and that distinction is
+ * load-bearing: every stored entry carries a resolved `health`/`restart` group and `persistent: false`
+ * that nobody wrote, so testing the resolved values would refuse every job ever created. Only a group
+ * the person actually names is refused. A caller that has nothing but the stored config (a view, a
+ * scheduler pass) omits it, and gets rule 1's cheap half: `port`, and a schedule that does not parse.
+ *
+ * Called at every write (`WorkspaceStore.validateServer`, which `addServer`/`updateServer`/`putServer`
+ * all go through) and on every parse, so a bad pair is refused where it lands.
+ */
+export function serverKindProblems(entry: {
+  kind?: ServerKind
+  schedule?: string
+  port?: number | null
+  declaredKeys?: readonly string[]
+}): string[] {
+  const problems: string[] = []
+
+  if (entry.schedule !== undefined) {
+    const problem = cronProblem(entry.schedule)
+    if (problem !== null)
+      problems.push(`schedule: ${problem}`)
+  }
+
+  if (entry.kind !== 'job') {
+    if (entry.schedule !== undefined)
+      problems.push('a `schedule` is only for a job — set `kind: "job"` on a run-to-completion entry, or remove the schedule')
+    return problems
+  }
+
+  if (entry.schedule === undefined)
+    problems.push('a job needs a `schedule` — a run-to-completion entry with no cron expression never runs')
+  if (entry.port !== undefined && entry.port !== null)
+    problems.push('a job has no port — it serves nothing; remove `port`, or make this entry `kind: "service"`')
+
+  const declared = new Set(entry.declaredKeys ?? [])
+  if (declared.has('health'))
+    problems.push('a job has no health check — nothing stays up to probe; remove `health`, or make this entry `kind: "service"`')
+  if (declared.has('restart'))
+    problems.push('a job has no restart policy — a finished run is not retried; remove `restart`, or make this entry `kind: "service"`')
+  if (declared.has('persistent'))
+    problems.push('a job cannot be `persistent` — a nanny keeps a *service* alive, and a job is meant to end')
+
+  return problems
+}
 
 /**
  * Authentication for the control panel itself. The password never lives here —
@@ -931,6 +1125,17 @@ function editableFields() {
     label: labelOrNullSchema.optional(),
     enabled: 'boolean?',
     autostart: 'boolean?',
+    /**
+     * `service` or `job`. A patch may flip it, and the pair is re-checked after the merge — that is
+     * how an entry becomes a job: send `kind: "job"`, `schedule`, and `port: null` together, or the
+     * merge leaves the old port in place and `serverKindProblems` refuses it.
+     */
+    kind: serverKindSchema.optional(),
+    /**
+     * `null` clears it — the spelling a patch uses for every optional scalar, and the one the form
+     * needs: "no schedule" has to be expressible, and an omitted key cannot say it.
+     */
+    schedule: cronExpressionSchema.or(type('null')).optional(),
     persistent: 'boolean?',
     command: 'string?',
     args: 'string[]?',
@@ -938,6 +1143,7 @@ function editableFields() {
     env: 'Record<string, string>?',
     dataEnvs: 'Record<string, string>?',
     bootstrap: bootstrapPatchOrNullSchema.optional(),
+    deploy: deployPatchOrNullSchema.optional(),
     dump: backupHookPatchOrNullSchema.optional(),
     load: backupHookPatchOrNullSchema.optional(),
     port: portSchema.optional(),
@@ -1631,10 +1837,18 @@ export type HistoryActor = typeof historyActorSchema.infer
 const historyEventSchema = lazy(() => type({
   'serverId': 'string',
   'ts': 'number',
-  'type': '"start" | "exit" | "crash" | "forced-restart" | "unhealthy" | "recovered"',
+  'type': '"start" | "exit" | "crash" | "forced-restart" | "unhealthy" | "recovered" | "deploy" | "job-run"',
   'detail': 'string',
-  /** How long the process had been up, recorded on exit and crash. */
+  /** How long the process had been up, recorded on exit, crash, deploy and a job run. */
   'runtimeMs': 'number?',
+  /**
+   * How an attempt ended, recorded on a `deploy` or a `job-run`.
+   *
+   * `overlap` is a job run that was **skipped** because the previous one was still going — not a
+   * failed run, and the distinction is what tells a person "it is too slow" from "it is broken".
+   * `cancelled` is a run a stop ended, whose non-zero exit status says nothing about the work.
+   */
+  'outcome?': '"ok" | "failed" | "cancelled" | "overlap"',
   /** Who caused it; absent on events from before this field existed. */
   'actor?': historyActorSchema,
 }))
@@ -2068,6 +2282,17 @@ export const serverViewSchema = lazy(() => type({
    * but absent here is one whose value has not been written yet (or was removed).
    */
   'secretEnvSet?': 'string[]',
+  /** What a deploy is doing, and how the last one went. Absent when the entry has no `deploy`. */
+  'deploy?': deployStatusSchema,
+  /**
+   * A job's schedule, and how its runs went. Absent on a service — there is nothing to report.
+   *
+   * `nextRunAt` and `lastRunAt` are computed by the scheduler from the entry's own expression, in the
+   * host's local timezone; `lastExitCode` is the previous run's exit status (`0` succeeded, anything
+   * else failed) and `running` says whether one is in flight right now. Optional throughout, like
+   * every response addition: an older panel sends no `job`, and a UI must read it defensively.
+   */
+  'job?': jobViewSchema,
   /**
    * The running process was started from a config that differs from the current one, in a field a
    * restart actually re-reads (`command`, `args`, `cwd`, `env`, `envFile`, `secretEnv`, `port`, `bind`,
@@ -2082,6 +2307,24 @@ export const serverViewSchema = lazy(() => type({
 // `config` is emitted normalized (port is always `number | null`, never absent),
 // while the schema accepts both forms so a hand-written payload still validates.
 export type ServerView = Omit<typeof serverViewSchema.infer, 'config'> & { config: ServerConfig }
+
+/**
+ * What a `POST .../run` answers: a job run's outcome.
+ *
+ * Declared here rather than in one route because **two** routes answer it (`/api/servers/:id/run` for
+ * a client, `/_hh/servers/:id/run` for the CLI), and a second declaration is how the two drift. The
+ * exit code is the outcome of a run-to-completion process, so it travels beside the boolean: a caller
+ * that must tell "exited 1" from "killed by a signal" has both.
+ */
+export const jobRunResultSchema = lazy(() => type({
+  ok: 'boolean',
+  exitCode: 'number | null',
+  signal: 'string | null',
+  durationMs: 'number',
+  /** A stop ended the run, so its non-zero status says nothing about the work. */
+  cancelled: 'boolean',
+}))
+export type JobRunResultBody = typeof jobRunResultSchema.infer
 
 /**
  * What `/healthz` answers, on both statuses — 200 when serving, 503 when a server has crashed,

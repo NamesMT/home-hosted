@@ -1,0 +1,100 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import process from 'node:process'
+import { afterEach, describe, expect, it } from 'vitest'
+import { makeSupervisor, runCleanups, view, waitFor, waitForStatus } from '../support/supervisor-harness'
+
+afterEach(runCleanups)
+
+/**
+ * The supervisor's half of a deploy: one at a time, a restart after it, and a failed step that
+ * leaves the running process alone.
+ *
+ * The steps themselves are `test/services/deploy.test.ts`. What matters here is what the supervisor
+ * does **around** them — because a deploy that ran twice at once, or that stopped a healthy service
+ * on its way to failing, is worse than one that was never offered.
+ */
+describe('a deploy through the supervisor', () => {
+  /** An entry that runs for ever, with a deploy step writing a marker. */
+  function deployable(dir: string, steps: Array<{ command: string, args?: string[] }>): Record<string, unknown> {
+    return {
+      id: 'app',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      port: null,
+      restart: { enabled: false },
+      health: { enabled: false },
+      deploy: { steps, restart: true },
+    }
+  }
+
+  it('restarts the running entry after a successful deploy', async () => {
+    const harness = await makeSupervisor([])
+    const marker = path.join(harness.dir, 'deployed.txt')
+    harness.store.addServer(deployable(harness.dir, [
+      { command: process.execPath, args: ['-e', `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "yes")`] },
+    ]) as never)
+    await harness.supervisor.start('app')
+    await waitForStatus(harness.supervisor, 'app', 'running')
+    const before = view(harness.supervisor, 'app').pid
+
+    const result = await harness.supervisor.deploy('app')
+    expect(result.ok, result.error).toBe(true)
+    expect(fs.readFileSync(marker, 'utf8'), 'the step ran').toBe('yes')
+
+    // A deploy exists to make the process pick the change up, so it restarts by default.
+    await waitFor(() => view(harness.supervisor, 'app').pid !== before && view(harness.supervisor, 'app').status === 'running')
+    const after = view(harness.supervisor, 'app')
+    expect(after.deploy?.lastOutcome).toBe('ok')
+    // The restart is recorded, and the deploy's own event is in history.
+    expect(harness.history.all().some(event => event.serverId === 'app' && event.type === 'deploy' && event.outcome === 'ok')).toBe(true)
+  }, 45_000)
+
+  it('keeps the old process running when a step fails, and notifies', async () => {
+    const harness = await makeSupervisor([])
+    harness.store.addServer(deployable(harness.dir, [
+      { command: process.execPath, args: ['-e', 'process.exitCode = 7'] },
+    ]) as never)
+    await harness.supervisor.start('app')
+    await waitForStatus(harness.supervisor, 'app', 'running')
+    const pid = view(harness.supervisor, 'app').pid
+
+    const result = await harness.supervisor.deploy('app')
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('code 7')
+
+    // Half-deployed is the state this exists to avoid: the old process is what a person still has.
+    expect(view(harness.supervisor, 'app').pid, 'the running process was not restarted').toBe(pid)
+    expect(view(harness.supervisor, 'app').status).toBe('running')
+    expect(view(harness.supervisor, 'app').deploy?.lastOutcome).toBe('failed')
+
+    const events = harness.history.all().filter(event => event.serverId === 'app' && event.type === 'deploy')
+    expect(events).toHaveLength(1)
+    expect(events[0]!.outcome).toBe('failed')
+  }, 45_000)
+
+  it('refuses a second deploy while one is running', async () => {
+    const harness = await makeSupervisor([])
+    harness.store.addServer(deployable(harness.dir, [
+      // Long enough that the second call lands inside the first.
+      { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 1500)'] },
+    ]) as never)
+
+    const first = harness.supervisor.deploy('app')
+    // Let the first one take the flag before the second asks.
+    await waitFor(() => view(harness.supervisor, 'app').deploy?.running === true, 10_000)
+    const second = await harness.supervisor.deploy('app')
+    expect(second.ok).toBe(false)
+    expect(second.code).toBe('DEPLOY_RUNNING')
+
+    expect((await first).ok, 'the first deploy still finished').toBe(true)
+  }, 45_000)
+
+  it('refuses an entry with no deploy steps', async () => {
+    const harness = await makeSupervisor([{ id: 'plain', command: process.execPath, args: ['-e', ''], port: null }])
+    const result = await harness.supervisor.deploy('plain')
+    expect(result.ok).toBe(false)
+    expect(result.code).toBe('NO_DEPLOY')
+    void view
+  })
+})

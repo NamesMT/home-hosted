@@ -9,13 +9,14 @@ import { actionAnswer, actionCode, statusForAction, unknownServerError } from '#
 import { configFailure } from '#src/helpers/error'
 import { resumePoint, serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
+import { logger } from '#src/helpers/logger'
 import { ERROR_RESPONSES, jsonBody, sseResponse } from '#src/helpers/openapi'
 import { addServerEntry, serverWarnings } from '#src/helpers/server-create'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
-import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSecretsSchema, serverViewSchema, serverWriteResponseSchema } from '#src/shared/contracts'
+import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, jobRunResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSecretsSchema, serverViewSchema, serverWriteResponseSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam, integerParam } from '#src/shared/query-params'
 
@@ -31,6 +32,11 @@ const serversResponse = lazy(() => type({ servers: serverViewSchema.array() }))
 // `serverSchema` rejects undeclared keys at every depth (it validates writes); an answer must not,
 // or a generated client refuses the next field a newer panel adds.
 const storedServerResponse = lazy(() => serverWriteResponseSchema)
+/** `?wait=false` answers at once; omitted means wait for the outcome, which is what a script wants. */
+const deployQuery = lazy(() => type({ 'wait?': booleanParam }).merge(workspaceQuerySchema))
+const deployResultSchema = lazy(() => type({ ok: 'boolean' }))
+/** `?wait=false` answers `202` at once, like `deploy`: the log and history carry the outcome. */
+const runQuery = lazy(() => type({ 'wait?': booleanParam }).merge(workspaceQuerySchema))
 const bufferedLogsQuery = lazy(() => logQuerySchema.merge(workspaceQuerySchema))
 /**
  * The stream route's query: the workspace, plus how far back to resume.
@@ -379,6 +385,122 @@ export function createServersRoute(deps: AppDeps) {
           }
           throw error
         }
+      },
+    )
+
+    /**
+     * Run this entry's deploy steps, then restart it.
+     *
+     * **Waits by default**, because a deploy is an action with an outcome and a script wants the
+     * answer. `?wait=false` answers `202` at once for a caller that will watch the stream instead —
+     * the same trade a restore makes, and the reason both accept a query flag rather than two routes.
+     */
+    .post(
+      '/:id/deploy',
+      describeRoute({
+        tags: ['servers'],
+        summary: 'Run the deploy steps, then restart (waits for the outcome by default)',
+        responses: {
+          200: { description: 'Deployed', content: jsonBody(deployResultSchema) },
+          202: { description: 'Started, with `?wait=false`; the outcome is in the log and history', content: jsonBody(okResponseSchema) },
+          400: { description: 'The entry has no deploy steps (`NO_DEPLOY`)', content: ERROR_RESPONSES[400].content },
+          404: ERROR_RESPONSES[404],
+          409: { description: 'A deploy is already running for this entry (`DEPLOY_RUNNING`)', content: ERROR_RESPONSES[409].content },
+        },
+      }),
+      validate('query', deployQuery),
+      validate('param', idParam),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        if (!runtime.store.getServer(id))
+          throw unknownServerError(id)
+
+        const waiting = c.req.valid('query').wait
+        if (waiting === false) {
+          // Not awaited: the answer is "accepted", and the log and history carry the outcome.
+          void runtime.supervisor.deploy(id).catch((error: unknown) => logger.error(`the deploy for ${id} failed`, error))
+          return c.json({ ok: true }, 202)
+        }
+
+        return (async () => {
+          const result = await runtime.supervisor.deploy(id)
+          if (result.ok)
+            return c.json({ ok: true })
+          // The three refusals name themselves, so a script branches on the code and not the English.
+          const status = result.code === 'UNKNOWN_SERVER' ? 404 : result.code === 'NO_DEPLOY' ? 400 : 409
+          throw new DetailedError(result.error ?? 'the deploy failed', { statusCode: status, code: result.code ?? 'DEPLOY_FAILED' })
+        })()
+      },
+    )
+
+    /**
+     * Run a job now, and answer its outcome.
+     *
+     * The same call the schedule makes (`supervisor.runJob`), so a run started by a person and one
+     * started by the clock cannot diverge: same spawn, same log lines, same history event, same
+     * notification. **Waits by default** — the exit code is the outcome, and a script wants it.
+     * `?wait=false` answers `202` for a caller watching the stream instead.
+     *
+     * A `service` is refused (`NOT_A_JOB`): it is started and supervised with `/start`, and spawning
+     * it once under this path would make a second, unsupervised copy. A run already in flight is
+     * `JOB_RUNNING` rather than a queue, which is also the scheduler's own overlap rule.
+     */
+    .post(
+      '/:id/run',
+      describeRoute({
+        tags: ['servers'],
+        summary: 'Run a job now and answer its outcome (waits by default)',
+        description: 'The exit code is the outcome: `0` succeeded. A non-zero exit is `409 JOB_FAILED` with `exitCode` in the body. Only a `kind: "job"` entry may be run this way.',
+        responses: {
+          200: { description: 'The run finished and succeeded', content: jsonBody(jobRunResultSchema) },
+          202: { description: 'Started, with `?wait=false`; the outcome is in the log and history', content: jsonBody(okResponseSchema) },
+          400: { description: 'The run could not be spawned at all (`JOB_START_FAILED`)', content: ERROR_RESPONSES[400].content },
+          404: ERROR_RESPONSES[404],
+          409: { description: 'The entry is not a job (`NOT_A_JOB`), is disabled (`SERVER_DISABLED`), a run is in flight (`JOB_RUNNING`), or the run failed (`JOB_FAILED`, with `exitCode`)', content: ERROR_RESPONSES[409].content },
+        },
+      }),
+      validate('query', runQuery),
+      validate('param', idParam),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        if (!runtime.store.getServer(id))
+          throw unknownServerError(id)
+
+        if (c.req.valid('query').wait === false) {
+          void runtime.supervisor.runJob(id, { actor: requestActor(c, deps.auth) }).catch((error: unknown) => logger.error(`the run of ${id} failed`, error))
+          return c.json({ ok: true }, 202)
+        }
+
+        return (async () => {
+          const result = await runtime.supervisor.runJob(id, { actor: requestActor(c, deps.auth) })
+          if (!result.ok) {
+            const status = result.code === 'UNKNOWN_SERVER' ? 404 : result.code === 'JOB_START_FAILED' ? 400 : 409
+            throw new DetailedError(result.error, { statusCode: status, code: result.code })
+          }
+          const { outcome } = result
+          // A cancellation is not a failure: a stop asked for the end, so the non-zero status says
+          // nothing about the work. It still is not "ok" — the run did not produce its result.
+          const succeeded = !outcome.cancelled && outcome.exitCode === 0
+          const body = {
+            ok: succeeded,
+            exitCode: outcome.exitCode,
+            signal: outcome.signal,
+            durationMs: outcome.durationMs,
+            cancelled: outcome.cancelled,
+          }
+          if (succeeded)
+            return c.json(body)
+          // 409 with the numbers: the run happened, it just did not succeed, which is a fact about
+          // the entry rather than a bad request.
+          throw new DetailedError(
+            outcome.cancelled
+              ? `the run of "${id}" was stopped after ${Math.round(outcome.durationMs / 1000)}s`
+              : `the run of "${id}" failed (exit code ${outcome.exitCode ?? 'none'})`,
+            { statusCode: 409, code: 'JOB_FAILED', detail: [{ path: 'exitCode', message: String(outcome.exitCode) }] },
+          )
+        })()
       },
     )
 

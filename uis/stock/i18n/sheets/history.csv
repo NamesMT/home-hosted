@@ -5,3 +5,5 @@ history.crash,Crashed,Gặp sự cố,已崩溃,クラッシュしました,Bloq
 history.forcedRestart,Forced restart,Buộc khởi động lại,强制重启,強制再起動,Reinicio forzado,강제 재시작,Принудительный перезапуск,Redémarrage forcé,Erzwungener Neustart
 history.unhealthy,Unhealthy,Bất thường,异常,異常,Con fallos,비정상,Неисправен,En panne,Ungesund
 history.recovered,Recovered,Đã phục hồi,已恢复,復旧しました,Recuperado,복구됨,Восстановлен,Rétabli,Wiederhergestellt
+history.deploy,deploy,triển khai,部署,デプロイ,despliegue,배포,развёртывание,déploiement,Deployment
+history.jobRun,Job run,Chạy định kỳ,定时运行,定期実行,Ejecución programada,정기 실행,Запуск задания,Exécution planifiée,Geplanter Lauf

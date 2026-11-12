@@ -5,7 +5,7 @@ import { formatTelegramMessage, listTelegramChats, sendTelegramMessage, verifyTe
 import { sendWebhook, targetProblem } from '#src/providers/webhook'
 import { errorMessage } from '#src/shared/error-message'
 
-export type NotificationReason = 'crash' | 'unhealthy' | 'forced-restart' | 'recovered' | 'restart-ok' | 'rss' | 'host' | 'host-recovered' | 'ddns' | 'ddns-error'
+export type NotificationReason = 'crash' | 'unhealthy' | 'forced-restart' | 'recovered' | 'restart-ok' | 'rss' | 'host' | 'host-recovered' | 'ddns' | 'ddns-error' | 'deploy' | 'job-failed'
 
 export interface NotificationEvent {
   serverId: string
@@ -32,6 +32,12 @@ const REASON_LABEL: Record<NotificationReason, string> = {
   'host-recovered': 'host thresholds recovered',
   'ddns': 'updated a dynamic DNS record',
   'ddns-error': 'hit a dynamic DNS error',
+  // A deploy that failed is news a receiver wants as much as a crash: the service is running the
+  // old version, and nobody asked to be told only about processes.
+  'deploy': 'deploy failed',
+  // A job that failed is the same news as a crash to a reader: last night's backup did not run, and
+  // nobody asked to be told only about processes.
+  'job-failed': 'job run failed',
 }
 
 const TITLE: Record<NotificationReason, string> = {
@@ -45,6 +51,8 @@ const TITLE: Record<NotificationReason, string> = {
   'host-recovered': '🟢 host recovered',
   'ddns': '🌐 DNS updated',
   'ddns-error': '🌐 DNS update failed',
+  'deploy': '🔴 deploy failed',
+  'job-failed': '🔴 job run failed',
 }
 
 /** The event toggles and the throttle: what a destination may inherit, and what it may override. */
@@ -64,6 +72,11 @@ const COVERS: Record<NotificationReason, (policy: NotificationPolicy) => boolean
   'host-recovered': policy => policy.onHost,
   'ddns': policy => policy.onDdns,
   'ddns-error': policy => policy.onDdns,
+  // Rides the crash toggle: a failed deploy leaves the service on the old version, which is the
+  // state a person who asked to hear about crashes wants to hear about.
+  'deploy': policy => policy.onCrash,
+  // Rides the crash toggle for the same reason: a job that did not run is a service that did not work.
+  'job-failed': policy => policy.onCrash,
 }
 
 /**

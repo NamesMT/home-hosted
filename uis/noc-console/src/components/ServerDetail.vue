@@ -3,6 +3,7 @@ import type { Bind, LogLine, ServerStatus, ServerView } from '@shared/contracts'
 import type { Outcome } from '@/composables/useControlPlane'
 import { parseBind } from '@shared/contracts'
 import { cpuBand } from '@shared/cpu-scale'
+import { cronSummary, parseCron } from '@shared/cron'
 import { probeBand } from '@shared/probe-latency'
 import { liveReadings } from '@shared/server-readings'
 import { browserServerUrl, pageHostname } from '@shared/server-url'
@@ -101,6 +102,72 @@ function cpuColor(): string {
  */
 const probeVerdict = computed(() => probeBand(responseMs.value))
 
+/** Whether this entry has deploy steps, and how its last deploy went. */
+const deploy = computed(() => props.server.deploy)
+const deployError = ref<string | null>(null)
+
+/** A job's schedule and its last run. `job` is absent on a service, and on an older panel. */
+const job = computed(() => props.server.job)
+const jobError = ref<string | null>(null)
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
+/** The schedule in words. English-only, like every string in this console. */
+function scheduleWords(expression: string | undefined): string {
+  if (expression === undefined)
+    return '—'
+  const parsed = parseCron(expression)
+  if (!parsed.ok)
+    return parsed.problem
+  const summary = cronSummary(parsed.spec)
+  const clock = (h: number, m: number): string => `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  switch (summary.kind) {
+    case 'everyMinutes': return `every ${summary.minutes} min`
+    case 'hourly': return `every hour at :${String(summary.minute).padStart(2, '0')}`
+    case 'daily': return `every day at ${clock(summary.hour, summary.minute)}`
+    case 'weekly': return `every ${summary.days.map((day: number) => DAY_NAMES[day]).join(', ')} at ${clock(summary.hour, summary.minute)}`
+    case 'monthly': return `day ${summary.day} of every month at ${clock(summary.hour, summary.minute)}`
+    default: return 'custom schedule'
+  }
+}
+
+/**
+ * Runs the job now and **waits**: its exit code is the outcome, so the answer is shown beside the
+ * button rather than toasted — a failed backup is one sentence about the thing just pressed.
+ */
+async function runJobNow(): Promise<void> {
+  busy.value = true
+  jobError.value = null
+  try {
+    await control.runJob(props.workspaceId, props.server.id)
+  }
+  catch (caught) {
+    jobError.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    busy.value = false
+  }
+}
+
+/**
+ * Runs the deploy and **waits**: the answer names the step that failed, and the restart after a
+ * success is part of the same action. A refusal is shown where the button is rather than toasted,
+ * because it is one sentence about the thing the person just pressed.
+ */
+async function runDeploy(): Promise<void> {
+  busy.value = true
+  deployError.value = null
+  try {
+    await control.deploy(props.workspaceId, props.server.id)
+  }
+  catch (caught) {
+    deployError.value = caught instanceof Error ? caught.message : String(caught)
+  }
+  finally {
+    busy.value = false
+  }
+}
+
 async function act(action: 'start' | 'stop' | 'restart'): Promise<void> {
   busy.value = true
   try {
@@ -196,14 +263,41 @@ function ledClass(status: ServerStatus): string {
       </div>
 
       <div class="row actions--start">
-        <button type="button" class="btn btn--sm btn--primary" :disabled="busy || !config.enabled" @click="act('start')">
-          start <kbd class="kbd">s</kbd>
-        </button>
-        <button type="button" class="btn btn--sm" :disabled="busy" @click="act('stop')">
-          stop <kbd class="kbd">x</kbd>
-        </button>
-        <button type="button" class="btn btn--sm" :disabled="busy || !config.enabled" @click="act('restart')">
-          restart <kbd class="kbd">r</kbd>
+        <!-- A job's primary action is run-now: it has no long-running process to start. -->
+        <template v-if="config.kind === 'job'">
+          <button
+            type="button"
+            class="btn btn--sm btn--primary"
+            title="run this job now and wait for its exit code"
+            :disabled="busy || !config.enabled || job?.running === true"
+            @click="runJobNow"
+          >
+            {{ job?.running === true ? 'running…' : 'run now' }}
+          </button>
+          <button type="button" class="btn btn--sm" :disabled="busy || job?.running !== true" @click="act('stop')">
+            stop <kbd class="kbd">x</kbd>
+          </button>
+        </template>
+        <template v-else>
+          <button type="button" class="btn btn--sm btn--primary" :disabled="busy || !config.enabled" @click="act('start')">
+            start <kbd class="kbd">s</kbd>
+          </button>
+          <button type="button" class="btn btn--sm" :disabled="busy" @click="act('stop')">
+            stop <kbd class="kbd">x</kbd>
+          </button>
+          <button type="button" class="btn btn--sm" :disabled="busy || !config.enabled" @click="act('restart')">
+            restart <kbd class="kbd">r</kbd>
+          </button>
+        </template>
+        <!-- Only for an entry that declares steps: a button that always refused is permanent noise. -->
+        <button
+          v-if="deploy !== undefined"
+          type="button"
+          class="btn btn--sm"
+          :disabled="busy || deploy.running === true"
+          @click="runDeploy"
+        >
+          {{ deploy.running === true ? 'deploying…' : 'deploy' }}
         </button>
         <span class="faint">|</span>
         <button type="button" class="btn btn--sm" @click="edit">
@@ -250,6 +344,21 @@ function ledClass(status: ServerStatus): string {
         </label>
       </div>
 
+      <!-- A job's two clocks replace the process facts a service shows: no pid between runs, no
+           uptime, no probe. `nextRunAt` is null on a panel from before this release, and reads `—`. -->
+      <div v-if="config.kind === 'job'" class="row">
+        <span class="faint">schedule</span>
+        <span class="mono">{{ scheduleWords(config.schedule) }}</span>
+        <span class="faint">next</span>
+        <span class="mono">{{ server.job?.nextRunAt == null ? '—' : formatAgo(server.job.nextRunAt, props.now) }}</span>
+        <span class="faint">last</span>
+        <span class="mono">{{ server.job?.lastRunAt == null ? 'never ran' : formatAgo(server.job.lastRunAt, props.now) }}</span>
+        <span class="faint">exit</span>
+        <span class="mono">{{ server.job?.lastExitCode == null ? '—' : server.job.lastExitCode }}</span>
+      </div>
+      <p v-if="jobError" class="note note--error">
+        {{ jobError }}
+      </p>
       <p v-if="server.lastError" class="note note--error">
         {{ server.lastError }}
       </p>

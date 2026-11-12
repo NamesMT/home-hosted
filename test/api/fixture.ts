@@ -59,6 +59,13 @@ export interface FakeSupervisor {
   clearLogs: (id: string) => void
   logLines: (id: string, limit?: number) => LogLine[]
   freePort: (id: string) => Promise<FreePortResult>
+  deploy: (id: string) => Promise<{ ok: boolean, error?: string, code?: 'UNKNOWN_SERVER' | 'NO_DEPLOY' | 'DEPLOY_RUNNING' }>
+  /**
+   * Run a job now. The route's own refusals are what the API tests assert, so this answers from the
+   * declared entry the way the real supervisor does: a service is `NOT_A_JOB`. The real spawn, exit
+   * code, log and history are `test/services/supervisor-job.test.ts`.
+   */
+  runJob: (id: string, options?: { actor?: HistoryActor }) => Promise<{ ok: true, actor?: HistoryActor, outcome: { exitCode: number | null, signal: string | null, durationMs: number, cancelled: boolean } } | { ok: false, error: string, code: 'UNKNOWN_SERVER' | 'NOT_A_JOB' | 'SERVER_DISABLED' | 'JOB_RUNNING' | 'JOB_FAILED' | 'JOB_START_FAILED' }>
   orphans?: () => Array<{ serverId: string, pid: number, startedAt: number | null }>
   stopOrphan?: (id: string) => Promise<{ ok: boolean, error?: string }>
   dispose: () => Promise<void>
@@ -180,7 +187,11 @@ export interface FixtureOptions {
   ddnsFetch?: DdnsFetch
 }
 
-function emptySupervisor(views: ServerView[] | (() => ServerView[])): FakeSupervisor {
+function emptySupervisor(
+  views: ServerView[] | (() => ServerView[]),
+  /** The declared entry for an id, for the one fake that answers from config (`deploy`). */
+  lookup?: (id: string) => { deploy?: unknown } | undefined,
+): FakeSupervisor {
   // A function when the views depend on a live store (`secretEnvSet`), so a write shows on the next
   // request the way it does on a real panel.
   const current = typeof views === 'function' ? views : () => views
@@ -195,6 +206,32 @@ function emptySupervisor(views: ServerView[] | (() => ServerView[])): FakeSuperv
     clearLogs: () => {},
     logLines: () => [],
     freePort: async () => ({ ok: true, port: null, terminated: [], forced: [], skipped: [], free: true }),
+    /**
+     * The route's own refusals are what the API tests assert, so this answers from the entry's config
+     * the way the real supervisor does: no `deploy` block is `NO_DEPLOY`, anything else succeeds.
+     * The real sequence is `test/services/supervisor-deploy.test.ts`.
+     */
+    runJob: async (id: string) => {
+      const views = current()
+      const view = views.find(entry => entry.id === id)
+      if (view === undefined)
+        return { ok: false, error: `unknown server "${id}"`, code: 'UNKNOWN_SERVER' as const }
+      if (view.config.kind !== 'job')
+        return { ok: false, error: `server "${id}" is a service — \`start\` supervises it`, code: 'NOT_A_JOB' as const }
+      // The route's own refusals are the subject here; a real run is the supervisor suites' business.
+      return { ok: true as const, outcome: { exitCode: 0, signal: null, durationMs: 1, cancelled: false } }
+    },
+    deploy: async (id: string) => {
+      const entry = lookup?.(id)
+      if (entry === undefined) {
+        // Not this fake's job to answer a 404 for an undeclared id — the route checks the store
+        // first, so reaching here means the fixture is wrong.
+        return { ok: false, error: `unknown server "${id}"`, code: 'UNKNOWN_SERVER' as const }
+      }
+      if (entry.deploy === undefined || entry.deploy === null)
+        return { ok: false, error: `server "${id}" has no deploy steps`, code: 'NO_DEPLOY' as const }
+      return { ok: true }
+    },
     orphans: () => [],
     stopOrphan: async () => ({ ok: true }),
     dispose: async () => {},
@@ -299,7 +336,7 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
           delete view.secretEnvSet
       }
       return supervisorViews
-    })
+    }, id => store.getServer(id))
 
     const runtime: WorkspaceRuntime = {
       id: declaration.id,
@@ -311,6 +348,9 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
       notifications,
       ddns,
       supervisor: supervisor as unknown as WorkspaceRuntime['supervisor'],
+      // The fixture drives lifecycle calls by hand; a job's schedule is `test/services/scheduler.test.ts`
+      // (pure timing, no child process) and `test/services/supervisor-job.test.ts` (a real run).
+      scheduler: { tick: () => {}, dispose: () => {}, nextRunAt: () => null } as unknown as WorkspaceRuntime['scheduler'],
       watches: [],
       logsDir: logFiles.directory,
       reportedConfigError: store.configError,

@@ -286,6 +286,23 @@ export function useControlPlane() {
     start: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'start', workspaceId), { title: t('toast.startFailed', { id }) }),
     stop: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'stop', workspaceId), { title: t('toast.stopFailed', { id }) }),
     restart: (workspaceId: string, id: string) => run(() => api.serverAction(id, 'restart', workspaceId), { title: t('toast.restartFailed', { id }) }),
+    /**
+     * Runs the deploy steps and waits. The refusal carries its own sentence (`NO_DEPLOY`,
+     * `DEPLOY_RUNNING`, `DEPLOY_FAILED` naming the step), so it is thrown rather than toasted: the
+     * card shows it where the button is.
+     */
+    deploy: async (workspaceId: string, id: string): Promise<void> => {
+      await api.deployServer(id, workspaceId)
+      await refresh()
+    },
+    /**
+     * Runs a job now and waits for its exit code. The refusal is **thrown**, like a deploy's: the
+     * card shows it beside the button that produced it, which is where the person is looking.
+     */
+    runJob: async (workspaceId: string, id: string): Promise<void> => {
+      await api.runJob(id, workspaceId)
+      await refresh()
+    },
     startAll: (workspaceId: string) => run(() => api.startAll(workspaceId), { title: t('toast.startAllFailed'), success: t('toast.startAllStarted') }),
     /**
      * Stops a process the panel started that no entry owns any more. The workspace view reports
