@@ -161,6 +161,10 @@ export class PanelService {
     const runtime = this.runtimes.get(resolved)
     if (runtime === undefined)
       throw new WorkspaceError(`unknown workspace "${id ?? resolved}"`)
+    // A workspace being removed takes no new work: a start accepted while its stops are awaited
+    // would outlive the directory that is about to be deleted.
+    if (this.removing.has(resolved))
+      throw new WorkspaceError(`workspace "${resolved}" is being removed`, 'UNKNOWN_WORKSPACE')
     return runtime
   }
 
@@ -354,7 +358,9 @@ export class PanelService {
       // The registry first: a refusal there leaves the runtime, its watchers and its files intact.
       const entry = this.options.registry.remove(id)
       this.runtimes.delete(id)
-      await runtime.supervisor.dispose()
+      // Persistent entries too: their nanny state is under the directory deleted next, so one left
+      // running here would be an orphan nothing can find.
+      await runtime.supervisor.dispose({ withPersistent: true })
       this.disposeRuntime(runtime)
       fs.rmSync(workspaceDir(id), { recursive: true, force: true })
       logger.info(`workspace "${id}" removed`)

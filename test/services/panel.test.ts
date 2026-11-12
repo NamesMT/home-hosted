@@ -190,6 +190,38 @@ describe('panelService', () => {
     }
   })
 
+  it('takes no new work while a workspace is being removed, and stops its persistent entries', async () => {
+    const { panel, dispose } = await makeHarness({
+      workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],
+    })
+
+    try {
+      const runtime = panel.requireWorkspace('staging')
+      fs.writeFileSync(runtime.store.path, JSON.stringify({ $schema: './servers.config.schema.json', meta: { writtenBy: 'test', schema: CONFIG_SCHEMA }, servers: [{ id: 'web', command: process.execPath, args: ['-e', 'null'] }] }, null, 2))
+      runtime.store.reloadFromDisk()
+      let release!: () => void
+      vi.spyOn(runtime.supervisor, 'stop').mockImplementation(async () => {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+        return { ok: true }
+      })
+      const disposeSpy = vi.spyOn(runtime.supervisor, 'dispose')
+
+      const removal = panel.remove('staging')
+      await waitFor(() => release !== undefined)
+      // Mid-removal: a request for this workspace is refused, so nothing new can start in it.
+      expect(() => panel.requireWorkspace('staging')).toThrow(/being removed/)
+      release()
+      await removal
+
+      expect(disposeSpy).toHaveBeenCalledWith({ withPersistent: true })
+    }
+    finally {
+      await dispose()
+    }
+  })
+
   it('leaves the workspace intact when the registry refuses the removal', async () => {
     const { panel, registry, dispose } = await makeHarness({
       workspaces: [{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }],
