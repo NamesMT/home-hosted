@@ -386,3 +386,31 @@ describe('a summary built from the sets', () => {
     }
   })
 })
+
+/**
+ * A leap day seven years out is still found.
+ *
+ * 1900 and 2100 are not leap years, so from 2096-03-01 the next 29 February is 2104. The search used
+ * to give up after four years and answer `null`, which the panel reported as "the schedule never
+ * comes due" — a valid schedule described as impossible.
+ */
+describe('a leap day past a non-leap century', () => {
+  it('finds 2104 from 2096, and still refuses an impossible date', () => {
+    const leap = parseCron('0 0 29 2 *')
+    expect(leap.ok).toBe(true)
+    if (leap.ok) {
+      for (const year of [2096, 2097, 2099]) {
+        const next = nextCronRun(leap.spec, new Date(year, 2, 1))
+        expect(next, `from ${year}`).not.toBeNull()
+        const at = new Date(next!)
+        expect(at.getFullYear(), `from ${year} the next leap day is 2104`).toBe(2104)
+        expect(at.getMonth()).toBe(1)
+        expect(at.getDate()).toBe(29)
+      }
+    }
+    // 31 April cannot occur at any distance, and no wider limit changes that.
+    const impossible = parseCron('0 0 31 4 *')
+    if (impossible.ok)
+      expect(nextCronRun(impossible.spec, new Date(2026, 0, 1))).toBeNull()
+  })
+})

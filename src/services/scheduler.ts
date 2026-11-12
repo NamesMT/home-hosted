@@ -138,7 +138,10 @@ export class JobScheduler {
     const due = previousCronRun(parsed.spec, new Date(now))
     if (due === null) {
       // The expression names a day that cannot occur (`0 0 31 4 *`).
-      this.reportOnce(clock, id, `the schedule never comes due (${schedule})`)
+      // `null` is "not within the search limit", not proof of "never": a date like 31 April cannot
+      // occur, but a leap-day expression near a non-leap century year is merely far away. Saying
+      // "never" for the second would be wrong, so the message states what was actually checked.
+      this.reportOnce(clock, id, `the schedule has no occurrence within eight years (${schedule})`)
       return
     }
 

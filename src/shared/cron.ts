@@ -307,8 +307,17 @@ function firstInstantOfMinute(when: Date): number {
  */
 const LOOK_BACK_MS = 366 * 24 * 60 * 60 * 1000
 
-/** How far ahead the search looks before answering "never". Four years covers a leap day. */
-const SEARCH_LIMIT_MS = 4 * 366 * 24 * 60 * 60 * 1000
+/**
+ * How far ahead the search looks before giving up. **Eight** years, not four.
+ *
+ * Four covers an ordinary leap day, but 1900 and 2100 are not leap years: from 2096-03-01 the next
+ * 29 February is 2104, seven years out, so a four-year limit answered `null` and the panel told its
+ * owner the schedule "never comes due" — measured. Eight years reaches past the century boundary.
+ *
+ * `null` means "not within this limit", not "never". `0 0 31 4 *` names a date that genuinely cannot
+ * occur and no limit can tell the two apart, so the message that reports it says which it is.
+ */
+const SEARCH_LIMIT_MS = 8 * 366 * 24 * 60 * 60 * 1000
 
 /**
  * The first minute strictly after `from` that the expression selects, in the host's local timezone,
