@@ -129,11 +129,30 @@ export async function awaitReadiness(ctx: HealthContext, entry: Entry, child: Ch
 
   if (entry.child === child && entry.status === 'starting') {
     entry.status = 'running'
-    setHealth(entry, 'unhealthy')
-    entry.unhealthySince = Date.now()
-    ctx.log(entry, 'system', `no connection on port ${port} after ${health.startTimeoutMs}ms — supervising anyway`)
+    const detail = `no connection on port ${port} after ${health.startTimeoutMs}ms`
+    ctx.log(entry, 'system', `${detail} — supervising anyway`)
+    if (health.enabled) {
+      // The whole start window failed, which is a full streak: the same verdict, history event and
+      // notification the probe gives, so the force restart and the receiver both hear of it.
+      entry.healthFailures = Math.max(entry.healthFailures, health.unhealthyThreshold)
+      enterUnhealthy(ctx, entry, detail, Date.now())
+    }
+    else {
+      setHealth(entry, 'disabled')
+    }
     ctx.publishServer(entry)
   }
+}
+
+/** Opens an unhealthy streak once: the log line, the history event and the notification. */
+function enterUnhealthy(ctx: SupervisorContext, entry: Entry, detail: string, now: number): void {
+  if (entry.unhealthySince === null) {
+    entry.unhealthySince = now
+    ctx.log(entry, 'system', `unhealthy: ${detail} (${entry.healthFailures} failed probes) — warning only`)
+    ctx.options.history.record(entry.config.id, { type: 'unhealthy', detail })
+    ctx.notify(entry, 'unhealthy', detail)
+  }
+  setHealth(entry, 'unhealthy')
 }
 
 /** Port occupancy on its own slow cadence, then one health probe when it is due. */
@@ -189,15 +208,8 @@ export async function probeEntry(ctx: SupervisorContext, entry: Entry, now: numb
     }
 
     entry.healthFailures += 1
-    if (entry.healthFailures >= health.unhealthyThreshold) {
-      if (entry.unhealthySince === null) {
-        entry.unhealthySince = now
-        ctx.log(entry, 'system', `unhealthy: ${probe.detail} (${entry.healthFailures} failed probes) — warning only`)
-        ctx.options.history.record(entry.config.id, { type: 'unhealthy', detail: probe.detail })
-        ctx.notify(entry, 'unhealthy', probe.detail)
-      }
-      setHealth(entry, 'unhealthy')
-    }
+    if (entry.healthFailures >= health.unhealthyThreshold)
+      enterUnhealthy(ctx, entry, probe.detail, now)
   }
   finally {
     entry.probing = false
@@ -273,7 +285,8 @@ export function shouldForceRestart(ctx: SupervisorContext, entry: Entry, now: nu
   const { port, health, restart } = entry.config
   if (port === null || entry.status !== 'running' || entry.health !== 'unhealthy')
     return false
-  if (entry.unhealthySince === null || health.forceRestartAfterMs <= 0)
+  // With the probe off nothing measures health, so there is nothing to restart over.
+  if (!health.enabled || entry.unhealthySince === null || health.forceRestartAfterMs <= 0)
     return false
   if (now - entry.unhealthySince < health.forceRestartAfterMs)
     return false
@@ -297,7 +310,7 @@ export function healthBudgetSpent(entry: Entry): boolean {
   const { port, health, restart } = entry.config
   if (port === null || entry.status !== 'running' || entry.health !== 'unhealthy')
     return false
-  if (entry.unhealthySince === null || health.forceRestartAfterMs <= 0)
+  if (!health.enabled || entry.unhealthySince === null || health.forceRestartAfterMs <= 0)
     return false
   return !restart.enabled || entry.healthRestarts >= restart.maxRetries
 }

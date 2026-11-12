@@ -58,8 +58,8 @@ describe('the supervisor writes health through one helper', () => {
     // A `null`/`0` reset anywhere but the helper ends a streak without the health that describes it
     // — the defect. The probe's own `unhealthySince = now` starts one, which is the other direction.
     // Legitimate streak *starts*: the probe, and the readiness timeout that gave up waiting.
-    const allowed = new Set(['setHealth', 'endHealthStreak', 'probeEntry', 'probeEntryHealth', 'awaitReadiness'])
-    const methods = ['setHealth', 'endHealthStreak', 'resetHealth', 'probeEntry', 'probeEntryHealth', 'awaitReadiness', 'createEntry']
+    const allowed = new Set(['setHealth', 'endHealthStreak', 'enterUnhealthy', 'probeEntry', 'probeEntryHealth', 'awaitReadiness'])
+    const methods = ['setHealth', 'endHealthStreak', 'resetHealth', 'enterUnhealthy', 'probeEntry', 'probeEntryHealth', 'awaitReadiness', 'createEntry']
     const offenders: string[] = []
     for (const [index, line] of lines.entries()) {
       if (!/entry\.(?:unhealthySince|healthFailures) = /.test(line))
