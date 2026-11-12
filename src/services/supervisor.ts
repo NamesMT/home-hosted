@@ -612,9 +612,6 @@ export class Supervisor {
    * fields — happens here, so neither caller can drift.
    */
   private beginJobRun(entry: Entry, options: { actor: HistoryActor, why: 'run' | 'schedule', occurrence?: number }): { outcome: Promise<JobOutcome> } | { error: string } {
-    // The durable claim, written **before** the spawn: a panel restarted a moment later must find a
-    // run on record rather than a missed occurrence, or its catch-up starts a second copy.
-    this.recordJobStart(entry, options.occurrence ?? Date.now())
     const resolved = resolveSpawn(this.ctx, entry)
     let handle: JobRunHandle
     try {
@@ -625,9 +622,21 @@ export class Supervisor {
     }
     catch (error) {
       // `spawn` throws synchronously for an unusable command or cwd: a failed run, not a panel crash.
+      // No claim is written, because **nothing ran** — a claim here would tell the boot catch-up this
+      // occurrence was covered, and a job with a typo'd command would never be retried.
       const message = (error as Error).message
       return { error: message }
     }
+
+    /**
+     * The durable claim, written once the process **exists** and before it can finish.
+     *
+     * That window is exactly what the boot catch-up needs: a panel restarted while a run is going
+     * must find it on record rather than conclude the occurrence was missed and start a second copy.
+     * Writing it before the spawn was a hole — a spawn that threw left a claim with no outcome, and
+     * the catch-up treated the occurrence as covered for ever.
+     */
+    this.recordJobStart(entry, options.occurrence ?? Date.now())
 
     const startedAt = handle.startedAt
     entry.actor = options.actor

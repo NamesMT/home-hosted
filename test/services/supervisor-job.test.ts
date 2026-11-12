@@ -162,3 +162,28 @@ describe('running a job', () => {
     expect(result.code).toBe('UNKNOWN_SERVER')
   })
 })
+
+/**
+ * A job whose program does not exist is a **failed run**, not a claim with no outcome.
+ *
+ * Measured: `spawnJobRun` does not throw for a missing program — it returns a handle with `pid: null`
+ * and an outcome of `exitCode: null`, so the run completes as a failure and both records are written.
+ * That is the honest shape: something was attempted and it failed, which is different from an
+ * occurrence that was claimed and then silently forgotten.
+ *
+ * The claim is written after the process exists rather than before the spawn, so a spawn that *does*
+ * throw (an unusable cwd, a NUL in the command) leaves no claim and the occurrence stays owed.
+ */
+describe('a job whose program does not exist', () => {
+  it('records a failed run rather than a bare claim', async () => {
+    const { supervisor, history } = await makeSupervisor([
+      { id: 'broken', command: 'hh-no-such-program-anywhere', args: [], port: null, kind: 'job', schedule: '0 3 * * *', enabled: true } as never,
+    ])
+
+    await supervisor.runJob('broken')
+
+    const events = history.all().filter(event => event.serverId === 'broken' && event.type === 'job-run')
+    // The claim, then the outcome — and the outcome says it failed.
+    expect(events.map(event => event.outcome)).toEqual(['running', 'failed'])
+  }, 30_000)
+})
