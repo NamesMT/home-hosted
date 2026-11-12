@@ -1702,6 +1702,29 @@ async function readFrames(reader: ReadableStreamDefaultReader<Uint8Array>, decod
 }
 
 describe('panel event stream', () => {
+  /**
+   * A stream is a route like any other: naming a workspace or a server that does not exist must be the
+   * same 404 the rest of `/api` answers, not a 200 that opens a stream nobody publishes to. A client
+   * that spelled the id wrong read the silence as "nothing is happening".
+   */
+  it.each([
+    ['?workspace=nope', 'UNKNOWN_WORKSPACE'],
+    ['?serverId=ghost', 'UNKNOWN_SERVER'],
+  ])('answers %s with a 404, never an empty stream', async (query, code) => {
+    const created = await fixture({ views: [makeView('web')] })
+    const response = await created.app.request(`/api/events${query}`)
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({ code })
+  })
+
+  it('accepts a server that exists', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    const response = await created.app.request('/api/events?serverId=web')
+    expect(response.status).toBe(200)
+    await response.body!.cancel().catch(() => {})
+  })
+
   it('opens with the full state snapshot', async () => {
     const created = await fixture({ views: [makeView('web')] })
     const response = await created.app.request('/api/events')

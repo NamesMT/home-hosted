@@ -255,6 +255,21 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     })
 
     const views = options.workspaceViews?.[declaration.id] ?? (declaration.id === 'default' ? options.views ?? [] : [])
+    // Every view a test hands in is backed by a declared entry, because that is the only thing the
+    // panel can produce: a view exists only for an id `servers.config.json` declares, and the store is
+    // what a route checks an id against (`GET /api/events`, `/:id/stream`). A fixture whose views named
+    // entries the store had never heard of exercised routes the panel cannot reach.
+    const declared = new Set(declaration.servers.map(server => server.id))
+    const undeclared = views.filter(view => !declared.has(view.id))
+    if (undeclared.length > 0) {
+      declaration.servers.push(...undeclared.map(view => ({ id: view.id, command: 'node' })))
+      fs.writeFileSync(serversFile, JSON.stringify({
+        $schema: './servers.config.schema.json',
+        meta: { writtenBy: 'test', schema: CONFIG_SCHEMA },
+        servers: declaration.servers,
+      }, null, 2))
+      store.load()
+    }
     // A real `ServerView` carries the workspace that owns it; only id is unique now.
     const tagged = views.map(view => (view.workspaceId === undefined ? { ...view, workspaceId: declaration.id } : view))
     const supervisor = emptySupervisor(tagged)

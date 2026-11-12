@@ -2,8 +2,10 @@ import type { AppDeps } from '#src/app'
 import type { SseMessage } from '#src/shared/contracts'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
+import { unknownServerError } from '#src/helpers/action-result'
 import { serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
+import { ERROR_RESPONSES } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace } from '#src/helpers/workspace'
 import { serverKey } from '#src/services/events'
@@ -22,6 +24,11 @@ const eventsQuery = lazy(() => type({
  * One SSE stream per subscriber. `?workspace=<id>` narrows server and log frames to one workspace,
  * `&serverId=<id>` to one server of it (of the default workspace when none is named); the first frame
  * always carries the full state snapshot.
+ *
+ * **Unknown ids are refused before the stream opens.** Both used to answer `200` and stream nothing:
+ * a mistyped workspace id was silently subscribed to a key nothing publishes under, and a mistyped
+ * server id with no workspace skipped the lookup entirely. A client reads silence as "nothing is
+ * happening", which is the one thing a live stream must never say when its target does not exist.
  */
 export function createEventsRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -30,7 +37,7 @@ export function createEventsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Panel state and log frames as server-sent events',
-        responses: { 200: { description: 'text/event-stream' } },
+        responses: { 200: { description: 'text/event-stream' }, 404: ERROR_RESPONSES[404] },
       }),
       validate('query', eventsQuery),
       (c) => {
@@ -40,7 +47,13 @@ export function createEventsRoute(deps: AppDeps) {
 
         // A server id is unique only inside its workspace, so naming one without a workspace means
         // the default workspace — the rule every other workspace-scoped route follows — never "any".
-        const workspaceId = serverId === null ? query.workspace ?? null : requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), query.workspace).id
+        // The lookup runs whenever either is named, so both a bad workspace and a bad server 404.
+        const runtime = serverId === null && query.workspace === undefined
+          ? null
+          : requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), query.workspace)
+        const workspaceId = runtime?.id ?? null
+        if (serverId !== null && runtime !== null && !runtime.store.getServer(serverId))
+          throw unknownServerError(serverId)
 
         return serveEventStream(c, deps.auth, (send) => {
           const subscription = workspaceId !== null && serverId !== null ? serverKey(workspaceId, serverId) : null
