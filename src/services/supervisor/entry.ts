@@ -112,6 +112,11 @@ export interface Entry {
   bootstrapChild: ChildProcess | null
   /** Who asked for the start in flight, recorded on its history event. */
   actor: HistoryActor
+  /**
+   * Who asked for the stop in flight, or `null` when nothing did (a self-exit, a policy restart, a
+   * removed entry's teardown, a boot sweep). Read once, by the exit it causes, and cleared there.
+   */
+  stopActor: HistoryActor | null
   /** The config dropped this entry: the stop that follows must not recreate its reclaimed logs or history. */
   removed: boolean
   bootstrapDone: boolean
@@ -183,6 +188,7 @@ export function createEntry(config: ServerConfig, nannyDir: string): Entry {
     stopTask: null,
     bootstrapChild: null,
     actor: 'policy',
+    stopActor: null,
     removed: false,
     bootstrapDone: persisted?.bootstrapDone ?? !config.bootstrap,
     pendingLoad: persisted?.pendingLoad ?? null,

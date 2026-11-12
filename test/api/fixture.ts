@@ -2,7 +2,7 @@ import type { AppDeps } from '#src/app'
 import type { DdnsFetch } from '#src/providers/ddns/types'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { PanelService, WorkspaceRuntime } from '#src/services/panel'
-import type { AppState, Bind, FreePortResult, LogLine, ServerConfig, ServerView } from '#src/shared/contracts'
+import type { AppState, Bind, FreePortResult, HistoryActor, LogLine, ServerConfig, ServerView } from '#src/shared/contracts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -49,10 +49,11 @@ import { serverViewSchema } from '#src/shared/contracts'
 export interface FakeSupervisor {
   views: () => ServerView[]
   getState: () => AppState
-  startAll: (options?: { autostartOnly?: boolean }) => Promise<void>
+  /** `actor` is what the route passes to the real supervisor; the fake records it. */
+  startAll: (options?: { autostartOnly?: boolean, actor?: HistoryActor }) => Promise<void>
   stopAll: (options?: { withPersistent?: boolean }) => Promise<void>
   start: (id: string) => Promise<{ ok: boolean, error?: string }>
-  stop: (id: string) => Promise<{ ok: boolean, error?: string }>
+  stop: (id: string, options?: { actor?: HistoryActor }) => Promise<{ ok: boolean, error?: string }>
   restart: (id: string) => Promise<{ ok: boolean, error?: string }>
   clearLogs: (id: string) => void
   logLines: (id: string, limit?: number) => LogLine[]

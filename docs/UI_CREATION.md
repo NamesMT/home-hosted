@@ -100,8 +100,9 @@ stamps. A BOM or UTF-16 file (Notepad, PowerShell) is read fine.
 - **Text the panel formats itself** (a backup entry's label, why a path is skipped) arrives as
   English plus an optional `labelKey`/`noteKey` and `…Params`. Resolve the key if you have a catalog,
   otherwise render the English.
-- **A start event's `actor`** (`policy`, `user`, `agent`, `boot`) says what asked for it; absent on
-  older events.
+- **An event's `actor`** (`policy`, `user`, `agent`, `boot`) says what asked for it; absent on older
+  events, and on a `start`/`exit` nobody asked for — a process that ended on its own has no actor.
+  A `start` carries whoever asked for it, and an `exit` only when a stop asked for it.
 - `GET /api/backups` is not in the state frame (it reads secrets and stats archives): fetch it when
   a dialog opens.
 

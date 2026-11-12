@@ -172,7 +172,7 @@ export class Supervisor {
     return this.entries.get(id)?.logs.list(limit) ?? []
   }
 
-  async startAll(options: { autostartOnly?: boolean } = {}): Promise<void> {
+  async startAll(options: { autostartOnly?: boolean, actor?: HistoryActor } = {}): Promise<void> {
     // Before anything is started: what a previous panel's record says about the runs it owned.
     await this.reportAwayChildren()
 
@@ -200,9 +200,11 @@ export class Supervisor {
     const targets = [...this.entries.values()]
       .filter(entry => !options.autostartOnly || entry.config.autostart)
       .map(entry => entry.config)
-    // Dependencies first; levels are still started concurrently.
+    // Dependencies first; levels are still started concurrently. `boot` is the default because a
+    // caller's own `start-all` is the only one that is not the boot pass — and it must say so, or the
+    // "crashed while away" rule (`actor === 'boot'`) reports a person's bulk start as a boot's news.
     for (const config of orderByDependencies(targets)) {
-      await this.start(config.id, { actor: 'boot' })
+      await this.start(config.id, { actor: options.actor ?? 'boot' })
     }
   }
 
@@ -388,18 +390,18 @@ export class Supervisor {
       this.runPendingLoadInBackground(entry)
   }
 
-  async stop(id: string): Promise<StartResult> {
+  async stop(id: string, options: { actor?: HistoryActor } = {}): Promise<StartResult> {
     const entry = this.entries.get(id)
     if (!entry)
       return missingServer(id)
-    return this.stopEntry(entry)
+    return this.stopEntry(entry, options)
   }
 
   async restart(id: string, options: { actor?: HistoryActor } = {}): Promise<StartResult> {
     // A force restart's outcome is owed, so the internal stop must not discard it; `start()` clears it
     // for a user's restart.
     const owed = this.entries.get(id)?.pendingRestart ?? null
-    const stopped = await this.stop(id)
+    const stopped = await this.stop(id, options)
     const entry = this.entries.get(id)
     if (entry !== undefined && owed !== null && entry.pendingRestart === null)
       entry.pendingRestart = owed
@@ -532,7 +534,7 @@ export class Supervisor {
     })
   }
 
-  private async stopEntry(entry: Entry): Promise<StartResult> {
+  private async stopEntry(entry: Entry, options: { actor?: HistoryActor } = {}): Promise<StartResult> {
     /**
      * Two stops on one entry are **one** stop, not two racing tails.
      *
@@ -548,7 +550,7 @@ export class Supervisor {
      */
     if (entry.stopTask !== null)
       return entry.stopTask
-    const task = this.runStop(entry)
+    const task = this.runStop(entry, options)
     // Assigned after `runStop` has run synchronously up to its first await (it sets `stopping`
     // before then), so no second caller can slip in between.
     entry.stopTask = task
@@ -561,7 +563,10 @@ export class Supervisor {
     }
   }
 
-  private async runStop(entry: Entry): Promise<StartResult> {
+  private async runStop(entry: Entry, options: { actor?: HistoryActor } = {}): Promise<StartResult> {
+    // Who asked, on the entry for the exit this teardown causes to record. Only a stop *someone asked
+    // for* has one: a self-exit, a policy restart and a removed entry's teardown all leave it null.
+    entry.stopActor = options.actor ?? null
     this.clearRetry(entry)
     entry.nextRetryAt = null
 
@@ -947,6 +952,9 @@ export class Supervisor {
       this.persistent.consumeExit(entry)
     const nannyExit = entry.nannyExit
     entry.nannyExit = null
+    // Read and cleared with the run: an exit nobody asked for must not inherit the last stop's actor.
+    const stopActor = entry.stopActor
+    entry.stopActor = null
 
     entry.child = null
     endProcessReadings(entry)
@@ -976,6 +984,7 @@ export class Supervisor {
         type: 'exit',
         detail,
         runtimeMs: ranForMs,
+        ...(stopActor === null ? {} : { actor: stopActor }),
       })
     }
 

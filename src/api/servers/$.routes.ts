@@ -159,7 +159,9 @@ export function createServersRoute(deps: AppDeps) {
       validate('query', workspaceQuerySchema),
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        await runtime.supervisor.startAll()
+        // The caller's actor, never `boot`: this route is the panel's boot path only when the panel
+        // itself calls it, and history has to say whether a person or a script brought these up.
+        await runtime.supervisor.startAll({ actor: requestActor(c, deps.auth) })
         return c.json({ servers: runtime.supervisor.views() })
       },
     )
@@ -254,7 +256,7 @@ export function createServersRoute(deps: AppDeps) {
       validate('param', idParam),
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        const result = await runtime.supervisor.stop(c.req.valid('param').id)
+        const result = await runtime.supervisor.stop(c.req.valid('param').id, { actor: requestActor(c, deps.auth) })
         return c.json(actionAnswer(result), statusForAction(result))
       },
     )

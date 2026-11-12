@@ -1899,3 +1899,56 @@ describe('the documented placeholder table', () => {
     expect(undocumented, 'a placeholder the code expands but the docs never mention').toEqual([])
   })
 })
+
+/**
+ * A stop is an action someone took, and history has to say who.
+ *
+ * `start` recorded its actor — the entry's `actor`, set from the request — but `stop` recorded
+ * nothing, so the `exit` it causes read as a process that ended on its own. A person looking at "why
+ * did this stop" could not tell their own Stop from a crash, and neither could the "crashed while
+ * away" rule, which keys on the actor a run was started with.
+ */
+describe('a stop records who asked for it', () => {
+  it('carries the actor onto the exit it causes, and leaves a self-exit unattributed', async () => {
+    const { supervisor, history } = await makeSupervisor([{
+      id: 'web',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      port: null,
+      restart: { enabled: false },
+      health: { enabled: false },
+    }])
+
+    await supervisor.start('web', { actor: 'user' })
+    await waitForStatus(supervisor, 'web', 'running')
+    await supervisor.stop('web', { actor: 'agent' })
+
+    const exits = history.all().filter(event => event.serverId === 'web' && event.type === 'exit')
+    expect(exits, 'one stop is one exit').toHaveLength(1)
+    expect(exits[0]!.actor, 'the token that stopped it, not an unexplained exit').toBe('agent')
+  })
+
+  /**
+   * A process that exits by itself has no actor, and inventing one is worse than absence: it would
+   * make a crash look like something a person did.
+   */
+  it('records no actor for a process that ends on its own', async () => {
+    const { supervisor, history } = await makeSupervisor([{
+      id: 'brief',
+      command: process.execPath,
+      args: ['-e', 'process.exitCode = 0'],
+      port: null,
+      restart: { enabled: false },
+      health: { enabled: false },
+    }])
+
+    await supervisor.start('brief', { actor: 'user' })
+    // A process that exits by itself ends as `crashed` (automatic restart is off), not `stopped`:
+    // `stopped` is what a stop answers, and nothing stopped this one.
+    await waitForStatus(supervisor, 'brief', 'crashed')
+
+    const exits = history.all().filter(event => event.serverId === 'brief' && event.type === 'exit')
+    expect(exits).toHaveLength(1)
+    expect(exits[0]!.actor, 'nobody stopped this one').toBeUndefined()
+  })
+})

@@ -460,14 +460,14 @@ export class PanelService {
     }
   }
 
-  /** Starts whatever the config marks autostart, across every workspace. */
+  /** Starts whatever the config marks autostart, across every workspace. Boot's own pass. */
   async startAll(workspaces: string[] = this.workspaces().map(runtime => runtime.id)): Promise<void> {
     for (const id of workspaces) {
       const runtime = this.runtimes.get(id)
       if (runtime === undefined)
         continue
       try {
-        await runtime.supervisor.startAll({ autostartOnly: true })
+        await runtime.supervisor.startAll({ autostartOnly: true, actor: 'boot' })
       }
       catch (error) {
         logger.error(`autostart failed for workspace "${id}"`, error)

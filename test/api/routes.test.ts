@@ -1258,6 +1258,28 @@ describe('lifecycle routes', () => {
   })
 
   /**
+   * Who asked reaches the history event, for a bulk start too.
+   *
+   * `start-all` passed `actor: 'boot'` for every entry it started, whoever called the route — so the
+   * history showed a person's Start-all as the panel's own boot pass. That is not cosmetic: `actor:
+   * 'boot'` is what gates the "crashed while away" report, so a user's bulk start would have claimed
+   * to be reporting a boot's worth of news, and a script's actions were indistinguishable from one.
+   */
+  it('records who asked for start-all, keeping boot for the boot path', async () => {
+    const created = await withServer({ views: [makeView('web')] })
+    const seen: Array<{ actor?: string }> = []
+    created.supervisor.startAll = async (options?: { actor?: string }) => {
+      seen.push(options ?? {})
+    }
+
+    await request(created.app, '/api/servers/start-all', 'POST')
+    expect(seen.at(-1), 'a route call is not boot').not.toEqual({ actor: 'boot' })
+
+    // A token request is the agent's, a cookie one the person's — the same rule every other route uses.
+    expect(seen.at(-1)).toEqual({ actor: 'user' })
+  })
+
+  /**
    * `withPersistent` is the CLI's `--with-persistent`. Omitting it must keep the behaviour every
    * existing client has — a bare `stop-all` leaves persistent entries running — so the route
    * reads it with a default of `false` rather than treating an absent query as "stop everything".
