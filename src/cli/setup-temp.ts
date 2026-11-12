@@ -14,7 +14,7 @@ import { installLibreHardwareMonitor, lhmDirectoryWindows, lhmInstalled, probeWs
 
 export const setupTempArgs = {
   wsl: { type: 'boolean', description: 'read the temperature through the Windows host (WSL2)', default: false },
-  clear: { type: 'boolean', description: 'stop using a configured command and delete its helper', default: false },
+  clear: { type: 'boolean', description: 'stop using a configured command, and delete its helper when this home runs it', default: false },
   // No `default`: citty leaves it `undefined` when absent and `false` for `--no-download`, which is
   // what lets one flag express the three outcomes — ask, install, refuse — instead of needing a
   // second flag to say "no".
@@ -58,6 +58,43 @@ export function flagProblem(flags: { wsl?: boolean, clear?: boolean, download?: 
   return null
 }
 
+/**
+ * `--clear`: stops using the configured command, and deletes the helper only when **this** home's
+ * command is the one that runs it.
+ *
+ * The helper sits in a machine-wide directory (beside the library, so every account resolves the
+ * same file), so another home on this machine may be using it: deleting it whenever it existed broke
+ * that home's tile. A settings file this command could not read is refused — it cannot tell whether
+ * this home uses the helper, and saving over it is the store's own refusal anyway.
+ *
+ * `helper` is injected so a test never names the real machine-wide path.
+ */
+export function clearTemperatureSource(store: GlobalSettingsStore, helper: string | null): { ok: true, lines: string[] } | { ok: false, error: string } {
+  if (store.configError !== null)
+    return { ok: false, error: `cannot clear the temperature source: ${store.configError}` }
+
+  const command = store.host.tempCommand.trim()
+  const hasHelper = helper !== null && fs.existsSync(helper)
+  const ownsHelper = hasHelper && command === tempCommandFor(helper)
+  const lines: string[] = []
+
+  if (command.length === 0) {
+    lines.push('no temperature command is set — nothing to clear')
+  }
+  else {
+    store.updateHost({ tempCommand: '' })
+    lines.push(`${green('temperature command cleared')} — the tile uses the built-in probe again`)
+  }
+  if (ownsHelper) {
+    removeWslTemperatureScript(helper)
+    lines.push(`  ${dim(`helper ${helper} deleted`)}`)
+  }
+  else if (hasHelper) {
+    lines.push(`  ${dim(`the shared helper at ${helper} was left in place — this home's command did not run it, and another home may`)}`)
+  }
+  return { ok: true, lines }
+}
+
 export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean, download?: boolean }): Promise<void> {
   // Before any read: a flag this command cannot honour is a mistake in the invocation, not a
   // property of the machine's config.
@@ -67,32 +104,17 @@ export async function runSetupTemp(flags: { wsl?: boolean, clear?: boolean, down
 
   const store = new GlobalSettingsStore(globalSettingsPath)
   store.load()
-  const host = store.host
-  const configured = host.tempCommand.trim().length > 0
 
   if (flags.clear === true) {
-    // `--clear` promises to delete the helper as well as the setting, and it used to clear the
-    // command only: measured, the file outlived every `--clear`. A stale helper is also the one
-    // thing left when the command is already empty, so it is removed on both paths.
-    const helper = wslScriptPath()
-    const hadHelper = helper !== null && fs.existsSync(helper)
-    if (configured)
-      store.updateHost({ tempCommand: '' })
-    removeWslTemperatureScript(helper)
-    if (!configured && !hadHelper) {
-      process.stdout.write('no temperature command is set — nothing to clear\n')
-      return
-    }
-    if (!configured) {
-      process.stdout.write(`no temperature command is set — removed the leftover helper at ${dim(helper!)}\n`)
-      return
-    }
-    process.stdout.write(`${green('temperature command cleared')} — the tile uses the built-in probe again\n`)
-    if (hadHelper)
-      process.stdout.write(`  ${dim(`helper ${helper!} deleted`)}\n`)
+    const cleared = clearTemperatureSource(store, wslScriptPath())
+    if (!cleared.ok)
+      fail(cleared.error)
+    for (const line of cleared.lines) process.stdout.write(`${line}\n`)
     return
   }
 
+  const host = store.host
+  const configured = host.tempCommand.trim().length > 0
   const source = sourceFromFlags(flags)
   if (source === null) {
     // No flag: say what is going on, so this is the one command a confused person types.

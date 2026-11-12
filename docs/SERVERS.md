@@ -486,7 +486,7 @@ prints the reading. Nothing reaches the config until the helper answers. The sam
 | *(none)* | reports whether a source is set, and lists the options |
 | `--wsl` | writes the helper and offers the download |
 | `--wsl --download` / `--wsl --no-download` | install without asking / never install |
-| `--clear` | stop using it and delete the helper |
+| `--clear` | stop using it, and delete the helper when this home's command runs it (it is shared by every home on the machine, so another's is left in place) |
 
 `--download` and `--no-download` modify `--wsl`; either one alone is refused rather than ignored, so a
 script cannot read a successful exit as "installed". `--clear` is refused beside them, because the two
