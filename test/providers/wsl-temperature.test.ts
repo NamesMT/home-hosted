@@ -1,7 +1,20 @@
 import cp from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import process from 'node:process'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { forgetWslPaths, isWsl, LHM_RELEASE, LHM_SUBDIR, lhmDirectoryWindows, lhmInstalled, tempCommandFor, toGuestPath, windowsScriptPath, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
+
+/**
+ * These cases resolve the real `%ProgramData%` path (with `powershell.exe` mocked), so they set aside
+ * the test setup's stand-in directory. Nothing here writes the helper or the library.
+ */
+const standIn = process.env.HHOSTED_TEST_PROGRAMDATA
+beforeAll(() => {
+  delete process.env.HHOSTED_TEST_PROGRAMDATA
+})
+afterAll(() => {
+  process.env.HHOSTED_TEST_PROGRAMDATA = standIn
+})
 
 /**
  * The WSL2 temperature bridge.

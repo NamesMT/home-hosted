@@ -43,3 +43,14 @@ if (override === undefined || override.length === 0 || !path.isAbsolute(override
     fs.rmSync(scratch, { recursive: true, force: true })
   })
 }
+
+/**
+ * The same for the one machine-wide location the panel writes: the WSL2 temperature helper and its
+ * library under the Windows host's `%ProgramData%`, shared by every home. Always replaced — unlike the
+ * home there is no legitimate reason for a test run to reach the real one.
+ */
+const programData = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-test-programdata-'))
+process.env.HHOSTED_TEST_PROGRAMDATA = programData
+afterAll(() => {
+  fs.rmSync(programData, { recursive: true, force: true })
+})

@@ -82,8 +82,21 @@ export function toGuestPath(windowsPath: string): string | null {
   return path.posix.join('/mnt', match[1]!.toLowerCase(), ...match[2]!.split('\\'))
 }
 
+/**
+ * A guest directory standing in for `%ProgramData%`, set by the test setup for every test file and
+ * every CLI it spawns. The helper and library live there machine-wide, shared by every home, so a
+ * test run that reached the real one wrote over — and `--clear` deleted — a person's working bridge.
+ */
+function programDataOverride(): string | null {
+  const dir = process.env.HHOSTED_TEST_PROGRAMDATA?.trim()
+  return dir === undefined || dir.length === 0 ? null : dir
+}
+
 /** The install directory as a guest path, or null when the Windows side cannot be reached. */
 export function lhmDirectory(): string | null {
+  const override = programDataOverride()
+  if (override !== null)
+    return path.join(override, ...LHM_SUBDIR.split('\\'))
   const windows = lhmDirectoryWindows()
   return windows === null ? null : toGuestPath(windows)
 }
@@ -118,6 +131,9 @@ export function windowsScriptPath(scriptPath: string): string {
 export function wslScriptPath(): string | null {
   if (!isWsl())
     return null
+  const override = programDataOverride()
+  if (override !== null)
+    return path.join(override, 'home-hosted', SCRIPT_NAME)
   const base = lhmDirectoryWindows()
   const guest = base === null ? null : toGuestPath(path.win32.dirname(base))
   if (guest === null)

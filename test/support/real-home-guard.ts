@@ -55,30 +55,45 @@ export interface RealHomeGuard {
   home: string
 }
 
+/**
+ * The machine-wide spot besides the home: on a WSL2 guest the temperature helper and its library live
+ * under the Windows host's `%ProgramData%`, shared by every home. A test run once wrote over and then
+ * deleted a working helper there. `/mnt/c` is the usual system drive; elsewhere this is simply absent.
+ */
+const HOST_PROGRAM_DATA = '/mnt/c/ProgramData/home-hosted'
+
 export async function setup(): Promise<() => Promise<void>> {
   // `os.homedir()` here, not `#src/helpers/paths`: that module resolves at import time and this file
   // must not drag the app's state into the runner before the per-file redirect is in place.
-  const home = path.join(os.homedir(), '.home-hosted')
-  const before = snapshot(home)
+  const guarded = [path.join(os.homedir(), '.home-hosted'), HOST_PROGRAM_DATA]
+  const before = new Map(guarded.map(dir => [dir, snapshot(dir)]))
 
   return async () => {
-    const after = snapshot(home)
-    const added = [...after.keys()].filter(key => !before.has(key))
-    const changed = [...after.keys()].filter(key => before.has(key) && before.get(key) !== after.get(key))
-
-    if (added.length === 0 && changed.length === 0)
+    const lines: string[] = []
+    for (const dir of guarded) {
+      const was = before.get(dir)!
+      const now = snapshot(dir)
+      const added = [...now.keys()].filter(key => !was.has(key))
+      const changed = [...now.keys()].filter(key => was.has(key) && was.get(key) !== now.get(key))
+      const removed = [...was.keys()].filter(key => !now.has(key))
+      if (added.length + changed.length + removed.length === 0)
+        continue
+      // Named, not just counted: the point is to be able to put it back and fix the test that did it.
+      lines.push(
+        `the test run changed ${dir}`,
+        ...added.map(file => `  created  ${file}`),
+        ...changed.map(file => `  modified ${file}`),
+        ...removed.map(file => `  deleted  ${file}`),
+      )
+    }
+    if (lines.length === 0)
       return
-
-    // Named, not just counted: the point is to be able to delete it and fix the test that made it.
-    const lines = [
-      `the test run wrote to the real state directory ${home}`,
-      ...added.map(file => `  created  ${file}`),
-      ...changed.map(file => `  modified ${file}`),
+    lines.push(
       '',
-      'A test file must not fall back to the default home. `src/helpers/paths.ts` resolves `dataRoot`',
-      'once at import, so a file that sets `process.env.HHOSTED_HOME` in its body is already too late;',
-      'a file that deletes it reaches the real directory. Point the test at `mkdtemp` instead.',
-    ]
+      'A test must not reach real state. `src/helpers/paths.ts` resolves `dataRoot` once at import, so a',
+      'file that sets `process.env.HHOSTED_HOME` in its body is already too late; the WSL helper honours',
+      '`HHOSTED_TEST_PROGRAMDATA`, which `test/support/test-home.ts` sets. Point the test at `mkdtemp`.',
+    )
     throw new Error(lines.join('\n'))
   }
 }
