@@ -381,14 +381,16 @@ describe('which account answers a challenge', () => {
  * accept, which is the only way to reach the refusal handling — the default stub always
  * accepts, so nothing exercised that path's `lastError`.
  */
-async function stubEngine(options: ProxyServiceOptions, reject?: { status: number, message: string }): Promise<{ loads: any[], pid: number, stop: () => Promise<void> }> {
+async function stubEngine(options: ProxyServiceOptions, reject?: { status: number, message: string }): Promise<{ loads: any[], headers: http.IncomingHttpHeaders[], pid: number, stop: () => Promise<void> }> {
   const engine = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' })
   const loads: any[] = []
+  const headers: http.IncomingHttpHeaders[] = []
   const admin = http.createServer((request, response) => {
     let body = ''
     request.on('data', chunk => body += chunk)
     request.on('end', () => {
       loads.push(JSON.parse(body))
+      headers.push(request.headers)
       if (reject !== undefined) {
         response.writeHead(reject.status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: reject.message }))
         return
@@ -412,6 +414,7 @@ async function stubEngine(options: ProxyServiceOptions, reject?: { status: numbe
 
   return {
     loads,
+    headers,
     pid: engine.pid!,
     async stop() {
       engine.kill('SIGKILL')
@@ -1531,6 +1534,46 @@ describe('proxyService', () => {
  * The test above already proves the cache is not stale after an append. These pin the other two
  * ways it could be wrong: an unchanged log must not be re-read, and a **rotated** log must be.
  */
+describe('an uploaded pair replaced in place', () => {
+  it.runIf(hasOpenssl)('reaches the engine, and a forced apply asks it to revalidate', async () => {
+    // The engine loads a pair by path, so a replaced pair rendered byte-identical configuration:
+    // apply() skipped it, and Caddy skips an identical `/load` too unless told to revalidate.
+    const { service, options, settings } = await harness()
+    writeStubEngine(service.enginePath, [])
+    stubPortPreflight()
+    writePair(options.tlsDir, 'mine', makePair('pinned.lan'))
+    settings.updateProxy({
+      enabled: true,
+      httpPort: 18080,
+      httpsPort: 18443,
+      certificates: [{ id: 'mine', label: '' }],
+      routes: [{ id: 'pinned', host: 'pinned.lan', target: 'external', url: 'http://10.0.0.5:3000', tls: 'manual' }],
+    })
+    const engine = await stubEngine(options)
+
+    try {
+      await service.initialize()
+      expect(engine.loads).toHaveLength(1)
+      const tagsOf = (load: any): unknown => load.apps.tls.certificates.load_files[0].tags
+
+      writePair(options.tlsDir, 'mine', makePair('pinned.lan'))
+      const later = new Date(Date.now() + 10_000)
+      for (const file of ['mine.crt.pem', 'mine.key.pem'])
+        fs.utimesSync(path.join(options.tlsDir, file), later, later)
+      await service.apply()
+      expect(engine.loads, 'a replaced pair must reach the engine').toHaveLength(2)
+      expect(tagsOf(engine.loads[1])).not.toEqual(tagsOf(engine.loads[0]))
+      expect(engine.headers[1]?.['cache-control']).toBeUndefined()
+
+      await service.apply({ force: true })
+      expect(engine.headers[2]?.['cache-control']).toBe('must-revalidate')
+    }
+    finally {
+      await engine.stop()
+    }
+  })
+})
+
 describe('the failure-log cache', () => {
   const failureLine = (identifier: string, error: string): string =>
     `${JSON.stringify({ ts: 1, stream: 'stderr', text: JSON.stringify({ logger: 'tls.obtain', msg: 'could not get certificate from issuer', identifier, error }) })}\n`

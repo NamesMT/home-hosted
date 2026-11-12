@@ -21,8 +21,11 @@ export interface ProxyConfigInput {
   /** Where certificates and other engine state live; never a home directory. */
   engineDir: string
   routes: ProxyUpstreamRoute[]
-  /** The PEM pairs `tls: "manual"` may serve, as paths on disk; the engine picks by SNI. */
-  manual: Array<{ certificate: string, key: string }>
+  /**
+   * The PEM pairs `tls: "manual"` may serve, as paths on disk; the engine picks by SNI. `tags` carry
+   * the content's fingerprint, so a pair replaced in place changes the configuration.
+   */
+  manual: Array<{ certificate: string, key: string, tags?: string[] }>
   /**
    * The ACME account, and the names it may issue for. Without this the engine still
    * gets certificates, but registers an account with no contact address and has no

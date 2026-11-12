@@ -20,7 +20,7 @@ import type {
 } from '#src/shared/contracts'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
@@ -741,7 +741,7 @@ export class ProxyService {
     // with names no process. Ask first, so the answer names the pid to stop.
     await this.assertPortsFree(this.config.httpPort, this.config.httpsPort)
 
-    await this.postConfiguration(rendered)
+    await this.postConfiguration(rendered, options.force === true)
 
     // Only now is this the configuration: the file the engine boots from must never
     // hold a revision it refused.
@@ -818,8 +818,11 @@ export class ProxyService {
    * engine refused could leave the panel reporting the proxy as healthy. Keeping both the
    * message and the state in one place is the point.
    */
-  private async postConfiguration(rendered: unknown): Promise<void> {
-    const result = await this.request('POST', '/load', rendered).catch((error: unknown) => {
+  private async postConfiguration(rendered: unknown, force = false): Promise<void> {
+    // Caddy skips a `/load` identical to what it runs unless told to revalidate, which is what a
+    // forced apply is for.
+    const headers = force ? { 'cache-control': 'must-revalidate' } : undefined
+    const result = await this.request('POST', '/load', rendered, headers).catch((error: unknown) => {
       this.lastError = `the engine did not accept the configuration: ${errorMessage(error)}`
       throw new DetailedError(this.lastError, { statusCode: 502, code: 'ENGINE_UNREACHABLE' })
     })
@@ -1001,14 +1004,26 @@ export class ProxyService {
     })
   }
 
-  /** The uploaded pairs, when any route actually asks for one. */
-  private manualPairs(): Array<{ certificate: string, key: string }> {
+  /**
+   * The uploaded pairs, when any route actually asks for one.
+   *
+   * Each carries its content's fingerprint as a tag: the engine loads the pair by path, so a pair
+   * replaced in place rendered a byte-identical configuration, the apply was skipped, and the engine
+   * kept serving the old certificate.
+   */
+  private manualPairs(): Array<{ certificate: string, key: string, tags: string[] }> {
     if (!this.config.routes.some(route => route.tls === 'manual'))
       return []
     return this.certificateViews()
       .filter(entry => entry.present && entry.error === null)
       .map(entry => this.certificates.pairStore(entry.id))
-      .map(store => ({ certificate: store.certPath, key: store.keyPath }))
+      .flatMap((store) => {
+        const pair = store.load()
+        if (pair === null)
+          return []
+        const fingerprint = createHash('sha256').update(pair.cert).update('\0').update(pair.key).digest('hex')
+        return [{ certificate: store.certPath, key: store.keyPath, tags: [`hh-sha256-${fingerprint}`] }]
+      })
   }
 
   /** The ACME account, and the names it may issue for: only the public ones. */
@@ -1653,13 +1668,13 @@ export class ProxyService {
     }
   }
 
-  private request(method: string, urlPath: string, body?: unknown): Promise<{ status: number, body: string }> {
+  private request(method: string, urlPath: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<{ status: number, body: string }> {
     const admin = this.admin
     if (admin === null)
       return Promise.reject(new DetailedError('the proxy engine is not running', { statusCode: 400, code: 'ENGINE_NOT_RUNNING' }))
 
     const payload = body === undefined ? null : Buffer.from(JSON.stringify(body))
-    const headers: Record<string, string | number> = {}
+    const headers: Record<string, string | number> = { ...extraHeaders }
     if (payload !== null) {
       headers['content-type'] = 'application/json'
       headers['content-length'] = payload.length

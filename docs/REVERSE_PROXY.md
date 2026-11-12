@@ -182,7 +182,8 @@ no route would be served from. A pair outside its validity window — expired, o
 yet — is never served, and the route that asks for it is refused with the reason; a pair
 whose key does not match its certificate is refused the same way. An uploaded pair is
 re-read as soon as its file changes, so editing or replacing one outside the panel is
-picked up on the next look; the engine's
+picked up on the next look. Replacing a pair (upload, or **Apply** after a change on disk) reloads
+the engine with the new certificate even though its path is unchanged; the engine's
 own certificate store (the issued certificates) is read at most every 15 seconds.
 
 Certificates are managed by the engine, inside `.hh/.proxy/engine/`: the generated
