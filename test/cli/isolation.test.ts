@@ -45,6 +45,8 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
   // `runSetPassword` imports its state modules lazily, so the verdict reads only its arguments.
   'set-password': new Set(['passwordLengthVerdict']),
   'set-token': new Set(),
+  // `flagProblem` reads its flags; `clearTemperatureSource` acts only on the store and helper path it is handed.
+  'setup-temp': new Set(['flagProblem', 'sourceFromFlags', 'clearTemperatureSource', 'setupTempArgs']),
   // The generators read only their arguments; the installer's state reads are dynamic imports.
   'add': new Set(['buildServerEntry', 'commandAfterDashes']),
   'ls': new Set(['lsLines', 'rowFromView']),
