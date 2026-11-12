@@ -385,3 +385,33 @@ describe('a restart during a run', () => {
     harness.scheduler.dispose()
   })
 })
+
+/**
+ * A tick stays inside its budget, whatever the schedules are.
+ *
+ * The panel's 1 Hz tick also drives health probes and the proxy sync, so a tick that takes most of a
+ * second is a stall for everything else. The regression this guards is subtle and was real: caching
+ * the due occurrence in a **single** slot helped only when every job shared one expression, so two
+ * jobs on different rare schedules each overwrote the other and both paid a full scan every tick —
+ * six distinct impossible schedules measured 1844 ms/tick on the reviewer's machine.
+ *
+ * A budget, not a benchmark: the point is to fail when the shape regresses, not to pin a duration.
+ */
+describe('a tick budget', () => {
+  it('stays cheap with six different rare schedules', async () => {
+    const rare = ['0 0 31 4 *', '0 30 31 4 *', '0 0 30 2 *', '0 30 30 2 *', '0 0 29 2 *', '0 30 29 2 *']
+    const harness = makeScheduler(rare.map((schedule, index) => job({ id: `j${index}`, schedule })))
+    const start = local(2026, 5, 1, 12, 0, 0)
+
+    const started = Date.now()
+    // Sixty ticks: one minute of real panel time, so the per-minute cache behaves as it would live.
+    for (let second = 0; second < 60; second += 1)
+      await harness.scheduler.tick(start + second * 1000)
+    const elapsed = Date.now() - started
+
+    expect(harness.runs, 'none of these ever comes due').toHaveLength(0)
+    // Generous against a slow CI box, and still an order of magnitude under the 1 s tick.
+    expect(elapsed, `60 ticks took ${elapsed}ms`).toBeLessThan(6_000)
+    harness.scheduler.dispose()
+  })
+})

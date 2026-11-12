@@ -86,13 +86,14 @@ interface JobClock {
 export class JobScheduler {
   private readonly clocks = new Map<string, JobClock>()
   /**
-   * The last due-occurrence answer, shared by every job with that expression.
+   * This minute's due occurrence for each distinct expression — cleared when the minute changes.
    *
-   * One entry, not a map: a workspace has a handful of schedules and the tick is 1 Hz, so the hit rate
-   * is what matters and the cost of a miss is bounded by the number of distinct expressions per tick.
-   * Per-job state would be wrong here — ten jobs on one rare schedule would each pay the scan.
+   * A map rather than one slot, because two jobs on different rare schedules is ordinary, and a single
+   * slot made both of them miss every tick.
    */
-  private dueCache: { minute: number, schedule: string, due: number | null } | null = null
+  private dueBySchedule = new Map<string, number | null>()
+  /** Which minute `dueBySchedule` describes. */
+  private dueMinute = -1
   private disposed = false
 
   constructor(private readonly options: JobSchedulerOptions) {}
@@ -151,17 +152,28 @@ export class JobScheduler {
      * a large share of the loop on an answer that is the same each time. Keyed by the expression, so
      * two jobs with one schedule share it and editing a schedule misses the cache naturally.
      */
-    // Keyed by **expression**, not by job: ten jobs sharing one rare schedule must cost one scan, and a
-    // per-job cache still paid it ten times (measured 60 ms per tick with ten).
+    /**
+     * Keyed by **expression**, in a map, for the current minute only.
+     *
+     * The answer cannot change within a minute and the tick is 1 Hz, so sixty calls a minute would
+     * otherwise repeat the same scan. A **single** slot was not enough: with two jobs on *different*
+     * rare expressions, each overwrote the other's entry, so neither ever hit and both paid a full
+     * scan every tick (measured 390 ms/tick for two distinct impossible schedules on the reviewer's
+     * machine, 18 ms on mine). "A handful of schedules" — the argument the single slot rested on — is
+     * exactly the case that breaks it.
+     */
     const minute = Math.floor(now / 60_000)
+    if (this.dueMinute !== minute) {
+      this.dueMinute = minute
+      this.dueBySchedule.clear()
+    }
     let due: number | null
-    const cached = this.dueCache
-    if (cached !== null && cached.minute === minute && cached.schedule === schedule) {
-      due = cached.due
+    if (this.dueBySchedule.has(schedule)) {
+      due = this.dueBySchedule.get(schedule)!
     }
     else {
       due = previousCronRun(parsed.spec, new Date(now))
-      this.dueCache = { minute, schedule, due }
+      this.dueBySchedule.set(schedule, due)
     }
     clock.due = due
     if (due === null) {
@@ -169,7 +181,7 @@ export class JobScheduler {
       // `null` is "not within the search limit", not proof of "never": a date like 31 April cannot
       // occur, but a leap-day expression near a non-leap century year is merely far away. Saying
       // "never" for the second would be wrong, so the message states what was actually checked.
-      this.reportOnce(clock, id, `the schedule has no occurrence within eight years (${schedule})`)
+      this.reportOnce(clock, id, `the schedule has had no occurrence in the past year (${schedule}) — check it is not an impossible date like 31 April`)
       return
     }
 

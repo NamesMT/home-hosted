@@ -327,14 +327,19 @@ function localFields(date: Date): string {
 const SEARCH_LIMIT_MS = 8 * 366 * 24 * 60 * 60 * 1000
 
 /**
- * How far back `previousCronRun` looks — the **same eight years** as the forward search.
+ * How far back `previousCronRun` scans minute by minute.
  *
- * A year would cover every schedule that repeats yearly, but it made the two searches contradict each
- * other on a leap-day expression: from 2026-06-01 `nextCronRun` answered 2028 while `previousCronRun`
- * answered `null`, so the panel warned "no occurrence within eight years" about a schedule it knew was
- * due in two. One limit for both, so the card and the log cannot disagree.
+ * A **year**, not the forward search's eight, and the difference is deliberate. This answers "which
+ * occurrence is due now", and every schedule that repeats at all repeats within a year — so a year is
+ * enough to find the most recent one. Reaching eight years meant walking four million minutes to
+ * answer "not found", measured at 313 ms for `0 0 31 4 *`, on a loop that also drives health probes
+ * and takes a one-second tick.
+ *
+ * The two searches can therefore disagree about a leap-day expression: `nextCronRun` can say 2028
+ * (four years out) while this answers `null`. That is reported as "no recent occurrence", not "never",
+ * and the scheduler treats it as the standing problem it is — see the message it logs.
  */
-const LOOK_BACK_MS = SEARCH_LIMIT_MS
+const LOOK_BACK_MS = 366 * 24 * 60 * 60 * 1000
 
 /**
  * The first minute strictly after `from` that the expression selects, in the host's local timezone,
