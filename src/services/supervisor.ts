@@ -571,6 +571,22 @@ export class Supervisor {
   }
 
   /**
+   * Records that a run has **started**, durably.
+   *
+   * The completion event alone left a hole: a panel restarted during a run found no `job-run` record
+   * for that occurrence, so its boot catch-up concluded the run was missed and started a second copy
+   * while the first was still going. Two copies writing the same files is the failure the overlap
+   * rule exists to prevent, so the claim has to be durable and has to come first.
+   */
+  private recordJobStart(entry: Entry, occurrence: number): void {
+    this.options.history.record(entry.config.id, {
+      type: 'job-run',
+      detail: `run started (due ${new Date(occurrence).toLocaleString()})`,
+      outcome: 'running',
+    })
+  }
+
+  /**
    * The spawn half of a job run, shared by `runJob` and the scheduler's occurrence.
    *
    * Split out because the scheduler starts a run from inside its own tick and cannot await it: it
@@ -578,7 +594,10 @@ export class Supervisor {
    * alone. Everything observable — the log line, the history event, the notification, the view's
    * fields — happens here, so neither caller can drift.
    */
-  private beginJobRun(entry: Entry, options: { actor: HistoryActor, why: 'run' | 'schedule' }): { outcome: Promise<JobOutcome> } | { error: string } {
+  private beginJobRun(entry: Entry, options: { actor: HistoryActor, why: 'run' | 'schedule', occurrence?: number }): { outcome: Promise<JobOutcome> } | { error: string } {
+    // The durable claim, written **before** the spawn: a panel restarted a moment later must find a
+    // run on record rather than a missed occurrence, or its catch-up starts a second copy.
+    this.recordJobStart(entry, options.occurrence ?? Date.now())
     const resolved = resolveSpawn(this.ctx, entry)
     let handle: JobRunHandle
     try {

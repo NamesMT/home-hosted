@@ -63,13 +63,16 @@ describe('running a job', () => {
   it('records a job-run history event with the exit code and the duration', async () => {
     const { supervisor, history } = await makeSupervisor([exitJob('hist', 0)])
     await supervisor.runJob('hist')
+    // Two events for one run: the durable `running` claim written before the spawn, then the
+    // outcome. The claim is what stops a panel restarted mid-run starting a second copy.
     const events = await waitFor(() => {
       const recorded = history.all().filter(event => event.serverId === 'hist' && event.type === 'job-run')
-      return recorded.length > 0 ? recorded : undefined
+      return recorded.some(event => event.outcome !== 'running') ? recorded : undefined
     })
-    expect(events[0]!.outcome).toBe('ok')
-    expect(events[0]!.detail).toMatch(/exit code 0/)
-    expect(events[0]!.runtimeMs).toBeGreaterThanOrEqual(0)
+    expect(events.map(event => event.outcome)).toEqual(['running', 'ok'])
+    const outcome = events.find(event => event.outcome === 'ok')!
+    expect(outcome.detail).toMatch(/exit code 0/)
+    expect(outcome.runtimeMs, 'the outcome event carries the duration; the claim does not').toBeGreaterThanOrEqual(0)
   })
 
   it('refuses a service, names `start`, and tells the caller with a code', async () => {
@@ -133,11 +136,12 @@ describe('running a job', () => {
     expect(result.ok).toBe(true)
     if (result.ok)
       expect(result.outcome.cancelled).toBe(true)
+    // The claim is written first and the outcome last, so wait for the one that is not the claim.
     const events = await waitFor(() => {
       const recorded = history.all().filter(event => event.serverId === 'stoppable' && event.type === 'job-run')
-      return recorded.length > 0 ? recorded : undefined
+      return recorded.some(event => event.outcome !== 'running') ? recorded : undefined
     })
-    expect(events[0]!.outcome).toBe('cancelled')
+    expect(events.at(-1)!.outcome).toBe('cancelled')
   })
 
   it('refuses a disabled job', async () => {

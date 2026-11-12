@@ -1848,7 +1848,15 @@ const historyEventSchema = lazy(() => type({
    * failed run, and the distinction is what tells a person "it is too slow" from "it is broken".
    * `cancelled` is a run a stop ended, whose non-zero exit status says nothing about the work.
    */
-  'outcome?': '"ok" | "failed" | "cancelled" | "overlap"',
+  /**
+   * How a `job-run` ended — and `running`, which is written when it **starts**.
+   *
+   * A start record is what makes the boot catch-up correct: a panel restarted *during* a run used to
+   * find no `job-run` event for it (the completion one had not been written yet) and start a second
+   * copy while the first was still going. The record's `ts` is the durable "this occurrence was
+   * claimed", so a restart sees a run in flight rather than a missed one.
+   */
+  'outcome?': '"ok" | "failed" | "cancelled" | "overlap" | "running"',
   /** Who caused it; absent on events from before this field existed. */
   'actor?': historyActorSchema,
 }))

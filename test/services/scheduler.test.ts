@@ -342,3 +342,40 @@ describe('a repeated wall-clock time', () => {
     harness.scheduler.dispose()
   })
 })
+
+/**
+ * A panel restarted **during** a run does not start a second copy.
+ *
+ * The completion event alone left the hole: a run in flight had written nothing yet, so a panel that
+ * restarted concluded the occurrence was missed and started another copy while the first was still
+ * going — two copies writing the same files, which is the failure the overlap rule exists to prevent.
+ *
+ * The claim is now durable and written *before* the spawn, so the catch-up's only input sees the
+ * occurrence as taken.
+ */
+describe('a restart during a run', () => {
+  it('sees the occurrence as claimed, rather than missed', async () => {
+    const harness = makeScheduler([job({ schedule: '0 3 * * *' })])
+    const occurrence = local(2026, 5, 10, 3, 0, 0)
+    // The durable record of the run that is still going: its `running` claim, written at the
+    // occurrence. This is exactly what `history.lastEventAt(id, 'job-run')` answers after a restart.
+    harness.lastRuns.set('nightly', occurrence)
+
+    harness.scheduler.tick(occurrence + 30_000)
+
+    expect(harness.runs, 'a run already on record must not be started again').toHaveLength(0)
+    harness.scheduler.dispose()
+  })
+
+  it('still runs an occurrence that no record covers', async () => {
+    const harness = makeScheduler([job({ schedule: '0 3 * * *' })])
+    const occurrence = local(2026, 5, 10, 3, 0, 0)
+    // The last run on record is from the previous day, so today's 03:00 is genuinely owed.
+    harness.lastRuns.set('nightly', local(2026, 5, 9, 3, 0, 0))
+
+    harness.scheduler.tick(occurrence + 30_000)
+
+    expect(harness.runs, 'a missed occurrence still runs once').toHaveLength(1)
+    harness.scheduler.dispose()
+  })
+})
