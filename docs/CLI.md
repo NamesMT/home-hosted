@@ -28,6 +28,40 @@ the one you meant. Every command and flag on one screen: the README's
   print the plan and **exit 1** unless `--confirm` is given — a cron job without it fails loudly
   instead of silently taking no backup. `--json` without `--confirm` is the plan request and exits 0.
 
+## Credentials without a browser
+
+```bash
+home-hosted set-password                    # or HHOSTED_PASSWORD=… for a script
+home-hosted set-password --clear            # locks every sign-in out; this machine still works
+home-hosted set-token --generate            # prints the token once — only its hash is stored
+home-hosted set-token --clear               # revokes it immediately
+```
+
+`set-token` prints where the token was stored, the token itself (once), and a `curl` line to try it
+with. **The URL in that line is the one this home really listens on**: with the panel running it is
+`run.json`'s URL, and with it stopped it is `control.port` from the home's own `settings.json` — so a
+panel moved with `up --port 4123` is shown `http://127.0.0.1:4123`, not a guess. A home that has no
+`settings.json` yet shows the default `3999`; one whose file cannot be read shows `<port>` and says so,
+because inventing a port in a line someone pastes into a script is worse than admitting it is unknown.
+`set-token` only looks: it reads the settings file without creating one.
+
+It also names what a token **cannot** do. The full list is in
+[`docs/API.md`](./API.md#authenticating) and [`docs/SECURITY.md`](./SECURITY.md), and the command
+prints the same six, each a `403 SESSION_REQUIRED` that needs a signed-in session (or this machine):
+
+| Refused to a token | Why |
+| --- | --- |
+| clearing the panel password | the other way authentication goes away |
+| switching authentication off | the cheapest way to an unauthenticated panel |
+| minting or revoking an API token | a token minting its own successor, or destroying its owner's access |
+| setting the *first* password | it arms the panel and locks every other credential out (changing one with `currentPassword` is allowed) |
+| installing a custom UI | a UI is script on the panel's own origin |
+| restoring an archive that carries the panel's own credentials | it would rewrite the hashes the leaked token is being recovered from |
+
+That keeps a script from locking you out by accident. It is **not** a boundary against someone
+holding the token — a token is full admin, and changing the password does not revoke it. Rotate with
+`set-token --generate` if it may have leaked.
+
 ## Declaring servers
 
 ```bash
