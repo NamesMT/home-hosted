@@ -1,8 +1,10 @@
+import type { ServerStatus } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { bold, dim, firstRunPasswordState, green, invocation, paint, unrecordedFirstRunHint } from '#src/cli/io'
+import { needsAttention } from '#src/shared/server-attention'
 
 /** `status` answers "is it running, where, and how do I reach it". */
 
@@ -167,14 +169,52 @@ export async function runStatus(json: boolean): Promise<void> {
   else if (initial?.kind === 'unrecorded')
     rows.push(['password', paint('33', unrecordedFirstRunHint())])
 
+  // Which server, not only how many: "a server needs attention" named none of them.
+  const table = running && probe.reachable ? await serverEntries(runtime) : []
+
   process.stdout.write(`${bold(`home-hosted ${runtime.version}`)}\n`)
   // Width from the rows, not a literal: the column was hard-coded at 8 until a 10-character
   // label ("serverlogs") was added and pushed every value out of alignment.
   const width = Math.max(...rows.map(([label]) => label.length))
   for (const [label, value] of rows)
     process.stdout.write(`  ${dim(label.padEnd(width))} ${value}\n`)
+  for (const line of serverLines(table))
+    process.stdout.write(`  ${' '.repeat(width)} ${line}\n`)
   if (!running)
     process.exitCode = 1
+}
+
+/** One server as `status` lists it: the fields `GET /_hh/usage` already carries. */
+export interface StatusServer {
+  id: string
+  workspaceId: string
+  status: string
+}
+
+/** The live entries, from the same local read `usage` makes; empty when the panel cannot say. */
+async function serverEntries(runtime: Parameters<typeof import('#src/helpers/daemon')['requestControl']>[0]): Promise<StatusServer[]> {
+  const { requestControl } = await import('#src/helpers/daemon')
+  const answer = await requestControl(runtime, '/_hh/usage', 5000, 'GET')
+  if (answer?.status !== 200)
+    return []
+  return ((answer.body as { servers?: StatusServer[] } | null)?.servers ?? [])
+}
+
+/**
+ * A compact table under the inventory row, one line per server, the ones needing attention first
+ * and marked. `workspace/id` outside the default workspace, as `usage` prints it.
+ */
+export function serverLines(servers: readonly StatusServer[]): string[] {
+  const label = (entry: StatusServer): string => entry.workspaceId === 'default' ? entry.id : `${entry.workspaceId}/${entry.id}`
+  const broken = (entry: StatusServer): boolean => needsAttention({ status: entry.status as ServerStatus })
+  const ordered = [...servers].sort((a, b) => Number(broken(b)) - Number(broken(a)))
+  const width = Math.max(0, ...ordered.map(entry => label(entry).length))
+  return ordered.map((entry) => {
+    const name = label(entry).padEnd(width)
+    if (broken(entry))
+      return `${paint('31', `${name}  ${entry.status}`)}  ${dim('← needs attention')}`
+    return `${name}  ${entry.status === 'running' ? green(entry.status) : dim(entry.status)}`
+  })
 }
 
 /**

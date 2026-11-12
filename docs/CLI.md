@@ -33,7 +33,10 @@ the one you meant. Every command and flag on one screen: the README's
 ```text
 home-hosted <version>
   status     running
-  servers    3 of 3 up
+  servers    2 of 3 up
+             worker  crashed  ← needs attention
+             web     running
+             api     running
   pid        4242 · up 2h 14m
   url        http://127.0.0.1:3999 (http)
   …          project, state, log and per-server log paths

@@ -35,7 +35,8 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
   // `up.ts` is behind a dynamic import, so nothing in its static graph resolves `$HHOSTED_HOME`.
   'up': new Set(['buildDaemonArgv', 'toUpFlags', 'alreadyRunningConflict']),
   'server': new Set(),
-  'status': new Set(),
+  // `serverLines` formats its argument; the status reads are behind dynamic imports.
+  'status': new Set(['serverLines']),
   'logs': new Set(),
   'backup': new Set(),
   'migrate': new Set(),
