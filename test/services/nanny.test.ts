@@ -216,6 +216,30 @@ describe('nanny', () => {
     expect(isAlive(grandPid)).toBe(true)
   })
 
+  it('drains the pipes before it exits, so output still in flight reaches the log', async () => {
+    // 'exit' can fire while the pipes still carry output, and a nanny that exits on it loses the
+    // tail — a crash's last lines. Made deterministic here: the bytes are written by a helper that
+    // shares the pipes and finishes ~150 ms after the entry's own process exits.
+    const dir = await tempDir()
+    const logDir = path.join(dir, 'logs')
+    const specPath = path.join(dir, 'keep.spec.json')
+    const statePath = path.join(dir, 'keep.json')
+    const logFile = nannyLogFile(logDir, 'keep')
+
+    const tail = 'const line = "x".repeat(1023) + "\\n"; setTimeout(() => { process.stderr.write(line.repeat(512)); process.stderr.write("THE-LAST-LINE\\n") }, 150)'
+    const nannyPid = await startNanny({
+      ...baseSpec(dir),
+      logs: { persist: true, maxBytes: 50_000_000, keep: 3 },
+      args: ['-e', `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(tail)}], { stdio: 'inherit' }).unref(); process.exitCode = 3`],
+    }, specPath, statePath)
+
+    await waitFor('the nanny process to exit', () => isAlive(nannyPid) ? undefined : true)
+    const lines = linesOf(logFile).filter(line => line.stream === 'stderr')
+    expect(lines.filter(line => line.text.startsWith('x')).length).toBe(512)
+    expect(lines.at(-1)?.text).toBe('THE-LAST-LINE')
+    expect(readNannyState(statePath)?.lastExit?.code).toBe(3)
+  })
+
   it('consumes a spec it cannot parse, so no secret file is left behind', async () => {
     const dir = await tempDir()
     const specPath = nannySpecPath(dir, 'keep')

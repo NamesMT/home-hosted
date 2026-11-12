@@ -6,6 +6,9 @@ import { spawnManaged, terminate } from '#src/providers/process'
 import { LineSplitter } from '#src/services/log-buffer'
 import { LogFiles } from '#src/services/log-files'
 
+/** How long the nanny waits, after its child exits, for the pipes to hand over what they still hold. */
+const NANNY_DRAIN_MS = 500
+
 /** Signals this nanny's own process group; false where there is none to signal (Windows, not a leader). */
 function signalOwnGroup(signal: NodeJS.Signals): boolean {
   if (process.platform === 'win32')
@@ -123,6 +126,15 @@ export async function runNanny(spec: NannySpec, statePath: string): Promise<void
   const stderr = new LineSplitter((stream, text) => emit(stream, text))
   child.stdout?.on('data', chunk => stdout.push('stdout', chunk))
   child.stderr?.on('data', chunk => stderr.push('stderr', chunk))
+  // 'exit' can fire while the pipes still hold output: a crash's last 2 MB (its stack trace) was
+  // mostly lost when the nanny exited on it. Listened for from the spawn, so an early end counts.
+  const drained = Promise.all([child.stdout, child.stderr].map(stream => new Promise<void>((resolve) => {
+    if (stream === null || stream.readableEnded || stream.destroyed)
+      return resolve()
+    stream.once('end', resolve)
+    stream.once('close', resolve)
+    stream.once('error', () => resolve())
+  })))
 
   const heartbeat = setInterval(persistState, NANNY_HEARTBEAT_MS)
   heartbeat.unref()
@@ -148,7 +160,12 @@ export async function runNanny(spec: NannySpec, statePath: string): Promise<void
       resolve()
     }
 
-    child.once('exit', (code, signal) => finish(code, signal, Date.now() - startedAt))
+    child.once('exit', (code, signal) => {
+      const runtimeMs = Date.now() - startedAt
+      // Capped: a successor that inherited the pipes keeps them open for as long as it runs.
+      const cap = new Promise(resolve => setTimeout(resolve, NANNY_DRAIN_MS))
+      void Promise.race([drained, cap]).then(() => finish(code, signal, runtimeMs))
+    })
     child.once('error', (error: Error) => {
       // A command that cannot even be spawned: the panel reports it as "did not start".
       // Through the same formatter the panel uses, so a missing working directory is named
