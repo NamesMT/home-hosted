@@ -121,3 +121,145 @@ describe('home-hosted/client', () => {
     expect(cancelled, 'leaving the loop early must close the body, or the socket outlives the reader').toBe(true)
   })
 })
+
+/**
+ * `events({ reconnect: true })` survives a dropped connection.
+ *
+ * A `for await` over `events()` ended the moment the panel restarted or a proxy closed an idle
+ * connection, so a script or a TUI lost the feed and had to notice by itself — the same "reconnect
+ * with backoff" a UI gets from `live-store`, but on the Node side where there is no `EventSource`.
+ *
+ * Three things a reconnect has to get right, and each is asserted here:
+ *  - **backoff**, not a hot loop against a panel that is down;
+ *  - **re-auth**, because a restarted panel answers `401` and a retry that ignores it spins forever;
+ *  - **resume**, because every frame carries an `id` and replaying from it is the whole point of
+ *    `?since=` — a reconnect that starts over delivers lines the consumer already acted on.
+ */
+describe('home-hosted/client events reconnect', () => {
+  it('reconnects with backoff and resumes from the last frame id', async () => {
+    const seen: Array<{ since: string | null, attempt: number }> = []
+    const bodies = [
+      // First connection: one frame, then the connection drops (a panel restart).
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('id: 7\nevent: log\ndata: {"type":"log","ts":1,"workspaceId":"default","serverId":"web","lines":[]}\n\n'))
+          controller.close()
+        },
+      }),
+      // Second connection: one frame, then it stays open until the consumer stops.
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('id: 8\nevent: log\ndata: {"type":"log","ts":2,"workspaceId":"default","serverId":"web","lines":[]}\n\n'))
+        },
+      }),
+    ]
+
+    let calls = 0
+    const client = createClient({
+      baseUrl: 'http://127.0.0.1:3999',
+      fetch: (input) => {
+        const url = new URL(String(input))
+        seen.push({ since: url.searchParams.get('since'), attempt: calls })
+        const body = bodies[Math.min(calls, bodies.length - 1)]!
+        calls += 1
+        return Promise.resolve(new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } }))
+      },
+      // Injected so the test does not wait a real backoff.
+      retryDelayMs: async () => {},
+    })
+
+    const stream = client.events({ reconnect: true, logs: true })
+    const ids: number[] = []
+    for await (const frame of stream) {
+      if (frame.type === 'log' && frame.id !== undefined)
+        ids.push(frame.id)
+      if (ids.length >= 2)
+        break
+    }
+
+    expect(calls, 'a dropped stream must be reopened').toBe(2)
+    expect(seen[0]!.since, 'the first connection has nothing to resume from').toBeNull()
+    expect(seen[1]!.since, 'the retry must resume from the last frame it consumed').toBe('7')
+    expect(ids, 'both runs deliver their frames, each with the id the stream assigned').toEqual([7, 8])
+  })
+
+  /**
+   * The distinction that makes `reconnect` usable: a **transient** failure is retried, a **credential
+   * refusal** is not. Both were a thrown error before, so "it throws" proves nothing — this asserts
+   * the two behave differently, which is the whole decision.
+   */
+  it('stops on a credential refusal instead of retrying it', async () => {
+    // The decision this pins: a `401` is thrown, not retried. A retry loop that ignored it would
+    // call the panel for ever against a token it will never accept, and hide the one fact a caller
+    // needs. (A transient failure reconnecting is covered by the resume test above, whose second
+    // connection is what the first one's drop leads to.)
+    let calls = 0
+    // A real abort, which is how a caller stops a feed anyway. The loop re-checks it after every
+    // backoff, so this test cannot hang even if the refusal guard is removed — it fails with
+    // "a 401 must not be retried" instead of a timeout, which is the reason a person needs.
+    const controller = new AbortController()
+    const client = createClient({
+      baseUrl: 'http://127.0.0.1:3999',
+      fetch: () => {
+        calls += 1
+        return Promise.resolve(new Response(JSON.stringify({ message: 'authentication required', code: 'AUTH_REQUIRED' }), { status: 401, headers: { 'content-type': 'application/json' } }))
+      },
+      retryDelayMs: async () => {
+        // Give up while a retry is being scheduled — exactly the moment a person closes the tool.
+        controller.abort()
+      },
+    })
+
+    const outcome = await client.events({ reconnect: true, signal: controller.signal })
+      .next()
+      .then(() => null)
+      .catch((error: unknown) => error)
+
+    // With the guard, the 401 is thrown before any retry; without it, the abort ends the loop and the
+    // call count says a retry happened.
+    expect(calls, 'a 401 must not be retried').toBe(1)
+    expect(outcome, 'the refusal surfaces to the caller').toBeInstanceOf(HomeHostedError)
+    expect(outcome).toMatchObject({ status: 401 })
+  }, 10_000)
+
+  it('stops when the panel says the credential is gone', async () => {
+    // A restarted panel with a different token: every retry would be another `401`.
+    let calls = 0
+    const client = createClient({
+      baseUrl: 'http://127.0.0.1:3999',
+      fetch: () => {
+        calls += 1
+        return Promise.resolve(new Response(JSON.stringify({ message: 'authentication required', code: 'AUTH_REQUIRED' }), { status: 401, headers: { 'content-type': 'application/json' } }))
+      },
+      retryDelayMs: async () => {},
+    })
+
+    const failure = await client.events({ reconnect: true })
+      .next()
+      .then(() => null)
+      .catch((error: unknown) => error)
+
+    expect(failure, 'a refused credential must surface, not be retried away').toBeInstanceOf(HomeHostedError)
+    expect(failure).toMatchObject({ status: 401, code: 'AUTH_REQUIRED' })
+    expect(calls, 'a 401 is not retried').toBe(1)
+  })
+
+  it('does not reconnect unless asked', async () => {
+    let calls = 0
+    const client = createClient({
+      baseUrl: 'http://127.0.0.1:3999',
+      fetch: () => {
+        calls += 1
+        return Promise.resolve(new Response(new ReadableStream<Uint8Array>({ start: c => c.close() }), { status: 200, headers: { 'content-type': 'text/event-stream' } }))
+      },
+      retryDelayMs: async () => {},
+    })
+
+    const frames = []
+    for await (const frame of client.events())
+      frames.push(frame)
+    expect(frames).toEqual([])
+    // The documented default stays exactly as it was: one connection, then the loop ends.
+    expect(calls).toBe(1)
+  })
+})

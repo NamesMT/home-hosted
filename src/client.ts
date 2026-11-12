@@ -38,6 +38,11 @@ export interface ClientOptions {
   token?: string
   /** A `fetch` to use instead of the global one (tests, proxies, custom TLS). */
   fetch?: typeof fetch
+  /**
+   * The wait before the `n`-th reconnect attempt, replacing the built-in 250 ms-doubling-30 s
+   * backoff. Injected by tests so a retry does not cost a real wait.
+   */
+  retryDelayMs?: (attempt: number) => Promise<void>
   /** Extra headers on every request. */
   headers?: Record<string, string>
   /**
@@ -80,6 +85,49 @@ export interface EventsQuery {
   since?: number
   /** Stops the stream. */
   signal?: AbortSignal
+  /**
+   * Keep the feed alive across a dropped connection.
+   *
+   * Off by default, because a one-shot reader (`for await … { break }`) must end when it stops
+   * reading, not linger retrying a connection it no longer wants. With `reconnect: true` the
+   * generator reopens the stream with exponential backoff after the body ends or the request fails,
+   * resuming from the last frame `id` it delivered (`?since=`), so a consumer neither loses lines
+   * nor re-applies frames it already acted on.
+   *
+   * It does **not** retry a credential refusal: a restarted panel answers `401`, and a retry that
+   * ignored that would spin forever against a token that will never be accepted again. That error
+   * is thrown, which is the signal a caller needs.
+   */
+  reconnect?: boolean
+}
+
+/**
+ * How long to wait before the `n`-th reconnect attempt: 250 ms doubling, capped at 30 s.
+ *
+ * Deliberately short at the start (a panel restart is back within a second) and bounded (a panel that
+ * is down for an hour must not leave a script sleeping for ever between checks). A caller can replace
+ * it through `clientOptions.retryDelayMs`, which the tests do so they do not wait it out.
+ */
+function defaultRetryDelay(attempt: number): Promise<void> {
+  const ms = Math.min(250 * 2 ** Math.max(0, attempt - 1), 30_000)
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    // A pending reconnect must not be the reason a one-shot script cannot exit.
+    timer.unref?.()
+  })
+}
+
+/**
+ * A refusal no retry can fix: the credential is not accepted, so every attempt is another `401`.
+ *
+ * `AUTH_REQUIRED`, `AUTH_UNARMED` and `AUTH_DISABLED_REMOTE` all mean "this caller may not", not "the
+ * panel is briefly away" — retrying them hides the one fact the caller needs, and against a restarted
+ * panel with a rotated token it retries for ever.
+ */
+function isCredentialRefusal(error: unknown): boolean {
+  return error instanceof HomeHostedError
+    && error.status === 401
+    && (error.code === 'AUTH_REQUIRED' || error.code === 'AUTH_UNARMED' || error.code === 'AUTH_DISABLED_REMOTE')
 }
 
 /** A token is sent only over https, or to this machine, unless the caller opted out. */
@@ -102,6 +150,7 @@ export function createClient(options: ClientOptions) {
   const baseUrl = options.baseUrl.replace(/\/+$/, '')
   assertTokenTransport(baseUrl, options)
   const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis)
+  const retryDelay = options.retryDelayMs ?? defaultRetryDelay
   const headers = (): Record<string, string> => ({
     ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),
     ...options.headers,
@@ -121,28 +170,66 @@ export function createClient(options: ClientOptions) {
   }
 
   /** The live feed: the first frame is always `hello` with the full state. */
-  async function* events(query: EventsQuery = {}): AsyncGenerator<SseMessage> {
-    const params = new URLSearchParams()
-    if (query.workspace !== undefined)
-      params.set('workspace', query.workspace)
-    if (query.serverId !== undefined)
-      params.set('serverId', query.serverId)
-    if (query.logs === false)
-      params.set('logs', '0')
-    if (query.since !== undefined)
-      params.set('since', String(query.since))
-    const suffix = params.size > 0 ? `?${params}` : ''
-    const response = await fetcher(`${baseUrl}/api/events${suffix}`, {
-      headers: { ...headers(), accept: 'text/event-stream' },
-      signal: query.signal,
-    })
-    if (!response.ok || response.body === null)
-      throw await toError(response)
+  async function* events(query: EventsQuery = {}): AsyncGenerator<ClientStreamFrame> {
+    const base = (since: number | undefined): string => {
+      const params = new URLSearchParams()
+      if (query.workspace !== undefined)
+        params.set('workspace', query.workspace)
+      if (query.serverId !== undefined)
+        params.set('serverId', query.serverId)
+      if (query.logs === false)
+        params.set('logs', '0')
+      if (since !== undefined)
+        params.set('since', String(since))
+      return params.size > 0 ? `?${params}` : ''
+    }
 
-    for await (const frame of readEventStream(response.body)) {
-      if (frame.event === 'ping' || frame.data === '')
-        continue
-      yield JSON.parse(frame.data) as SseMessage
+    // The last `id:` line delivered, which is what a resume replays from. Taken from the frame the
+    // consumer actually received, never from a frame it skipped as a `ping`.
+    let resumeFrom = query.since
+    let attempt = 0
+    for (;;) {
+      let failed: unknown = null
+      try {
+        const response = await fetcher(`${baseUrl}/api/events${base(resumeFrom)}`, {
+          headers: { ...headers(), accept: 'text/event-stream' },
+          signal: query.signal,
+        })
+        if (!response.ok || response.body === null)
+          throw await toError(response)
+
+        for await (const frame of readEventStream(response.body)) {
+          const id = frame.id !== undefined && /^\d+$/.test(frame.id) ? Number(frame.id) : undefined
+          if (id !== undefined)
+            resumeFrom = id
+          if (frame.event === 'ping' || frame.data === '')
+            continue
+          // The `id` travels beside the payload, not inside it: the payload is the wire frame, and a
+          // consumer persisting a cursor across a restart needs the sequence the transport assigned.
+          yield { ...(JSON.parse(frame.data) as SseMessage), ...(id === undefined ? {} : { id }) }
+        }
+      }
+      catch (error) {
+        // A credential refusal is the caller's to handle: retrying it spins against a token the
+        // panel will never accept, and hides the one fact a script needs.
+        if (!query.reconnect || query.signal?.aborted === true || isCredentialRefusal(error))
+          throw error
+        failed = error
+      }
+      if (!query.reconnect || query.signal?.aborted === true)
+        return
+      attempt += 1
+      await retryDelay(attempt)
+      // The wait is the longest thing here, so the abort is re-checked after it as well as in the
+      // request: a caller that gave up during the backoff must not get one more attempt. Read
+      // through a local because `query.reconnect`'s narrowing above makes the whole query look
+      // settled to the compiler.
+      const signal = query.signal
+      if (signal !== undefined && signal.aborted)
+        return
+      // A connection that delivered frames was healthy; a later drop starts the backoff over.
+      if (failed === null)
+        attempt = 1
     }
   }
 
@@ -150,6 +237,13 @@ export function createClient(options: ClientOptions) {
 }
 
 export type HomeHostedClient = ReturnType<typeof createClient>
+
+/**
+ * One frame as `events()` delivers it: the wire message, plus the sequence number the stream assigned
+ * it (`id`), which is what a later `events({ since })` resumes from. `id` is absent on a frame the
+ * panel sent without one (an older panel, which has no resumable stream at all).
+ */
+export type ClientStreamFrame = SseMessage & { id?: number }
 
 async function toError(response: Response): Promise<HomeHostedError> {
   let body: unknown = null
