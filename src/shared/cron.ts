@@ -190,8 +190,14 @@ export function parseCron(expression: string): CronParse {
       daysOfMonth: sets[2]!,
       months: sets[3]!,
       daysOfWeek: sets[4]!,
-      domRestricted: fields[2] !== '*',
-      dowRestricted: fields[4] !== '*',
+      // Vixie's test is whether the field **begins with `*`**, not whether it equals it.
+      //
+      // `*/2` is a step over the whole range, so it is a wildcard for the OR rule even though it
+      // selects only half the days. Treating it as restricted made `0 0 */2 * 1` mean "an odd-day
+      // Monday" — measured due on Mon 5 Jan 2026 and not on Tue 6 Jan — where Vixie says every
+      // Monday. A field like `1-31/2` does restrict, because it does not begin with `*`.
+      domRestricted: !fields[2]!.startsWith('*'),
+      dowRestricted: !fields[4]!.startsWith('*'),
     },
   }
 }
@@ -209,8 +215,16 @@ export function cronProblem(expression: string): string | null {
  * expects: first of the month, or Monday.
  */
 function dayMatches(spec: CronSpec, date: Date): boolean {
-  const dom = spec.daysOfMonth.has(date.getDate())
-  const dow = spec.daysOfWeek.has(date.getDay())
+  /**
+   * A field that **begins with `*`** is a wildcard for this rule, and a wildcard does not filter.
+   *
+   * That is not the same as "it selects everything": a step over the whole range selects only every
+   * other day, yet Vixie treats it as unrestricted, so such a field paired with a weekday means *every
+   * Monday* rather than *an odd-day Monday*. Filtering by the step set as well was the defect —
+   * measured due on Mon 5 Jan 2026 and not Mon 12 Jan.
+   */
+  const dom = spec.domRestricted ? spec.daysOfMonth.has(date.getDate()) : true
+  const dow = spec.dowRestricted ? spec.daysOfWeek.has(date.getDay()) : true
   if (spec.domRestricted && spec.dowRestricted)
     return dom || dow
   return dom && dow

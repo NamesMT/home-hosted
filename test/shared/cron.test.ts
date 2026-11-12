@@ -316,3 +316,40 @@ describe('daylight saving', () => {
     expect(at.getTimezoneOffset(), 'the first occurrence is the summer offset').toBe(-120)
   })
 })
+
+/**
+ * Vixie's OR rule turns on whether a day field **begins with `*`**, not on whether it equals it.
+ *
+ * A step over the whole range (`0-59/2`, written with a leading star) is a wildcard for the rule even though it selects half the
+ * days. Reading it as "restricted" made a star-step day field paired with a weekday mean *an odd-day weekday*, which is a schedule
+ * nobody writes: measured due on Mon 5 Jan 2026 and not on Mon 12 Jan.
+ */
+describe('a day field that begins with a star', () => {
+  const day = (spec: Parameters<typeof nextCronRun>[0], month: number, date: number): boolean =>
+    cronDueAt(spec, new Date(2026, month, date, 0, 0))
+
+  it('treats `*/2` as a wildcard, so the weekday is the only restriction', () => {
+    const parsed = parseCron('0 0 */2 * 1')
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok)
+      return
+    expect(parsed.spec.domRestricted).toBe(false)
+    expect(parsed.spec.dowRestricted).toBe(true)
+    // Every Monday, whatever the date's parity: 5 Jan is odd, 12 Jan is even.
+    expect(day(parsed.spec, 0, 5), 'Mon 5 Jan').toBe(true)
+    expect(day(parsed.spec, 0, 12), 'Mon 12 Jan').toBe(true)
+    expect(day(parsed.spec, 0, 6), 'Tue 6 Jan').toBe(false)
+  })
+
+  it('still treats a range-with-step as restricted, because it does not begin with a star', () => {
+    const parsed = parseCron('0 0 1-31/2 * 1')
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok)
+      return
+    expect(parsed.spec.domRestricted).toBe(true)
+    // OR: an odd day *or* a Monday — so Sun 1 Feb (the 1st) is due, and Tue 6 Jan is not.
+    expect(day(parsed.spec, 0, 5), 'Mon 5 Jan').toBe(true)
+    expect(day(parsed.spec, 1, 1), 'Sun 1 Feb, the 1st').toBe(true)
+    expect(day(parsed.spec, 0, 6), 'Tue 6 Jan').toBe(false)
+  })
+})
