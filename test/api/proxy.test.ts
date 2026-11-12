@@ -170,6 +170,20 @@ describe('pATCH /api/proxy', () => {
     expect(fixture.settings.proxy.routes[0]?.dnsAccount).toBe('cf')
   })
 
+  it('refuses a new route an enabled proxy would have to leave out', async () => {
+    const fixture = await makeApp()
+    const response = await fixture.app.request('/api/proxy', patch({
+      enabled: true,
+      routes: [{ id: 'ghost', host: 'ghost.lan', target: 'server', workspace: fixture.defaultId, server: 'nope' }],
+    }))
+
+    expect(response.status).toBe(400)
+    const body = await response.json() as ProxyBody
+    expect(body.code).toBe('INVALID_PROXY')
+    expect(body.message).toContain('does not exist')
+    expect(fixture.settings.proxy.routes).toEqual([])
+  })
+
   it('refuses the same hostname twice', async () => {
     const fixture = await makeApp()
     const response = await fixture.app.request('/api/proxy', patch({

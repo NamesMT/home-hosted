@@ -46,7 +46,11 @@ export function createProxyRoute(deps: AppDeps) {
 
   /** Everything that has to hold before a change is written to disk. */
   const guard = (candidate: ProxyConfig): void => {
-    const problems = validateProxyConfig(candidate, (ref, workspaceId) => proxy().checkDnsAccount(ref, workspaceId))
+    const checked = validateProxyConfig(candidate, (ref, workspaceId) => proxy().checkDnsAccount(ref, workspaceId))
+    // The engine leaves an unroutable route out rather than refusing the table, so a save that
+    // would serve it is the one place a new or edited one is refused. While the proxy is off nothing
+    // is served, and the route view is where the problem shows.
+    const problems = checked.length > 0 || !candidate.enabled ? checked : proxy().routeProblems(candidate)
     if (problems.length > 0)
       throw new DetailedError(`invalid reverse proxy configuration: ${problems.join('; ')}`, { statusCode: 400, code: 'INVALID_PROXY', detail: problems })
 

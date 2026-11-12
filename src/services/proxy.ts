@@ -984,14 +984,11 @@ export class ProxyService {
   }
 
   /**
-   * The engine configuration for the current route table. Throws when a route cannot
-   * be built, because a half-built configuration is worse than a refused one.
+   * The engine configuration for the current route table. A route that cannot be built is left out
+   * like one with no upstream, and its route view says why: one expired pair or deleted server must
+   * not take every other hostname dark. A save is where a broken route is refused (`routeProblems`).
    */
   private render(exclude?: ReadonlySet<string>): Record<string, unknown> {
-    const blocked = this.resolveRoutes(exclude).find(view => view.status === 'error')
-    if (blocked !== undefined)
-      throw new DetailedError(blocked.message ?? `${blocked.route.host} cannot be routed`, { statusCode: 400, code: 'PROXY_ROUTE_INVALID' })
-
     const routes = this.engineRoutes(exclude)
     return renderCaddyConfig({
       config: this.config,
@@ -1029,10 +1026,22 @@ export class ProxyService {
     return trimmed.replace(/\/+$/, '')
   }
 
+  /**
+   * Why a candidate route table would leave a route out, for the save to refuse — only for a route
+   * the save adds or changes. A route that broke later (a pair expired, a server was deleted) is
+   * reported on its view and must not block an unrelated edit.
+   */
+  routeProblems(candidate: ProxyConfig): string[] {
+    const before = new Map(this.config.routes.map(route => [route.id, JSON.stringify(route)]))
+    return this.resolveRoutes(undefined, candidate.routes)
+      .filter(view => view.status === 'error' && before.get(view.route.id) !== JSON.stringify(view.route))
+      .map(view => view.message ?? `"${view.route.id}" cannot be routed`)
+  }
+
   /** Every route, resolved far enough to render. */
-  private resolveRoutes(exclude?: ReadonlySet<string>): ResolvedRoute[] {
+  private resolveRoutes(exclude?: ReadonlySet<string>, table: readonly ProxyRoute[] = this.config.routes): ResolvedRoute[] {
     const seen = new Map<string, string>()
-    return this.config.routes.filter(route => exclude?.has(route.id) !== true).map((route): ResolvedRoute => {
+    return table.filter(route => exclude?.has(route.id) !== true).map((route): ResolvedRoute => {
       // `/app` and `/app/` render overlapping matchers, so one would silently shadow
       // the other; they are the same route for this check.
       const key = `${route.host.toLowerCase()}${ProxyService.pathKey(route.path)}`
@@ -1379,10 +1388,6 @@ export class ProxyService {
 
     const admin = await (this.options.chooseAdmin ?? this.chooseAdmin.bind(this))()
     this.admin = admin
-    const invalid = this.resolveRoutes().find(view => view.status === 'error')
-    if (invalid !== undefined)
-      throw new DetailedError(invalid.message ?? 'a route cannot be built', { statusCode: 400, code: 'PROXY_ROUTE_INVALID' })
-
     const signature = this.syncSignature()
     const routes = this.engineRoutes()
     const rendered = renderCaddyConfig({

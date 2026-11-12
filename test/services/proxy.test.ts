@@ -902,6 +902,56 @@ describe('proxyService', () => {
     expect(() => (service as unknown as { render: () => unknown }).render()).not.toThrow()
   })
 
+  it('leaves an unroutable route out and keeps serving the rest', async () => {
+    // One route resolving to `error` (a deleted server, a manual route with no pair) made render()
+    // and start() throw for the whole table: sync gave up, and after a restart nothing started.
+    const { service, settings, breakNannySpawn } = await harness()
+    settings.updateProxy({
+      enabled: true,
+      httpPort: 4480,
+      httpsPort: 4443,
+      routes: [
+        { id: 'ok', host: 'ok.example.com', target: 'external', url: 'http://10.0.0.5:8080' },
+        { id: 'ghost', host: 'ghost.example.com', target: 'server', workspace: 'home', server: 'gone' },
+        { id: 'pinned', host: 'pinned.example.com', target: 'external', url: 'http://10.0.0.6:80', tls: 'manual' },
+      ],
+    })
+    vi.spyOn(service, 'installed').mockReturnValue(true)
+    stubPortPreflight()
+    const posted: unknown[] = []
+    vi.spyOn(service as unknown as { postConfiguration: (rendered: unknown) => Promise<void> }, 'postConfiguration')
+      .mockImplementation(async (rendered) => { posted.push(rendered) })
+    ;(service as unknown as { admin: unknown }).admin = { kind: 'unix', path: '/nonexistent/admin.sock' }
+
+    await expect(service.apply()).resolves.toBeUndefined()
+    const text = JSON.stringify(posted[0])
+    expect(text).toContain('ok.example.com')
+    expect(text).not.toContain('ghost.example.com')
+    expect(text).not.toContain('pinned.example.com')
+    expect(service.routeViews().map(view => view.status)).toEqual(['ok', 'error', 'error'])
+
+    // A start is not refused for it either: it gets as far as the engine itself.
+    ;(service as unknown as { admin: unknown }).admin = null
+    vi.spyOn(service as unknown as { assertDns01Module: () => Promise<void> }, 'assertDns01Module').mockResolvedValue()
+    const restore = breakNannySpawn()
+    try {
+      await expect(service.start()).rejects.toMatchObject({ code: 'ENGINE_NOT_READY' })
+    }
+    finally {
+      restore()
+    }
+  })
+
+  it('refuses a broken route only when the save adds or changes it', async () => {
+    const { service, settings } = await harness()
+    settings.updateProxy({ routes: [{ id: 'ghost', host: 'ghost.example.com', target: 'server', workspace: 'home', server: 'gone' }] })
+    const current = service.config
+    // Unchanged: an unrelated edit must not be blocked by a route that broke later.
+    expect(service.routeProblems({ ...current, email: 'a@example.com' })).toEqual([])
+    const added = { ...current, routes: [...current.routes, { ...current.routes[0]!, id: 'ghost2', host: 'ghost2.example.com' }] }
+    expect(service.routeProblems(added)).toEqual([expect.stringContaining('does not exist')])
+  })
+
   it('is off, then stopped with a reason once it is switched on without an engine', async () => {
     const { service, settings } = await harness()
     expect(service.status()).toMatchObject({ state: 'off', lastError: null })

@@ -79,6 +79,11 @@ reported without a pid.
 | `tls` | `auto` (default), `off`, `manual`. |
 | `dnsAccount` | Optional `workspace/account` for a DNS-01 challenge, referencing a DNS account from Settings. Empty picks the workspace's only account that can write TXT records, so a single-account setup needs nothing here. |
 
+A route that cannot be served — its server was removed, its upstream is unusable, or a `manual`
+route has no valid pair — is left out of the engine, and the page says why on that row. Every
+other route keeps serving, and the engine still starts. A save that adds or changes such a route
+while the proxy is on is refused instead.
+
 The list's hostname is a link to where the route answers — `https://host:<https port>`, or
 the plain port for `tls: "off"`, path included. A route that is switched off is plain text.
 
@@ -102,7 +107,7 @@ reason shown as the proxy's error, until the rule is met again.
 | --- | --- |
 | `auto` | The engine decides. A public name gets a Let's Encrypt certificate (HTTP-01 or TLS-ALPN-01, with renewal in the background). A local-only name gets the engine's own locally-trusted CA, and the public CA is never asked for it. |
 | `off` | Plain HTTP on the http port, no certificate. |
-| `manual` | One of the uploaded pairs, whichever covers the hostname (the engine picks by SNI). A route set to this with no pair covering it is refused, rather than quietly given a certificate from somewhere else. |
+| `manual` | One of the uploaded pairs, whichever covers the hostname (the engine picks by SNI). A route set to this with no pair covering it is not served (and refused at save), rather than quietly given a certificate from somewhere else. |
 
 `email` is required as soon as a route uses a public hostname, and it is the contact
 address the ACME account is registered with. `staging` points that account at the ACME
