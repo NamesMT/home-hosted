@@ -1,11 +1,17 @@
+import type { Context } from 'hono'
 import type { AppDeps } from '#src/app'
+import type { MetaView } from '#src/shared/contracts'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { appFactory } from '#src/helpers/factory'
 import { jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
-import { appStateSchema } from '#src/shared/contracts'
+import { appVersion } from '#src/helpers/version'
+import { requestIdentity } from '#src/middleware/auth'
+import { appStateSchema, metaViewSchema } from '#src/shared/contracts'
+import { ERROR_CODES } from '#src/shared/error-codes'
 import { lazy } from '#src/shared/lazy'
+import { credentialOf, credentialRefusals } from '#src/shared/meta'
 
 /**
  * This route takes no query keys, and says so.
@@ -18,7 +24,39 @@ import { lazy } from '#src/shared/lazy'
  */
 const stateQuery = lazy(() => type({}).onUndeclaredKey('reject'))
 
-/** The whole panel in one payload: config, live server state and host vitals. */
+/** The SSE `event:` names the panel's streams send — the same list `docs/API.md` documents. */
+const EVENT_NAMES = ['hello', 'state', 'server', 'log', 'ping'] as const
+
+/**
+ * `GET /api/meta`: what this panel is, who is asking, and what that credential may not do.
+ *
+ * Derived from live state on every request rather than cached: `features` reports what is switched on
+ * now*, so a settings save is visible on the next call, and `credential` describes the request in
+ * hand rather than the panel. Only `version`/`apiVersion` are constants.
+ */
+function metaOf(deps: AppDeps, c: Context): MetaView {
+  const identity = requestIdentity(c, deps.auth)
+  const credential = credentialOf(identity, deps.auth.apiTokenHint)
+  return {
+    version: appVersion(),
+    apiVersion: 1,
+    credential,
+    actor: credential.kind === 'token' ? 'agent' : 'user',
+    refused: credentialRefusals(credential.kind),
+    features: {
+      proxy: deps.panel.settings.proxy.enabled,
+      // Panel-wide "in use anywhere": the service is per workspace, and that `enabled` is what starts
+      // a pass, so any one enabled workspace makes the feature on.
+      ddns: deps.panel.workspaces().some(workspace => workspace.store.ddns.enabled),
+      // Configured, not merely supported: the bridge does nothing until `host.tempCommand` names one.
+      temperature: deps.panel.settings.host.tempCommand.trim().length > 0,
+    },
+    /** The catalogue's own keys, so a client is never handed a code the panel does not know. */
+    errorCodes: Object.keys(ERROR_CODES),
+    events: [...EVENT_NAMES],
+  }
+}
+
 export function createStateRoute(deps: AppDeps) {
   return appFactory.createApp()
     .get(
@@ -30,5 +68,28 @@ export function createStateRoute(deps: AppDeps) {
       }),
       validate('query', stateQuery),
       c => c.json(deps.panel.getState()),
+    )
+
+    .get(
+      '/meta',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'What this panel is, which credential answered, and what it may not do',
+        description: 'Answers in one request what a client otherwise probes for one by one: the release and API version, the credential in use, the actions that credential is refused, which optional subsystems are switched on, every error code, and the SSE event names.',
+        responses: {
+          200: {
+            description: 'The panel and this credential',
+            /**
+             * A getter, because `jsonBody` **builds** the schema it is handed: a module-level call
+             * would undo `lazy` and put the cost of every contract on every import.
+             */
+            get content() {
+              return jsonBody(metaViewSchema)
+            },
+          },
+        },
+      }),
+      validate('query', stateQuery),
+      c => c.json(metaOf(deps, c)),
     )
 }

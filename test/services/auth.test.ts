@@ -86,7 +86,8 @@ describe('auth service', () => {
 
     secrets.ensureDefaultPassword('abcd-efgh-jkmn')
     expect(auth.usingDefaultPassword).toBe(true)
-    expect(auth.sessionView(false).defaultPassword).toBeNull()
+    // **Absent**, not `null`: a field that is always `null` promised a value that cannot arrive.
+    expect(auth.sessionView(false)).not.toHaveProperty('defaultPassword')
     expect(secrets.initialPassword, 'the machine can still read it back').toBe('abcd-efgh-jkmn')
 
     auth.setPassword('a-real-password')

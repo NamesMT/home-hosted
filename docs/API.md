@@ -208,6 +208,7 @@ and `/healthz` operation with its body and responses — the two documents that 
 | Endpoint | What it is | |
 | --- | --- | --- |
 | `GET /api/state` | the whole snapshot: settings, every workspace and server, host vitals | |
+| `GET /api/meta` | what this panel is, which credential answered and what that credential may not do (below) | |
 | `GET /api/events` | the live feed (below) | ✅ optional |
 | `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the workspace registry | |
 | `GET`/`POST /api/servers` | one workspace's entries. A create answers an optional `warnings` list when the entry cannot start as written (`command` holding a whole command line) | ✅ |
@@ -240,6 +241,47 @@ restart re-reads — `command`, `args`, `cwd`, `env`, `envFile`, `dataEnvs`, `po
 `persistent` and `stop`. A change to anything else (`label`, `enabled`, `health`, `restart`,
 `resources`, `dependsOn`, log retention, backup paths, the port-conflict policy) takes effect live and
 does **not** set it. A stopped entry never sets it.
+
+## What this panel is
+
+`GET /api/meta` answers in **one** request what a client otherwise probes for piecemeal — start here
+rather than hardcoding anything about a particular install.
+
+```json
+{
+  "version": "0.14.0",
+  "apiVersion": 1,
+  "credential": { "kind": "token", "name": "hh_ab12cd" },
+  "actor": "agent",
+  "refused": ["auth.disable", "password.clear", "password.first", "restore.credentials", "token.generate", "token.revoke", "ui.install"],
+  "features": { "proxy": true, "ddns": false, "temperature": false },
+  "errorCodes": ["INVALID_INPUT", "AUTH_REQUIRED", "…"],
+  "events": ["hello", "state", "server", "log", "ping"]
+}
+```
+
+- **`version`** is the release running, and **`apiVersion`** the response-shape version (`1` today).
+  Check `apiVersion` once, then read defensively; a field only ever arrives as an optional addition.
+- **`credential.kind`** says what answered: `session` (a browser's cookie), `token` (an API token), or
+  `local` (authentication is off and the caller is this machine). For a token, `name` is its readable
+  head — enough to tell two tokens apart, never enough to use one. `actor` is the same credential as a
+  history event names it (`user`, `agent`).
+- **`refused`** lists the actions this credential may **not** take, and is **empty** for a session
+  and for `local`. An API token gets: `password.clear`, `password.first`, `auth.disable`,
+  `token.generate`, `token.revoke`, `ui.install`, `restore.credentials` — each refused because it is a
+  way for a stolen token to *replace the person who owns the panel* rather than merely drive it. **An
+  API token is otherwise full admin** (it can run commands through entries); read this list as "the
+  moves that would take the panel over", never as reduced authority.
+- **`features`** reports whether each optional subsystem is switched on **right now** (`proxy` from
+  the panel's settings, `ddns` if any workspace has it enabled, `temperature` if a temp command is
+  configured). It is derived per request, so it follows a settings change immediately — do not cache it
+  across a save.
+- **`errorCodes`** is the panel's whole catalogue, from `src/shared/error-codes.ts`; **`events`** are
+  the `event:` names its streams send. Both are safe to build a client's switch statements on.
+
+`GET /api/auth/session` carries the same `credential` field, so a UI that already fetches the session
+neither needs this route nor disagrees with it. Its `defaultPassword` is **absent**, never `null`: the
+first-run password is shown on the machine that started the panel, never over the API.
 
 ## Live events
 
@@ -337,6 +379,8 @@ throughout reads `1`, not `0.0069`.
   defensively, ignore what you do not know. Event names do not change.
 - Request bodies are strict: an undeclared key is a `400`, so a typo is never silently ignored.
 - `GET /api/state` → `version` is the panel's release.
+- `GET /api/meta` → `apiVersion` is the **response-shape** version (`1` today). Bump it only for a
+  change an older client cannot read; everything else is an optional field added beside the old one.
 
 ## The TypeScript client
 

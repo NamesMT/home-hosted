@@ -13,6 +13,7 @@ import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middle
 import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
 import { apiTokenCreatedSchema, loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchema, sessionViewSchema } from '#src/shared/contracts'
+import { credentialOf } from '#src/shared/meta'
 import { EXPOSED_PASSWORD_MIN_LENGTH, passwordLength } from '#src/shared/password-policy'
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
@@ -29,7 +30,10 @@ export function createAuthRoute(deps: AppDeps) {
         summary: 'Who this request is, and how the panel is protected',
         responses: { 200: { description: 'Session', content: jsonBody(sessionViewSchema) } },
       }),
-      c => c.json(deps.auth.sessionView(requestIdentity(c, deps.auth).authenticated)),
+      (c) => {
+        const identity = requestIdentity(c, deps.auth)
+        return c.json(deps.auth.sessionView(identity.authenticated, credentialOf(identity, deps.auth.apiTokenHint)))
+      },
     )
 
     .post(
@@ -68,7 +72,7 @@ export function createAuthRoute(deps: AppDeps) {
           httpOnly: true,
         }))
 
-        return c.json(deps.auth.sessionView(true))
+        return c.json(deps.auth.sessionView(true, { kind: 'session' }))
       },
     )
 

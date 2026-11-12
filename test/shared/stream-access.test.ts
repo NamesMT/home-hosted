@@ -12,7 +12,7 @@ import { streamRecovery } from '#src/shared/stream-access'
  * forever, each attempt another 401.
  */
 function session(overrides: Partial<SessionView> = {}): SessionView {
-  return { authenticated: false, authRequired: false, passwordSet: false, usingDefaultPassword: false, defaultPassword: null, sessionTtlMs: 1, ...overrides }
+  return { authenticated: false, authRequired: false, passwordSet: false, usingDefaultPassword: false, sessionTtlMs: 1, ...overrides }
 }
 
 afterEach(() => {

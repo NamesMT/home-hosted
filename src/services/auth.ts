@@ -191,16 +191,18 @@ export class AuthService {
     return ANONYMOUS
   }
 
-  sessionView(authenticated: boolean): SessionView {
+  /** `credential` is which kind answered; the login route passes `session`, the route above derives it. */
+  sessionView(authenticated: boolean, credential?: SessionView['credential']): SessionView {
     return {
       authenticated,
       authRequired: this.isRequired(),
       passwordSet: this.secrets.passwordSet,
       apiTokenSet: this.secrets.apiTokenSet,
       usingDefaultPassword: this.secrets.usingDefaultPassword,
-      // Kept for older UIs; the first-run password is shown on the machine, never over the API.
-      defaultPassword: null,
+      // The first-run password is shown on the machine that started the panel, never over the API,
+      // so the field is **absent** rather than a `null` that promised a value that cannot arrive.
       sessionTtlMs: this.getConfig().sessionTtlMs,
+      ...(credential === undefined ? {} : { credential }),
     }
   }
 
