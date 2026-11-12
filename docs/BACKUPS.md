@@ -27,7 +27,7 @@ Selection is two-level: whole workspaces, or single pieces of one.
 | --- | --- |
 | `global:settings`, `global:secrets`, `global:tls` | panel-wide settings, the password/token hashes, the TLS pair |
 | `workspace:<id>:settings` · `:servers` · `:secrets` | a workspace's settings, its `servers.config.json`, its notification/DDNS credentials |
-| `workspace:<id>:secrets:<name>` | one secret, restored on its own |
+| `workspace:<id>:secrets:<name>` | one secret, restored on its own. `:serverEnv` carries every server's secret environment — the values a move to a new machine would otherwise lose, since they used to live in an `envFile` beside the code and that is not in any backup |
 | `workspace:<id>:data:<path>` | one declared data directory |
 
 A data directory is anything an entry declares in `dataEnvs` or `backupPaths`. Generated

@@ -72,7 +72,7 @@ stack.
 | ❌ **"Is it still running?"** | Health, CPU/memory, uptime and live logs per server |
 | ❌ **Silent deaths** | Restarted automatically, and you are told — in the panel, Telegram or a webhook |
 | ❌ **Fragile reboots** | `autostart` brings the stack back; one `down` stops it all cleanly |
-| ❌ **"Move it to the new box"** | One archive — config **and** declared data — restored on a blank host (your code and `envFile`s travel in git or `backupPaths`) |
+| ❌ **"Move it to the new box"** | One archive — config, **secret environment values** and declared data — restored on a blank host (your code travels in git or `backupPaths`) |
 | ✅ **home-hosted** | Declare it once, watch it forever |
 
 It ships with **no servers configured**: a server is a command, its arguments and its environment.
@@ -98,6 +98,9 @@ settings → Authentication**. Then supervise something — **➕ Add server** i
 npx home-hosted add web --port 4000 -- node server.js   # declare it (panel up or not)
 npx home-hosted start web                               # and start it
 npx home-hosted ls                                      # what this workspace declares
+npx home-hosted secret set web DATABASE_URL             # a secret, prompted without echo (declare the
+                                                        #   name in `secretEnv` first — it never enters
+                                                        #   servers.config.json)
 ```
 
 <sub>Needs Node 24+. `pnpm dlx home-hosted …` works too. `--port`/`--host` on `up` are saved to
@@ -258,7 +261,9 @@ The rest, one line each:
 | 🔔 **Notifications** | Telegram and webhooks (ntfy, Discord, Slack, …) on crash, unhealthy, recovery, host thresholds and DNS changes |
 | 🌐 **Dynamic DNS** | Keep hostnames on your public IP — Cloudflare, Namecheap, Porkbun, GoDaddy, Gandi, deSEC, DuckDNS, No-IP and more |
 | 🔀 **Reverse proxy** | One Caddy engine with automatic HTTPS: `git.example.com` → a Gitea entry, `panel.example.com` → the panel |
-| 💾 **Backups** | Config, secrets and data in one zip — plain or AES-256, scheduled or manual, restorable on a blank host |
+| 💾 **Backups** | Config, secrets and data in one zip — plain or AES-256, scheduled or manual, restorable on a blank host. A server's secret environment is in there too, so a move keeps working |
+
+| 🔐 **Per-server secrets** | Declare the **names** in the entry and set the values from the panel or `home-hosted secret set` — they live in the workspace secrets file (0600), never in the config, and a backup carries them |
 | 🤖 **API first** | Bearer tokens, OpenAPI, SSE — scripts, agents, TUIs and desktop apps get everything the UI gets |
 | 🎨 **Bring your own UI** | Upload a static build; `ui-update` follows its releases, `ui-revert` goes back |
 | 🌍 **Translated** | English, Vietnamese, Chinese, Japanese, Spanish, Korean, Russian, French, German |
@@ -332,6 +337,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | `home-hosted restart [<id>]` | the panel (`down` then `up` — every non-persistent server restarts with it), or just one server, leaving the panel up. To move the panel's port or bind without stopping anything, use **Global settings → Listener** |
 | `home-hosted status` | running? where? how many servers up? every path (`--json`) |
 | `home-hosted add <id> -- <command…>` / `ls` | declare a server (`--port`, `--cwd`, `--persistent`, `--autostart`, `-w`) or list them — through the panel, or into `servers.config.json` when it is down |
+| `home-hosted secret set\|unset\|ls <id> [NAME]` | a server's secret environment: `set` prompts without echo (or `--stdin`), `ls` prints the names and which have a value. **Never prints a value** (`-w`, `--json`) |
 | `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one, and works on a persistent entry with the panel down (`-w <workspace>`, `--free-port`) |
 | `home-hosted free-port <id>` | ask whatever holds that server's port to stop; supervised holders are refused |
 | `home-hosted logs [<id>]` | the panel's console, or one server's log (`--lines`, `--follow`, `--json`) |
@@ -356,6 +362,9 @@ restart <id>      one server through the panel: [-w/--workspace <id>] — up's f
 status            --json
 add <id>          [--port <n>] [--cwd <dir>] [-w/--workspace <id>] [--persistent] [--autostart] -- <command> [args…]
 ls                [-w/--workspace <id>] --json
+secret set <id> NAME   [--stdin] [-w/--workspace <id>]   (prompts without echo; never prints the value)
+secret unset <id> NAME [-w/--workspace <id>]
+secret ls <id>         [-w/--workspace <id>] --json
 start <id>        [-w/--workspace <id>] [--free-port]
 stop <id>         [-w/--workspace <id>]
 free-port <id>    [-w/--workspace <id>]

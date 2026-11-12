@@ -79,6 +79,29 @@ status. An added entry is **not started**, `autostart` or not — `autostart` me
 panel", so it starts at the next `up`; run `start <id>` to start it now. An id the workspace already
 has is refused (`SERVER_EXISTS`), and `add` never creates a workspace.
 
+## Secret environment
+
+A server's secrets live in the workspace's secrets file, never in `servers.config.json` — only the
+**names** are declared there, in the entry's `secretEnv`. Declare a name first, then set its value:
+
+```bash
+home-hosted secret set app DATABASE_URL          # prompts without echo
+printf '%s\n' "$DATABASE_URL" | home-hosted secret set app DATABASE_URL --stdin
+home-hosted secret ls app                        # the names, and which have a value
+home-hosted secret unset app DATABASE_URL
+```
+
+`set` refuses a name the entry does not declare **before** it asks for a value, so a mistyped name
+costs nothing. A blank value is refused too: an empty environment variable reads as unset, so
+`unset` is the intent there.
+
+**No command prints a value** — not `ls`, not `--json`, not an error. The panel's
+`PUT /api/servers/:id/secrets` is write-only for the same reason, and the view reports
+`secretEnvSet` (the names that have a value) rather than anything else.
+
+While the panel runs, the commands go through its `/_hh` channel so its own store does the write;
+when it is down they write the file directly, and the next start reads it.
+
 ## What `status` tells you
 
 ```text

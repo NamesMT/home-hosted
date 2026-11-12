@@ -110,3 +110,13 @@ had. A **hand-copied** UI must have `index.html` at the root of `.ui`.
 **The published types need no `@types/node`.** A browser project importing `home-hosted/client` used to
 get 8 errors from the declarations and be told to install Node's types. If you patched around that with
 `skipLibCheck: false` and a `types` entry, you can drop it.
+
+**A server's secrets can move into the panel, and that is the arrangement a backup covers.** Today
+they sit in an `envFile` beside the code, which no backup includes — a move to a new machine silently
+loses them. `secretEnv` on the entry declares the **names** and `home-hosted secret set` (or the config
+page) stores the values in the workspace's `.secrets.json`, which *is* backed up. Nothing changes
+until you declare a name: an `envFile` keeps working exactly as it did, and its values still override
+`env`. When a name has both, the secret wins — `env` < `envFile` < `dataEnvs` < `secretEnv`.
+
+**Nothing new is required.** There is no migration: an entry without `secretEnv` behaves as before, and
+`secretEnv` defaults to an empty list on the first save.

@@ -72,13 +72,30 @@ it first, `up` tightens an older one to `0700`, and each of these is `0600`:
 | What | Where |
 | --- | --- |
 | password hash (and the first-run password, until it is changed), token hash | `.hh/.control-secrets.json` |
-| notification tokens, DDNS credentials | `.hh/<workspace>/.secrets.json` |
+| notification tokens, DDNS credentials, a server's secret environment values | `.hh/<workspace>/.secrets.json` |
 | the panel's TLS pair | `.hh/.tls/` |
 | the running panel's local-channel token | `.hh/run.json` |
 
 DDNS credentials are additionally sealed with AES-256-GCM under `HHOSTED_DDNS_SECRET`, because they
 are replayed to a third party. Its default is a fixed value, which protects nothing if the state
 directory is copied — **set your own** if you commit or share `.hh/`.
+
+### A server's secret environment never enters its config
+
+`servers.config.json` declares only the **names** (`secretEnv`); the values sit in the workspace's
+secrets file. That split is the point, not an implementation detail: a config is copied into a
+backup, printed by `home-hosted status`, served by `GET /api/state` and quoted in issues. Anything in
+it is published.
+
+The consequences are enforced rather than promised:
+
+- `PUT /api/servers/:id/secrets` is **write-only** — it answers `ok` and nothing else;
+- the server view reports `secretEnvSet`, the names that have a value, and no route returns a value;
+- `home-hosted secret` prints a name and a set marker, never a value, on any path including an error;
+- a name the entry does not declare is refused, so a leftover value cannot reach a child;
+- the file is `0600`, like every other secret, and the secrets part of a backup carries it — which is
+  what makes a move to a new machine keep working. The old arrangement (an `envFile` beside the code)
+  was not in a backup at all.
 
 ## Plain http on a LAN
 
