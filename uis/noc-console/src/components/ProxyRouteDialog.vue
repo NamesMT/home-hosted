@@ -71,6 +71,25 @@ watch(() => form.value.workspace, () => {
     form.value.server = serverOptions.value[0]?.id ?? ''
 })
 
+/**
+ * The upstream opt-out, as a checkbox.
+ *
+ * Absent is what a verifying route carries, so false **deletes** the key rather than storing
+ * `false` — the wire form and `docs/API.md` say absent, and an older panel has no such key.
+ */
+const skipVerify = computed({
+  get: () => form.value.upstreamSkipVerify === true,
+  set: (next: boolean) => {
+    if (next)
+      form.value.upstreamSkipVerify = true
+    else
+      delete form.value.upstreamSkipVerify
+  },
+})
+
+/** Only an https upstream presents a certificate to verify. */
+const hasTlsUpstream = computed(() => /^https:/i.test(form.value.url.trim()))
+
 function submit(): void {
   const host = form.value.host.trim().toLowerCase()
   const candidate: RouteDraft = {
@@ -168,6 +187,15 @@ function submit(): void {
               <input v-model="form.url" placeholder="http://10.0.0.5:8080" spellcheck="false">
               <span v-if="errors.url" class="field__hint danger">{{ errors.url }}</span>
               <span v-else class="field__hint">a literal address including the port; a scheme is optional</span>
+            </label>
+            <label v-if="hasTlsUpstream" class="field field--check grid__full">
+              <input v-model="skipVerify" type="checkbox">
+              <span class="field__label">
+                skip certificate verification for this upstream
+                <em class="dim">— for a backend whose https certificate this machine does not trust, usually
+                  self-signed. It turns off the check between the proxy and that backend, so anything able to
+                  impersonate it is trusted.</em>
+              </span>
             </label>
           </div>
 

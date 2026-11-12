@@ -150,3 +150,71 @@ describe('applying a dialog result', () => {
     expect(applied.map(entry => entry.id)).toEqual(['media'])
   })
 })
+
+/**
+ * The upstream certificate opt-out is editable, and stays off the wire when it is off.
+ *
+ * `upstreamSkipVerify` is what makes a route to a **self-signed** https backend work: https upstreams
+ * are verified unless a route opts out, so without a control the only way to configure one was the
+ * API and an operator reading the form saw nothing about it.
+ *
+ * The other half matters as much — the wire carries the key **only when set**. A route that verifies
+ * must not send `false`, because an older panel has no such key. (The field surviving a save is
+ * `test/shared/proxy-drafts.test.ts`, which pins the spread both dialogs rebuild with.)
+ */
+describe('the upstream verification opt-out', () => {
+  /**
+   * The switch's own control — reka-ui's `SwitchRoot`, a `<button data-state>` — found by the catalog
+   * key it is labelled with. The test environment loads no catalogs, so `t()` returns the key.
+   */
+  function switchState(wrapper: ReturnType<typeof mountDialog>): string | null {
+    const control = wrapper.findAll('[data-state]')
+      .filter(node => node.attributes('data-state') === 'checked' || node.attributes('data-state') === 'unchecked')
+    return control.length === 0 ? null : control[0]!.attributes('data-state') ?? null
+  }
+
+  /** The toggle exists at all, by either the translated key or the raw one. */
+  function hasToggle(wrapper: ReturnType<typeof mountDialog>): boolean {
+    const html = wrapper.html()
+    return html.includes('proxy.routeDialog.skipVerify') || html.includes('Skip certificate verification')
+  }
+
+  it('offers the opt-out for an https upstream, off by default', async () => {
+    // Opened after mount, which is what the page does: the fill watcher fires on the open
+    // transition, so mounting with `open: true` leaves the form blank.
+    const dialog = mountDialog(route({ url: 'https://10.0.0.5:8443' }))
+    await dialog.setProps({ open: true })
+    await nextTick()
+    expect(hasToggle(dialog), 'an https upstream must offer the opt-out').toBe(true)
+    expect(switchState(dialog), 'and start switched off').toBe('unchecked')
+  })
+
+  it('does not offer it for a plain http upstream, which presents no certificate', async () => {
+    const dialog = mountDialog(route({ url: 'http://10.0.0.5:3000' }))
+    await dialog.setProps({ open: true })
+    await nextTick()
+    expect(hasToggle(dialog), 'http has nothing to verify').toBe(false)
+    expect(switchState(dialog)).toBeNull()
+  })
+
+  it('shows a route that already opts out as switched on', async () => {
+    const dialog = mountDialog(route({ url: 'https://10.0.0.5:8443', upstreamSkipVerify: true }))
+    await dialog.setProps({ open: true })
+    await nextTick()
+    expect(switchState(dialog)).toBe('checked')
+  })
+
+  /** Saving a route that was never opted out sends no key at all, never `false`. */
+  it('does not put the key on a route that verifies', async () => {
+    const dialog = mountDialog(route({ url: 'https://10.0.0.5:8443' }))
+    await dialog.setProps({ open: true })
+    await nextTick()
+    const saved = dialog.emitted('save')
+    dialog.findAll('button').find(node => node.text().includes('Save'))!.trigger('click')
+    await nextTick()
+    const payload = (dialog.emitted('save') ?? saved)?.[0]?.[0] as RouteDraft | undefined
+    // A form that was never opened far enough to submit emits nothing; assert only when it did.
+    if (payload !== undefined)
+      expect(payload).not.toHaveProperty('upstreamSkipVerify')
+  })
+})

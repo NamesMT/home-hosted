@@ -8,6 +8,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import Modal from '@/components/ui/Modal.vue'
 import SelectField from '@/components/ui/SelectField.vue'
 import TextField from '@/components/ui/TextField.vue'
+import ToggleSwitch from '@/components/ui/ToggleSwitch.vue'
 import { t } from '@/i18n'
 import { dnsAccountOptions, isPublicHost, newRouteDraft, ROUTE_ERROR_MESSAGES, slugifyRouteId, TARGET_OPTIONS, TLS_OPTIONS, uniqueRouteId, validateRouteDraft } from '@/lib/proxy'
 
@@ -49,6 +50,28 @@ const tlsHint = computed(() => {
     ? t('proxy.tls.hintPublic')
     : t('proxy.tls.hintLocal')
 })
+
+/**
+ * The upstream opt-out, as a switch.
+ *
+ * `upstreamSkipVerify` is absent on a route that verifies (the wire omits it), so the switch reads
+ * `=== true` and writes **absent** for false rather than `false` — the schema accepts either, but
+ * the wire form and `docs/API.md` say absent, and an older panel has no such key.
+ *
+ * Only an https upstream has a certificate to verify, so the control is shown for those.
+ */
+const skipVerify = computed({
+  get: () => form.value.upstreamSkipVerify === true,
+  set: (next: boolean) => {
+    if (next)
+      form.value.upstreamSkipVerify = true
+    else
+      delete form.value.upstreamSkipVerify
+  },
+})
+
+/** An https upstream is the only one with a certificate to verify. */
+const hasTlsUpstream = computed(() => /^https:/i.test(form.value.url.trim()))
 
 /** The account picker is only meaningful for a name the engine would get a certificate for. */
 const wantsDns = computed(() => form.value.tls === 'auto' && isPublicHost(form.value.host))
@@ -169,6 +192,13 @@ function submit(): void {
         :hint="t('proxy.routeDialog.upstreamHint')"
         spellcheck="false"
         :error="errors.url"
+        wide
+      />
+      <ToggleSwitch
+        v-if="form.target === 'external' && hasTlsUpstream"
+        v-model="skipVerify"
+        :label="t('proxy.routeDialog.skipVerify')"
+        :hint="t('proxy.routeDialog.skipVerifyHint')"
         wide
       />
 

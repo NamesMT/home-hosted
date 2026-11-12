@@ -1,7 +1,7 @@
 import type { RouteDraft } from '#src/shared/proxy-form'
 import { describe, expect, it } from 'vitest'
 import { reactive, ref, toRaw } from 'vue'
-import { applyRouteDraft, cloneRoutes, newRouteKey, parseUpstream, routeUrl, upstreamTarget, validateRouteDraft } from '#src/shared/proxy-form'
+import { applyRouteDraft, cloneRoutes, newRouteDraft, newRouteKey, parseUpstream, routeUrl, toProxyRoutes, upstreamTarget, validateRouteDraft } from '#src/shared/proxy-form'
 
 /**
  * The two route-draft helpers both UIs call.
@@ -120,5 +120,38 @@ describe('one route form for the UI and the panel', () => {
 
   it('links a path prefix in its canonical form', () => {
     expect(routeUrl({ host: 'a.lan', path: 'app/', tls: 'off' }, 80, 443)).toBe('http://a.lan/app')
+  })
+})
+
+/**
+ * A route's opt-out from upstream certificate verification, in the shared draft layer.
+ *
+ * `upstreamSkipVerify` is what makes a `server`/`external` route to a **self-signed** https backend
+ * work at all: https upstreams are verified unless a route opts out.
+ *
+ * **Measured, and the brief's premise was wrong:** the field is *not* dropped by a save. Both
+ * dialogs rebuild their result as `{ ...form.value, host, id, … }`, so a route that arrived with the
+ * opt-out leaves with it; `cloneRoutes` keeps it and `toRouteWire` sends it. The real gap was that
+ * no control existed to *set* it, so a self-signed upstream could only be configured through the
+ * API — and a route configured that way showed nothing about it on the form.
+ *
+ * These cases pin the guarantee the dialogs rely on, so a future rebuild of that object that stops
+ * spreading the draft is caught here rather than by a route that silently stops serving.
+ */
+describe('the upstream verification opt-out', () => {
+  it('is absent on a new route, so creating one verifies the upstream', () => {
+    // Absent, not `false`: the wire form omits it, and an older panel has no such key.
+    expect(newRouteDraft()).not.toHaveProperty('upstreamSkipVerify')
+  })
+
+  it('survives the clone a dialog fills its form from, and the wire a save sends', () => {
+    const live = [{ ...route({ tls: 'auto', url: 'https://10.0.0.5:8443' }), upstreamSkipVerify: true }]
+    const [draft] = cloneRoutes(live)
+    expect(draft!.upstreamSkipVerify, 'a clone must keep the opt-out, or Save clears it').toBe(true)
+
+    // And the wire keeps it too — `toRouteWire` sends it only when set.
+    expect(toProxyRoutes([draft!])[0]).toMatchObject({ upstreamSkipVerify: true })
+    // A route that never opted out carries no key at all, so an older panel is not told `false`.
+    expect(toProxyRoutes(cloneRoutes([route()]))[0]).not.toHaveProperty('upstreamSkipVerify')
   })
 })
