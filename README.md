@@ -100,7 +100,7 @@ to `~/.home-hosted/.hh/default/servers.config.json` and run `npx home-hosted sta
 > [!IMPORTANT]
 > **Before you expose it to anything but this machine.** It listens on `127.0.0.1` until you say
 > otherwise, and it refuses to bind further — or to be put behind its own reverse proxy — while it
-> still has the generated password. So: set your own password first, *then* bind to `lan` (UI,
+> still has its first-run password. So: set your own password (12+ characters) first, *then* bind to `lan` (UI,
 > `settings.json`, or `up --host lan`). And an API token is **full admin**: it can create and start a
 > server entry, and an entry runs any command as the panel's user. Changing the password does **not**
 > revoke a token — rotate it with `set-token --generate`. The whole model, including which actions a

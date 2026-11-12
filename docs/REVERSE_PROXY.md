@@ -89,8 +89,8 @@ The list's hostname is a link to where the route answers — `https://host:<http
 the plain port for `tls: "off"`, path included. A route that is switched off is plain text.
 
 A route pointing at the panel is exposure, and answers to the same rule as binding the
-listener beyond loopback: authentication on and a non-default password, or the save is
-refused. `tls` does not change that bar — it is about who can reach the panel, not whether
+listener beyond loopback: authentication on and your own password (not the first-run one, and at least 12 characters), or the
+save is refused. `tls` does not change that bar — it is about who can reach the panel, not whether
 the hop is encrypted, and `tls: "off"` is if anything the worse case. The engine upstreams a
 panel route to the address the panel is bound to — `127.0.0.1` for `local` and `lan`, the address
 itself for a specific IPv4 bind — and a loopback hop is one the panel's own guard reads as a local request, so a
