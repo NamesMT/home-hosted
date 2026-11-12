@@ -42,7 +42,7 @@ import { PersistentEntries, rememberEchoedLine } from '#src/services/supervisor/
 import { freePort, preflight, supervisedPids } from '#src/services/supervisor/port-preflight'
 import { forgetRecordedChild, persistEntryState, pidLiveness, reportRecordedChildGone, resolveRecordedChild, scanOrphans, stopOrphanProcess, takeGoneRecordedChild } from '#src/services/supervisor/records'
 import { restartRelevant } from '#src/services/supervisor/restart-required'
-import { detectCompose, killBootstrap, resolveSpawn, runBootstrap } from '#src/services/supervisor/spawn'
+import { detectCompose, killBootstrap, killDeployStep, resolveSpawn, runBootstrap } from '#src/services/supervisor/spawn'
 import { buildView } from '#src/services/supervisor/view'
 
 export { serverTemplateVars } from '#src/providers/server-vars'
@@ -821,6 +821,20 @@ export class Supervisor {
     // A start in flight is cancelled and waited out, so nothing it was about to do lands after this.
     entry.runToken += 1
     killBootstrap(entry)
+    /**
+     * A deploy in flight is ended too, and its step's **whole process group** with it.
+     *
+     * Without this, `deployChild` was assigned and never killed: a `pnpm install` or a `docker build`
+     * kept writing to the tree for its full timeout after someone stopped the entry, and the stop
+     * appeared to hang for minutes because `runDeploy` waited for the child's exit before it ever
+     * re-checked `cancelled()`. Measured before the fix: cancelling 200 ms into a 30-second step
+     * returned after 30,011 ms with the child exiting 0.
+     */
+    if (entry.deployChild !== null) {
+      this.log(entry, 'system', 'stopping the deploy step in flight')
+      killDeployStep(entry)
+    }
+
     // A job run in flight is ended here for the same reason, and *marked* first so the exit it causes
     // is recorded as `cancelled` rather than as a failed run — a stop is not a job's own failure.
     const runningJob = entry.job

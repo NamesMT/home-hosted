@@ -107,21 +107,42 @@ export async function runDeploy(
     let timedOut = false
     let exitCode: number | null = null
     let spawnError: string | null = null
+    /**
+     * Resolves on exit, on an error, or **the moment the deploy is cancelled**.
+     *
+     * The cancellation poll is what makes a stop take effect: waiting only for `exit` meant the caller
+     * was parked until the step's own timeout even though the stop had killed its process group, so
+     * `POST /stop` appeared to hang for minutes. The poll is the caller's own `cancelled()` — cheap,
+     * and it also covers a stop that raced the spawn.
+     */
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         timedOut = true
         // Its own group, so a step that started something gets that too.
         forceKillTree(child)
       }, step.timeoutMs)
-      child.once('exit', (code) => {
+      // Declared before the closures that clear it: a child that exits on its first tick settles
+      // before `poll` is assigned, and referencing it there would throw in the temporal dead zone.
+      let poll: ReturnType<typeof setInterval> | undefined
+      const settle = (): void => {
         clearTimeout(timer)
-        exitCode = code
+        if (poll !== undefined)
+          clearInterval(poll)
         resolve()
+      }
+      poll = setInterval(() => {
+        if (cancel.cancelled()) {
+          forceKillTree(child)
+          settle()
+        }
+      }, 100)
+      child.once('exit', (code) => {
+        exitCode = code
+        settle()
       })
       child.once('error', (error) => {
-        clearTimeout(timer)
         spawnError = (error as Error).message
-        resolve()
+        settle()
       })
     })
     cancel.onChild?.(null)

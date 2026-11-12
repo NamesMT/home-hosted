@@ -136,3 +136,46 @@ describe('running a deploy', () => {
     expect(Date.now() - started).toBeLessThan(10_000)
   })
 })
+
+/**
+ * A stop **interrupts a step in flight**, rather than waiting out its timeout.
+ *
+ * The shipped test only cancelled *between* steps, which already worked, so it never exercised this.
+ * Measured before the fix: cancelling 200 ms into a 30-second step returned after 30,011 ms with the
+ * child still exiting 0 — a `pnpm install` kept writing to the tree long after someone stopped the
+ * service, and `POST /stop` appeared to hang for minutes.
+ *
+ * The step here is a real sleeping child, so this is the process the supervisor would have to kill.
+ */
+describe('a stop during a step', () => {
+  it('ends the step promptly instead of waiting for its timeout', async () => {
+    const dir = await scratch()
+    const { config } = configWith(dir, [
+      { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 60000)'], timeoutMs: 55_000 },
+    ])
+
+    let cancelled = false
+    const started = Date.now()
+    // Cancel shortly after the step has spawned.
+    const timer = setTimeout(() => {
+      cancelled = true
+    }, 200)
+    const outcome = await runDeploy(config, { cancelled: () => cancelled }, { log: () => {} })
+    clearTimeout(timer)
+    const elapsed = Date.now() - started
+
+    expect(outcome.ok).toBe(false)
+    expect(outcome.error).toContain('stopped')
+    // The point of the fix: it returns in the region of the poll, not in the region of the timeout.
+    expect(elapsed, `took ${elapsed}ms — a stop must not wait out the step`).toBeLessThan(5_000)
+  })
+
+  it('still reports the step that failed when nothing cancelled it', async () => {
+    const dir = await scratch()
+    const { config } = configWith(dir, [{ command: process.execPath, args: ['-e', 'process.exitCode = 9'] }])
+    const outcome = await runDeploy(config, { cancelled: () => false }, { log: () => {} })
+    expect(outcome.ok).toBe(false)
+    expect(outcome.error).toContain('code 9')
+    void dir
+  })
+})

@@ -102,6 +102,18 @@ export function killBootstrap(entry: Entry): void {
     forceKillTree(entry.bootstrapChild)
 }
 
+/**
+ * Ends the deploy step in flight, and its whole process group with it.
+ *
+ * A deploy step is not the entry's own process, so nothing else would stop it: a `pnpm install` would
+ * keep writing to the tree for its full timeout after the entry was stopped. Same shape as
+ * `killBootstrap` because it is the same problem — a child the supervisor owns for a phase.
+ */
+export function killDeployStep(entry: Entry): void {
+  if (entry.deployChild !== null)
+    forceKillTree(entry.deployChild)
+}
+
 /** Runs the entry's bootstrap, best-effort: a failure is logged and the start carries on. */
 export async function runBootstrap(ctx: SupervisorContext, entry: Entry, current: () => boolean): Promise<void> {
   const spec = entry.config.bootstrap
