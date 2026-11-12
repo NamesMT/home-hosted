@@ -258,3 +258,20 @@ describe('ui service', () => {
     expect(fixture.ui.readMeta()).toMatchObject({ name: 'utf16-ui', version: '1.0.0' })
   })
 })
+
+describe('the UI status the state frame reads', () => {
+  it('is reused between frames, and dropped by an install or a revert', async () => {
+    const { ui, zip } = await makeFixture()
+    const first = ui.status()
+    expect(ui.status(), 'a frame a moment later reuses the answer').toBe(first)
+    expect(first.custom).toBe(false)
+
+    const result = await ui.install(await zip({ 'index.html': '<!doctype html>', 'ui.json': '{"name":"mine","version":"1.0.0"}' }))
+    expect(result.ok).toBe(true)
+    expect(ui.status().custom, 'an install shows at once').toBe(true)
+    expect(ui.status().meta?.name).toBe('mine')
+
+    ui.revert()
+    expect(ui.status().custom, 'a revert shows at once').toBe(false)
+  })
+})

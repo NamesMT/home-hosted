@@ -15,9 +15,17 @@ import { errorMessage } from '#src/shared/error-message'
  * socket — the control server reads the pair and hands it to srvx. The reverse
  * proxy keeps its own pair in its own directory through the same class.
  */
+/**
+ * How long a `status()` answer is reused. It is read for every state frame (once a second), and
+ * building it parses the certificate and compares keys — about 1.6 ms, plus four filesystem calls.
+ * `save()`/`clear()` drop it at once; a file replaced behind the panel's back shows within this.
+ */
+const STATUS_CACHE_MS = 5000
+
 export class TlsStore {
   private cached: { cert: string, key: string } | null = null
   private cachedMtime = ''
+  private statusCache: { at: number, enabled: boolean, status: TlsStatus } | null = null
 
   constructor(private readonly dir: string, private readonly name = 'control') {}
 
@@ -80,6 +88,7 @@ export class TlsStore {
     writeFileAtomic(this.keyPath, `${privateKey.trimEnd()}\n`, { mode: 0o600 })
     this.cached = null
     this.cachedMtime = ''
+    this.statusCache = null
     return { ok: true }
   }
 
@@ -114,9 +123,19 @@ export class TlsStore {
       }
     }
     this.cached = null
+    this.statusCache = null
   }
 
-  status(enabled: boolean): TlsStatus {
+  status(enabled: boolean, now = Date.now()): TlsStatus {
+    const cache = this.statusCache
+    if (cache !== null && cache.enabled === enabled && now >= cache.at && now - cache.at < STATUS_CACHE_MS)
+      return cache.status
+    const status = this.readStatus(enabled)
+    this.statusCache = { at: now, enabled, status }
+    return status
+  }
+
+  private readStatus(enabled: boolean): TlsStatus {
     const base: TlsStatus = {
       enabled,
       certPresent: this.present,

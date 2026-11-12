@@ -41,7 +41,7 @@ export function serveEventStream(
     stream.onAbort(end)
 
     const send = (message: StreamFrame): void => {
-      channel.send(message.type, JSON.stringify(message), { key: frameKey(message), droppable: message.type === 'log' })
+      channel.send(message.type, serializeFrame(message), { key: frameKey(message), droppable: message.type === 'log' })
     }
     const unsubscribe = start(send)
 
@@ -64,4 +64,22 @@ export function serveEventStream(
       unsubscribe()
     }
   })
+}
+
+/**
+ * One serialisation per published frame, however many streams carry it.
+ *
+ * The hub hands every subscriber the same message object, and the state frame — the whole panel —
+ * was stringified once per open tab, every second. A published frame is never mutated afterwards,
+ * so its text is remembered against the object and goes when the object does.
+ */
+const serialized = new WeakMap<object, string>()
+
+export function serializeFrame(message: StreamFrame): string {
+  let text = serialized.get(message)
+  if (text === undefined) {
+    text = JSON.stringify(message)
+    serialized.set(message, text)
+  }
+  return text
 }

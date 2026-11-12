@@ -260,6 +260,21 @@ describe('tls store', () => {
     expect(store.servable()).toEqual({ cert: expect.stringContaining('BEGIN CERTIFICATE') as unknown as string, key: expect.any(String) as unknown as string })
   })
 
+  /**
+   * The state frame reads this every second, and building it parses the certificate and compares
+   * keys (~1.6 ms). It is reused inside a short window, and a save or clear drops it at once.
+   */
+  it.runIf(hasOpenssl)('reuses its status between frames, and drops it on save and clear', () => {
+    const store = new TlsStore(path.join(dir, 'status-cache'))
+    store.save(cert, key)
+    const first = store.status(true, 1_000_000)
+    expect(store.status(true, 1_001_000), 'a frame a second later reuses the answer').toBe(first)
+    expect(store.status(true, 1_010_000), 'past the window it is read again').not.toBe(first)
+
+    store.clear()
+    expect(store.status(true, 1_010_500).certPresent, 'a clear shows at once').toBe(false)
+  })
+
   it.runIf(hasOpenssl)('clears both files', async () => {
     const store = new TlsStore(path.join(dir, 'cleared'))
     store.save(cert, key)

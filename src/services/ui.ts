@@ -57,7 +57,16 @@ export type UiInstallResult
   = | { ok: true, meta: UiMeta }
     | { ok: false, error: string }
 
+/**
+ * How long a `status()` answer is reused: the state frame reads it every second, and it costs an
+ * `existsSync` and a `ui.json` read and parse each time. An install or revert through this service
+ * drops it at once; one done by another process (`home-hosted ui-revert`) shows within this.
+ */
+const STATUS_CACHE_MS = 5000
+
 export class UiService {
+  private statusCache: { at: number, status: UiStatus } | null = null
+
   constructor(private readonly options: { dataRoot: string, stockDir?: string }) {}
 
   /** `$HHOSTED_HOME/.ui` — the only place a user UI is ever read from. */
@@ -77,8 +86,13 @@ export class UiService {
     return this.options.stockDir ?? this.directory
   }
 
-  status(): UiStatus {
-    return { custom: this.custom, dir: this.directory, meta: this.readMeta() }
+  status(now = Date.now()): UiStatus {
+    const cache = this.statusCache
+    if (cache !== null && now >= cache.at && now - cache.at < STATUS_CACHE_MS)
+      return cache.status
+    const status = { custom: this.custom, dir: this.directory, meta: this.readMeta() }
+    this.statusCache = { at: now, status }
+    return status
   }
 
   readMeta(): UiMeta | null {
@@ -114,12 +128,14 @@ export class UiService {
       return { ok: false, error: errorMessage(error) }
     }
     finally {
+      this.statusCache = null
       fs.rmSync(staging, { recursive: true, force: true })
     }
   }
 
   /** Removes the user UI, putting the stock panel back. */
   revert(): boolean {
+    this.statusCache = null
     const existed = fs.existsSync(this.directory)
     fs.rmSync(this.directory, { recursive: true, force: true })
     return existed
