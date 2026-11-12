@@ -150,7 +150,10 @@ full history).
 `GET /api/metrics` is Prometheus text behind the same credential as every `/api` route — scrape it
 with a bearer token. Every series is a gauge; none ends in `_total`. A series with no reading is
 **absent**, never `0`, so do not let a dashboard fill gaps with zero. `hh_host_cpu_used_percent`
-(0–100) is the CPU figure to alert on; `hh_host_load1_per_cpu` is runnable tasks per core.
+(0–100) is the CPU figure to alert on; `hh_host_load1_per_cpu` is runnable tasks per core. Host
+series also go absent when sampling is switched off, when the last sample is more than three
+intervals old, and per reading when the platform cannot take it (Windows has no load average; a
+failed macOS memory or swap read) — the state frame names those in `host.unmeasured`.
 `hh_server_restarts` is the current crash streak (reset by a manual start), so compare it directly
 rather than through `rate()`. `hh_server_uptime_ratio_24h` is the share of the last 24 hours a server
 was up **measured over the time the panel observed it**, so a server added ten minutes ago and up

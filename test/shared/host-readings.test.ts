@@ -63,6 +63,27 @@ describe('hostReadings', () => {
     })
   })
 
+  it('reports nothing for a frame kept after sampling was switched off', () => {
+    // The monitor stops sampling; the last sample is no longer the machine's state.
+    const switchedOff = { ...empty, enabled: false, sampledAt: 1, memoryUsedPercent: 42, disks: [{ path: '/', totalBytes: 1, freeBytes: 1, usedPercent: 0 }] }
+    expect(hostReadings(switchedOff).sampled).toBe(false)
+    expect(hostReadings(switchedOff).memoryUsedPercent).toBeNull()
+    expect(hostReadings(switchedOff).disks).toEqual([])
+  })
+
+  it('reports a reading the sample could not take as absent, not as the zero on the wire', () => {
+    // Windows has no load average; a failed vm_stat leaves memory unread. The wire keeps `0`.
+    const partial = { ...empty, sampledAt: 1, unmeasured: ['load', 'memory'], swapUsedPercent: 12 }
+    const readings = hostReadings(partial)
+    expect(readings.load1m).toBeNull()
+    expect(readings.load15m).toBeNull()
+    expect(readings.loadPerCpu).toBeNull()
+    expect(readings.loadBand).toBeNull()
+    expect(readings.memoryUsedPercent).toBeNull()
+    expect(readings.memoryBand).toBeNull()
+    expect(readings.swapUsedPercent, 'a reading that was taken survives').toBe(12)
+  })
+
   it('treats a missing frame the same way', () => {
     expect(hostReadings(null).memoryUsedPercent).toBeNull()
     expect(hostReadings(undefined).sampled).toBe(false)
@@ -279,7 +300,7 @@ describe('the UIs band the load against the configured threshold', () => {
     // And the tile's alias, through the frame it came from.
     expect([...'readings.value.loadPerCpu >= 1.4'.matchAll(LOAD_COMPARISON)].map(m => m[0])).toEqual(['loadPerCpu >= 1.4'])
     // A correct call site is left alone — the helper takes the threshold, it does not compare.
-    expect([...'loadBand(loadPerCpu, host.loadAlertPerCpu)'.matchAll(LOAD_COMPARISON)]).toHaveLength(0)
+    expect([...'thresholdBand(loadPerCpu, host.loadAlertPerCpu, LOAD_ALERT_PER_CPU_DEFAULT)'.matchAll(LOAD_COMPARISON)]).toHaveLength(0)
   })
 
   it('does not compare a per-cpu load against a literal', () => {
@@ -314,7 +335,7 @@ describe('the UIs band the load against the configured threshold', () => {
  * sends: `hostSchema` defaults the swap alert to **50** while `HostRail` painted 52% `warn`, and
  * `HostVitals` painted the same `warn` up to 80. A `tempCelsius` raised to 95 left a 90 °C box
  * `danger`. Those thresholds now travel on the frame (`swapUsedPercentAlert` and friends) and
- * `percentageBand` decides each band, so this pins the same two halves the load guard pins: no
+ * `thresholdBand` decides each band, so this pins the same two halves the load guard pins: no
  * surface compares these readings against a literal, and each takes its tone from the predicate.
  */
 describe('the UIs band the percentages against the configured thresholds', () => {
@@ -327,7 +348,7 @@ describe('the UIs band the percentages against the configured thresholds', () =>
     expect([...'readings.value.swapUsedPercent >= 80'.matchAll(PERCENT_COMPARISON)].map(m => m[0])).toEqual(['swapUsedPercent >= 80'])
     expect([...'readings.value.tempCelsius >= 85'.matchAll(PERCENT_COMPARISON)].map(m => m[0])).toEqual(['tempCelsius >= 85'])
     // The helper's call site compares nothing, so it must stay clean.
-    expect([...'percentageBand(present(host.swapUsedPercent), host.swapUsedPercentAlert, HOST_ALERT_DEFAULTS.swapUsedPercent)'.matchAll(PERCENT_COMPARISON)]).toHaveLength(0)
+    expect([...'thresholdBand(swapUsedPercent, host.swapUsedPercentAlert, HOST_ALERT_DEFAULTS.swapUsedPercent)'.matchAll(PERCENT_COMPARISON)]).toHaveLength(0)
   })
 
   it('does not compare a percentage reading against a literal', () => {

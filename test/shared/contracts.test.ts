@@ -427,6 +427,13 @@ describe('view contracts', () => {
       ...frame,
       backups: { ...(frame.backups as Record<string, unknown>), schedule: { intervalMs: 86_400_000, keep: 7 }, lastAutomaticAt: null },
     }) instanceof type.errors, 'a newer frame is still accepted').toBe(false)
+
+    // The host may name readings it could not take — including one a newer panel learns to name,
+    // which an older client must not answer by dropping the whole frame.
+    const host = frame.host as Record<string, unknown>
+    expect(appStateSchema({ ...frame, host: { ...host, unmeasured: ['load', 'swap'] } }) instanceof type.errors).toBe(false)
+    expect(appStateSchema({ ...frame, host: { ...host, unmeasured: ['gpu'] } }) instanceof type.errors).toBe(false)
+    expect(appStateSchema({ ...frame, host: { ...host, unmeasured: 'load' } }) instanceof type.errors).toBe(true)
   })
 
   /**

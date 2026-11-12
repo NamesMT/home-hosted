@@ -251,7 +251,7 @@ The rest, one line each:
 | 🩺 **Health that acts** | TCP or HTTP probes: a card warns after `unhealthyThreshold` failed probes (default 3). Forcing a restart after a set time is **opt-in** — `forceRestartAfterMs` defaults to `0`, which never fires. Ports are checked before starting, and a program that restarts itself can be [followed](./docs/SERVERS.md#when-a-program-restarts-itself) |
 | 📜 **Logs** | Live stream, rotated files, search, download, clear |
 | 📈 **Resources** | CPU and memory per process tree (summed containers for compose), with an optional memory ceiling |
-| 🌡️ **Host vitals** | CPU, memory, swap, disk, temperature and load, with thresholds that alert once and again on recovery |
+| 🌡️ **Host vitals** | CPU, memory, swap, disk, temperature and load, with thresholds that alert once per new breach and again on recovery |
 | 🔔 **Notifications** | Telegram and webhooks (ntfy, Discord, Slack, …) on crash, unhealthy, recovery, host thresholds and DNS changes |
 | 🌐 **Dynamic DNS** | Keep hostnames on your public IP — Cloudflare, Namecheap, Porkbun, GoDaddy, Gandi, deSEC, DuckDNS, No-IP and more |
 | 🔀 **Reverse proxy** | One Caddy engine with automatic HTTPS: `git.example.com` → a Gitea entry, `panel.example.com` → the panel |

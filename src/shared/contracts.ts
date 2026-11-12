@@ -1522,6 +1522,14 @@ const hostViewSchema = lazy(() => type({
    * applies to every configured path, which is why `hostReadings` copies it onto each disk's `band`.
    */
   'diskUsedPercentAlert?': 'number',
+  /**
+   * Readings this platform could not take on this sample — Windows has no load average, and a
+   * failed `vm_stat`/`sysctl` leaves memory or swap unread. Their wire value stays `0` (an older UI
+   * calls `.toFixed()` on it); `hostReadings` reports each as absent. Optional: absent means every
+   * reading was taken, and an older panel never sends it. Names are `load`, `memory` and `swap`;
+   * the type is any string so a newer panel naming another cannot make an older UI drop the frame.
+   */
+  'unmeasured?': type('string[]'),
 }))
 export type HostView = typeof hostViewSchema.infer
 

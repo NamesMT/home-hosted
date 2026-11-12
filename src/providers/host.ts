@@ -21,7 +21,7 @@ const execFileAsync = promisify(execFile)
  */
 const SWAP_CACHE_MS = 60_000
 
-let swapCache: { at: number, percent: number } | null = null
+let swapCache: { at: number, percent: number | null } | null = null
 
 /**
  * Whether a cached reading may be reused.
@@ -41,10 +41,10 @@ export function isSwapCacheFresh(cache: { at: number } | null, now: number, ttlM
   return age >= 0 && age < ttlMs
 }
 
-/** Swap usage per platform: /proc on Linux, sysctl on macOS, CIM on Windows. */
-async function swapUsedPercent(now = Date.now()): Promise<number> {
+/** Swap usage per platform: /proc on Linux, sysctl on macOS, CIM on Windows; `null` when unreadable. */
+async function swapUsedPercent(now = Date.now()): Promise<number | null> {
   if (process.platform === 'linux')
-    return 0 // filled by memoryInfo below
+    return null // /proc/meminfo answers in memoryInfo; reaching here means it could not be read
 
   if (isSwapCacheFresh(swapCache, now))
     return swapCache!.percent
@@ -79,14 +79,15 @@ export function swapPercentFromPageFile(stdout: string): number {
   return usedPercent(Math.max(0, totalMb - usedMb), totalMb)
 }
 
-export async function readSwapUsedPercent(): Promise<number> {
+/** `null` when the platform cannot be asked: a failed read is no reading, never `0%`. */
+export async function readSwapUsedPercent(): Promise<number | null> {
   if (process.platform === 'darwin') {
     try {
       const { stdout } = await execFileAsync('sysctl', ['-n', 'vm.swapusage'], { timeout: 3000 })
       return swapPercentFromSysctl(stdout)
     }
     catch {
-      return 0
+      return null
     }
   }
 
@@ -97,11 +98,11 @@ export async function readSwapUsedPercent(): Promise<number> {
       return swapPercentFromPageFile(stdout)
     }
     catch {
-      return 0
+      return null
     }
   }
 
-  return 0
+  return null
 }
 
 /**
@@ -189,7 +190,8 @@ export function usedPercent(free: number, total: number): number {
   return Math.max(0, Math.min(100, ((total - free) / total) * 100))
 }
 
-export function memoryInfo(vmStat?: string): { memoryUsedPercent: number, swapUsedPercent: number } {
+/** `null` for a reading this platform could not take; the caller fills swap off Linux. */
+export function memoryInfo(vmStat?: string): { memoryUsedPercent: number | null, swapUsedPercent: number | null } {
   try {
     const info = fs.readFileSync('/proc/meminfo', 'utf8')
     const read = (key: string): number => Number.parseInt(new RegExp(`^${key}:\\s+(\\d+)`, 'm').exec(info)?.[1] ?? '0', 10)
@@ -203,8 +205,8 @@ export function memoryInfo(vmStat?: string): { memoryUsedPercent: number, swapUs
     const total = os.totalmem()
     const available = availableMemoryBytes(process.platform, os.freemem(), vmStat)
     return {
-      memoryUsedPercent: available === null ? 0 : usedPercent(available, total),
-      swapUsedPercent: 0,
+      memoryUsedPercent: available === null ? null : usedPercent(available, total),
+      swapUsedPercent: null,
     }
   }
 }
@@ -246,11 +248,6 @@ export function macAvailableBytes(vmStat?: string): number | null {
       return Number.parseInt(found ?? '', 10)
     }
 
-    // Without the header, ask the OS: `sysconf(_SC_PAGESIZE)` through node's own binding.
-    const size = Number.isFinite(pageSize) && pageSize > 0 ? pageSize : getPageSize()
-    if (!Number.isFinite(size) || size <= 0)
-      return null
-
     let totalPages = 0
     let sawAny = false
     // Free plus everything the OS will hand back without swapping. `purgeable` is counted
@@ -264,7 +261,16 @@ export function macAvailableBytes(vmStat?: string): number | null {
       }
     }
 
-    return sawAny ? totalPages * size : null
+    // Decided before the page size: a failed `vm_stat` (the empty text the sampler passes) must
+    // not cost a synchronous `getconf` spawn on the sample path for a reading that cannot exist.
+    if (!sawAny)
+      return null
+
+    // Without the header, ask the OS: `sysconf(_SC_PAGESIZE)` through node's own binding.
+    const size = Number.isFinite(pageSize) && pageSize > 0 ? pageSize : getPageSize()
+    if (!Number.isFinite(size) || size <= 0)
+      return null
+    return totalPages * size
   }
   catch {
     return null
@@ -385,14 +391,29 @@ export function cpuTemperature(): number | null {
 /** Paths whose last `statfs` has not returned — a hung network mount holds a threadpool thread. */
 const pendingStatfs = new Set<string>()
 
-async function diskUsage(target: string): Promise<HostView['disks'][number] | null> {
+/** How long one sample waits on a filesystem before reporting it unmeasured. */
+export const STATFS_TIMEOUT_MS = 5000
+
+async function diskUsage(target: string, timeoutMs: number): Promise<HostView['disks'][number] | null> {
   // Never queue a second stuck call behind the first: four of them exhaust libuv's pool, which
   // stalls every async fs, crypto and DNS call in the panel.
   if (pendingStatfs.has(target))
     return null
   pendingStatfs.add(target)
+  // The path stays pending until the call itself returns, however long the sample waited.
+  const call = fs.promises.statfs(target).finally(() => pendingStatfs.delete(target))
+  let timer: ReturnType<typeof setTimeout> | undefined
+  // A hung mount never resolves, and a sample awaiting it never ends — the monitor would never
+  // sample again. The disk is dropped from this sample instead.
+  const timedOut = new Promise<null>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs, null)
+  })
   try {
-    const stats = await fs.promises.statfs(target).finally(() => pendingStatfs.delete(target))
+    const stats = await Promise.race([call, timedOut])
+    if (stats === null) {
+      call.catch(() => {})
+      return null
+    }
     const totalBytes = stats.blocks * stats.bsize
     const freeBytes = stats.bavail * stats.bsize
     return {
@@ -404,6 +425,9 @@ async function diskUsage(target: string): Promise<HostView['disks'][number] | nu
   }
   catch {
     return null
+  }
+  finally {
+    clearTimeout(timer)
   }
 }
 
@@ -460,12 +484,38 @@ export async function readTemperature(config: HostConfig): Promise<number | null
   return cpuTemperature()
 }
 
+/** One threshold breach: `kind` names what crossed (one per disk path), `message` says by how much. */
+export interface HostBreach {
+  kind: string
+  message: string
+}
+
+/** The thresholds a sampled frame crosses. A reading the frame marks unmeasured crosses nothing. */
+export function hostBreaches(config: HostConfig, view: HostView): HostBreach[] {
+  const unmeasured = new Set(view.unmeasured ?? [])
+  const breaches: HostBreach[] = []
+  for (const disk of view.disks) {
+    if (config.diskUsedPercent > 0 && disk.usedPercent >= config.diskUsedPercent)
+      breaches.push({ kind: `disk:${disk.path}`, message: `disk ${disk.path} is ${disk.usedPercent.toFixed(1)}% full` })
+  }
+  if (!unmeasured.has('memory') && config.memoryUsedPercent > 0 && view.memoryUsedPercent >= config.memoryUsedPercent)
+    breaches.push({ kind: 'memory', message: `memory is ${view.memoryUsedPercent.toFixed(1)}% used` })
+  if (!unmeasured.has('swap') && config.swapUsedPercent > 0 && view.swapUsedPercent >= config.swapUsedPercent)
+    breaches.push({ kind: 'swap', message: `swap is ${view.swapUsedPercent.toFixed(1)}% used` })
+  const loadPerCpu = Number(view.loadAvg[0] ?? 0) / view.cpus
+  if (!unmeasured.has('load') && config.loadPerCpu > 0 && loadPerCpu >= config.loadPerCpu)
+    breaches.push({ kind: 'load', message: `load ${loadPerCpu.toFixed(2)}/cpu exceeds ${config.loadPerCpu}` })
+  if (view.tempCelsius !== null && config.tempCelsius > 0 && view.tempCelsius >= config.tempCelsius)
+    breaches.push({ kind: 'temp', message: `cpu temperature is ${view.tempCelsius.toFixed(0)}°C` })
+  return breaches
+}
+
 /**
  * Samples the machine itself: the failures a home server actually dies from are
  * a full disk, exhausted memory or a runaway load — none of which a port probe
  * can see.
  */
-export async function sampleHost(config: HostConfig, resolvePath: (target: string) => string): Promise<HostView> {
+export async function sampleHost(config: HostConfig, resolvePath: (target: string) => string, statfsTimeoutMs = STATFS_TIMEOUT_MS): Promise<HostView> {
   const cpus = os.cpus().length || 1
   const loadAvg = os.loadavg()
   // `vm_stat` is read here, asynchronously: the parser's own synchronous fallback would block the
@@ -479,50 +529,40 @@ export async function sampleHost(config: HostConfig, resolvePath: (target: strin
   const cpuTimes = cpuTimesSnapshot()
   const cpuUsedPercentNow = previousCpuTimes === null ? null : cpuUsedPercent(previousCpuTimes, cpuTimes)
   previousCpuTimes = cpuTimes
-  // `os.loadavg()` is always zero on Windows, so per-cpu load would alert forever.
-  if (process.platform === 'win32')
-    loadAvg.fill(0)
-  if (memory.swapUsedPercent === 0 && process.platform !== 'linux') {
+  if (memory.swapUsedPercent === null)
     memory.swapUsedPercent = await swapUsedPercent()
-  }
   const tempCelsius = await readTemperature(config)
 
-  const disks = (await Promise.all(config.diskPaths.map(entry => diskUsage(resolvePath(entry))))).filter(
+  const disks = (await Promise.all(config.diskPaths.map(entry => diskUsage(resolvePath(entry), statfsTimeoutMs)))).filter(
     (disk): disk is HostView['disks'][number] => disk !== null,
   )
 
-  const alerts: string[] = []
-  for (const disk of disks) {
-    if (config.diskUsedPercent > 0 && disk.usedPercent >= config.diskUsedPercent) {
-      alerts.push(`disk ${disk.path} is ${disk.usedPercent.toFixed(1)}% full`)
-    }
+  // A reading the platform could not take is named, and its wire value stays a `0` an older UI can
+  // still call `.toFixed()` on; `hostReadings` and the scrape read it as absent.
+  const unmeasured: Array<'load' | 'memory' | 'swap'> = []
+  // `os.loadavg()` is always zero on Windows: not an idle box, no reading at all.
+  if (process.platform === 'win32') {
+    loadAvg.fill(0)
+    unmeasured.push('load')
   }
-  if (config.memoryUsedPercent > 0 && memory.memoryUsedPercent >= config.memoryUsedPercent) {
-    alerts.push(`memory is ${memory.memoryUsedPercent.toFixed(1)}% used`)
-  }
-  if (config.swapUsedPercent > 0 && memory.swapUsedPercent >= config.swapUsedPercent) {
-    alerts.push(`swap is ${memory.swapUsedPercent.toFixed(1)}% used`)
-  }
-  const loadPerCpu = Number(loadAvg[0] ?? 0) / cpus
-  if (config.loadPerCpu > 0 && loadPerCpu >= config.loadPerCpu) {
-    alerts.push(`load ${loadPerCpu.toFixed(2)}/cpu exceeds ${config.loadPerCpu}`)
-  }
-  if (tempCelsius !== null && config.tempCelsius > 0 && tempCelsius >= config.tempCelsius) {
-    alerts.push(`cpu temperature is ${tempCelsius.toFixed(0)}°C`)
-  }
+  if (memory.memoryUsedPercent === null)
+    unmeasured.push('memory')
+  if (memory.swapUsedPercent === null)
+    unmeasured.push('swap')
 
-  return {
+  const view: HostView = {
     enabled: config.enabled,
     cpus,
     loadAvg: [...loadAvg],
     cpuUsedPercent: cpuUsedPercentNow,
     uptimeMs: os.uptime() * 1000,
-    memoryUsedPercent: memory.memoryUsedPercent,
-    swapUsedPercent: memory.swapUsedPercent,
+    memoryUsedPercent: memory.memoryUsedPercent ?? 0,
+    swapUsedPercent: memory.swapUsedPercent ?? 0,
     tempCelsius,
     disks,
-    alerts,
+    alerts: [],
     sampledAt: Date.now(),
+    ...(unmeasured.length > 0 ? { unmeasured } : {}),
     // The thresholds a surface bands against, so a raised one is not painted as a breach while
     // the notification it governs stays silent.
     loadAlertPerCpu: config.loadPerCpu,
@@ -531,6 +571,8 @@ export async function sampleHost(config: HostConfig, resolvePath: (target: strin
     tempCelsiusAlert: config.tempCelsius,
     diskUsedPercentAlert: config.diskUsedPercent,
   }
+  view.alerts = hostBreaches(config, view).map(breach => breach.message)
+  return view
 }
 
 export function emptyHostView(config: HostConfig): HostView {

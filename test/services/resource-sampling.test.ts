@@ -1,6 +1,7 @@
 import type { ComposeReading, ComposeTarget, DockerMetrics } from '#src/providers/docker'
-import type { ProcessResources, ProcessSampler } from '#src/providers/proc'
+import type { ProcessSampler } from '#src/providers/proc'
 import type { Entry } from '#src/services/supervisor/entry'
+import type { ProcessResources } from '#src/shared/contracts'
 import { describe, expect, it } from 'vitest'
 import { sampleResources } from '#src/services/supervisor/health'
 

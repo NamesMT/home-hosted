@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import process from 'node:process'
 import { type } from 'arktype'
 import { describe, expect, it, vi } from 'vitest'
-import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, parseTemperature, pickCpuTemperature, readTemperature, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, temperatureFromCommand, usedPercent } from '#src/providers/host'
+import { availableMemoryBytes, cpuTimesSnapshot, cpuUsedPercent, emptyHostView, isSwapCacheFresh, macAvailableBytes, memoryInfo, parseTemperature, pickCpuTemperature, readSwapUsedPercent, readTemperature, sampleHost, swapPercentFromPageFile, swapPercentFromSysctl, temperatureFromCommand, usedPercent } from '#src/providers/host'
 import { hostSchema } from '#src/shared/contracts'
 
 function config(overrides: Record<string, unknown> = {}) {
@@ -192,7 +192,7 @@ describe('host alerts that need a real reading', () => {
   const memoryAlerts = (alerts: string[]): string[] => alerts.filter(alert => alert.includes('memory'))
 
   it('alerts on swap when the threshold is below what the machine reports', async () => {
-    const { swapUsedPercent } = memoryInfo()
+    const swapUsedPercent = memoryInfo().swapUsedPercent ?? 0
     // Half of whatever is actually used, so the comparison is satisfied by construction.
     const sample = await sampleHost(config({ diskPaths: [], swapUsedPercent: swapUsedPercent / 2, memoryUsedPercent: 100 }), t => t)
 
@@ -207,7 +207,7 @@ describe('host alerts that need a real reading', () => {
   })
 
   it('alerts on memory when the threshold is below what the machine reports', async () => {
-    const { memoryUsedPercent } = memoryInfo()
+    const memoryUsedPercent = memoryInfo().memoryUsedPercent ?? 0
     // The quiet case above uses 100, which no machine reaches; this one is reached by
     // construction whenever anything at all is allocated.
     const sample = await sampleHost(config({ diskPaths: [], memoryUsedPercent: memoryUsedPercent / 2, swapUsedPercent: 100 }), t => t)
@@ -533,5 +533,57 @@ describe('a disk path that never answers', () => {
     finally {
       statfs.mockRestore()
     }
+  })
+})
+
+describe('a sample that never finishes', () => {
+  it('gives up on a hung statfs, so the sample ends and the next one can run', async () => {
+    const statfs = vi.spyOn(fs.promises, 'statfs').mockImplementation(() => new Promise(() => {}))
+    try {
+      const sample = await sampleHost(config({ diskPaths: ['/mnt/hung-smb'] }), t => t, 50)
+      expect(sample.sampledAt, 'the sample must finish without the disk').not.toBeNull()
+      expect(sample.disks).toEqual([])
+      // Still pending: not asked again behind the stuck call.
+      await sampleHost(config({ diskPaths: ['/mnt/hung-smb'] }), t => t, 50)
+      expect(statfs).toHaveBeenCalledTimes(1)
+    }
+    finally {
+      statfs.mockRestore()
+    }
+  })
+})
+
+describe('a reading the platform cannot take', () => {
+  function asPlatform(platform: NodeJS.Platform): () => void {
+    const original = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { ...original, value: platform })
+    return () => Object.defineProperty(process, 'platform', original)
+  }
+
+  it('marks the Windows load average unmeasured instead of publishing an idle 0', async () => {
+    const restore = asPlatform('win32')
+    try {
+      const sample = await sampleHost(config({ diskPaths: [] }), t => t)
+      expect(sample.unmeasured).toContain('load')
+      expect(sample.loadAvg, 'the wire value stays a number an older UI can format').toEqual([0, 0, 0])
+    }
+    finally {
+      restore()
+    }
+  })
+
+  it('answers no swap reading when the macOS read fails, never 0%', async () => {
+    // `sysctl -n vm.swapusage` fails off macOS (unknown key, or no sysctl at all).
+    const restore = asPlatform('darwin')
+    try {
+      expect(await readSwapUsedPercent()).toBeNull()
+    }
+    finally {
+      restore()
+    }
+  })
+
+  it('leaves the fallback memory reading absent when vm_stat failed', () => {
+    expect(availableMemoryBytes('darwin', 1, '')).toBeNull()
   })
 })

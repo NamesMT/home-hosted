@@ -73,6 +73,10 @@ export interface HostDiskReading {
 /** What the predicate needs: the sample's stamp and the numbers the frame carries. */
 export interface HostReadingSource extends HostAlertThresholds {
   sampledAt: number | null
+  /** `false` once sampling is switched off: whatever the frame still carries is no longer current. */
+  enabled?: boolean
+  /** Readings this sample could not take (Windows load, a failed macOS read); each is absent. */
+  unmeasured?: readonly string[]
   cpus: number
   /** The alert thresholds from the panel's own config; absent on a panel that predates the fields. */
   loadAlertPerCpu?: number
@@ -144,20 +148,6 @@ function present(value: number | null | undefined): number | null {
 }
 
 /**
- * How a per-cpu load sits against the threshold the panel notifies on.
- *
- * The ratio is what a person configures: `host.loadPerCpu` is the count the alert fires at, so
- * `danger` is that number itself and `warn` is the approach to it. `0` disables the alert in
- * `sampleHost`, so nothing can breach it and the band is `ok` — painting a box red for a
- * notification that will never arrive is the same defect as inventing a reading. It lives here
- * rather than in a component so both UIs share one band, the mistake that produced two hardcoded
- * copies of the default.
- */
-export function loadBand(loadPerCpu: number | null, alertPerCpu: number | undefined): HostBand {
-  return thresholdBand(loadPerCpu, alertPerCpu, LOAD_ALERT_PER_CPU_DEFAULT)
-}
-
-/**
  * The band for the host's own CPU share, which has no configurable alert.
  *
  * `host.cpuUsedPercent` is a share of the whole machine, and `hostSchema` has no threshold for it —
@@ -180,19 +170,6 @@ export function hostCpuBand(percent: number | null): HostBand {
   if (percent >= HOST_CPU_BAND.warnAt)
     return 'warn'
   return 'ok'
-}
-
-/**
- * How a reading sits against the threshold the panel notifies on.
- *
- * `danger` at the threshold is the whole point: the alert fires there, so a bar that stays `warn`
- * while a notification goes out disagrees with the panel's own verdict. `0` disables that alert in
- * `sampleHost`, so nothing can breach it and the band is `ok`. One rule for the per-cpu load, the
- * three percentages and each disk — they differ only in what the number means, and the mistake this
- * replaced was four surfaces each deciding a band for itself.
- */
-export function percentageBand(value: number | null, alertAt: number | undefined, fallback: number): HostBand {
-  return thresholdBand(value, alertAt, fallback)
 }
 
 /**
@@ -225,6 +202,16 @@ export function tempDialPercent(temp: number | null | undefined, alertAt: number
   return (value / tempScale(alertAt)) * 100
 }
 
+/**
+ * How a reading sits against the threshold the panel notifies on.
+ *
+ * `danger` at the threshold is the whole point: the alert fires there, so a bar that stays `warn`
+ * while a notification goes out disagrees with the panel's own verdict. `0` disables that alert in
+ * `sampleHost`, so nothing can breach it and the band is `ok` — painting a box red for a
+ * notification that will never arrive is the same defect as inventing a reading. One rule for the
+ * per-cpu load, the three percentages and each disk — they differ only in what the number means, and
+ * the mistake this replaced was four surfaces each deciding a band for itself.
+ */
 function thresholdBand(value: number | null, alertAt: number | undefined, fallback: number): HostBand {
   if (value === null || !Number.isFinite(value))
     return null
@@ -243,32 +230,39 @@ function thresholdBand(value: number | null, alertAt: number | undefined, fallba
 export function hostReadings(host: HostReadingSource | null | undefined): HostReadings {
   if (host === null || host === undefined)
     return NOTHING_SAMPLED
-  const sampled = host.sampledAt !== null
+  // A frame kept after sampling was switched off is the last reading, not a current one.
+  const sampled = host.sampledAt !== null && host.enabled !== false
   if (!sampled)
     return { ...NOTHING_SAMPLED, disks: [] }
   // A truthy `sampledAt` is the only thing that makes a zero a reading: an honestly idle box
-  // reports 0%, and that must survive as 0 rather than becoming an absence of its own.
-  const load1m = present(host.loadAvg[0])
+  // reports 0%, and that must survive as 0 rather than becoming an absence of its own — unless the
+  // frame says this sample could not take it (Windows has no load average).
+  const unmeasured = new Set(host.unmeasured ?? [])
+  const measured = (name: string, value: number | null | undefined): number | null => unmeasured.has(name) ? null : present(value)
+  const load1m = measured('load', host.loadAvg[0])
   const cpus = present(host.cpus)
   const loadPerCpu = load1m === null ? null : load1m / Math.max(1, cpus ?? 1)
+  const memoryUsedPercent = measured('memory', host.memoryUsedPercent)
+  const swapUsedPercent = measured('swap', host.swapUsedPercent)
+  const tempCelsius = present(host.tempCelsius)
   return {
     sampled: true,
     cpuUsedPercent: present(host.cpuUsedPercent),
-    memoryUsedPercent: present(host.memoryUsedPercent),
-    swapUsedPercent: present(host.swapUsedPercent),
+    memoryUsedPercent,
+    swapUsedPercent,
     load1m,
-    load5m: present(host.loadAvg[1]),
-    load15m: present(host.loadAvg[2]),
+    load5m: measured('load', host.loadAvg[1]),
+    load15m: measured('load', host.loadAvg[2]),
     loadPerCpu,
-    loadBand: loadBand(loadPerCpu, host.loadAlertPerCpu),
-    memoryBand: percentageBand(present(host.memoryUsedPercent), host.memoryUsedPercentAlert, HOST_ALERT_DEFAULTS.memoryUsedPercent),
-    swapBand: percentageBand(present(host.swapUsedPercent), host.swapUsedPercentAlert, HOST_ALERT_DEFAULTS.swapUsedPercent),
-    tempBand: percentageBand(present(host.tempCelsius), host.tempCelsiusAlert, HOST_ALERT_DEFAULTS.tempCelsius),
-    tempCelsius: present(host.tempCelsius),
+    loadBand: thresholdBand(loadPerCpu, host.loadAlertPerCpu, LOAD_ALERT_PER_CPU_DEFAULT),
+    memoryBand: thresholdBand(memoryUsedPercent, host.memoryUsedPercentAlert, HOST_ALERT_DEFAULTS.memoryUsedPercent),
+    swapBand: thresholdBand(swapUsedPercent, host.swapUsedPercentAlert, HOST_ALERT_DEFAULTS.swapUsedPercent),
+    tempBand: thresholdBand(tempCelsius, host.tempCelsiusAlert, HOST_ALERT_DEFAULTS.tempCelsius),
+    tempCelsius,
     // Each disk is banded against the same configured alert, on its own usage.
     disks: host.disks.map(disk => ({
       ...disk,
-      band: percentageBand(present(disk.usedPercent), host.diskUsedPercentAlert, HOST_ALERT_DEFAULTS.diskUsedPercent),
+      band: thresholdBand(present(disk.usedPercent), host.diskUsedPercentAlert, HOST_ALERT_DEFAULTS.diskUsedPercent),
     })),
   }
 }

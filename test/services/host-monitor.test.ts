@@ -1,6 +1,6 @@
 import type { NotificationEvent } from '#src/services/notifications'
 import { type } from 'arktype'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { HostMonitor } from '#src/services/host-monitor'
 import { hostSchema } from '#src/shared/contracts'
 
@@ -162,5 +162,61 @@ describe('hostMonitor', () => {
     const monitor = new HostMonitor(() => config({ ...QUIET }), t => t, recorder())
     expect(monitor.view.sampledAt).toBeNull()
     expect(monitor.view.alerts).toEqual([])
+  })
+})
+
+describe('hostMonitor across alert kinds and switches', () => {
+  it('notifies a new kind of breach while another is still standing', async () => {
+    const sink = recorder()
+    let thresholds: Record<string, unknown> = { ...QUIET, diskUsedPercent: 0.0001, intervalMs: 5000 }
+    const monitor = new HostMonitor(() => config(thresholds), t => t, sink)
+
+    await monitor.tick(10_000)
+    expect(sink.events).toHaveLength(1)
+
+    // The disk is still full, and now memory crosses too: that is news.
+    thresholds = { ...thresholds, memoryUsedPercent: 0.0001 }
+    await monitor.tick(20_000)
+    expect(sink.events).toHaveLength(2)
+    expect(sink.events[1]).toMatchObject({ reason: 'host' })
+    expect(sink.events[1]!.detail).toContain('memory')
+
+    // Memory clears while the disk stands: not a recovery, and not news either.
+    thresholds = { ...thresholds, memoryUsedPercent: 100 }
+    await monitor.tick(30_000)
+    expect(sink.events).toHaveLength(2)
+  })
+
+  it('closes a standing alert when sampling is switched off', async () => {
+    const sink = recorder()
+    let enabled = true
+    const monitor = new HostMonitor(() => config({ ...ALERTING, intervalMs: 5000, enabled }), t => t, sink)
+    await monitor.tick(10_000)
+    expect(sink.events).toHaveLength(1)
+
+    enabled = false
+    await monitor.tick(20_000)
+    expect(sink.events).toHaveLength(2)
+    expect(sink.events[1]).toMatchObject({ reason: 'host-recovered' })
+    // The frame no longer carries the last sample's readings.
+    expect(monitor.view.sampledAt).toBeNull()
+    expect(monitor.view.alerts).toEqual([])
+  })
+
+  it('publishes no readings once the last sample is several intervals old', async () => {
+    const monitor = new HostMonitor(() => config({ ...QUIET, intervalMs: 5000 }), t => t, recorder())
+    await monitor.tick(10_000)
+    const sampledAt = monitor.view.sampledAt!
+    expect(sampledAt).not.toBeNull()
+
+    // A sampler that stopped returning: the clock moves on, no new sample lands.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(sampledAt + 60_000)
+    try {
+      expect(monitor.view.sampledAt, 'a stale sample is not the machine').toBeNull()
+    }
+    finally {
+      now.mockRestore()
+    }
+    expect(monitor.view.sampledAt).toBe(sampledAt)
   })
 })
