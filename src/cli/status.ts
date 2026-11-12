@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { bold, dim, firstRunPassword, green, invocation, paint } from '#src/cli/io'
+import { bold, dim, firstRunPasswordState, green, invocation, paint, unrecordedFirstRunHint } from '#src/cli/io'
 
 /** `status` answers "is it running, where, and how do I reach it". */
 
@@ -150,9 +150,11 @@ export async function runStatus(json: boolean): Promise<void> {
     ['serverlogs', fs.existsSync(serverLogsDir) ? `${serverLogsDir} (one file per server: <id>.log)` : serverLogsDir],
     ['ui', ui.custom ? `custom — ${uiLabel} (revert with \`${invocation()} ui-revert\`)` : 'stock'],
   ]
-  const initial = await firstRunPassword()
-  if (initial !== null)
-    rows.push(['password', `${paint('33', initial)} ${dim('(first-run password — change it in Global settings → Authentication)')}`])
+  const initial = await firstRunPasswordState()
+  if (initial?.kind === 'recorded')
+    rows.push(['password', `${paint('33', initial.password)} ${dim('(first-run password — change it in Global settings → Authentication)')}`])
+  else if (initial?.kind === 'unrecorded')
+    rows.push(['password', paint('33', unrecordedFirstRunHint())])
 
   process.stdout.write(`${bold(`home-hosted ${runtime.version}`)}\n`)
   // Width from the rows, not a literal: the column was hard-coded at 8 until a 10-character

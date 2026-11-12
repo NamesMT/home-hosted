@@ -178,14 +178,38 @@ export async function confirm(question: string, fallback: boolean): Promise<bool
   return answer === 'y' || answer === 'yes'
 }
 
-/** The first-run password while it is still the one in use, read from this machine's secrets file. */
-export async function firstRunPassword(): Promise<string | null> {
+/**
+ * The first-run password, as this machine can report it.
+ *
+ * `recorded` while it is in use and its text is in the 0600 secrets file; `unrecorded` when it is
+ * still in use but the text is gone — a restore of `global:secrets` carries the hash and the flag,
+ * not always the text — so nobody can read it back and the panel is one forgotten password away from
+ * a lockout. `null` once a password of the person's own is set (or the file cannot be read).
+ */
+export type FirstRunPassword = { kind: 'recorded', password: string } | { kind: 'unrecorded' }
+
+export async function firstRunPasswordState(file?: string): Promise<FirstRunPassword | null> {
   const { SecretsStore } = await import('#src/config/secrets')
-  const { globalSecretsPath } = await import('#src/helpers/paths')
+  const path = file ?? (await import('#src/helpers/paths')).globalSecretsPath
   try {
-    return new SecretsStore(globalSecretsPath, undefined, 'global').initialPassword
+    const store = new SecretsStore(path, undefined, 'global')
+    if (!store.usingDefaultPassword)
+      return null
+    const password = store.initialPassword
+    return password === null ? { kind: 'unrecorded' } : { kind: 'recorded', password }
   }
   catch {
     return null
   }
+}
+
+/** The line `up` and `status` print for an unrecorded first-run password. */
+export function unrecordedFirstRunHint(): string {
+  return `the first-run password is in use but no longer recorded — run \`${invocation()} set-password\``
+}
+
+/** The first-run password while it is still the one in use, read from this machine's secrets file. */
+export async function firstRunPassword(): Promise<string | null> {
+  const state = await firstRunPasswordState()
+  return state?.kind === 'recorded' ? state.password : null
 }

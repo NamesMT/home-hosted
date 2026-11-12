@@ -72,8 +72,9 @@ seen are created, data lands where *this* machine's config says, and `autostart`
   excluding one secret keeps the local copy of it.
 - **The password and token hashes are secrets too.** Restoring them reinstates the old machine's
   credentials. Leave `global:secrets` unticked, or rotate afterwards (`set-token --generate`).
-- **The plaintext first-run password is never archived** — only its hash, which is all a restore
-  needs.
+- **The plaintext first-run password is never archived** — only its hash. A host restored onto it
+  still signs in with it, but nothing can show it again: `up` and `status` say "the first-run
+  password is in use but no longer recorded" until you run `home-hosted set-password`.
 - **DDNS credentials are sealed under `HHOSTED_DDNS_SECRET`**, which is not in the archive. Use the
   same value on the new host, or re-enter them.
 

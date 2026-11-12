@@ -77,6 +77,27 @@ describe('status against a running panel', () => {
     expect(text.stdout).toContain(parsed.logFile!)
   })
 
+  /**
+   * After a restore the first-run password can be in use with its text gone, and `status` printed
+   * no password row at all — nothing said the only way in was a password nobody could read back.
+   */
+  it('says so when the first-run password is in use but no longer recorded', () => {
+    const secrets = path.join(home, '.hh', '.control-secrets.json')
+    const original = fs.readFileSync(secrets, 'utf8')
+    try {
+      const parsed = JSON.parse(original) as { password: { isDefault?: boolean, initial?: string } }
+      expect(parsed.password.isDefault, 'the smoke panel must be on its first-run password').toBe(true)
+      delete parsed.password.initial
+      fs.writeFileSync(secrets, JSON.stringify(parsed), { mode: 0o600 })
+
+      const result = runCli(['status', '--home', home])
+      expect(result.stdout).toMatch(/password +the first-run password is in use but no longer recorded — run `.+ set-password`/)
+    }
+    finally {
+      fs.writeFileSync(secrets, original, { mode: 0o600 })
+    }
+  })
+
   /** Every row the text form prints must have a JSON counterpart; `ui` was once text-only. */
   it('reports the installed UI in both outputs, and never the run.json token', () => {
     const text = runCli(['status', '--home', home])
