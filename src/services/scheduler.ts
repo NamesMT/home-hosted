@@ -176,6 +176,16 @@ export class JobScheduler {
       this.dueBySchedule.set(schedule, due)
     }
     clock.due = due
+    /**
+     * A schedule can legitimately have **no** occurrence in the past year and still be valid: a leap
+     * day (`0 0 29 2 *`) repeats every four years. The forward search separates the two — a real future
+     * occurrence means the expression is fine and simply has nothing due yet, which deserves silence
+     * rather than a standing warning about a broken schedule.
+     */
+    if (due === null && nextCronRun(parsed.spec, new Date(now)) !== null) {
+      clock.reportedProblem = null
+      return
+    }
     if (due === null) {
       // The expression names a day that cannot occur (`0 0 31 4 *`).
       // `null` is "not within the search limit", not proof of "never": a date like 31 April cannot

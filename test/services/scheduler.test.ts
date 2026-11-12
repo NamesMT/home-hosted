@@ -415,3 +415,31 @@ describe('a tick budget', () => {
     harness.scheduler.dispose()
   })
 })
+
+/**
+ * A rare-but-valid schedule is not reported as broken.
+ *
+ * The backward scan looks a year (it answers "which occurrence is due now", and every repeating
+ * schedule repeats within a year). A leap-day job repeats every four, so it legitimately has no
+ * occurrence in the past year — and the "has had no occurrence in the past year" warning fired on it
+ * every tick, describing a perfectly good expression as a probable mistake.
+ *
+ * Asking the forward search separates the two: a real future occurrence means "nothing due yet", which
+ * is silence; no future occurrence means the date genuinely cannot occur, which is the warning.
+ */
+describe('a rare but valid schedule', () => {
+  it('stays silent for a leap day, and still warns for an impossible date', async () => {
+    const leap = makeScheduler([job({ id: 'leap', schedule: '0 0 29 2 *' })])
+    // A day nowhere near a leap day, ticked as the panel would.
+    for (let second = 0; second < 60; second += 1)
+      await leap.scheduler.tick(local(2026, 5, 1, 12, 0, 0) + second * 1000)
+    expect(leap.scheduler.clock('leap')?.reportedProblem, 'a leap day is valid, not broken').toBeNull()
+    expect(leap.runs).toHaveLength(0)
+    leap.scheduler.dispose()
+
+    const impossible = makeScheduler([job({ id: 'never', schedule: '0 0 31 4 *' })])
+    await impossible.scheduler.tick(local(2026, 5, 1, 12, 0, 0))
+    expect(impossible.scheduler.clock('never')?.reportedProblem, '31 April cannot occur').toContain('past year')
+    impossible.scheduler.dispose()
+  })
+})
