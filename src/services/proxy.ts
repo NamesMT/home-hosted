@@ -18,6 +18,7 @@ import type {
   ProxyStatus,
   ProxyView,
 } from '#src/shared/contracts'
+import type { DnsAccountCheck } from '#src/shared/proxy-validate'
 import { Buffer } from 'node:buffer'
 import { spawn } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
@@ -51,6 +52,7 @@ import { adminRequest, engineMessage } from '#src/providers/proxy/admin'
 import { dialsPanel, primeUpstreamResolutions } from '#src/services/exposure'
 import { CertificateDesk } from '#src/services/proxy-certificates/certificates'
 import { adminBlock, boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
+import { groupDns01Policies } from '#src/services/proxy-dns01'
 import { errorMessage } from '#src/shared/error-message'
 import { lazy } from '#src/shared/lazy'
 import { canonicalRoutePath, isPublicHost, routeHostKey, routeKey, upstreamTarget } from '#src/shared/proxy-form'
@@ -1791,93 +1793,6 @@ export class ProxyService {
       return 'no engine output yet'
     }
   }
-}
-
-/** What a route's `dnsAccount` resolves to, for the save-time check. */
-export interface DnsAccountCheck {
-  provider: string
-  /** The provider can write a TXT record, which is the only thing a challenge needs. */
-  writesTxt: boolean
-  /** Credentials are stored for the account. */
-  hasCredentials: boolean
-}
-
-/**
- * The engine policies DNS-01 needs: one per account, because a policy carries one
- * challenge provider. Names that no account answers are left out, and the caller
- * renders them on the port challenges as before.
- *
- * Pure so the grouping can be checked without an engine: getting it wrong means a
- * hostname is asked for through the wrong zone, which fails with nothing to read.
- */
-export function groupDns01Policies(
-  routes: readonly ProxyUpstreamRoute[],
-  accountFor: (host: string) => { workspaceId: string, accountId: string, provider: string } | null,
-): Array<{ account: string, provider: string, subjects: string[] }> {
-  const byAccount = new Map<string, { provider: string, subjects: string[] }>()
-  for (const route of routes) {
-    // Only names a CA could issue for: a loopback address or a `.lan` name belongs to
-    // the engine's own CA, and listing it here made Caddy try ACME for an IP.
-    if (route.tls !== 'auto' || !isPublicHost(route.host))
-      continue
-    const account = accountFor(route.host)
-    if (account === null)
-      continue
-    const key = `${account.workspaceId}/${account.accountId}`
-    const existing = byAccount.get(key)
-    if (existing === undefined)
-      byAccount.set(key, { provider: account.provider, subjects: [route.host] })
-    else if (!existing.subjects.includes(route.host))
-      existing.subjects.push(route.host)
-  }
-  return [...byAccount.entries()].map(([account, group]) => ({ account, provider: group.provider, subjects: group.subjects }))
-}
-
-/** Cross-field problems ArkType cannot see, reported by the API before a save. */
-export function validateProxyConfig(config: ProxyConfig, dnsAccount?: (ref: string, workspaceId: string) => DnsAccountCheck | null): string[] {
-  const errors: string[] = []
-  if (config.httpPort === config.httpsPort)
-    errors.push('the http and https ports must differ')
-
-  const advertised = new Set(config.routes.filter(route => route.tls !== 'off').map(route => route.host.toLowerCase()))
-  const publicNames = [...advertised].filter(host => isPublicHost(host))
-  if (publicNames.length > 0 && config.email.trim().length === 0 && !config.staging)
-    errors.push(`automatic HTTPS needs an ACME account e-mail for ${publicNames.join(', ')}`)
-
-  const seen = new Set<string>()
-  const ids = new Set<string>()
-  for (const route of config.routes) {
-    if (ids.has(route.id))
-      errors.push(`route id "${route.id}" is used twice`)
-    ids.add(route.id)
-
-    const key = routeKey(route)
-    if (seen.has(key))
-      errors.push(`"${route.host}" is routed twice`)
-    seen.add(key)
-
-    if (route.target === 'server' && (route.workspace.length === 0 || route.server.length === 0))
-      errors.push(`route "${route.id}" needs a workspace and a server`)
-    if (route.target === 'external' && upstreamTarget(route.url) === null)
-      errors.push(`route "${route.id}" needs an upstream like http://10.0.0.5:8080`)
-
-    // A named account has to be able to do the one thing it is named for. Catching it
-    // here beats a challenge that fails weeks later with nothing to read.
-    const named = route.dnsAccount.trim()
-    if (named.length === 0 || dnsAccount === undefined)
-      continue
-    if (!config.dns01.enabled)
-      errors.push(`route "${route.id}" names DNS account "${named}", but DNS-01 is switched off`)
-    // The route's own workspace, which is where the challenge path looks it up too.
-    const found = dnsAccount(named, route.workspace)
-    if (found === null)
-      errors.push(`route "${route.id}" names unknown DNS account "${named}"`)
-    else if (!found.writesTxt)
-      errors.push(`route "${route.id}": the "${found.provider}" account cannot write TXT records, so it cannot answer a DNS-01 challenge`)
-    else if (!found.hasCredentials)
-      errors.push(`route "${route.id}": the "${found.provider}" account has no credentials stored yet`)
-  }
-  return errors
 }
 
 /**

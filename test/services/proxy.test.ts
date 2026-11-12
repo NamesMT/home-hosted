@@ -13,9 +13,11 @@ import { GlobalSettingsStore } from '#src/config/settings'
 import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
 import { setUpstreamResolver } from '#src/services/exposure'
-import { groupDns01Policies, ProxyService, validateProxyConfig } from '#src/services/proxy'
+import { ProxyService } from '#src/services/proxy'
+import { groupDns01Policies } from '#src/services/proxy-dns01'
 import { proxyConfigSchema } from '#src/shared/contracts'
 import { isPublicHost, upstreamTarget } from '#src/shared/proxy-form'
+import { validateProxyConfig } from '#src/shared/proxy-validate'
 import { hasOpenssl } from '../support/capabilities'
 
 /** A download as `fetch` returns it: a synthetic `Response` has no `url`, a real one says where it ended. */

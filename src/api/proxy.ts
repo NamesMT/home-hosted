@@ -10,7 +10,6 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { checkProxyExposure } from '#src/services/exposure'
-import { validateProxyConfig } from '#src/services/proxy'
 import {
   proxyCertificateUploadSchema,
   proxyConfigSchema,
@@ -20,6 +19,7 @@ import {
 } from '#src/shared/contracts'
 import { errorMessage } from '#src/shared/error-message'
 import { lazy } from '#src/shared/lazy'
+import { validateProxyConfig } from '#src/shared/proxy-validate'
 
 const certificateParam = lazy(() => type({ id: '/^[a-z0-9][a-z0-9_-]*$/' }))
 
