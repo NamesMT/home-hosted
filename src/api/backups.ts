@@ -71,7 +71,7 @@ export function createBackupsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['backups'],
         summary: 'Download one archive',
-        responses: { 200: { description: 'the archive (application/zip)' }, 404: ERROR_RESPONSES[404] },
+        responses: { 200: { description: 'the archive', content: { 'application/zip': {} } }, 404: ERROR_RESPONSES[404] },
       }),
       validate('param', nameParam),
       async (c) => {

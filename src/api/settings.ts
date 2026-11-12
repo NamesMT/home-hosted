@@ -13,7 +13,7 @@ import { afterResponse } from '#src/helpers/deferred'
 import { configFailure } from '#src/helpers/error'
 import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
-import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
+import { ERROR_RESPONSES, jsonBody, multipartFileBody } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestIdentity } from '#src/middleware/auth'
@@ -217,6 +217,18 @@ export function createSettingsRoute(deps: AppDeps) {
     .post('/settings/ui', describeRoute({
       tags: ['panel'],
       summary: 'Replace the panel UI with an uploaded static build',
+      /**
+       * The body is `multipart/form-data` with one part, `file`: a zip of the built UI.
+       *
+       * It was documented nowhere, so `openapi-typescript` and Scalar's "try it" produced an install
+       * call with nowhere to put the archive — while the README tells an agent this document *is* the
+       * API it may call. The same omission was fixed on `POST /api/backups/restore`; an upload is now
+       * described wherever one exists.
+       */
+      requestBody: {
+        required: true,
+        content: { 'multipart/form-data': { schema: multipartFileBody } },
+      },
       responses: { 200: { description: 'Installed', content: jsonBody(uiInstallResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'An API token may not install a UI' }, 413: ERROR_RESPONSES[413] },
     }),
     /**

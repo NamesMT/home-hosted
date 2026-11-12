@@ -2029,27 +2029,42 @@ export const appStateSchema = lazy(() => type({
 }).onDeepUndeclaredKey('ignore'))
 export type AppState = typeof appStateSchema.infer
 
-/** One SSE frame, discriminated by `type`: a client narrowing on it gets the payload that frame carries. */
-const stateFrameSchema = lazy(() => type({
+/**
+ * One SSE frame, discriminated by `type`: a client narrowing on it gets the payload that frame carries.
+ *
+ * Each frame is exported because the published spec names them: `GET /api/events` describes its
+ * `text/event-stream` body as a `oneOf` over these with `discriminator: type`, which is what lets a
+ * generated client emit a discriminated union instead of `unknown`. They are the same schemas the
+ * panel sends, so the document cannot describe a frame the server does not produce.
+ */
+export const sseStateFrameSchema = lazy(() => type({
   type: '"hello" | "state"',
   ts: 'number',
   state: appStateSchema,
 }).onDeepUndeclaredKey('ignore'))
-const serverFrameSchema = lazy(() => type({
+export const sseServerFrameSchema = lazy(() => type({
   'type': '"server"',
   'ts': 'number',
   'workspaceId?': 'string',
   'serverId': 'string',
   'server': serverViewSchema,
 }).onDeepUndeclaredKey('ignore'))
-const logFrameSchema = lazy(() => type({
+export const sseLogFrameSchema = lazy(() => type({
   'type': '"log"',
   'ts': 'number',
   'workspaceId?': 'string',
   'serverId': 'string',
   'lines': logLineSchema.array(),
 }).onDeepUndeclaredKey('ignore'))
-export const sseMessageSchema = lazy(() => stateFrameSchema.or(serverFrameSchema).or(logFrameSchema))
+/**
+ * The keep-alive. It carries no payload — a stream that says nothing for 30 s is closed by proxies
+ * between the panel and a browser, so `ping` exists to keep the connection visibly alive.
+ */
+export const ssePingFrameSchema = lazy(() => type({
+  type: '"ping"',
+  ts: 'number',
+}).onDeepUndeclaredKey('ignore'))
+export const sseMessageSchema = lazy(() => sseStateFrameSchema.or(sseServerFrameSchema).or(sseLogFrameSchema).or(ssePingFrameSchema))
 export type SseMessage = typeof sseMessageSchema.infer
 
 /**

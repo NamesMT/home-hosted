@@ -8,7 +8,7 @@ import { actionAnswer, actionCode, statusForAction, unknownServerError } from '#
 import { configFailure } from '#src/helpers/error'
 import { serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
-import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
+import { ERROR_RESPONSES, jsonBody, sseResponse } from '#src/helpers/openapi'
 import { addServerEntry } from '#src/helpers/server-create'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
@@ -218,7 +218,7 @@ export function createServersRoute(deps: AppDeps) {
 
     .get(
       '/:id/stream',
-      describeRoute({ tags: ['servers'], summary: 'Server state and logs as server-sent events', responses: { 200: { description: 'text/event-stream' }, 404: ERROR_RESPONSES[404] } }),
+      describeRoute({ tags: ['servers'], summary: 'Server state and logs as server-sent events', responses: { 200: sseResponse('one `server` frame, then its last 200 `log` lines, then live frames'), 404: ERROR_RESPONSES[404] } }),
       validate('query', workspaceQuerySchema),
       validate('param', idParam),
       (c) => {

@@ -5,7 +5,7 @@ import { describeRoute } from 'hono-openapi'
 import { unknownServerError } from '#src/helpers/action-result'
 import { serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
-import { ERROR_RESPONSES } from '#src/helpers/openapi'
+import { ERROR_RESPONSES, sseResponse } from '#src/helpers/openapi'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace } from '#src/helpers/workspace'
 import { serverKey } from '#src/services/events'
@@ -38,7 +38,7 @@ export function createEventsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Panel state and log frames as server-sent events',
-        responses: { 200: { description: 'text/event-stream' }, 404: ERROR_RESPONSES[404] },
+        responses: { 200: sseResponse('one frame per event: `hello`, `state`, `server`, `log`, `ping`'), 404: ERROR_RESPONSES[404] },
       }),
       validate('query', eventsQuery),
       (c) => {

@@ -1418,8 +1418,11 @@ describe('openapi document', () => {
     const scheme = spec.components?.securitySchemes?.bearerAuth
     expect(scheme, 'a client generator needs a securitySchemes entry').toBeDefined()
     expect(scheme).toMatchObject({ type: 'http', scheme: 'bearer' })
-    // Declared globally, so every operation inherits it without repeating the block.
-    expect(spec.security).toEqual([{ bearerAuth: [] }])
+    // The cookie is the other credential a `/api` route accepts, and the one the served UI sends:
+    // a browser client generated from the spec had no way to say so before.
+    expect(spec.components?.securitySchemes?.sessionCookie).toMatchObject({ type: 'apiKey', in: 'cookie', name: 'hh_session' })
+    // Declared globally, so every operation inherits them without repeating the block.
+    expect(spec.security).toEqual([{ bearerAuth: [] }, { sessionCookie: [] }])
   })
 
   /**
@@ -1438,7 +1441,24 @@ describe('openapi document', () => {
   it('declares this API’s own error envelope for every 400, not the library default', async () => {
     const created = await fixture()
     const spec = await (await created.app.request('/openapi/spec.json')).json() as {
-      paths: Record<string, Record<string, { responses?: Record<string, { content?: Record<string, { schema?: { properties?: Record<string, unknown>, required?: string[] } }> }> } | undefined>>
+      components?: { schemas?: Record<string, { properties?: Record<string, unknown> }> }
+      paths: Record<string, Record<string, { responses?: Record<string, { content?: Record<string, { schema?: EnvelopeSchema }> }> } | undefined>>
+    }
+
+    /**
+     * The 400 body is a `$ref` to the named `ErrorEnvelope` component now (the inline envelope was
+     * one of the shapes a generator needs by name), so the check follows a reference rather than
+     * reading only an inline `properties` — otherwise the lift looks like a wrong envelope.
+     */
+    interface EnvelopeSchema { $ref?: string, properties?: Record<string, unknown> }
+    const propertiesOf = (schema: EnvelopeSchema | undefined): Record<string, unknown> => {
+      if (schema === undefined)
+        return {}
+      if (schema.$ref !== undefined) {
+        const name = schema.$ref.replace('#/components/schemas/', '')
+        return spec.components?.schemas?.[name]?.properties ?? {}
+      }
+      return schema.properties ?? {}
     }
 
     const wrong: string[] = []
@@ -1449,7 +1469,7 @@ describe('openapi document', () => {
         if (schema === undefined)
           continue
         checked += 1
-        const keys = Object.keys(schema.properties ?? {})
+        const keys = Object.keys(propertiesOf(schema))
         // The library default is recognizable by `success`/`data`; this API's envelope by
         // `message`/`code`. Either names the right shape or it is the wrong one.
         if (!keys.includes('message') || !keys.includes('code') || keys.includes('success'))

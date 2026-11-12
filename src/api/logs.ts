@@ -118,7 +118,7 @@ export function createLogsRoute(deps: AppDeps) {
       describeRoute({
         tags: ['logs'],
         summary: 'Download one rotated log file',
-        responses: { 200: { description: 'application/x-ndjson' }, 404: ERROR_RESPONSES[404] },
+        responses: { 200: { description: 'the log file, one JSON line per entry', content: { 'application/x-ndjson': {} } }, 404: ERROR_RESPONSES[404] },
       }),
       validate('query', downloadQuery),
       validate('param', idParam),

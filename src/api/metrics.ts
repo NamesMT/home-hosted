@@ -47,7 +47,7 @@ export function createMetricsRoute(deps: AppDeps) {
     .get('/metrics', describeRoute({
       tags: ['panel'],
       summary: 'Prometheus text for whatever scrapes the panel',
-      responses: { 200: { description: 'text/plain; version=0.0.4' } },
+      responses: { 200: { description: 'Prometheus text exposition', content: { 'text/plain': {} } } },
     }), validate('query', metricsQuery), (c) => {
       const servers = deps.panel.serverViews()
       const host = hostReadings(deps.panel.getState().host)
