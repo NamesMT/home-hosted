@@ -850,14 +850,13 @@ describe('a workspace whose two files are at different schemas', () => {
     return created
   }
 
-  it('reports the migration the older file needs, not zero', async () => {
+  it('loads a hand-written, unstamped servers file — no migration changes that kind', async () => {
     // Current settings, hand-written (unstamped) servers — the documented way to add a server.
     const { store } = await mixedLoaded(CONFIG_SCHEMA, null)
 
-    // Both halves are true at once, and only this pairing lets the startup guard act on it:
-    // the reader refuses, and the migration list is what the guard checks.
-    expect(store.configError).toContain('needs 1 migration')
-    expect(store.pendingMigrations.length, 'the branch that says `run migrate` must be reachable').toBeGreaterThan(0)
+    expect(store.configError).toBeNull()
+    expect(store.pendingMigrations).toEqual([])
+    expect(store.servers.map(server => server.id)).toEqual(['app'])
   })
 
   it('reports it when the older file is on the settings side instead', async () => {

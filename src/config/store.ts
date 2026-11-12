@@ -168,11 +168,10 @@ export class WorkspaceStore {
    * The two files are stamped independently — a person may hand-write `servers.config.json`
    * (which is unstamped, and so reads as schema 1) beside a `settings.json` the panel wrote at
    * the current schema. `configSchemaVersion` answers `max()` because that is the shape *this
-   * release* understands of the pair, but the migrations that have to run belong to the **older**
-   * file: `planConfigMigrations` is monotonic, so the lower version is the one with steps.
-   * Reading `max()` here reported *no* pending migration while the reader was refusing the file
-   * for needing one, which left the startup branch that says `run migrate` unreachable and sent
-   * the person to "fix or install" instead.
+   * release* understands of the pair, but each file is planned from its **own** version, against
+   * the steps that change its kind — the same question each file's reader asks. Reading `max()`
+   * here reported *no* pending migration while the reader was refusing the file for needing one,
+   * which left the startup branch that says `run migrate` unreachable.
    *
    * A file that cannot be **parsed** is not a migration candidate, though: a schema number can only
    * be read from a file that is JSON, and `migrate` refuses one it cannot read rather than lifting
@@ -182,7 +181,11 @@ export class WorkspaceStore {
   get pendingMigrations(): ConfigMigration[] {
     if (this.settingsParseError !== null || this.serversParseError !== null)
       return []
-    return planConfigMigrations(Math.min(this.settingsSchemaVersion, this.serversSchemaVersion)).steps
+    // Each file against the steps that change its kind: a servers file has nothing to lift today.
+    return [...new Set([
+      ...planConfigMigrations(this.settingsSchemaVersion, { kind: 'workspace-settings' }).steps,
+      ...planConfigMigrations(this.serversSchemaVersion, { kind: 'servers' }).steps,
+    ])].sort((a, b) => a.to - b.to)
   }
 
   onChange(listener: () => void): () => void {

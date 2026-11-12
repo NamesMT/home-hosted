@@ -1,4 +1,4 @@
-import type { MigrationOptions } from '#src/config/migrations'
+import type { ConfigKind, MigrationOptions } from '#src/config/migrations'
 import type { ResolvedGlobalConfig, ResolvedWorkspaceSettings } from '#src/config/schema'
 import type { ServerConfig } from '#src/shared/contracts'
 import { type } from 'arktype'
@@ -99,6 +99,7 @@ export function parseTolerant(
 }
 
 interface GroupedParse<T> {
+  kind: ConfigKind
   keys: readonly string[]
   groups: ReadonlyArray<readonly [string, Validator]>
   build: (meta: { writtenBy: string, schema: number }, groups: Record<string, unknown>) => T
@@ -113,6 +114,18 @@ interface Stamp {
 }
 
 /**
+ * What a file's `meta` says: its schema (an unstamped file is `UNSTAMPED_SCHEMA`) and what wrote it.
+ * The one reading of the stamp, for the parsers and for `migrate`.
+ */
+export function readConfigStamp(raw: unknown): { schemaVersion: number, writtenBy: string | null } {
+  const meta = isRecord(raw) && isRecord(raw.meta) ? raw.meta : null
+  return {
+    schemaVersion: typeof meta?.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA,
+    writtenBy: typeof meta?.writtenBy === 'string' && meta.writtenBy.length > 0 ? meta.writtenBy : null,
+  }
+}
+
+/**
  * Reads `meta`, then refuses a file this release cannot use.
  *
  * Both readers need this and the two messages have to stay in step: a file written by a
@@ -121,9 +134,7 @@ interface Stamp {
  * to either wording cannot land on one path only.
  */
 function readStamp(raw: Record<string, unknown>, options: MigrationOptions): Stamp {
-  const meta = isRecord(raw.meta) ? raw.meta : null
-  const schemaVersion = typeof meta?.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
-  const writtenBy = typeof meta?.writtenBy === 'string' && meta.writtenBy.length > 0 ? meta.writtenBy : null
+  const { schemaVersion, writtenBy } = readConfigStamp(raw)
 
   if (schemaVersion > CONFIG_SCHEMA)
     return { schemaVersion, writtenBy, error: `written by home-hosted ${writtenBy ?? 'a newer release'} (config schema ${schemaVersion}); this release understands schema ${CONFIG_SCHEMA}` }
@@ -150,7 +161,7 @@ function parseGrouped<T>(raw: unknown, label: string, definition: GroupedParse<T
     return result
   }
 
-  const stamp = readStamp(raw, options)
+  const stamp = readStamp(raw, { ...options, kind: definition.kind })
   result.schemaVersion = stamp.schemaVersion
   result.writtenBy = stamp.writtenBy
   if (stamp.error !== null) {
@@ -181,6 +192,7 @@ function parseGrouped<T>(raw: unknown, label: string, definition: GroupedParse<T
 /** `$HHOSTED_HOME/.hh/settings.json`. */
 export function parseGlobalSettings(raw: unknown, options: MigrationOptions = {}): ConfigParse<ResolvedGlobalConfig> {
   return parseGrouped(raw, 'settings file', {
+    kind: 'global-settings',
     keys: GLOBAL_SETTINGS_KEYS,
     groups: [
       ['control', controlSchema as unknown as Validator],
@@ -201,6 +213,7 @@ export function parseGlobalSettings(raw: unknown, options: MigrationOptions = {}
 /** `$HHOSTED_HOME/.hh/<id>/settings.json`. */
 export function parseWorkspaceSettings(raw: unknown, options: MigrationOptions = {}): ConfigParse<ResolvedWorkspaceSettings> {
   return parseGrouped(raw, 'workspace settings file', {
+    kind: 'workspace-settings',
     keys: WORKSPACE_SETTINGS_KEYS,
     groups: [
       ['defaults', defaultsSchema as unknown as Validator],
@@ -242,7 +255,7 @@ export function parseServersFile(raw: unknown, defaults: Record<string, unknown>
     return result
   }
 
-  const stamp = readStamp(raw, options)
+  const stamp = readStamp(raw, { ...options, kind: 'servers' })
   result.schemaVersion = stamp.schemaVersion
   result.writtenBy = stamp.writtenBy
   if (stamp.error !== null) {

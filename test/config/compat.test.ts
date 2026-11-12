@@ -38,10 +38,13 @@ describe('reading configs from other releases', () => {
   it('loads a config written by the last release, after its migrations', () => {
     const raw = fixture('v0.3.0.json')
 
-    // The file predates the schema stamp, so this release cannot read it as-is — it says so, and
-    // `migrate` is what lifts it. What must keep working is the *migrated* result.
-    const stale = parseGlobalSettings(pick(raw, GLOBAL_KEYS))
+    // The file predates the schema stamp, so this release cannot read its notifications as-is — it
+    // says so, and `migrate` is what lifts it. What must keep working is the *migrated* result.
+    const stale = parseWorkspaceSettings(pick(raw, WORKSPACE_KEYS))
     expect(stale.errors.join(' '), 'a released file is refused only as "needs migration"').toContain('migration')
+    // The global settings and servers parts have no step to run, so they read as they are.
+    expect(parseGlobalSettings(pick(raw, GLOBAL_KEYS)).errors).toEqual([])
+    expect(parseServersFile(pick(raw, SERVERS_KEYS), {}).errors).toEqual([])
 
     const global = parseGlobalSettings(pick(applyConfigMigrations(raw, UNSTAMPED_SCHEMA).config, GLOBAL_KEYS))
     expect(global.errors).toEqual([])
@@ -70,7 +73,7 @@ describe('reading configs from other releases', () => {
    * way and codify the wrong rule; this pins the constant that actually has to be read.
    */
   it('treats an unstamped file as the oldest schema, whatever the current one is', () => {
-    const parsed = parseGlobalSettings({ control: { port: 3999 } })
+    const parsed = parseWorkspaceSettings({ logs: { keep: 3 } })
 
     // Unstamped is the *oldest* shape, not the current one — so once a migration exists it is
     // refused with the reason a person can act on, rather than read as if it were current.
@@ -79,9 +82,21 @@ describe('reading configs from other releases', () => {
     expect(parsed.errors.join(' ')).toContain('migration')
 
     // And the migrated form reads, which is what a released home goes through.
-    const lifted = parseGlobalSettings(applyConfigMigrations({ control: { port: 3999 } }, UNSTAMPED_SCHEMA).config)
+    const lifted = parseWorkspaceSettings(applyConfigMigrations({ logs: { keep: 3 } }, UNSTAMPED_SCHEMA).config)
     expect(lifted.errors).toEqual([])
-    expect(lifted.config?.control.port).toBe(3999)
+    expect(lifted.config?.logs.keep).toBe(3)
+  })
+
+  it('reads an unstamped file whose kind no migration changes', () => {
+    // The servers file docs/SERVERS.md shows has no `meta`: the notifications step cannot touch it.
+    const servers = parseServersFile({ servers: [{ id: 'app', command: 'node' }] }, {})
+    expect(servers.errors).toEqual([])
+    expect(servers.schemaVersion).toBe(UNSTAMPED_SCHEMA)
+    expect(servers.servers.map(server => server.id)).toEqual(['app'])
+
+    expect(planConfigMigrations(UNSTAMPED_SCHEMA, { kind: 'servers' }).steps).toEqual([])
+    expect(planConfigMigrations(UNSTAMPED_SCHEMA, { kind: 'servers' }).reached).toBe(CONFIG_SCHEMA)
+    expect(planConfigMigrations(UNSTAMPED_SCHEMA, { kind: 'workspace-settings' }).steps).toHaveLength(1)
   })
 
   it('keeps what it knows of a config from a newer release, and lists the rest', () => {

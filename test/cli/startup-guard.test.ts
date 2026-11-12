@@ -152,6 +152,23 @@ describe('startup guard: an unreadable file stops `up`', () => {
     expectRefused(result)
     expect(result.stderr).toContain('duplicate id')
     expect(fs.existsSync(path.join(home, '.hh', 'run.json'))).toBe(false)
+    // Refused before a first boot arms a password for a panel that never starts.
+    expect(`${result.stdout}${result.stderr}`).not.toContain('first-run password')
+    expect(fs.existsSync(path.join(home, '.hh', '.control-secrets.json'))).toBe(false)
+  })
+
+  it('starts on a hand-written servers config with no `meta` stamp', async () => {
+    const home = makeHome()
+    const { workspace } = seedWorkspace(home)
+    // What docs/SERVERS.md shows a person writing: no stamp. No migration changes a servers file.
+    fs.writeFileSync(path.join(workspace, 'servers.config.json'), JSON.stringify({ servers: [{ id: 'app', command: 'node' }] }))
+
+    const result = await runUp(home, 8000)
+
+    // Still running when the budget ran out, having printed the lines that follow every guard.
+    expect(result.stderr).not.toContain('refusing to start')
+    expect(result.killed, result.stderr).toBe(true)
+    expect(`${result.stdout}${result.stderr}`).toContain('auth:')
   })
 
   it('refuses a workspace settings file from a newer release', async () => {

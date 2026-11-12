@@ -594,7 +594,8 @@ function dataTargetMatcher(archiveTargets: DataTarget[], instanceTargets: DataTa
  * older release — it is a seed (written in the current shape) or a damaged file, and lifting an
  * unparseable one let `{"not": "a servers file"}` be stamped as a valid empty `servers.config.json`,
  * which would restore a workspace with every entry deleted. Only a numeric stamp this release can
- * lift qualifies; anything else is left to its own parser, which refuses it.
+ * lift qualifies, and an unstamped file is refused here: the parsers accept one whose kind has no
+ * step to run (a hand-written `servers.config.json`), so they are no longer the gate for it.
  *
  * `null` means "this release cannot read it", which stays distinguishable from "it was fine".
  */
@@ -602,9 +603,8 @@ function liftArchived(raw: unknown): Record<string, unknown> | null {
   if (!isRecord(raw))
     return null
   const meta = isRecord(raw.meta) ? raw.meta as { schema?: unknown } : {}
-  // No stamp, or one this release does not lift: hand it back untouched for the caller's parser.
   if (typeof meta.schema !== 'number')
-    return raw
+    return null
   const plan = planConfigMigrations(meta.schema)
   if (plan.tooNew || plan.reached !== plan.to)
     return null

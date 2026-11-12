@@ -9,6 +9,7 @@ import { createRootApp } from '#src/app'
 import { ensureLayout } from '#src/config/layout'
 import { generateInitialPassword, SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
+import { WorkspaceStore } from '#src/config/store'
 import { WorkspaceRegistry } from '#src/config/workspaces'
 import { readStateFile } from '#src/helpers/config-text'
 import { clearRuntime, newToken, readRuntime, runtimeIsAlive, runtimeIsGone, writeRuntime } from '#src/helpers/daemon'
@@ -30,6 +31,8 @@ import {
   proxyTlsDir,
   resolveUserPath,
   tlsDir,
+  workspaceServersPath,
+  workspaceSettingsPath,
 } from '#src/helpers/paths'
 import { resolveTemplate } from '#src/helpers/template'
 import { appVersion, packageRoot } from '#src/helpers/version'
@@ -70,6 +73,25 @@ function probeHostFor(bindHost: string): string {
  * detaches a child that calls this; `--foreground` (systemd, docker) calls it
  * directly.
  */
+/**
+ * Exits when a workspace's files are not a config this release can run. Same ordering as the global
+ * settings, and for the same reason: a pending migration is reported through `configError` too, so
+ * the generic message answered first and told the person to edit or reinstall a file that only
+ * needed `migrate`.
+ */
+function refuseUnusableWorkspace(id: string, store: WorkspaceStore): void {
+  if (store.pendingMigrations.length > 0) {
+    logger.error(`refusing to start: workspace "${id}" needs ${store.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
+    logger.info('run `home-hosted migrate` to see and apply them')
+    process.exit(1)
+  }
+  if (store.configError !== null) {
+    logger.error(`refusing to start: workspace "${id}": ${store.configError}`)
+    logger.info(`fix ${store.path} and ${store.settingsPath}, or install the release that wrote them`)
+    process.exit(1)
+  }
+}
+
 export async function runControlPlane(options: ControlPlaneOptions): Promise<void> {
   // A state directory this release cannot use stops the daemon before anything reads
   // a path into it. Caught rather than thrown: a detached `up` runs this in a child, and
@@ -142,6 +164,15 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     logger.info('fix or restore the file, or move it aside to start fresh — starting fresh discards it')
     process.exit(1)
   }
+  // Every workspace's files, read without writing, before a first boot arms a password or `--port`
+  // is saved: a refusal further down printed a first-run password for a panel that never started.
+  // `--print-config` is the command for looking at a config that will not run, so it skips this.
+  for (const workspace of options.printConfig ? [] : registry.all()) {
+    const store = new WorkspaceStore(workspace.id, workspaceSettingsPath(workspace.id), workspaceServersPath(workspace.id))
+    store.load({ write: false })
+    refuseUnusableWorkspace(workspace.id, store)
+  }
+
   const auth = new AuthService(secrets, () => settings.control.auth)
   const tls = new TlsStore(tlsDir)
   const hub = new EventHub()
@@ -317,20 +348,8 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // Checked before the listener binds or `run.json` exists, so a refused start
   // leaves no trace of a panel that pretends to supervise nothing.
   for (const workspace of panel.workspaces()) {
-    const store = workspace.store
-    // Same ordering as the global settings above, and for the same reason: a pending
-    // migration is reported through `configError`, so the generic message answered first
-    // and told the person to edit or reinstall a file that only needed `migrate`.
-    if (store.pendingMigrations.length > 0) {
-      logger.error(`refusing to start: workspace "${workspace.id}" needs ${store.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
-      logger.info('run `home-hosted migrate` to see and apply them')
-      process.exit(1)
-    }
-    if (store.configError !== null) {
-      logger.error(`refusing to start: workspace "${workspace.id}": ${store.configError}`)
-      logger.info(`fix ${store.path} and ${store.settingsPath}, or install the release that wrote them`)
-      process.exit(1)
-    }
+    // Checked again on the files the runtime actually loaded.
+    refuseUnusableWorkspace(workspace.id, workspace.store)
     // Workspace secrets are configs too: a bad one must not be replaced by a fresh
     // file, which would drop that workspace's Telegram token and DDNS credentials.
     if (workspace.secrets.configError !== null) {

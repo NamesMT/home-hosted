@@ -38,9 +38,18 @@ export const UNSTAMPED_SCHEMA = 1
 /** A settings or servers file, as read: whatever keys it carries. */
 export type RawConfig = Record<string, unknown>
 
+/** The stamped files a migration can apply to. */
+export type ConfigKind = 'global-settings' | 'workspace-settings' | 'servers'
+
 export interface ConfigMigration {
   /** The schema this step produces; steps run in ascending order. */
   to: number
+  /**
+   * The files it changes. A file of another kind is not *pending* this step: a hand-written,
+   * unstamped `servers.config.json` was refused as "needs 1 migration" for a notifications step
+   * that cannot touch it. Such a file is lifted by a restamp alone. Omitted: every kind.
+   */
+  kinds?: readonly ConfigKind[]
   /** One line, printed by `migrate` before anything is written. */
   describe: string
   apply: (config: RawConfig) => RawConfig
@@ -100,6 +109,7 @@ function notificationsToDestinations(config: RawConfig): RawConfig {
 export const configMigrations: ConfigMigration[] = [
   {
     to: 2,
+    kinds: ['workspace-settings'],
     describe: 'notifications: fold the Telegram singleton and the webhook list into one `destinations` list, with a shared `defaults` block',
     apply: notificationsToDestinations,
   },
@@ -127,16 +137,21 @@ export interface MigrationOptions {
   migrations?: ConfigMigration[]
   /** The schema to reach; defaults to what this release understands. */
   to?: number
+  /** The file being planned for; only steps that change that kind are pending. Omitted: every step. */
+  kind?: ConfigKind
 }
 
 /** What would have to run to bring `from` up to `to`. */
 export function planConfigMigrations(from: number, options: MigrationOptions = {}): MigrationPlan {
   const to = options.to ?? CONFIG_SCHEMA
   const migrations = options.migrations ?? configMigrations
-  const steps = migrations
+  const chain = migrations
     .filter(migration => migration.to > from && migration.to <= to)
     .sort((a, b) => a.to - b.to)
-  return { from, to, steps, tooNew: from > to, reached: steps.at(-1)?.to ?? from }
+  const kind = options.kind
+  const steps = kind === undefined ? chain : chain.filter(migration => migration.kinds?.includes(kind) ?? true)
+  // Measured over the whole chain: a step that skips this kind still carries the schema forward.
+  return { from, to, steps, tooNew: from > to, reached: chain.at(-1)?.to ?? from }
 }
 
 /**

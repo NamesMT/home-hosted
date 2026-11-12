@@ -146,7 +146,7 @@ export class GlobalSettingsStore {
   get pendingMigrations() {
     if (this.parseError !== null)
       return []
-    return planConfigMigrations(this.schemaVersion).steps
+    return planConfigMigrations(this.schemaVersion, { kind: 'global-settings' }).steps
   }
 
   get rawConfig(): Record<string, unknown> {

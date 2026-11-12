@@ -88,7 +88,8 @@ home-hosted migrate             # asks before each schema step, keeps a .bak bes
 Each config records the release and schema that wrote it. A newer release always reads an older
 config, and keys it does not know are kept and reported, never reset. A config it cannot read — a
 wrong value, a duplicate id, a newer schema — stops `up` with the exact problem instead of starting
-with defaults. Per-release notes live in the
+with defaults. A file no schema step changes needs no migration: a hand-written
+`servers.config.json` with no `meta` loads as it is, and `migrate` only restamps it. Per-release notes live in the
 [release notes](https://github.com/NamesMT/home-hosted/releases).
 
 **Coming from 0.6.x:** install the latest 0.7.x and run it once — it moves the state into `.hh/` —
