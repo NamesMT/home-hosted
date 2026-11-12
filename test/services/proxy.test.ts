@@ -742,6 +742,43 @@ describe('proxyService', () => {
     expect(record.digest).toBe(`sha256:${createHash('sha256').update(build).digest('hex')}`)
   })
 
+  it('leaves no partial binary behind when the download breaks off', async () => {
+    const { service, options } = await harness()
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('#!/bin/sh\n'))
+        controller.error(new Error('connection reset'))
+      },
+    })
+    const response = new Response(body)
+    Object.defineProperty(response, 'url', { value: 'https://caddyserver.com/api/download' })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(response)
+
+    await expect(service.install()).rejects.toMatchObject({ code: 'ENGINE_DOWNLOAD_FAILED' })
+    expect(fs.readdirSync(options.binDir).filter(name => name.startsWith('download-'))).toEqual([])
+  })
+
+  it('keeps the last good revision through failed starts', async () => {
+    const { service, options, settings, breakNannySpawn } = await harness()
+    writeStubEngine(service.enginePath, [])
+    stubPortPreflight()
+    settings.updateProxy({ enabled: true, httpPort: 4480, httpsPort: 4443, routes: [{ id: 'a', host: 'a.lan', target: 'external', url: 'http://10.0.0.5:1' }] })
+    fs.mkdirSync(path.dirname(options.configPath), { recursive: true })
+    fs.writeFileSync(options.configPath, '{"served":true}\n')
+    fs.writeFileSync(options.previousConfigPath, '{"good":true}\n')
+
+    const restore = breakNannySpawn()
+    try {
+      for (let attempt = 0; attempt < 2; attempt++)
+        await expect(service.start()).rejects.toMatchObject({ code: 'ENGINE_NOT_READY' })
+    }
+    finally {
+      restore()
+    }
+    expect(fs.readFileSync(options.previousConfigPath, 'utf8')).toBe('{"good":true}\n')
+    expect(fs.readFileSync(options.configPath, 'utf8'), 'a refused start must not leave its revision as the boot file').toBe('{"served":true}\n')
+  })
+
   it('refuses a download that a redirect took off https or off the build service', async () => {
     const { service, options } = await harness()
     for (const url of ['http://caddyserver.com/api/download', 'https://caddyserver.com.evil.example/x', 'https://evil.example/caddy']) {

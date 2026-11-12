@@ -1305,9 +1305,13 @@ export class ProxyService {
         fs.writeSync(handle, buffer)
       }
     }
-    finally {
+    catch (error) {
+      // A download cut off halfway leaves nothing behind.
       fs.closeSync(handle)
+      fs.rmSync(target, { force: true })
+      throw new DetailedError(`the ${engine.info.label} download failed: ${errorMessage(error)}`, { statusCode: 502, code: 'ENGINE_DOWNLOAD_FAILED' })
     }
+    fs.closeSync(handle)
     if (bytes === 0) {
       fs.rmSync(target, { force: true })
       throw new DetailedError(`the ${engine.info.label} build service returned an empty binary`, { statusCode: 502, code: 'ENGINE_DOWNLOAD_FAILED' })
@@ -1499,7 +1503,12 @@ export class ProxyService {
       routes,
     })
     fs.mkdirSync(this.options.engineDir, { recursive: true, mode: 0o700 })
-    this.rememberConfig(`${JSON.stringify(rendered, null, 2)}\n`)
+    // The engine boots from this file, so it is written now — but `previous.json` only advances
+    // once the engine accepted it, and a failed start puts back what was there: two failed starts
+    // used to rotate the last good revision out.
+    const text = `${JSON.stringify(rendered, null, 2)}\n`
+    const servedBefore = fs.existsSync(this.options.configPath) ? fs.readFileSync(this.options.configPath, 'utf8') : null
+    writeFileAtomic(this.options.configPath, text, { mode: 0o600 })
     writeFileAtomic(this.options.adminPath, `${JSON.stringify(admin)}\n`, { mode: 0o600 })
 
     const specPath = nannySpecPath(this.options.stateDir, PROXY_ID)
@@ -1555,9 +1564,15 @@ export class ProxyService {
       // The specific cause wins: a nanny that never spawned already recorded why.
       const failure = this.nannyError ?? `the engine did not answer on its admin endpoint within ${Math.round(READY_TIMEOUT_MS / 1000)}s: ${this.logTail()}`
       await this.stop().catch(() => undefined)
+      if (servedBefore === null)
+        fs.rmSync(this.options.configPath, { force: true })
+      else
+        writeFileAtomic(this.options.configPath, servedBefore, { mode: 0o600 })
       this.lastError = failure
       throw new DetailedError(failure, { statusCode: 502, code: 'ENGINE_NOT_READY' })
     }
+    if (servedBefore !== null && servedBefore !== text)
+      writeFileAtomic(this.options.previousConfigPath, servedBefore, { mode: 0o600 })
     this.recordApplied(rendered)
     this.certificateSignature = signature
     this.lastError = null
