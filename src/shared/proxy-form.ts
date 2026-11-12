@@ -298,7 +298,7 @@ export function routeUrl(route: Pick<ProxyRoute, 'host' | 'path' | 'tls'>, httpP
   const plain = route.tls === 'off'
   const port = plain ? httpPort : httpsPort
   const standard = plain ? 80 : 443
-  const path = route.path.length === 0 || route.path.startsWith('/') ? route.path : `/${route.path}`
+  const path = canonicalRoutePath(route.path)
   return `${plain ? 'http' : 'https'}://${host}${port === standard ? '' : `:${port}`}${path}`
 }
 
@@ -440,8 +440,8 @@ export function validateRouteDraft(draft: RouteDraft, options: { others: readonl
     errors.host = messages.hostRequired()
   else if (!HOST_PATTERN.test(host))
     errors.host = messages.hostInvalid()
-  // `/app` and `/app/` render overlapping matchers, so one would shadow the other.
-  else if (options.others.some(other => other.host.trim().toLowerCase() === host.toLowerCase() && other.path.replace(/\/+$/, '') === draft.path.replace(/\/+$/, '')))
+  // `/app`, `/app/` and `/App` render overlapping matchers, so one would shadow the other.
+  else if (options.others.some(other => routeKey(other) === routeKey(draft)))
     errors.host = messages.hostDuplicate(host)
 
   if (draft.path.length > 0 && !draft.path.startsWith('/'))
@@ -473,33 +473,81 @@ export function validateRouteDraft(draft: RouteDraft, options: { others: readonl
   return errors
 }
 
+/** An upstream the engine can dial: what the server renders, the exposure rule judges and the form accepts. */
+export interface UpstreamTarget {
+  /** The hostname as `new URL` normalizes it: lower-case, IPv6 in brackets, `127.1` spelled out. */
+  host: string
+  port: number
+  /** `host:port`, the engine's dial address. */
+  dial: string
+  /** The upstream speaks TLS. */
+  tls: boolean
+}
+
 /**
- * The panel accepts an upstream with or without a scheme, and a port is optional
- * because every scheme has a default one — the panel fills in :80 or :443.
- *
- * A typed default port is dropped on the way to the panel: `new URL` normalizes
- * `:80` on `http:` away, so `http://10.0.0.5:80` and `http://10.0.0.5` are one
- * upstream, and a route table that keeps both forms would read as unchanged after
- * a save that the panel had actually rewritten.
+ * The one upstream parser. `host:port`, `http://host[:port]` or `https://host[:port]`; a missing port
+ * is the scheme's default. Anything the engine could not honour is refused rather than truncated: a
+ * path (`https://host/sub` — the engine dials a host, it does not prefix a path), a query, a fragment,
+ * credentials, or a scheme that is neither http nor https.
+ */
+export function upstreamTarget(value: string): UpstreamTarget | null {
+  const trimmed = value.trim()
+  if (trimmed.length === 0 || /\s/.test(trimmed))
+    return null
+  const explicit = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed)
+  if (explicit !== null && !/^https?$/i.test(explicit[1]!))
+    return null
+  const withScheme = explicit === null ? `http://${trimmed}` : trimmed
+  // An empty port (`host:`) is not one the panel could use, and `new URL` would quietly drop it.
+  const authority = LOCAL_LISTENER.exec(withScheme)?.groups?.authority ?? ''
+  if (authority.length === 0 || authority.endsWith(':') || authority.includes('@'))
+    return null
+  let url: URL
+  try {
+    url = new URL(withScheme)
+  }
+  catch {
+    return null
+  }
+  if ((url.pathname !== '' && url.pathname !== '/') || url.search.length > 0 || url.hash.length > 0 || url.hostname.length === 0)
+    return null
+  const tls = url.protocol === 'https:'
+  // `new URL` normalizes a default port away; the scheme's own default is a port all the same.
+  const port = url.port.length > 0 ? Number(url.port) : tls ? 443 : 80
+  if (!Number.isInteger(port) || port < 1 || port > 65535)
+    return null
+  return { host: url.hostname, port, dial: `${url.hostname}:${port}`, tls }
+}
+
+/**
+ * The upstream as the route dialog shows it: host and port, the scheme's default filled in.
+ * `http://10.0.0.5:80` and `http://10.0.0.5` are one upstream.
  */
 export function parseUpstream(value: string): { host: string, port: string } | null {
-  const trimmed = value.trim()
+  const target = upstreamTarget(value)
+  return target === null ? null : { host: target.host, port: String(target.port) }
+}
+
+/** A route's hostname as the engine matches it: case-insensitive, no trailing dot. */
+export function routeHostKey(host: string): string {
+  return host.trim().toLowerCase().replace(/\.$/, '')
+}
+
+/**
+ * A route's path prefix in its one form: `''` for the whole host, otherwise a leading slash and no
+ * trailing one — `app`, `/app` and `/app/` are one prefix.
+ */
+export function canonicalRoutePath(path: string): string {
+  const trimmed = path.trim().replace(/\/+$/, '')
   if (trimmed.length === 0)
-    return null
-  const match = LOCAL_LISTENER.exec(trimmed)
-  const authority = match?.groups?.authority
-  if (authority === undefined || authority.length === 0)
-    return null
-  // An empty port (`host:`) is not one the panel could use, and `lastIndexOf` reads
-  // the colons of an IPv6 literal as a port unless they are told apart first.
-  if (authority.endsWith(':') || /\s/.test(authority))
-    return null
-  const scheme = trimmed.slice(0, trimmed.indexOf(':')).toLowerCase()
-  const separator = authority.lastIndexOf(':')
-  if (separator <= 0)
-    return { host: authority, port: scheme === 'https' ? '443' : '80' }
-  const port = authority.slice(separator + 1)
-  if (!/^\d{1,5}$/.test(port))
-    return null
-  return { host: authority.slice(0, separator), port }
+    return ''
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+}
+
+/**
+ * What makes two routes one for the engine. Caddy's host and path matchers are both
+ * case-insensitive, so `/App` on `X.example.com` shadows `/app` on `x.example.com`.
+ */
+export function routeKey(route: Pick<ProxyRoute, 'host' | 'path'>): string {
+  return `${routeHostKey(route.host)}${canonicalRoutePath(route.path).toLowerCase()}`
 }

@@ -1,6 +1,6 @@
 import type { ProxyAdminTransport } from '#src/providers/proxy'
 import type { ProxyConfig, ProxyTlsMode } from '#src/shared/contracts'
-import { isPublicHost } from '#src/shared/proxy-form'
+import { canonicalRoutePath, isPublicHost, routeHostKey } from '#src/shared/proxy-form'
 
 /** One route, resolved to something the engine can actually dial. */
 export interface ProxyUpstreamRoute {
@@ -222,24 +222,18 @@ function noticeMatcher(route: ProxyUpstreamRoute): Record<string, unknown> {
   return { host: [route.host], not: [{ path: ['/.well-known/acme-challenge/*'] }] }
 }
 
-/** The length of a route's path prefix as matched (trailing slashes dropped); 0 for the whole host. */
+/** The length of a route's path prefix as matched; 0 for the whole host. */
 function prefixLength(route: ProxyUpstreamRoute): number {
-  return route.path.trim().replace(/^\/*/, '').replace(/\/+$/, '').length
+  return canonicalRoutePath(route.path).length
 }
 
 function matchFor(route: ProxyUpstreamRoute): Record<string, unknown> {
-  const match: Record<string, unknown> = { host: [route.host] }
-  const prefix = route.path.trim()
-  if (prefix.length > 0) {
-    const leading = prefix.startsWith('/') ? prefix : `/${prefix}`
-    // Trailing slashes are stripped *before* the matchers are built, because
-    // `ProxyService.pathKey` already treats `/app` and `/app/` as the same route and refuses two of
-    // them as a clash. Emitting them differently made the pair clash-free and yet behave differently:
-    // Caddy matches `path` exactly, so `/app/` produced `["/app/", "/app/*"]` and never matched the
-    // bare `/app` the panel reported as covered.
-    const base = leading.replace(/\/+$/, '')
-    match.path = base.length === 0 ? ['/*'] : [base, `${base}/*`]
-  }
+  const match: Record<string, unknown> = { host: [routeHostKey(route.host)] }
+  // The one canonical form the clash check (`routeKey`) reads too: emitting `/app/` differently
+  // from `/app` made the pair clash-free and yet behave differently.
+  const base = canonicalRoutePath(route.path)
+  if (base.length > 0)
+    match.path = [base, `${base}/*`]
   return match
 }
 

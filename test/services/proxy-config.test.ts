@@ -46,6 +46,19 @@ function render(input: Omit<ProxyConfigInput, 'acme' | 'routes'> & { acme?: Prox
   })
 }
 
+describe('the canonical route form', () => {
+  it('matches the host in lower case and the path with its leading slash', () => {
+    const rendered = render({
+      config: config({}),
+      admin: unixAdmin,
+      engineDir: '/tmp/hh/engine',
+      manual: [],
+      routes: [{ host: 'App.Example.LAN', path: 'api/', dial: '10.0.0.5:80', upstreamTls: false, tls: 'off' }],
+    })
+    expect(routesOf(rendered, 'http')[0].match).toEqual([{ host: ['app.example.lan'], path: ['/api', '/api/*'] }])
+  })
+})
+
 describe('caddy engine', () => {
   it('is the engine this build offers', () => {
     expect(proxyEngineInfos().map(engine => engine.id)).toEqual(['caddy'])

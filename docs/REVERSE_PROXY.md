@@ -70,12 +70,12 @@ reported without a pid.
 | Field | Notes |
 | --- | --- |
 | `id` | Stable name, `[a-z0-9_-]`. |
-| `host` | The public hostname. A local-only name (`gitea.lan`, `box`, an IP) gets the engine's own CA instead of a public certificate. |
+| `host` | The public hostname, matched without regard to case. A local-only name (`gitea.lan`, `box`, an IP) gets the engine's own CA instead of a public certificate. |
 | `enabled` | A disabled route stays configured but is not served. |
 | `target` | `server` (a supervised entry), `panel` (this control panel), `external` (any `host:port`). |
 | `workspace` + `server` | For `target: "server"` — an id is only unique inside its workspace. The upstream address is resolved live; a stopped entry leaves the hostname dark and the page says so, and the engine is re-applied when the entry comes up or goes down. |
-| `url` | For `target: "external"`, e.g. `http://10.0.0.5:8080`. The port is optional: without one the scheme's own default is used (`:80` for `http:`, `:443` for `https:`). An `https://` upstream is dialled with TLS, and **its certificate is not verified** — a homelab upstream behind a self-signed certificate works, and so does an impostor. |
-| `path` | Optional prefix, so one hostname can serve several apps. The longest matching prefix wins, whatever order the routes are listed in; a route with no path takes what is left. |
+| `url` | For `target: "external"`, e.g. `http://10.0.0.5:8080`. The port is optional: without one the scheme's own default is used (`:80` for `http:`, `:443` for `https:`). A host and port only: an upstream with a path, query or credentials (`https://host/sub`) is refused rather than silently cut to its host. An `https://` upstream is dialled with TLS, and **its certificate is not verified** — a homelab upstream behind a self-signed certificate works, and so does an impostor. |
+| `path` | Optional prefix, so one hostname can serve several apps. `app`, `/app`, `/app/` and `/App` are one prefix (the engine matches paths without regard to case), so two routes spelling it differently on one host are refused as a clash. The longest matching prefix wins, whatever order the routes are listed in; a route with no path takes what is left. |
 | `tls` | `auto` (default), `off`, `manual`. |
 | `dnsAccount` | Optional `workspace/account` for a DNS-01 challenge, referencing a DNS account from Settings. Empty picks the workspace's only account that can write TXT records, so a single-account setup needs nothing here. |
 

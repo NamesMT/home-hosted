@@ -1,7 +1,7 @@
 import type { RouteDraft } from '#src/shared/proxy-form'
 import { describe, expect, it } from 'vitest'
 import { reactive, ref, toRaw } from 'vue'
-import { applyRouteDraft, cloneRoutes, newRouteKey } from '#src/shared/proxy-form'
+import { applyRouteDraft, cloneRoutes, newRouteKey, parseUpstream, routeUrl, upstreamTarget, validateRouteDraft } from '#src/shared/proxy-form'
 
 /**
  * The two route-draft helpers both UIs call.
@@ -96,5 +96,29 @@ describe('applyRouteDraft', () => {
       route({ host: 'new.example.com' }),
     )
     expect(applied.map(entry => entry.id)).toEqual(['media'])
+  })
+})
+
+describe('one route form for the UI and the panel', () => {
+  it('refuses a draft that shadows another route in another case or spelling', () => {
+    const others = [route({ id: 'a', host: 'x.example.com', path: '/app' })]
+    for (const [host, path] of [['X.Example.com', '/App'], ['x.example.com', '/app/']]) {
+      const errors = validateRouteDraft(route({ id: 'b', host, path }), { others, workspaces: [] })
+      expect(errors.host, `${host}${path}`).toBeTruthy()
+    }
+  })
+
+  it('accepts the same upstreams the panel does, and refuses a path it would drop', () => {
+    expect(parseUpstream('https://nas.local:9000/x')).toBeNull()
+    expect(parseUpstream('http://user@10.0.0.5')).toBeNull()
+    expect(parseUpstream('ftp://10.0.0.5')).toBeNull()
+    expect(parseUpstream('http://10.0.0.5:99999')).toBeNull()
+    expect(parseUpstream('https://nas.local:9000/')).toEqual({ host: 'nas.local', port: '9000' })
+    expect(upstreamTarget('http://[::1]:8080')).toEqual({ host: '[::1]', port: 8080, dial: '[::1]:8080', tls: false })
+    expect(upstreamTarget('HTTPS://NAS.lan')).toEqual({ host: 'nas.lan', port: 443, dial: 'nas.lan:443', tls: true })
+  })
+
+  it('links a path prefix in its canonical form', () => {
+    expect(routeUrl({ host: 'a.lan', path: 'app/', tls: 'off' }, 80, 443)).toBe('http://a.lan/app')
   })
 })

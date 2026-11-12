@@ -12,10 +12,16 @@ import { GlobalSettingsStore } from '#src/config/settings'
 import { nannyStatePath, writeNannyState } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
 import { setUpstreamResolver } from '#src/services/exposure'
-import { groupDns01Policies, parseUpstream, ProxyService, validateProxyConfig } from '#src/services/proxy'
+import { groupDns01Policies, ProxyService, validateProxyConfig } from '#src/services/proxy'
 import { proxyConfigSchema } from '#src/shared/contracts'
-import { isPublicHost } from '#src/shared/proxy-form'
+import { isPublicHost, upstreamTarget } from '#src/shared/proxy-form'
 import { hasOpenssl } from '../support/capabilities'
+
+/** The dial address and TLS flag the engine renders, from the one shared upstream parser. */
+function parseUpstream(value: string): { dial: string, tls: boolean } | null {
+  const target = upstreamTarget(value)
+  return target === null ? null : { dial: target.dial, tls: target.tls }
+}
 
 const dirs: string[] = []
 
@@ -431,6 +437,28 @@ describe('validateProxyConfig', () => {
     const errors = validateProxyConfig(twice)
     expect(errors).toContain('route id "a" is used twice')
     expect(errors).toContain('"ONE.example.com" is routed twice')
+  })
+
+  it('reads a path without its slash, or in another case, as the same route', () => {
+    // Caddy's host and path matchers are case-insensitive and the renderer adds the leading slash,
+    // so each pair rendered matchers that shadow each other while the clash check let them through.
+    for (const [left, right] of [['app', '/app'], ['/App', '/app'], ['/app/', 'APP']]) {
+      const overlapping = config({
+        routes: [
+          { id: 'a', host: 'X.Example.com', path: left },
+          { id: 'b', host: 'x.example.com', path: right },
+        ],
+      })
+      expect(validateProxyConfig(overlapping), `${left} vs ${right}`).toContain('"x.example.com" is routed twice')
+    }
+  })
+
+  it('refuses an upstream with a path rather than dropping it', () => {
+    const forUrl = (url: string) => validateProxyConfig(config({ routes: [{ id: 'a', host: 'app.lan', target: 'external', url }] }))
+    for (const url of ['https://host.lan/sub/path', 'http://10.0.0.5:8080/x', 'http://10.0.0.5?q=1', 'http://user:pw@10.0.0.5', 'http://10.0.0.5:'])
+      expect(forUrl(url), url).toContain('route "a" needs an upstream like http://10.0.0.5:8080')
+    // A bare trailing slash is no path at all.
+    expect(forUrl('http://10.0.0.5:8080/')).toEqual([])
   })
 
   it('reads `/app` and `/app/` as the same path', () => {

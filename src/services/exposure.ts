@@ -2,6 +2,7 @@ import type { ControlConfig, ProxyConfig } from '#src/shared/contracts'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { isExposed } from '#src/helpers/bind'
+import { upstreamTarget } from '#src/shared/proxy-form'
 
 export interface ExposureState {
   /** The control panel listens beyond loopback. */
@@ -100,23 +101,16 @@ function isLoopbackAddress(address: string): boolean {
     || /^(?:0{1,4}:){1,4}:ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(value)
 }
 
-/** The upstream's hostname and port, without dialling anything. Null when it is not a URL at all. */
+/**
+ * The upstream's hostname and port, without dialling anything, through the same parser the engine's
+ * render uses — an upstream it refuses is never served, so it is not exposure either.
+ */
 function upstreamOf(upstream: string): { host: string, port: number } | null {
-  const trimmed = upstream.trim()
-  if (trimmed.length === 0)
+  const target = upstreamTarget(upstream)
+  if (target === null)
     return null
-  let url: URL
-  try {
-    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`)
-  }
-  catch {
-    return null
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:')
-    return null
-  const port = Number(url.port.length > 0 ? url.port : url.protocol === 'https:' ? 443 : 80)
-  const host = url.hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase()
-  return host.length === 0 ? null : { host, port }
+  const host = target.host.replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  return host.length === 0 ? null : { host, port: target.port }
 }
 
 /**

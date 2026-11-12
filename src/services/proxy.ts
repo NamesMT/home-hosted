@@ -51,7 +51,7 @@ import { CertificateDesk, coversHost } from '#src/services/proxy-certificates/ce
 import { boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { errorMessage } from '#src/shared/error-message'
 import { lazy } from '#src/shared/lazy'
-import { isPublicHost } from '#src/shared/proxy-form'
+import { canonicalRoutePath, isPublicHost, routeHostKey, routeKey, upstreamTarget } from '#src/shared/proxy-form'
 
 /** The engine is not a server entry, but it borrows the nanny's shape. */
 const PROXY_ID = 'proxy'
@@ -373,7 +373,7 @@ export class ProxyService {
 
   /** The route that answers for a hostname, challenge prefix or not. */
   private routeForHost(host: string): ProxyRoute | undefined {
-    return this.config.routes.find(route => route.enabled && route.host.toLowerCase() === host)
+    return this.config.routes.find(route => route.enabled && routeHostKey(route.host) === host)
   }
 
   /**
@@ -776,7 +776,7 @@ export class ProxyService {
    * still configured, and a temporary switch-off should not cost a new issuance.
    */
   private sweepUnroutedCertificates(): number {
-    const managed = new Set(this.config.routes.filter(route => route.tls !== 'off').map(route => route.host.toLowerCase()))
+    const managed = new Set(this.config.routes.filter(route => route.tls !== 'off').map(route => routeHostKey(route.host)))
     // The name the engine answers a bare-IP visitor with is not a route, but its
     // certificate is one the engine manages.
     managed.add(FALLBACK_NAME.toLowerCase())
@@ -1020,12 +1020,6 @@ export class ProxyService {
     }
   }
 
-  /** The route's path as an engine prefix: trailing slashes are not a different route. */
-  private static pathKey(path: string): string {
-    const trimmed = path.trim()
-    return trimmed.replace(/\/+$/, '')
-  }
-
   /**
    * Why a candidate route table would leave a route out, for the save to refuse — only for a route
    * the save adds or changes. A route that broke later (a pair expired, a server was deleted) is
@@ -1042,9 +1036,9 @@ export class ProxyService {
   private resolveRoutes(exclude?: ReadonlySet<string>, table: readonly ProxyRoute[] = this.config.routes): ResolvedRoute[] {
     const seen = new Map<string, string>()
     return table.filter(route => exclude?.has(route.id) !== true).map((route): ResolvedRoute => {
-      // `/app` and `/app/` render overlapping matchers, so one would silently shadow
+      // `/app`, `/app/` and `/App` render overlapping matchers, so one would silently shadow
       // the other; they are the same route for this check.
-      const key = `${route.host.toLowerCase()}${ProxyService.pathKey(route.path)}`
+      const key = routeKey(route)
       const clash = seen.get(key)
       if (clash !== undefined)
         return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.host}" is routed twice (${clash} and ${route.id})` }
@@ -1061,7 +1055,7 @@ export class ProxyService {
       }
 
       if (route.target === 'external') {
-        const parsed = parseUpstream(route.url)
+        const parsed = upstreamTarget(route.url)
         if (parsed === null)
           return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" needs an upstream like http://10.0.0.5:8080` }
         return { route, status: 'ok', upstream: parsed.dial, upstreamTls: parsed.tls, message: null }
@@ -1093,8 +1087,8 @@ export class ProxyService {
       .map((resolved) => {
         const certificate = this.certificateFor(resolved.route)
         return {
-          host: resolved.route.host,
-          path: resolved.route.path,
+          host: routeHostKey(resolved.route.host),
+          path: canonicalRoutePath(resolved.route.path),
           dial: resolved.upstream!,
           upstreamTls: resolved.upstreamTls,
           tls: resolved.route.tls,
@@ -1759,40 +1753,6 @@ export class ProxyService {
   }
 }
 
-/**
- * When the engine tries the CA again, in minutes.
- *
- * certmagic renews once a third of a certificate's lifetime is left, so two thirds
- * of it is the wait; the engine's own CA issues 12 hours by default, which is where
- * the "about 8 hours" comes from. Read from the certificate, so shortening that
- * lifetime shortens the wait too.
- */
-/** `host:port`, `http://host:port` or `https://host:port`; `null` when unusable. */
-export function parseUpstream(value: string): { dial: string, tls: boolean } | null {
-  const trimmed = value.trim()
-  if (trimmed.length === 0)
-    return null
-  // An explicit scheme that is neither http nor https is a mistake, not a hostname: `ftp://x.com` used
-  // to fall through to the prefixing branch, become `http://ftp://x.com`, parse with hostname `ftp`,
-  // and report `status: 'ok'` with a dial target of `ftp:80`.
-  const explicit = /^([a-z][a-z0-9+.-]*):\/\//i.exec(trimmed)
-  if (explicit !== null && !/^https?$/i.test(explicit[1]!))
-    return null
-
-  const withScheme = explicit === null ? `http://${trimmed}` : trimmed
-  try {
-    const url = new URL(withScheme)
-    // `new URL` normalizes a default port away, and the scheme's own default is a
-    // port all the same: without this, `http://10.0.0.5:80` was refused, and a route
-    // in that state made the whole table read as invalid.
-    const port = url.port.length > 0 ? url.port : url.protocol === 'https:' ? '443' : '80'
-    return { dial: `${url.hostname}:${port}`, tls: url.protocol === 'https:' }
-  }
-  catch {
-    return null
-  }
-}
-
 /** What a route's `dnsAccount` resolves to, for the save-time check. */
 export interface DnsAccountCheck {
   provider: string
@@ -1851,14 +1811,14 @@ export function validateProxyConfig(config: ProxyConfig, dnsAccount?: (ref: stri
       errors.push(`route id "${route.id}" is used twice`)
     ids.add(route.id)
 
-    const key = `${route.host.toLowerCase()}${route.path.trim().replace(/\/+$/, '')}`
+    const key = routeKey(route)
     if (seen.has(key))
       errors.push(`"${route.host}" is routed twice`)
     seen.add(key)
 
     if (route.target === 'server' && (route.workspace.length === 0 || route.server.length === 0))
       errors.push(`route "${route.id}" needs a workspace and a server`)
-    if (route.target === 'external' && parseUpstream(route.url) === null)
+    if (route.target === 'external' && upstreamTarget(route.url) === null)
       errors.push(`route "${route.id}" needs an upstream like http://10.0.0.5:8080`)
 
     // A named account has to be able to do the one thing it is named for. Catching it

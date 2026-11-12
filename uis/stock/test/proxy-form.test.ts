@@ -306,7 +306,7 @@ describe('parseUpstream', () => {
   it('reads a host and port, with or without a scheme', () => {
     expect(parseUpstream('http://10.0.0.5:8080')).toEqual({ host: '10.0.0.5', port: '8080' })
     expect(parseUpstream('10.0.0.5:8080')).toEqual({ host: '10.0.0.5', port: '8080' })
-    expect(parseUpstream('https://nas.local:9000/x')).toEqual({ host: 'nas.local', port: '9000' })
+    expect(parseUpstream('https://nas.local:9000/')).toEqual({ host: 'nas.local', port: '9000' })
   })
 
   it('fills in the scheme’s default port when none is typed', () => {
