@@ -2200,7 +2200,7 @@ describe('retrying a certificate on the only route', () => {
       enabled: true,
       routes: [{ id: 'only', host: 'a.example.com', tls: 'auto', target: 'external', url: 'http://127.0.0.1:4000', enabled: true }],
     }))
-    const load = vi.spyOn(service as unknown as { loadIntoEngine: () => Promise<void> }, 'loadIntoEngine')
+    const load = vi.spyOn(service as unknown as { postConfiguration: () => Promise<void> }, 'postConfiguration')
 
     await expect(service.retryCertificate('only')).rejects.toMatchObject({ code: 'PROXY_CERT_RETRY_LAST_ROUTE' })
     expect(load, 'nothing may be posted before the refusal').not.toHaveBeenCalled()
@@ -2219,7 +2219,7 @@ describe('retrying a certificate on the only route', () => {
         { id: 'off', host: 'b.example.com', tls: 'auto', target: 'external', url: 'http://127.0.0.1:4001', enabled: false },
       ],
     }))
-    const load = vi.spyOn(service as unknown as { loadIntoEngine: () => Promise<void> }, 'loadIntoEngine')
+    const load = vi.spyOn(service as unknown as { postConfiguration: () => Promise<void> }, 'postConfiguration')
 
     await expect(service.retryCertificate('retry')).rejects.toMatchObject({ code: 'PROXY_CERT_RETRY_LAST_ROUTE' })
     expect(load, 'nothing may be posted before the refusal').not.toHaveBeenCalled()
@@ -2241,7 +2241,7 @@ describe('retrying a certificate when the re-apply fails', () => {
     fs.mkdirSync(path.dirname(options.configPath), { recursive: true })
     fs.writeFileSync(options.configPath, '{"served":true}\n')
     const loads: unknown[] = []
-    vi.spyOn(service as unknown as { loadIntoEngine: (rendered: unknown) => Promise<void> }, 'loadIntoEngine')
+    vi.spyOn(service as unknown as { postConfiguration: (rendered: unknown) => Promise<void> }, 'postConfiguration')
       .mockImplementation(async (rendered) => { loads.push(rendered) })
     vi.spyOn(service, 'apply').mockRejectedValue(new Error('port 443 is already in use'))
 

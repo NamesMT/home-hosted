@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { coversHost } from '#src/services/proxy'
+import { coversHost } from '#src/services/proxy-certificates/certificates'
 
 /**
  * Which hostnames a certificate covers — the rule that decides what a route serves.

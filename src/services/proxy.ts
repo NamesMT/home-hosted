@@ -49,7 +49,7 @@ import { isPortFree, isProcessAlive, listPortHolders } from '#src/providers/port
 import { processCarriesServerId } from '#src/providers/proc'
 import { proxyEngine, proxyEngineInfos } from '#src/providers/proxy'
 import { dialsPanel, primeUpstreamResolutions } from '#src/services/exposure'
-import { CertificateDesk, coversHost } from '#src/services/proxy-certificates/certificates'
+import { CertificateDesk } from '#src/services/proxy-certificates/certificates'
 import { adminBlock, boundPorts, FALLBACK_NAME, renderCaddyConfig } from '#src/services/proxy-config'
 import { errorMessage } from '#src/shared/error-message'
 import { lazy } from '#src/shared/lazy'
@@ -103,14 +103,6 @@ export const challengeAuthSchema = lazy(() => type({
   password: 'string >= 1',
 }).onUndeclaredKey('reject'))
 export type ChallengeAuth = typeof challengeAuthSchema.infer
-
-/** The DNS names a certificate covers, from its SANs (and its subject as a fallback). */
-/** True when a pair covers this hostname, wildcards included. */
-/**
- * Re-exported from `proxy/certificates`: it moved with the desk, and existing importers (and
- * `test/services/proxy-cover.test.ts`) keep reading it from here.
- */
-export { coversHost }
 
 /** One route resolved far enough for the engine (and the UI) to use it. */
 interface ResolvedRoute {
@@ -497,8 +489,6 @@ export class ProxyService {
     }
   }
 
-  /** One uploaded pair, by the id that names it in the config. */
-
   // ------------------------------------------------------------------ lifecycle
 
   /**
@@ -574,15 +564,21 @@ export class ProxyService {
    * left its child behind would look gone while the binary is still in use.
    */
   private engineRunning(): boolean {
-    const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
-    if (state === null || state.serverId !== PROXY_ID)
+    const state = this.engineState()
+    if (state === null)
       return false
     return [state.nannyPid, state.childPid].some(pid => pid !== null && pid > 0 && isProcessAlive(pid))
   }
 
-  private live(): boolean {
+  /** The engine's nanny record, when there is one and it is the engine's. */
+  private engineState(): ReturnType<typeof readNannyState> {
     const state = readNannyState(nannyStatePath(this.options.stateDir, PROXY_ID))
-    if (state === null || state.serverId !== PROXY_ID)
+    return state !== null && state.serverId === PROXY_ID ? state : null
+  }
+
+  private live(): boolean {
+    const state = this.engineState()
+    if (state === null)
       return false
     return state.nannyPid > 0
       && isProcessAlive(state.nannyPid)
@@ -621,7 +617,9 @@ export class ProxyService {
     const httpsPort = boundPortsNow(applied === null ? undefined : applied.httpsPort, config.httpsPort)
     if (httpsPort !== null)
       urls.push(`https://127.0.0.1:${httpsPort}`)
-    const certExpiryDays = this.certificateExpiryDays()
+    // The engine's own CA is left out of the snapshot's soonest expiry: its leaves are always hours
+    // from expiry and would read as a problem.
+    const certExpiryDays = this.certificates.certSnapshot().days
     if (!this.installed())
       return { ...base, state: 'stopped', urls, certExpiryDays, lastError: 'the proxy engine is not installed' }
 
@@ -714,7 +712,7 @@ export class ProxyService {
       )
     }
     const servedText = fs.existsSync(this.options.configPath) ? fs.readFileSync(this.options.configPath, 'utf8') : null
-    await this.loadIntoEngine(staged)
+    await this.postConfiguration(staged)
     this.forgetCertificates(route.host)
     try {
       await this.apply({ force: true })
@@ -723,7 +721,7 @@ export class ProxyService {
       // The engine is still on the staged config, which leaves this name dark: put back what it
       // served before. Its stored pair is already gone, so the engine still asks the CA again.
       if (servedText !== null) {
-        await this.loadIntoEngine(JSON.parse(servedText) as Record<string, unknown>).catch((restoreError: unknown) => {
+        await this.postConfiguration(JSON.parse(servedText)).catch((restoreError: unknown) => {
           logger.error(`proxy:    could not restore the configuration after a failed certificate retry: ${errorMessage(restoreError)}`)
         })
       }
@@ -881,11 +879,6 @@ export class ProxyService {
     }
   }
 
-  /** Hands a configuration to the running engine without touching the file on disk. */
-  private async loadIntoEngine(rendered: Record<string, unknown>): Promise<void> {
-    await this.postConfiguration(rendered)
-  }
-
   /** Advances `previous.json` only for a configuration the engine accepted. */
   private rememberConfig(text: string): void {
     // 0600: the generated configuration carries the DNS-01 challenge password in
@@ -925,20 +918,6 @@ export class ProxyService {
 
   private rememberApplied(httpPort: number | null, httpsPort: number | null): void {
     writeFileAtomic(path.join(this.options.stateDir, 'applied.json'), `${JSON.stringify({ httpPort, httpsPort, at: Date.now() })}\n`, { mode: 0o600 })
-  }
-
-  /**
-   * Days until the soonest publicly-issued certificate expires. The engine's own CA
-   * is left out on purpose: it re-issues constantly, so its leaves are always hours
-   * from expiry and would read as a problem.
-   */
-  private certificateExpiryDays(): number | null {
-    return this.certificates.certSnapshot().days
-  }
-
-  /** True when an uploaded pair covers this hostname. */
-  private manualCovers(host: string): boolean {
-    return this.certificates.bestCover(host) !== null
   }
 
   /** Everything `render()` reads that moves without a config save: certificate state and live upstreams. */
@@ -1124,7 +1103,7 @@ export class ProxyService {
 
       // `manual` means the uploaded pair and nothing else: without one the engine
       // would quietly obtain its own certificate for a name the user marked manual.
-      if (route.tls === 'manual' && !this.manualCovers(route.host)) {
+      if (route.tls === 'manual' && this.certificates.bestCover(route.host) === null) {
         const reason = this.certificateFor(route).message ?? `no uploaded certificate covers ${route.host}`
         return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" ${reason}` }
       }
@@ -1492,16 +1471,7 @@ export class ProxyService {
     const admin = await (this.options.chooseAdmin ?? this.chooseAdmin.bind(this))()
     this.admin = admin
     const signature = this.syncSignature()
-    const routes = this.engineRoutes()
-    const rendered = renderCaddyConfig({
-      config,
-      admin,
-      engineDir: this.options.engineDir,
-      manual: this.manualPairs(),
-      acme: this.acmeAccount(routes),
-      dns01: this.dns01Input(routes),
-      routes,
-    })
+    const rendered = this.render()
     fs.mkdirSync(this.options.engineDir, { recursive: true, mode: 0o700 })
     // The engine boots from this file, so it is written now — but `previous.json` only advances
     // once the engine accepted it, and a failed start puts back what was there: two failed starts
