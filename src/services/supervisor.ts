@@ -1095,7 +1095,8 @@ export class Supervisor {
     }
     const line: LogLine = { ts: Date.now(), stream, text }
     entry.logs.push(line)
-    this.options.logFiles.append(entry.config.id, line)
+    // While a persistent run's nanny is alive it writes this file too, and it owns the rotation.
+    this.options.logFiles.append(entry.config.id, line, { rotate: !(isPersistentRun(entry) && entry.pid !== null) })
     // The relay reads a persistent entry's file back, so this line must be recognizable as ours.
     if (entry.config.persistent && this.options.logFiles.config.persist)
       rememberEchoedLine(entry.echoed, line)

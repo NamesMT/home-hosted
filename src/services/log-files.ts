@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ensureStateDir } from '#src/helpers/paths'
+import { parseLogLine } from '#src/providers/log-tail'
 
 /**
  * Append-only JSONL per server, one line per log entry, rotated by size.
@@ -20,8 +21,19 @@ export interface LogFileInfo {
   sizeBytes: number
 }
 
+export interface AppendOptions {
+  /**
+   * `false` while another process owns this file's rotation — a persistent entry's nanny, which
+   * writes the same `<id>.log`. Two writers that each rotate on size rotated it twice: the second
+   * rename moved the first one's fresh, nearly empty file into `.1` and pushed real history out.
+   */
+  rotate?: boolean
+}
+
 export class LogFiles {
   private readonly pending = new Map<string, LogLine[]>()
+  /** Servers whose pending batch includes a line appended with `rotate: false`. */
+  private readonly noRotate = new Set<string>()
   private timer: NodeJS.Timeout | null = null
   private closed = false
 
@@ -39,9 +51,11 @@ export class LogFiles {
     return this.getConfig()
   }
 
-  append(serverId: string, line: LogLine): void {
+  append(serverId: string, line: LogLine, options: AppendOptions = {}): void {
     if (this.closed || !this.getConfig().persist)
       return
+    if (options.rotate === false)
+      this.noRotate.add(serverId)
 
     const bucket = this.pending.get(serverId) ?? []
     bucket.push(line)
@@ -63,11 +77,13 @@ export class LogFiles {
       return
 
     const batches = [...this.pending.entries()]
+    const noRotate = new Set(this.noRotate)
     this.pending.clear()
+    this.noRotate.clear()
 
     for (const [serverId, lines] of batches) {
       try {
-        this.write(serverId, lines)
+        this.write(serverId, lines, !noRotate.has(serverId))
       }
       catch {
         // Logging must never take the control plane down.
@@ -137,6 +153,7 @@ export class LogFiles {
     // The batch that has not been flushed yet is still this server's, and `flush()` would write it
     // straight back — so the lines a delete was meant to remove reappeared a moment later.
     this.pending.delete(serverId)
+    this.noRotate.delete(serverId)
     // Every file this id has, not the ones `keep` would name: lowering `keep` leaves rotations
     // numbered above it, and those are still this server's bytes. Deleting "all the logs" and
     // leaving five files behind is the worst version of this bug, because nothing lists them.
@@ -185,7 +202,7 @@ export class LogFiles {
     this.flush()
   }
 
-  private write(serverId: string, lines: LogLine[]): void {
+  private write(serverId: string, lines: LogLine[], rotate = true): void {
     const { maxBytes } = this.getConfig()
     const file = this.currentPath(serverId)
     ensureStateDir(this.dir)
@@ -200,7 +217,7 @@ export class LogFiles {
         return
       const payload = `${encoded.join('\n')}\n`
       const currentSize = fs.existsSync(file) ? fs.statSync(file).size : 0
-      if (currentSize + Buffer.byteLength(payload) > maxBytes)
+      if (rotate && currentSize + Buffer.byteLength(payload) > maxBytes)
         this.rotate(serverId)
       fs.appendFileSync(this.currentPath(serverId), payload)
       encoded = []
@@ -342,12 +359,11 @@ async function readFileTail(file: string, tail: number): Promise<LogLine[]> {
     const text = bytes.toString('utf8')
     if (text.trim().length === 0)
       return
-    try {
-      found.push(JSON.parse(text) as LogLine)
-    }
-    catch {
-      // A partial line, or a torn write at the file's end.
-    }
+    // Checked, not cast: a hand-edited or foreign line (`{}`) reached search as a LogLine without
+    // `text`, and the route answered 500. A partial or torn line is skipped the same way.
+    const parsed = parseLogLine(text)
+    if (parsed !== null)
+      found.push(parsed)
   }
 
   try {

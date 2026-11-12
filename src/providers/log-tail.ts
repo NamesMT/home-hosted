@@ -316,7 +316,7 @@ export class LogTailer {
  * Cheap structural guard rather than a full schema pass: this runs per line on a hot
  * path, and the writer is our own nanny (which serializes `LogLine` unchanged).
  */
-function parseLogLine(raw: string): LogLine | null {
+export function parseLogLine(raw: string): LogLine | null {
   try {
     const value = JSON.parse(raw) as Partial<LogLine>
     if (typeof value.ts !== 'number' || typeof value.text !== 'string' || typeof value.stream !== 'string')

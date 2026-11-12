@@ -367,3 +367,24 @@ describe('tail cost', () => {
     expect(longestGap, `the event loop stalled for ${Math.round(longestGap)} ms`).toBeLessThan(250)
   }, 30_000)
 })
+
+describe('a file another writer rotates', () => {
+  it('appends without rotating when told the rotation is not its own', async () => {
+    const { files, dir } = await makeLogs({ persist: true, maxBytes: 10000, keep: 3 })
+    for (let index = 0; index < 400; index++) {
+      files.append('keep', line(`panel line ${index} ${'x'.repeat(40)}`, 'system'), { rotate: false })
+      files.flush()
+    }
+    const names = fs.readdirSync(path.join(dir, 'logs'))
+    expect(names, 'the nanny owns this file\'s rotation').toEqual(['keep.log'])
+  })
+})
+
+describe('a line on disk that is not a log line', () => {
+  it('is skipped by a tail rather than handed on unchecked', async () => {
+    const { files, dir } = await makeLogs({ persist: true })
+    fs.mkdirSync(path.join(dir, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'logs', 'web.log'), `{}\n${JSON.stringify(line('real'))}\n{"text":5}\n`)
+    expect(await files.readTail('web', 10)).toEqual([line('real')])
+  })
+})
