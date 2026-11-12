@@ -29,8 +29,6 @@ import {
  * in `#src/providers/ui-release`, and re-exported here so existing importers keep working.
  */
 
-export * from '#src/providers/ui-release'
-
 /** What the command needs from the CLI that owns the readline prompts and the colours. */
 export interface UiSwitchIo {
   write: (text: string) => void

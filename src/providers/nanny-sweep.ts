@@ -1,10 +1,11 @@
 import type { NannyState, StopConfig } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
+import { type } from 'arktype'
 import { NANNY_TRAPPED_SIGNALS, nannyChildPid, nannyIsAlive, nannySpecPath, nannyStatePath, nannyStopOptions, readNannyState, SPEC_SUFFIX } from '#src/providers/nanny'
 import { isProcessAlive } from '#src/providers/port'
 import { terminatePid } from '#src/providers/process'
-import { stopSchema } from '#src/shared/contracts'
+import { stopSchema, workspaceIdSchema } from '#src/shared/contracts'
 
 /**
  * Finds and ends the persistent entries a host is running, with no panel in the loop.
@@ -39,7 +40,7 @@ function stateDirs(hhDir: string): Array<{ workspaceId: string, dir: string }> {
     return fs.readdirSync(hhDir, { withFileTypes: true })
       .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
       .map(entry => entry.name)
-      .filter(id => /^[a-z0-9][a-z0-9_-]*$/.test(id))
+      .filter(id => !(workspaceIdSchema(id) instanceof type.errors))
       .map(workspaceId => ({ workspaceId, dir: path.join(hhDir, workspaceId, '.state') }))
   }
   catch {

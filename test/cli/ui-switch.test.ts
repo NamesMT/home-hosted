@@ -17,7 +17,7 @@ import {
   parseFileSource,
   parseRepoSlug,
   releaseApiUrl,
-} from '#src/cli/ui-switch'
+} from '#src/providers/ui-release'
 
 /**
  * `uiSwitch` end to end, off the network: a real minimal UI zip on disk (built the same

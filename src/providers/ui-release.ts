@@ -190,7 +190,7 @@ export async function fetchRelease(repo: RepoSlug, tag: string | null, context: 
     response = await fetch(url, { headers: apiHeaders(context), signal: timeoutSignal(REQUEST_TIMEOUT_MS) })
   }
   catch (error) {
-    throw new Error(isTimeout(error) ? `GitHub did not answer within ${REQUEST_TIMEOUT_MS / 1000}s` : `could not reach GitHub: ${describeError(error)}`)
+    throw new Error(isTimeout(error) ? `GitHub did not answer within ${REQUEST_TIMEOUT_MS / 1000}s` : `could not reach GitHub: ${errorMessage(error)}`)
   }
 
   if (!response.ok)
@@ -207,7 +207,7 @@ export async function fetchReleases(repo: RepoSlug, context: UiSourceContext, pe
     response = await fetch(releasesApiUrl(repo, perPage), { headers: apiHeaders(context), signal: timeoutSignal(REQUEST_TIMEOUT_MS) })
   }
   catch (error) {
-    throw new Error(isTimeout(error) ? `GitHub did not answer within ${REQUEST_TIMEOUT_MS / 1000}s` : `could not reach GitHub: ${describeError(error)}`)
+    throw new Error(isTimeout(error) ? `GitHub did not answer within ${REQUEST_TIMEOUT_MS / 1000}s` : `could not reach GitHub: ${errorMessage(error)}`)
   }
 
   if (!response.ok)
@@ -240,7 +240,7 @@ export async function downloadToTemp(url: string, headers: Record<string, string
     response = await fetch(url, { headers, redirect: 'follow', signal: timeoutSignal(DOWNLOAD_TIMEOUT_MS) })
   }
   catch (error) {
-    throw new Error(isTimeout(error) ? `the download stalled for ${DOWNLOAD_TIMEOUT_MS / 1000}s: ${url}` : `could not reach ${url}: ${describeError(error)}`)
+    throw new Error(isTimeout(error) ? `the download stalled for ${DOWNLOAD_TIMEOUT_MS / 1000}s: ${url}` : `could not reach ${url}: ${errorMessage(error)}`)
   }
 
   if (!response.ok)
@@ -339,10 +339,6 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024)
     return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
-export function describeError(error: unknown): string {
-  return errorMessage(error)
 }
 
 /**
