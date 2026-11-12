@@ -1,6 +1,6 @@
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { fail, green, invocation } from '#src/cli/io'
+import { dim, fail, green, invocation } from '#src/cli/io'
 
 /**
  * `start`/`stop`/`restart` for one supervised server.
@@ -40,6 +40,10 @@ async function callServerAction(action: string, id: string, workspace?: string, 
     // Only a record with nothing behind the pid is deleted — see `runtimeIsGone`.
     if (runtime !== null && await runtimeIsGone(runtime))
       clearRuntime()
+    // A persistent entry outlives the panel, and `stop` is the one action that still has a target
+    // then: its nanny, signalled the way `down --with-persistent` signals it.
+    if (action === 'stop')
+      return stopPersistentWithoutPanel(id, workspace)
     fail(`home-hosted is not running — start it with \`${invocation()} up\``)
   }
 
@@ -64,6 +68,34 @@ async function callServerAction(action: string, id: string, workspace?: string, 
     fail(`the panel answered ${answer.status}`)
   }
   return body
+}
+
+/**
+ * `stop <id>` with no panel: stop the persistent entry of that id through its nanny, or say what can.
+ *
+ * Without a workspace the id is looked up in every workspace, and two matches are refused rather than
+ * guessed — a server id is only unique inside its workspace.
+ */
+async function stopPersistentWithoutPanel(id: string, workspace?: string): Promise<ActionBody> {
+  const { livePersistents, persistentLabel, stopPolicyLookup } = await import('#src/cli/down')
+  const live = await livePersistents()
+  const matches = live.filter(handle => handle.serverId === id && (workspace === undefined || workspace.length === 0 || handle.workspaceId === workspace))
+
+  if (matches.length === 0) {
+    const others = live.length === 0
+      ? ''
+      : `; ${live.length} persistent server(s) are still running without it (${live.map(persistentLabel).join(', ')}) — \`${invocation()} down --with-persistent\` stops them`
+    fail(`home-hosted is not running, and no persistent entry "${label(id, workspace)}" is either${others}`)
+  }
+  if (matches.length > 1)
+    fail(`"${id}" is a persistent entry in ${matches.map(handle => handle.workspaceId).join(' and ')} — name one with --workspace`)
+
+  const { stopPersistentEntries } = await import('#src/providers/nanny-sweep')
+  const [result] = await stopPersistentEntries(matches, { stopFor: await stopPolicyLookup() })
+  if (result === undefined || !result.stopped)
+    fail(`persistent ${persistentLabel(matches[0]!)}: ${result?.error ?? 'the stop did not complete'}`)
+  process.stdout.write(`${dim('the panel is not running — stopped the persistent entry through its nanny')}\n`)
+  return { ok: true }
 }
 
 /** `workspace/id`, or `id` in the default workspace. */

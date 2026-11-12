@@ -57,6 +57,9 @@ home-hosted <version>
   than guess which process to stop. Anything else on that port — another home's panel, another
   program — is `portTakenByOther`: `down` has nothing of this home to stop and exits 0, and `up` will
   need another `--port`.
+- With the panel stopped, **persistent entries are still listed**: `status` names each one still
+  running (`persistentRunning` in `--json`), `stop <id>` stops one through its own supervisor, and
+  `down --with-persistent` stops them all.
 
 ## Logs and usage
 

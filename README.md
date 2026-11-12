@@ -328,7 +328,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | `home-hosted down` | stop it and everything it started — persistent entries stay unless `--with-persistent` |
 | `home-hosted restart [<id>]` | the panel (`down` then `up`), or just one server, leaving the panel up |
 | `home-hosted status` | running? where? how many servers up? every path (`--json`) |
-| `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one (`-w <workspace>`, `--free-port`) |
+| `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one, and works on a persistent entry with the panel down (`-w <workspace>`, `--free-port`) |
 | `home-hosted free-port <id>` | ask whatever holds that server's port to stop; supervised holders are refused |
 | `home-hosted logs [<id>]` | the panel's console, or one server's log (`--lines`, `--follow`, `--json`) |
 | `home-hosted usage` | CPU and memory per server, loudest first, plus starts and crashes over the history window |

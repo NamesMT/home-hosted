@@ -44,6 +44,10 @@ export async function runStatus(json: boolean): Promise<void> {
     // Another home's panel, or anything else, on the port this home is configured for: not ours, but
     // `up` will fail on it, so it is worth saying.
     const portTaken = listener?.kind === 'other' ? listener.port : null
+    // A persistent entry outlives the panel by design, so "not running" must not hide it: after
+    // `down` it is the one thing still running, and nothing else names it. Read-only.
+    const { livePersistents, persistentLabel } = await import('#src/cli/down')
+    const persistent = await livePersistents()
     if (json) {
       // `liveness` is always present, because the contract says so and a script should not have to
       // branch on whether a record exists. No `run.json` is not "unknown": nothing is behind the
@@ -59,6 +63,9 @@ export async function runStatus(json: boolean): Promise<void> {
         ...(lastStop === null ? {} : { lastStopAt: lastStop.at }),
         ...(answering === null ? {} : { answeringWithoutRecord: answering }),
         ...(portTaken === null ? {} : { portTakenByOther: portTaken }),
+        ...(persistent.length === 0
+          ? {}
+          : { persistentRunning: persistent.map(handle => ({ workspaceId: handle.workspaceId, serverId: handle.serverId, nannyPid: handle.state.nannyPid, childPid: handle.state.childPid })) }),
       }, null, 2)}\n`)
     }
     else if (answering !== null) {
@@ -72,6 +79,10 @@ export async function runStatus(json: boolean): Promise<void> {
     }
     else {
       process.stdout.write(`home-hosted is not running — nothing is set up here yet; \`${invocation()} init\` creates a project, \`${invocation()} up\` starts one here\n`)
+    }
+    if (!json && persistent.length > 0) {
+      process.stdout.write(`  ${paint('33', `${persistent.length} persistent server(s) still running without the panel:`)} ${persistent.map(persistentLabel).join(', ')}\n`)
+      process.stdout.write(`  ${dim(`stop one with \`${invocation()} stop <id>\`, or all of them with \`${invocation()} down --with-persistent\``)}\n`)
     }
     process.exitCode = 1
     return

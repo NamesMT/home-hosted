@@ -232,7 +232,7 @@ export function exitCodeForStops(results: ReadonlyArray<Readonly<{ stopped: bool
  * to allow more time for was still running. A workspace whose config cannot be read falls
  * back to the defaults — the host is being brought down either way.
  */
-async function stopPolicyLookup(): Promise<(handle: PersistentHandle) => StopConfig> {
+export async function stopPolicyLookup(): Promise<(handle: PersistentHandle) => StopConfig> {
   const { stopSchema } = await import('#src/shared/contracts')
   const read = await serversReader()
   const policies = new Map<string, Map<string, StopConfig>>()
@@ -415,7 +415,7 @@ async function reportPersistent(options: DownOptions, before: PersistentHandle[]
     if (running.length === 0)
       return []
     process.stdout.write(`${dim(`${running.length} persistent server(s) left running: ${running.map(persistentLabel).join(', ')}\n`)}`)
-    process.stdout.write(`${dim('stop one from the panel, or pass --with-persistent')}\n`)
+    process.stdout.write(`${dim(`stop one with \`${invocation()} stop <id>\`, or pass --with-persistent`)}\n`)
     return []
   }
 

@@ -58,6 +58,44 @@ describe('down --with-persistent', () => {
     expect(result.stderr).toContain('restart <id> restarts one server')
   })
 
+  /**
+   * After a plain `down` the persistent entries are the only thing running, and `status` said only
+   * "home-hosted is not running" — while `stop <id>` refused for want of a panel.
+   */
+  it('is named by status once the panel is gone', async () => {
+    const pid = spawnStub()
+    writePersistent('default', 'keep', pid)
+    try {
+      const text = await runCli(['status'])
+      expect(text.stdout).toContain('home-hosted is not running')
+      expect(text.stdout).toContain('1 persistent server(s) still running without the panel: default/keep')
+      expect(text.stdout).toContain('down --with-persistent')
+
+      const json = JSON.parse((await runCli(['status', '--json'])).stdout) as { persistentRunning?: Array<{ serverId: string, nannyPid: number }> }
+      expect(json.persistentRunning).toEqual([expect.objectContaining({ workspaceId: 'default', serverId: 'keep', nannyPid: pid })])
+    }
+    finally {
+      await runCli(['down', '--with-persistent'])
+    }
+  })
+
+  it('is stopped by `stop <id>` through its nanny when no panel is running', async () => {
+    const pid = spawnStub()
+    const stateFile = writePersistent('default', 'keep', pid)
+
+    const missing = await runCli(['stop', 'other'])
+    expect(missing.status).toBe(1)
+    expect(missing.stderr).toContain('no persistent entry "other"')
+    expect(missing.stderr).toContain('down --with-persistent')
+    expect(isProcessAlive(pid)).toBe(true)
+
+    const result = await runCli(['stop', 'keep'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('stopped keep')
+    expect(isProcessAlive(pid), 'the nanny is still running').toBe(false)
+    expect(fs.existsSync(stateFile)).toBe(false)
+  })
+
   it('does not signal a nanny whose pid is not the process it names', async () => {
     // A recycled pid must never be signalled: the record is the only witness, and a stranger
     // that inherited the number would be killed in the entry's name.
