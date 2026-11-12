@@ -730,3 +730,218 @@ no action needed.
 5. To your credit: `74f41ed`'s message is honest about its own author getting the first test wrong and
    about `spawnJobRun` not throwing. That is the kind of commit message the rest should match, and it
    is why I trusted the BUG-2 fix enough to model it rather than just read it.
+
+---
+
+## QA review 4 — part 3: the second round of fixes
+
+**Scope:** `git diff 446139f..HEAD`, **14** commits (the ten of part 2 plus `9c2f09c`, `8902e1b`,
+`32b3901`, `f3fc9f2`). Parts 1 and 2 are unmodified; this is appended.
+
+**Verdict: SHIP WITH FIXES — closer than ever, but not yet. One new BLOCKER, and it is mine to own
+as much as yours: I recommended the shape and you picked a variant that does not scale.**
+
+BLOCKER-3 is genuinely fixed and I could not break it with 165 generated expressions against an
+independent oracle. Troll, the CLI env, the search-budget disagreement, and NIT-2 are all fixed and
+verified. The history pin is correct in what it promises and bounded in practice.
+
+**But the RISK-7 memoisation is a BLOCKER in the realistic case, not a perf nicety.** I measured
+**390 ms per tick with two different rare schedules**, against a 1000 ms tick that also drives health
+probes and backups. I also owe you a correction: my part-2 suggestion (day-boundary skip) was the
+right direction and you were right to distrust your two attempts at it — but the cache you chose
+instead has a scaling failure that I did not anticipate when I suggested caching as an alternative.
+Details in BLOCKER-4.
+
+---
+
+## BLOCKER
+
+### BLOCKER-4 (NEW) — the `dueCache` has **one slot**, so two different rare schedules cost
+~390 ms per tick and the panel's 1 Hz loop cannot keep up
+
+`src/services/scheduler.ts:158-168` (`dueCache`), declared `:84`.
+
+**What I did.** Built real `JobScheduler`s with rare-but-legal schedules and ticked them at 1 Hz, as
+the panel's tick does (`panel.ts:766`, `TICK_MS = 1000`). Suppressed logging so the numbers are the
+scheduler's own cost.
+
+**What I observed.** This is the whole finding in one table:
+
+```
+single previousCronRun cost (after the 8-year look-back widening):
+  0 0 31 4 *   ->  313 ms      0 0 29 2 *  ->  83 ms
+  0 0 1 1 *    ->   14 ms      0 0 * * *   ->  0.0 ms
+
+one tick, N distinct impossible schedules:
+  1 job -> 299 ms     2 -> 610 ms     3 -> 884 ms     6 -> 1844 ms
+
+90 ticks at 1 Hz (1.5 min of panel life), realistic cases:
+  1 rare job                          ->   3 ms/tick
+  2 rare jobs, SAME expression        ->   2 ms/tick   (the cache works)
+  2 rare jobs, DIFFERENT expressions  -> 390 ms/tick   (the cache thrashes)
+```
+
+**Why.** `dueCache` is a single `{minute, schedule, due}` object, not a map. With two distinct
+expressions, job A misses and writes the slot, then job B misses and overwrites it — so **neither
+ever hits**, and every job pays a full 8-year minute scan on every tick. The comment at `:84-90`
+argues for one entry over a map ("one entry, not a map: a workspace has a handful of schedules"), but
+"a handful of schedules" is exactly the case that breaks it: the cache is correct only when there is
+**one** distinct expression in the workspace.
+
+**Why this is a BLOCKER and not a perf note.** The tick at `panel.ts:752-776` is `async` and driven by
+`setInterval`; a tick that takes 390 ms does not stop the loop, but it delays everything sequenced
+beside it — `hostMonitor.tick` is `await`ed first, and `proxy.sync()` after, so a 390 ms scheduler
+pass sits in the critical path of health probing and certificate checks on a 1000 ms budget. Two
+such jobs is over a third of the loop; six measured at 1.8 s **exceeds the interval outright**, so
+ticks queue behind each other and the panel's clock slips. The failure is reachable by a user through
+the normal write door: `serverKindProblems({kind:'job', schedule:'0 0 31 4 *'})` returns `[]`, so
+`0 0 31 4 *` (a legal expression naming a date that never occurs) and `0 0 30 2 *` both save
+successfully, and so does a legitimate `0 0 29 2 *` leap-day job. Two leap-day jobs with *different*
+minute/hour is enough.
+
+**Why the tests did not catch it.** A scheduler test constructs one or two jobs and usually shares one
+expression, which is precisely the case the cache handles. Nothing asserts a *tick budget* — there is
+no benchmark, so no test can fail when a change makes the tick slower. This is the same class of gap I
+called out in part 2: the test encodes the model, and the model here was "a handful of schedules,
+cached". The benchmark is the missing test, not another behavioural assertion.
+
+**Smallest fix, in order of preference.**
+1. **Make the cache a `Map`** keyed by `schedule`, storing `{minute, due}`, cleared when the minute
+   changes. That is a three-line change from the current shape and makes the many-expression case
+   cost one scan per expression per minute instead of one per job per tick. It fixes the thrash
+   completely for realistic workspaces. Bounded by the number of distinct expressions, which the
+   config bounds.
+2. If you also want the single call cheaper, fix the *scan* — my day-boundary suggestion was right,
+   and the reason both attempts broke is that a day skip must be computed in absolute time
+   (`nextMidnight = floor(t/86400000)*86400000`), never with local `setHours`, which is the same
+   `setSeconds` trap that caused BLOCKER-1. But (1) alone removes the blocker.
+3. Independently of either: **cap the scan**, not just widen it. Walking four million minutes to
+   answer "no occurrence" is the actual defect; the scheduler only ever needs the *most recent*
+   occurrence, so a bounded look-back (say 400 days) plus a separate "is it ever due" check for the
+   message would be both fast and honest.
+
+**And add a tick budget test** — `expect(elapsed).toBeLessThan(50)` for a workspace of ten rare
+schedules. Without it this regression can come back the moment someone touches the cache.
+
+## BUG
+
+### BUG-11 (NEW, minor) — the history pin is unbounded in the number of *servers*, though bounded in practice
+
+`src/services/history.ts:60-72` (`pinNewestJobRun`).
+
+**What I did.** Drove the real `HistoryStore` past the cap and counted what survives.
+
+**What I observed.** The pin does its advertised job correctly — I could not break that:
+
+```
+pinned job-run survives 5200 noise events: 1 found
+events remain time-sorted: true
+100 job-runs for ONE server + 5000 noise -> 1 kept, the newest (r99)   <- correct
+forget() clears the pin, and it stays cleared                            <- correct
+6000 distinct servers each with a job-run -> 6000 events retained        <- grows past the cap
+```
+
+**Why it matters.** The cap is `MAX_EVENTS` **plus one per distinct server that has ever written a
+`job-run`**. On a home panel that is tens of events, which is genuinely fine and I would not block on
+it. But the invariant "the store holds at most 5000 events" is no longer true, and nothing documents
+the new bound. `forget()` does clear a removed server, so there is no leak on removal — good. The
+practical risk is a workspace with thousands of historical ids (an import that creates and removes
+many entries); the file grows without the cap, and `load()` reads the whole thing on every fresh
+process.
+
+**Smallest fix.** Bound the pin set explicitly — keep newest `job-run` for at most the servers that
+still exist, or cap pins at, say, `MAX_EVENTS / 10`. And state the new invariant in the doc comment,
+because "5000" is now the wrong number to quote anywhere.
+
+### BUG-12 (NEW, cosmetic but a real inconsistency) — `LOOK_BACK_MS = SEARCH_LIMIT_MS` makes the
+scheduler's `null` message wrong in the *other* direction
+
+`src/shared/cron.ts:326-336`, `src/services/scheduler.ts:169-177`.
+
+BUG-9 is fixed as claimed — I verified both searches now agree, and `0 0 29 2 *` from 2026-06-01
+answers prev 2024 / next 2028. But making `LOOK_BACK_MS` equal to `SEARCH_LIMIT_MS` means the
+scheduler's message "no occurrence within eight years" is now attached to a search whose real
+question is "which occurrence is due **now**". For `0 0 31 4 *` the message is accurate. For a
+leap-day job it is not reached (prev now finds 2024), which is the fix working. So this is only a
+wording/architecture nit: the scheduler now pays an 8-year backward scan to answer a question that
+can only ever have a same-day or same-hour answer, which is the *cause* of BLOCKER-4. The smallest
+fix is the same as BLOCKER-4's option 3: the scheduler should ask a bounded question, and the public
+`previousCronRun` can keep the wide budget for callers that want it. Recorded so the connection is
+explicit: **BUG-9's fix is what made BLOCKER-4 much worse** (1-year scan → 8-year scan, ~40 ms → ~313 ms).
+
+## What I verified as genuinely FIXED
+
+- **BLOCKER-3 — fixed, and I could not break it.** I rebuilt an independent Vixie evaluator from
+  `cron.c`'s own comment and code line (both `bit_test`s always run; `(DOM_STAR||DOW_STAR)` chooses
+  AND vs OR) and compared against the real `cronDueAt`:
+  - 25 curated day-rule expressions × all 365 days of 2026 → **0 mismatches**
+  - **165 generated expressions** (`*/2`/`*/3`/`*/10`/`*/15`/`*/31`/`1-31/2`/`1-15`/`1,15`/`5/10`/
+    `1-7`/`1,16,31`/`31`/`29`/`*/5` × `*`/`*/2`/`*/3`/`0-6`/`3-6`/`0`/`7`/`1`/`1,3,5`/`*/7`) × 365 days
+    → **0 mismatches**. `*/N` in *both* day fields, and `-` ranges, are covered by that matrix.
+  - Spot checks the part-2 report called out: `*/10`→1,11,21,31; `*/2`→odd days;
+    `*/2`+Monday→odd-day Mondays; `1,15`+Sunday→OR; `1-31/2`+Monday→OR.
+- **BUG-7 (Troll) — fixed.** `Antarctica/Troll` across its 2-hour fold: `30 1 * * *`, `0 * * * *`,
+  `15 2 * * *`, `30 2 * * *` all monotonic with **no duplicate wall-clock minutes**. Lord Howe (30 min)
+  and Berlin still correct. The bounded 3-hour window is the right shape, though a 240-minute cap
+  would also cover a hypothetical 3-hour shift — not worth changing.
+- **BUG-8 (offline CLI env) — fixed.** Both production call sites supply `env` (`supervisor.ts:465`,
+  `run-deploy.ts:92`), the field is now **required** so a future caller cannot silently regress, and
+  the CLI *prints* what it cannot supply. `tsc --noEmit` is clean. I checked the `.trim()` concern —
+  `envFile` defaults to `""` (`contracts.ts:430`), so it is a string and cannot throw; `secretEnv`
+  defaults to `[]`. The new `test/cli/deploy.test.ts` passes.
+- **BUG-9 (searches disagree) — fixed.** Verified prev/next agreement above.
+- **RISK-5 (cap eviction) — fixed for the case it was for.** The pin keeps the newest `job-run` per
+  server past the cap, survives 5200 noise events, keeps exactly the newest per server, stays
+  time-sorted, and `forget()` clears it. The only caveat is BUG-11's unbounded *server count*.
+- **NIT-2 — fixed.** noc-console hides `health`/`restart`/`stop` on a job and shows one `kind: job`
+  line. This is a source-level verification only (see below).
+- **NIT-3 — agreed, not worth doing.** Two stale error `<p>`s that clear on the next action is not
+  worth a commit on a branch whose real risks are elsewhere. Leave it; I would not spend the review
+  budget on it either.
+
+## The memoisation, specifically (your priority b)
+
+I probed every staleness case you named and **the cache is correct**; the defect is performance, not
+correctness:
+
+| case | result |
+| --- | --- |
+| clock set back then forward | 1 run — `lastStartedFor` guards it, no duplicate |
+| two jobs sharing one expression | **both** start (`a`,`b`) — keyed by schedule, not job |
+| schedule edited mid-minute | cache misses on the new expression; no stale `due` served |
+| `dueCache` after `dispose()` | field retained, but `tick()` returns early on `disposed`, so no effect |
+| two different expressions | **cache thrashes** — neither hits, full scan per job per tick |
+
+So the answer to "can it produce a stale or wrong `due`" is **no**, and the answer to "is the trade
+right" is **no for a different reason than staleness** — it does not survive a second distinct
+expression, which is a realistic workspace.
+
+## What I could not verify
+
+- **The noc-console change, rendered.** I verified the markup and the `isJob` predicate by reading
+  the source and the new `test/job-detail-view.test.ts`, which is a source scan, not a mount. I did
+  not run a browser. NIT-2 is "fixed in source, unverified when rendered".
+- **A live panel / real tick loop.** All timings are the scheduler's own cost in isolation, which is
+  the right measurement for the finding, but the absolute wall-clock impact under a real
+  `hostMonitor` + `proxy.sync()` load is not measured. The conclusion (390 ms of a 1000 ms budget,
+  six jobs exceeding it) does not depend on that.
+- **Windows**, as before.
+- **Whether any real workspace has two distinct rare schedules today** — I can only show the cost,
+  not that it is already happening.
+
+## Commit messages — what is overstated
+
+1. `f3fc9f2`/`32b3901`/`8902e1b`/`9c2f09c` messages are accurate against my measurements. `9c2f09c`'s
+   honesty about the mistake is useful — its comment block in `cron.ts` is the kind of thing that
+   stops the next person repeating it, and that is why BLOCKER-3 came back clean.
+2. The **RISK-7 commit** ("60 ms → 10 ms per tick") is measured on the *sharing* case and does not
+   hold for distinct expressions: I measure **1 job 9 ms/tick, 2 distinct 606 ms/tick** over 60
+   consecutive ticks. The claim is true for its example and false as a general statement about the
+   fix. Worth correcting in the commit or the code comment, because the comment at `scheduler.ts:84-90`
+   currently *asserts* the scaling argument ("per-job state would be wrong here") when the real
+   problem is that a single global slot is wrong for two or more *different* expressions.
+3. `32b3901` "the newest job-run per server survives the history cap" — accurate, but silent on the
+   cap no longer being a hard bound (BUG-11).
+4. To be fair: the part-3 fixes have **no** instance of the part-2 failure mode. Every one I could
+   check was correct in the case it claimed and in the cases adjoined to it, except the cache, which
+   is correct in behaviour and wrong in cost. That is progress worth saying plainly.

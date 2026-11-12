@@ -2,7 +2,22 @@ import type { HistoryEvent, ServerHistory } from '#src/shared/contracts'
 import fs from 'node:fs'
 import { writeFileAtomic } from '#src/helpers/atomic'
 
+/**
+ * The rolling window, and the small number of exceptions kept beside it.
+ *
+ * **At most `MAX_EVENTS + MAX_PINS` events are retained** — that is the ceiling, not `MAX_EVENTS`
+ * alone. The excess is one `job-run` per server for the most recently active `MAX_PINS` servers, kept
+ * because the scheduler's boot catch-up reads it to decide whether an occurrence is owed.
+ */
 const MAX_EVENTS = 5000
+/**
+ * How many servers keep a pinned `job-run`.
+ *
+ * The pin exists so the scheduler's boot catch-up cannot lose its only input to a busy neighbour. It
+ * needs to be bounded or the cap stops meaning anything: 200 is far more jobs than a home panel has,
+ * and keeps the real ceiling at `MAX_EVENTS + MAX_PINS`.
+ */
+const MAX_PINS = 200
 const SAVE_DEBOUNCE_MS = 2000
 const EVENTS_IN_VIEW = 8
 
@@ -56,19 +71,29 @@ export class HistoryStore {
     this.scheduleSave()
   }
 
-  /** Keeps one `job-run` event per server even when the window rolls past it. */
+  /**
+   * Keeps one `job-run` event per server even when the window rolls past it.
+   *
+   * Bounded in its own right: a workspace with more servers than `MAX_PINS` keeps the most recently
+   * active ones and lets the rest roll, so "at most `MAX_EVENTS + MAX_PINS`" stays true. Without a
+   * bound, a workspace with six thousand ids would retain six thousand events and the documented cap
+   * would be a lie.
+   */
   private pinNewestJobRun(): void {
     const newest = new Map<string, HistoryEvent>()
     for (const event of this.events) {
-      if (event.type === 'job-run')
+      if (event.type !== 'job-run')
+        continue
+      const seen = newest.get(event.serverId)
+      if (seen === undefined || event.ts > seen.ts)
         newest.set(event.serverId, event)
     }
-    if (newest.size === 0)
-      return
-    const pinned = new Set(newest.values())
+    // Keep the most recently active pins, and let the rest roll: a workspace with more ids than
+    // `MAX_PINS` must not quietly exceed the documented ceiling.
+    const ranked = [...newest.entries()].sort((left, right) => right[1].ts - left[1].ts)
+    const pinned = new Set(ranked.slice(0, MAX_PINS).map(([, event]) => event))
     const rest = this.events.filter(event => !pinned.has(event))
     const overflow = rest.length - Math.max(0, MAX_EVENTS - pinned.size)
-    // Drop the oldest unpinned events, never a pin.
     const kept = overflow > 0 ? rest.slice(overflow) : rest
     this.events = [...new Set([...kept, ...pinned])].sort((left, right) => left.ts - right.ts)
   }

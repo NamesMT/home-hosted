@@ -219,3 +219,28 @@ describe('pinning the newest job-run', () => {
     expect(history.all().length).toBeLessThanOrEqual(5000)
   })
 })
+
+/**
+ * The pin is bounded, so the documented ceiling stays true.
+ *
+ * Pinning one `job-run` per server is what protects the scheduler's boot catch-up from the cap. But an
+ * unbounded pin would make "at most 5000 events" false for a workspace with many ids — a comment that
+ * lies is worse than no comment, so the pin keeps only the most recently active `MAX_PINS` servers.
+ */
+describe('bounded pinning', () => {
+  it('keeps the total within the ceiling even with more ids than pins', async () => {
+    const { history } = await makeHistory()
+    // More distinct servers with a job-run than MAX_PINS (200), plus noise to roll the window.
+    for (let id = 0; id < 260; id += 1)
+      history.record(`s${id}`, { type: 'job-run', detail: 'run started', outcome: 'running' }, 1 + id)
+    for (let index = 0; index < 5200; index += 1)
+      history.record('chatty', { type: 'start', detail: `start ${index}` }, 10_000 + index)
+
+    const kept = history.all()
+    // 5000 window + at most 200 pins.
+    expect(kept.length).toBeLessThanOrEqual(5_200)
+    // The most recent pins survived; the oldest did not make the ceiling a lie.
+    expect(kept.some(event => event.serverId === 's259' && event.type === 'job-run')).toBe(true)
+    expect(kept.some(event => event.serverId === 's0' && event.type === 'job-run')).toBe(false)
+  })
+})
