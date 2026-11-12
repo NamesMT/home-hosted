@@ -194,3 +194,28 @@ describe('forget', () => {
     }
   })
 })
+
+/**
+ * The newest `job-run` per server survives the cap.
+ *
+ * It is the scheduler's boot catch-up input, so evicting it re-opens a double-start: a busy workspace
+ * pushes the window past a quiet job's only `job-run` event, and the next boot concludes the
+ * occurrence was missed. The cap is workspace-wide, so a chatty neighbour was enough to do it.
+ */
+describe('pinning the newest job-run', () => {
+  it('keeps one per server even when the window rolls far past it', async () => {
+    const { history } = await makeHistory()
+    history.record('quiet', { type: 'job-run', detail: 'run started', outcome: 'running' }, 1)
+    // Enough noise from another server to roll the 5000-event window **past** the pin. Twenty events
+    // would not: the first version of this test used 20 and passed with the pin removed, which made it
+    // evidence for nothing.
+    for (let index = 0; index < 5200; index += 1)
+      history.record('chatty', { type: 'start', detail: `start ${index}` }, 1000 + index)
+
+    const kept = history.all().filter(event => event.serverId === 'quiet' && event.type === 'job-run')
+    expect(kept, 'the catch-up input must not be evicted').toHaveLength(1)
+    expect(kept[0]!.outcome).toBe('running')
+    // And the ordinary events still roll: the pin did not turn the cap off.
+    expect(history.all().length).toBeLessThanOrEqual(5000)
+  })
+})

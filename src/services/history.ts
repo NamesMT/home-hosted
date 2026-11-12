@@ -44,9 +44,33 @@ export class HistoryStore {
     this.load()
     this.events.push({ serverId, ts, ...event })
     this.version += 1
-    if (this.events.length > MAX_EVENTS)
-      this.events.splice(0, this.events.length - MAX_EVENTS)
+    /**
+     * The newest `job-run` per server is **pinned** past the cap.
+     *
+     * It is no longer only a display value: the scheduler's boot catch-up reads it to decide whether an
+     * occurrence is owed, so evicting it re-opens the double-start the `running` claim exists to
+     * prevent — a busy workspace plus a reboot and a long run is enough. The cap is workspace-wide, so
+     * without this a chatty neighbour could evict a quiet job's only defence.
+     */
+    this.pinNewestJobRun()
     this.scheduleSave()
+  }
+
+  /** Keeps one `job-run` event per server even when the window rolls past it. */
+  private pinNewestJobRun(): void {
+    const newest = new Map<string, HistoryEvent>()
+    for (const event of this.events) {
+      if (event.type === 'job-run')
+        newest.set(event.serverId, event)
+    }
+    if (newest.size === 0)
+      return
+    const pinned = new Set(newest.values())
+    const rest = this.events.filter(event => !pinned.has(event))
+    const overflow = rest.length - Math.max(0, MAX_EVENTS - pinned.size)
+    // Drop the oldest unpinned events, never a pin.
+    const kept = overflow > 0 ? rest.slice(overflow) : rest
+    this.events = [...new Set([...kept, ...pinned])].sort((left, right) => left.ts - right.ts)
   }
 
   all(): HistoryEvent[] {
