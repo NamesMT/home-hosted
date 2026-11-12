@@ -191,7 +191,7 @@ export class JobScheduler {
       // `null` is "not within the search limit", not proof of "never": a date like 31 April cannot
       // occur, but a leap-day expression near a non-leap century year is merely far away. Saying
       // "never" for the second would be wrong, so the message states what was actually checked.
-      this.reportOnce(clock, id, `the schedule has had no occurrence in the past year (${schedule}) — check it is not an impossible date like 31 April`)
+      this.reportOnce(clock, id, `the schedule has no occurrence in the past year and none within eight years (${schedule}) — check it is not an impossible date like 31 April`)
       return
     }
 

@@ -945,3 +945,187 @@ expression, which is a realistic workspace.
 4. To be fair: the part-3 fixes have **no** instance of the part-2 failure mode. Every one I could
    check was correct in the case it claimed and in the cases adjoined to it, except the cache, which
    is correct in behaviour and wrong in cost. That is progress worth saying plainly.
+
+---
+
+## QA review 4 — part 4: the cache, the year bound, and the pin
+
+**Scope:** `git diff 446139f..HEAD`, **16** commits. The two new ones are `b3da412` (the due cache) and
+`bfb851e` (the pin); `f3fc9f2` and `32b3901` were reviewed in part 3. Parts 1–3 are unmodified.
+
+**Verdict: SHIP.**
+
+I could not reopen a part-2 or part-3 finding, and I could not break either new commit. BLOCKER-4 is
+fixed and I confirm the magnitude of the revert-check. The year bound is the right call and the
+leap-day worry you raised in (b) is already handled — I checked the case you were worried about and it
+does not warn. The `Map` does not grow without bound. Two small caveats below, neither of which is a
+ship blocker and neither of which I would spend another round on.
+
+This is a fit branch to push. What made the difference, concretely: the two fixes that landed clean
+are the two where you wrote down the *measurement* in the commit rather than the intent, and where the
+test asserts a budget rather than a behaviour. The part-2 failures were all behaviour-test failures.
+
+---
+
+## Your four questions
+
+### (a) The tick cost on my machine — and the budget is too generous
+
+I reproduced your test exactly (6 distinct rare schedules, 60 ticks spanning one minute) with the JIT
+warmed:
+
+```
+6 distinct rare schedules, 60 ticks:  388 ms / 414 ms / 407 ms   (three trials)
+1 rare schedule:                      133 ms
+2 distinct rare schedules:            143 ms
+10 distinct rare schedules, 60 ticks: 1387 ms
+20 distinct rare schedules, 60 ticks: 2670 ms
+single-slot equivalent (6 scans x 60): 7169 ms for 3 schedules -> ~14 s extrapolated to 6
+```
+
+So: my box runs ~2× slower than yours (consistent with the 313 ms vs 73 ms we saw for
+`0 0 31 4 *`), the map version is **~400 ms** against your 187 ms, and the slot regression is **~14 s**
+against your 6887 ms. Both of your numbers are directionally right; the ratio is what matters and it
+holds.
+
+**The 6 s bound is too generous — by about 15×.** The test measures ~400 ms of real work, so it will
+still pass if every scan gets **~15× slower**. It catches the catastrophic single-slot thrash (which it
+does, at 7169 ms) and nothing less. That is not a wrong test — it is a test with one job, and it does
+that job — but it is not the regression guard it reads as. Two concrete suggestions:
+
+- **Tighten to 2 s.** Still ~5× headroom on my slow box, still passes on yours at 187 ms, and it fails
+  at anything worse than a ~5× slowdown. Even 2 s is loose, but it is honest about being a guard
+  against a shape change rather than a stopwatch.
+- **Add a scaling assertion**, which is the real invariant and is machine-independent: assert that
+  doubling the number of *distinct* schedules does not more than roughly double the cost (i.e. the
+  cost is O(distinct), not O(jobs × ticks)). A ratio test does not need a calibrated absolute number,
+  so it cannot rot on faster hardware. Something like: time 3 distinct, time 6 distinct, assert
+  `six < three * 2.5`. That is the property that was actually broken in part 3, and it is the one a
+  future edit is most likely to break again.
+
+Worth noting for the record: 10 distinct rare schedules already costs **1387 ms**, over the 1 s tick.
+Ten is more than a home panel has, so this is not a live problem — but it means the headroom at
+"realistic worst case" is thinner than the 6 s budget implies, which is another reason to tighten.
+
+### (b) The year bound and the leap day — your worry is real but already fixed
+
+You asked me to check what the scheduler does with `0 0 29 2 *`, because you expected it to log "no
+occurrence in the past year" every tick for a valid job. That is exactly what the *code would have
+done* — but you caught it in the same commit with the `nextCronRun` branch, and I confirm it works:
+
+```
+prev for 0 0 29 2 * (1-year look-back):  at 2029-02-27 -> 2028-02-29
+                                          at 2029-03-01 -> null
+                                          at 2030-06-01 -> null
+                                          at 2031-12-31 -> null
+                                          at 2032-02-27 -> null
+                                          at 2032-02-29 -> 2032-02-29
+scheduler, ticking through 2029-06-01 and 2033-06-01: 0 warnings
+scheduler, ticking through 2032-02-27..29: runs that occurrence once, correctly
+scheduler, 0 0 31 4 *: warns  "no occurrence in the past year (0 0 31 4 *) — check it is not an impossible date"
+scheduler, 0 0 30 2 *: warns  (same)
+```
+
+So `previousCronRun` is `null` for a leap-day job in three years out of four — as I flagged — but the
+scheduler's `due === null && nextCronRun(...) !== null` branch suppresses the warning, which is the
+correct distinction between "nothing due yet" and "this can never happen". The job still fires on its
+leap day, including via the boot catch-up path. **No action needed.**
+
+**Is there a schedule that legitimately repeats less often than yearly?** No. The Gregorian calendar's
+longest gap between occurrences of any fixed date expression is bounded by the leap-year rule: the worst
+case is `0 0 29 2 *` at 8 years (1896→1904, 2096→2104), and every other date recurs at most yearly. A
+one-year backward window therefore always finds the most recent occurrence *when one exists within a
+year*, and when it does not, `nextCronRun` is a 0.09 ms check that answers the real question. The
+division of labour is sound. The only residual is BUG-13 below, which is cosmetic.
+
+### (c) The `Map` cannot grow without bound
+
+I tried to make it grow: 5,000 schedule edits **within one minute** (a config watcher reloading while
+someone types), each with a different expression:
+
+```
+distinct keys after 5000 same-minute edits: 120      (bounded by distinct expressions, not edits)
+after the minute rolls:                      1
+```
+
+The key is the expression, so repeated edits to the same set of expressions collapse; 120 is the number
+of *distinct expressions* I generated, not the number of edits. The map is cleared wholesale when
+`dueMinute` changes, so its worst-case size is "distinct expressions observed in one minute", which the
+config bounds by the number of jobs. No leak, no unbounded growth, no stale entry (an edited schedule
+misses because its expression is not a key). This is correct.
+
+One observation while I was here: the map is cleared on the first tick of each new minute, so the first
+tick of every minute pays one full scan per distinct expression — that is the 400 ms above, and it is
+expected, not a defect. It does mean the panel's worst tick of each minute is the expensive one, which
+is worth knowing if anyone later tries to tighten the 1 s tick.
+
+### (d) The last two commits — accuracy check
+
+Both commit messages are **accurate**, and unusually good: they state the measurement, the reversal,
+and the defect's shape. Two small corrections:
+
+1. `b3da412` says "sixty ticks … must finish in six seconds. It fails at 6887 ms with the slot
+   restored, which is what makes it evidence." True, but as (a) shows, a 6 s bound is ~15× the real
+   cost and would pass a 15× slowdown. The test is evidence for *that one* regression, not a general
+   guard. The message slightly oversells it as a benchmark; it is a smoke alarm.
+2. `bfb851e` says the ceiling is "at most `MAX_EVENTS + MAX_PINS`" (5200). Measured, the true maximum
+   is **5000**, because the pin budget is reserved *out of* `MAX_EVENTS`
+   (`overflow = rest.length - (MAX_EVENTS - pinned.size)`), so pins never add on top:
+
+   ```
+   pins=200 + 6000 noise -> total 5000
+   pins=0   + 6000 noise -> total 5000
+   ```
+
+   The documented ceiling is therefore *conservative*, not wrong — safe in the direction that matters
+   — but the code comment and commit say 5200 when the store will never hold more than 5000. Worth a
+   one-word fix ("at most `MAX_EVENTS`, of which up to `MAX_PINS` are pinned") so the next reader does
+   not add MAX_PINS to MAX_EVENTS and get a number the code contradicts.
+
+---
+
+## BUG
+
+### BUG-13 (NEW, cosmetic) — the "past year" wording is still slightly wrong for a leap-day job
+
+`src/services/scheduler.ts:181-190`.
+
+The `nextCronRun` branch means a leap-day job is silent, so this only affects the *message text* for
+genuinely impossible dates — where it is accurate. But the message hard-codes "the past year" while the
+code's own comment explains that a leap-day schedule legitimately has no occurrence in the past year
+and is *not* reported. A reader of the log line therefore cannot tell whether the panel checked "past
+year" or "ever", and the answer is "past year, then a forward check that is not mentioned". Smallest
+fix: word it as "no occurrence in the past year and none within eight years" — which is exactly what
+the two searches jointly establish — or move the phrase into the code comment only and keep the log
+line to what the person must act on ("this date never occurs — check for 31 April").
+
+This is a NIT-grade item that I am calling a BUG only because log messages are read under stress, which
+is when a misleading one costs most. Not a ship blocker.
+
+## Verified as FIXED (part-4 scope)
+
+- **BLOCKER-4 — fixed, confirmed at the magnitude you claimed.** The `Map` keyed by expression with a
+  minute-generation clear gives 388–414 ms for the committed test's workload (yours: 187 ms), 133 ms for
+  one rare schedule, 143 ms for two distinct. The single-slot behaviour, reproduced by calling the scan
+  per job per tick, gives **7169 ms for three** schedules — your 6887 ms for six is the same defect on a
+  faster machine. The scaling failure I reported in part 3 is gone.
+- **BUG-12 — resolved.** `LOOK_BACK_MS` is one year again; the 8-year backward scan that made
+  BLOCKER-4 severe is gone, and the disagreement between the searches is documented in `cron.ts` and
+  handled by the `nextCronRun` branch rather than misreported.
+- **BUG-11 — fixed and bounded.** 260 distinct job-runs + 5200 noise events → 5000 retained, ≤200
+  `job-run` pins, oldest pins roll, newest kept, array stays time-sorted, `forget()` still clears a pin,
+  200 `record()` calls with 200 live pins cost 11 ms.
+- **No part-1/2/3 regression.** Re-measured the DST cases: Troll (2-hour fold), Berlin (1-hour, both
+  transitions), Lord Howe (30-minute) all remain monotonic with **no duplicate wall-clock minutes**;
+  `* * * * *` across the fold is clean. `tsc --noEmit` clean. The affected suites pass (71 tests across
+  scheduler/history/cron).
+- **NIT-3** — not done, agreed, and I still would not do it.
+
+## What I did not verify
+
+- **A live panel tick loop** under real `hostMonitor` + `proxy.sync()` load. All timings are the
+  scheduler in isolation, which is the right measurement for the scaling question, but the absolute
+  wall-clock cost of a 400 ms tick under production load is not measured.
+- **Windows**, as before.
+- **Any UI rendering** — unchanged in these four commits as far as the diff shows; part-3 NIT-2 remains
+  "fixed in source, unverified when rendered".

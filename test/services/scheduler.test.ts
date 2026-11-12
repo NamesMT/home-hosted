@@ -387,46 +387,47 @@ describe('a restart during a run', () => {
 })
 
 /**
- * A tick stays inside its budget, whatever the schedules are.
+ * The tick cache is what keeps a minute of ticking to one scan per schedule, not sixty.
  *
- * The panel's 1 Hz tick also drives health probes and the proxy sync, so a tick that takes most of a
- * second is a stall for everything else. The regression this guards is subtle and was real: caching
- * the due occurrence in a **single** slot helped only when every job shared one expression, so two
- * jobs on different rare schedules each overwrote the other and both paid a full scan every tick —
- * six distinct impossible schedules measured 1844 ms/tick on the reviewer's machine.
+ * The regression the review found: caching the due occurrence in a single slot meant two jobs on
+ * different rare schedules overwrote each other, so neither ever hit and every tick paid a full scan —
+ * six distinct schedules cost 14 s for sixty ticks instead of ~400 ms.
  *
- * A budget, not a benchmark: the point is to fail when the shape regresses, not to pin a duration.
+ * The assertion is a **ratio against a single tick**, not a stopwatch, because that is exactly what the
+ * cache promises: sixty ticks of one minute should cost about as much as one. A wall-clock bound passes
+ * on fast hardware even after a 15× regression and rots as machines get quicker. Note the cost still
+ * grows *linearly with the number of distinct schedules* — the first tick of a minute pays one scan
+ * each — which is why the honest invariant is per-schedule, not "six costs the same as three".
  */
-describe('a tick budget', () => {
-  it('stays cheap with six different rare schedules', async () => {
-    const rare = ['0 0 31 4 *', '0 30 31 4 *', '0 0 30 2 *', '0 30 30 2 *', '0 0 29 2 *', '0 30 29 2 *']
+describe('the tick cache', () => {
+  /** Ticks the panel would make in one minute, for `count` distinct never-due schedules. */
+  function ticker(count: number) {
+    const rare = Array.from({ length: count }, (_, index) => `${index} ${index} 31 4 *`)
     const harness = makeScheduler(rare.map((schedule, index) => job({ id: `j${index}`, schedule })))
-    const start = local(2026, 5, 1, 12, 0, 0)
+    return { harness, start: local(2026, 5, 1, 12, 0, 0) }
+  }
 
-    const started = Date.now()
-    // Sixty ticks: one minute of real panel time, so the per-minute cache behaves as it would live.
-    for (let second = 0; second < 60; second += 1)
+  it('costs one scan per schedule for a minute of ticks, not one per tick', async () => {
+    const { harness, start } = ticker(6)
+    // Warm the JIT, then measure the first tick of the minute on its own.
+    await harness.scheduler.tick(start - 120_000)
+    const singleBegan = Date.now()
+    await harness.scheduler.tick(start)
+    const single = Math.max(Date.now() - singleBegan, 1)
+
+    const minuteBegan = Date.now()
+    for (let second = 1; second < 60; second += 1)
       await harness.scheduler.tick(start + second * 1000)
-    const elapsed = Date.now() - started
+    const rest = Date.now() - minuteBegan
 
     expect(harness.runs, 'none of these ever comes due').toHaveLength(0)
-    // Generous against a slow CI box, and still an order of magnitude under the 1 s tick.
-    expect(elapsed, `60 ticks took ${elapsed}ms`).toBeLessThan(6_000)
+    // With the cache, the other 59 ticks are lookups; without it they are 59 more scans each, which is
+    // roughly 59× the first. A factor of 10 separates the two with room for timer noise.
+    expect(rest, `first tick ${single}ms, remaining 59 ticks ${rest}ms`).toBeLessThan(single * 10)
     harness.scheduler.dispose()
   })
 })
 
-/**
- * A rare-but-valid schedule is not reported as broken.
- *
- * The backward scan looks a year (it answers "which occurrence is due now", and every repeating
- * schedule repeats within a year). A leap-day job repeats every four, so it legitimately has no
- * occurrence in the past year — and the "has had no occurrence in the past year" warning fired on it
- * every tick, describing a perfectly good expression as a probable mistake.
- *
- * Asking the forward search separates the two: a real future occurrence means "nothing due yet", which
- * is silence; no future occurrence means the date genuinely cannot occur, which is the warning.
- */
 describe('a rare but valid schedule', () => {
   it('stays silent for a leap day, and still warns for an impossible date', async () => {
     const leap = makeScheduler([job({ id: 'leap', schedule: '0 0 29 2 *' })])
