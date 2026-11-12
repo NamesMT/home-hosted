@@ -1,5 +1,6 @@
 import type { AppDeps } from '#src/app'
 import type { StreamFrame } from '#src/helpers/event-stream'
+import type { ServerConfig } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
@@ -9,12 +10,12 @@ import { configFailure } from '#src/helpers/error'
 import { serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody, sseResponse } from '#src/helpers/openapi'
-import { addServerEntry } from '#src/helpers/server-create'
+import { addServerEntry, serverWarnings } from '#src/helpers/server-create'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
-import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverViewSchema, serverWriteResponseSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam } from '#src/shared/query-params'
 
@@ -29,8 +30,18 @@ const serversResponse = lazy(() => type({ servers: serverViewSchema.array() }))
  */
 // `serverSchema` rejects undeclared keys at every depth (it validates writes); an answer must not,
 // or a generated client refuses the next field a newer panel adds.
-const storedServerResponse = lazy(() => type({ server: serverSchema }).onDeepUndeclaredKey('ignore'))
+const storedServerResponse = lazy(() => serverWriteResponseSchema)
 const bufferedLogsQuery = lazy(() => logQuerySchema.merge(workspaceQuerySchema))
+/**
+ * The answer to a create or a `PUT`, with a warning beside it when the entry cannot start.
+ *
+ * `warnings` is **omitted** when there are none rather than sent as an empty list: a warning is an
+ * exception to report, and a client testing `warnings.length` on every ordinary create is noise.
+ */
+function withWarnings(answer: { server: ServerConfig }): { server: ServerConfig, warnings?: string[] } {
+  const warnings = serverWarnings(answer.server)
+  return warnings.length === 0 ? answer : { ...answer, warnings }
+}
 /**
  * `stop-all`'s own query: the workspace, plus `withPersistent`.
  *
@@ -73,7 +84,8 @@ export function createServersRoute(deps: AppDeps) {
       validate('json', serverCreateSchema),
       (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        return c.json({ server: addServerEntry(runtime.store, c.req.valid('json')) }, 201)
+        const server = addServerEntry(runtime.store, c.req.valid('json'))
+        return c.json(withWarnings({ server }), 201)
       },
     )
 
@@ -110,7 +122,7 @@ export function createServersRoute(deps: AppDeps) {
 
         try {
           const result = runtime.store.putServer(body)
-          return c.json({ server: result.server }, result.created ? 201 : 200)
+          return c.json(withWarnings({ server: result.server }), result.created ? 201 : 200)
         }
         catch (error) {
           if (error instanceof ConfigError)

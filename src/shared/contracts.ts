@@ -918,6 +918,22 @@ export const serverCreateSchema = lazy(() => type({
 export type ServerCreate = typeof serverCreateSchema.infer
 
 /**
+ * What a create or a `PUT` answers: the stored entry, and anything wrong with it that only shows up
+ * when it runs.
+ *
+ * `warnings` is **optional and absent when there is nothing to say** — a client that reads
+ * `warnings.length` on every successful create is noise, and a warning is not a refusal: the entry
+ * was written and the create succeeded. It is a response field, so it is additive and an older
+ * panel simply does not send it.
+ */
+export const serverWriteResponseSchema = lazy(() => type({
+  'server': serverSchema,
+  /** Why this entry will fail to start, in the terms of the config's own fields. */
+  'warnings?': 'string[]',
+}).onDeepUndeclaredKey('ignore'))
+export type ServerWriteResponse = typeof serverWriteResponseSchema.infer
+
+/**
  * What the panel hands a persistent entry's nanny, written 0600 and unlinked by the
  * nanny as it reads it. Everything is already resolved and expanded, because
  * `Supervisor.resolveSpawn()` must stay the only resolver.

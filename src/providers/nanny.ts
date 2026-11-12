@@ -252,7 +252,10 @@ function describePastedCommandLine(command: string, cwd?: string): string | null
   const program = words[0]!
   if (findProgram(program, cwd) === null)
     return null
-  return `\`${command}\` is a whole command line, but \`Command\` is spawned without a shell — this release looks for a program named \`${command}\`. Put \`${program}\` in \`Command\` and the rest in \`Arguments\`, one argument per line`
+  // The **config keys**, not the form's labels: a person fixing this is editing
+  // `servers.config.json` (or an API body), where the fields are `command` and `args` — the
+  // capitalised `Command`/`Arguments` this used to name appear nowhere the reader can see.
+  return `\`${command}\` is a whole command line, but the entry is spawned without a shell — this release looks for a program named \`${command}\`. Put \`${program}\` in \`command\` and the rest in \`args\`, one argument per entry`
 }
 
 /** Why a working directory cannot be used, in one sentence, or null when it can. */

@@ -178,7 +178,8 @@ describe('describeSpawnError', () => {
       // `node` is on PATH wherever this suite runs, so the two halves are genuinely distinguishable.
       const message = describeSpawnError(enoentFor('node server.js'), 'node server.js')
       expect(message).toContain('command line')
-      expect(message).toContain('Arguments')
+      // The config key, not the UI label — see "the pasted-command-line message names real fields".
+      expect(message).toContain('`args`')
       // The wrong diagnosis is what costs the time; it must not appear at all.
       expect(message).not.toContain('is it installed')
       expect(message).not.toContain('PATH')
@@ -206,5 +207,27 @@ describe('describeSpawnError', () => {
       expect(message).toContain('not found')
       expect(message).not.toContain('command line')
     })
+  })
+})
+
+/**
+ * The message names the **config fields**, not the form's labels.
+ *
+ * It said "Put `node` in `Command` and the rest in `Arguments`" — capitalised UI labels. A person
+ * editing `servers.config.json` by hand (or an agent writing it) has keys `command` and `args`, and
+ * the capitalised names appear nowhere in the file or the API: the one sentence that exists to say
+ * what to fix named two things the reader could not find.
+ */
+describe('the pasted-command-line message names real fields', () => {
+  const enoentFor = (command: string): NodeJS.ErrnoException =>
+    Object.assign(new Error(`spawn ${command} ENOENT`), { code: 'ENOENT' }) as NodeJS.ErrnoException
+
+  it('names `command` and `args`, the keys the config actually has', () => {
+    const message = describeSpawnError(enoentFor('node server.js'), 'node server.js')
+    expect(message).toContain('`command`')
+    expect(message).toContain('`args`')
+    // The UI labels are not what a config file, an API body or a generated client uses.
+    expect(message).not.toContain('`Command`')
+    expect(message).not.toContain('`Arguments`')
   })
 })
