@@ -356,8 +356,12 @@ export async function processTreeOwners(roots: number[]): Promise<Map<number, nu
  * are null rather than wrong.
  */
 export class ProcessSampler {
-  /** `reuseMs`: accept a process scan this recent from any sampler (0 = always scan fresh). */
-  constructor(private readonly reuseMs = 0) {}
+  /**
+   * `reuseMs`: accept a process scan this recent from any sampler (0 = always scan fresh).
+   * `staleBaselineMs`: a previous scan older than this is no baseline — the supervisor samples every
+   * 5 s, so a gap this long is a sampler that sat idle (nothing running), not an interval to divide by.
+   */
+  constructor(private readonly reuseMs = 0, private readonly staleBaselineMs = 30_000) {}
 
   /**
    * Cumulative CPU seconds per pid, from the **whole process table** of the last scan.
@@ -376,14 +380,14 @@ export class ProcessSampler {
   private previousTable: { at: number, cpuSeconds: Map<number, number> } | null = null
 
   /**
-   * Roots whose next sample must not be differenced, stamped with when they were forgotten.
+   * Roots whose next sample must not be differenced.
    *
    * `forget` is called when an entry stops, exits or is restarted: the pid is gone, so the reading
    * after it must be `null` rather than a delta against a previous life. The baseline is one table
-   * for the whole scan, so this is the per-root suppression. Pruned at each scan, which bounds it
-   * to the restarts that happened since the last one.
+   * for the whole scan, so this is the per-root suppression. A pid no scan lists any more is pruned,
+   * which bounds it to processes still alive.
    */
-  private readonly forgotten = new Map<number, number>()
+  private readonly forgotten = new Set<number>()
 
   /** Each root's latest reading, answered again when the only scan available is one already used. */
   private readonly lastReadings = new Map<number, ProcessResources>()
@@ -424,8 +428,11 @@ export class ProcessSampler {
       children.set(row.ppid, siblings)
     }
 
-    // One baseline for the scan, shared by every root: they were all read at the same instant.
-    const before = this.previousTable
+    // One baseline for the scan, shared by every root: they were all read at the same instant. A
+    // baseline hours old is none: a pid born since would be charged its whole counter over hours —
+    // a fabricated near-0% — so this scan only re-baselines.
+    const previous = this.previousTable
+    const before = previous !== null && scannedAt - previous.at <= this.staleBaselineMs ? previous : null
     const elapsedSeconds = before === null ? 0 : (scannedAt - before.at) / 1000
     const ticks = process.platform === 'linux' ? await getClockTicks() : 1
     // Stored in *seconds*, the unit the comparison uses. Keeping raw jiffies here made every
@@ -479,6 +486,12 @@ export class ProcessSampler {
     }
 
     this.previousTable = { at: scannedAt, cpuSeconds: tableCpuSeconds }
+    if (rows.length > 0) {
+      for (const pid of this.forgotten) {
+        if (!byPid.has(pid))
+          this.forgotten.delete(pid)
+      }
+    }
     for (const [pid, reading] of results) {
       if (reading !== null)
         this.lastReadings.set(pid, reading)
@@ -498,7 +511,7 @@ export class ProcessSampler {
    */
   forget(rootPid: number): void {
     this.lastReadings.delete(rootPid)
-    this.forgotten.set(rootPid, Date.now())
+    this.forgotten.add(rootPid)
   }
 }
 

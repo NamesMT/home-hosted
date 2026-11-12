@@ -78,6 +78,27 @@ describe('process sampler', () => {
   })
 })
 
+describe('a process sampler left idle', () => {
+  it.skipIf(!computesCpuFromDelta)('re-baselines after a long gap instead of dividing by it', async () => {
+    // The sampler only runs while something is live: a baseline left from hours ago charged a pid
+    // born since with its whole counter over those hours, a fabricated near-0%.
+    const sampler = new ProcessSampler()
+    const start = Date.now()
+    await sampler.sample(process.pid, start)
+    const later = start + 2 * 60 * 60 * 1000
+    expect((await sampler.sample(process.pid, later))!.cpuPercent, 'no window this scan can stand for').toBeNull()
+    // The next scan inside the window is a real reading again.
+    expect((await sampler.sample(process.pid, later + 5000))!.cpuPercent).not.toBeNull()
+  })
+
+  it('forgets a forgotten root once no scan lists it', async () => {
+    const sampler = new ProcessSampler()
+    sampler.forget(999_999_999)
+    await sampler.sampleMany([process.pid])
+    expect((sampler as unknown as { forgotten: Set<number> }).forgotten.has(999_999_999)).toBe(false)
+  })
+})
+
 describe('processCarriesServerId', () => {
   const children: ReturnType<typeof spawn>[] = []
 
