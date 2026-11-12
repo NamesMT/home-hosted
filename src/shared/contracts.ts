@@ -2067,6 +2067,8 @@ export const actionResultSchema = lazy(() => type({
   'error?': 'string',
   'message?': 'string',
   'code?': 'string',
+  /** On a successful stop: entries still running that declare `dependsOn` the one stopped. */
+  'dependents?': 'string[]',
 }))
 export type ActionResultBody = typeof actionResultSchema.infer
 

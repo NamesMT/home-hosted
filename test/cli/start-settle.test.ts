@@ -116,6 +116,48 @@ describe('start reports what actually happened', () => {
     expect(result.stdout).not.toContain('started web')
   })
 
+  /** "It was spawned; check logs" told a person nothing — the reason is in the last stderr lines. */
+  it('quotes the last stderr lines of the entry that died', async () => {
+    writeRuntime(await panel(
+      { status: 200, body: { ok: true } },
+      { status: 200, body: { id: 'web', status: 'backoff', lastError: 'exited with code 1' } },
+    ))
+    const logs = path.join(home, '.hh', 'default', '.logs')
+    fs.mkdirSync(logs, { recursive: true })
+    const rows = [
+      { ts: 1, stream: 'stdout', text: 'booting' },
+      ...Array.from({ length: 7 }, (_, index) => ({ ts: 2 + index, stream: 'stderr', text: `trace ${index}` })),
+      { ts: 20, stream: 'system', text: 'exited with code 1' },
+    ]
+    fs.writeFileSync(path.join(logs, 'web.log'), `${rows.map(row => JSON.stringify(row)).join('\n')}\n`)
+    try {
+      const result = await runCli(['start', 'web'])
+      expect(result.status).toBe(1)
+      expect(result.stderr).not.toContain('It was spawned')
+      expect(result.stderr).toContain('its last output:')
+      expect(result.stderr).toContain('trace 6')
+      expect(result.stderr).toContain('trace 2')
+      // Five lines, stderr only.
+      expect(result.stderr).not.toContain('trace 1')
+      expect(result.stderr).not.toContain('booting')
+    }
+    finally {
+      fs.rmSync(logs, { recursive: true, force: true })
+    }
+  })
+
+  /** A single stop does not cascade; the panel only logged who still depends on it. */
+  it('says which dependents a stop left running', async () => {
+    writeRuntime(await panel(
+      { status: 200, body: { ok: true, dependents: ['worker'] } },
+      { status: 200, body: {} },
+    ))
+    const result = await runCli(['stop', 'web'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('stopped web')
+    expect(result.stdout).toContain('still running and depending on this: worker')
+  })
+
   /** A genuinely running entry must still be reported as started, and exit 0. */
   it('still reports a healthy start as success', async () => {
     writeRuntime(await panel(

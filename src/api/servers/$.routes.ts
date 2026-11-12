@@ -9,6 +9,7 @@ import { configFailure } from '#src/helpers/error'
 import { serveEventStream } from '#src/helpers/event-stream'
 import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
+import { addServerEntry } from '#src/helpers/server-create'
 import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
@@ -62,23 +63,16 @@ export function createServersRoute(deps: AppDeps) {
         tags: ['servers'],
         summary: 'Add a server to a workspace',
         responses: {
-          201: { description: 'Created', content: jsonBody(storedServerResponse) },
+          201: { description: 'Created. An `autostart` entry is not started: autostart applies when the panel starts — start it with `POST /api/servers/{id}/start`', content: jsonBody(storedServerResponse) },
           400: ERROR_RESPONSES[400],
-          409: ERROR_RESPONSES[409],
+          409: { description: 'An entry with this id already exists (`SERVER_EXISTS`), or the config file was edited on disk since the panel read it (`CONFIG_CHANGED_ON_DISK`)', content: ERROR_RESPONSES[409].content },
         },
       }),
       validate('query', workspaceQuerySchema),
       validate('json', serverCreateSchema),
       (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
-        try {
-          return c.json({ server: runtime.store.addServer(c.req.valid('json')) }, 201)
-        }
-        catch (error) {
-          if (error instanceof ConfigError)
-            throw configFailure(error, 'INVALID_SERVER')
-          throw error
-        }
+        return c.json({ server: addServerEntry(runtime.store, c.req.valid('json')) }, 201)
       },
     )
 

@@ -7,6 +7,8 @@ export const UNKNOWN_SERVER: unique symbol = Symbol('hh.unknownServer')
 export interface ActionResult {
   ok: boolean
   error?: string
+  /** A stop that succeeded: the entries still running that declare `dependsOn` this one. */
+  dependents?: string[]
   /**
    * Set when the failure was "no such entry" rather than "this entry cannot act".
    *

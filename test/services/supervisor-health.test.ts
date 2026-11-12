@@ -241,7 +241,8 @@ describe('stopping a dependency', () => {
     const started = await waitFor(() => harness.supervisor.views().filter(view => view.status === 'running').length === 2)
     expect(started, 'both servers must be running for this to prove anything').toBe(true)
 
-    await harness.supervisor.stop('db')
+    // Returned too, so a client (`home-hosted stop db`) can say it rather than only log it.
+    expect(await harness.supervisor.stop('db')).toEqual({ ok: true, dependents: ['app'] })
 
     const lines = harness.supervisor.logLines('db', 50).map(line => line.text)
     expect(lines.some(text => text.includes('still running and depending on this: app')), `log was: ${JSON.stringify(lines.slice(-6))}`).toBe(true)
@@ -250,7 +251,7 @@ describe('stopping a dependency', () => {
     const alone = await makeSupervisor([{ id: 'solo', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] }])
     await alone.supervisor.startAll()
     await waitFor(() => alone.supervisor.views()[0]?.status === 'running')
-    await alone.supervisor.stop('solo')
+    expect(await alone.supervisor.stop('solo')).toEqual({ ok: true })
     const soloLines = alone.supervisor.logLines('solo', 50).map(line => line.text)
     expect(soloLines.some(text => text.includes('still running and depending on this'))).toBe(false)
   })

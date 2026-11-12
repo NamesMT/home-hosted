@@ -111,8 +111,8 @@ describe('servers route', () => {
     expect((await request(created.app, '/api/servers', 'POST', { id: 'web' })).status).toBe(400)
 
     const duplicate = await request(created.app, '/api/servers', 'POST', { id: 'web', command: 'node' })
-    expect(duplicate.status).toBe(400)
-    expect(await duplicate.json()).toMatchObject({ code: 'INVALID_SERVER' })
+    expect(duplicate.status).toBe(409)
+    expect(await duplicate.json()).toMatchObject({ code: 'SERVER_EXISTS' })
   })
 
   it('answers 404 for an unknown id and 200 for a known one', async () => {

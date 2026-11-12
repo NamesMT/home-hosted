@@ -694,7 +694,7 @@ export class Supervisor {
     this.log(entry, 'system', entry.status === 'stopped' ? 'stopped' : entry.lastError!)
     this.publishServer(entry)
     return entry.status === 'stopped'
-      ? { ok: true }
+      ? { ok: true, ...(orphaned.length === 0 ? {} : { dependents: orphaned.map(dependent => dependent.id) }) }
       : { ok: false, error: entry.lastError! }
   }
 

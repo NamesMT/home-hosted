@@ -517,7 +517,10 @@ restart needed:
 - **A definition you changed** takes effect on that entry's next start; a running process is not
   restarted under you.
 - **A definition you added** appears (and starts itself if it is `autostart`); **one you removed** is
-  stopped and forgotten.
+  stopped and forgotten. An entry added through the panel, the API or `home-hosted add` is **not**
+  started, `autostart` or not: `autostart` means "comes up with the panel", so it starts at the next
+  `up` — start it now with its Start button or `home-hosted start <id>`. Adding an id the workspace
+  already has is refused (`409 SERVER_EXISTS`).
 - **A file the schema rejects, or one that cannot be parsed**, is reported in the panel with the
   exact path and the running config is left alone. Fix it and it reloads on its own — a typo never
   stops a server.

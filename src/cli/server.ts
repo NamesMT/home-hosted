@@ -1,6 +1,7 @@
+import { Buffer } from 'node:buffer'
 import process from 'node:process'
 import { defineCommand } from 'citty'
-import { dim, fail, green, invocation } from '#src/cli/io'
+import { dim, fail, green, invocation, paint } from '#src/cli/io'
 
 /**
  * `start`/`stop`/`restart` for one supervised server.
@@ -23,6 +24,7 @@ interface ActionBody {
   ok?: boolean
   error?: string
   message?: string
+  dependents?: string[]
 }
 
 /**
@@ -121,7 +123,7 @@ interface StartedView {
 }
 
 export async function runServerAction(action: ServerAction, id: string, workspace?: string): Promise<void> {
-  await callServerAction(action, id, workspace)
+  const body = await callServerAction(action, id, workspace)
 
   // Both spawn, so both are verified: `restart <id>` is the same process-start path as `start`, and
   // an entry that dies on boot reports `ok` from either one.
@@ -131,6 +133,9 @@ export async function runServerAction(action: ServerAction, id: string, workspac
   // The past tense is the verb: `restart` says "restarted", not "stopped".
   const verb = action === 'start' ? 'started' : action === 'stop' ? 'stopped' : 'restarted'
   process.stdout.write(`${green(verb)} ${label(id, workspace)}\n`)
+  // A single stop does not cascade; the panel only logged who is now running without it.
+  if (action === 'stop' && (body.dependents ?? []).length > 0)
+    process.stdout.write(`${paint('33', 'note')} still running and depending on this: ${body.dependents!.join(', ')}\n`)
 }
 
 /**
@@ -162,7 +167,61 @@ async function confirmStillRunning(id: string, workspace?: string): Promise<void
   const why = view.lastError === null || view.lastError === undefined || view.lastError.length === 0
     ? `status is ${view.status ?? 'unknown'}`
     : view.lastError
-  fail(`server "${label(id, workspace)}" did not stay up — ${why}. It was spawned; check \`${invocation()} logs ${id}\``)
+  const tail = await lastErrorLines(id, workspace)
+  const shown = tail.length === 0 ? '' : `\n${tail.map(line => `  ${line}`).join('\n')}`
+  fail(`server "${label(id, workspace)}" did not stay up — ${why}${tail.length === 0 ? '' : ' — its last output:'}${shown}\nthe whole log: \`${invocation()} logs ${id}${workspace === undefined || workspace.length === 0 ? '' : ` -w ${workspace}`}\``)
+}
+
+/** How many lines of a crashed entry's own output `start`/`restart` quote. */
+const CRASH_TAIL_LINES = 5
+
+/**
+ * The last lines a server wrote, from its JSONL log: stderr when it wrote any, else whatever it
+ * wrote last. "It was spawned" told a person nothing; the reason a process dies on boot is almost
+ * always in its last few stderr lines.
+ */
+export function crashTail(raw: string, count = CRASH_TAIL_LINES): string[] {
+  const lines: Array<{ stream?: string, text: string }> = []
+  for (const row of raw.replace(/\r\n/g, '\n').split('\n')) {
+    if (row.trim().length === 0)
+      continue
+    try {
+      const parsed = JSON.parse(row) as { stream?: unknown, text?: unknown }
+      if (typeof parsed.text === 'string')
+        lines.push({ stream: typeof parsed.stream === 'string' ? parsed.stream : undefined, text: parsed.text })
+    }
+    catch {
+      // A torn last write: skipped rather than quoted half-parsed.
+    }
+  }
+  const stderr = lines.filter(line => line.stream === 'stderr')
+  const pick = stderr.length > 0 ? stderr : lines.filter(line => line.stream !== 'system')
+  return pick.slice(-count).map(line => line.text)
+}
+
+async function lastErrorLines(id: string, workspace?: string): Promise<string[]> {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const { readDefaultWorkspaceId } = await import('#src/config/workspaces')
+  const { workspaceLogsDir, workspacesPath } = await import('#src/helpers/paths')
+  const ws = workspace === undefined || workspace.length === 0 ? readDefaultWorkspaceId(workspacesPath) : workspace
+  const file = path.join(workspaceLogsDir(ws), `${id}.log`)
+  try {
+    const stat = fs.statSync(file)
+    const size = Math.min(stat.size, 64 * 1024)
+    const handle = fs.openSync(file, 'r')
+    try {
+      const buffer = Buffer.alloc(size)
+      fs.readSync(handle, buffer, 0, size, stat.size - size)
+      return crashTail(buffer.toString('utf8'))
+    }
+    finally {
+      fs.closeSync(handle)
+    }
+  }
+  catch {
+    return []
+  }
 }
 
 /**
