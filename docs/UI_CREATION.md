@@ -122,9 +122,18 @@ stamps. A BOM or UTF-16 file (Notepad, PowerShell) is read fine.
 - **Reconnect after the browser gives up.** Sessions live in memory, so a restarted panel answers
   the stream's reconnect with `401` — and an `EventSource` stops retrying on any non-`200`. On an
   error with `readyState === CLOSED`, re-check the session: signed out goes to login, anything else
-  reconnects with backoff. Each per-server stream replays its recent lines on every connect, so
-  clear that server's buffer on each `open`. Inside this repo, `src/shared/live-store.ts` does all
-  of this for both UIs.
+  reconnects with backoff. Inside this repo, `src/shared/live-store.ts` does all of this for both
+  UIs.
+- **Resume a stream, don't rebuild it.** Every frame carries an `id:`, so a reconnect can say
+  `Last-Event-ID` (`EventSource` sends the last one itself) or `?since=<seq>` for a `fetch` reader.
+  A resumed stream sends one **current** `hello`/`server` snapshot and then replays the `log` frames
+  you missed — so treat the replay as **log lines only, never as fresher state**, and do not refetch
+  `/api/state` after a clean resume. The snapshot's `id:` is the resume point itself, so a frame you
+  receive never numbers below the one you asked from. Only the last 200 log frames are retained: a
+  gap is log-only, never state, and `/api/logs/:id?since=` plus the download cover the rest.
+  **A fresh (unresumed) per-server stream still seeds its last 200 lines**, so keep clearing that
+  server's buffer on each `open` — but do not clear it on a *resumed* connect, or the replay goes
+  into a buffer you just emptied.
 - **Tolerate a value you have not heard of.** A newer panel may add a status or a health state;
   show it as it came rather than refusing the frame (`src/shared/live-frames.ts`).
 - **Text the panel formats itself** (a backup entry's label, why a path is skipped) arrives as
