@@ -32,6 +32,7 @@ import {
 } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { ddnsProvider } from '#src/providers/ddns'
+import { splitHost } from '#src/providers/ddns/zone'
 import { entryStatePath, readEntryState, writeEntryState } from '#src/providers/entry-state'
 import { buildBackupSources } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
@@ -215,6 +216,9 @@ export class PanelService {
           label: account.label,
           writesTxt: provider?.challenge !== undefined,
           hasCredentials: workspace.secrets.getDdnsCredentials(account.id, account.provider) !== null,
+          zones: [...new Set(workspace.store.ddns.domains
+            .filter(domain => domain.account === account.id)
+            .map(domain => splitHost(domain.host, domain.zone).zone))],
         })
       }
     }

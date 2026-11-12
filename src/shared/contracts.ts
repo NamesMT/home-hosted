@@ -1249,14 +1249,19 @@ export type ProxyCertificateView = typeof proxyCertificateViewSchema.infer
  * page can offer one list. The account itself stays in its workspace.
  */
 const proxyDnsAccountViewSchema = lazy(() => type({
-  workspace: 'string',
-  account: 'string',
-  provider: 'string',
-  label: 'string',
+  'workspace': 'string',
+  'account': 'string',
+  'provider': 'string',
+  'label': 'string',
   /** The credentials can write a TXT record, so this account can answer a challenge. */
-  writesTxt: 'boolean',
+  'writesTxt': 'boolean',
   /** Credentials are stored; an account without them cannot answer yet. */
-  hasCredentials: 'boolean',
+  'hasCredentials': 'boolean',
+  /**
+   * The zones the account is known to hold, from its Dynamic DNS hostnames. "Automatic" uses an
+   * account only for names inside one of them. Optional: an older panel omits it.
+   */
+  'zones?': 'string[]',
 }))
 export type ProxyDnsAccountView = typeof proxyDnsAccountViewSchema.infer
 

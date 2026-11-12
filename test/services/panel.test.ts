@@ -372,13 +372,17 @@ describe('panelService', () => {
       // One account that can answer a challenge (Cloudflare) and one that cannot
       // (No-IP): the proxy page reads this to decide what it may offer, so both
       // flags matter.
-      defaults.store.updateDdns({ accounts: [{ id: 'cf', provider: 'cloudflare', label: 'Cloudflare' }] })
+      defaults.store.updateDdns({
+        accounts: [{ id: 'cf', provider: 'cloudflare', label: 'Cloudflare' }],
+        // The zones an account holds come from its hostnames, so "Automatic" stays inside them.
+        domains: [{ host: 'home.example.co.uk', account: 'cf' }, { host: 'www.example.co.uk', account: 'cf' }, { host: 'x.pinned.dev', account: 'cf', zone: 'x.pinned.dev' }],
+      })
       staging.store.updateDdns({ accounts: [{ id: 'noip', provider: 'noip', label: 'No-IP' }] })
 
       const accounts = panel.listDnsAccounts()
       expect(accounts).toEqual([
-        { workspace: 'default', account: 'cf', provider: 'cloudflare', label: 'Cloudflare', writesTxt: true, hasCredentials: false },
-        { workspace: 'staging', account: 'noip', provider: 'noip', label: 'No-IP', writesTxt: false, hasCredentials: false },
+        { workspace: 'default', account: 'cf', provider: 'cloudflare', label: 'Cloudflare', writesTxt: true, hasCredentials: false, zones: ['example.co.uk', 'x.pinned.dev'] },
+        { workspace: 'staging', account: 'noip', provider: 'noip', label: 'No-IP', writesTxt: false, hasCredentials: false, zones: [] },
       ])
 
       // Credentials live with the workspace that owns the account, and the flag

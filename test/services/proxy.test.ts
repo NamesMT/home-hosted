@@ -325,7 +325,7 @@ const spawnsStubEngine = it.runIf(process.platform !== 'win32')
 describe('which account answers a challenge', () => {
   /** The panel's one usable account, named by no route. */
   const single = {
-    listDnsAccounts: () => [{ workspace: 'default', account: 'cf', provider: 'cloudflare', label: '', writesTxt: true, hasCredentials: true }],
+    listDnsAccounts: () => [{ workspace: 'default', account: 'cf', provider: 'cloudflare', label: '', writesTxt: true, hasCredentials: true, zones: ['example.com'] }],
     resolveDnsAccount: () => ({ provider: 'cloudflare', credentials: { apiToken: 'tok' } }),
     defaultWorkspaceId: () => 'default',
   }
@@ -339,6 +339,27 @@ describe('which account answers a challenge', () => {
     settings.updateProxy({ dns01: { enabled: true }, routes: [route('git.example.com')] })
 
     expect(service.challengeAccount('_acme-challenge.git.example.com.')).toMatchObject({ workspaceId: 'default', accountId: 'cf' })
+  })
+
+  it('leaves a name outside the account’s zones on the port challenges', async () => {
+    // "Automatic" handed every public name to the only account, so a name in another registrar's
+    // zone was challenged through the wrong one and never issued, where HTTP-01 would have worked.
+    const { service, settings } = await harness(single)
+    settings.updateProxy({ dns01: { enabled: true }, routes: [route('git.example.com'), { ...route('shop.other.org'), id: 'shop' }] })
+
+    expect(service.challengeAccount('_acme-challenge.shop.other.org.')).toBeNull()
+    expect(service.challengeAccount('_acme-challenge.git.example.com.')).toMatchObject({ accountId: 'cf' })
+  })
+
+  it('takes an explicitly named route’s zone as the account’s too', async () => {
+    const { service, settings } = await harness({ ...single, listDnsAccounts: () => [] })
+    settings.updateProxy({
+      dns01: { enabled: true },
+      routes: [{ ...route('www.example.net', 'cf'), id: 'named' }, { ...route('api.example.net'), id: 'auto' }, { ...route('x.other.org'), id: 'far' }],
+    })
+
+    expect(service.challengeAccount('_acme-challenge.api.example.net.')).toMatchObject({ accountId: 'cf' })
+    expect(service.challengeAccount('_acme-challenge.x.other.org.')).toBeNull()
   })
 
   it('refuses to guess between two accounts', async () => {

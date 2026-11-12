@@ -34,6 +34,7 @@ import { dataRoot, projectDir, proxyChallengeAuthPath } from '#src/helpers/paths
 import { nannyArgv } from '#src/helpers/runtime'
 import { ddnsProvider } from '#src/providers/ddns'
 import { normalizeHost } from '#src/providers/ddns/types'
+import { splitHost } from '#src/providers/ddns/zone'
 import {
   HEARTBEAT_STALE_MS,
   nannyEntryPoint,
@@ -420,8 +421,10 @@ export class ProxyService {
     if (named !== null)
       return this.accountOf(named.owner, named.accountId)
 
-    // Nothing named on this route. One account named anywhere answers for every name;
-    // more than one is ambiguous rather than a reason to guess.
+    // Nothing named on this route. One account named anywhere answers for the names in its zones;
+    // more than one is ambiguous rather than a reason to guess. A name outside every zone the
+    // account is known to hold keeps HTTP-01, which can still work where a write to the wrong zone
+    // cannot.
     const declared = new Map<string, { owner: string, accountId: string }>()
     for (const entry of this.config.routes) {
       if (!entry.enabled)
@@ -432,7 +435,7 @@ export class ProxyService {
     }
     if (declared.size === 1) {
       const only = [...declared.values()][0]!
-      return this.accountOf(only.owner, only.accountId)
+      return this.accountZonesCover(only.owner, only.accountId, host) ? this.accountOf(only.owner, only.accountId) : null
     }
     if (declared.size > 1)
       return null
@@ -444,7 +447,22 @@ export class ProxyService {
     if (usable.length !== 1)
       return null
     const only = usable[0]!
-    return this.accountOf(only.workspace, only.account)
+    return this.accountZonesCover(only.workspace, only.account, host) ? this.accountOf(only.workspace, only.account) : null
+  }
+
+  /**
+   * True when `host` sits in a zone the account is known to hold: one of its Dynamic DNS hostnames'
+   * zones, or the zone of a route that names it explicitly.
+   */
+  private accountZonesCover(owner: string, accountId: string, host: string): boolean {
+    const listed = (this.options.listDnsAccounts?.() ?? []).find(entry => entry.workspace === owner && entry.account === accountId)
+    const zones = new Set(listed?.zones ?? [])
+    for (const route of this.config.routes) {
+      const ref = route.enabled ? this.dnsAccountRef(route) : null
+      if (ref !== null && ref.owner === owner && ref.accountId === accountId)
+        zones.add(splitHost(route.host).zone)
+    }
+    return [...zones].some(zone => host === zone || host.endsWith(`.${zone}`))
   }
 
   private accountOf(workspaceId: string, accountId: string): ChallengeAccount | null {

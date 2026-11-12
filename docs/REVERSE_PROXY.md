@@ -78,7 +78,7 @@ reported without a pid.
 | `path` | Optional prefix, so one hostname can serve several apps. `app`, `/app`, `/app/` and `/App` are one prefix (the engine matches paths without regard to case), so two routes spelling it differently on one host are refused as a clash. The longest matching prefix wins, whatever order the routes are listed in; a route with no path takes what is left. |
 | `tls` | `auto` (default), `off`, `manual`. |
 | `upstreamSkipVerify` | Optional, off by default. On, an `https://` upstream's certificate is not verified — what a homelab upstream behind a self-signed certificate needs, at the cost of accepting an impostor on the path to it too. A route to the panel itself never needs it: the panel's own listener is trusted by address. |
-| `dnsAccount` | Optional `workspace/account` for a DNS-01 challenge, referencing a DNS account from Settings. Empty picks the workspace's only account that can write TXT records, so a single-account setup needs nothing here. |
+| `dnsAccount` | Optional `workspace/account` for a DNS-01 challenge, referencing a DNS account from Settings. Empty picks the only account that can write TXT records, for names inside its zones (see DNS-01 below). |
 
 A route that cannot be served — its server was removed, its upstream is unusable, or a `manual`
 route has no valid pair — is left out of the engine, and the page says why on that row. Every
@@ -226,8 +226,11 @@ name a different account from its neighbour, so names in two zones at two regist
 each get the right one; the panel gives each account a policy of its own.
 
 Leave a route on **Automatic** and it uses the only account that can answer a
-challenge. With more than one account, Automatic cannot choose: pick one per route, or
-those names keep using the port challenges. A local-only name (`.lan`, an IP) is never
+challenge — **for a name inside that account's zones**: the zones of its Dynamic DNS
+hostnames, and of any route that names the account explicitly. A name outside them keeps
+the port challenges rather than writing a record into a zone the account does not hold; name
+the account on the route to use it there anyway. With more than one account, Automatic cannot
+choose: pick one per route, or those names keep using the port challenges. A local-only name (`.lan`, an IP) is never
 challenged — it is signed by the engine's own CA.
 
 The account is checked when you save, not when the certificate is due: unknown, an
