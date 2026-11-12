@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import type { ServerConfig } from '#src/shared/contracts'
 import path from 'node:path'
 import { projectDir } from '#src/helpers/paths'
-import { resolveRecord, resolveTemplates } from '#src/helpers/template'
+import { resolveTemplates } from '#src/helpers/template'
 import { forceKillTree, resolveCommand, resolveCwd, spawnManaged } from '#src/providers/process'
 import { serverTemplateVars } from '#src/providers/server-vars'
 import { LineSplitter } from '#src/services/log-buffer'
@@ -42,8 +42,12 @@ export interface DeployContext {
    * while the comment claimed the opposite.
    *
    * A function, so it is resolved when the deploy runs rather than when it was configured.
+   *
+   * **Required**, deliberately. When it was optional the offline CLI path forgot it and silently fell
+   * back to a subset — the exact bug this field was added to fix — so a caller now has to say what
+   * environment its steps run with, even if the answer is "only the tracked `env` and `dataEnvs`".
    */
-  env?: () => Record<string, string>
+  env: () => Record<string, string>
   /** Injected so a test's child is real but the panel's process module is not. */
   spawn?: typeof spawnManaged
   now?: () => number
@@ -100,7 +104,7 @@ export async function runDeploy(
     try {
       // The entry's own environment, from the caller that resolved it — the same one the service
       // spawns with, so a step that needs a registry token reads the variable it already has.
-      child = spawnImpl({ command, args, cwd, env: context.env?.() ?? resolveRecord({ ...config.env, ...config.dataEnvs }, vars) })
+      child = spawnImpl({ command, args, cwd, env: context.env() })
     }
     catch (error) {
       const message = (error as Error).message

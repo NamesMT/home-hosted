@@ -46,6 +46,9 @@ function configWith(dir: string, steps: Array<{ command: string, args?: string[]
       log: (_stream: string, text: string) => {
         lines.push(text)
       },
+      // The entry's own environment, as the supervisor supplies it. Empty here because these steps
+      // need none; the environment itself is `test/services/supervisor-deploy.test.ts`.
+      env: () => ({}),
     },
   }
 }
@@ -78,7 +81,7 @@ describe('running a deploy', () => {
     ])
     const lines: string[] = []
 
-    const outcome = await runDeploy(config as never, { cancelled: () => false }, { log: (_s, text) => lines.push(text) })
+    const outcome = await runDeploy(config as never, { cancelled: () => false }, { log: (_s, text) => lines.push(text), env: () => ({}) })
 
     expect(outcome.ok).toBe(false)
     expect(outcome.failedStep).toBe(1)
@@ -90,7 +93,7 @@ describe('running a deploy', () => {
   it('reports a step that cannot start, rather than throwing', async () => {
     const dir = await scratch()
     const { config } = configWith(dir, [{ command: 'hh-definitely-not-a-program' }])
-    const outcome = await runDeploy(config as never, { cancelled: () => false }, { log: () => {} })
+    const outcome = await runDeploy(config as never, { cancelled: () => false }, { log: () => {}, env: () => ({}) })
     expect(outcome.ok).toBe(false)
     expect(outcome.failedStep).toBe(1)
     // The message names the program, so a person knows what to fix.
@@ -107,7 +110,7 @@ describe('running a deploy', () => {
     ])
 
     // Cancelled after the first step, which is the stop that lands mid-deploy.
-    const outcome = await runDeploy(config as never, { cancelled: () => cancels++ >= 2 }, { log: () => {} })
+    const outcome = await runDeploy(config as never, { cancelled: () => cancels++ >= 2 }, { log: () => {}, env: () => ({}) })
 
     expect(outcome.ok).toBe(false)
     expect(outcome.error).toContain('stopped')
@@ -116,7 +119,7 @@ describe('running a deploy', () => {
 
   it('refuses an entry with no steps', async () => {
     const dir = await scratch()
-    const outcome = await runDeploy({ id: 'app', command: 'node', deploy: null } as never, { cancelled: () => false }, { log: () => {} })
+    const outcome = await runDeploy({ id: 'app', command: 'node', deploy: null } as never, { cancelled: () => false }, { log: () => {}, env: () => ({}) })
     expect(outcome.ok).toBe(false)
     expect(outcome.error).toContain('no deploy steps')
     void dir
@@ -129,7 +132,7 @@ describe('running a deploy', () => {
       { command: process.execPath, args: ['-e', 'setTimeout(() => {}, 60000)'], timeoutMs: 1000 },
     ])
     const started = Date.now()
-    const outcome = await runDeploy(config as never, { cancelled: () => false }, { log: () => {} })
+    const outcome = await runDeploy(config as never, { cancelled: () => false }, { log: () => {}, env: () => ({}) })
     expect(outcome.ok).toBe(false)
     expect(outcome.error).toContain('timed out')
     // And it actually ended the process rather than waiting out the sleep.
@@ -160,7 +163,7 @@ describe('a stop during a step', () => {
     const timer = setTimeout(() => {
       cancelled = true
     }, 200)
-    const outcome = await runDeploy(config, { cancelled: () => cancelled }, { log: () => {} })
+    const outcome = await runDeploy(config, { cancelled: () => cancelled }, { log: () => {}, env: () => ({}) })
     clearTimeout(timer)
     const elapsed = Date.now() - started
 
@@ -173,7 +176,7 @@ describe('a stop during a step', () => {
   it('still reports the step that failed when nothing cancelled it', async () => {
     const dir = await scratch()
     const { config } = configWith(dir, [{ command: process.execPath, args: ['-e', 'process.exitCode = 9'] }])
-    const outcome = await runDeploy(config, { cancelled: () => false }, { log: () => {} })
+    const outcome = await runDeploy(config, { cancelled: () => false }, { log: () => {}, env: () => ({}) })
     expect(outcome.ok).toBe(false)
     expect(outcome.error).toContain('code 9')
     void dir

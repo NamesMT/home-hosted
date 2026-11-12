@@ -71,8 +71,25 @@ export const deployCommand = defineCommand({
       fail(`server "${id}" has no deploy steps — add a \`deploy\` block to its entry`)
 
     const { runDeploy } = await import('#src/services/deploy')
+    const { resolveRecord } = await import('#src/helpers/template')
+    const { serverTemplateVars } = await import('#src/providers/server-vars')
+    /**
+     * The environment the steps run with, offline: the tracked `env` and `dataEnvs`.
+     *
+     * `envFile` and declared `secretEnv` values are **not** reachable here — the file may be anywhere
+     * and the secrets live in the workspace store this command does not read — so they are missing
+     * and said so, rather than silently absent. With the panel up the same deploy goes through the
+     * panel's supervisor, which resolves the entry's real environment.
+     */
+    const vars = serverTemplateVars(entry)
+    const withFile = entry.envFile.trim().length > 0
+    const withSecrets = (entry.secretEnv ?? []).length > 0
+    if (withFile || withSecrets) {
+      process.stdout.write(`${dim(`note: running without ${withFile ? 'envFile' : ''}${withFile && withSecrets ? ' and ' : ''}${withSecrets ? 'declared secretEnv values' : ''} — start the panel and re-run to get them`)}${'\n'}`)
+    }
     const outcome = await runDeploy(entry, { cancelled: () => false }, {
       log: (stream, text) => process.stdout.write(`${dim(`[${stream}]`)} ${text}\n`),
+      env: () => resolveRecord({ ...entry.env, ...entry.dataEnvs }, vars),
     })
     if (args.json === true) {
       process.stdout.write(`${JSON.stringify({ server: id, ...outcome })}\n`)
