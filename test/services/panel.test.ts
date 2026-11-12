@@ -375,7 +375,7 @@ describe('panelService', () => {
       defaults.store.updateDdns({
         accounts: [{ id: 'cf', provider: 'cloudflare', label: 'Cloudflare' }],
         // The zones an account holds come from its hostnames, so "Automatic" stays inside them.
-        domains: [{ host: 'home.example.co.uk', account: 'cf' }, { host: 'www.example.co.uk', account: 'cf' }, { host: 'x.pinned.dev', account: 'cf', zone: 'x.pinned.dev' }],
+        domains: [{ host: 'home.example.co.uk', account: 'cf', types: ['A' as const], proxied: false, enabled: true }, { host: 'www.example.co.uk', account: 'cf', types: ['A' as const], proxied: false, enabled: true }, { host: 'x.pinned.dev', account: 'cf', zone: 'x.pinned.dev', types: ['A' as const], proxied: false, enabled: true }],
       })
       staging.store.updateDdns({ accounts: [{ id: 'noip', provider: 'noip', label: 'No-IP' }] })
 
