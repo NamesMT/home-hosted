@@ -1081,26 +1081,32 @@ export type ProxyTlsMode = typeof proxyTlsModeSchema.infer
  * names an entry names its workspace too.
  */
 export const proxyRouteSchema = lazy(() => type({
-  id: '/^[a-z0-9][a-z0-9_-]*$/',
+  'id': '/^[a-z0-9][a-z0-9_-]*$/',
   /** The public hostname this route answers for. */
-  host: '/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/',
-  enabled: 'boolean = true',
-  target: proxyTargetSchema.default(() => 'server' as const),
+  'host': '/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/',
+  'enabled': 'boolean = true',
+  'target': proxyTargetSchema.default(() => 'server' as const),
   /** `target: "server"` — an id is only unique inside its workspace. */
-  workspace: 'string = ""',
-  server: 'string = ""',
+  'workspace': 'string = ""',
+  'server': 'string = ""',
   /** `target: "external"` — a literal upstream such as `http://10.0.0.5:8080`. */
-  url: 'string = ""',
+  'url': 'string = ""',
   /** Optional path prefix; empty serves the whole host. */
-  path: 'string = ""',
-  tls: proxyTlsModeSchema.default(() => 'auto' as const),
+  'path': 'string = ""',
+  'tls': proxyTlsModeSchema.default(() => 'auto' as const),
   /**
    * Which DNS account answers a DNS-01 challenge for this hostname, as
    * `<workspace>/<account>` — the account belongs to a workspace, so the proxy
    * references it rather than owning it. Empty picks the workspace's only
    * account that can write TXT records.
    */
-  dnsAccount: 'string = ""',
+  'dnsAccount': 'string = ""',
+  /**
+   * An `https://` upstream's certificate is verified unless this is `true` — the opt-in for an
+   * upstream behind a self-signed certificate. A route to the panel itself never needs it. Optional
+   * with no default, so a config that never set it is not rewritten with it.
+   */
+  'upstreamSkipVerify?': 'boolean',
 }).onUndeclaredKey('reject'))
 export type ProxyRoute = typeof proxyRouteSchema.infer
 
@@ -1283,6 +1289,7 @@ const proxyRoutePatchSchema = lazy(() => type({
   path: 'string?',
   tls: proxyTlsModeSchema.optional(),
   dnsAccount: 'string?',
+  upstreamSkipVerify: 'boolean?',
 }).onUndeclaredKey('reject'))
 export type ProxyRoutePatch = typeof proxyRoutePatchSchema.infer
 

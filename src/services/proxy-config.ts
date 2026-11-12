@@ -8,8 +8,10 @@ export interface ProxyUpstreamRoute {
   path: string
   /** `host:port` the engine forwards to. */
   dial: string
-  /** The upstream speaks TLS (the panel itself may), so verification is skipped. */
+  /** The upstream speaks TLS (the panel itself may). */
   upstreamTls: boolean
+  /** Its certificate is not verified: the panel's own self-signed listener, or a route's opt-in. */
+  upstreamSkipVerify?: boolean
   tls: ProxyTlsMode
   /** The handshake for this name can complete: a certificate is there or will be. */
   certificateReady: boolean
@@ -244,10 +246,10 @@ function proxyHandler(route: ProxyUpstreamRoute): Record<string, unknown> {
   return {
     handler: 'reverse_proxy',
     upstreams: [{ dial: route.dial }],
-    // Caddy decides https from the port alone; a local upstream is plain HTTP
-    // unless we say otherwise, and the panel's own TLS is self-signed.
+    // Caddy decides https from the port alone, so a TLS upstream is said explicitly. Its certificate
+    // is verified unless the route opted out (or it is the panel's own self-signed listener).
     ...(route.upstreamTls
-      ? { transport: { protocol: 'http', tls: { insecure_skip_verify: true } } }
+      ? { transport: { protocol: 'http', tls: route.upstreamSkipVerify === true ? { insecure_skip_verify: true } : {} } }
       : {}),
   }
 }

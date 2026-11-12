@@ -117,6 +117,8 @@ interface ResolvedRoute {
   upstream: string | null
   /** The upstream speaks TLS, so the engine must not dial it in cleartext. */
   upstreamTls: boolean
+  /** Its certificate is not verified — the panel's own listener, or the route's opt-in. */
+  skipVerify?: boolean
   message: string | null
 }
 
@@ -919,7 +921,7 @@ export class ProxyService {
     // The exposure verdict is part of it: a password that goes away (a restore of the secrets) must
     // take the panel's routes off a running engine without waiting for a route change.
     return this.resolveRoutes()
-      .map(({ route, status, upstream, upstreamTls }) => `${route.id}:${this.certificateFor(route).state}:${status}:${upstream ?? ''}:${upstreamTls}`)
+      .map(({ route, status, upstream, upstreamTls, skipVerify }) => `${route.id}:${this.certificateFor(route).state}:${status}:${upstream ?? ''}:${upstreamTls}:${skipVerify === true}`)
       .concat(this.options.exposureBlocked() === null ? [] : ['exposure-blocked'])
       .join('|')
   }
@@ -1095,14 +1097,14 @@ export class ProxyService {
         const parsed = upstreamTarget(route.url)
         if (parsed === null)
           return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" needs an upstream like http://10.0.0.5:8080` }
-        return { route, status: 'ok', upstream: parsed.dial, upstreamTls: parsed.tls, message: null }
+        return { route, status: 'ok', upstream: parsed.dial, upstreamTls: parsed.tls, skipVerify: route.upstreamSkipVerify, message: null }
       }
 
       if (route.target === 'panel') {
         const endpoint = this.options.control()
         if (!endpoint.port)
           return { route, status: 'no-upstream', upstream: null, upstreamTls: false, message: 'the control panel is not listening' }
-        return { route, status: 'ok', upstream: `127.0.0.1:${endpoint.port}`, upstreamTls: endpoint.protocol === 'https', message: null }
+        return { route, status: 'ok', upstream: `127.0.0.1:${endpoint.port}`, upstreamTls: endpoint.protocol === 'https', skipVerify: true, message: null }
       }
 
       if (route.workspace.length === 0 || route.server.length === 0)
@@ -1113,7 +1115,7 @@ export class ProxyService {
         return { route, status: 'error', upstream: null, upstreamTls: false, message: `"${route.id}" points at ${route.workspace}/${route.server}, which does not exist` }
       if (resolved.url === null)
         return { route, status: 'no-upstream', upstream: null, upstreamTls: false, message: resolved.message ?? `${route.workspace}/${route.server} is not running` }
-      return { route, status: 'ok', upstream: resolved.url.replace(/^https?:\/\//, ''), upstreamTls: resolved.url.startsWith('https://'), message: null }
+      return { route, status: 'ok', upstream: resolved.url.replace(/^https?:\/\//, ''), upstreamTls: resolved.url.startsWith('https://'), skipVerify: route.upstreamSkipVerify, message: null }
     })
   }
 
@@ -1128,6 +1130,7 @@ export class ProxyService {
           path: canonicalRoutePath(resolved.route.path),
           dial: resolved.upstream!,
           upstreamTls: resolved.upstreamTls,
+          upstreamSkipVerify: resolved.skipVerify === true,
           tls: resolved.route.tls,
           // A name whose certificate is not there yet gets a rendered page on the
           // cleartext side instead of a redirect into a handshake that cannot finish.

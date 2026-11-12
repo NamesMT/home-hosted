@@ -404,6 +404,8 @@ export function toRouteWire(route: ProxyRoute): ProxyRoutePatch {
     path: route.path,
     tls: route.tls,
     dnsAccount: route.dnsAccount,
+    // Sent only when set: a route that never opted out stays without the key.
+    ...(route.upstreamSkipVerify === undefined ? {} : { upstreamSkipVerify: route.upstreamSkipVerify }),
   }
 }
 

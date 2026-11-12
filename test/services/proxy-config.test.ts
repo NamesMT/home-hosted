@@ -46,6 +46,22 @@ function render(input: Omit<ProxyConfigInput, 'acme' | 'routes'> & { acme?: Prox
   })
 }
 
+describe('a TLS upstream', () => {
+  const transportOf = (upstreamSkipVerify?: boolean): unknown => routesOf(render({
+    config: config({}),
+    admin: unixAdmin,
+    engineDir: '/tmp/hh/engine',
+    manual: [],
+    routes: [{ host: 'app.lan', path: '', dial: 'nas.lan:443', upstreamTls: true, upstreamSkipVerify, tls: 'off' }],
+  }), 'http')[0].handle[0].transport
+
+  it('is verified by default, and skipped only when the route says so', () => {
+    // Every https upstream used to be dialled with `insecure_skip_verify`, so an impostor passed too.
+    expect(transportOf()).toEqual({ protocol: 'http', tls: {} })
+    expect(transportOf(true)).toEqual({ protocol: 'http', tls: { insecure_skip_verify: true } })
+  })
+})
+
 describe('the canonical route form', () => {
   it('matches the host in lower case and the path with its leading slash', () => {
     const rendered = render({
@@ -223,13 +239,13 @@ describe('renderCaddyConfig', () => {
     }
   })
 
-  it('verifies nothing on a local upstream that speaks TLS', () => {
+  it('verifies nothing on an upstream marked to skip it, such as the panel listener', () => {
     const rendered = render({
       config: config({}),
       admin: unixAdmin,
       engineDir: '/state/engine',
       manual: [],
-      routes: [{ host: 'panel.example.com', path: '', dial: '127.0.0.1:3999', upstreamTls: true, tls: 'auto' }],
+      routes: [{ host: 'panel.example.com', path: '', dial: '127.0.0.1:3999', upstreamTls: true, upstreamSkipVerify: true, tls: 'auto' }],
     })
     const http = (rendered.apps as any).http
     expect(http.servers.https.routes[0].handle[0].transport).toEqual({ protocol: 'http', tls: { insecure_skip_verify: true } })

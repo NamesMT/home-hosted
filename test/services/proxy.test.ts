@@ -1033,6 +1033,22 @@ describe('proxyService', () => {
     expect(service.routeProblems(added)).toEqual([expect.stringContaining('does not exist')])
   })
 
+  it('skips upstream verification only for the panel TLS listener and a route that opts out', async () => {
+    const { service, settings } = await harness({
+      control: () => ({ host: 'local', port: 3999, bindHost: '127.0.0.1', url: 'https://127.0.0.1:3999', protocol: 'https' }),
+    })
+    settings.updateProxy({
+      enabled: true,
+      routes: [
+        { id: 'panel', host: 'panel.lan', target: 'panel' },
+        { id: 'nas', host: 'nas.lan', target: 'external', url: 'https://nas.lan:5001' },
+        { id: 'self', host: 'self.lan', target: 'external', url: 'https://10.0.0.9', upstreamSkipVerify: true },
+      ],
+    })
+    const routes = (service as unknown as { engineRoutes: () => Array<{ host: string, upstreamSkipVerify?: boolean }> }).engineRoutes()
+    expect(routes.map(route => [route.host, route.upstreamSkipVerify])).toEqual([['panel.lan', true], ['nas.lan', false], ['self.lan', true]])
+  })
+
   it('is off, then stopped with a reason once it is switched on without an engine', async () => {
     const { service, settings } = await harness()
     expect(service.status()).toMatchObject({ state: 'off', lastError: null })

@@ -807,6 +807,16 @@ describe('reverse proxy schema', () => {
   it('defaults a route to the supervised entry, automatic TLS, whole host', () => {
     const route = unwrap(proxyRouteSchema({ id: 'gitea', host: 'git.example.com' }))
     expect(route).toMatchObject({ enabled: true, target: 'server', tls: 'auto', path: '', workspace: '', server: '', url: '' })
+    // Absent means verified, and a config that never set it is not rewritten with it.
+    expect(route).not.toHaveProperty('upstreamSkipVerify')
+  })
+
+  it('verifies an https upstream unless a route opts out, in the config and in a patch', () => {
+    expect(unwrap(proxyRouteSchema({ id: 'a', host: 'a.lan', upstreamSkipVerify: true })).upstreamSkipVerify).toBe(true)
+    expect(ok(proxyRouteSchema, { id: 'a', host: 'a.lan', upstreamSkipVerify: 'yes' })).toBe(false)
+    expect(unwrap(proxyPatchSchema({ routes: [{ id: 'a', host: 'a.lan', upstreamSkipVerify: true }] })).routes?.[0]?.upstreamSkipVerify).toBe(true)
+    // No default in a patch: an absent key is not a reset.
+    expect(unwrap(proxyPatchSchema({ routes: [{ id: 'a', host: 'a.lan' }] })).routes?.[0]).not.toHaveProperty('upstreamSkipVerify')
   })
 
   it('accepts a single-label local name and refuses something that is not a host', () => {
