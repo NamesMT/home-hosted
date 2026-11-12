@@ -17,7 +17,7 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { isLoopbackRequest } from '#src/middleware/loopback'
 
 import { selectionOf } from '#src/shared/backup-scope'
-import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverCreateSchema, serverSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
+import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverCreateSchema, serverSchema, serverSecretsSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam } from '#src/shared/query-params'
 
@@ -34,6 +34,8 @@ const backupQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string
 const serversListResponse = lazy(() => type({ servers: serverViewSchema.array() }))
 // A stored entry, as `POST /api/servers` answers it; an answer never rejects a newer field.
 const storedServerResponse = lazy(() => type({ server: serverSchema }).onDeepUndeclaredKey('ignore'))
+const controlSecretsSchema = lazy(() => serverSecretsSchema)
+const idParam = lazy(() => type({ id: 'string >= 1' }))
 const restoreQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': booleanParam, 'name?': 'string', 'from?': 'string' }).onUndeclaredKey('reject'))
 
 export function createControlRoute(deps: AppDeps) {
@@ -103,6 +105,51 @@ export function createControlRoute(deps: AppDeps) {
         assertLocalCall(c, 'list servers')
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         return c.json({ servers: runtime.supervisor.views() })
+      },
+    )
+
+    /**
+     * A server's secret environment, over the local channel — `home-hosted secret` while the panel
+     * runs.
+     *
+     * `POST`, because the local channel has no `PUT`: `requestControl` speaks GET and POST and every
+     * `/_hh` write already uses POST. The body is the same shape `PUT /api/servers/:id/secrets`
+     * takes, and nothing is echoed back.
+     */
+    .post(
+      '/servers/secrets/:id',
+      describeRoute({
+        tags: ['panel'],
+        summary: 'Set or clear a server\'s secret environment values (local token required)',
+        responses: { 200: { description: 'Written', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 403: { description: 'Bad token, or not a local caller' }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      validate('json', controlSecretsSchema),
+      (c) => {
+        assertLocalCall(c, 'read or write a server\'s secrets')
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        const entry = runtime.store.getServer(id)
+        if (!entry)
+          throw new DetailedError(`unknown server "${id}"`, { statusCode: 404, code: 'UNKNOWN_SERVER' })
+
+        const body = c.req.valid('json')
+        const declared = new Set(entry.secretEnv)
+        const writing = Object.keys(body.set ?? {})
+        const undeclared = writing.filter(name => !declared.has(name))
+        if (undeclared.length > 0)
+          throw new DetailedError(`${undeclared.map(name => `"${name}"`).join(', ')} ${undeclared.length === 1 ? 'is' : 'are'} not declared in this server's secretEnv`, { statusCode: 400, code: 'INVALID_INPUT' })
+
+        if ((body.unset ?? []).length > 0)
+          runtime.secrets.unsetServerEnv(id, body.unset ?? [])
+        if (writing.length > 0) {
+          const next = { ...runtime.secrets.serverEnv(id) }
+          for (const [name, value] of Object.entries(body.set ?? {}))
+            next[name] = value
+          runtime.secrets.setServerEnv(id, next)
+        }
+        return c.json({ ok: true })
       },
     )
 

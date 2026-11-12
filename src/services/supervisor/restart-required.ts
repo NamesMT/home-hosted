@@ -24,7 +24,7 @@ import type { ServerConfig } from '#src/shared/contracts'
  */
 export type RestartRelevant = Pick<
   ServerConfig,
-  'command' | 'args' | 'cwd' | 'env' | 'envFile' | 'port' | 'bind' | 'persistent' | 'stop' | 'dataEnvs'
+  'command' | 'args' | 'cwd' | 'env' | 'envFile' | 'secretEnv' | 'port' | 'bind' | 'persistent' | 'stop' | 'dataEnvs'
 >
 
 /** The restart-relevant part of a config, as a value that can be compared and held. */
@@ -38,6 +38,9 @@ export function restartRelevant(config: ServerConfig): RestartRelevant {
     cwd: config.cwd,
     env: { ...(config.env ?? {}) },
     envFile: config.envFile,
+    // The child's environment is fixed at spawn, so declaring or un-declaring a secret name is a
+    // change this process will not see until it restarts.
+    secretEnv: [...(config.secretEnv ?? [])],
     port: config.port,
     bind: config.bind,
     persistent: config.persistent,
@@ -64,6 +67,9 @@ export function needsRestart(current: ServerConfig, startedFrom: RestartRelevant
     return false
   const now = restartRelevant(current)
   if (now.command !== startedFrom.command || now.cwd !== startedFrom.cwd || now.envFile !== startedFrom.envFile)
+    return true
+  // Declared secret names: the environment a running child got is the set it started with.
+  if (now.secretEnv.length !== startedFrom.secretEnv.length || now.secretEnv.some((name, index) => name !== startedFrom.secretEnv[index]))
     return true
   if (now.port !== startedFrom.port || now.bind !== startedFrom.bind || now.persistent !== startedFrom.persistent)
     return true

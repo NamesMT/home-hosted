@@ -72,6 +72,8 @@ export interface SupervisorHarness {
   logDir: string
   logFiles: LogFiles
   history: HistoryStore
+  /** The workspace's secrets file: a test sets a `secretEnv` value here and sees it spawn. */
+  secrets: SecretsStore
   /** How many times the supervisor has told the panel that something may have moved. */
   stateChanges: () => number
 }
@@ -131,6 +133,8 @@ export async function makeSupervisor(
       stateChanges += 1
     },
     nannyDir,
+    // The same file the fixture exposes as `secrets`, so a test can set a value and see it spawn.
+    serverEnv: serverId => secrets.serverEnv(serverId),
   })
 
   cleanups.push(async () => {
@@ -155,6 +159,7 @@ export async function makeSupervisor(
     logDir: logFiles.directory,
     logFiles,
     history,
+    secrets,
     stateChanges: () => stateChanges,
   }
 }

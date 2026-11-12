@@ -178,9 +178,12 @@ export interface FixtureOptions {
   ddnsFetch?: DdnsFetch
 }
 
-function emptySupervisor(views: ServerView[]): FakeSupervisor {
+function emptySupervisor(views: ServerView[] | (() => ServerView[])): FakeSupervisor {
+  // A function when the views depend on a live store (`secretEnvSet`), so a write shows on the next
+  // request the way it does on a real panel.
+  const current = typeof views === 'function' ? views : () => views
   return {
-    views: () => views,
+    views: () => current(),
     getState: () => ({}) as never,
     startAll: async () => {},
     stopAll: async () => {},
@@ -274,7 +277,27 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     }
     // A real `ServerView` carries the workspace that owns it; only id is unique now.
     const tagged = views.map(view => (view.workspaceId === undefined ? { ...view, workspaceId: declaration.id } : view))
-    const supervisor = emptySupervisor(tagged)
+    /** The array `views()` hands out — one identity, so a test's in-place edit survives. */
+    let supervisorViews: ServerView[] = []
+    /**
+     * One array, mutated in place — the shape the fixture always had.
+     *
+     * A test that replaces a row (`views().splice(0, 1, other)`) is how the metrics and state tests
+     * stand in for what the supervisor would have published; handing out a fresh array per call
+     * silently dropped that edit. So the array is built once per request but *shared*, and a row's
+     * `secretEnvSet` is refreshed from the store on each call rather than re-derived wholesale.
+     */
+    supervisorViews = tagged
+    const supervisor = emptySupervisor(() => {
+      for (const view of supervisorViews) {
+        const names = secrets.serverEnvNames(view.id)
+        if (names.length > 0)
+          view.secretEnvSet = names
+        else
+          delete view.secretEnvSet
+      }
+      return supervisorViews
+    })
 
     const runtime: WorkspaceRuntime = {
       id: declaration.id,

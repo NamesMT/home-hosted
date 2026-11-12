@@ -139,7 +139,8 @@ asks for a program of that name, because `command` is spawned with no shell.
 | field | what it does |
 | --- | --- |
 | `command`, `args`, `cwd` | what to run. `{placeholders}` resolve in `args` only (`env`, `dataEnvs`, `backupPaths` and `bootstrap.args` too); `command`, `cwd` and `envFile` are used literally, so `cwd: "~/app"` is not a home directory. **`command` is a program, not a command line** — it is spawned with no shell, so `"node server.js"` asks for a program of that name; write `"command": "node", "args": ["server.js"]` |
-| `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config. The env file is yours to write — `KEY=value`, one per line — and it is read whatever a Windows editor saved: a byte-order mark or UTF-16 is decoded, not refused |
+| `env`, `dataEnvs`, `envFile` | environment; `dataEnvs` also marks data directories for backups, `envFile` keeps secrets out of the config. The env file is yours to write — `KEY=value`, one per line — and it is read whatever a Windows editor saved: a byte-order mark or UTF-16 is decoded, not refused. Precedence, lowest first: `env` < `envFile` < `dataEnvs` < `secretEnv` |
+| `secretEnv` | the **names** of secret environment variables, kept in the workspace's `.secrets.json` (0600) rather than beside the code — see [Secret environment](#secret-environment). The values are never in this file |
 | `enabled` | `true` (default) starts it; `false` keeps the entry in the config but refuses to start it, stops it if it is running, and leaves a disabled `persistent` entry unattached at boot |
 | `port`, `bind` | `port` enables the readiness wait, health checks and the conflict preflight. `bind` is `local` (`127.0.0.1`, the default), `lan` (`0.0.0.0`, every interface) or one IPv4 address of this machine — a Wi-Fi or VPN address, say — exposed to the program as `{host}`. With **no port** there is nothing to poll, so the entry reads `running` once its process actually exists (the child's `spawn` event) — a command that cannot start shows `crashed` with the reason, never a live-looking `running` first |
 | `onPortConflict` | `block` (default), `warn`, `follow`, `reclaim`, or `kill` — see below |
@@ -154,6 +155,41 @@ asks for a program of that name, because `command` is spawned with no shell.
 | `resources.maxRssBytes` | restart when the process tree — or, for a compose entry, the summed containers — grows past a limit. It acts on an adopted process too (`follow`, or a persistent entry reattached to its nanny), not only on one the panel spawned |
 | `bootstrap` | one command to run once before the first start (migrations, warmups) |
 | `backupPaths`, `backupIgnoreGenerated` | extra paths this entry owns, included in backups; the flag (on by default) skips the known build and dependency directories inside them — `node_modules`, `dist`, `.next`, framework caches. A symlink inside a declared path that resolves outside it is not followed — declare the target as its own path instead |
+
+### Secret environment
+
+A service's secrets usually live in an `envFile` beside its code. That file is **not** in a backup
+(a backup captures the config, the declared `backupPaths` and the workspace's secrets — not every file
+next to the program), so moving to a new machine silently loses them and nothing on the panel says so.
+
+`secretEnv` fixes that by putting the **names** in the config and the **values** in the workspace's
+`.secrets.json` (0600, written atomically), which the secrets part of a backup carries:
+
+```json
+{ "id": "app", "command": "node", "args": ["server.js"], "secretEnv": ["DATABASE_URL", "SESSION_KEY"] }
+```
+
+```bash
+home-hosted secret set app DATABASE_URL --stdin   # prompt without echo, or pipe one line in
+home-hosted secret ls app                         # the names, and which have a value
+home-hosted secret unset app SESSION_KEY
+```
+
+A name is a letter or underscore followed by letters, digits or underscores (`^[A-Za-z_][A-Za-z0-9_]*$`),
+it may not repeat, and the panel refuses anything else — a name no shell can read is a variable the
+process cannot see.
+
+**Precedence is `env` < `envFile` < `dataEnvs` < `secretEnv`.** The secret is the most specific
+statement you can make about one variable, and it is the layer stored where a backup carries it — one
+that lost to a stale `envFile` line would silently not work.
+
+**Only declared names are passed.** A value stored for a name the entry does not declare never reaches
+the child, which is what makes a removed entry's leftovers harmless.
+
+Values never appear in the config, in `GET /api/state`, in a log line, in history or in an error: the
+API's `PUT /api/servers/:id/secrets` is write-only, and the view reports `secretEnvSet` — the names
+that have a value — instead. Changing `secretEnv` needs a restart, and the view says so through
+`restartRequired`.
 
 ### Placeholders
 

@@ -215,6 +215,45 @@ const labelOrNullSchema = lazy(() => type('string | null'))
 
 export const logBufferLinesSchema = lazy(() => type('50 <= number.integer <= 100000'))
 
+/**
+ * A name an environment variable may have: a letter or underscore, then letters, digits, underscores.
+ *
+ * `^[A-Za-z_][A-Za-z0-9_]*$` is the intersection of what every shell and every operating system
+ * accepts — a dash or a space works in neither, and `=` cannot appear at all because the child's
+ * environment is a `KEY=value` array. The value is stored elsewhere (`SecretsStore`), so this schema
+ * never sees one.
+ */
+export const secretEnvNameSchema = lazy(() => type('/^[A-Za-z_][A-Za-z0-9_]*$/')
+  .describe('an environment-variable name: a letter or underscore, then letters, digits or underscores'))
+
+/**
+ * The **names** of a server's secret environment variables, unique, in a stable order.
+ *
+ * The values live in the workspace's `.secrets.json` (0600), never here: a config file is copied into
+ * backups, printed by `status` and served over the API, so a value in it is a value published. A
+ * duplicate is refused because the second write would silently win at spawn.
+ */
+export const secretEnvNamesSchema = lazy(() => type(secretEnvNameSchema.array()))
+
+/**
+ * Names declared twice, reported beside the schema rather than by it.
+ *
+ * Uniqueness is a **predicate**, not a constraint: a schema `narrow` cannot be rendered to JSON
+ * Schema, and every route's OpenAPI document calls `toJsonSchema()` — the same reason
+ * `duplicateWebhookIds` exists next to `notificationsSchema`. A duplicate is refused at the write
+ * (`serverWarnings` is not the place; the store's `addServer`/`patchServer` call this).
+ */
+export function duplicateSecretEnvNames(names: readonly string[]): string[] {
+  const seen = new Set<string>()
+  const duplicates = new Set<string>()
+  for (const name of names) {
+    if (seen.has(name))
+      duplicates.add(name)
+    seen.add(name)
+  }
+  return [...duplicates]
+}
+
 export const serverSchema = lazy(() => type({
   id: '/^[a-z0-9][a-z0-9_-]*$/',
   label: labelOrNullSchema.optional(),
@@ -266,6 +305,15 @@ export const serverSchema = lazy(() => type({
    * `dist`, `.next`, caches, …) inside the paths this entry declares.
    */
   backupIgnoreGenerated: 'boolean = true',
+  /**
+   * The **names** of this entry's secret environment variables — the values are never here.
+   *
+   * A homelab service's secrets usually sit in an `envFile` beside its code, which a backup does not
+   * include: a move to a new machine silently loses them and nothing on the panel says so. Declaring
+   * the names makes them part of the config (and of the backup), while the values stay in the
+   * workspace's `.secrets.json` (0600), which the secrets part of a backup carries.
+   */
+  secretEnv: secretEnvNamesSchema.default(() => []),
 }).onUndeclaredKey('reject'))
 export type ServerConfig = Omit<typeof serverSchema.infer, 'port'> & { port: number | null }
 
@@ -904,6 +952,11 @@ function editableFields() {
     resources: resourcesPatchSchema.optional(),
     backupPaths: type('string[]').optional(),
     backupIgnoreGenerated: 'boolean?',
+    /**
+     * The names of this entry's secret environment variables. The values are written through
+     * `PUT /api/servers/:id/secrets` and live in the workspace's `.secrets.json`, never here.
+     */
+    secretEnv: secretEnvNamesSchema.optional(),
   } as const
 }
 
@@ -1975,8 +2028,17 @@ export const serverViewSchema = lazy(() => type({
   'responseMs': 'number | null',
   'resources': processResourcesSchema.or(type('null')),
   /**
+   * The declared secret names that have a value stored — **names only, never a value**.
+   *
+   * `config.secretEnv` is what the entry declares; this is which of them are actually set, so the
+   * editor can mark a name as "set" without the panel ever sending what it is set to. A name declared
+   * but absent here is one whose value has not been written yet (or was removed).
+   */
+  'secretEnvSet?': 'string[]',
+  /**
    * The running process was started from a config that differs from the current one, in a field a
-   * restart actually re-reads (`command`, `args`, `cwd`, `env`, `envFile`, `port`, `bind`, …).
+   * restart actually re-reads (`command`, `args`, `cwd`, `env`, `envFile`, `secretEnv`, `port`, `bind`,
+   * …).
    *
    * A `PUT`/`PATCH` writes config only — the process keeps what it was started with — so a person
    * who changed the program and pressed Save saw "saved" and nothing else, while the old program
@@ -2463,6 +2525,18 @@ export const apiErrorSchema = lazy(() => type({
   /** Structured context when the failure has any — a field list, the routes holding a certificate. */
   'detail?': 'unknown',
 }))
+
+/**
+ * The body of `PUT /api/servers/:id/secrets`: values to set, and names to remove.
+ *
+ * Both in one call so a form can do a replace in one request. A name that is not a valid
+ * environment-variable name is refused here; a name the entry does not **declare** is refused by the
+ * route, which is the only place that knows the config.
+ */
+export const serverSecretsSchema = lazy(() => type({
+  'set?': type({ '[string]': 'string' }),
+  'unset?': type('string[]'),
+}).onUndeclaredKey('reject'))
 
 export const tlsUploadSchema = lazy(() => type({
   certificate: 'string >= 1',

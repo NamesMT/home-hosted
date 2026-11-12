@@ -34,12 +34,33 @@ export function resolveSpawn(ctx: SupervisorContext, entry: Entry): ResolvedSpaw
 
   const expansionVars: Record<string, string | undefined> = { ...process.env, ...fileEnv }
   const dataEnvs = resolveRecord(entry.config.dataEnvs, vars)
+  /**
+   * The entry's declared secrets, and nothing else from the store.
+   *
+   * `secretEnv` on the config is the **consent**: a value whose name the entry did not declare is
+   * never passed, even when the workspace holds one for a former entry of the same id. That is what
+   * makes a removed entry's leftovers harmless.
+   */
+  const declared = new Set(entry.config.secretEnv)
+  const secretEnv: Record<string, string> = {}
+  if (declared.size > 0 && ctx.options.serverEnv !== undefined) {
+    const stored = ctx.options.serverEnv(entry.config.id)
+    for (const name of declared) {
+      if (stored[name] !== undefined)
+        secretEnv[name] = stored[name]
+    }
+  }
+
   const env: Record<string, string> = {
     // `envFile` is the machine-local layer, so it overrides the tracked `env`.
     ...expandEnvRecord(resolveRecord(entry.config.env, vars), expansionVars),
     ...fileEnv,
     // Data envs win: their value is the directory that gets backed up.
     ...expandEnvRecord(dataEnvs, expansionVars),
+    // Then the declared secrets, which are the most specific statement a person can make about one
+    // variable — and the only layer stored where a backup carries it. Precedence, lowest first:
+    // `env` < `envFile` < `dataEnvs` < `secretEnv`.
+    ...secretEnv,
     HHOSTED_SERVER_ID: entry.config.id,
     HHOSTED_CONTROL_PORT: String(ctx.options.control.port),
   }

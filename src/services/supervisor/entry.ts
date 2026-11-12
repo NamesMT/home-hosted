@@ -24,6 +24,14 @@ export interface SupervisorOptions {
   /** Where a persistent entry's nanny keeps its state. */
   nannyDir: string
   /**
+   * The workspace's secrets, for `secretEnv` — a server's declared secret names to their values.
+   *
+   * A function rather than the store, so a re-read picks up a value written by `set-password`, a
+   * restore or an offline CLI without the supervisor holding a stale cache. Optional: a unit harness
+   * that declares no `secretEnv` needs nothing.
+   */
+  serverEnv?: (serverId: string) => Record<string, string>
+  /**
    * The *other* workspaces' running servers, so a port they hold is recognized as the panel's own.
    * The pair travels with the pid because a refusal has to say **where** the holder lives. A lone
    * supervisor (a unit harness) has no siblings.
@@ -115,7 +123,7 @@ export interface Entry {
    * second edit would move that baseline out from under the first, and the answer has to be "what is
    * this process actually running", which only the value at spawn can say.
    */
-  startedFrom: Pick<ServerConfig, 'command' | 'args' | 'cwd' | 'env' | 'envFile' | 'port' | 'bind' | 'persistent' | 'stop' | 'dataEnvs'> | null
+  startedFrom: Pick<ServerConfig, 'command' | 'args' | 'cwd' | 'env' | 'envFile' | 'secretEnv' | 'port' | 'bind' | 'persistent' | 'stop' | 'dataEnvs'> | null
   /** The start in flight, which a stop waits out once it has cancelled it. */
   startTask: Promise<StartResult> | null
   /**

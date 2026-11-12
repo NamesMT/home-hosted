@@ -15,7 +15,7 @@ import { validate } from '#src/helpers/validator'
 import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
-import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverViewSchema, serverWriteResponseSchema } from '#src/shared/contracts'
+import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSecretsSchema, serverViewSchema, serverWriteResponseSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 import { booleanParam, integerParam } from '#src/shared/query-params'
 
@@ -379,6 +379,62 @@ export function createServersRoute(deps: AppDeps) {
           }
           throw error
         }
+      },
+    )
+
+    /**
+     * A server's secret environment: **write-only**.
+     *
+     * The values live in the workspace's `.secrets.json` — never in the config, which is copied into
+     * backups, printed by `status` and served over the API. So this answers `ok` and nothing else: a
+     * route that echoed a value back would publish what the file's 0600 mode exists to protect.
+     *
+     * The entry's `secretEnv` is the **consent**: a name it does not declare is refused, so a stale
+     * value for a former entry of the same id can never reach a child.
+     */
+    .put(
+      '/:id/secrets',
+      describeRoute({
+        tags: ['servers'],
+        summary: 'Set or clear a server\'s secret environment values (write-only)',
+        description: 'The values go to the workspace secrets file (0600); nothing is echoed back. Declare each name in the entry\'s `secretEnv` first — a name the entry does not declare is refused. The view reports `secretEnvSet` (names only).',
+        responses: { 200: { description: 'Written', content: jsonBody(okResponseSchema) }, 400: ERROR_RESPONSES[400], 404: ERROR_RESPONSES[404] },
+      }),
+      validate('query', workspaceQuerySchema),
+      validate('param', idParam),
+      validate('json', serverSecretsSchema),
+      (c) => {
+        const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
+        const { id } = c.req.valid('param')
+        const entry = runtime.store.getServer(id)
+        if (!entry)
+          throw unknownServerError(id)
+
+        const body = c.req.valid('json')
+        const declared = new Set(entry.secretEnv)
+        const writing = Object.keys(body.set ?? {})
+        const undeclared = writing.filter(name => !declared.has(name))
+        // Declaring the name is what consents to a value: an entry that does not name a variable must
+        // not receive one, or a leftover value from a removed entry of the same id would reach the
+        // child. Also the one error a person fixes by editing `secretEnv` first, so it names that.
+        if (undeclared.length > 0) {
+          throw new DetailedError(
+            `${undeclared.map(name => `"${name}"`).join(', ')} ${undeclared.length === 1 ? 'is' : 'are'} not declared in this server's secretEnv — add ${undeclared.length === 1 ? 'the name' : 'the names'} to the entry first`,
+            { statusCode: 400, code: 'INVALID_INPUT', detail: [{ path: 'set', message: `declare ${undeclared.join(', ')} in secretEnv` }] },
+          )
+        }
+
+        const clearing = body.unset ?? []
+        if (clearing.length > 0)
+          runtime.secrets.unsetServerEnv(id, clearing)
+        if (writing.length > 0) {
+          // A merge over what is stored: `unset` and `set` in one call is a replace a form can do.
+          const next = { ...runtime.secrets.serverEnv(id) }
+          for (const [name, value] of Object.entries(body.set ?? {}))
+            next[name] = value
+          runtime.secrets.setServerEnv(id, next)
+        }
+        return c.json({ ok: true })
       },
     )
 

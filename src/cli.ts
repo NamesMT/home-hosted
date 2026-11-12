@@ -58,6 +58,7 @@ const SYNOPSIS: Record<string, string> = {
   'service': 'home-hosted service [install|uninstall|status] [--user|--system] [--print]',
   'add': 'home-hosted add <id> [--port <n>] [--cwd <dir>] [--workspace <id>] [--persistent] [--autostart] -- <command> [args…]',
   'ls': 'home-hosted ls [--workspace <id>] [--json]',
+  'secret': 'home-hosted secret set|unset|ls <id> [NAME] [--stdin] [--workspace <id>] [--json]',
 }
 
 const SUMMARIES: Record<string, string> = {
@@ -82,6 +83,7 @@ const SUMMARIES: Record<string, string> = {
   'service': 'start the panel at boot with systemd, launchd or Task Scheduler',
   'add': 'declare a server, through the panel or straight into servers.config.json',
   'ls': 'list the servers a workspace declares, live when the panel is up',
+  'secret': 'a server\'s secret environment — the names are listed, the values never printed',
 }
 
 /** One option line, as the left column and the description that follows it. */
@@ -290,6 +292,15 @@ const LS_SECTION: OptionSection = {
   ],
 }
 
+const SECRET_SECTION: OptionSection = {
+  heading: 'Commands for secret',
+  lines: [
+    ['set <id> NAME', 'store a value: prompts without echo, or read one line from --stdin'],
+    ['unset <id> NAME', 'forget the value (the name stays declared in the entry)'],
+    ['ls <id>', 'the declared names, and which of them have a value'],
+  ],
+}
+
 const EVERYWHERE_SECTION: OptionSection = {
   heading: 'Everywhere',
   lines: [
@@ -379,6 +390,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'service': SERVICE_SECTION,
   'add': ADD_SECTION,
   'ls': LS_SECTION,
+  'secret': SECRET_SECTION,
 }
 
 /**
@@ -454,6 +466,7 @@ const COMMANDS = {
   'service': () => import('#src/cli/service').then(module => module.serviceCommand(CLI_ENTRY)),
   'add': () => import('#src/cli/add').then(module => module.addCommand),
   'ls': () => import('#src/cli/ls').then(module => module.lsCommand),
+  'secret': () => import('#src/cli/secret').then(module => module.secretCommand),
 } satisfies SubCommandsDef
 
 const rootCommand = defineCommand({

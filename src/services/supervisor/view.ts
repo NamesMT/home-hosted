@@ -25,7 +25,13 @@ function summarizeHistory(entry: Entry, history: HistoryStore): ServerView['hist
   return summary
 }
 
-export function buildView(entry: Entry, workspaceId: string, history: HistoryStore): ServerView {
+export function buildView(
+  entry: Entry,
+  workspaceId: string,
+  history: HistoryStore,
+  /** Which of `config.secretEnv` have a value stored. Names only — the values never leave the store. */
+  secretEnvSet: readonly string[] = [],
+): ServerView {
   const config = entry.config
   const restartRequired = needsRestart(config, entry.startedFrom)
   const host = displayHost(config.bind)
@@ -56,5 +62,8 @@ export function buildView(entry: Entry, workspaceId: string, history: HistorySto
     resources: entry.resources,
     // Omitted when false, like every other optional flag on the view.
     ...(restartRequired ? { restartRequired: true } : {}),
+    // Which declared names are actually set. A name the entry declares but that has no value is
+    // simply absent here, which is exactly what the editor needs to show "set" or "not set".
+    ...(secretEnvSet.length === 0 ? {} : { secretEnvSet: [...secretEnvSet] }),
   }
 }

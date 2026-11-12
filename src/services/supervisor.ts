@@ -1131,7 +1131,24 @@ export class Supervisor {
   }
 
   private view(entry: Entry): ServerView {
-    return buildView(entry, this.options.workspaceId, this.options.history)
+    return buildView(
+      entry,
+      this.options.workspaceId,
+      this.options.history,
+      /**
+       * Which declared names have a value.
+       *
+       * Only the declared ones are asked about: `Object.keys` over the whole stored map would allocate
+       * on every frame for every entry, and the view runs ~13×/s. A declared name with no stored value
+       * is simply absent, which is what the editor needs.
+       */
+      this.options.serverEnv === undefined
+        ? []
+        : (() => {
+            const stored = this.options.serverEnv(entry.config.id)
+            return entry.config.secretEnv.filter(name => stored[name] !== undefined)
+          })(),
+    )
   }
 
   private log(entry: Entry, stream: LogStream, text: string): void {

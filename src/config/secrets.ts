@@ -100,12 +100,22 @@ interface SecretsFile {
   ddns: Record<string, StoredDdnsRecord>
   /** How the DDNS key is derived; absent until the first sealed write. */
   ddnsKdf: DdnsKdfMeta | null
+  /**
+   * Per-server secret environment values: `{ [serverId]: { [NAME]: value } }`.
+   *
+   * A **workspace** file only. The names are declared on the entry in `servers.config.json`; only the
+   * values live here, because a config is copied into backups, printed by `status` and served over
+   * the API — a value in it is a value published. Plaintext in a 0600 file, like the Telegram bot
+   * tokens beside it: the file's permissions are the protection, and sealing one field here would
+   * make the store's `save` do two different things.
+   */
+  serverEnv: Record<string, Record<string, string>>
   /** Top-level keys this release does not know, carried through a write so a newer release keeps them. */
   extra?: Record<string, unknown>
 }
 
 /** Owned by this release, plus `version`: retired, and dropped on the next write rather than carried. */
-const KNOWN_SECRET_KEYS = new Set(['password', 'apiToken', 'telegram', 'ddns', 'ddnsKdf', 'version'])
+const KNOWN_SECRET_KEYS = new Set(['password', 'apiToken', 'telegram', 'ddns', 'ddnsKdf', 'serverEnv', 'version'])
 
 function unknownTopLevel(parsed: unknown): Record<string, unknown> {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
@@ -270,6 +280,32 @@ function readStoredDdns(value: unknown): Record<string, StoredDdnsRecord> {
     if (Object.keys(values).length === 0)
       continue
     out[accountId] = { plain: true, provider: entry.provider, values }
+  }
+  return out
+}
+
+/**
+ * A hand-edited `serverEnv` block, read tolerantly.
+ *
+ * A file this release wrote always matches; one a person edited (or a newer release wrote) may hold a
+ * non-string value or a nested shape. Anything that is not `{ serverId: { NAME: string } }` is dropped
+ * rather than taken as a reason to refuse the whole file — the same rule the other unknown shapes
+ * follow, and the reason a typo in one entry cannot lock a person out of their panel.
+ */
+function readServerEnv(value: unknown): Record<string, Record<string, string>> {
+  if (!isRecord(value))
+    return {}
+  const out: Record<string, Record<string, string>> = {}
+  for (const [serverId, entry] of Object.entries(value)) {
+    if (!isRecord(entry))
+      continue
+    const names: Record<string, string> = {}
+    for (const [name, raw] of Object.entries(entry)) {
+      if (typeof raw === 'string')
+        names[name] = raw
+    }
+    if (Object.keys(names).length > 0)
+      out[serverId] = names
   }
   return out
 }
@@ -514,6 +550,79 @@ export class SecretsStore {
     return record.provider === provider ? record : null
   }
 
+  /**
+   * One server's secret environment, as `{ NAME: value }` — for the spawn, never for a view.
+   *
+   * A caller that renders this is publishing secrets; the view exposes `serverEnvNames()` instead.
+   */
+  serverEnv(serverId: string): Record<string, string> {
+    return { ...this.load().serverEnv[serverId] ?? {} }
+  }
+
+  /** The names that have a value, which is all a view may show. Sorted, so the UI is stable. */
+  serverEnvNames(serverId: string): string[] {
+    return Object.keys(this.load().serverEnv[serverId] ?? {}).sort()
+  }
+
+  /**
+   * Replaces one server's secret environment.
+   *
+   * A **replacement**, not a merge: the API answers a `set` and an `unset` in one call, and a merge
+   * would make removing a name possible only through a second request. Every name is validated here
+   * as well as at the schema — this is the last point before a child's environment is built, and a
+   * name no shell can read (`MY-VAR`) would be a variable the process cannot see.
+   */
+  setServerEnv(serverId: string, values: Record<string, string>): void {
+    // `all` is the shape a pre-workspace file had and what a backup archive carries, so it owns every
+    // field. `global` does not: the panel-wide secrets file must never gain a workspace's values.
+    if (this.scope === 'global')
+      throw new Error('a server\'s secret environment belongs to its workspace — a global secrets file cannot hold one')
+    const clean: Record<string, string> = {}
+    for (const [name, value] of Object.entries(values)) {
+      if (!/^[A-Z_]\w*$/i.test(name))
+        throw new Error(`"${name}" is not an environment-variable name: a letter or underscore, then letters, digits or underscores`)
+      clean[name] = value
+    }
+    const current = this.load()
+    this.save({ ...current, serverEnv: { ...current.serverEnv, [serverId]: clean } })
+  }
+
+  /** Removes the named values from one server, leaving the rest. */
+  unsetServerEnv(serverId: string, names: readonly string[]): void {
+    const current = this.load()
+    const existing = { ...current.serverEnv[serverId] ?? {} }
+    for (const name of names)
+      delete existing[name]
+    const serverEnv = { ...current.serverEnv }
+    if (Object.keys(existing).length === 0)
+      delete serverEnv[serverId]
+    else
+      serverEnv[serverId] = existing
+    this.save({ ...current, serverEnv })
+  }
+
+  /** Everything for one server, for a removal or a rename. */
+  forgetServerEnv(serverId: string): void {
+    const current = this.load()
+    if (current.serverEnv[serverId] === undefined)
+      return
+    const serverEnv = { ...current.serverEnv }
+    delete serverEnv[serverId]
+    this.save({ ...current, serverEnv })
+  }
+
+  /** Moves a removed id's values onto another: a renamed entry keeps its secrets. */
+  renameServerEnv(from: string, to: string): void {
+    const current = this.load()
+    const values = current.serverEnv[from]
+    if (values === undefined)
+      return
+    const serverEnv = { ...current.serverEnv }
+    delete serverEnv[from]
+    serverEnv[to] = values
+    this.save({ ...current, serverEnv })
+  }
+
   /** An empty field is dropped, so clearing every field forgets the account. */
   setDdnsCredentials(accountId: string, provider: string, credentials: Record<string, string>): void {
     const current = this.load()
@@ -595,7 +704,7 @@ export class SecretsStore {
 
   private read(): SecretsFile {
     this.error = null
-    const empty: SecretsFile = { password: null, apiToken: null, telegram: {}, ddns: {}, ddnsKdf: null }
+    const empty: SecretsFile = { password: null, apiToken: null, telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
     if (!fs.existsSync(this.file))
       return this.inScope(empty)
     let text: string
@@ -615,6 +724,7 @@ export class SecretsStore {
         telegram: readTelegramTokens(parsed?.telegram),
         ddns: readStoredDdns(parsed?.ddns),
         ddnsKdf: readDdnsKdf((parsed as { ddnsKdf?: unknown })?.ddnsKdf),
+        serverEnv: readServerEnv(parsed?.serverEnv),
         extra: unknownTopLevel(parsed),
       })
     }
@@ -627,7 +737,9 @@ export class SecretsStore {
   /** Everything a store does not own is neither read from nor written to its file. */
   private inScope(contents: SecretsFile): SecretsFile {
     if (this.scope === 'global')
-      return { ...contents, telegram: {}, ddns: {}, ddnsKdf: null }
+      // A server's environment belongs to its workspace's file: a global store neither reads nor
+      // writes it, so `set-password` cannot rewrite a workspace's secrets.
+      return { ...contents, telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
     if (this.scope === 'workspace')
       return { ...contents, password: null, apiToken: null }
     return contents
