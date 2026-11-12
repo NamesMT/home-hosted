@@ -12,7 +12,7 @@ import { type } from 'arktype'
 import { applyConfigMigrations, CONFIG_SCHEMA, planConfigMigrations } from '#src/config/migrations'
 import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
 import { KNOWN_SECRET_KEYS, mergeSecrets, parseSecrets, pickSecrets, presentSecretKeys, secretParts, withoutInitialPassword } from '#src/config/secret-parts'
-import { workspacesFileSchema } from '#src/config/workspaces'
+import { parseWorkspacesFile } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
 import { copyTree } from '#src/helpers/copy-tree'
@@ -648,10 +648,7 @@ function readArchivedRegistry(file: string): ArchivedWorkspace[] {
   if (text === null)
     return []
   try {
-    const parsed = workspacesFileSchema(JSON.parse(text))
-    if (parsed instanceof type.errors)
-      return []
-    return parsed.workspaces
+    return parseWorkspacesFile(JSON.parse(text)).workspaces ?? []
   }
   catch {
     return []

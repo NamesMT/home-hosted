@@ -435,7 +435,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
       logger.error(`workspace ${workspace.id}: ${workspace.store.configError}`)
     for (const warning of workspace.store.configWarnings) logger.warn(`workspace ${workspace.id}: ${warning}`)
   }
-  for (const warning of settings.configWarnings) logger.warn(warning)
+  for (const warning of [...settings.configWarnings, ...registry.configWarnings]) logger.warn(warning)
   if (ui.custom) {
     const meta = ui.status().meta
     logger.warn(`custom UI in use${meta === null ? '' : ` (${meta.name}${meta.version === null ? '' : ` ${meta.version}`})`} — if it breaks, run \`home-hosted ui-revert\``)

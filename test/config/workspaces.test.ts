@@ -170,6 +170,33 @@ describe('workspace registry', () => {
     expect(registry.all()).toEqual([])
   })
 
+  it('reads a registry a newer release wrote, and keeps its keys on the next write', async () => {
+    const { registry, file } = await loaded({
+      meta: { writtenBy: '9.0.0', schema: 1 },
+      order: ['staging', 'default'],
+      workspaces: [{ id: 'default', label: 'Default', color: 'blue' }, { id: 'staging', label: 'Staging', color: 'red' }],
+    })
+    expect(registry.configError).toBeNull()
+    expect(registry.all()).toEqual([{ id: 'default', label: 'Default' }, { id: 'staging', label: 'Staging' }])
+    expect(registry.configWarnings.join(' ')).toContain('order')
+    expect(registry.configWarnings.join(' ')).toContain('color')
+    expect(readDefaultWorkspaceId(file)).toBe('default')
+
+    registry.rename('default', 'Home')
+    registry.create({ id: 'media', label: 'Media' })
+    const written = read(file)
+    expect(written.order).toEqual(['staging', 'default'])
+    expect(written.workspaces).toEqual([
+      { id: 'default', label: 'Home', color: 'blue' },
+      { id: 'staging', label: 'Staging', color: 'red' },
+      { id: 'media', label: 'Media' },
+    ])
+
+    // A removed entry takes its keys with it.
+    registry.remove('staging')
+    expect(read(file).workspaces.map((entry: { id: string }) => entry.id)).toEqual(['default', 'media'])
+  })
+
   it('refuses a registry it cannot parse or validate', async () => {
     const bad = await loaded({ workspaces: [{ id: 'Not Safe!', label: 'x' }] })
     expect(bad.registry.configError).not.toBeNull()

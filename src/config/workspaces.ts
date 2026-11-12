@@ -1,5 +1,7 @@
 import type { Workspace } from '#src/shared/contracts'
+import path from 'node:path'
 import { type } from 'arktype'
+import { parseTolerant } from '#src/config/parse'
 import { metaSchema } from '#src/config/schema'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
@@ -7,6 +9,7 @@ import { DEFAULT_WORKSPACE_ID, workspacesPath } from '#src/helpers/paths'
 import { appVersion } from '#src/helpers/version'
 import { newWorkspaceIdSchema, workspaceSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
+import { isRecord } from '#src/shared/shape'
 
 /**
  * The workspace registry: which workspaces exist, in the order the selector shows
@@ -18,6 +21,19 @@ export const workspacesFileSchema = lazy(() => type({
   meta: metaSchema.optional(),
   workspaces: workspaceSchema.array(),
 }).onUndeclaredKey('reject'))
+
+/**
+ * Reads a registry from any release: a key this one does not know — at the top or on an entry — is
+ * dropped from the result and listed, never a refusal. A newer panel may add one, and an older panel
+ * refused to start on its file. Anything else wrong is still `error`.
+ */
+export function parseWorkspacesFile(raw: unknown): { workspaces: Workspace[] | null, unknownKeys: string[], error: string | null } {
+  const unknownKeys: string[] = []
+  const parsed = parseTolerant(raw, workspacesFileSchema as unknown as (input: unknown) => unknown, 'workspaces.json', unknownKeys)
+  if (parsed.error !== null)
+    return { workspaces: null, unknownKeys, error: parsed.error }
+  return { workspaces: (parsed.value as typeof workspacesFileSchema.infer).workspaces, unknownKeys, error: null }
+}
 
 /**
  * The *kind* of registry failure, when a caller has to branch on it rather than just report it.
@@ -55,10 +71,10 @@ export function defaultWorkspaceId(workspaces: ReadonlyArray<Readonly<{ id: stri
  */
 export function readDefaultWorkspaceId(file: string): string {
   try {
-    const parsed = workspacesFileSchema(JSON.parse(readStateFile(file)) as unknown)
-    if (parsed instanceof type.errors || parsed.workspaces.length === 0)
+    const { workspaces } = parseWorkspacesFile(JSON.parse(readStateFile(file)) as unknown)
+    if (workspaces === null || workspaces.length === 0)
       return DEFAULT_WORKSPACE_ID
-    return defaultWorkspaceId(parsed.workspaces)
+    return defaultWorkspaceId(workspaces)
   }
   catch {
     return DEFAULT_WORKSPACE_ID
@@ -80,10 +96,10 @@ export function readDefaultWorkspaceId(file: string): string {
  */
 export function readWorkspaceIds(file: string): string[] | null {
   try {
-    const parsed = workspacesFileSchema(JSON.parse(readStateFile(file)) as unknown)
-    if (parsed instanceof type.errors || parsed.workspaces.length === 0)
+    const { workspaces } = parseWorkspacesFile(JSON.parse(readStateFile(file)) as unknown)
+    if (workspaces === null || workspaces.length === 0)
       return null
-    return parsed.workspaces.map(workspace => workspace.id)
+    return workspaces.map(workspace => workspace.id)
   }
   catch {
     return null
@@ -128,7 +144,10 @@ export function slugifyWorkspaceId(label: string, taken: Iterable<string> = []):
 
 export class WorkspaceRegistry {
   private list: Workspace[] = []
+  /** The file as last read, so a write keeps the keys a newer release put there. */
+  private raw: Record<string, unknown> = {}
   private error: string | null = null
+  private warnings: string[] = []
   private readonly listeners = new Set<() => void>()
 
   constructor(private readonly file: string = workspacesPath) {}
@@ -140,6 +159,11 @@ export class WorkspaceRegistry {
   /** Blocking problems; the caller refuses to start on one, exactly as for configs. */
   get configError(): string | null {
     return this.error
+  }
+
+  /** Keys a newer release wrote that this one ignores, and keeps on disk. */
+  get configWarnings(): string[] {
+    return [...this.warnings]
   }
 
   all(): Workspace[] {
@@ -185,18 +209,22 @@ export class WorkspaceRegistry {
       return
     }
 
-    const validated = workspacesFileSchema(parsed)
-    if (validated instanceof type.errors) {
-      this.error = `${this.file}: ${validated.summary}`
+    const { workspaces, unknownKeys, error } = parseWorkspacesFile(parsed)
+    if (workspaces === null) {
+      this.error = `${this.file}: ${error}`
       return
     }
-    if (validated.workspaces.length === 0) {
+    if (workspaces.length === 0) {
       this.error = `${this.file} declares no workspace — at least one is required`
       return
     }
 
     this.error = null
-    this.list = validated.workspaces.map(entry => ({ ...entry }))
+    this.warnings = unknownKeys.length === 0
+      ? []
+      : [`${path.basename(this.file)} carries ${unknownKeys.length} unrecognized key(s) this release ignores: ${unknownKeys.join(', ')}`]
+    this.raw = parsed as Record<string, unknown>
+    this.list = workspaces.map(entry => ({ ...entry }))
     this.notify()
   }
 
@@ -253,12 +281,20 @@ export class WorkspaceRegistry {
   }
 
   private commit(next: Workspace[]): void {
+    // What a newer release added — a top-level key, or one on an entry that is still here — is
+    // written back as it was read.
+    const { $schema: _schema, meta: _meta, workspaces: previous, ...extra } = this.raw
+    const before = new Map((Array.isArray(previous) ? previous : [])
+      .filter((entry): entry is Record<string, unknown> => isRecord(entry) && typeof entry.id === 'string')
+      .map(entry => [entry.id as string, entry]))
     const stamped = {
       $schema: './workspaces.schema.json',
       meta: { writtenBy: appVersion(), schema: 1 },
-      workspaces: next,
+      ...extra,
+      workspaces: next.map(entry => ({ ...before.get(entry.id), ...entry })),
     }
     writeFileAtomic(this.file, `${JSON.stringify(stamped, null, 2)}\n`)
+    this.raw = stamped
     this.list = next.map(entry => ({ ...entry }))
     this.error = null
     this.notify()
