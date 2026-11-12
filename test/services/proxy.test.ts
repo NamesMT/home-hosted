@@ -1,6 +1,7 @@
 import type { AddressInfo } from 'node:net'
 import type { ProxyServiceOptions } from '#src/services/proxy'
 import { execFileSync, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
@@ -16,6 +17,13 @@ import { groupDns01Policies, ProxyService, validateProxyConfig } from '#src/serv
 import { proxyConfigSchema } from '#src/shared/contracts'
 import { isPublicHost, upstreamTarget } from '#src/shared/proxy-form'
 import { hasOpenssl } from '../support/capabilities'
+
+/** A download as `fetch` returns it: a synthetic `Response` has no `url`, a real one says where it ended. */
+function fromBuildService(body: string, url = 'https://caddyserver.com/api/download?os=linux'): Response {
+  const response = new Response(body)
+  Object.defineProperty(response, 'url', { value: url })
+  return response
+}
 
 /** The dial address and TLS flag the engine renders, from the one shared upstream parser. */
 function parseUpstream(value: string): { dial: string, tls: boolean } | null {
@@ -694,7 +702,7 @@ describe('proxyService', () => {
     const { service, options } = await harness()
     writeStubEngine(service.enginePath, [])
     const working = fs.readFileSync(service.enginePath, 'utf8')
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('#!/bin/sh\necho "not caddy"\nexit 1\n'))
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(fromBuildService('#!/bin/sh\necho "not caddy"\nexit 1\n'))
 
     await expect(service.install()).rejects.toMatchObject({ code: 'ENGINE_DOWNLOAD_FAILED' })
     expect(fs.readFileSync(service.enginePath, 'utf8'), 'the old binary was replaced').toBe(working)
@@ -705,10 +713,52 @@ describe('proxyService', () => {
     const { service } = await harness()
     writeStubEngine(service.enginePath, [])
     const build = '#!/bin/sh\nif [ "$1" = "version" ]; then echo "v2.12.0 h1:new"; fi\n'
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(build))
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(fromBuildService(build))
 
     await expect(service.install()).resolves.toMatchObject({ installed: true, version: '2.12.0' })
     expect(fs.readFileSync(service.enginePath, 'utf8')).toBe(build)
+    const record = JSON.parse(fs.readFileSync(path.join(path.dirname(service.enginePath), 'engine.json'), 'utf8')) as { digest?: string }
+    expect(record.digest).toBe(`sha256:${createHash('sha256').update(build).digest('hex')}`)
+  })
+
+  it('refuses a download that a redirect took off https or off the build service', async () => {
+    const { service, options } = await harness()
+    for (const url of ['http://caddyserver.com/api/download', 'https://caddyserver.com.evil.example/x', 'https://evil.example/caddy']) {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(fromBuildService('#!/bin/sh\n', url))
+      await expect(service.install(), url).rejects.toMatchObject({ code: 'ENGINE_DOWNLOAD_UNTRUSTED' })
+    }
+    expect(fs.existsSync(service.enginePath)).toBe(false)
+    expect(fs.readdirSync(options.binDir).filter(name => name.startsWith('download-'))).toEqual([])
+  })
+
+  it('refuses to start a downloaded binary that changed since it was installed', async () => {
+    const { service, options, settings, breakNannySpawn } = await harness()
+    writeStubEngine(service.enginePath, [])
+    stubPortPreflight()
+    settings.updateProxy({ enabled: true, httpPort: 4480, httpsPort: 4443 })
+    const digest = (text: string): string => `sha256:${createHash('sha256').update(text).digest('hex')}`
+    const record = (value: string) => fs.writeFileSync(path.join(options.binDir, 'engine.json'), JSON.stringify({
+      engine: 'caddy',
+      version: '2.11.4',
+      source: 'downloaded',
+      url: 'https://caddyserver.com/api/download',
+      bytes: 1,
+      installedAt: 1,
+      digest: value,
+    }))
+
+    record(digest('what the panel downloaded'))
+    await expect(service.start()).rejects.toMatchObject({ code: 'ENGINE_INTEGRITY', statusCode: 409 })
+
+    // The binary that was recorded is let through, as far as the engine itself.
+    record(digest(fs.readFileSync(service.enginePath, 'utf8')))
+    const restore = breakNannySpawn()
+    try {
+      await expect(service.start()).rejects.toMatchObject({ code: 'ENGINE_NOT_READY' })
+    }
+    finally {
+      restore()
+    }
   })
 
   it('still refuses while a child outlived its nanny', async () => {

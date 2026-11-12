@@ -72,18 +72,22 @@ const ENGINE_COMMAND_TIMEOUT_MS = 10_000
 const DNS01_MODULE = 'dns.providers.acmeproxy'
 
 /**
- * What the panel recorded when it installed the engine. Nothing here is verified
- * against the binary: replacing it by hand is a supported way to run a custom build,
- * so no digest is recorded. A file from an older release, which did record one,
- * carries an undeclared key and is rejected wholesale — it reads as "not installed".
+ * What the panel recorded when it installed the engine.
+ *
+ * `digest` is the downloaded binary's sha256, checked before every start, so a binary that changed
+ * since the panel fetched it is not run under the panel's name. A custom build opts out by having no
+ * record (delete `engine.json`); a record written before digests were kept has none and is not
+ * checked. A file from ≤0.7.x carried a `sha256` key, which is undeclared here and rejects the record
+ * wholesale — it reads as a custom build.
  */
 export const engineRecordSchema = lazy(() => type({
-  engine: 'string',
-  version: 'string',
-  source: '"downloaded" | "custom"',
-  url: 'string',
-  bytes: 'number',
-  installedAt: 'number',
+  'engine': 'string',
+  'version': 'string',
+  'source': '"downloaded" | "custom"',
+  'url': 'string',
+  'bytes': 'number',
+  'installedAt': 'number',
+  'digest?': '/^sha256:[0-9a-f]{64}$/',
 }).onUndeclaredKey('reject'))
 export type EngineRecord = typeof engineRecordSchema.infer
 
@@ -1242,13 +1246,23 @@ export class ProxyService {
     if (!response.ok || response.body === null) {
       throw new DetailedError(`the ${engine.info.label} build service answered ${response.status}`, { statusCode: 502, code: 'ENGINE_DOWNLOAD_FAILED' })
     }
+    // The binary is executed, so where it finally came from matters: a redirect may not leave https
+    // or the build service's own host.
+    if (!trustedDownload(response.url, download.url)) {
+      throw new DetailedError(
+        `the ${engine.info.label} download was redirected to ${response.url || 'an unknown address'}, which is not the build service over https — nothing was installed`,
+        { statusCode: 502, code: 'ENGINE_DOWNLOAD_UNTRUSTED' },
+      )
+    }
 
     const handle = fs.openSync(target, 'w', 0o755)
+    const hash = createHash('sha256')
     let bytes = 0
     try {
       for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
         bytes += buffer.length
+        hash.update(buffer)
         fs.writeSync(handle, buffer)
       }
     }
@@ -1280,6 +1294,7 @@ export class ProxyService {
       url: download.url,
       bytes,
       installedAt: Date.now(),
+      digest: `sha256:${hash.digest('hex')}`,
     }
     writeFileAtomic(path.join(this.options.binDir, 'engine.json'), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 })
     // The binary changed, so what it carries has to be read again.
@@ -1371,6 +1386,23 @@ export class ProxyService {
     return modules
   }
 
+  /**
+   * Refuses to run a downloaded binary that is no longer the one the panel downloaded. Read on every
+   * start, never per frame: hashing a 40 MB binary is a start's cost, not a tick's.
+   */
+  private async assertEngineIntegrity(): Promise<void> {
+    const record = this.readEngineRecord()
+    if (record === null || record.source !== 'downloaded' || record.digest === undefined)
+      return
+    const actual = await fileDigest(this.enginePath)
+    if (actual === record.digest)
+      return
+    throw new DetailedError(
+      `the installed ${this.engine.info.label} binary is not the one the panel downloaded — install the engine again, or delete ${path.join(this.options.binDir, 'engine.json')} to run it as a custom build`,
+      { statusCode: 409, code: 'ENGINE_INTEGRITY' },
+    )
+  }
+
   /** The module the panel's DNS-01 configuration needs the engine to carry. */
   private async assertDns01Module(): Promise<void> {
     if (!this.config.dns01.enabled)
@@ -1411,6 +1443,7 @@ export class ProxyService {
       return
     }
 
+    await this.assertEngineIntegrity()
     await this.assertPortsFree(config.httpPort, config.httpsPort)
 
     const admin = await (this.options.chooseAdmin ?? this.chooseAdmin.bind(this))()
@@ -1871,6 +1904,34 @@ export function validateProxyConfig(config: ProxyConfig, dnsAccount?: (ref: stri
       errors.push(`route "${route.id}": the "${found.provider}" account has no credentials stored yet`)
   }
   return errors
+}
+
+/**
+ * True when a download's final address is https on the host it was asked from (or a subdomain of
+ * it). `fetch` follows redirects, so the address asked for says nothing about where the bytes came from.
+ */
+export function trustedDownload(finalUrl: string, requestedUrl: string): boolean {
+  try {
+    const final = new URL(finalUrl)
+    const host = new URL(requestedUrl).hostname
+    return final.protocol === 'https:' && (final.hostname === host || final.hostname.endsWith(`.${host}`))
+  }
+  catch {
+    return false
+  }
+}
+
+/** `sha256:<hex>` of a file, streamed. */
+async function fileDigest(file: string): Promise<string | null> {
+  const hash = createHash('sha256')
+  try {
+    for await (const chunk of fs.createReadStream(file))
+      hash.update(chunk as Buffer)
+  }
+  catch {
+    return null
+  }
+  return `sha256:${hash.digest('hex')}`
 }
 
 /** Caddy answers with `{"error": "..."}`; that sentence is the useful part. */
