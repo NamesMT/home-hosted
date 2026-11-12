@@ -114,5 +114,6 @@ For a real database, either stop that entry around the backup, or declare `dump`
 the engine itself writes the backup ([SERVERS.md](./SERVERS.md#dumping-a-database-for-backups)).
 
 Restoring has the mirror-image hazard: data copied under a **running** server is replaced beneath a
-live process. The plan names those entries (`Data was replaced under a running server`); stop them
-before applying, or restart them after.
+live process. The plan names those entries (`Data was replaced under a running server` in the panel;
+`! worker is running — …; restart it` from `backup restore`, in the plan and after the apply); stop
+them before applying, or restart them after.

@@ -156,4 +156,18 @@ describe('restore --from against a running panel', () => {
     expect(created.seen?.get('name')).toBe('nightly.zip')
     expect(created.seen?.get('from')).toBeNull()
   })
+
+  /** `replacedUnderRunning` reached only `--json`; the text output said "restored" and nothing else. */
+  it('names a running entry whose data the restore replaced, in the text output', async () => {
+    const body = { ...(planBody() as Record<string, unknown>), replacedUnderRunning: [{ workspaceId: 'default', serverId: 'worker', path: '/srv/worker' }] }
+    const created = await stubPanel(body)
+    writeRuntime(created.url)
+
+    const plan = await runCli(['backup', 'restore', 'nightly.zip', '--all'])
+    expect(plan.output).toContain('! worker is running — restoring replaces its data under it; restart it afterwards')
+
+    const applied = await runCli(['backup', 'restore', 'nightly.zip', '--all', '--confirm'])
+    expect(applied.status, applied.output).toBe(0)
+    expect(applied.output).toContain('! worker is running — its data was replaced under it; restart it')
+  })
 })

@@ -441,6 +441,20 @@ function warnRunning(entries: Array<{ workspaceId?: string, serverId?: string, i
   process.stdout.write(`${dim(`! ${named.length} entr${isOne ? 'y is' : 'ies are'} still running (${named.join(', ')}) — its data may be captured mid-write`)}\n`)
 }
 
+/**
+ * One line per running entry whose declared data a restore replaces under it.
+ *
+ * The service has reported `replacedUnderRunning` for a while, but only `--json` printed it: a person
+ * restoring over a live `worker` read "restored 7 items" and kept a process holding the old files
+ * open. Grouped by entry — two declared paths of one server are one restart.
+ */
+export function replacedUnderRunningLines(list: ReadonlyArray<{ workspaceId: string, serverId: string }>, applied: boolean): string[] {
+  const labels = [...new Set(list.map(entry => entry.workspaceId === 'default' ? entry.serverId : `${entry.workspaceId}/${entry.serverId}`))]
+  return labels.map(label => applied
+    ? `! ${label} is running — its data was replaced under it; restart it`
+    : `! ${label} is running — restoring replaces its data under it; restart it afterwards`)
+}
+
 export async function runBackupCreate(options: { password?: string, scope: Scope, exclude?: string[], confirm: boolean, json: boolean }): Promise<void> {
   const scope = options.scope
   const online = await usesPanel()
@@ -648,6 +662,9 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
     if (!options.confirm) {
       for (const note of (plan?.skipped ?? []))
         process.stdout.write(`  ${dim('!')} ${note}\n`)
+      // With `--confirm` the apply's own line says it once, in the past tense.
+      for (const line of replacedUnderRunningLines(plan?.replacedUnderRunning ?? [], false))
+        process.stdout.write(`  ${paint('33', line)}\n`)
     }
     if (items.length === 0) {
       process.stdout.write('  (nothing to restore — check --include, or what this host declares)\n')
@@ -731,6 +748,8 @@ export async function runBackupRestore(options: { name?: string, from?: string, 
     // because the CLI is where a restore from another host is run, and nothing else mentions it.
     if (outcome.restartRequired === true)
       process.stdout.write(`  ${dim(`! the panel's listener changed — restart it so it binds where the archive says (\`${invocation()} restart\`)`)}\n`)
+    for (const line of replacedUnderRunningLines(outcome.replacedUnderRunning ?? [], true))
+      process.stdout.write(`  ${paint('33', line)}\n`)
     if ((outcome.createdWorkspaces ?? []).length > 0)
       process.stdout.write(`  ${dim(`! created ${outcome.createdWorkspaces!.join(', ')}, which this host did not have`)}\n`)
     if (service !== null)
