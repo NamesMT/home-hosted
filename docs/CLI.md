@@ -138,6 +138,39 @@ home-hosted <version>
   running (`persistentRunning` in `--json`), `stop <id>` stops one through its own supervisor, and
   `down --with-persistent` stops them all.
 
+## Coming from pm2 or compose
+
+`import` carries an existing setup in. It **prints a plan and writes nothing** until you pass
+`--confirm`, and a run with no terminal and no `--confirm` exits 1 — so a CI step cannot create
+servers nobody asked for.
+
+```bash
+home-hosted import pm2 ecosystem.config.json            # the plan
+home-hosted import pm2 ecosystem.config.json --confirm  # and write it
+home-hosted import compose docker-compose.yml --id stack --confirm
+```
+
+**pm2** — each `apps[]` element becomes one entry:
+
+| pm2 | becomes |
+| --- | --- |
+| `name` | `id` (slugified; two names that slugify onto one id are **refused**, not merged) |
+| `script`, `interpreter` | `command` (the interpreter, default `node`) and `args[0]` (the script) |
+| `args` | the rest of `args`, split on whitespace — a quoted argument is **reported**, not guessed |
+| `cwd`, `env` | `cwd`, `env` (a numeric value becomes a string) |
+| `autorestart`, `max_restarts` | `restart.enabled`, `restart.maxRetries` |
+| `max_memory_restart` | `resources.maxRssBytes` (`200M`, `1G`, a bare number of bytes) |
+| `watch`, `cron_restart`, `instances`/`exec_mode: cluster` | **not carried** — each is reported by name |
+
+A `.js` ecosystem is code, so reading it means running it: pass `--allow-js` or export JSON. A
+`.mjs`/`.cjs` works the same way.
+
+**compose** — one entry per stack, because the containers *are* the server: `docker compose -f <file>
+up`. YAML and a JSON export both work; only the presence of a `services` key is read, since docker
+parses the file itself.
+
+Nothing is started: `home-hosted start <id>` when you are ready.
+
 ## Logs and usage
 
 ```bash

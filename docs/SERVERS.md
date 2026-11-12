@@ -112,6 +112,19 @@ stdout and stderr — while the drop path needs an 8 MB backlog, so a server has
 that rate to reach it. That is far more than a normal home service writes. If the lines do appear on
 a server that is not meant to be that loud, read them as a symptom: something is in a log loop.
 
+## Coming from pm2 or compose
+
+`home-hosted import` carries a declaration in without hand-writing JSON — see
+[CLI.md](./CLI.md#coming-from-pm2-or-compose) for the field mapping. Two things are worth knowing
+before you run it:
+
+- **What it cannot carry is reported, not dropped.** pm2's `watch`, `cron_restart` and
+  `instances`/`cluster` have no equivalent here (this release supervises one process per entry and has
+  no scheduled restart), so the plan names each one against the app it came from.
+- **A compose stack is one entry**, not one per container. The panel detects the project from the
+  entry's argv and treats the containers as its process — a stop resolves them from a fresh listing,
+  never from the signal.
+
 ## `PATH`, and the program an entry runs
 
 `command` resolves against the environment the **panel** was started with, not your shell's. Under

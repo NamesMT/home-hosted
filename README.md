@@ -337,6 +337,7 @@ Compose and more fill the form — or write it into the workspace's `servers.con
 | `home-hosted restart [<id>]` | the panel (`down` then `up` — every non-persistent server restarts with it), or just one server, leaving the panel up. To move the panel's port or bind without stopping anything, use **Global settings → Listener** |
 | `home-hosted status` | running? where? how many servers up? every path (`--json`) |
 | `home-hosted add <id> -- <command…>` / `ls` | declare a server (`--port`, `--cwd`, `--persistent`, `--autostart`, `-w`) or list them — through the panel, or into `servers.config.json` when it is down |
+| `home-hosted import pm2\|compose <file>` | carry an existing setup in — a pm2 ecosystem (each app one entry) or a compose stack (one entry). Prints a plan; `--confirm` writes it. What it cannot carry (`watch`, `cron_restart`, cluster instances) is reported, not dropped |
 | `home-hosted secret set\|unset\|ls <id> [NAME]` | a server's secret environment: `set` prompts without echo (or `--stdin`), `ls` prints the names and which have a value. **Never prints a value** (`-w`, `--json`) |
 | `home-hosted start <id>` / `stop <id>` | one server — `start` brings up what it `dependsOn` first; `stop` stops only that one, and works on a persistent entry with the panel down (`-w <workspace>`, `--free-port`) |
 | `home-hosted free-port <id>` | ask whatever holds that server's port to stop; supervised holders are refused |
@@ -365,6 +366,8 @@ ls                [-w/--workspace <id>] --json
 secret set <id> NAME   [--stdin] [-w/--workspace <id>]   (prompts without echo; never prints the value)
 secret unset <id> NAME [-w/--workspace <id>]
 secret ls <id>         [-w/--workspace <id>] --json
+import pm2 <file>      [--confirm] [--dry-run] [--allow-js] [--env <name>] [-w/--workspace <id>] --json
+import compose <file>  [--confirm] [--dry-run] [--id <id>] [-w/--workspace <id>] --json
 start <id>        [-w/--workspace <id>] [--free-port]
 stop <id>         [-w/--workspace <id>]
 free-port <id>    [-w/--workspace <id>]

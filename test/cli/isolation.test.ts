@@ -54,7 +54,12 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
 }
 
 /** Modules that are pure by construction, so nothing in them is a host action. */
-const ALWAYS_PURE = new Set(['io', 'nearest', 'args', 'backup-offline'])
+/**
+ * `import-plan` is here because it is **the pure half** of `import`: the pm2 mapping and the small
+ * parsers, with no `#src` value import at all (one `import type`, erased at compile time). The command
+ * that reads a file and writes entries is `import.ts`, which the guard still covers.
+ */
+const ALWAYS_PURE = new Set(['io', 'nearest', 'args', 'backup-offline', 'import-plan'])
 
 /** Every `import … from '#src/cli/<command>'` in a file, with the symbols it takes. */
 function cliImports(text: string): Array<{ specifier: string, symbols: string[] }> {

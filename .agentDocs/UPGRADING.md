@@ -120,3 +120,8 @@ until you declare a name: an `envFile` keeps working exactly as it did, and its 
 
 **Nothing new is required.** There is no migration: an entry without `secretEnv` behaves as before, and
 `secretEnv` defaults to an empty list on the first save.
+
+**`home-hosted import` is new, and it writes nothing without `--confirm`.** A pm2 ecosystem (`.json`,
+or `.js` only with `--allow-js` — that one runs the file) becomes one entry per app; a compose file
+becomes one entry for the stack. Nothing here changes an existing home: it only adds entries, and a
+re-run over an existing id fails that entry with the panel's `409 SERVER_EXISTS` sentence.

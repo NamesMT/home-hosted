@@ -59,6 +59,7 @@ const SYNOPSIS: Record<string, string> = {
   'add': 'home-hosted add <id> [--port <n>] [--cwd <dir>] [--workspace <id>] [--persistent] [--autostart] -- <command> [args…]',
   'ls': 'home-hosted ls [--workspace <id>] [--json]',
   'secret': 'home-hosted secret set|unset|ls <id> [NAME] [--stdin] [--workspace <id>] [--json]',
+  'import': 'home-hosted import pm2|compose <file> [--confirm] [--dry-run] [--allow-js] [--workspace <id>]',
 }
 
 const SUMMARIES: Record<string, string> = {
@@ -84,6 +85,7 @@ const SUMMARIES: Record<string, string> = {
   'add': 'declare a server, through the panel or straight into servers.config.json',
   'ls': 'list the servers a workspace declares, live when the panel is up',
   'secret': 'a server\'s secret environment — the names are listed, the values never printed',
+  'import': 'bring a pm2 ecosystem or a compose stack in as server entries',
 }
 
 /** One option line, as the left column and the description that follows it. */
@@ -301,6 +303,21 @@ const SECRET_SECTION: OptionSection = {
   ],
 }
 
+const IMPORT_SECTION: OptionSection = {
+  heading: 'Options for import',
+  lines: [
+    ['pm2 <file>', 'a pm2 ecosystem (.json, or .js with --allow-js): each app becomes one entry'],
+    ['compose <file>', 'one entry for the stack, running `docker compose -f <file> up`'],
+    ['--confirm', 'write the plan; without it nothing is written and a non-interactive run exits 1'],
+    ['--dry-run', 'print the plan and write nothing, even with --confirm'],
+    ['--allow-js', 'evaluate a .js ecosystem file — it is code, and it runs in this process'],
+    ['--env <name>', 'pm2 only: read that env block (pm2 injects `env_<name>`; this reads the one you name)'],
+    ['-w, --workspace <id>', 'the workspace to write into (default: the default workspace)'],
+    ['--id <id>', 'compose only: the server id (default: the file\'s directory name)'],
+    ['--json', 'print the plan and the outcome as one document'],
+  ],
+}
+
 const EVERYWHERE_SECTION: OptionSection = {
   heading: 'Everywhere',
   lines: [
@@ -391,6 +408,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'add': ADD_SECTION,
   'ls': LS_SECTION,
   'secret': SECRET_SECTION,
+  'import': IMPORT_SECTION,
 }
 
 /**
@@ -467,6 +485,7 @@ const COMMANDS = {
   'add': () => import('#src/cli/add').then(module => module.addCommand),
   'ls': () => import('#src/cli/ls').then(module => module.lsCommand),
   'secret': () => import('#src/cli/secret').then(module => module.secretCommand),
+  'import': () => import('#src/cli/import').then(module => module.importCommand),
 } satisfies SubCommandsDef
 
 const rootCommand = defineCommand({
