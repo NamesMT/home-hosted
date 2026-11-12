@@ -468,7 +468,7 @@ export async function stopComposeContainers(target: ComposeTarget): Promise<{ st
  * reading is never published as an idle one.
  */
 export class DockerMetrics {
-  private cache: { at: number, byKey: Map<string, ComposeReading> } | null = null
+  private cache: { at: number, covered: ReadonlySet<string>, byKey: Map<string, ComposeReading> } | null = null
   private refreshing: Promise<void> | null = null
 
   /**
@@ -476,10 +476,15 @@ export class DockerMetrics {
    *
    * Deliberately synchronous: the spawn takes seconds, and awaiting it here would stretch the
    * supervisor tick that publishes the whole state frame. A fresh reading lands on a later tick.
+   *
+   * Pass every live compose target, not only the ones due a sample: the cache holds the answer for
+   * the set it was refreshed with, and a target it never asked about counts as stale.
    */
   readings(targets: ComposeTarget[], now = Date.now()): ReadonlyMap<string, ComposeReading> {
     // A stamp in the future (a backwards clock step) counts as stale, so a reading cannot stick.
-    const fresh = this.cache !== null && now >= this.cache.at && now - this.cache.at < DOCKER_CACHE_MS
+    const cache = this.cache
+    const fresh = cache !== null && now >= cache.at && now - cache.at < DOCKER_CACHE_MS
+      && targets.every(target => cache.covered.has(target.key))
     if (!fresh && targets.length > 0 && this.refreshing === null) {
       this.refreshing = this.refresh(targets, now).finally(() => {
         this.refreshing = null
@@ -496,6 +501,7 @@ export class DockerMetrics {
   /** One listing and one batched stats call; replaces the cache only with a complete answer. */
   async refresh(targets: ComposeTarget[], now = Date.now()): Promise<void> {
     const byKey = new Map<string, ComposeReading>()
+    const covered = new Set(targets.map(target => target.key))
     try {
       const listing = await execFileAsync('docker', [
         'ps',
@@ -520,7 +526,7 @@ export class DockerMetrics {
         for (const row of matched) ids.add(row.id)
       }
       if (ids.size === 0) {
-        this.cache = { at: now, byKey }
+        this.cache = { at: now, covered, byKey }
         return
       }
 
@@ -540,6 +546,6 @@ export class DockerMetrics {
       // docker absent, not running or not permissioned: no reading, never a zero.
       byKey.clear()
     }
-    this.cache = { at: now, byKey }
+    this.cache = { at: now, covered, byKey }
   }
 }

@@ -481,6 +481,24 @@ describe('the container metrics reader', () => {
     })
   })
 
+  posixShim('refreshes inside the window for a stack the cached answer never asked about', async () => {
+    // Two entries due on different seconds: the cache filled for the first must not stand in for
+    // the second, or the second's memory ceiling never sees a container reading.
+    await withDockerShim({ ps: PS_OUTPUT, stats: STATS_OUTPUT }, async (calls) => {
+      const metrics = new DockerMetrics()
+      const first: ComposeTarget = { key: 'project:hhmetricsprobe', project: 'hhmetricsprobe', configFiles: [] }
+      const second: ComposeTarget = { key: 'project:second', project: 'hhmetricsprobe', configFiles: [] }
+      metrics.readings([first], 1000)
+      await metrics.settle()
+      expect(calls()).toHaveLength(2)
+
+      metrics.readings([first, second], 3000)
+      await metrics.settle()
+      expect(metrics.readings([first, second], 3000).has('project:second')).toBe(true)
+      expect(metrics.readings([first, second], 3000).has('project:hhmetricsprobe')).toBe(true)
+    })
+  })
+
   posixShim('reports no reading when docker is unavailable, never a zero', async () => {
     // A shim that fails like a stopped daemon: docker prints its error on stderr and exits 1.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-docker-down-'))

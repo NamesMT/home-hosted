@@ -210,25 +210,30 @@ export async function probeEntry(ctx: SupervisorContext, entry: Entry, now: numb
  * docker has no reading.
  */
 export async function sampleResources(entries: Iterable<Entry>, sampler: ProcessSampler, docker: DockerMetrics, now: number): Promise<void> {
-  const due = [...entries].filter(entry =>
-    entry.pid !== null
-    && (entry.child !== null || entry.adopted)
-    && now - entry.resourcesSampledAt >= RESOURCE_SAMPLE_INTERVAL_MS)
+  const live = [...entries].filter(entry => entry.pid !== null && (entry.child !== null || entry.adopted))
+  const due = live.filter(entry => now - entry.resourcesSampledAt >= RESOURCE_SAMPLE_INTERVAL_MS)
   if (due.length === 0)
     return
 
   for (const entry of due) entry.resourcesSampledAt = now
 
-  const composeTargets = due.flatMap(entry => entry.compose === null ? [] : [entry.compose])
+  // Every live stack, not only the due ones: the cache answers for the set it was refreshed with, so
+  // asking for the due subset left an entry due on another second without a container reading.
+  const composeTargets = live.flatMap(entry => entry.compose === null ? [] : [entry.compose])
   // Once per sample: the class batches every container into one `docker stats` call.
   const containerReadings = docker.readings(composeTargets, now)
 
+  // The run each sample is for: a stop or restart that lands while the scan is out must win.
+  const runs = new Map(due.map(entry => [entry, { token: entry.runToken, pid: entry.pid }]))
   try {
     const samples = await sampler.sampleMany(due.map(entry => entry.pid!))
     for (const entry of due) {
+      const run = runs.get(entry)!
+      if (entry.runToken !== run.token || entry.pid !== run.pid)
+        continue
       const summed = entry.compose === null ? undefined : containerReadings.get(entry.compose.key)
       entry.resources = summed === undefined
-        ? samples.get(entry.pid!) ?? null
+        ? samples.get(run.pid!) ?? null
         : { cpuPercent: summed.cpuPercent, rssBytes: summed.rssBytes, processes: summed.processes, sampledAt: now }
       entry.resourcesFromContainers = summed !== undefined
     }
