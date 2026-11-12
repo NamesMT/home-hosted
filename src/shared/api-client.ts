@@ -762,6 +762,24 @@ export function clearLogs(id: string, workspace?: string | null): Promise<unknow
 
 export type ServerPatchPayload = Partial<ServerPatch> & Record<string, unknown>
 
+/**
+ * Writes a server's secret environment: values to set, and names to remove, in one call.
+ *
+ * The answer carries nothing back — this is write-only, deliberately: a route that echoed a value
+ * would publish what the secrets file's 0600 mode exists to protect. The view's `secretEnvSet` (names
+ * only) is how a UI learns which names have a value.
+ */
+export function setServerSecrets(
+  id: string,
+  body: { set?: Record<string, string>, unset?: string[] },
+  workspace?: string | null,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>(scoped(`/api/servers/${encodeURIComponent(id)}/secrets`, workspace), {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+}
+
 export function patchServer(id: string, patch: ServerPatchPayload, workspace?: string | null): Promise<unknown> {
   return request(scoped(`/api/servers/${encodeURIComponent(id)}`, workspace), {
     method: 'PATCH',

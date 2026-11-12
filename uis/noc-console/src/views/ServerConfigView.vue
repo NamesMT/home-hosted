@@ -8,6 +8,7 @@ import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ConfirmButton from '@/components/ConfirmButton.vue'
+import SecretEnvBlock from '@/components/SecretEnvBlock.vue'
 import ServerFormFields from '@/components/ServerFormFields.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { vFocusTrap } from '@/composables/useFocusTrap'
@@ -377,6 +378,19 @@ async function remove(): Promise<void> {
           </div>
         </template>
       </ServerFormFields>
+
+      <!--
+        The values, kept apart from the config form: they are written through their own write-only
+        route, so declaring a name and setting its value are two separate acts.
+      -->
+      <SecretEnvBlock
+        v-if="server && config"
+        :server-id="server.id"
+        :config="config"
+        :set-names="server.secretEnvSet ?? []"
+        :workspace-id="workspace.activeId.value"
+        @changed="workspace.refresh()"
+      />
 
       <div class="group">
         <div class="actions">

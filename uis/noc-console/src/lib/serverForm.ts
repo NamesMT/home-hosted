@@ -75,7 +75,7 @@ export type FormVariant = 'sheet' | 'page'
 export type FieldKey
   = | 'id' | 'label' | 'command' | 'args' | 'cwd' | 'port' | 'bind' | 'customBind'
     | 'enabled' | 'autostart' | 'persistent' | 'onPortConflict' | 'logBufferLines'
-    | 'liveBind' | 'dependsOn' | 'maxRssMb' | 'envFile'
+    | 'liveBind' | 'dependsOn' | 'maxRssMb' | 'envFile' | 'secretEnv'
     | 'env' | 'dataEnvs' | 'backupPaths' | 'backupIgnoreGenerated'
     | 'bootstrapEnabled' | 'bootstrapCommand' | 'bootstrapTimeoutSeconds' | 'bootstrapRunOnce'
     | 'bootstrapArgs' | 'bootstrapEnv'
@@ -114,6 +114,7 @@ export function blankSharedForm(variant: FormVariant, defaults?: ServerDefaults 
     backupIgnoreGenerated: true,
     dependsOn: '',
     envFile: '',
+    secretEnv: '',
     maxRssMb: '',
     onPortConflict: defaults?.onPortConflict ?? 'block',
     logBufferLines: sheet ? '' : '500',
@@ -144,6 +145,8 @@ interface ServerFormShape {
   backupIgnoreGenerated: boolean
   dependsOn: string
   envFile: string
+  /** The declared secret **names**, one per line. A value never enters this model. */
+  secretEnv: string
   maxRssMb: string
   onPortConflict: OnPortConflict
   logBufferLines: string
@@ -243,6 +246,7 @@ const COMMON = {
   loadTimeoutSeconds: { label: 'timeout (s)', control: 'text', numeric: true, enabledBy: 'loadEnabled' },
   loadArgs: { label: 'args — one per line', control: 'textarea', rows: 2, enabledBy: 'loadEnabled', full: true },
   loadEnv: { label: 'env — KEY=value per line', control: 'textarea', rows: 2, enabledBy: 'loadEnabled', full: true },
+  secretEnv: { label: 'secret env names', control: 'textarea', rows: 2, placeholder: 'DATABASE_URL', hint: 'one name per line; the values live in the workspace secrets file, never in this config', full: true },
 } satisfies Partial<Record<FieldKey, FieldSpec>>
 /**
  * What the sheet spells differently. A key here **replaces** its common entry outright,
@@ -300,6 +304,7 @@ const PAGE: Record<DifferingKey, FieldSpec> = {
   },
   maxRssMb: { label: 'max rss (MiB)', control: 'text', numeric: true, placeholder: 'empty = no guard', hint: 'restart when the process tree exceeds it' },
   envFile: { label: 'env file', control: 'text', placeholder: 'empty = none', hint: 'loaded at spawn; its values override env' },
+
   bootstrapCommand: { label: 'command', control: 'text', enabledBy: 'bootstrapEnabled' },
   bootstrapTimeoutSeconds: { label: 'timeout (s)', control: 'text', numeric: true, enabledBy: 'bootstrapEnabled' },
 }
@@ -495,6 +500,7 @@ export function pageFormFrom(config: ServerConfig): PageForm {
     backupIgnoreGenerated: edit.backupIgnoreGenerated,
     dependsOn: edit.dependsOn,
     envFile: edit.envFile,
+    secretEnv: edit.secretEnv,
     maxRssMb: text(edit.maxRssMb),
     port: text(edit.port),
     bind: standard ? edit.bind : 'custom',
@@ -549,6 +555,7 @@ export function editFormFromPage(form: PageForm): ServerEditForm {
     backupIgnoreGenerated: form.backupIgnoreGenerated,
     dependsOn: form.dependsOn,
     envFile: form.envFile,
+    secretEnv: form.secretEnv,
     maxRssMb: form.maxRssMb,
     port: form.port,
     bind: form.bind === 'custom' ? form.customBind : form.bind,

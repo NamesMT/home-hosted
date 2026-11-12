@@ -8,6 +8,7 @@ import { fillSnapshot, liveConfigUpdate, serverEditForm, serverEditPatch, server
 import { type } from 'arktype'
 import { computed, reactive, ref, watch } from 'vue'
 import LifecycleFields from '@/components/server/LifecycleFields.vue'
+import SecretEnvBlock from '@/components/server/SecretEnvBlock.vue'
 import { cloneHealth } from '@/components/settings/settingsForm'
 import AppButton from '@/components/ui/AppButton.vue'
 import BindField from '@/components/ui/BindField.vue'
@@ -28,6 +29,8 @@ const props = defineProps<{
   /** The workspace that owns the entry; the patch is scoped to it. */
   workspaceId: string
   config: ServerConfig
+  /** The names whose values are stored, from the server view. Optional: a panel may predate it. */
+  secretEnvSet?: string[]
 }>()
 
 const emit = defineEmits<{ saved: [], cancel: [] }>()
@@ -175,6 +178,17 @@ async function save(): Promise<void> {
         <TextField v-model="form.command" :label="t('common.command')" placeholder="node" required class="font-mono text-xs" />
         <TextField v-model="form.cwd" :label="t('serverForm.workingDirectory')" placeholder="." :hint="t('serverForm.cwdHint')" class="font-mono text-xs" />
         <TextField v-model="form.envFile" :label="t('serverForm.envFile')" :placeholder="t('serverForm.envFilePlaceholder')" :hint="t('serverForm.envFileHint')" class="font-mono text-xs" />
+        <!--
+          The declared secret **names**, one per line. The values are written by their own block below
+          (write-only); a `KEY=value` box here would put a secret into the form's model and its PATCH.
+        -->
+        <TextAreaField
+          v-model="form.secretEnv"
+          :label="t('serverForm.secretEnv')"
+          :placeholder="t('serverForm.secretEnvPlaceholder')"
+          :hint="t('serverForm.secretEnvHint')"
+          class="font-mono text-xs"
+        />
         <TextAreaField
           v-model="form.args"
           :label="t('serverForm.arguments')"
@@ -350,6 +364,18 @@ async function save(): Promise<void> {
           />
         </template>
       </FieldGroup>
+
+      <!--
+        The values, kept apart from the config form: they are written through their own write-only
+        route, after the entry is saved, so a declaration and its value are two separate acts.
+      -->
+      <SecretEnvBlock
+        :server-id="props.serverId"
+        :config="props.config"
+        :set-names="props.secretEnvSet ?? []"
+        :workspace-id="props.workspaceId"
+        @changed="emit('saved')"
+      />
     </div>
 
     <p v-if="error" class="mt-3 rounded-control border border-danger/40 bg-danger-soft px-2.5 py-1.5 font-mono text-2xs leading-4 text-danger">

@@ -449,6 +449,7 @@ const SECTIONS = [
         :server-id="server.id"
         :workspace-id="workspace.activeId.value"
         :config="server.config"
+        :secret-env-set="server.secretEnvSet ?? []"
         @saved="editing = false"
         @cancel="editing = false"
       />

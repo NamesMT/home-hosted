@@ -79,6 +79,13 @@ export interface ServerEditForm<N extends NumericInput = NumericInput> {
   /** Comma separated. */
   dependsOn: string
   envFile: string
+  /**
+   * The **names** of secret environment variables, one per line — never a value.
+   *
+   * A `KEY=value` shape here would put a secret into the form's own model, into its `PATCH` body and
+   * into whatever a browser keeps; the values go through their own write-only route.
+   */
+  secretEnv: string
   /** MiB; blank is "no guard". */
   maxRssMb: N
   /** Blank is "no port". */
@@ -121,6 +128,8 @@ export function serverEditForm(config: ServerConfig): ServerEditForm<number | nu
     backupIgnoreGenerated: config.backupIgnoreGenerated !== false,
     dependsOn: config.dependsOn.join(', '),
     envFile: config.envFile,
+    // Absent on a panel that predates the field, and on an entry that declares no secrets.
+    secretEnv: (config.secretEnv ?? []).join('\n'),
     maxRssMb: config.resources.maxRssBytes > 0 ? Math.round(config.resources.maxRssBytes / 1024 / 1024) : null,
     port: config.port ?? null,
     bind: config.bind,
@@ -211,6 +220,7 @@ export function serverEditPayload(form: ServerEditForm, filled: ServerConfig): P
     backupIgnoreGenerated: form.backupIgnoreGenerated,
     dependsOn: commaList(form.dependsOn),
     envFile: form.envFile.trim(),
+    secretEnv: linesToArray(form.secretEnv),
     resources: { maxRssBytes: Number.isFinite(maxRssMb) && maxRssMb > 0 ? Math.round(maxRssMb * 1024 * 1024) : 0 },
     // Blank is "no port"; something unreadable stays NaN so validation names it.
     port: isBlankInput(form.port) ? null : readFormNumber(form.port),
