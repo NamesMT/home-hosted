@@ -56,4 +56,22 @@ describe('log relay', () => {
     // Already read, so an unfollow has nothing left over.
     expect(relay.unfollow('keep')).toEqual([])
   })
+
+  it('hands back all of a final burst larger than one poll reads', async () => {
+    // A crash that prints a long trace right before the nanny exits: one budgeted read (256 KB)
+    // stopped part-way, and the end of the trace — the part that says why — was dropped.
+    const file = await tempFile()
+    const relay = new LogRelay({ onLines: () => {}, intervalMs: 60_000 })
+    cleanups.push(() => relay.dispose())
+
+    relay.follow('keep', file)
+    const filler = 'x'.repeat(1000)
+    const burst = Array.from({ length: 600 }, (_, index) => JSON.stringify({ ts: index, stream: 'stderr', text: `${index} ${filler}` })).join('\n')
+    fs.appendFileSync(file, `${burst}\n`)
+    write(file, 'the final line', 'stderr')
+
+    const rest = relay.unfollow('keep')
+    expect(rest).toHaveLength(601)
+    expect(rest.at(-1)?.text).toBe('the final line')
+  })
 })

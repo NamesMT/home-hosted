@@ -17,6 +17,9 @@ import { Utf8Chunks } from '#src/helpers/utf8-chunks'
 /** One poll reads at most this much, so a burst cannot stall the tick. */
 const MAX_BYTES_PER_READ = 256 * 1024
 
+/** What a final drain may read in one go: a crash's whole last burst, but never an unbounded file. */
+const MAX_DRAIN_BYTES = 8 * 1024 * 1024
+
 /**
  * The window a backfill starts with, and the ceiling it may grow to.
  *
@@ -158,6 +161,25 @@ export class LogTailer {
       // A file replaced mid-read is picked up by the next poll.
     }
 
+    return lines
+  }
+
+  /**
+   * Everything still unread, in as many budgeted reads as it takes, up to `maxBytes`.
+   *
+   * For the last read before the tailer is dropped: one `read()` stops at its per-poll budget, so a
+   * crash that printed more than that between two polls lost the end of its output — the part that
+   * says why.
+   */
+  readRemaining(maxBytes = MAX_DRAIN_BYTES): LogLine[] {
+    const lines: LogLine[] = []
+    for (let rounds = Math.ceil(maxBytes / MAX_BYTES_PER_READ); rounds > 0; rounds -= 1) {
+      const offset = this.offset
+      const identity = this.identity
+      lines.push(...this.read())
+      if (this.offset === offset && this.identity === identity)
+        break
+    }
     return lines
   }
 

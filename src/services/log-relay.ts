@@ -69,7 +69,7 @@ export class LogRelay {
    */
   unfollow(serverId: string): LogLine[] {
     const current = this.followed.get(serverId)
-    const rest = current === undefined ? [] : current.tailer.read()
+    const rest = current === undefined ? [] : current.tailer.readRemaining()
     // The tailer holds its file open; on Windows that would keep a deleted name in place.
     current?.tailer.close()
     this.followed.delete(serverId)
