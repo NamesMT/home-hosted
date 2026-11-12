@@ -37,7 +37,11 @@ describe('an unstamped config file', () => {
     // and the global settings store had the same fallback.
     for (const file of ['src/config/parse.ts', 'src/config/store.ts', 'src/config/settings.ts', 'src/cli/migrate.ts']) {
       const source = fs.readFileSync(path.join(root, file), 'utf8')
-      expect(source, `${file} must import UNSTAMPED_SCHEMA`).toContain('UNSTAMPED_SCHEMA')
+      // `migrate` reads the stamp through `readConfigStamp` (parse.ts), the one reader of `meta`.
+      if (file === 'src/cli/migrate.ts')
+        expect(source, `${file} must read the stamp through readConfigStamp`).toContain('readConfigStamp')
+      else
+        expect(source, `${file} must import UNSTAMPED_SCHEMA`).toContain('UNSTAMPED_SCHEMA')
       // Any fallback for a *missing* stamp must be the constant, not the current schema. Three
       // spellings exist: the two `meta.schema ?: …` fallbacks and the two result defaults.
       expect(source, `${file} must not fall back to CONFIG_SCHEMA for a missing stamp`)
