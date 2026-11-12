@@ -52,6 +52,14 @@ export function forgetLanAddress(): void {
   cached = null
 }
 
+/**
+ * The address a client on this machine connects to for a listener bound to `bound`: the wildcard
+ * binds answer on loopback, a specific address only on itself.
+ */
+export function dialHost(bound: string): string {
+  return bound === '0.0.0.0' || bound === '::' || bound.length === 0 ? '127.0.0.1' : bound
+}
+
 export function bindHost(bind: string): string {
   if (bind === 'local')
     return '127.0.0.1'

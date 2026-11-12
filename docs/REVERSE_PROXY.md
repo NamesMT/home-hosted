@@ -92,7 +92,8 @@ A route pointing at the panel is exposure, and answers to the same rule as bindi
 listener beyond loopback: authentication on and a non-default password, or the save is
 refused. `tls` does not change that bar — it is about who can reach the panel, not whether
 the hop is encrypted, and `tls: "off"` is if anything the worse case. The engine upstreams a
-panel route to `127.0.0.1`, which the panel's own guard reads as a local request, so a
+panel route to the address the panel is bound to — `127.0.0.1` for `local` and `lan`, the address
+itself for a specific IPv4 bind — and a loopback hop is one the panel's own guard reads as a local request, so a
 plain-HTTP route with no password set would serve the panel to anyone who reached that
 hostname.
 
@@ -240,7 +241,9 @@ client IP) and it rewrites the whole zone per write. Namecheap's Dynamic DNS pas
 cannot write a TXT record at all, so that account is refused with the reason.
 
 The engine holds no DNS credentials. It asks the panel over the ACMEProxy protocol on
-loopback, with credentials the panel generated for it, and the panel writes the
+loopback, with credentials the panel generated for it (so DNS-01 needs the panel bound to `local`
+or `lan`: a panel bound to one specific address is dialled there, and the endpoint refuses a
+caller that is not loopback), and the panel writes the
 `_acme-challenge` record through that account. `resolvers` overrides the nameservers
 the engine checks the record against, which is what split-horizon DNS needs.
 

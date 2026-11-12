@@ -1049,6 +1049,20 @@ describe('proxyService', () => {
     expect(routes.map(route => [route.host, route.upstreamSkipVerify])).toEqual([['panel.lan', true], ['nas.lan', false], ['self.lan', true]])
   })
 
+  it('dials the panel on the address it is bound to', async () => {
+    // Bound to one IPv4 address, the panel does not answer on 127.0.0.1: the route was a 502.
+    const bound = { host: '192.168.1.5' as const, port: 3999, bindHost: '192.168.1.5', url: 'http://192.168.1.5:3999', protocol: 'http' as const }
+    const { service, settings } = await harness({ control: () => bound })
+    settings.updateProxy({ dns01: { enabled: true }, routes: [{ id: 'panel', host: 'panel.lan', target: 'panel' }] })
+    expect(service.routeViews()[0]?.upstream).toBe('192.168.1.5:3999')
+    const dns01 = (service as unknown as { dns01Input: (routes: unknown[]) => { endpoint: string } }).dns01Input([])
+    expect(dns01.endpoint).toBe('http://192.168.1.5:3999/_acme')
+
+    // A wildcard bind still answers on loopback.
+    bound.bindHost = '0.0.0.0'
+    expect(service.routeViews()[0]?.upstream).toBe('127.0.0.1:3999')
+  })
+
   it('is off, then stopped with a reason once it is switched on without an engine', async () => {
     const { service, settings } = await harness()
     expect(service.status()).toMatchObject({ state: 'off', lastError: null })

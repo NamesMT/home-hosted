@@ -11,6 +11,7 @@ import { generateInitialPassword, SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
 import { WorkspaceStore } from '#src/config/store'
 import { WorkspaceRegistry } from '#src/config/workspaces'
+import { dialHost } from '#src/helpers/bind'
 import { readStateFile } from '#src/helpers/config-text'
 import { clearRuntime, newToken, readRuntime, runtimeIsAlive, runtimeIsGone, writeRuntime } from '#src/helpers/daemon'
 import { logger } from '#src/helpers/logger'
@@ -61,11 +62,6 @@ export interface ControlPlaneOptions {
   open: boolean
   /** Print the effective settings and workspaces and exit without starting anything. */
   printConfig: boolean
-}
-
-/** A probe target for a `lan` bind, which is not connectable as `0.0.0.0`. */
-function probeHostFor(bindHost: string): string {
-  return bindHost === '0.0.0.0' || bindHost === '::' ? '127.0.0.1' : bindHost
 }
 
 /**
@@ -303,7 +299,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
         return { url: null, message: `"${serverId}" has no port to forward to` }
       if (view?.status !== 'running' && view?.status !== 'starting')
         return { url: null, message: `"${workspaceId}/${serverId}" is ${view?.status ?? 'not running'}` }
-      return { url: `${view.bindHost === '0.0.0.0' ? '127.0.0.1' : view.bindHost}:${port}`, message: null }
+      return { url: `${dialHost(view.bindHost)}:${port}`, message: null }
     },
     // A DNS-01 challenge writes through the workspace account the route names, so
     // the credentials never leave the workspace that owns them.
@@ -413,7 +409,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     version: appVersion(),
     pid: process.pid,
     url: endpoint.url,
-    probeUrl: `${endpoint.protocol}://${probeHostFor(endpoint.bindHost)}:${endpoint.port}`,
+    probeUrl: `${endpoint.protocol}://${dialHost(endpoint.bindHost)}:${endpoint.port}`,
     protocol: endpoint.protocol,
     port: endpoint.port,
     bindHost: endpoint.bindHost,

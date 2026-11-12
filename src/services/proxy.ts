@@ -28,6 +28,7 @@ import process from 'node:process'
 import { DetailedError } from '@namesmt/utils'
 import { type } from 'arktype'
 import { writeFileAtomic } from '#src/helpers/atomic'
+import { dialHost } from '#src/helpers/bind'
 import { logger } from '#src/helpers/logger'
 import { dataRoot, projectDir, proxyChallengeAuthPath } from '#src/helpers/paths'
 import { nannyArgv } from '#src/helpers/runtime'
@@ -339,8 +340,9 @@ export class ProxyService {
 
     return {
       resolvers: this.config.dns01.resolvers,
-      // The engine dials the panel on loopback, whatever the panel binds for people.
-      endpoint: `${endpoint.protocol}://127.0.0.1:${endpoint.port}/_acme`,
+      // The address the panel is actually bound to: loopback for `local`/`lan`, the address itself
+      // for a specific bind (where `127.0.0.1` refuses).
+      endpoint: `${endpoint.protocol}://${dialHost(endpoint.bindHost)}:${endpoint.port}/_acme`,
       username: auth.username,
       password: auth.password,
       policies,
@@ -1104,7 +1106,7 @@ export class ProxyService {
         const endpoint = this.options.control()
         if (!endpoint.port)
           return { route, status: 'no-upstream', upstream: null, upstreamTls: false, message: 'the control panel is not listening' }
-        return { route, status: 'ok', upstream: `127.0.0.1:${endpoint.port}`, upstreamTls: endpoint.protocol === 'https', skipVerify: true, message: null }
+        return { route, status: 'ok', upstream: `${dialHost(endpoint.bindHost)}:${endpoint.port}`, upstreamTls: endpoint.protocol === 'https', skipVerify: true, message: null }
       }
 
       if (route.workspace.length === 0 || route.server.length === 0)
