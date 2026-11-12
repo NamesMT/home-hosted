@@ -142,7 +142,10 @@ describe('migrate --dry-run', () => {
  * "every file is already what home-hosted 0.10.0 understands — nothing to migrate".
  */
 describe('migrate summary', () => {
-  /** A state directory whose three files are stamped schema 1, so all three need the 1 → 2 step. */
+  /**
+   * A state directory whose three files are stamped schema 1. Only the workspace settings carry
+   * what the 1 → 2 step changes; the other two are restamped.
+   */
   function homeNeedingMigration(): { home: string } {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hh-migrate-sum-'))
     dirs.push(home)
@@ -164,7 +167,10 @@ describe('migrate summary', () => {
     expect(result.status, result.stderr).toBe(0)
     // The contradiction this pins: it lifted files, so the closing line must not deny it.
     expect(result.stdout).not.toContain('nothing to migrate')
-    expect(result.stdout).toContain('3 file(s) migrated')
+    expect(result.stdout).toContain('1 file(s) migrated, 2 file(s) stamped')
+    // The step is offered for the one file it changes, never for a servers file.
+    expect(result.stdout).toContain('migrating workspace default settings')
+    expect(result.stdout).not.toContain('migrating workspace default servers')
   })
 
   it('still says so when a second run really has nothing to do', () => {

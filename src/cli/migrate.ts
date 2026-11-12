@@ -1,10 +1,10 @@
+import type { ConfigKind, MigrationPlan } from '#src/config/migrations'
 import fs from 'node:fs'
-import path from 'node:path'
 import process from 'node:process'
 import { defineCommand } from 'citty'
 import { dim, fail, green, prompt } from '#src/cli/io'
-import { applyConfigMigrations, planConfigMigrations, UNSTAMPED_SCHEMA } from '#src/config/migrations'
-import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, stampConfig } from '#src/config/parse'
+import { applyConfigMigrations, planConfigMigrations } from '#src/config/migrations'
+import { parseGlobalSettings, parseServersFile, parseWorkspaceSettings, readConfigStamp, stampConfig } from '#src/config/parse'
 import { WorkspaceRegistry } from '#src/config/workspaces'
 import { writeFileAtomic } from '#src/helpers/atomic'
 import { readStateFile } from '#src/helpers/config-text'
@@ -32,6 +32,7 @@ export const migrateArgs = {
 interface Target {
   file: string
   label: string
+  kind: ConfigKind
   validate: (raw: unknown) => string | null
 }
 
@@ -41,6 +42,7 @@ function targets(): Target[] {
     {
       file: globalSettingsPath,
       label: 'global settings',
+      kind: 'global-settings',
       validate: raw => parseGlobalSettings(raw).errors[0] ?? null,
     },
   ]
@@ -54,22 +56,22 @@ function targets(): Target[] {
     list.push({
       file: workspaceSettingsPath(workspace.id),
       label: `workspace ${workspace.id} settings`,
+      kind: 'workspace-settings',
       validate: raw => parseWorkspaceSettings(raw).errors[0] ?? null,
     })
     list.push({
       file: workspaceServersPath(workspace.id),
       label: `workspace ${workspace.id} servers`,
+      kind: 'servers',
       validate: (raw) => {
-        // The defaults live in the workspace settings; an absent one reads as schema defaults.
-        // Read through the *parser* only when that file is already this release's schema; a
-        // pending migration means the reader would refuse it, and the defaults would be lost.
+        // The defaults live in the workspace settings; an absent one reads as schema defaults. They
+        // are read from the *lifted* settings: a pending migration means the reader would refuse the
+        // file as it is, and the defaults would be lost.
         let defaults: Record<string, unknown> = {}
         try {
           const settingsRaw = JSON.parse(readStateFile(workspaceSettingsPath(workspace.id))) as Record<string, unknown>
-          const meta = typeof settingsRaw.meta === 'object' && settingsRaw.meta !== null ? settingsRaw.meta as { schema?: number } : {}
-          const from = typeof meta.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
-          const lifted = planConfigMigrations(from).steps.length > 0 ? applyConfigMigrations(settingsRaw, from).config : settingsRaw
-          defaults = (lifted?.defaults ?? {}) as Record<string, unknown>
+          const lifted = applyConfigMigrations(settingsRaw, readConfigStamp(settingsRaw).schemaVersion, { kind: 'workspace-settings' }).config
+          defaults = (lifted.defaults ?? {}) as Record<string, unknown>
         }
         catch {
           // No settings file yet: the servers still have to be readable.
@@ -81,127 +83,91 @@ function targets(): Target[] {
   return list
 }
 
+interface PlannedFile {
+  target: Target
+  from: number
+  plan: MigrationPlan
+  /** What gets written: the lifted file for a schema step, the same file restamped otherwise. */
+  next: Record<string, unknown>
+}
+
+/**
+ * Reads and checks one file, failing on anything this release must not write. `null` means the
+ * file is already exactly what this release would write.
+ */
+function planFile(target: Target): PlannedFile | null {
+  let raw: Record<string, unknown>
+  try {
+    raw = JSON.parse(readStateFile(target.file)) as Record<string, unknown>
+  }
+  catch (error) {
+    fail(`cannot read ${target.file}: ${errorMessage(error)}`)
+  }
+
+  const { schemaVersion: from, writtenBy } = readConfigStamp(raw)
+  const plan = planConfigMigrations(from, { kind: target.kind })
+
+  if (plan.tooNew)
+    fail(`${target.file} was written by home-hosted ${writtenBy ?? 'a newer release'} (config schema ${from});\n  this release understands schema ${plan.to}. Install that version, or edit the file yourself.`)
+
+  /**
+   * Validate what this release will actually read: the file as-is when it needs no migration,
+   * otherwise the result the steps produce.
+   *
+   * The parsed check cannot be run on the raw file when a migration is pending — the reader
+   * refuses an older schema by design (`readStamp`), which would make `migrate` refuse every
+   * config it exists to lift.
+   */
+  const migrated = plan.steps.length === 0 ? raw : applyConfigMigrations(raw, from, { kind: target.kind }).config
+  if (!isRecord(migrated))
+    fail(`${target.file} did not produce an object when migrated — refusing to write it`)
+  const problem = target.validate(migrated)
+  if (problem !== null)
+    fail(`${target.file} is not a config this release can read: ${problem}`)
+
+  // A chain with a gap would lift the file part-way and then stamp it as the current schema, so the
+  // file would claim a shape it does not have. Refused rather than written.
+  if (plan.reached !== plan.to) {
+    fail(`${target.file} is schema ${from} and this release can only lift it to schema ${plan.reached} — the migration chain in configMigrations has a gap to schema ${plan.to}.
+  That is a bug in this release: report it rather than editing the file.`)
+  }
+
+  const next = stampConfig(migrated)
+  if (plan.steps.length === 0 && JSON.stringify(next) === JSON.stringify(raw))
+    return null
+  return { target, from, plan, next }
+}
+
 export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
   const files = targets()
   const existing = files.filter(target => fs.existsSync(target.file))
   if (existing.length === 0)
     fail(`no home-hosted state to migrate — nothing at ${globalSettingsPath} or any workspace`)
 
-  const consented = yes || (process.env.HHOSTED_MIGRATE ?? '').toLowerCase() === 'allow'
-  let stampOnly = 0
-  let lifted = 0
-  /** Files whose schema has steps, counted for `--dry-run` — which writes none of them. */
-  let needsLift = 0
+  // Every file is read and checked before any is written, so a refusal — or a "no" — on the third
+  // file cannot leave the first two rewritten behind a line saying nothing was.
+  const planned = existing.map(planFile).filter(entry => entry !== null)
+  const lifts = planned.filter(entry => entry.plan.steps.length > 0)
+  const restamps = planned.filter(entry => entry.plan.steps.length === 0)
 
-  for (const target of existing) {
-    let raw: Record<string, unknown>
-    try {
-      raw = JSON.parse(readStateFile(target.file)) as Record<string, unknown>
-    }
-    catch (error) {
-      fail(`cannot read ${target.file}: ${errorMessage(error)}`)
-    }
-
-    const meta = typeof raw.meta === 'object' && raw.meta !== null ? raw.meta as { schema?: number, writtenBy?: string } : {}
-    const from = typeof meta.schema === 'number' ? meta.schema : UNSTAMPED_SCHEMA
-    const plan = planConfigMigrations(from)
-
-    if (plan.tooNew) {
-      fail(`${target.file} was written by home-hosted ${meta.writtenBy ?? 'a newer release'} (config schema ${from});\n  this release understands schema ${plan.to}. Install that version, or edit the file yourself.`)
-    }
-
-    /**
-     * Validate what this release will actually read: the file as-is when it needs no migration,
-     * otherwise the result the steps produce.
-     *
-     * The parsed check cannot be run on the raw file when a migration is pending — the reader
-     * refuses an older schema by design (`readStamp`), which would make `migrate` refuse every
-     * config it exists to lift. `checkShape` below catches a file that is not even JSON-shaped
-     * before the steps touch it.
-     */
-    const migrated = plan.steps.length === 0 ? raw : applyConfigMigrations(raw, from).config
-    if (plan.steps.length > 0 && (!isRecord(migrated))) {
-      fail(`${target.file} did not produce an object when migrated — refusing to write it`)
-    }
-    const problem = target.validate(migrated)
-    if (problem !== null)
-      fail(`${target.file} is not a config this release can read: ${problem}`)
-
-    // A chain with a gap would lift the file part-way and then stamp it as the current schema, so the
-    // file would claim a shape it does not have. Refused rather than written.
-    if (plan.reached !== plan.to) {
-      fail(`${target.file} is schema ${from} and this release can only lift it to schema ${plan.reached} — the migration chain in configMigrations has a gap to schema ${plan.to}.
-  That is a bug in this release: report it rather than editing the file.`)
-    }
-
-    if (plan.steps.length === 0) {
-      const stamped = stampConfig(raw)
-      const changes = JSON.stringify(stamped) !== JSON.stringify(raw)
-      if (changes)
-        stampOnly += 1
-      // A dry run has to *say* what it would stamp. It used to stay silent and then close with
-      // "nothing was written (--dry-run)", so an upgrader rehearsing the one command they were told
-      // to rehearse saw an empty report while the real run rewrote three files and printed
-      // "3 file(s) stamped" — the plan a person reads to decide did not describe the run it plans.
-      if (changes && dryRun)
-        process.stdout.write(`stamping ${target.label}: meta.writtenBy → home-hosted ${appVersion()} (schema ${plan.to}, no steps)\n`)
-      // `docs/` and `README.md` promise a `.bak` beside **each** file this command rewrites, and this
-      // branch rewrites one too — it only restamps it. Keeping no backup here made the promise
-      // conditional on which path the file took, and a hand-formatted `servers.config.json` came back
-      // reindented with no copy of what the person wrote. No consent is asked for a restamp: it
-      // changes `meta.writtenBy` and nothing else, so there is no decision to make — unlike a schema
-      // step, which is why the two branches differ on that and not on the backup.
-      if (changes && !dryRun) {
-        fs.copyFileSync(target.file, `${target.file}.bak`)
-        writeFileAtomic(target.file, `${JSON.stringify(stamped, null, 2)}\n`)
-      }
-      continue
-    }
-
-    needsLift += 1
-
-    process.stdout.write(`migrating ${target.label}: config schema ${from} → ${plan.to}\n`)
-    for (const [index, step] of plan.steps.entries())
+  // A dry run has to *say* what it would stamp: an upgrader rehearsing the one command they were
+  // told to rehearse must see the plan the real run carries out.
+  if (dryRun) {
+    for (const entry of restamps)
+      process.stdout.write(`stamping ${entry.target.label}: meta.writtenBy → home-hosted ${appVersion()} (schema ${entry.plan.to}, no steps)\n`)
+  }
+  for (const entry of lifts) {
+    process.stdout.write(`migrating ${entry.target.label}: config schema ${entry.from} → ${entry.plan.to}\n`)
+    for (const [index, step] of entry.plan.steps.entries())
       process.stdout.write(`  ${index + 1}. ${step.describe}\n`)
-
-    if (dryRun)
-      continue
-
-    if (!consented) {
-      if (process.stdin.isTTY !== true) {
-        fail(`${target.file} needs ${plan.steps.length} migration(s) and this session cannot ask.\n  re-run with --yes, or set HHOSTED_MIGRATE=allow for unattended runs`)
-      }
-      const answer = await prompt(`Apply ${plan.steps.length} migration(s) to ${path.basename(target.file)}? [y/N] `)
-      if (!/^yes$|^y$/i.test(answer.trim())) {
-        process.stdout.write('cancelled — nothing was written\n')
-        return
-      }
-    }
-
-    const migratedProblem = target.validate(migrated)
-    if (migratedProblem !== null)
-      fail(`the migration produced a config this release cannot read:\n  ${migratedProblem}`)
-
-    fs.copyFileSync(target.file, `${target.file}.bak`)
-    writeFileAtomic(target.file, `${JSON.stringify(stampConfig(migrated), null, 2)}\n`)
-    lifted += 1
-    process.stdout.write(`${green(`migrated ${target.label} to schema ${plan.to}`)} in ${target.file}\n`)
-    process.stdout.write(`  ${dim(`previous file kept at ${target.file}.bak`)}\n`)
   }
 
-  // "nothing to migrate" has to mean nothing happened: a run that lifted three files printed it
-  // anyway, because only the stamp-only path counted. The line a person reads to decide whether to
-  // re-run has to agree with the lines above it.
-  //
-  // A dry run answers the same question in the same words, in the tense of a plan: it is the run a
-  // person rehearses *before* letting a migration touch state they cannot easily restore, so its
-  // closing line may not contradict the work it just described.
   const done: string[] = []
   if (dryRun) {
-    if (needsLift > 0)
-      done.push(green(`${needsLift} file(s) would be migrated`))
-    if (stampOnly > 0)
-      done.push(green(`${stampOnly} file(s) would be stamped`))
+    if (lifts.length > 0)
+      done.push(green(`${lifts.length} file(s) would be migrated`))
+    if (restamps.length > 0)
+      done.push(green(`${restamps.length} file(s) would be stamped`))
     process.stdout.write(
       done.length === 0
         ? `every file is already what home-hosted ${appVersion()} understands — nothing to migrate\n`
@@ -211,10 +177,37 @@ export async function runMigrate(dryRun: boolean, yes: boolean): Promise<void> {
     return
   }
 
-  if (lifted > 0)
-    done.push(green(`${lifted} file(s) migrated`))
-  if (stampOnly > 0)
-    done.push(green(`${stampOnly} file(s) stamped`))
+  // Consent covers the schema steps, asked once for all of them. A restamp needs none — it changes
+  // `meta.writtenBy` and nothing else — but it waits for the answer, so "no" writes nothing at all.
+  const consented = yes || (process.env.HHOSTED_MIGRATE ?? '').toLowerCase() === 'allow'
+  if (lifts.length > 0 && !consented) {
+    const steps = lifts.reduce((sum, entry) => sum + entry.plan.steps.length, 0)
+    if (process.stdin.isTTY !== true)
+      fail(`${lifts.map(entry => entry.target.file).join(', ')} need${lifts.length === 1 ? 's' : ''} ${steps} migration(s) and this session cannot ask.\n  re-run with --yes, or set HHOSTED_MIGRATE=allow for unattended runs`)
+    const answer = await prompt(`Apply ${steps} migration(s) to ${lifts.length} file(s)? [y/N] `)
+    if (!/^yes$|^y$/i.test(answer.trim())) {
+      process.stdout.write('cancelled — nothing was written\n')
+      return
+    }
+  }
+
+  // `docs/` and `README.md` promise a `.bak` beside **each** file this command rewrites, restamps
+  // included: a hand-formatted `servers.config.json` comes back reindented.
+  for (const entry of [...restamps, ...lifts]) {
+    fs.copyFileSync(entry.target.file, `${entry.target.file}.bak`)
+    writeFileAtomic(entry.target.file, `${JSON.stringify(entry.next, null, 2)}\n`)
+    if (entry.plan.steps.length > 0) {
+      process.stdout.write(`${green(`migrated ${entry.target.label} to schema ${entry.plan.to}`)} in ${entry.target.file}\n`)
+      process.stdout.write(`  ${dim(`previous file kept at ${entry.target.file}.bak`)}\n`)
+    }
+  }
+
+  // "nothing to migrate" has to mean nothing happened, and the line a person reads to decide
+  // whether to re-run has to agree with the lines above it.
+  if (lifts.length > 0)
+    done.push(green(`${lifts.length} file(s) migrated`))
+  if (restamps.length > 0)
+    done.push(green(`${restamps.length} file(s) stamped`))
   if (done.length === 0)
     process.stdout.write(`every file is already what home-hosted ${appVersion()} understands — nothing to migrate\n`)
   else

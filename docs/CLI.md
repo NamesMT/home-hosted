@@ -82,7 +82,7 @@ command reads either).
 
 ```bash
 home-hosted migrate --dry-run   # what would change, writes nothing
-home-hosted migrate             # asks before each schema step, keeps a .bak beside each file
+home-hosted migrate             # asks once before any schema step, keeps a .bak beside each file
 ```
 
 Each config records the release and schema that wrote it. A newer release always reads an older

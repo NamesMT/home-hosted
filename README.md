@@ -387,7 +387,7 @@ environment       HHOSTED_PASSWORD, HHOSTED_TOKEN, HHOSTED_MIGRATE=allow, HHOSTE
 
 ```bash
 home-hosted migrate --dry-run   # what would change
-home-hosted migrate             # asks before each schema step, keeps a .bak beside each file
+home-hosted migrate             # asks once before any schema step, keeps a .bak beside each file
 ```
 
 A newer release always reads an older config, and unknown keys are kept and reported, never reset.
