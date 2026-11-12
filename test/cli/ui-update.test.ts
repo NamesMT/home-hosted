@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -193,6 +194,47 @@ afterEach(async () => {
 })
 
 describe('syncOfficialUi', () => {
+  it('keeps a UI someone installed while the update was downloading', async () => {
+    const root = homeWith(official)
+    const ui = uiAt(root)
+    const asset = { name: 'home-hosted-ui-noc-console.zip', url: 'https://api.github.com/asset/1' }
+    const archive = fs.readFileSync(await uiZip(asset.name))
+    vi.stubGlobal('fetch', async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/releases/'))
+        return new Response(JSON.stringify({ tag_name: 'v1.2.3', assets: [asset] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      // Mid-download, a person uploads their own UI.
+      fs.writeFileSync(path.join(root, '.ui', 'ui.json'), JSON.stringify({ ...foreign, uploadedAt: 1 }))
+      return new Response(archive, { status: 200 })
+    })
+
+    const result = await syncOfficialUi(ui, '1.2.3')
+
+    expect(result.kind).toBe('failed')
+    expect(installedMeta(root).name).toBe('my-ui')
+    expect(fs.readFileSync(path.join(root, '.ui', 'index.html'), 'utf8')).toContain('old')
+  })
+
+  it('refuses an asset whose bytes do not match the release digest', async () => {
+    const root = homeWith(official)
+    await stubRelease('v1.2.3', [{ name: 'home-hosted-ui-noc-console.zip', url: 'https://api.github.com/asset/1', digest: `sha256:${'0'.repeat(64)}` } as { name: string, url: string }])
+
+    const result = await syncOfficialUi(uiAt(root), '1.2.3')
+
+    expect(result.kind).toBe('failed')
+    expect(result.kind === 'failed' && result.error).toContain('sha256')
+    expect(installedMeta(root).tag).toBe('v0.6.0')
+  })
+
+  it('installs an asset whose bytes match the release digest', async () => {
+    const root = homeWith(official)
+    const file = await uiZip('home-hosted-ui-noc-console.zip')
+    const digest = `sha256:${createHash('sha256').update(fs.readFileSync(file)).digest('hex')}`
+    await stubRelease('v1.2.3', [{ name: 'home-hosted-ui-noc-console.zip', url: 'https://api.github.com/asset/1', digest } as { name: string, url: string }])
+
+    await expect(syncOfficialUi(uiAt(root), '1.2.3')).resolves.toEqual({ kind: 'updated', tag: 'v1.2.3' })
+  })
+
   it('leaves the stock UI alone without looking anything up', async () => {
     const root = tempDir('hh-ui-home-')
     const calls = await stubRelease('v9.9.9', [])

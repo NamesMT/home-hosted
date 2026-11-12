@@ -1,17 +1,20 @@
 import type { UiSourceContext } from '#src/providers/ui-release'
-import type { UiService } from '#src/services/ui'
+import type { UiInstallResult, UiService } from '#src/services/ui'
+import fs from 'node:fs'
 import process from 'node:process'
 import { logger } from '#src/helpers/logger'
 import { appVersion } from '#src/helpers/version'
 import {
   assetDownloadUrl,
   DEFAULT_REPO,
+  downloadHeaders,
   downloadToTemp,
   fetchRelease,
   isOwnRepo,
   isUiAsset,
   matchAsset,
   parseRepoSlug,
+  verifyAssetDigest,
 } from '#src/providers/ui-release'
 import { errorMessage } from '#src/shared/error-message'
 
@@ -46,6 +49,33 @@ export function officialTagFor(
   if (repo === null || !isOwnRepo(repo))
     return null
   return { tag: `v${runningVersion}`, repo: `${repo.owner}/${repo.name}` }
+}
+
+export interface ReleaseAssetInstall {
+  url: string
+  /** The install's name when the archive carries no `ui.json`. */
+  fallbackName: string
+  /** The release the asset came from, recorded instead of the one inside the archive. */
+  tag?: string
+  /** The asset's `digest` from the release metadata, verified when present. */
+  digest?: string | null
+  context: UiSourceContext
+  unlessChanged?: () => string | null
+}
+
+/**
+ * Downloads one UI archive and installs it: the one path `ui-switch`, `ui-update` and the startup
+ * sync share, so the token scoping, the digest check and the temp cleanup cannot drift apart.
+ */
+export async function installReleaseAsset(ui: UiService, install: ReleaseAssetInstall): Promise<UiInstallResult> {
+  const download = await downloadToTemp(install.url, downloadHeaders(install.url, install.context), install.context)
+  try {
+    await verifyAssetDigest(download.file, install.digest)
+    return await ui.install(download.file, install.fallbackName, install.tag, { unlessChanged: install.unlessChanged })
+  }
+  finally {
+    fs.rmSync(download.dir, { recursive: true, force: true })
+  }
 }
 
 export async function syncOfficialUi(ui: UiService, runningVersion = appVersion()): Promise<UiSyncResult> {
@@ -96,22 +126,20 @@ export async function syncOfficialUi(ui: UiService, runningVersion = appVersion(
     if (asset === undefined)
       return failure(`no asset named ${matched.name} in ${release.tag}`)
 
-    const download = await downloadToTemp(assetDownloadUrl(asset), {
-      'accept': 'application/octet-stream',
-      'user-agent': `home-hosted/${runningVersion}`,
-    }, context)
-
-    try {
+    // The UI this decision was made about. A person may upload or switch one while the asset
+    // downloads; that choice wins, so the swap is refused unless the installed UI is still this one.
+    const decidedOn = JSON.stringify(meta)
+    const result = await installReleaseAsset(ui, {
+      url: assetDownloadUrl(asset),
+      fallbackName: matched.name.replace(/\.zip$/i, ''),
       // The tag is the release we just fetched, never what the archive claims.
-      const result = await ui.install(download.file, matched.name.replace(/\.zip$/i, ''), release.tag)
-      if (!result.ok)
-        return failure(result.error)
-    }
-    finally {
-      // The temp dir must go on every path, including the returns above.
-      const fs = await import('node:fs')
-      fs.rmSync(download.dir, { recursive: true, force: true })
-    }
+      tag: release.tag,
+      digest: asset.digest,
+      context,
+      unlessChanged: () => JSON.stringify(ui.readMeta()) === decidedOn ? null : 'the installed UI changed while the update downloaded — it was kept',
+    })
+    if (!result.ok)
+      return failure(result.error)
 
     return { kind: 'updated', tag: release.tag }
   }

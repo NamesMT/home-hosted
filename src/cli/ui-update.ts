@@ -1,6 +1,5 @@
 import type { UiSourceContext } from '#src/providers/ui-release'
 import type { UiMeta } from '#src/shared/contracts'
-import fs from 'node:fs'
 import process from 'node:process'
 import { parseArgs } from 'node:util'
 import { defineCommand } from 'citty'
@@ -9,7 +8,6 @@ import {
   assetDownloadUrl,
   compareTags,
   DEFAULT_REPO,
-  downloadToTemp,
   fetchRelease,
   fetchReleases,
   isOwnRepo,
@@ -364,31 +362,27 @@ async function installTag(
   }
 
   const asset = release.assets.find(entry => entry.name === assetName)!
-  const download = await downloadToTemp(assetDownloadUrl(asset), {
-    'accept': 'application/octet-stream',
-    'user-agent': `home-hosted/${context.version}`,
-    ...(context.token !== null && context.token.length > 0 ? { authorization: `Bearer ${context.token}` } : {}),
-  }, context)
+  const { UiService } = await import('#src/services/ui')
+  const { installReleaseAsset } = await import('#src/services/ui-update')
+  const { hhDir: dataRoot } = await import('#src/helpers/paths')
+  // The release being fetched is the tag to record, never the one inside the archive:
+  // a zip is built before its release is cut, so it carries the previous tag at best,
+  // and a panel that records that re-installs the same UI on every boot.
+  const result = await installReleaseAsset(new UiService({ dataRoot }), {
+    url: assetDownloadUrl(asset),
+    fallbackName: assetName,
+    tag: release.tag,
+    digest: asset.digest,
+    context,
+  })
 
-  try {
-    const { UiService } = await import('#src/services/ui')
-    const { hhDir: dataRoot } = await import('#src/helpers/paths')
-    // The release being fetched is the tag to record, never the one inside the archive:
-    // a zip is built before its release is cut, so it carries the previous tag at best,
-    // and a panel that records that re-installs the same UI on every boot.
-    const result = await new UiService({ dataRoot }).install(download.file, assetName, release.tag)
+  if (!result.ok)
+    throw new Error(`nothing was installed: ${result.error}`)
 
-    if (!result.ok)
-      throw new Error(`nothing was installed: ${result.error}`)
-
-    const { meta } = result
-    const { io } = context
-    io.write(`${io.style.green('UI updated')} — ${meta.name} ${meta.version ?? ''} at ${release.tag}\n`)
-    io.write(`  ${io.style.dim('refresh the browser to see it')}\n`)
-  }
-  finally {
-    fs.rmSync(download.dir, { recursive: true, force: true })
-  }
+  const { meta } = result
+  const { io } = context
+  io.write(`${io.style.green('UI updated')} — ${meta.name} ${meta.version ?? ''} at ${release.tag}\n`)
+  io.write(`  ${io.style.dim('refresh the browser to see it')}\n`)
 }
 
 /**

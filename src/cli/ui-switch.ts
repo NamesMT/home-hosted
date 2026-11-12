@@ -8,10 +8,8 @@ import {
   assetDownloadUrl,
   DEFAULT_REPO,
   defaultReleaseTag,
-  downloadToTemp,
   fallbackUiName,
   fetchRelease,
-  isGithubHost,
   isUiAsset,
   matchAsset,
   noAssetsMessage,
@@ -57,6 +55,7 @@ export async function uiSwitch(argv: string[], io: UiSwitchIo): Promise<void> {
       list: { type: 'boolean' },
       token: { type: 'string' },
       yes: { type: 'boolean', short: 'y' },
+      insecure: { type: 'boolean' },
     },
     allowPositionals: false,
   })
@@ -71,9 +70,11 @@ export async function uiSwitch(argv: string[], io: UiSwitchIo): Promise<void> {
   if (values.file !== undefined) {
     if (values.repo !== undefined || values.tag !== undefined || values.asset !== undefined || values.list === true)
       throw new Error('--file installs a zip directly; it cannot be combined with --repo, --tag, --asset or --list')
-    await installFromFile(values.file, context)
+    await installFromFile(values.file, context, values.insecure === true)
     return
   }
+  if (values.insecure === true)
+    throw new Error('--insecure only applies to an http:// --file URL')
 
   const repo = parseRepoSlug(values.repo ?? DEFAULT_REPO)
   if (repo === null)
@@ -107,7 +108,7 @@ export async function uiSwitch(argv: string[], io: UiSwitchIo): Promise<void> {
     return
   }
 
-  await installFromUrl(assetDownloadUrl(chosen), fallbackUiName(chosen.name ?? ''), context, release.tag)
+  await installFromUrl(assetDownloadUrl(chosen), fallbackUiName(chosen.name ?? ''), context, release.tag, chosen.digest)
 }
 
 async function chooseAsset(assets: GithubAsset[], values: { asset?: string, yes?: boolean }, context: SwitchContext): Promise<GithubAsset | null> {
@@ -153,7 +154,7 @@ async function chooseAsset(assets: GithubAsset[], values: { asset?: string, yes?
   }
 }
 
-async function installFromFile(value: string, context: SwitchContext): Promise<void> {
+async function installFromFile(value: string, context: SwitchContext, insecure: boolean): Promise<void> {
   const source = parseFileSource(value)
   if (source.kind === 'path') {
     if (!fs.existsSync(source.path))
@@ -163,6 +164,10 @@ async function installFromFile(value: string, context: SwitchContext): Promise<v
     await installArchive(source.path, fallbackUiName(source.path), context)
     return
   }
+  // The archive becomes the page every admin session loads: over plain http, anyone on the path can
+  // swap it for one that runs as the panel's own origin.
+  if (new URL(source.url).protocol !== 'https:' && !insecure)
+    throw new Error(`refusing to install a UI over plain http (${source.url}) — use https, or pass --insecure if you trust every network in between`)
   await installFromUrl(source.url, fallbackUiName(new URL(source.url).pathname), context)
 }
 
@@ -172,29 +177,22 @@ async function installFromFile(value: string, context: SwitchContext): Promise<v
  * and recording that makes the panel re-install the same UI on every boot. A local file
  * or a bare URL names no release, so it has none to record.
  */
-async function installFromUrl(url: string, fallbackName: string, context: SwitchContext, installedTag?: string): Promise<void> {
-  const headers: Record<string, string> = {
-    'accept': 'application/octet-stream',
-    'user-agent': `home-hosted/${context.version}`,
-  }
-  if (context.token !== null && context.token.length > 0 && isGithubHost(url))
-    headers.authorization = `Bearer ${context.token}`
-
-  const download = await downloadToTemp(url, headers, context)
-  try {
-    await installArchive(download.file, fallbackName, context, installedTag)
-  }
-  finally {
-    fs.rmSync(download.dir, { recursive: true, force: true })
-  }
+async function installFromUrl(url: string, fallbackName: string, context: SwitchContext, installedTag?: string, digest?: string | null): Promise<void> {
+  const { UiService } = await import('#src/services/ui')
+  const { installReleaseAsset } = await import('#src/services/ui-update')
+  const { hhDir: dataRoot } = await import('#src/helpers/paths')
+  const ui = new UiService({ dataRoot })
+  report(ui, await installReleaseAsset(ui, { url, fallbackName, tag: installedTag, digest, context }), context)
 }
 
 async function installArchive(archivePath: string, fallbackName: string, context: SwitchContext, installedTag?: string): Promise<void> {
   const { UiService } = await import('#src/services/ui')
   const { hhDir: dataRoot } = await import('#src/helpers/paths')
   const ui = new UiService({ dataRoot })
-  const result = await ui.install(archivePath, fallbackName, installedTag)
+  report(ui, await ui.install(archivePath, fallbackName, installedTag), context)
+}
 
+function report(ui: import('#src/services/ui').UiService, result: import('#src/services/ui').UiInstallResult, context: SwitchContext): void {
   if (!result.ok)
     throw new Error(`nothing was installed: ${result.error}`)
 

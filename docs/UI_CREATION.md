@@ -26,7 +26,9 @@ $HHOSTED_HOME/.hh/.ui/        ← where your build lives
 
 **Global settings → Interface → Install UI** takes a `.zip` (refresh to see it), or copy the files
 into `$HHOSTED_HOME/.hh/.ui` yourself. From the CLI, `home-hosted ui-switch` installs one from a
-GitHub release asset, a local zip (`--file ./ui.zip`) or a URL.
+GitHub release asset, a local zip (`--file ./ui.zip`) or an https URL (plain `http://` is refused
+unless you pass `--insecure`). A release asset is checked against the sha256 digest GitHub publishes
+for it, and the startup update of an official UI never replaces one you installed meanwhile.
 
 **If it breaks:** `home-hosted ui-revert` (or *Revert to stock* in Global settings) brings the stock
 UI back. The delete is not archived — keep your own copy of the build. While a custom UI is active,

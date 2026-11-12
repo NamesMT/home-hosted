@@ -113,7 +113,12 @@ export class UiService {
    * swapped in, so a failed upload leaves the previous UI (or the stock one)
    * serving.
    */
-  async install(archivePath: string, fallbackName = 'custom-ui', installedTag?: string): Promise<UiInstallResult> {
+  /**
+   * `unlessChanged` runs inside the install lock, just before the swap; a non-null answer refuses
+   * the swap with that reason. An unattended update uses it so it never replaces a UI someone
+   * installed while it was downloading.
+   */
+  async install(archivePath: string, fallbackName = 'custom-ui', installedTag?: string, options: { unlessChanged?: () => string | null } = {}): Promise<UiInstallResult> {
     if (!isZipArchive(archivePath))
       return { ok: false, error: 'the upload is not a zip archive' }
 
@@ -122,7 +127,7 @@ export class UiService {
     const staging = path.join(this.options.dataRoot, `.ui-staging-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
 
     try {
-      return await this.stage(archivePath, staging, fallbackName, installedTag)
+      return await this.stage(archivePath, staging, fallbackName, installedTag, options.unlessChanged)
     }
     catch (error) {
       return { ok: false, error: errorMessage(error) }
@@ -141,7 +146,7 @@ export class UiService {
     return existed
   }
 
-  private async stage(archivePath: string, staging: string, fallbackName: string, installedTag?: string): Promise<UiInstallResult> {
+  private async stage(archivePath: string, staging: string, fallbackName: string, installedTag?: string, unlessChanged?: () => string | null): Promise<UiInstallResult> {
     let entries: ArchiveEntry[]
     try {
       entries = await listZip(archivePath)
@@ -193,7 +198,7 @@ export class UiService {
     // renames and nothing else — the window where `.ui` does not exist shrinks to that.
     writeFileAtomic(path.join(root, META), `${JSON.stringify(meta, null, 2)}\n`)
 
-    return commitSwap(this.options.dataRoot, this.directory, root, meta)
+    return commitSwap(this.options.dataRoot, this.directory, root, meta, unlessChanged)
   }
 
   /**
@@ -241,8 +246,11 @@ function withInstallLock<T>(dataRoot: string, run: () => Promise<T>): Promise<T>
 }
 
 /** Renames the staged tree into place, keeping the old one until that has certainly worked. */
-function commitSwap(dataRoot: string, resting: string, staged: string, meta: UiMeta): Promise<UiInstallResult> {
+function commitSwap(dataRoot: string, resting: string, staged: string, meta: UiMeta, unlessChanged?: () => string | null): Promise<UiInstallResult> {
   return withInstallLock(dataRoot, async () => {
+    const refusal = unlessChanged?.() ?? null
+    if (refusal !== null)
+      return { ok: false, error: refusal }
     // No platform renames a directory onto a non-empty one (POSIX answers ENOTEMPTY), so the old
     // tree steps aside first — immediately, with no I/O in between — and is kept until the new one
     // is in place.

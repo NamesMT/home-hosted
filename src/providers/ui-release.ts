@@ -1,3 +1,5 @@
+import type { Buffer } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -22,6 +24,8 @@ export interface GithubAsset {
   name?: string
   url?: string
   browser_download_url?: string
+  /** `sha256:<hex>`, which GitHub publishes for every asset uploaded since mid-2025. */
+  digest?: string | null
 }
 
 export interface GithubRelease {
@@ -277,6 +281,33 @@ export async function downloadToTemp(url: string, headers: Record<string, string
   if (context.quiet !== true)
     context.io.write(`${context.io.style.dim(`downloaded ${formatBytes(received)}`)}\n`)
   return { dir, file }
+}
+
+/**
+ * Refuses a download whose bytes are not the ones the release metadata names. Only `sha256` is
+ * checked; an asset with no digest (uploaded before GitHub published one) has nothing to check.
+ */
+export async function verifyAssetDigest(file: string, digest: string | null | undefined): Promise<void> {
+  if (typeof digest !== 'string')
+    return
+  const match = /^sha256:([0-9a-f]{64})$/i.exec(digest.trim())
+  if (match === null)
+    return
+  const hash = createHash('sha256')
+  for await (const chunk of fs.createReadStream(file))
+    hash.update(chunk as Buffer)
+  const actual = hash.digest('hex')
+  if (actual !== match[1]!.toLowerCase())
+    throw new Error(`the download does not match the release's sha256 digest (expected ${match[1]!.toLowerCase()}, got ${actual}) — nothing was installed`)
+}
+
+/** Headers for an asset download: the token goes only to GitHub, and only over https. */
+export function downloadHeaders(url: string, context: UiSourceContext): Record<string, string> {
+  return {
+    'accept': 'application/octet-stream',
+    'user-agent': `home-hosted/${context.version}`,
+    ...(context.token !== null && context.token !== undefined && context.token.length > 0 && isGithubHost(url) ? { authorization: `Bearer ${context.token}` } : {}),
+  }
 }
 
 export function apiHeaders(context: UiSourceContext): Record<string, string> {

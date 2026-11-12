@@ -632,6 +632,17 @@ describe('uiSwitch installFromUrl', () => {
     return calls
   }
 
+  it('refuses a plain-http URL unless --insecure says so', async () => {
+    const io = fakeIo()
+    const calls = await stubDownload()
+
+    await expect(runSwitch(['--file', 'http://example.com/ui.zip'], io.io)).rejects.toThrow(/plain http/)
+    expect(calls).toEqual([])
+
+    await runSwitch(['--file', 'http://example.com/ui.zip', '--insecure'], io.io)
+    expect(io.out).toContain('UI installed')
+  })
+
   it('sends the token to a GitHub host, and only the token', async () => {
     const io = fakeIo()
     const calls = await stubDownload()

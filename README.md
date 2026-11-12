@@ -361,7 +361,7 @@ init              --dir <dir> --name <name> --pm <pnpm|npm|yarn|bun> --no-instal
 set-password      --clear                      (HHOSTED_PASSWORD for a script; --clear locks every sign-in out)
 set-token         --generate --clear           (HHOSTED_TOKEN for a script)
 migrate           --dry-run -y/--yes           (HHOSTED_MIGRATE=allow for a script)
-ui-switch         --repo <owner/name> --tag <tag> --asset <name> --file <path|url> --list --token <token> -y/--yes
+ui-switch         --repo <owner/name> --tag <tag> --asset <name> --file <path|url> [--insecure] --list --token <token> -y/--yes
 ui-update         --check --tag <tag> --asset <name> --old --repo <owner/name> --token <token> -y/--yes
 ui-revert         (no flags)
 setup-temp        --wsl [--download | --no-download] | --clear
