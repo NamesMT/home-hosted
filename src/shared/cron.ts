@@ -445,8 +445,16 @@ export function cronSummary(spec: CronSpec): CronSummary {
   const everyMinute = stepOf(spec.minutes, 0, ALL_MINUTES)
   const monthWide = spec.months.size === ALL_MONTHS
   const hourWide = spec.hours.size === ALL_HOURS
-  const dayWide = !spec.domRestricted && spec.daysOfMonth.size === ALL_DAYS
-  const weekdayWide = !spec.dowRestricted && spec.daysOfWeek.size === ALL_WEEKDAYS
+  /**
+   * Wide means the **set covers the field**, however it was spelled.
+   *
+   * These used to require the raw text to be `*` as well, so `0 0 * * 0-6` — which selects all seven
+   * days — was summarised as the list "every Sun, Mon, Tue, Wed, Thu, Fri, Sat". A preview built from
+   * a string test rather than the sets is the one place the words could diverge from the schedule,
+   * and the sets are what the matcher actually uses.
+   */
+  const dayWide = spec.daysOfMonth.size === ALL_DAYS
+  const weekdayWide = spec.daysOfWeek.size === ALL_WEEKDAYS
 
   // An every-n-minutes step, one included: the same sentence with a step of one.
   if (everyMinute !== null && hourWide && dayWide && weekdayWide && monthWide)
@@ -457,9 +465,9 @@ export function cronSummary(spec: CronSpec): CronSummary {
     return { kind: 'everyMinutes', minutes: 1 }
   if (minute !== null && hour !== null && dayWide && weekdayWide && monthWide)
     return { kind: 'daily', hour, minute }
-  if (minute !== null && hour !== null && dayWide && !weekdayWide && monthWide && spec.daysOfWeek.size > 0)
+  if (minute !== null && hour !== null && dayWide && !weekdayWide && spec.daysOfWeek.size > 0 && monthWide)
     return { kind: 'weekly', days: [...spec.daysOfWeek].sort((a, b) => a - b), hour, minute }
-  if (minute !== null && hour !== null && day !== null && spec.domRestricted && weekdayWide && monthWide)
+  if (minute !== null && hour !== null && day !== null && !dayWide && weekdayWide && monthWide)
     return { kind: 'monthly', day, hour, minute }
   return { kind: 'custom' }
 }

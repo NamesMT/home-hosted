@@ -353,3 +353,36 @@ describe('a day field that begins with a star', () => {
     expect(day(parsed.spec, 0, 6), 'Tue 6 Jan').toBe(false)
   })
 })
+
+/**
+ * The preview is built from the **sets**, not from how the field was spelled.
+ *
+ * `0 0 * * 0-6` selects all seven days — the same schedule as `0 0 * * *` — but the summary used to
+ * describe it as the list "every Sun, Mon, Tue, Wed, Thu, Fri, Sat", because the wide check also
+ * required the raw text to be `*`. A preview that reads back differently from the expression next to
+ * it is the one place the words can lie about a schedule.
+ */
+describe('a summary built from the sets', () => {
+  it('reads a spelled-out full range as daily', () => {
+    for (const expression of ['0 0 * * *', '0 0 * * 0-6', '0 0 * * 0-6/1']) {
+      const parsed = parseCron(expression)
+      expect(parsed.ok, expression).toBe(true)
+      if (!parsed.ok)
+        continue
+      expect(cronSummary(parsed.spec), expression).toEqual({ kind: 'daily', hour: 0, minute: 0 })
+    }
+  })
+
+  it('still names a real weekday list, and leaves the ambiguous shapes to `custom`', () => {
+    const weekdays = parseCron('0 0 * * 1-5')
+    if (weekdays.ok)
+      expect(cronSummary(weekdays.spec)).toEqual({ kind: 'weekly', days: [1, 2, 3, 4, 5], hour: 0, minute: 0 })
+
+    // Both day fields restricted is Vixie's OR: no single sentence describes it honestly.
+    for (const expression of ['0 0 1 * 1', '0 0 1,15 * *']) {
+      const parsed = parseCron(expression)
+      if (parsed.ok)
+        expect(cronSummary(parsed.spec), expression).toEqual({ kind: 'custom' })
+    }
+  })
+})
