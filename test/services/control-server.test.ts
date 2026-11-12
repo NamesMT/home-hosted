@@ -7,7 +7,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { ControlServer } from '#src/services/control-server'
+import { ControlServer, probeUrlFor } from '#src/services/control-server'
 import { hasOpenssl } from '../support/capabilities'
 import { testPort } from '../support/ports'
 
@@ -135,6 +135,37 @@ describe('control server', () => {
     expect(await get(`http://127.0.0.1:${second}/`)).toMatchObject({ body: 'moved' })
     // The old listener is gone rather than lingering.
     expect(await get(`http://127.0.0.1:${first}/`)).toBeNull()
+  })
+
+  /**
+   * A live move from Global settings → Listener left `run.json` naming the old port, so `status`,
+   * `stop` and `down` dialled an address nothing listened on. The panel rewrites the record from
+   * this hook, so it has to fire for the move with the endpoint the panel is now on.
+   */
+  it('reports every successful listen with the endpoint it bound', async () => {
+    const first = await freePort()
+    const second = await freePort()
+    const seen: Array<{ port: number, url: string, probe: string }> = []
+    const server = tracked(new ControlServer({
+      fetch: () => new Response('ok'),
+      trustProxy: () => false,
+      tls: () => null,
+      onListen: endpoint => seen.push({ port: endpoint.port, url: endpoint.url, probe: probeUrlFor(endpoint) }),
+    }, { host: 'local', port: first }))
+
+    await server.start()
+    await server.rebind({ host: 'local', port: second })
+    await server.restart()
+
+    expect(seen).toEqual([
+      { port: first, url: `http://127.0.0.1:${first}`, probe: `http://127.0.0.1:${first}` },
+      { port: second, url: `http://127.0.0.1:${second}`, probe: `http://127.0.0.1:${second}` },
+      { port: second, url: `http://127.0.0.1:${second}`, probe: `http://127.0.0.1:${second}` },
+    ])
+  })
+
+  it('probes a lan bind on loopback', () => {
+    expect(probeUrlFor({ host: 'lan', port: 6801, bindHost: '0.0.0.0', url: 'http://192.168.1.2:6801', protocol: 'https' })).toBe('https://127.0.0.1:6801')
   })
 
   it('refuses a port somebody else holds, without disturbing the listener it has', async () => {

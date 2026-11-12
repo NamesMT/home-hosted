@@ -1,7 +1,7 @@
 import type { Server } from 'srvx'
 import type { Bind } from '#src/shared/contracts'
 import { serve } from 'srvx'
-import { bindHost, displayHost } from '#src/helpers/bind'
+import { bindHost, dialHost, displayHost } from '#src/helpers/bind'
 import { isPortFree } from '#src/providers/port'
 import { errorMessage } from '#src/shared/error-message'
 
@@ -23,6 +23,17 @@ export interface ControlServerOptions {
   trustProxy: () => boolean | 'loopback'
   /** The uploaded PEM pair, or null for plain http. Read per (re)bind. */
   tls: () => { cert: string, key: string } | null
+  /**
+   * Called after every successful listen — the first one, a rebind, a restart, and the fallback to
+   * the previous endpoint — with the endpoint now bound. `run.json` is rewritten from it, or
+   * `status`/`stop`/`down` keep dialling the address the panel left.
+   */
+  onListen?: (endpoint: Readonly<ControlEndpoint>) => void
+}
+
+/** The address `run.json` records for probes: a `lan` bind is not connectable as `0.0.0.0`. */
+export function probeUrlFor(endpoint: Readonly<ControlEndpoint>): string {
+  return `${endpoint.protocol}://${dialHost(endpoint.bindHost)}:${endpoint.port}`
 }
 
 export interface RebindResult {
@@ -166,5 +177,6 @@ export class ControlServer {
     this.endpoint.bindHost = bindHost(host)
     this.endpoint.protocol = tls === null ? 'http' : 'https'
     this.endpoint.url = `${this.endpoint.protocol}://${displayHost(host)}:${port}`
+    this.options.onListen?.(this.endpoint)
   }
 }

@@ -43,7 +43,7 @@ import { AcmeChallengeService } from '#src/services/acme-challenge'
 import { AuthService } from '#src/services/auth'
 import { BackupService } from '#src/services/backups'
 import { ConfigWatch } from '#src/services/config-watch'
-import { ControlServer } from '#src/services/control-server'
+import { ControlServer, probeUrlFor } from '#src/services/control-server'
 import { EventHub } from '#src/services/events'
 import { checkExposure, checkProxyExposure, proxyTrustWarning } from '#src/services/exposure'
 import { HostMonitor } from '#src/services/host-monitor'
@@ -178,6 +178,8 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
 
   let app: AppType | undefined
   const token = newToken()
+  /** The record `run.json` holds, once the listener is up; rewritten when it moves. */
+  let runtime: Runtime | undefined
 
   const configured = settings.control
   const intendedHost = options.host === undefined ? configured.host : parseBind(options.host)
@@ -205,6 +207,19 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
       // `servable()`, not `load()`: srvx throws synchronously on a pair whose key does not match the
       // certificate, which fails the boot with a raw OpenSSL code. A rejected pair falls back to http.
       tls: () => (settings.control.tls.enabled ? tls.servable() : null),
+      // A live move (Global settings → Listener, a TLS change) re-listens without a restart, and
+      // `run.json` follows it: `status`, `stop` and `down` dial what it records.
+      onListen: (endpoint) => {
+        if (runtime === undefined)
+          return
+        runtime = { ...runtime, url: endpoint.url, probeUrl: probeUrlFor(endpoint), protocol: endpoint.protocol, port: endpoint.port, bindHost: endpoint.bindHost }
+        try {
+          writeRuntime(runtime)
+        }
+        catch (error) {
+          logger.warn(`could not update run.json after the listener moved: ${errorMessage(error)}`)
+        }
+      },
     },
     { host: intended.host, port: intended.port, tls: settings.control.tls.enabled },
   )
@@ -368,6 +383,8 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
     if (proxy.status().state === 'running')
       logger.info('reverse proxy: left running (stop it from the panel, or switch the proxy off first)')
     clearRuntime()
+    // A listen during teardown must not write the record back.
+    runtime = undefined
     auth.dispose()
     proxy.dispose()
     await panel!.dispose(options)
@@ -407,11 +424,11 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   await proxy.initialize()
 
   const endpoint = controlServer.endpoint
-  const runtime: Runtime = {
+  runtime = {
     version: appVersion(),
     pid: process.pid,
     url: endpoint.url,
-    probeUrl: `${endpoint.protocol}://${dialHost(endpoint.bindHost)}:${endpoint.port}`,
+    probeUrl: probeUrlFor(endpoint),
     protocol: endpoint.protocol,
     port: endpoint.port,
     bindHost: endpoint.bindHost,
