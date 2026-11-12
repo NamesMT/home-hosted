@@ -25,7 +25,7 @@ class FakeEventSource {
     FakeEventSource.instances.push(this)
   }
 
-  addEventListener(): void {}
+  addEventListener(_type: string, _listener: (event: { data: string, lastEventId?: string }) => void): void {}
   close(): void {
     this.readyState = 2
   }
@@ -106,5 +106,100 @@ describe('a stream after the browser gives up', () => {
     store.disconnect()
     await vi.advanceTimersByTimeAsync(60_000)
     expect(FakeEventSource.instances).toHaveLength(1)
+  })
+})
+
+/**
+ * A reconnect resumes from the last frame instead of starting over.
+ *
+ * `EventSource` resends `Last-Event-ID` on **its own** retries, but the store's reconnect is its own:
+ * it closes the dead source and constructs a fresh one, and a fresh `EventSource` carries no last id.
+ * So every recovery replayed from the panel's snapshot and re-delivered log lines the UI had already
+ * appended — the duplication `?since=` exists to prevent. The constructor cannot take a header, so
+ * the resume travels in the URL.
+ */
+describe('a resumed stream', () => {
+  /** A fake that lets a test deliver a frame with its `id`, the way the panel sends one. */
+  class RecordingEventSource extends FakeEventSource {
+    private listeners = new Map<string, Array<(event: { data: string, lastEventId: string }) => void>>()
+
+    constructor(url: string) {
+      super(url)
+      this.listeners = new Map()
+    }
+
+    override addEventListener(type: string, listener: (event: { data: string, lastEventId: string }) => void): void {
+      const bucket = this.listeners.get(type) ?? []
+      bucket.push(listener)
+      this.listeners.set(type, bucket)
+    }
+
+    /** Delivers one frame, as the browser does — `lastEventId` is the `id:` line. */
+    deliver(type: string, data: string, lastEventId: string): void {
+      for (const listener of this.listeners.get(type) ?? [])
+        listener({ data, lastEventId })
+    }
+  }
+
+  it('asks the panel to replay from the last frame id it saw', async () => {
+    const opened: string[] = []
+    const store = createLiveStore({
+      openEventSource: (url) => {
+        opened.push(url)
+        return new RecordingEventSource(url) as unknown as EventSource
+      },
+      eventsUrl: '/api/events?logs=0',
+      serverStreamUrl: () => '/stream',
+      state: { get: () => null, set: () => {} },
+      maxLines: 100,
+      seriesCapacity: 10,
+      checkSession: async () => true,
+      onConnection: () => {},
+    })
+
+    store.connect()
+    const source = FakeEventSource.instances.at(-1) as unknown as RecordingEventSource
+    // One frame carrying an id, which is what the panel writes on every frame.
+    source.deliver('log', '{"type":"log","ts":1,"workspaceId":"default","serverId":"web","lines":[]}', '7')
+
+    // The browser gives up; the store reconnects itself.
+    source.readyState = 2
+    source.onerror?.()
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(opened, 'the stream is reopened').toHaveLength(2)
+    expect(opened[1], 'the reconnect resumes from the id it saw').toContain('since=7')
+    // The original query survives the resume: a `logs=0` stream must not come back with logs.
+    expect(opened[1]).toContain('logs=0')
+    store.disconnect()
+  })
+
+  it('does not add a cursor before any frame has arrived', async () => {
+    const opened: string[] = []
+    const store = createLiveStore({
+      openEventSource: (url) => {
+        opened.push(url)
+        return new FakeEventSource(url) as unknown as EventSource
+      },
+      eventsUrl: '/api/events?logs=0',
+      serverStreamUrl: () => '/stream',
+      state: { get: () => null, set: () => {} },
+      maxLines: 100,
+      seriesCapacity: 10,
+      checkSession: async () => true,
+      onConnection: () => {},
+    })
+
+    store.connect()
+    const source = FakeEventSource.instances.at(-1)!
+    source.readyState = 2
+    source.onerror?.()
+    await vi.advanceTimersByTimeAsync(1000)
+
+    // Nothing was seen, so there is nothing to resume from — and a bogus `since=` would replay the
+    // whole ring as "missed" frames.
+    expect(opened).toHaveLength(2)
+    expect(opened[1]).not.toContain('since=')
+    store.disconnect()
   })
 })

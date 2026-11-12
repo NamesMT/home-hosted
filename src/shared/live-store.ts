@@ -24,7 +24,8 @@ export interface LiveEventSource {
   readonly readyState: number
   onopen: ((event: never) => unknown) | null
   onerror: ((event: never) => unknown) | null
-  addEventListener: (type: string, listener: (event: { data: string }) => void) => void
+  /** `lastEventId` is the frame's `id:` line, which a reconnect resumes from. */
+  addEventListener: (type: string, listener: (event: { data: string, lastEventId?: string }) => void) => void
   close: () => void
 }
 
@@ -103,6 +104,16 @@ export function createLiveStore(options: LiveStoreOptions) {
     let source: LiveEventSource | null = null
     let timer: ReturnType<typeof setTimeout> | null = null
     let closed = false
+    /**
+     * The last frame `id:` this stream saw, so a reconnect can resume from it.
+     *
+     * `EventSource` resends `Last-Event-ID` on **its own** retries, but this store's reconnect is its
+     * own: it closes the dead source and constructs a fresh one, and a fresh `EventSource` carries no
+     * id. Without this the panel replayed from its snapshot on every recovery and log lines arrived
+     * twice — the duplication `?since=` exists to prevent. The constructor takes no headers, so the
+     * cursor travels in the URL.
+     */
+    let lastId: string | null = null
 
     async function recover(): Promise<void> {
       const proceed = await options.checkSession().catch(() => true)
@@ -120,8 +131,17 @@ export function createLiveStore(options: LiveStoreOptions) {
       }, backoff.next())
     }
 
+    /** The stream URL, with the resume cursor once there is one. */
+    function target(): string {
+      if (lastId === null)
+        return url
+      // `URL` would reorder the query the caller wrote, and an id is numeric — a plain append keeps
+      // `?logs=0` exactly as the UI asked for it.
+      return `${url}${url.includes('?') ? '&' : '?'}since=${encodeURIComponent(lastId)}`
+    }
+
     function open(): void {
-      const current = options.openEventSource(url)
+      const current = options.openEventSource(target())
       source = current
       current.onopen = () => {
         if (source !== current)
@@ -144,6 +164,11 @@ export function createLiveStore(options: LiveStoreOptions) {
         current.addEventListener(event, (message) => {
           if (source !== current)
             return
+          // Remember the id before parsing: a frame this UI cannot read is still one the panel
+          // counts, so resuming past it is right and resuming from before it would replay it.
+          const id = (message as { lastEventId?: string }).lastEventId
+          if (typeof id === 'string' && id.length > 0)
+            lastId = id
           const parsed = parseFrame(message.data)
           if (parsed === null) {
             console.warn('[home-hosted] ignored malformed SSE frame')
