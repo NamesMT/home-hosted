@@ -262,7 +262,7 @@ export class Supervisor {
     if (!entry)
       return missingServer(id)
     if (!entry.config.enabled)
-      return { ok: false, error: `server "${id}" is disabled` }
+      return { ok: false, error: `server "${id}" is disabled`, reason: 'disabled' }
     if (entry.status === 'running' || entry.status === 'starting' || entry.starting) {
       // A staged load still has to run when the entry is already up, or the dump sits there forever.
       if (entry.pendingLoad !== null)
@@ -270,7 +270,7 @@ export class Supervisor {
       return { ok: true }
     }
     if (entry.stopping)
-      return { ok: false, error: `server "${id}" is stopping` }
+      return { ok: false, error: `server "${id}" is stopping`, reason: 'busy' }
 
     // Set before the first await, so two overlapping starts cannot both spawn.
     entry.starting = true
@@ -313,9 +313,17 @@ export class Supervisor {
       ? { ok: false, error: 'supervisor is shutting down' }
       : { ok: false, error: `server "${id}" was stopped before it started` }
 
-    await this.startDependencies(entry, current)
+    const failedDependency = await this.startDependencies(entry, current)
     if (!current())
       return cancelled()
+    if (failedDependency !== null) {
+      const reason = `dependency "${failedDependency}" could not be started`
+      entry.lastError = reason
+      entry.status = 'conflict'
+      this.log(entry, 'system', `${reason} — not starting`)
+      this.publishServer(entry)
+      return { ok: false, error: reason, reason: 'dependency-failed' }
+    }
 
     // Resolved once, before every branch that can leave the entry running (it reads the env file and
     // can log), so an adopted compose stack is measured as its containers too.
@@ -340,7 +348,7 @@ export class Supervisor {
       if (!current())
         return cancelled()
       if (recorded.kind === 'blocked')
-        return { ok: false, error: recorded.error }
+        return { ok: false, error: recorded.error, reason: recorded.reason }
       // Its record exists because it was running when this panel died: it is gone now, and that is
       // the end of that run — a crash when nobody was watching, exactly as a persistent entry's
       // `resume({ reportAway })` answers it. Boot only: a Start someone asked for is its own news.
@@ -358,7 +366,7 @@ export class Supervisor {
     if (!current())
       return cancelled()
     if (conflict.kind === 'blocked')
-      return { ok: false, error: conflict.error }
+      return { ok: false, error: conflict.error, reason: conflict.reason }
     if (conflict.kind === 'adopt')
       return this.adoptEntry(entry, conflict.pid, `a detached restart of this entry is already serving port ${entry.config.port}`)
 
@@ -462,19 +470,31 @@ export class Supervisor {
   }
 
   /**
-   * Starts whatever this server depends on and waits until it is ready. A dependency that refuses to
-   * come up is logged and skipped rather than blocking the dependent forever.
+   * Starts whatever this server depends on and waits until it is ready.
+   *
+   * Returns the id of a dependency that **cannot** start at all (disabled, its port is taken, its own
+   * dependency failed), or `null`. A dependency that is up but unhealthy is not that: it is running
+   * and may recover, so the dependent is released with a logged `starting anyway` rather than being
+   * blocked forever on a transient probe failure.
+   *
+   * The id was thrown away before (`void this.start(…)`, `.catch(log)`), so a dependent whose
+   * dependency was disabled started anyway and answered `ok: true` — a serving entry reported against
+   * a dependency that never existed, with nothing for a caller to branch on.
    */
-  private async startDependencies(entry: Entry, current: () => boolean): Promise<void> {
+  private async startDependencies(entry: Entry, current: () => boolean): Promise<string | null> {
     if (entry.config.dependsOn.length === 0)
-      return
+      return null
 
     for (const dependency of dependenciesOf(entry.config, this.store.servers)) {
       if (!current())
-        return
+        return null
       const target = this.entries.get(dependency.id)
-      if (!target || !dependency.enabled)
+      // A dependency that is switched off is a refusal for the dependent: nothing will ever bring it
+      // up, so waiting out a start timeout would only delay the same answer.
+      if (!target)
         continue
+      if (!dependency.enabled)
+        return dependency.id
       // A cycle: the dependency is mid-start and waiting on this entry, so waiting on it here is each
       // waiting out the other's whole start timeout. The one already waiting gets its answer from us.
       if ((target.starting || target.status === 'starting')
@@ -488,15 +508,21 @@ export class Supervisor {
       if (target.status !== 'running' && target.child === null) {
         this.log(entry, 'system', `starting dependency "${dependency.id}" first`)
         // Not awaited outright: a stop of this entry must not wait out the dependency's own bootstrap.
-        const started = { settled: false }
+        const started: { settled: boolean, result: StartResult | null } = { settled: false, result: null }
         void this.start(dependency.id)
+          .then((result) => {
+            started.result = result
+          })
           .catch((error: unknown) => logger.error(`could not start the dependency ${dependency.id}`, error))
           .finally(() => {
             started.settled = true
           })
         while (!started.settled && current()) await delay(100)
         if (!current())
-          return
+          return null
+        // A dependency that refused is the answer: this entry cannot be served without it.
+        if (started.result !== null && !started.result.ok)
+          return dependency.id
       }
 
       const deadline = Date.now() + dependency.health.startTimeoutMs
@@ -511,13 +537,17 @@ export class Supervisor {
 
       while (!isReady() && Date.now() < deadline && current()) await delay(250)
       if (!current())
-        return
+        return null
 
       if (!isReady()) {
         const status = this.statusOf(target)
+        // An entry that exited is not going to recover on its own: that is the refusal above.
+        if (status === 'crashed' || status === 'conflict' || status === 'stopped')
+          return dependency.id
         this.log(entry, 'system', `dependency "${dependency.id}" is ${status}/${target.health} — starting anyway`)
       }
     }
+    return null
   }
 
   /** Read through a method so TypeScript does not carry a stale narrowing across awaits. */

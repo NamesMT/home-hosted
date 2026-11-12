@@ -1,3 +1,4 @@
+import type { ActionReason } from '#src/helpers/action-result'
 import type { ProcessBirth, ProcessLiveness } from '#src/providers/port'
 import type { Entry, SupervisorContext } from '#src/services/supervisor/entry'
 import type { ServerOrphan } from '#src/shared/contracts'
@@ -18,7 +19,7 @@ export type RecordedChild
      * reports it: a run that ended while nobody watched is a crash, never a clean stop.
      */
     | { kind: 'gone', pid: number, startedAt: number | null, recycled: boolean }
-    | { kind: 'blocked', error: string }
+    | { kind: 'blocked', error: string, reason: ActionReason }
 
 /** The decisions that have to survive this panel, and nothing else. */
 export function persistEntryState(nannyDir: string, entry: Entry): void {
@@ -87,7 +88,8 @@ export async function resolveRecordedChild(ctx: SupervisorContext, entry: Entry)
   entry.lastError = error
   ctx.log(entry, 'system', error)
   ctx.publishServer(entry)
-  return { kind: 'blocked', error }
+  // A likely survivor of this very entry: starting beside it would be the duplicate it guards against.
+  return { kind: 'blocked', error, reason: 'busy' }
 }
 
 /** Clears the durable record of the last child, once that pid is known to be gone. */

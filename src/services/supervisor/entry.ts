@@ -1,4 +1,5 @@
 import type { ChildProcess } from 'node:child_process'
+import type { ActionReason } from '#src/helpers/action-result'
 import type { ComposeTarget } from '#src/providers/docker'
 import type { SpawnInfo } from '#src/providers/identity'
 import type { ControlEndpoint } from '#src/services/control-server'
@@ -33,6 +34,11 @@ export interface SupervisorOptions {
 export interface StartResult {
   ok: boolean
   error?: string
+  /**
+   * Why it was refused, when the reason is one the API names — `disabled`, `busy`, `port-in-use`,
+   * `dependency-failed`. Internal: `src/helpers/action-result.ts` turns it into the wire `code`.
+   */
+  reason?: ActionReason
 }
 
 /** One running server in another workspace: the identity a cross-workspace refusal has to name. */

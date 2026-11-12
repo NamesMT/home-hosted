@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { missingServer, statusForAction, unknownServerError } from '#src/helpers/action-result'
+import { actionAnswer, actionCode, missingServer, statusForAction, unknownServerError } from '#src/helpers/action-result'
 
 /**
  * The status a per-server action answers with: 404 when the entry does not exist, 409 when it exists
@@ -64,5 +64,35 @@ describe('unknownServerError', () => {
     expect(error.message).toBe('unknown server "web"')
     expect((error as unknown as { statusCode?: number }).statusCode).toBe(404)
     expect((error as unknown as { code?: string }).code).toBe('UNKNOWN_SERVER')
+  })
+})
+
+/**
+ * A refusal's kind, as a code a client branches on.
+ *
+ * All four used to answer `ACTION_FAILED`, so "switch the entry on", "wait for it to stop", "free the
+ * port" and "start the dependency" were one value and a client had to match the English to tell them
+ * apart. `ACTION_FAILED` stays as the honest answer for a refusal no rule classifies.
+ */
+describe('actionCode', () => {
+  it.each([
+    ['disabled', 'SERVER_DISABLED'],
+    ['busy', 'SERVER_BUSY'],
+    ['port-in-use', 'PORT_IN_USE'],
+    ['dependency-failed', 'DEPENDENCY_FAILED'],
+  ] as const)('turns the %s reason into %s', (reason, code) => {
+    expect(actionCode({ ok: false, error: 'x', reason })).toBe(code)
+  })
+
+  it('falls back to ACTION_FAILED, and a missing id still wins', () => {
+    expect(actionCode({ ok: false, error: 'unclassified' })).toBe('ACTION_FAILED')
+    expect(actionCode({ ...missingServer('web'), reason: 'disabled' })).toBe('UNKNOWN_SERVER')
+  })
+
+  it('keeps ok/error on the body, drops the internal reason, and adds message/code', () => {
+    expect(actionAnswer({ ok: false, error: 'server "web" is disabled', reason: 'disabled' }))
+      .toEqual({ ok: false, error: 'server "web" is disabled', message: 'server "web" is disabled', code: 'SERVER_DISABLED' })
+    // A success has no code and no message: there is no failure to name.
+    expect(actionAnswer({ ok: true })).toEqual({ ok: true })
   })
 })

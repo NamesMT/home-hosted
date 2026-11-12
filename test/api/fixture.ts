@@ -1,4 +1,5 @@
 import type { AppDeps } from '#src/app'
+import type { ActionReason } from '#src/helpers/action-result'
 import type { DdnsFetch } from '#src/providers/ddns/types'
 import type { ControlEndpoint } from '#src/services/control-server'
 import type { PanelService, WorkspaceRuntime } from '#src/services/panel'
@@ -52,9 +53,9 @@ export interface FakeSupervisor {
   /** `actor` is what the route passes to the real supervisor; the fake records it. */
   startAll: (options?: { autostartOnly?: boolean, actor?: HistoryActor }) => Promise<void>
   stopAll: (options?: { withPersistent?: boolean }) => Promise<void>
-  start: (id: string) => Promise<{ ok: boolean, error?: string }>
-  stop: (id: string, options?: { actor?: HistoryActor }) => Promise<{ ok: boolean, error?: string }>
-  restart: (id: string) => Promise<{ ok: boolean, error?: string }>
+  start: (id: string) => Promise<{ ok: boolean, error?: string, reason?: ActionReason }>
+  stop: (id: string, options?: { actor?: HistoryActor }) => Promise<{ ok: boolean, error?: string, reason?: ActionReason }>
+  restart: (id: string) => Promise<{ ok: boolean, error?: string, reason?: ActionReason }>
   clearLogs: (id: string) => void
   logLines: (id: string, limit?: number) => LogLine[]
   freePort: (id: string) => Promise<FreePortResult>

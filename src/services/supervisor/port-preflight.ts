@@ -1,3 +1,4 @@
+import type { ActionReason } from '#src/helpers/action-result'
 import type { Entry, ResolvedSpawn, SiblingServer, SupervisorContext } from '#src/services/supervisor/entry'
 import type { FreePortResult } from '#src/shared/contracts'
 import process from 'node:process'
@@ -14,7 +15,7 @@ const PORT_RELEASE_RECHECK_MS = 300
 export type PreflightConflict
   = | { kind: 'free' }
     | { kind: 'adopt', pid: number }
-    | { kind: 'blocked', error: string }
+    | { kind: 'blocked', error: string, reason: ActionReason }
 
 /** Pids this panel owns, and the `workspace/id` behind each, which a refusal names. */
 export interface SupervisedPids {
@@ -218,7 +219,9 @@ function blocked(ctx: PortContext, entry: Entry, error: string, logLine?: string
   if (logLine !== undefined)
     ctx.log(entry, 'system', logLine)
   ctx.publishServer(entry)
-  return { kind: 'blocked', error }
+  // Everything reaching here is the port: held by a stranger, held by a container we could not stop,
+  // or held by a process this platform cannot attribute.
+  return { kind: 'blocked', error, reason: 'port-in-use' }
 }
 
 /** Decides what the entry's port allows before a spawn, applying `onPortConflict`. */

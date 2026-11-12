@@ -76,7 +76,7 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Start one server, without a session (local token required)',
-        responses: { 200: { description: 'Started', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now: disabled, stopping, or port in use (`ACTION_FAILED`)' } },
+        responses: { 200: { description: 'Started', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now; `code` names why (`SERVER_DISABLED`, `SERVER_BUSY`, `PORT_IN_USE`, `DEPENDENCY_FAILED`, else `ACTION_FAILED`)' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {
@@ -164,7 +164,7 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Stop one server, without a session (local token required)',
-        responses: { 200: { description: 'Stopped', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now: disabled, stopping, or port in use (`ACTION_FAILED`)' } },
+        responses: { 200: { description: 'Stopped', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now; `code` names why (`SERVER_DISABLED`, `SERVER_BUSY`, `PORT_IN_USE`, `DEPENDENCY_FAILED`, else `ACTION_FAILED`)' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {
@@ -183,7 +183,7 @@ export function createControlRoute(deps: AppDeps) {
       describeRoute({
         tags: ['panel'],
         summary: 'Restart one server, without a session (local token required)',
-        responses: { 200: { description: 'Restarted', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now: disabled, stopping, or port in use (`ACTION_FAILED`)' } },
+        responses: { 200: { description: 'Restarted', content: jsonBody(actionResultSchema) }, 403: { description: 'Bad token, or not a local caller' }, 404: { description: 'No such server' }, 409: { description: 'The entry cannot act right now; `code` names why (`SERVER_DISABLED`, `SERVER_BUSY`, `PORT_IN_USE`, `DEPENDENCY_FAILED`, else `ACTION_FAILED`)' } },
       }),
       validate('query', workspaceQuerySchema),
       async (c) => {

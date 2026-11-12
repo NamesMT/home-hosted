@@ -216,10 +216,35 @@ describe('servers route', () => {
     }
   })
 
-  it('answers a failed action with the envelope code a script branches on', async () => {
+  /**
+   * Every lifecycle refusal used to answer one code, `ACTION_FAILED`.
+   *
+   * "disabled", "busy" and "port in use" are three different fixes, and a client had to pattern-match
+   * English to tell them apart. Each has its own code now; `ok:false, error` stays on the body for
+   * clients written against the old shape, and the message is unchanged.
+   */
+  it.each([
+    ['disabled', 'SERVER_DISABLED'],
+    ['busy', 'SERVER_BUSY'],
+    ['port-in-use', 'PORT_IN_USE'],
+    ['dependency-failed', 'DEPENDENCY_FAILED'],
+  ] as const)('names the reason a lifecycle action was refused: %s', async (reason, code) => {
+    const created = await withServer()
+    const error = `a refusal whose reason is ${reason}`
+    created.supervisor.start = async () => ({ ok: false, error, reason })
+
+    const response = await request(created.app, '/api/servers/web/start', 'POST')
+    expect(response.status, 'a refusal is still a conflict').toBe(409)
+    const body = await response.json() as Record<string, unknown>
+    expect(body).toMatchObject({ ok: false, error, code })
+    // The reason selected the code; it is not part of the wire contract.
+    expect(body).not.toHaveProperty('reason')
+  })
+
+  it('answers a failure it cannot classify with ACTION_FAILED, and a missing id with UNKNOWN_SERVER', async () => {
     const created = await withServer()
 
-    created.supervisor.start = async () => ({ ok: false, error: 'port 3999 is already in use' })
+    created.supervisor.start = async () => ({ ok: false, error: 'something nobody predicted' })
     expect(await (await request(created.app, '/api/servers/web/start', 'POST')).json())
       .toMatchObject({ ok: false, code: 'ACTION_FAILED' })
 

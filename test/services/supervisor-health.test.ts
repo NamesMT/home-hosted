@@ -536,3 +536,63 @@ describe('a portless entry waits for its process to exist', () => {
     expect(running.every(frame => typeof frame.pid === 'number')).toBe(true)
   }, 30000)
 })
+
+/**
+ * A dependency that refused to start is why the dependent is not served — and it was thrown away.
+ *
+ * `startDependencies` fired the dependency's start with `void … .catch(log)` and never read the
+ * result, so a dependent whose dependency is **disabled** (or whose port was taken) was started
+ * anyway and answered `ok: true`. The panel then reported a serving entry against a dependency that
+ * never existed, which is the same false green as a crash reported as a clean stop — and the caller
+ * had nothing to branch on but the log.
+ *
+ * An unhealthy-but-running dependency still does not block (`starting anyway`): that one is up and
+ * may recover, and refusing there would make a transient probe failure a hard stop.
+ */
+describe('a dependency that could not start', () => {
+  const worker = (id: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    id,
+    command: process.execPath,
+    args: ['-e', 'setInterval(() => {}, 1000)'],
+    port: null,
+    restart: { enabled: false },
+    health: { enabled: false },
+    ...extra,
+  })
+
+  it('refuses the dependent, naming the dependency', async () => {
+    const harness = await makeSupervisor([
+      worker('db', { enabled: false }),
+      worker('app', { dependsOn: ['db'] }),
+    ])
+
+    const started = await harness.supervisor.start('app')
+    expect(started.ok, 'the dependency cannot start, so neither can this').toBe(false)
+    expect(started.reason).toBe('dependency-failed')
+    expect(started.error).toContain('db')
+
+    // And the entry did not quietly spawn behind the refusal.
+    expect(view(harness.supervisor, 'app').status).not.toBe('running')
+    expect(view(harness.supervisor, 'app').pid).toBeNull()
+  })
+
+  it('leaves a running but unhealthy dependency to start anyway', async () => {
+    const brokenPort = await freePort()
+    const harness = await makeSupervisor([
+      {
+        id: 'sickly',
+        command: process.execPath,
+        args: ['-e', 'require("node:http").createServer((q,s)=>{s.statusCode=500;s.end("no")}).listen(Number(process.env.PORT),"127.0.0.1")'],
+        env: { PORT: '{port}' },
+        port: brokenPort,
+        health: { mode: 'http', intervalMs: 500, timeoutMs: 300, unhealthyThreshold: 1, forceRestartAfterMs: 0, startTimeoutMs: 2000 },
+        restart: { maxRetries: 0, baseDelayMs: 50, factor: 2, maxDelayMs: 200, resetAfterMs: 60000 },
+      },
+      worker('app', { dependsOn: ['sickly'] }),
+    ])
+
+    const started = await harness.supervisor.start('app')
+    expect(started.ok, `an unhealthy dependency is still up: ${started.error ?? ''}`).toBe(true)
+    await waitForStatus(harness.supervisor, 'app', 'running')
+  }, 30000)
+})

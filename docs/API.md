@@ -85,7 +85,22 @@ Every failure is one JSON envelope with a stable `code` to branch on:
 
 `detail` is present only when there is structure to report (validation issues, conflicting routes).
 A refused lifecycle action (`start`, `stop`, `restart`) also carries `ok: false` and `error` (the same
-text as `message`) for older clients. Status codes: `400` bad input, `401` no credential, `403`
+text as `message`) for older clients, and its `code` names **which** refusal it was — so a client
+branches on the code instead of matching English:
+
+| `code` | what it means | what to do |
+| --- | --- | --- |
+| `UNKNOWN_SERVER` | no entry has that id (also the 404 for it) | fix the id |
+| `SERVER_DISABLED` | the entry is switched off (`enabled: false`) | switch it on |
+| `SERVER_BUSY` | a stop, or the same action, is already in flight | retry in a moment |
+| `PORT_IN_USE` | the entry's port is held (by a stranger, a container, or a process this platform cannot attribute) | free the port, or change it |
+| `DEPENDENCY_FAILED` | something in `dependsOn` could not be started | start that entry |
+| `ACTION_FAILED` | a refusal none of the above describes | read `error` |
+
+A dependency that is **up but unhealthy** does not refuse the dependent: the panel logs `starting
+anyway` and starts it, because that dependency is running and may recover.
+
+Status codes: `400` bad input, `401` no credential, `403`
 forbidden for this credential or origin, `404` unknown id, `409` the entry cannot do that now (or
 `CONFIG_CHANGED_ON_DISK`: the config file was edited since the panel read it — it reloads, so retry),
 `413` too large, `421` unknown host, `502` the reverse-proxy engine or its download failed.
