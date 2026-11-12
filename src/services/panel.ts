@@ -671,11 +671,21 @@ export class PanelService {
       logger.info(`${path.basename(settings.path)} reloaded`)
 
     const proxy = this.options.proxy()
-    if (result.applied && proxy !== null && JSON.stringify(settings.proxy) !== proxyBefore && proxy.status().state === 'running') {
-      void proxy.apply().catch((error: unknown) => {
-        proxy.recordError(errorMessage(error))
-        logger.warn(`proxy:    could not apply the edited settings: ${errorMessage(error)}`)
-      })
+    if (result.applied && proxy !== null && JSON.stringify(settings.proxy) !== proxyBefore) {
+      // Switched off through the file: `status()` reads "off" from then on, so it cannot be what
+      // decides whether a still-running engine is stopped.
+      if (!settings.proxy.enabled) {
+        void proxy.stopIfDisabled().catch((error: unknown) => {
+          proxy.recordError(errorMessage(error))
+          logger.warn(`proxy:    could not stop the engine after the proxy was switched off: ${errorMessage(error)}`)
+        })
+      }
+      else if (proxy.status().state === 'running') {
+        void proxy.apply().catch((error: unknown) => {
+          proxy.recordError(errorMessage(error))
+          logger.warn(`proxy:    could not apply the edited settings: ${errorMessage(error)}`)
+        })
+      }
     }
     this.scheduleState()
   }

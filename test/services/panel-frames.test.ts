@@ -1,7 +1,7 @@
 import type { WorkspaceView } from '#src/shared/contracts'
 import fs from 'node:fs'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONFIG_SCHEMA } from '#src/config/migrations'
 import { cleanPanelHarness, makeHarness, resetPanelModules, runningServer, waitFor } from '../support/panel-harness'
 
@@ -230,6 +230,25 @@ describe('panelService', () => {
 
       await waitFor(() => settings.configError !== null)
       expect(settings.configError).toContain('not applied')
+      expect(settings.proxy.enabled).toBe(false)
+    }
+    finally {
+      await dispose()
+    }
+  })
+
+  it('stops the engine when a hand edit switches the proxy off', async () => {
+    const { panel, settings, dispose } = await makeHarness({ withProxy: true })
+
+    try {
+      settings.updateProxy({ enabled: true })
+      const proxy = (panel as unknown as { options: { proxy: () => import('#src/services/proxy').ProxyService } }).options.proxy()
+      const stopped = vi.spyOn(proxy, 'stopIfDisabled').mockResolvedValue(true)
+      const onDisk = JSON.parse(fs.readFileSync(settings.path, 'utf8')) as Record<string, any>
+      onDisk.proxy = { ...onDisk.proxy, enabled: false }
+      fs.writeFileSync(settings.path, JSON.stringify(onDisk, null, 2))
+
+      await waitFor(() => stopped.mock.calls.length > 0 ? true : undefined)
       expect(settings.proxy.enabled).toBe(false)
     }
     finally {

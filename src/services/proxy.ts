@@ -487,8 +487,14 @@ export class ProxyService {
       logger.warn(`proxy:    removed ${swept} unread nanny spec file(s)`)
     this.admin = this.readAdmin()
 
-    if (!this.config.enabled)
+    if (!this.config.enabled) {
+      // Switched off by a hand edit or a restore while the panel was down: the engine would keep
+      // serving the old routes while the page reads "off".
+      await this.stopIfDisabled().catch((error: unknown) => {
+        logger.warn(`proxy:    could not stop the engine of a proxy that is switched off: ${errorMessage(error)}`)
+      })
       return
+    }
     // The route table is read for the exposure verdict, which has to judge hostnames by where they
     // resolve — a boot must not declare the engine unsafe (or safe) on a cold cache.
     await primeUpstreamResolutions(this.config)
@@ -522,6 +528,18 @@ export class ProxyService {
       this.lastError = errorMessage(error)
       logger.error(`proxy:    could not start: ${this.lastError}`)
     }
+  }
+
+  /**
+   * Stops a running engine when the proxy is switched off. `status()` reads a disabled proxy as
+   * "off" whatever is running, so this asks the nanny state instead. True when it stopped one.
+   */
+  async stopIfDisabled(): Promise<boolean> {
+    if (this.config.enabled || !this.engineRunning())
+      return false
+    logger.info('proxy:    the reverse proxy is switched off — stopping its running engine')
+    await this.stop()
+    return true
   }
 
   /**

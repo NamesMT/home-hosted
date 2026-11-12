@@ -1190,6 +1190,21 @@ describe('proxyService', () => {
     }
   })
 
+  it('stops an engine still running for a proxy switched off while the panel was down', async () => {
+    const { service, options } = await harness()
+    writeStubEngine(service.enginePath, [])
+    const engine = await stubEngine(options)
+    const stop = vi.spyOn(service, 'stop')
+
+    try {
+      await service.initialize()
+      expect(stop, 'a disabled proxy left its engine serving the old routes').toHaveBeenCalledTimes(1)
+    }
+    finally {
+      await engine.stop()
+    }
+  })
+
   it('does not start anything for a config that is only switched off', async () => {
     const { service } = await harness()
     await expect(service.start()).rejects.toThrow('switched off')

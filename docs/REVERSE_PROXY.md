@@ -261,7 +261,7 @@ rather than adding a 151st record to a zone already at the limit.
 | Runs as | A child of the panel's own nanny, exactly like a `persistent: true` entry. |
 | Supervised by | The panel. The admin API is opened on the panel side only: a unix socket in a `0700` directory (loopback TCP plus Caddy's origin check on Windows). |
 | Reloaded by | `POST /load` — atomic, and the revision that applied is kept on disk so a change can be reverted in one click (the first one has nothing to go back to). A reload onto a port a stranger holds is refused before the engine is touched, naming the pid when the OS will tell it and saying so when it will not, and the panel keeps reporting the ports the engine is really on. |
-| Stops with | **Stop** in the page, switching the proxy off, or `POST /api/proxy/stop`. It never stops itself, and `down` leaves it serving — the socket facing the internet is not something a panel restart should drop. It is never restarted automatically either: a configuration the engine refuses needs a person, not a retry loop. |
+| Stops with | **Stop** in the page, switching the proxy off (in the page, by editing `settings.json`, or by a restore — at the next boot if the panel was down), or `POST /api/proxy/stop`. It never stops itself, and `down` leaves it serving — the socket facing the internet is not something a panel restart should drop. It is never restarted automatically either: a configuration the engine refuses needs a person, not a retry loop. |
 
 Because it runs under a nanny, a panel restart does not drop the socket that faces the
 internet: the engine keeps serving, and the panel reattaches to it on the next boot.
