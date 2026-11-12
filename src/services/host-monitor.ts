@@ -60,10 +60,11 @@ export class HostMonitor {
   async tick(now = Date.now()): Promise<void> {
     const config = this.getConfig()
     if (!config.enabled) {
-      // The last sample is not the machine's state any more: no readings, and a standing alert is
-      // closed so the receiver is not left reading a breach nothing watches.
-      if (this.current.enabled || this.current.sampledAt !== null)
-        this.current = emptyHostView(config)
+      // The last sample stays, stamped, so a surface can say how old it is; `enabled: false` is what
+      // makes `hostReadings` (and the scrape) treat it as no reading. A standing alert is closed so
+      // the receiver is not left reading a breach nothing watches.
+      if (this.current.enabled)
+        this.current = { ...this.current, enabled: false }
       this.staleView = null
       this.settle(new Set(), 'host sampling was switched off')
       return

@@ -3,6 +3,7 @@ import { type } from 'arktype'
 import { describe, expect, it, vi } from 'vitest'
 import { HostMonitor } from '#src/services/host-monitor'
 import { hostSchema } from '#src/shared/contracts'
+import { hostReadings } from '#src/shared/host-readings'
 
 /**
  * `HostMonitor` is the half of host vitals that decides whether anyone is *told*:
@@ -198,9 +199,9 @@ describe('hostMonitor across alert kinds and switches', () => {
     await monitor.tick(20_000)
     expect(sink.events).toHaveLength(2)
     expect(sink.events[1]).toMatchObject({ reason: 'host-recovered' })
-    // The frame no longer carries the last sample's readings.
-    expect(monitor.view.sampledAt).toBeNull()
-    expect(monitor.view.alerts).toEqual([])
+    // The frame keeps the stamped last sample, and reads as no reading.
+    expect(monitor.view.enabled).toBe(false)
+    expect(hostReadings(monitor.view).sampled).toBe(false)
   })
 
   it('publishes no readings once the last sample is several intervals old', async () => {
