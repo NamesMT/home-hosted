@@ -274,3 +274,71 @@ describe('dispose', () => {
     expect(harness.runs).toHaveLength(0)
   })
 })
+
+/**
+ * A job runs **once** for a wall-clock time that happens twice.
+ *
+ * This is the regression the review found, and it was invisible to the cron unit tests because they
+ * only asked `previousCronRun` from *before* the fold. Driving the real scheduler second by second
+ * through the change is what shows it: `started` was three runs for `30 1 * * *` in
+ * `America/New_York`, two of them at 01:30, because the scheduler saw the two identical wall readings
+ * as two occurrences.
+ *
+ * The root cause was `setSeconds(0, 0)` re-resolving an ambiguous local time to the *earlier* offset,
+ * which walked the search an hour backwards, so it answered yesterday's occurrence and the
+ * `due <= lastStartedFor` guard then fired again. The fix is in `src/shared/cron.ts`.
+ *
+ * `TZ` is set here, not inherited: this suite runs in whatever zone the machine has, and in UTC there
+ * is no fold at all, so the test would pass while proving nothing.
+ */
+describe('a repeated wall-clock time', () => {
+  const original = process.env.TZ
+  afterEach(() => {
+    if (original === undefined)
+      delete process.env.TZ
+    else
+      process.env.TZ = original
+  })
+
+  /**
+   * A panel that has been up, so the previous occurrence is already in its durable history.
+   *
+   * The seed matters: a panel whose first ever tick lands before an occurrence legitimately owes
+   * **one** catch-up run for it (that is the boot rule, tested above). Seeding the history is what
+   * makes this test about the *second* run for a repeated wall time — the regression — rather than
+   * about the catch-up.
+   */
+  it.each([
+    // 2026-11-01: New York goes 02:00 EDT -> 01:00 EST, so 01:30 happens twice. The first is 05:30Z.
+    ['America/New_York', '30 1 * * *', Date.UTC(2026, 10, 1, 5, 30), Date.UTC(2026, 10, 1, 5, 31), Date.UTC(2026, 10, 1, 8, 0)],
+    // 2026-10-25: Berlin goes 03:00 CEST -> 02:00 CET, so 02:00 happens twice. The first is 00:00Z.
+    // Berlin's FIRST 02:00 is 00:00Z (CEST); the repeated one is 01:00Z (CET).
+    ['Europe/Berlin', '0 2 * * *', Date.UTC(2026, 9, 25, 0, 0), Date.UTC(2026, 9, 25, 0, 1), Date.UTC(2026, 9, 25, 3, 0)],
+  ])('does not run again for the repeated hour in %s', async (zone, expression, firstRunAt, from, to) => {
+    process.env.TZ = zone
+    const harness = makeScheduler([{ id: 'nightly', kind: 'job', schedule: expression, enabled: true }])
+    harness.lastRuns.set('nightly', firstRunAt)
+
+    // Every tick the panel would make, second by second, through the rest of the fold.
+    for (let clock = from; clock <= to; clock += 1000)
+      await harness.scheduler.tick(clock)
+
+    expect(harness.runs, 'the same wall-clock time is ONE occurrence').toHaveLength(0)
+    harness.scheduler.dispose()
+  })
+
+  it('still runs the next night, so the dedup did not swallow the schedule', async () => {
+    process.env.TZ = 'America/New_York'
+    const harness = makeScheduler([{ id: 'nightly', kind: 'job', schedule: '30 1 * * *', enabled: true }])
+    harness.lastRuns.set('nightly', Date.UTC(2026, 10, 1, 5, 30))
+
+    // The rest of the fold night, then the whole of the following night.
+    for (let clock = Date.UTC(2026, 10, 1, 5, 31); clock <= Date.UTC(2026, 10, 1, 7, 30); clock += 60_000)
+      await harness.scheduler.tick(clock)
+    for (let clock = Date.UTC(2026, 10, 2, 4, 30); clock <= Date.UTC(2026, 10, 2, 7, 30); clock += 60_000)
+      await harness.scheduler.tick(clock)
+
+    expect(harness.runs, 'the following night still runs').toHaveLength(1)
+    harness.scheduler.dispose()
+  })
+})

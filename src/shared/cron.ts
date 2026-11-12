@@ -224,9 +224,21 @@ export function cronDueAt(spec: CronSpec, date: Date): boolean {
     && dayMatches(spec, date)
 }
 
-/** One step of the search: the next local minute, hour, day or month boundary that could match. */
+/** One real minute/hour/day, for when a calendar jump would not move forwards. */
+const UNIT_MS = { minute: 60_000, hour: 3_600_000, day: 86_400_000, month: 86_400_000 } as const
+
+/**
+ * One step of the search: the next local minute, hour, day or month boundary that could match.
+ *
+ * **Every step is strictly forwards in real time**, which local field arithmetic cannot promise. An
+ * ambiguous wall time — the hour that occurs twice on the autumn DST change — resolves to the
+ * earlier* offset, so `setMinutes(getMinutes() + 1)` across the fold can land an hour in the past
+ * and walk the search backwards. Guarding here rather than at each call site is what makes both
+ * searches monotonic: a step that does not move forwards becomes one real unit instead.
+ */
 function advance(candidate: Date, unit: 'minute' | 'hour' | 'day' | 'month'): Date {
-  const next = new Date(candidate.getTime())
+  const before = candidate.getTime()
+  const next = new Date(before)
   switch (unit) {
     case 'minute':
       next.setMinutes(next.getMinutes() + 1, 0, 0)
@@ -244,8 +256,42 @@ function advance(candidate: Date, unit: 'minute' | 'hour' | 'day' | 'month'): Da
       next.setMonth(next.getMonth() + 1)
       break
   }
-  return next
+  return next.getTime() > before ? next : new Date(before + UNIT_MS[unit])
 }
+
+/**
+ * The **first** real instant at which this wall-clock minute happens.
+ *
+ * On the autumn DST change a wall time occurs twice, an hour apart. Both are "the same occurrence" to
+ * a person reading a cron expression, and returning the later one is what made the scheduler start a
+ * job twice: it saw 01:30 EDT and 01:30 EST as two occurrences, because the dedup guard can only
+ * remember one instant.
+ *
+ * So a matched minute is reported at its **earlier** instant. Probing backwards by the offsets zones
+ * actually use (a whole hour, or the half hour Lord Howe uses) and comparing the local fields is
+ * enough: a wall minute can repeat at most once, and the shift is never more than an hour.
+ *
+ * This also makes both searches monotonic, which the previous version was not — measured across the
+ * 2026 fall-back under `TZ=America/New_York`, `previousCronRun` stepped from 01:30 EDT back to
+ * yesterday's* 01:30, discarding the occurrence it had just found.
+ */
+function firstInstantOfMinute(when: Date): number {
+  const fields = `${when.getFullYear()}-${when.getMonth()}-${when.getDate()}-${when.getHours()}-${when.getMinutes()}`
+  for (const shift of [60, 30]) {
+    const earlier = new Date(when.getTime() - shift * 60_000)
+    const earlierFields = `${earlier.getFullYear()}-${earlier.getMonth()}-${earlier.getDate()}-${earlier.getHours()}-${earlier.getMinutes()}`
+    if (earlierFields === fields)
+      return earlier.getTime()
+  }
+  return when.getTime()
+}
+
+/**
+ * How far back `previousCronRun` looks. A year, because the longest schedule that repeats is yearly
+ * (`0 0 1 1 *`): anything that has not fired in a year has no occurrence to resume, and walking
+ * further would cost a minute-per-step scan for an expression like `0 0 31 4 *` that never fires.
+ */
+const LOOK_BACK_MS = 366 * 24 * 60 * 60 * 1000
 
 /** How far ahead the search looks before answering "never". Four years covers a leap day. */
 const SEARCH_LIMIT_MS = 4 * 366 * 24 * 60 * 60 * 1000
@@ -279,7 +325,15 @@ export function nextCronRun(spec: CronSpec, from: Date = new Date()): number | n
       candidate = advance(candidate, 'minute')
       continue
     }
-    return candidate.getTime()
+    // The earlier of two identical wall minutes, so a repeated hour is one occurrence.
+    const at = firstInstantOfMinute(candidate)
+    // `nextCronRun` promises strictly after `from`; the earlier instant of a repeated minute can be
+    // before it, in which case that occurrence is the caller's and the search moves on.
+    if (at <= from.getTime()) {
+      candidate = advance(candidate, 'minute')
+      continue
+    }
+    return at
   }
   return null
 }
@@ -291,32 +345,33 @@ export function nextCronRun(spec: CronSpec, from: Date = new Date()): number | n
  * the panel's clock ticks, so the panel asks for the occurrence, not the second.
  */
 export function previousCronRun(spec: CronSpec, at: Date = new Date()): number | null {
-  const limit = at.getTime() - SEARCH_LIMIT_MS
-  let candidate = new Date(at.getTime())
-  candidate.setSeconds(0, 0)
-  while (candidate.getTime() >= limit) {
-    if (!spec.months.has(candidate.getMonth() + 1)) {
-      // The last minute of the previous month.
-      candidate.setDate(1)
-      candidate.setHours(0, 0, 0, 0)
-      candidate = new Date(candidate.getTime() - 60_000)
-      continue
-    }
-    if (!dayMatches(spec, candidate)) {
-      candidate.setHours(0, 0, 0, 0)
-      candidate = new Date(candidate.getTime() - 60_000)
-      continue
-    }
-    if (!spec.hours.has(candidate.getHours())) {
-      candidate.setMinutes(0, 0, 0)
-      candidate = new Date(candidate.getTime() - 60_000)
-      continue
-    }
-    if (!spec.minutes.has(candidate.getMinutes())) {
-      candidate = new Date(candidate.getTime() - 60_000)
-      continue
-    }
-    return candidate.getTime()
+  const floor = at.getTime() - LOOK_BACK_MS
+  // Truncated to the minute **in absolute time**, never with `setSeconds(0, 0)`.
+  //
+  // That call re-resolves an ambiguous local time to the *earlier* offset: measured under
+  // `TZ=America/New_York`, `setSeconds(0, 0)` on 06:00Z — which is 01:00 EST — produced 05:00Z, an
+  // hour into the past. Every step then started an hour behind, so the search walked straight past
+  // the occurrence it had just found and answered yesterday's. Truncating the epoch directly cannot.
+  let candidate = new Date(Math.floor(at.getTime() / 60_000) * 60_000)
+
+  while (candidate.getTime() >= floor) {
+    if (cronDueAt(spec, candidate))
+      // The earlier of two identical wall minutes: 01:30 on the autumn change is ONE occurrence, and
+      // reporting the second instant is what made the scheduler start the same job twice.
+      return firstInstantOfMinute(candidate)
+
+    // One **real** minute back, which is the only step that cannot skip a match.
+    //
+    // This replaced a search that jumped by local field arithmetic — set the day to 1, set the hour
+    // to 0 — and it is a rewrite rather than a patch because those jumps are not monotonic: on the
+    // autumn DST change a wall clock reads an hour twice, so "one minute earlier on the wall clock"
+    // can be an hour later in real time. Measured under `TZ=America/New_York` across the 2026
+    // fall-back, the old code answered *yesterday's* 01:30 when asked at 01:00 EST, discarding the
+    // occurrence it had just found, and the scheduler started the job a second time.
+    //
+    // It is affordable because the look-back is bounded (see `LOOK_BACK_MS`): the panel asks this
+    // once per tick, and the answer it wants — "which occurrence is due now" — is always close.
+    candidate = new Date(candidate.getTime() - 60_000)
   }
   return null
 }
