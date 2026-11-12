@@ -92,12 +92,45 @@ export function settleRestart(ctx: SupervisorContext, entry: Entry, detail: stri
   ctx.notify(entry, 'restart-ok', message)
 }
 
+/** Resolves on the child's `'spawn'` event, or immediately when it has already spawned. */
+function whenSpawned(child: ChildProcess): Promise<void> {
+  // `pid` is set synchronously only when the spawn succeeded outright (`stdio: 'inherit'` does that
+  // without a handle to wait for); with pipes or file descriptors Node assigns it and then emits
+  // `'spawn'`. Either way the entry must not claim a process it does not have yet.
+  if (child.pid !== undefined) {
+    return new Promise<void>((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        resolve()
+        return
+      }
+      child.once('spawn', () => resolve())
+      // A failed spawn never emits `'spawn'`, only `'error'`; whoever is listening records it.
+      child.once('error', () => resolve())
+      child.once('exit', () => resolve())
+    })
+  }
+  return Promise.resolve()
+}
+
 /** Moves a freshly spawned child from `starting` to `running` once its port answers (or times out). */
 export async function awaitReadiness(ctx: HealthContext, entry: Entry, child: ChildProcess): Promise<void> {
   const { port, health } = entry.config
 
   if (port === null) {
+    /**
+     * An entry with no port has nothing to poll, so its readiness is "the process exists" — which is
+     * not the same moment `spawn` returned. A command that cannot start (a typo, a missing binary)
+     * fails **asynchronously** with `spawn ENOENT`, so publishing `running` on the object made the
+     * panel report a live server whose process never existed, then correct it to `crashed` a tick
+     * later. Wait for `'spawn'`, and treat `'error'`/`'exit'` first as "never got there".
+     */
+    await whenSpawned(child)
+    // Overtaken while waiting (a stop, a restart, an exit): the run this waited for is not current.
     if (entry.child !== child || entry.status !== 'starting')
+      return
+    // A child that failed to spawn has no pid, and its `error` listener (in `attachChild`) records
+    // the crash and publishes it. Claiming a process here would overwrite that with a lie.
+    if (entry.pid === null)
       return
     entry.status = 'running'
     setHealth(entry, health.enabled ? 'unknown' : 'disabled')

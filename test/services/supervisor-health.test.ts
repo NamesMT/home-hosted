@@ -472,3 +472,67 @@ describe('an exit clears the health streak of the process it ends', () => {
     expect(crashed.unhealthySince, 'a crashed entry still claims how long it has been unhealthy').toBeNull()
   }, 60000)
 })
+
+/**
+ * A portless entry is `running` only once its process exists.
+ *
+ * Readiness for an entry with no port is "assumed on spawn" — but it was assumed when the
+ * `ChildProcess` object came back, which is *before* the operating system has executed anything.
+ * A command that cannot start answers `spawn ENOENT` asynchronously, so the panel published
+ * `running` for a server whose process never existed, and only the later `error` event corrected it
+ * to `crashed`. Every `starting` → `running` frame a viewer saw in between described nothing.
+ */
+describe('a portless entry waits for its process to exist', () => {
+  it('never publishes running for a command that cannot start', async () => {
+    const harness = await makeSupervisor([{
+      id: 'ghost',
+      // Nothing resolves this: `spawn` fails asynchronously with `ENOENT`.
+      command: 'hh-no-such-program-anywhere',
+      port: null,
+      restart: { enabled: false },
+      health: { enabled: false },
+    }])
+
+    const seen: string[] = []
+    harness.hub.subscribe('default/ghost', (message) => {
+      if (message.type === 'server')
+        seen.push(message.server.status)
+    })
+
+    await harness.supervisor.start('ghost')
+    await waitForStatus(harness.supervisor, 'ghost', 'crashed')
+
+    // Asserted on the published frames, not the final view: the defect was a transient one, and the
+    // end state was right either way.
+    expect(seen, `frames were ${seen.join(' → ')}`).not.toContain('running')
+    expect(seen).toContain('starting')
+    // The failure still reaches the card with a reason naming the command.
+    expect(view(harness.supervisor, 'ghost').lastError).toMatch(/ENOENT|not found|no such file/i)
+  }, 30000)
+
+  it('publishes running once the process is really there', async () => {
+    const harness = await makeSupervisor([{
+      id: 'worker',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      port: null,
+      restart: { enabled: false },
+      health: { enabled: false },
+    }])
+
+    const running: Array<{ pid: number | null }> = []
+    harness.hub.subscribe('default/worker', (message) => {
+      if (message.type === 'server' && message.server.status === 'running')
+        running.push({ pid: message.server.pid })
+    })
+
+    const started = await harness.supervisor.start('worker')
+    expect(started.ok, `the fixture must start: ${started.error ?? ''}`).toBe(true)
+    await waitForStatus(harness.supervisor, 'worker', 'running')
+    await harness.supervisor.stop('worker')
+
+    expect(running.length, 'the transition must be published').toBeGreaterThan(0)
+    // A `running` frame with no pid is a process the panel never had.
+    expect(running.every(frame => typeof frame.pid === 'number')).toBe(true)
+  }, 30000)
+})
