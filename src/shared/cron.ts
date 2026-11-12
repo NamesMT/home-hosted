@@ -9,10 +9,19 @@
  *
  * Reading the wall clock in the host's own zone is deliberate. This panel runs on a home server
  * whose owner thinks in that machine's time ("every night at 03:00"), and a job that silently
- * shifted by an hour after a DST change would be worse than one documented as local. A local time
- * that does not exist (the spring-forward hour) runs at the instant the clock jumps past it; one
- * that occurs twice (the autumn hour) runs on the first occurrence only, because the search stops at
- * the first matching minute.
+ * shifted by an hour after a DST change would be worse than one documented as local.
+ *
+ * **Daylight saving, measured rather than assumed** (`TZ=Europe/Berlin`, 2026 transitions):
+ * - a local time that does not exist — 02:30 on the spring-forward day — is **skipped for that day**.
+ *   `nextCronRun('30 2 * * *', 2026-03-28T23:00)` answers 2026-03-30T02:30, and `cronDueAt` is false
+ *   at 01:59 and 03:00 alike. This matches Vixie cron, and firing at an arbitrary instant once a
+ *   year would be worse than missing one run;
+ * - a local time that occurs **twice** — 02:30 on the autumn day — runs on the **first** only, which
+ *   is what the search naturally finds: it stops at the first matching wall-clock minute, and the
+ *   second 02:30 is an hour of real time later.
+ *
+ * An earlier version of this comment claimed the spring-forward case "runs at the instant the clock
+ * jumps past it". It never did. The comment was wrong, not the code.
  *
  * No date library: the module is imported by both the panel and the UIs (the preview under the
  * schedule field), so it may not reach for `node:` or a dependency.

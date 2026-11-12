@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import process from 'node:process'
+import { afterEach, describe, expect, it } from 'vitest'
 import { cronClock, cronDueAt, cronProblem, cronSummary, nextCronRun, parseCron, previousCronRun } from '#src/shared/cron'
 
 /**
@@ -247,5 +248,71 @@ describe('cronClock', () => {
   it('zero-pads to a 24-hour clock', () => {
     expect(cronClock(3, 0)).toBe('03:00')
     expect(cronClock(23, 59)).toBe('23:59')
+  })
+})
+
+/**
+ * Daylight saving, pinned to a zone that has it.
+ *
+ * The comment in `src/shared/cron.ts` claimed the spring-forward hour "runs at the instant the clock
+ * jumps past it" — and it never did. Measured under `TZ=Europe/Berlin`, the occurrence is **skipped
+ * for that day**, which is what Vixie cron does and what the comment now says.
+ *
+ * A test rather than a comment because that is exactly how the claim drifted: prose with nothing
+ * holding it. `TZ` is set per-case, because the module reads the host's zone on purpose.
+ */
+describe('daylight saving', () => {
+  // 2026: Berlin springs forward on 29 March (02:00 -> 03:00) and falls back on 25 October.
+  const spring = '30 2 * * *'
+
+  /**
+   * `process.env.TZ` is set here rather than left to the machine: a CI box in UTC has no DST at all,
+   * so every one of these assertions would fail there while passing on a developer's laptop in
+   * Europe. The module reads the host zone on purpose, so the test has to say which zone it means.
+   *
+   * Node re-reads `TZ` for new `Date` objects on Linux; `vi.resetModules()` is not enough because the
+   * parser holds no cached zone.
+   */
+  const original = process.env.TZ
+  afterEach(() => {
+    if (original === undefined)
+      delete process.env.TZ
+    else
+      process.env.TZ = original
+  })
+
+  it('skips a local time that does not exist, rather than inventing an instant', () => {
+    process.env.TZ = 'Europe/Berlin'
+    const parsed = parseCron(spring)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok)
+      return
+    // From the evening before, and from inside the transition day: both answer the NEXT day.
+    for (const from of [new Date(2026, 2, 28, 23, 0), new Date(2026, 2, 29, 0, 0), new Date(2026, 2, 29, 1, 0)]) {
+      const next = nextCronRun(parsed.spec, from)
+      expect(next).not.toBeNull()
+      expect(new Date(next!).getDate(), 'the occurrence is skipped, so this is the 30th').toBe(30)
+      expect(new Date(next!).getHours()).toBe(2)
+      expect(new Date(next!).getMinutes()).toBe(30)
+    }
+    // And no wall-clock minute of the transition day reports it as due: 02:30 never happens, and
+    // 03:00 is a different time.
+    for (const [hour, minute] of [[1, 59], [2, 0], [3, 0], [3, 30]] as const)
+      expect(cronDueAt(parsed.spec, new Date(2026, 2, 29, hour, minute)), `${hour}:${minute} must not be due`).toBe(false)
+  })
+
+  it('runs on the first of the two autumn occurrences', () => {
+    process.env.TZ = 'Europe/Berlin'
+    const parsed = parseCron(spring)
+    if (!parsed.ok)
+      throw new Error('parse failed')
+    const next = nextCronRun(parsed.spec, new Date(2026, 9, 24, 12, 0))
+    expect(next).not.toBeNull()
+    const at = new Date(next!)
+    expect(at.getDate(), 'the 25th, not a day later').toBe(25)
+    expect(at.getHours()).toBe(2)
+    expect(at.getMinutes()).toBe(30)
+    // The FIRST 02:30 is at +02:00 (CEST); the second, an hour of real time later, is +01:00 (CET).
+    expect(at.getTimezoneOffset(), 'the first occurrence is the summer offset').toBe(-120)
   })
 })
