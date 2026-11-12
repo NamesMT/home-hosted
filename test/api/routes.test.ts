@@ -239,7 +239,15 @@ describe('servers route', () => {
     expect(body).not.toHaveProperty('code')
   })
 
-  it('clamps the log limit so a bad client cannot slice from the wrong end', async () => {
+  /**
+   * `?limit=` is a bounded whole number, refused outside its range rather than clamped.
+   *
+   * It used to be a free string parsed by the handler and clamped, so `limit=-1` and `limit=1.5`
+   * were answered 200 with a silently different question (1, and the default), and `limit=abc` fell
+   * back to "everything". A caller that asked for something impossible is told so; the number it
+   * gets is always the number it asked for, or the default when it asked for none.
+   */
+  it('parses the buffered log limit as a bounded whole number', async () => {
     const created = await withServer()
     const seen: Array<number | undefined> = []
     created.supervisor.logLines = (_id, limit) => {
@@ -247,12 +255,17 @@ describe('servers route', () => {
       return []
     }
 
-    await request(created.app, '/api/servers/web/logs')
-    await request(created.app, '/api/servers/web/logs?limit=1')
-    await request(created.app, '/api/servers/web/logs?limit=999999')
-    await request(created.app, '/api/servers/web/logs?limit=abc')
+    expect((await request(created.app, '/api/servers/web/logs')).status).toBe(200)
+    expect((await request(created.app, '/api/servers/web/logs?limit=1')).status).toBe(200)
+    expect((await request(created.app, '/api/servers/web/logs?limit=100000')).status).toBe(200)
 
-    expect(seen).toEqual([undefined, 1, 100_000, undefined])
+    for (const limit of ['-1', '1.5', 'abc', '0', '100001', '1e3', '']) {
+      const response = await request(created.app, `/api/servers/web/logs?limit=${limit}`)
+      expect(response.status, `limit=${limit}`).toBe(400)
+      expect(await response.json(), `limit=${limit}`).toMatchObject({ code: 'INVALID_INPUT' })
+    }
+
+    expect(seen).toEqual([undefined, 1, 100_000])
   })
 
   it('404s the buffered logs of a server the config does not know', async () => {
@@ -471,12 +484,26 @@ describe('servers route', () => {
       seen.push(options)
     }
 
-    expect((await request(created.app, '/api/servers/stop-all?withPersistent=true', 'POST')).status).toBe(200)
-    expect(seen.at(-1)).toMatchObject({ withPersistent: true })
+    for (const spelling of ['true', '1']) {
+      const response = await request(created.app, `/api/servers/stop-all?withPersistent=${spelling}`, 'POST')
+      expect(response.status, `withPersistent=${spelling}`).toBe(200)
+      expect(seen.at(-1), `withPersistent=${spelling}`).toMatchObject({ withPersistent: true })
+    }
+    for (const spelling of ['false', '0']) {
+      const response = await request(created.app, `/api/servers/stop-all?withPersistent=${spelling}`, 'POST')
+      expect(response.status, `withPersistent=${spelling}`).toBe(200)
+      expect(seen.at(-1), `withPersistent=${spelling}`).toMatchObject({ withPersistent: false })
+    }
+    // The spellings that used to be misread as "yes" or "no" without saying anything.
+    for (const spelling of ['yes', 'no', 'on', 'off', 'TRUE', '']) {
+      const response = await request(created.app, `/api/servers/stop-all?withPersistent=${spelling}`, 'POST')
+      expect(response.status, `withPersistent=${spelling}`).toBe(400)
+      expect(await response.json(), `withPersistent=${spelling}`).toMatchObject({ code: 'INVALID_INPUT' })
+    }
 
     expect((await request(created.app, '/api/servers/stop-all?withPersistant=true', 'POST')).status).toBe(400)
     // Refused before the supervisor ran, so nothing was stopped by the typo.
-    expect(seen).toHaveLength(1)
+    expect(seen).toHaveLength(4)
   })
 })
 
@@ -548,10 +575,33 @@ describe('logs route', () => {
 
     expect((await request(created.app, '/api/logs/ghost')).status).toBe(404)
 
-    const body = await (await request(created.app, '/api/logs/web?tail=1')).json() as { lines: unknown[], searched: number | null }
-    // The floor is 50, so `tail=1` cannot ask for a single line.
+    const body = await (await request(created.app, '/api/logs/web?tail=50')).json() as { lines: unknown[], searched: number | null }
+    // The floor is 50, so a smaller `tail` is refused rather than silently raised to it.
     expect(body.lines).toHaveLength(50)
     expect(body.searched).toBeNull()
+  })
+
+  /**
+   * `?tail=` is the number asked for, or a `400`.
+   *
+   * It used to be parsed and clamped: `tail=3` was silently raised to the floor of 50 and `tail=abc`
+   * fell back to 500, so a caller could not tell "you get 50" from "you asked for 3 and I chose 50"
+   * — and a typo'd parameter quietly changed what the page showed it had searched.
+   */
+  it('refuses a tail that is not a whole number inside the range', async () => {
+    const created = await withServer()
+    seedLogs(created, 60)
+
+    for (const tail of ['49', '3', '5001', '-1', '1.5', 'abc', '1e3']) {
+      const response = await request(created.app, `/api/logs/web?tail=${tail}`)
+      expect(response.status, `tail=${tail}`).toBe(400)
+      expect(await response.json(), `tail=${tail}`).toMatchObject({ code: 'INVALID_INPUT' })
+    }
+
+    for (const tail of ['50', '5000']) {
+      const response = await request(created.app, `/api/logs/web?tail=${tail}`)
+      expect(response.status, `tail=${tail}`).toBe(200)
+    }
   })
 
   /**
@@ -649,7 +699,9 @@ describe('logs route', () => {
     const created = await withServer()
     seedLogs(created, 100)
 
-    for (const lines of [10, 50, 500, 5000]) {
+    // 50 is the floor, so 10 is the one value here that the schema refuses outright.
+    expect((await request(created.app, '/api/logs/web?search=line-1&tail=10')).status).toBe(400)
+    for (const lines of [50, 500, 5000]) {
       const body = await (await request(created.app, `/api/logs/web?search=line-1&tail=${lines}`)).json() as { searched: number }
       expect(body.searched, `tail=${lines}`).toBeLessThanOrEqual(100)
       expect(body.searched, `tail=${lines}`).toBeGreaterThan(0)

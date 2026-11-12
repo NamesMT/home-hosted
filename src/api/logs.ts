@@ -13,8 +13,12 @@ import { requireWorkspace, workspaceQuerySchema } from '#src/helpers/workspace'
 import { logHistoryQuerySchema, logLinesResponseSchema, logServersViewSchema, okResponseSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
 
-/** Bounds for the tail query, so a bad client cannot ask for the whole file. */
-const MIN_TAIL = 50
+/**
+ * The tail window's top, and what a request that names no `tail` gets.
+ *
+ * The floor lives in `logHistoryQuerySchema` with the top, because a query schema is where a query
+ * value is decided: `?tail=3` is a `400` naming the parameter, never a silent clamp to 50.
+ */
 const MAX_TAIL = 5000
 const DEFAULT_TAIL = 500
 
@@ -65,8 +69,9 @@ export function createLogsRoute(deps: AppDeps) {
           throw unknownServerError(id)
 
         const query = c.req.valid('query')
-        const requested = query.tail === undefined ? DEFAULT_TAIL : Number.parseInt(query.tail, 10)
-        const tail = Number.isNaN(requested) ? DEFAULT_TAIL : Math.min(Math.max(requested, MIN_TAIL), MAX_TAIL)
+        // Parsed and bounded by `logHistoryQuerySchema`, so it is already the number asked for: a
+        // value outside `MIN_TAIL`–`MAX_TAIL` was refused at the boundary rather than clamped here.
+        const tail = query.tail ?? DEFAULT_TAIL
 
         const info = runtime.logFiles.info(id)
         const search = query.search?.trim() ?? ''

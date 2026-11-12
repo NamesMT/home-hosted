@@ -10,14 +10,15 @@ import { validate } from '#src/helpers/validator'
 import { requireWorkspace } from '#src/helpers/workspace'
 import { serverKey } from '#src/services/events'
 import { lazy } from '#src/shared/lazy'
+import { booleanParam } from '#src/shared/query-params'
 
 const eventsQuery = lazy(() => type({
   /** Only this server's frames — in `workspace`, or the default workspace when that is omitted. */
   'serverId?': 'string',
   /** Only this workspace's server and log frames. */
   'workspace?': 'string',
-  /** `logs=0` drops log frames; the first frame is always the full state. */
-  'logs?': 'string',
+  /** `logs=0`/`false` drops log frames; the first frame is always the full state. */
+  'logs?': booleanParam,
 }).onUndeclaredKey('reject'))
 
 /**
@@ -43,7 +44,7 @@ export function createEventsRoute(deps: AppDeps) {
       (c) => {
         const query = c.req.valid('query')
         const serverId = query.serverId ?? null
-        const includeLogs = query.logs !== '0'
+        const includeLogs = query.logs !== false
 
         // A server id is unique only inside its workspace, so naming one without a workspace means
         // the default workspace — the rule every other workspace-scoped route follows — never "any".

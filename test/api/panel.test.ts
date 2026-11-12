@@ -1763,6 +1763,44 @@ describe('panel event stream', () => {
     expect(rest).not.toContain('too chatty')
   })
 
+  /**
+   * `?logs=` is a flag, and every one of its four spellings means what it says.
+   *
+   * It was a free string compared with `!== '0'`, so `?logs=false` **kept** the log frames — the
+   * opposite of what it asked for — and `?logs=no` did too, silently. Whatever is not a declared
+   * spelling is now refused, so a client cannot be given the inverse of its request.
+   */
+  it.each([
+    ['0', false],
+    ['false', false],
+    ['1', true],
+    ['true', true],
+  ])('reads ?logs=%s as %s', async (spelling, wanted) => {
+    const created = await fixture({ views: [makeView('web')] })
+    const response = await created.app.request(`/api/events?logs=${spelling}`)
+    expect(response.status, spelling).toBe(200)
+    const reader = response.body!.getReader()
+    const decoder = new TextDecoder()
+    const hello = await readFrames(reader, decoder, '', text => text.includes('event: hello'), 2000)
+
+    created.hub.publish({ type: 'log', ts: Date.now(), serverId: 'web', lines: [{ ts: 1, stream: 'stdout', text: `flagged-${spelling}` }] })
+    created.hub.publish({ type: 'server', ts: Date.now(), serverId: 'web', server: makeView('web') })
+    const rest = await readFrames(reader, decoder, hello, text => text.includes('event: server'))
+    await reader.cancel().catch(() => {})
+
+    expect(rest).toContain('event: server')
+    expect(rest.includes(`flagged-${spelling}`), `logs=${spelling}`).toBe(wanted)
+  })
+
+  it('refuses a ?logs= spelling outside the four', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    for (const spelling of ['no', 'yes', 'on', 'TRUE', '']) {
+      const response = await created.app.request(`/api/events?logs=${spelling}`)
+      expect(response.status, `logs=${spelling}`).toBe(400)
+      expect(await response.json(), `logs=${spelling}`).toMatchObject({ code: 'INVALID_INPUT' })
+    }
+  })
+
   it('narrows server and log frames to the workspace a client named', async () => {
     const created = await fixture({ views: [makeView('web')] })
     const response = await created.app.request(`/api/events?workspace=${created.defaultId}`)

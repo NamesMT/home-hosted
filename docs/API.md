@@ -64,6 +64,17 @@ the default workspace. That includes cache-busters.
 
 A server id is unique only inside its workspace: key anything you store by `(workspaceId, serverId)`.
 
+Query **values** are typed, and a value outside its declared shape is a `400 INVALID_INPUT` rather
+than a silently different question:
+
+- A flag accepts `0`, `1`, `true` or `false` — and nothing else. `?logs=0` and `?logs=false` both drop
+  log frames; `stop-all?withPersistent=1` means true; `yes`, `on` and `TRUE` are refused. The value a
+  route reads is a boolean, so `false` can never be mistaken for "present".
+- A count is a whole decimal integer inside the route's range — `/api/logs/:id?tail=` is 50–5000,
+  `/api/servers/:id/logs?limit=` is 1–100000. `tail=3` is **refused**, not raised to 50; `tail=abc`,
+  `tail=1.5` and `limit=-1` are refused, not defaulted. Asking for no value at all still gets the
+  route's default.
+
 ## Errors
 
 Every failure is one JSON envelope with a stable `code` to branch on:
@@ -140,7 +151,7 @@ own config problem is `configError` on that workspace.
 
 Query: `?workspace=<id>` narrows `server`/`log` frames to one workspace, `&serverId=<id>` to one
 server of it — of the **default** workspace when `workspace` is omitted, since ids repeat across
-workspaces — and `?logs=0` drops log frames. **Naming a workspace or a server that does not exist is a
+workspaces — and `?logs=0` (or `logs=false`) drops log frames. **Naming a workspace or a server that does not exist is a
 `404` before the stream opens** (`UNKNOWN_WORKSPACE` / `UNKNOWN_SERVER`), like every other route: a
 stream that opened and published nothing reads as "nothing is happening". A slow client never makes
 the panel buffer without bound: queued `state` and `server` frames are replaced by newer ones, and log

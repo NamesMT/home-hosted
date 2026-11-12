@@ -9,8 +9,9 @@ import { validate } from '#src/helpers/validator'
 import { installLibreHardwareMonitor, lhmInstalled, probeWslTemperature, removeWslTemperatureScript, tempCommandFor, writeWslTemperatureScript, wslScriptPath, wslTemperatureStatus } from '#src/providers/wsl-temperature'
 import { wslTemperatureSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
+import { booleanParam } from '#src/shared/query-params'
 
-const installQuery = lazy(() => type({ 'download?': '"true" | "false"' }).onUndeclaredKey('reject'))
+const installQuery = lazy(() => type({ 'download?': booleanParam }).onUndeclaredKey('reject'))
 
 /**
  * The helper's location, or null when the Windows drive is not mounted.
@@ -86,7 +87,7 @@ export function createWslTemperatureRoute(deps: AppDeps) {
         // panel does not ship. The first press says so and asks; a second press carries
         // `?download=true` and installs it. Never on the same click that did not mention a download.
         if (!lhmInstalled()) {
-          if (c.req.valid('query').download !== 'true')
+          if (c.req.valid('query').download !== true)
             return c.json({ ...status(deps), needsDownload: true })
           const install = await installLibreHardwareMonitor()
           if (install.error !== null)

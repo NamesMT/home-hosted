@@ -1,6 +1,7 @@
 import { type } from 'arktype'
 import { HOST_ALERT_DEFAULTS, LOAD_ALERT_PER_CPU_DEFAULT } from './host-readings'
 import { lazy } from './lazy'
+import { integerParam } from './query-params'
 
 /**
  * Schemas shared by the control plane and the SPA: the server entry shape, the
@@ -2051,8 +2052,15 @@ const logFrameSchema = lazy(() => type({
 export const sseMessageSchema = lazy(() => stateFrameSchema.or(serverFrameSchema).or(logFrameSchema))
 export type SseMessage = typeof sseMessageSchema.infer
 
+/**
+ * `?limit=` on the buffered log route: a whole number of lines, refusing outside 1–100000.
+ *
+ * It was a free string the handler parsed and clamped, so `limit=-1` and `limit=1.5` were answered
+ * `200` with a silently different question. A caller asking for something impossible is told; the
+ * ceiling is what the buffer can hold, and the floor is one line.
+ */
 export const logQuerySchema = lazy(() => type({
-  limit: 'string?',
+  'limit?': integerParam(1, 100_000),
 }))
 
 /**
@@ -2228,15 +2236,22 @@ export const freePortResultSchema = lazy(() => type({
 export type FreePortResult = typeof freePortResultSchema.infer
 
 export const logHistoryQuerySchema = lazy(() => type({
-  tail: 'string?',
+  /**
+   * How many lines to show: a whole number, 50–5000.
+   *
+   * Both bounds are the route's own (`MIN_TAIL`/`MAX_TAIL` in `src/api/logs.ts`) and a value outside
+   * them is a `400`, not a silent clamp — `tail=3` used to be raised to 50 and `tail=abc` fell back
+   * to the default, so a typo changed what a page reported it had searched.
+   */
+  'tail?': integerParam(50, 5000),
   /**
    * Case-insensitive substring filter. Both this and `stream` are filters, so the route reads a
    * wider window than `tail` and applies them to that: filtering only the display tail would
    * report an older match as "no results", and "the last N stderr lines" as whatever happened
    * to fall in a window sized for all streams. `searched` reports how many lines were read.
    */
-  search: 'string?',
-  stream: '"stdout" | "stderr" | "system"?',
+  'search': 'string?',
+  'stream': '"stdout" | "stderr" | "system"?',
 }))
 
 const logFileInfoSchema = lazy(() => type({

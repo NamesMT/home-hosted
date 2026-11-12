@@ -19,13 +19,14 @@ import { requestIdentity } from '#src/middleware/auth'
 import { selectionWritesCredentials } from '#src/shared/backup-scope'
 import { backupCreatedResponseSchema, backupCreateSchema, backupFilesResponseSchema, backupSelectionSchema, restorePlanSchema, restoreRequestSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
+import { booleanParam } from '#src/shared/query-params'
 
 /** Uploads are buffered in memory by `parseBody`, so they get a hard ceiling. */
 const MAX_UPLOAD_BYTES = 256 * 1024 * 1024
 
 const nameParam = lazy(() => type({ name: 'string >= 1' }))
 /** `confirm=true` applies; anything else would silently plan, so a typo is refused instead. */
-const restoreQuery = lazy(() => type({ 'confirm?': '"true" | "false"' }).onUndeclaredKey('reject'))
+const restoreQuery = lazy(() => type({ 'confirm?': booleanParam }).onUndeclaredKey('reject'))
 
 /** A backup that failed to be created is a bad request, not a server fault. */
 function backupFailed(error: string | undefined): DetailedError {
@@ -144,7 +145,7 @@ export function createBackupsRoute(deps: AppDeps) {
         throw new DetailedError(`the upload is larger than ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB`, { statusCode: 413, code: 'UPLOAD_TOO_LARGE' })
       },
     }), async (c) => {
-      const confirm = c.req.valid('query').confirm === 'true'
+      const confirm = c.req.valid('query').confirm === true
       const contentType = c.req.header('content-type') ?? ''
 
       let archive: string | null = null

@@ -19,6 +19,7 @@ import { isLoopbackRequest } from '#src/middleware/loopback'
 import { selectionOf } from '#src/shared/backup-scope'
 import { actionResultSchema, backupLocalResponseSchema, backupSelectionSchema, freePortResultSchema, okResponseSchema, restorePlanSchema, serverCreateSchema, serverSchema, serverViewSchema, usageViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
+import { booleanParam } from '#src/shared/query-params'
 
 /**
  * The local control channel used by `home-hosted down` and `home-hosted start|stop`.
@@ -28,12 +29,12 @@ import { lazy } from '#src/shared/lazy'
  * different local user, or anyone on the network, gets nothing.
  */
 /** The local channel's query keys, declared so a typo is refused and the spec names them. */
-const shutdownQuery = lazy(() => type({ 'withPersistent?': 'string' }).onUndeclaredKey('reject'))
-const backupQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string' }).onUndeclaredKey('reject'))
+const shutdownQuery = lazy(() => type({ 'withPersistent?': booleanParam }).onUndeclaredKey('reject'))
+const backupQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': booleanParam }).onUndeclaredKey('reject'))
 const serversListResponse = lazy(() => type({ servers: serverViewSchema.array() }))
 // A stored entry, as `POST /api/servers` answers it; an answer never rejects a newer field.
 const storedServerResponse = lazy(() => type({ server: serverSchema }).onDeepUndeclaredKey('ignore'))
-const restoreQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': 'string', 'name?': 'string', 'from?': 'string' }).onUndeclaredKey('reject'))
+const restoreQuery = lazy(() => type({ 'password?': 'string', 'include?': 'string', 'exclude?': 'string', 'confirm?': booleanParam, 'name?': 'string', 'from?': 'string' }).onUndeclaredKey('reject'))
 
 export function createControlRoute(deps: AppDeps) {
   /** The one place the local channel's credentials are read. */
@@ -62,7 +63,7 @@ export function createControlRoute(deps: AppDeps) {
         // `?withPersistent=true` is `down --with-persistent`: a persistent entry survives this
         // shutdown by design, so only an explicit ask ends it — and doing it here, while the
         // panel is still alive, is what records the stop.
-        const withPersistent = c.req.query('withPersistent') === 'true'
+        const withPersistent = c.req.valid('query').withPersistent ?? false
         // Deferred: the answer has to reach `down` before the process goes away.
         afterResponse(() => deps.onShutdown({ withPersistent }), error => logger.error('shutdown failed', error))
 
@@ -275,12 +276,12 @@ export function createControlRoute(deps: AppDeps) {
         // Query, not body: the local channel's request helper sends no payload, and `workspace`
         // already travels this way. The password is in the URL on loopback only, which is the same
         // trust boundary as the token in the header.
-        const password = c.req.query('password')
-        const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
-        const exclude = c.req.query('exclude')?.split(',').filter(part => part.length > 0)
+        const password = c.req.valid('query').password
+        const include = c.req.valid('query').include?.split(',').filter(part => part.length > 0)
+        const exclude = c.req.valid('query').exclude?.split(',').filter(part => part.length > 0)
         // Without `confirm` this answers the plan and writes nothing, so a script can read what a
         // backup would capture before taking one.
-        if (c.req.query('confirm') !== 'true') {
+        if (c.req.valid('query').confirm !== true) {
           // `selection()` for the entries, `view()` for `includePaths`: the model is off the state
           // frame now, and a plan still needs both halves.
           const view = deps.backups.selection()
@@ -316,9 +317,9 @@ export function createControlRoute(deps: AppDeps) {
       validate('query', restoreQuery),
       async (c) => {
         assertLocalCall(c, 'restore a backup')
-        const confirm = c.req.query('confirm') === 'true'
-        const name = c.req.query('name')
-        const from = c.req.query('from')
+        const confirm = c.req.valid('query').confirm === true
+        const name = c.req.valid('query').name
+        const from = c.req.valid('query').from
         // `name` (an allowlist entry in the backups directory) or `from` (a file anywhere) — exactly
         // one. Both name the same thing, so taking one silently would be a guess on the destructive
         // path, and `--from` is additive: a caller still passing `name` keeps the behaviour it had.
@@ -339,18 +340,18 @@ export function createControlRoute(deps: AppDeps) {
           const archive = deps.backups.resolve(name)
           if (archive === null)
             throw new DetailedError(`no backup named "${name}"`, { statusCode: 404, code: 'BACKUP_NOT_FOUND' })
-          const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
-          const exclude = c.req.query('exclude')?.split(',').filter(part => part.length > 0)
-          return c.json(await deps.backups.restore(archive, { confirm, password: c.req.query('password'), include, exclude }))
+          const include = c.req.valid('query').include?.split(',').filter(part => part.length > 0)
+          const exclude = c.req.valid('query').exclude?.split(',').filter(part => part.length > 0)
+          return c.json(await deps.backups.restore(archive, { confirm, password: c.req.valid('query').password, include, exclude }))
         }
 
         // Absolute only: this process's working directory is not the caller's, so a relative path
         // would silently read a different file than the one the person typed.
         if (!path.isAbsolute(from))
           throw new DetailedError('from must be an absolute path — the panel would resolve a relative one against its own directory', { statusCode: 400, code: 'FROM_NOT_ABSOLUTE' })
-        const include = c.req.query('include')?.split(',').filter(part => part.length > 0)
-        const exclude = c.req.query('exclude')?.split(',').filter(part => part.length > 0)
-        return c.json(await deps.backups.restore(from, { confirm, password: c.req.query('password'), include, exclude }))
+        const include = c.req.valid('query').include?.split(',').filter(part => part.length > 0)
+        const exclude = c.req.valid('query').exclude?.split(',').filter(part => part.length > 0)
+        return c.json(await deps.backups.restore(from, { confirm, password: c.req.valid('query').password, include, exclude }))
       },
     )
 }

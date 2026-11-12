@@ -16,6 +16,7 @@ import { requestActor } from '#src/middleware/auth'
 import { serverKey } from '#src/services/events'
 import { actionResultSchema, bufferedLogsResponseSchema, freePortResultSchema, logQuerySchema, okResponseSchema, serverCreateSchema, serverPatchSchema, serverSchema, serverViewSchema } from '#src/shared/contracts'
 import { lazy } from '#src/shared/lazy'
+import { booleanParam } from '#src/shared/query-params'
 
 const idParam = lazy(() => type({ id: 'string >= 1' }))
 const serverResponse = lazy(() => type({ server: serverViewSchema }))
@@ -39,7 +40,7 @@ const bufferedLogsQuery = lazy(() => logQuerySchema.merge(workspaceQuerySchema))
  * `onUndeclaredKey` the result carries: `workspaceQuerySchema.merge(extra)` would have lost the
  * rejection and this route's typo rule with it.
  */
-const stopAllQuery = lazy(() => type({ 'withPersistent?': 'string' }).merge(workspaceQuerySchema))
+const stopAllQuery = lazy(() => type({ 'withPersistent?': booleanParam }).merge(workspaceQuerySchema))
 
 export function createServersRoute(deps: AppDeps) {
   return appFactory.createApp()
@@ -174,8 +175,9 @@ export function createServersRoute(deps: AppDeps) {
       async (c) => {
         const runtime = requireWorkspace(deps.panel.requireWorkspace.bind(deps.panel), c.req.valid('query').workspace)
         // A client that omits `withPersistent` keeps the behaviour it has always had: the flag is
-        // optional, and `=== 'true'` is the only spelling that asks for it.
-        await runtime.supervisor.stopAll({ withPersistent: c.req.valid('query').withPersistent === 'true' })
+        // optional and defaults to false. `0`/`false`/`1`/`true` all mean what they say; anything
+        // else is refused by the schema rather than read as the wrong one.
+        await runtime.supervisor.stopAll({ withPersistent: c.req.valid('query').withPersistent ?? false })
         return c.json({ servers: runtime.supervisor.views() })
       },
     )
@@ -206,11 +208,9 @@ export function createServersRoute(deps: AppDeps) {
         if (!runtime.store.getServer(id))
           throw unknownServerError(id)
 
-        const { limit } = c.req.valid('query')
-        const parsed = limit === undefined ? Number.NaN : Number.parseInt(limit, 10)
-        // Clamped: a negative or huge value must not slice from the wrong end.
-        const bounded = Number.isNaN(parsed) ? undefined : Math.min(Math.max(parsed, 1), 100_000)
-        return c.json({ lines: runtime.supervisor.logLines(id, bounded) })
+        // Bounded by the schema (`logQuerySchema`), so a negative or fractional value never reaches
+        // `logLines` to slice from the wrong end — it is a `400` naming the parameter.
+        return c.json({ lines: runtime.supervisor.logLines(id, c.req.valid('query').limit) })
       },
     )
 
