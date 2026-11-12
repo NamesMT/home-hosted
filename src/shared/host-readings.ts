@@ -92,6 +92,23 @@ export interface HostReadingSource extends HostAlertThresholds {
 export interface HostReadings {
   /** Whether the frame carries a sample at all. */
   sampled: boolean
+  /**
+   * The readings this sample could not take, because the **platform** cannot (`load` on Windows,
+   * `memory`/`swap` when the OS read failed).
+   *
+   * Distinct from an unsampled frame on purpose: `sampled: false` means "nothing measured yet",
+   * while a name here means "measured, and this machine has no such number". A surface that renders
+   * `—` for both tells a person on Windows their load average is `0.00` once sampling starts, or
+   * leaves them waiting for a value that will never arrive. `[]` when everything was taken.
+   */
+  unmeasured: readonly string[]
+  /**
+   * The frame is unsampled **and** the panel has a sample it is deliberately not showing (sampling
+   * switched off, or a sample older than three intervals). `sampledAt` carries its stamp, so a
+   * surface can say "last sampled 4m ago" rather than "waiting for the first sample" — which for a
+   * switched-off panel would never arrive.
+   */
+  staleSince: number | null
   cpuUsedPercent: number | null
   memoryUsedPercent: number | null
   swapUsedPercent: number | null
@@ -127,6 +144,8 @@ export type HostBand = 'ok' | 'warn' | 'danger' | null
 
 const NOTHING_SAMPLED: HostReadings = {
   sampled: false,
+  unmeasured: [],
+  staleSince: null,
   cpuUsedPercent: null,
   memoryUsedPercent: null,
   swapUsedPercent: null,
@@ -232,8 +251,12 @@ export function hostReadings(host: HostReadingSource | null | undefined): HostRe
     return NOTHING_SAMPLED
   // A frame kept after sampling was switched off is the last reading, not a current one.
   const sampled = host.sampledAt !== null && host.enabled !== false
-  if (!sampled)
-    return { ...NOTHING_SAMPLED, disks: [] }
+  if (!sampled) {
+    // `sampledAt` survives on the frame when the panel keeps the last reading (sampling switched
+    // off, or a sample older than three intervals). That stamp is *why* there is nothing to show,
+    // and a surface can say "last sampled 4m ago" instead of "waiting" — which never ends.
+    return { ...NOTHING_SAMPLED, staleSince: host.sampledAt, disks: [] }
+  }
   // A truthy `sampledAt` is the only thing that makes a zero a reading: an honestly idle box
   // reports 0%, and that must survive as 0 rather than becoming an absence of its own — unless the
   // frame says this sample could not take it (Windows has no load average).
@@ -247,6 +270,11 @@ export function hostReadings(host: HostReadingSource | null | undefined): HostRe
   const tempCelsius = present(host.tempCelsius)
   return {
     sampled: true,
+    // The platform's own limits, carried out so a surface can say "unavailable on this platform"
+    // rather than an absent-looking dash beside a number that was taken. Narrowed to the three the
+    // wire names, so a future reading this module does not band is not silently advertised.
+    unmeasured: [...unmeasured].filter(name => ['load', 'memory', 'swap'].includes(name)),
+    staleSince: null,
     cpuUsedPercent: present(host.cpuUsedPercent),
     memoryUsedPercent,
     swapUsedPercent,

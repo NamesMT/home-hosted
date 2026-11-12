@@ -102,3 +102,46 @@ describe('a host vitals page with no sample', () => {
     wrapper.unmount()
   })
 })
+
+/**
+ * A reading the **platform** cannot take says so; it is not the same silence as "not sampled".
+ *
+ * Both render `—`, and they resolve differently: an unsampled frame resolves on the next sample,
+ * while Windows' missing load average never will. Until this, a person on Windows saw `—` beside a
+ * live memory reading and had no way to tell the two cases apart. `hostReadings` carries the names
+ * now, so the page can say which.
+ *
+ * The stock UI's half is `uis/stock/test/host-vitals-unmeasured.test.ts` — same rule, translated.
+ */
+describe('a reading the platform cannot take', () => {
+  it('names the platform limit instead of leaving a bare dash', async () => {
+    // Windows: no load average. The rest of the sample is real.
+    const wrapper = await mountVitals({ ...sampled(), unmeasured: ['load'], loadAvg: [0, 0, 0] })
+
+    const loadTile = tile(wrapper, 'load 1m')!
+    expect(loadTile.find('.metric__v').text(), 'no number is printed').toBe('—')
+    expect(loadTile.text(), 'and the reason is').toContain('unavailable on this platform')
+
+    // A reading that WAS taken says nothing extra.
+    expect(tile(wrapper, 'memory')!.text()).not.toContain('unavailable on this platform')
+    wrapper.unmount()
+  })
+
+  it('says nothing when the platform took every reading', async () => {
+    const wrapper = await mountVitals(sampled())
+    expect(wrapper.text()).not.toContain('unavailable on this platform')
+    wrapper.unmount()
+  })
+
+  /**
+   * A held-back sample is not a current reading, and the page has to say which it is showing.
+   *
+   * Sampling switched off keeps the last frame with its stamp, so the head reads "sampled 4m ago"
+   * beside figures that stopped updating. Without this, "sampled 4m ago" looks like a slow sampler.
+   */
+  it('marks a sample the panel is holding back as not current', async () => {
+    const wrapper = await mountVitals({ ...sampled(), enabled: false })
+    expect(wrapper.text()).toContain('not a current reading')
+    wrapper.unmount()
+  })
+})

@@ -35,6 +35,22 @@ const loadLoads = computed(() => {
   return [load1m, load5m, load15m].map(value => value.toFixed(2)).join('  ')
 })
 
+/**
+ * Why a reading is absent, when the reason is the **platform** rather than "not sampled yet".
+ *
+ * An unsampled frame and a reading Windows cannot take both render as `—`, and they mean different
+ * things: one resolves on the next sample, the other never will on this machine. The key names the
+ * platform limit; anything else (not sampled, stale) is the panel's shared "no reading" wording.
+ */
+const platformLimited = computed(() => new Set(readings.value.unmeasured))
+
+/** `—` with the platform's reason behind it, or a bare dash when it simply has not been sampled. */
+function unavailable(name: 'load' | 'memory' | 'swap'): string | null {
+  // One sentence for all three: the wording is identical, and three copies of it across nine
+  // languages is how a translation drifts. `host.unavailableReading` is the only one.
+  return platformLimited.value.has(name) ? t('host.unavailableReading') : null
+}
+
 /** The real percentage: share of the machine's total CPU capacity used since the last sample. */
 const cpuUsed = computed(() => readings.value.cpuUsedPercent)
 /** No configurable cpu alert exists, so the band is a shared constant — not this file's pair. */
@@ -110,6 +126,9 @@ const tempTone = computed(() => toneClass(readings.value.tempBand))
         <dd class="font-mono text-xs tabular-nums text-ink">
           {{ loadLoads }}
         </dd>
+        <dd v-if="unavailable('load')" class="text-2xs text-faint">
+          {{ unavailable('load') }}
+        </dd>
         <dd class="font-mono text-2xs tabular-nums text-faint">
           {{ readings.loadPerCpu === null ? '—' : `${readings.loadPerCpu.toFixed(2)} ${t('host.perCpu')}` }}
         </dd>
@@ -121,6 +140,9 @@ const tempTone = computed(() => toneClass(readings.value.tempBand))
         <dd class="font-mono text-xs text-ink">
           {{ readings.memoryUsedPercent === null ? '—' : `${readings.memoryUsedPercent.toFixed(0)}%` }}
         </dd>
+        <dd v-if="unavailable('memory')" class="text-2xs text-faint">
+          {{ unavailable('memory') }}
+        </dd>
       </div>
       <div>
         <dt class="flex items-center gap-1 text-2xs text-faint">
@@ -128,6 +150,9 @@ const tempTone = computed(() => toneClass(readings.value.tempBand))
         </dt>
         <dd class="font-mono text-xs text-ink">
           {{ formatAgo(props.host.sampledAt, props.now) }}
+        </dd>
+        <dd v-if="readings.staleSince !== null" class="text-2xs text-faint">
+          {{ t('host.lastSampled', { ago: formatAgo(readings.staleSince, props.now) }) }}
         </dd>
       </div>
     </dl>

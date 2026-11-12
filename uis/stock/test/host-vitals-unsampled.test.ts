@@ -85,3 +85,48 @@ describe('the stock instrument cluster', () => {
     wrapper.unmount()
   })
 })
+
+/**
+ * A reading the **platform** cannot take says so; it is not the same silence as "not sampled".
+ *
+ * Both render `—`, and they resolve differently: an unsampled frame resolves on the next sample,
+ * while Windows' missing load average never will. Until this, a person on Windows saw `—` beside a
+ * live memory reading with nothing to tell the two apart. `hostReadings` carries the names now.
+ *
+ * noc-console's half is `uis/noc-console/test/host-vitals-unsampled.test.ts`. The strings come from
+ * the sheet, so they are asserted through `t()` — the same wording a reader gets.
+ */
+describe('the stock host vitals panel and a platform limit', () => {
+  it('names the platform limit instead of leaving a bare dash', () => {
+    // Windows: no load average. The rest of the sample is real.
+    const wrapper = mount(HostVitalsPanel, {
+      props: { host: { ...sampled(), loadAvg: [0, 0, 0], unmeasured: ['load'] }, now: 1_000_000 },
+    })
+    // Counted, not merely present: one note for the one limited reading. A second would mean the
+    // taken readings were marked too, which a bare `toContain` cannot see.
+    const note = t('host.unavailableReading')
+    const occurrences = wrapper.text().split(note).length - 1
+    expect(occurrences, 'exactly the load reading is marked').toBe(1)
+    wrapper.unmount()
+  })
+
+  it('says nothing when the platform took every reading', () => {
+    const wrapper = mount(HostVitalsPanel, { props: { host: sampled(), now: 1_000_000 } })
+    expect(wrapper.text()).not.toContain(t('host.unavailableReading'))
+    wrapper.unmount()
+  })
+
+  /**
+   * With sampling switched off this card is the "sampling off" empty state, not a stale reading.
+   *
+   * The panel gates the whole body on `host.enabled`, so a held-back sample never reaches a number
+   * here — which is why `lastSampled` is rendered by the *cluster*, not this card. Asserted so a
+   * later refactor cannot start printing figures under a "sampling off" heading.
+   */
+  it('shows the sampling-off state rather than stale figures', () => {
+    const wrapper = mount(HostVitalsPanel, { props: { host: unsampled({ sampledAt: 1_000_000, enabled: false }), now: 1_000_000 } })
+    expect(wrapper.text()).toContain(t('host.samplingOff'))
+    expect(wrapper.text()).not.toContain('0%')
+    wrapper.unmount()
+  })
+})

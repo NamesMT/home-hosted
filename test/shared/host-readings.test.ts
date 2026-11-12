@@ -47,6 +47,9 @@ describe('hostReadings', () => {
   it('reports no measurement for a frame that was never sampled', () => {
     expect(hostReadings(empty)).toEqual({
       sampled: false,
+      // No platform limits to name, and no earlier sample it is holding back.
+      unmeasured: [],
+      staleSince: null,
       cpuUsedPercent: null,
       memoryUsedPercent: null,
       swapUsedPercent: null,
@@ -82,6 +85,33 @@ describe('hostReadings', () => {
     expect(readings.memoryUsedPercent).toBeNull()
     expect(readings.memoryBand).toBeNull()
     expect(readings.swapUsedPercent, 'a reading that was taken survives').toBe(12)
+  })
+
+  /**
+   * A surface must be able to tell *why* a number is missing.
+   *
+   * Both `sampled: false` and a platform limit render as an absent reading, and they need different
+   * words: one is "nothing measured yet (or the last sample is old)", the other is "this machine has
+   * no such number" — which will never arrive however long the page stays open. `unmeasured` and
+   * `staleSince` are the two facts a surface needs to say which.
+   */
+  it('names the readings the platform could not take', () => {
+    const partial = { ...empty, sampledAt: 1, unmeasured: ['load'] as const, loadAvg: [0, 0, 0] }
+    expect(hostReadings(partial).unmeasured).toEqual(['load'])
+    // Everything taken means nothing named.
+    expect(hostReadings({ ...empty, sampledAt: 1 }).unmeasured).toEqual([])
+  })
+
+  it('carries the stamp of a sample it is holding back, so a page can say how old it is', () => {
+    // Sampling switched off: the frame keeps its stamp, and that stamp is the whole message.
+    const off = hostReadings({ ...empty, sampledAt: 1_700_000_000_000, enabled: false })
+    expect(off.sampled).toBe(false)
+    expect(off.staleSince, 'the page says "last sampled …" from this').toBe(1_700_000_000_000)
+
+    // A frame that never sampled has no stamp to report.
+    expect(hostReadings(empty).staleSince).toBeNull()
+    // A current sample is not stale.
+    expect(hostReadings({ ...empty, sampledAt: 1 }).staleSince).toBeNull()
   })
 
   it('treats a missing frame the same way', () => {

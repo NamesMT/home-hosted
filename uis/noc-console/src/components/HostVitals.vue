@@ -31,6 +31,15 @@ function pushCapped(series: number[], value: number | null | undefined): void {
     series.shift()
 }
 
+/**
+ * Why a reading is absent, when the reason is the **platform** and not "not sampled yet".
+ *
+ * Both render as `—`, and they need different words: one resolves on the next sample, the other
+ * never will on this machine. `hostReadings` carries the names so the page does not have to guess
+ * from a zero or from the OS.
+ */
+const platformLimited = computed(() => new Set(readings.value.unmeasured))
+
 watch(() => host.value?.sampledAt, () => {
   const view = readings.value
   pushCapped(cpuSeries.value, view.cpuUsedPercent)
@@ -55,6 +64,7 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
       <span class="pane__title">host vitals</span>
       <span class="faint">{{ host?.enabled ? `${host.cpus} cpus` : 'sampling off' }}</span>
       <span v-if="host?.sampledAt" class="faint">sampled {{ formatAgo(host.sampledAt, control.now.value) }}</span>
+      <span v-if="readings.staleSince !== null" class="faint">— not a current reading</span>
       <span class="view__spacer" />
       <span v-if="alerts.length > 0" class="chip chip--danger">{{ alerts.length }} alert{{ alerts.length === 1 ? '' : 's' }}</span>
       <!-- "quiet" is a verdict on a measurement; an unsampled host has none to give. -->
@@ -87,6 +97,9 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
         <div class="metric__v" :class="readings.load1m === null ? 'metric__v--dim' : ''">
           {{ readings.load1m === null ? '—' : readings.load1m.toFixed(2) }}
         </div>
+        <div v-if="platformLimited.has('load')" class="metric__sub">
+          unavailable on this platform
+        </div>
         <Sparkline :values="loadSeries" color="var(--accent)" :width="120" :height="20" />
       </div>
       <div class="metric">
@@ -96,6 +109,9 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
         <div class="metric__v" :class="readings.load5m === null ? 'metric__v--dim' : ''">
           {{ readings.load5m === null ? '—' : readings.load5m.toFixed(2) }}
         </div>
+        <div v-if="platformLimited.has('load')" class="metric__sub">
+          unavailable on this platform
+        </div>
       </div>
       <div class="metric">
         <div class="metric__k">
@@ -103,6 +119,9 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
         </div>
         <div class="metric__v" :class="readings.load15m === null ? 'metric__v--dim' : ''">
           {{ readings.load15m === null ? '—' : readings.load15m.toFixed(2) }}
+        </div>
+        <div v-if="platformLimited.has('load')" class="metric__sub">
+          unavailable on this platform
         </div>
       </div>
       <div class="metric">
@@ -120,6 +139,9 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
         <div class="metric__v" :class="readings.memoryUsedPercent === null ? 'metric__v--dim' : ''">
           {{ pct(readings.memoryUsedPercent, 1) }}
         </div>
+        <div v-if="platformLimited.has('memory')" class="metric__sub">
+          unavailable on this platform
+        </div>
         <Sparkline :values="memSeries" color="var(--ok)" :width="120" :height="20" :max="100" />
       </div>
       <div class="metric">
@@ -128,6 +150,9 @@ const loadTone = computed<'accent' | 'warn' | 'danger'>(() =>
         </div>
         <div class="metric__v" :class="readings.swapUsedPercent === null ? 'metric__v--dim' : ''">
           {{ pct(readings.swapUsedPercent, 1) }}
+        </div>
+        <div v-if="platformLimited.has('swap')" class="metric__sub">
+          unavailable on this platform
         </div>
         <!-- The bar's colour is the panel's own verdict, not a literal: see `hostReadings`. -->
         <MeterBar :value="readings.swapUsedPercent" :tone="readings.swapBand ?? 'ok'" />
