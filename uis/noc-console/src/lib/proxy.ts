@@ -104,10 +104,19 @@ export function dnsAccountOptions(accounts: readonly ProxyDnsAccountView[]): Arr
     const marks = [
       !account.writesTxt ? 'no TXT support' : null,
       account.writesTxt && !account.hasCredentials ? 'no credentials' : null,
+      // "Automatic" uses this account only for names inside its zones, so an account with none
+      // answers for nothing automatic — say so here rather than letting someone pick it and wonder
+      // why the challenge went to HTTP-01.
+      account.zones !== undefined && account.zones.length === 0 && account.writesTxt && account.hasCredentials
+        ? 'no zones'
+        : null,
     ].filter((mark): mark is string => mark !== null)
+    // The zones themselves when few enough to read; a long list is noise in a picker.
+    const zones = account.zones ?? []
+    const zoneNote = zones.length === 0 || zones.length > 3 ? '' : ` — ${zones.join(', ')}`
     options.push({
       value: `${account.workspace}/${account.account}`,
-      label: `${name} · ${account.provider} · ${account.workspace}${marks.length > 0 ? ` (${marks.join(', ')})` : ''}`,
+      label: `${name} · ${account.provider} · ${account.workspace}${zoneNote}${marks.length > 0 ? ` (${marks.join(', ')})` : ''}`,
     })
   }
   return options

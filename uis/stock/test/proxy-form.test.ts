@@ -186,6 +186,29 @@ describe('dNS-01 resolvers and the account picker', () => {
     expect(options[2]!.label).toContain('no TXT support')
     expect(options[3]!.label).toContain('no credentials')
   })
+
+  /**
+   * The picker names the zones an account holds, and marks one with none.
+   *
+   * `zones` arrived with the change that made "Automatic" use an account **only** for names inside
+   * one of them, so an account whose zones do not cover the route falls back to HTTP-01. Without the
+   * zones in the picker the account read as an ordinary choice and the fallback looked like a
+   * failure with no cause on the page.
+   *
+   * noc-console's half is `uis/noc-console/test/dns-account-zones.test.ts` — same rule, English only.
+   */
+  it('names an account\'s zones, and says when it holds none', () => {
+    const options = dnsAccountOptions([
+      { workspace: 'default', account: 'cf', provider: 'cloudflare', label: 'Home', writesTxt: true, hasCredentials: true, zones: ['example.com'] },
+      { workspace: 'default', account: 'nc', provider: 'namecheap', label: 'Bare', writesTxt: true, hasCredentials: true, zones: [] },
+      // An older panel sends no `zones` key at all, which is not "holds none".
+      { workspace: 'default', account: 'old', provider: 'cloudflare', label: 'Old', writesTxt: true, hasCredentials: true },
+    ])
+
+    expect(options[1]!.label, 'the zone is named').toContain('example.com')
+    expect(options[2]!.label, 'no zones is stated, not left blank').toContain('no zones')
+    expect(options[3]!.label, 'an older panel is not accused of having none').not.toContain('no zones')
+  })
 })
 
 describe('the ACME e-mail rule', () => {
