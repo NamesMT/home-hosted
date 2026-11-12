@@ -112,6 +112,127 @@ stdout and stderr — while the drop path needs an 8 MB backlog, so a server has
 that rate to reach it. That is far more than a normal home service writes. If the lines do appear on
 a server that is not meant to be that loud, read them as a symptom: something is in a log loop.
 
+## Deploying
+
+A `deploy` block is what "update this service" means for an entry: an ordered list of steps, run in
+its working directory with its environment, then a restart.
+
+```json
+{
+  "id": "web",
+  "command": "node",
+  "args": ["server.js"],
+  "deploy": {
+    "steps": [
+      { "command": "git", "args": ["pull"] },
+      { "command": "pnpm", "args": ["install"] },
+      { "command": "pnpm", "args": ["build"] }
+    ],
+    "restart": true
+  }
+}
+```
+
+`home-hosted deploy <id>`, **Deploy** on the card, or `POST /api/servers/:id/deploy` run it — and all
+three **wait** for the outcome, because a deploy is an action with a result rather than a fire-and-
+forget.
+
+Three rules, each with a reason:
+
+- **A failed step stops the sequence.** Half-deployed is the state this exists to avoid, and a
+  sequence that carried on would install the second half of something nobody chose.
+- **A failed deploy leaves the running process alone.** The old version is the thing a person still
+  has; it is recorded in history, notified (a failed deploy is the same news as a crash) and the
+  card says "this is still the previous version".
+- **One at a time.** A second call answers `409 DEPLOY_RUNNING` rather than stacking two sequences
+  that would install each other's half. A stop during a deploy cancels it — the step's whole process
+  group is killed, and the sequence does not continue.
+
+A step's `cwd` is resolved against the entry's own, so `dist` means what it looks like. Its
+`timeoutMs` defaults to 5 minutes and kills the step's process group, so a hung `git pull` cannot
+wedge a deploy for ever. `restart` defaults to **true**: the point of a deploy is that the running
+process picks it up.
+
+The editor edits steps as one line each (`command arg arg`), and a save keeps a step's own `cwd` and
+`timeoutMs` for a line it did not change.
+
+## Scheduled jobs
+
+An entry can be a **service** or a **job**. A service is what everything above describes: something
+that stays up, is probed, and is restarted when it dies. A **job** runs to completion on a schedule,
+and **its exit code is the outcome** — `0` succeeded, anything else failed.
+
+```json
+{
+  "id": "nightly-backup",
+  "kind": "job",
+  "schedule": "0 3 * * *",
+  "command": "./scripts/backup.sh"
+}
+```
+
+`kind` defaults to `service`, so every config written before this field existed keeps its meaning.
+`home-hosted run <id>`, **Run now** on the card, or `POST /api/servers/:id/run` start one by hand —
+and all three **wait**, because a job's exit code is the answer.
+
+### What a job may not declare
+
+A job has no `port`, no `health`, no `restart` policy and cannot be `persistent`. Each is refused at
+the write with a sentence naming the field, because supervision of a process that is meant to end
+would declare something that silently does nothing:
+
+| field | why not |
+| --- | --- |
+| `port` | it serves nothing; there is nothing to accept a connection |
+| `health` | it does not stay up, so there is nothing to probe |
+| `restart` | re-running finished work is not a retry — the next **schedule** is the retry |
+| `persistent` | a nanny exists to keep a *service* alive, and a job is meant to end |
+
+A `schedule` on a `service` is refused too: a supervised process already has a lifecycle, and a cron
+expression on it would be a second one nobody could reason about.
+
+### The expression
+
+Five fields — `minute hour day-of-month month day-of-week` — in the **host's local timezone** (this
+is a home server; its owner thinks in that machine's time).
+
+```text
+0 3 * * *        every day at 03:00
+*/15 * * * *     every 15 minutes
+30 9 * * mon-fri weekdays at 09:30
+0 0 1 * *        the first of every month
+```
+
+Ranges (`1-5`), steps (`*/5`, `1-10/2`), lists (`1,3,5`) and names (`jan`, `mon`, case-insensitive)
+all work. Sunday is both `0` and `7`. When **both** day fields are restricted, a day matching
+*either* is due (`0 0 1 * mon` is the first of the month *and* every Monday) — cron's own rule.
+
+**Six-field expressions and `@daily`-style macros are refused by name.** A 6-field expression read as
+5 would run on a schedule nobody typed: the seconds field would be taken as the minutes.
+
+The editor shows the schedule in words as you type it ("every day at 03:00"), and says what is wrong
+with an expression before you save rather than after the panel refuses it.
+
+### How a run is scheduled
+
+- **One run per occurrence.** The panel derives the due occurrence from the clock, not from how often
+  it ticks, so a late tick or a busy loop still starts exactly one run for that minute — never two.
+- **An overlap is skipped and recorded.** A job still running when its next occurrence arrives is not
+  queued behind itself: two copies of a backup writing the same files is the failure this avoids. The
+  skip is logged, and its history event carries `overlap`.
+- **A missed occurrence runs once, at boot.** A panel that was down across 03:00 starts that run when
+  it comes back — **one** run, for the most recent occurrence, not one per missed day. A panel
+  restarted in a loop does not replay an occurrence it already ran.
+
+### Where a run's result goes
+
+A run's output goes to the entry's own log (`home-hosted logs <id>`, or the Logs page), exactly as a
+service's does. Each run records a **`job-run`** history event carrying its exit code and how long it
+took, and a **failed run notifies like a crash** — a backup that did not run is the same news to a
+reader as a service that stopped.
+
+The card shows the schedule, the next run, the last run and the last exit code.
+
 ## Coming from pm2 or compose
 
 `home-hosted import` carries a declaration in without hand-writing JSON — see

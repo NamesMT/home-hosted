@@ -102,6 +102,45 @@ costs nothing. A blank value is refused too: an empty environment variable reads
 While the panel runs, the commands go through its `/_hh` channel so its own store does the write;
 when it is down they write the file directly, and the next start reads it.
 
+## Deploying
+
+`deploy` runs an entry's `deploy` steps — see [SERVERS.md](./SERVERS.md#deploying) for what the block
+is, and the three rules it follows.
+
+```bash
+home-hosted deploy web              # every step, then a restart; exits 1 if one fails
+home-hosted deploy web --json       # { server, ok, failedStep?, error?, durationMs }
+```
+
+It **waits** and exits non-zero on failure: a command that answered "accepted" would leave the caller
+believing a deploy worked. Through the panel it goes over `/_hh`, so its supervisor owns the sequence
+and the history record; with the panel down it runs the same steps and says nothing was restarted.
+
+## Running a job
+
+`run` starts a **job** now and waits for its outcome — the same call the schedule makes, so a run
+started by hand and one started by the clock cannot diverge. See
+[SERVERS.md](./SERVERS.md#scheduled-jobs) for what a job is.
+
+```bash
+home-hosted run nightly-backup          # waits; exits 0 when the exit code is 0
+home-hosted run nightly-backup --json   # { server, ok, exitCode, signal, durationMs, cancelled }
+```
+
+It **waits** and exits non-zero on a failed run: a job's exit code *is* its outcome, and a command
+that answered "accepted" would leave a script believing a backup ran that did not. The run's own
+output goes to the entry's log (`home-hosted logs <id>`), so this prints the outcome.
+
+A refusal carries its own code: `NOT_A_JOB` (a service is started with `start`), `JOB_RUNNING` (a run
+is already in flight — the same rule the schedule follows), `SERVER_DISABLED`, and `JOB_FAILED` for a
+run that happened and failed, with `exitCode` in `--json`.
+
+There is no offline path: without a panel there is no supervisor, no log file and no history to record
+a run against, so `run` refuses rather than answering with a second, unsupervised implementation.
+
+`ls` gains a **`NEXT RUN`** column as soon as a workspace declares a job, showing `in 4h 12m`, `due`,
+`running` or `—`. A services-only list keeps the four columns it has always had.
+
 ## What `status` tells you
 
 ```text

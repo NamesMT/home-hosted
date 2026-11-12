@@ -121,6 +121,25 @@ until you declare a name: an `envFile` keeps working exactly as it did, and its 
 **Nothing new is required.** There is no migration: an entry without `secretEnv` behaves as before, and
 `secretEnv` defaults to an empty list on the first save.
 
+**A server can now deploy itself, and run on a schedule.** Both are opt-in fields on an entry, so
+nothing changes until you add them:
+
+- `deploy` — an ordered list of steps (`{ "command": "git", "args": ["pull"] }`), run by
+  `home-hosted deploy <id>`, **Deploy** on the card, or `POST /api/servers/:id/deploy`. A failed step
+  stops the sequence and leaves the running process alone; `restart` defaults to true. There is **no
+  migration**: an entry without `deploy` refuses the action with `400 NO_DEPLOY` rather than doing
+  anything surprising.
+- `kind: "job"` and `schedule` — a run-to-completion entry on a 5-field cron expression. A job may
+  not declare `port`, `health`, `restart` or `persistent` (the panel refuses at save time rather than
+  silently ignoring them), and a service may not declare a schedule. **6-field expressions and
+  `@daily`-style macros are refused by name** — this release parses 5 fields only, and accepting a
+  6-field one would run it on a schedule nobody intended. `home-hosted run <id>` runs one now; `ls`
+  gained a NEXT RUN column.
+
+One behaviour worth knowing before you rely on it: a **missed** occurrence is replayed **once** at
+boot, not once per missed day, and a job whose previous run is still going is skipped and recorded as
+`overlap` rather than queued.
+
 **`home-hosted import` is new, and it writes nothing without `--confirm`.** A pm2 ecosystem (`.json`,
 or `.js` only with `--allow-js` — that one runs the file) becomes one entry per app; a compose file
 becomes one entry for the stack. Nothing here changes an existing home: it only adds entries, and a
