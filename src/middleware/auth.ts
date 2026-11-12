@@ -101,6 +101,10 @@ export function createAuthGuard(deps: AuthGuardDeps): MiddlewareHandler {
 
       if (!PUBLIC_API_PATHS.has(path)) {
         const identity = requestIdentity(c, deps.auth)
+        // Stored once, so the token-scope guard beside this one reads the same answer rather than
+        // resolving the credential a second time — and so a route can read the scopes of the token
+        // that reached it.
+        c.set('identity', identity)
         const refusal = accessRefusal(c, deps.auth, identity)
         if (refusal !== null) {
           if (refusal.code === AUTH_REQUIRED_CODE && deps.auth.apiTokenSet)

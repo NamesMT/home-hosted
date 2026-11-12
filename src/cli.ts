@@ -2,6 +2,7 @@ import type { SubCommandsDef } from 'citty'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { defineCommand, runCommand } from 'citty'
+import { API_TOKEN_SCOPES } from '#src/config/secrets'
 import { errorMessage } from '#src/shared/error-message'
 import { applyDirFlags, extractDirFlags, rejectUnknownFlags, resolveInvocation } from './cli/args'
 import { cyan, dim, fail, heading, treatClosedReaderAsDone } from './cli/io'
@@ -60,6 +61,7 @@ const SYNOPSIS: Record<string, string> = {
   'ls': 'home-hosted ls [--workspace <id>] [--json]',
   'secret': 'home-hosted secret set|unset|ls <id> [NAME] [--stdin] [--workspace <id>] [--json]',
   'import': 'home-hosted import pm2|compose <file> [--confirm] [--dry-run] [--allow-js] [--workspace <id>]',
+  'token': 'home-hosted token create|ls|revoke [--name <name>] [--scope <scopes>] [--workspace <ids>]',
 }
 
 const SUMMARIES: Record<string, string> = {
@@ -86,6 +88,7 @@ const SUMMARIES: Record<string, string> = {
   'ls': 'list the servers a workspace declares, live when the panel is up',
   'secret': 'a server\'s secret environment — the names are listed, the values never printed',
   'import': 'bring a pm2 ecosystem or a compose stack in as server entries',
+  'token': 'named, scoped API tokens — create, list or revoke',
 }
 
 /** One option line, as the left column and the description that follows it. */
@@ -318,6 +321,16 @@ const IMPORT_SECTION: OptionSection = {
   ],
 }
 
+const TOKEN_SECTION: OptionSection = {
+  heading: 'Commands for token',
+  lines: [
+    ['create --name <name> --scope <scopes>', `a new token; scopes are comma-separated (${API_TOKEN_SCOPES.join(', ')}) and cumulative`],
+    ['create … -w, --workspace <ids>', 'limit it to those workspaces (default: every workspace)'],
+    ['ls', 'the ids, names, scopes and when each was last used — never a value'],
+    ['revoke <id>', 'stop a token working, immediately'],
+  ],
+}
+
 const EVERYWHERE_SECTION: OptionSection = {
   heading: 'Everywhere',
   lines: [
@@ -409,6 +422,7 @@ const SECTIONS: Record<string, OptionSection> = {
   'ls': LS_SECTION,
   'secret': SECRET_SECTION,
   'import': IMPORT_SECTION,
+  'token': TOKEN_SECTION,
 }
 
 /**
@@ -486,6 +500,7 @@ const COMMANDS = {
   'ls': () => import('#src/cli/ls').then(module => module.lsCommand),
   'secret': () => import('#src/cli/secret').then(module => module.secretCommand),
   'import': () => import('#src/cli/import').then(module => module.importCommand),
+  'token': () => import('#src/cli/token').then(module => module.tokenCommand),
 } satisfies SubCommandsDef
 
 const rootCommand = defineCommand({

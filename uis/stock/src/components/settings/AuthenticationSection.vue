@@ -8,6 +8,7 @@ import { computed, ref } from 'vue'
 import ConfirmButton from '@/components/settings/ConfirmButton.vue'
 import Notice from '@/components/settings/Notice.vue'
 import { numberModel, secondsModel } from '@/components/settings/settingsForm'
+import TokensSection from '@/components/settings/TokensSection.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import FieldGroup from '@/components/ui/FieldGroup.vue'
@@ -165,6 +166,8 @@ async function clearPasswordValue(): Promise<void> {
     <NumberField v-model="maxLoginAttempts" :label="t('settings.auth.maxLoginAttempts')" :min="1" :hint="t('settings.auth.maxLoginAttemptsHint')" />
     <NumberField v-model="lockout" :label="t('settings.auth.lockout')" :min="1" />
   </FieldGroup>
+
+  <TokensSection />
 
   <div class="space-y-2">
     <Notice

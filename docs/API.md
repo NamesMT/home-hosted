@@ -128,6 +128,9 @@ arrives with.
 | `AUTH_DISABLED_REMOTE` | 401 | authentication is off and the caller is not this machine (a proxy counts) |
 | `LOGIN_FAILED` | 401 | a sign-in failed: wrong password (401), no password set (409), or too many attempts (429) |
 | `SESSION_REQUIRED` | 403 | this operation needs a signed-in session, not an API token |
+| `TOKEN_SCOPE` | 403 | the API token's scopes do not cover this route, or its workspace limit excludes it — `detail` names what it needed and what it holds |
+| `TOKEN_EXISTS` | 409 | an API token with that name already exists |
+| `UNKNOWN_TOKEN` | 404 | no API token has that id |
 | `CURRENT_PASSWORD_REQUIRED` | 400 | changing an existing password needs `currentPassword` |
 | `CURRENT_PASSWORD_WRONG` | 401 | `currentPassword` was incorrect |
 | `PASSWORD_TOO_SHORT` | 400 | a password below the 12-character bar while the panel is exposed |

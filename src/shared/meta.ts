@@ -61,7 +61,12 @@ export function credentialRefusals(kind: CredentialKind): string[] {
 export function credentialOf(identity: AuthIdentity, apiTokenHint: string | null): CredentialView {
   if (identity.method === 'cookie')
     return { kind: 'session' }
-  if (identity.method === 'token')
-    return apiTokenHint === null ? { kind: 'token' } : { kind: 'token', name: apiTokenHint }
+  if (identity.method === 'token') {
+    // The **name** the token was minted with, which is what tells two tokens apart in a settings
+    // page. The readable head is the fallback for a token migrated from the pre-0.14 single one,
+    // whose only identity was its own value.
+    const name = identity.token?.name ?? apiTokenHint
+    return name === null || name === undefined ? { kind: 'token' } : { kind: 'token', name }
+  }
   return { kind: 'local' }
 }

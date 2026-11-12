@@ -31,6 +31,7 @@ import { appFactory } from '#src/helpers/factory'
 import { logger } from '#src/helpers/logger'
 import { createAuthGuard } from '#src/middleware/auth'
 import { createHostGuard } from '#src/middleware/host'
+import { createTokenScopeGuard } from '#src/middleware/token-scope'
 import { setupOpenAPI } from '#src/openapi'
 
 /**
@@ -87,6 +88,9 @@ export function createRootApp(deps: AppDeps) {
     .route('/_acme', createAcmeChallengeRoute(deps))
 
     .use('/api/*', createAuthGuard({ auth: deps.auth }))
+    // After the guard, so the identity is resolved: a token's scopes are checked against the one
+    // declaration in `src/middleware/token-scope.ts`, and a session or a local caller passes through.
+    .use('/api/*', createTokenScopeGuard())
 
     .route('/api', createAuthRoute(deps))
     .route('/api', createStateRoute(deps))

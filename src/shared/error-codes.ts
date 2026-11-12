@@ -52,6 +52,7 @@ export const ERROR_CODES = {
   AUTH_DISABLED_REMOTE: { status: 401, meaning: 'authentication is off and the caller is not this machine (a proxy counts)' },
   LOGIN_FAILED: { status: 401, meaning: 'a sign-in failed: wrong password (401), no password set (409), or too many attempts (429)' },
   SESSION_REQUIRED: { status: 403, meaning: 'this operation needs a signed-in session, not an API token' },
+  TOKEN_SCOPE: { status: 403, meaning: 'the API token\'s scopes do not cover this route, or its workspace limit excludes it; `detail` names what it needed and what it holds' },
   CURRENT_PASSWORD_REQUIRED: { status: 400, meaning: 'changing an existing password needs `currentPassword`' },
   CURRENT_PASSWORD_WRONG: { status: 401, meaning: '`currentPassword` was incorrect' },
   PASSWORD_TOO_SHORT: { status: 400, meaning: 'a password below the 12-character bar while the panel is exposed' },
@@ -68,6 +69,8 @@ export const ERROR_CODES = {
   CONFIG_CHANGED_ON_DISK: { status: 409, meaning: 'the config file was edited since the panel read it; it reloads, so retry' },
   UNKNOWN_WORKSPACE: { status: 404, meaning: '`?workspace=` names no workspace this panel has' },
   SERVER_EXISTS: { status: 409, meaning: 'a server with this id already exists in the workspace' },
+  TOKEN_EXISTS: { status: 409, meaning: 'an API token with that name already exists — two tokens with one name cannot be told apart' },
+  UNKNOWN_TOKEN: { status: 404, meaning: 'no API token has that id' },
 
   // ── Server lifecycle ─────────────────────────────────────────────────────────────────────────────
   UNKNOWN_SERVER: { status: 404, meaning: 'no server has that id in the workspace' },

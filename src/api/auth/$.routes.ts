@@ -2,6 +2,7 @@ import type { Context } from 'hono'
 import type { AppDeps } from '#src/app'
 import type { LoginRequest, PasswordRequest } from '#src/shared/contracts'
 import { DetailedError } from '@namesmt/utils'
+import { type } from 'arktype'
 import { describeRoute } from 'hono-openapi'
 import { bodyLimit } from 'hono/body-limit'
 import { generateApiToken } from '#src/config/secrets'
@@ -12,9 +13,13 @@ import { validate } from '#src/helpers/validator'
 import { AUTH_REQUIRED_CODE, requestIdentity, SESSION_COOKIE } from '#src/middleware/auth'
 import { isLoopbackRequest, requestIp } from '#src/middleware/loopback'
 import { checkExposure, checkProxyExposure } from '#src/services/exposure'
-import { apiTokenCreatedSchema, loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchema, sessionViewSchema } from '#src/shared/contracts'
+import { apiTokenCreatedBodySchema, apiTokenCreatedSchema, apiTokenCreateSchema, apiTokenListSchema, loginSchema, okResponseSchema, passwordSchema, passwordSetResponseSchema, sessionViewSchema } from '#src/shared/contracts'
+import { lazy } from '#src/shared/lazy'
 import { credentialOf } from '#src/shared/meta'
 import { EXPOSED_PASSWORD_MIN_LENGTH, passwordLength } from '#src/shared/password-policy'
+
+/** A token id, as `DELETE /api/auth/tokens/:id` takes it. */
+const tokenIdParam = lazy(() => type({ id: 'string >= 1' }))
 
 /** `Secure` only helps over TLS, and would break plain http on a LAN. */
 function secureCookie(c: Context, deps: AppDeps): boolean {
@@ -181,6 +186,68 @@ export function createAuthRoute(deps: AppDeps) {
         deps.secrets.setApiToken(token)
         deps.auth.notifyCredentialsChanged()
         return c.json({ token, hint: deps.secrets.apiTokenHint ?? token.slice(0, 8) })
+      },
+    )
+
+    /**
+     * The named, scoped tokens: list them, mint one, revoke one.
+     *
+     * Session only, for the same reason the single-token routes are: a token that could mint its own
+     * successor — or revoke the one that would replace it — would let a leaked credential take the
+     * panel over. A listing is session-only too: it names every credential a script holds, which is
+     * reconnaissance a stolen token does not get.
+     */
+    .get(
+      '/auth/tokens',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Every named API token, without its secret (signed-in session required)',
+        responses: { 200: { description: 'The tokens', content: jsonBody(apiTokenListSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not list tokens (`SESSION_REQUIRED`)' } },
+      }),
+      (c) => {
+        requireSession(c, deps, 'listing API tokens')
+        return c.json({ tokens: deps.secrets.listApiTokens() })
+      },
+    )
+
+    .post(
+      '/auth/tokens',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Mint a named, scoped API token (signed-in session required)',
+        description: 'The token value is returned **once**; only its hash is stored. `scopes` are cumulative — `admin` covers the rest — and `workspaces` limits it to those (omit for all).',
+        responses: { 201: { description: 'The token, shown once', content: jsonBody(apiTokenCreatedBodySchema) }, 400: ERROR_RESPONSES[400], 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not mint a token' }, 409: { description: 'A token with that name already exists (`TOKEN_EXISTS`)' } },
+      }),
+      validate('json', apiTokenCreateSchema),
+      (c) => {
+        requireSession(c, deps, 'minting an API token')
+        const body = c.req.valid('json')
+        try {
+          const created = deps.secrets.createApiToken({ name: body.name, scopes: body.scopes, ...(body.workspaces === undefined ? {} : { workspaces: body.workspaces }) })
+          deps.auth.notifyCredentialsChanged()
+          return c.json({ token: created.token, tokenMeta: { ...created.record, hash: undefined } }, 201)
+        }
+        catch (error) {
+          // The one refusal a person fixes by typing another name, so it says so.
+          throw new DetailedError(error instanceof Error ? error.message : String(error), { statusCode: 409, code: 'TOKEN_EXISTS' })
+        }
+      },
+    )
+
+    .delete(
+      '/auth/tokens/:id',
+      describeRoute({
+        tags: ['auth'],
+        summary: 'Revoke one named API token (signed-in session required)',
+        responses: { 200: { description: 'Revoked', content: jsonBody(okResponseSchema) }, 401: ERROR_RESPONSES[401], 403: { description: 'An API token may not revoke a token' }, 404: ERROR_RESPONSES[404] },
+      }),
+      validate('param', tokenIdParam),
+      (c) => {
+        requireSession(c, deps, 'revoking an API token')
+        if (!deps.secrets.revokeApiToken(c.req.valid('param').id))
+          throw new DetailedError(`no API token with the id "${c.req.valid('param').id}"`, { statusCode: 404, code: 'UNKNOWN_TOKEN' })
+        deps.auth.notifyCredentialsChanged()
+        return c.json({ ok: true })
       },
     )
 

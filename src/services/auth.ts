@@ -1,7 +1,7 @@
-import type { SecretsStore } from '#src/config/secrets'
+import type { NamedApiTokenRecord, SecretsStore } from '#src/config/secrets'
 import type { AuthConfig, SessionView } from '#src/shared/contracts'
 import crypto from 'node:crypto'
-import { verifyApiToken, verifyPassword } from '#src/config/secrets'
+import { verifyPassword } from '#src/config/secrets'
 import { parseCookies } from '#src/helpers/cookies'
 
 export const SESSION_COOKIE = 'hh_session'
@@ -74,6 +74,13 @@ export interface AuthIdentity {
   method: AuthMethod | null
   /** The session record, when the cookie resolved to one. */
   session: SessionRecord | null
+  /**
+   * The named token that answered, when a bearer token did — its scopes and workspace limit.
+   *
+   * On the identity rather than re-derived per route: one read of the credential, one answer, so the
+   * scope middleware, `requestActor` and `GET /api/meta` cannot disagree about who is asking.
+   */
+  token?: NamedApiTokenRecord
 }
 
 export const ANONYMOUS: AuthIdentity = { authenticated: false, method: null, session: null }
@@ -168,14 +175,17 @@ export class AuthService {
     return this.secrets.apiTokenHint
   }
 
-  /** Compared against the stored SHA-256, in constant time. */
+  /**
+   * Compared against every stored SHA-256, in constant time.
+   *
+   * Not just the legacy single record: that is one token of several now, and a getter that answered
+   * "no" for a named one would say a valid credential is invalid. `findApiToken` compares all of
+   * them, so the work does not depend on which token was presented.
+   */
   validateApiToken(token: string | null): boolean {
     if (token === null)
       return false
-    const record = this.secrets.apiToken
-    if (record === null)
-      return false
-    return verifyApiToken(token, record)
+    return this.secrets.findApiToken(token) !== null
   }
 
   /**
@@ -186,8 +196,18 @@ export class AuthService {
     const session = this.validate(credentials.cookieToken, options)
     if (session !== null)
       return { authenticated: true, method: 'cookie', session }
-    if (this.validateApiToken(credentials.bearerToken))
-      return { authenticated: true, method: 'token', session: null }
+    const token = credentials.bearerToken === null ? null : this.secrets.findApiToken(credentials.bearerToken)
+    if (token !== null) {
+      // Recorded so a settings page can show a token nobody uses any more. Best-effort: a write here
+      // must never make a valid request fail.
+      try {
+        this.secrets.markApiTokenUsed(token.id)
+      }
+      catch {
+        // A read-only secrets file (a mounted config, a full disk) is not a reason to refuse.
+      }
+      return { authenticated: true, method: 'token', session: null, token }
+    }
     return ANONYMOUS
   }
 

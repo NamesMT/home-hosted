@@ -92,6 +92,8 @@ export interface Fixture {
   store: WorkspaceStore
   secrets: SecretsStore
   auth: AuthService
+  /** The global secrets store, so a test can mint a scoped token. */
+  globalSecrets: SecretsStore
   logFiles: LogFiles
   backups: BackupService
   tls: TlsStore
@@ -557,6 +559,8 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
     workspaces,
     store: defaultWorkspace.store,
     secrets: defaultWorkspace.secrets,
+    /** The panel-wide secrets: where the API tokens live. */
+    globalSecrets,
     auth,
     logFiles: defaultWorkspace.logFiles,
     backups,

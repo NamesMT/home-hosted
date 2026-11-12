@@ -56,7 +56,15 @@ describe('panel metadata', () => {
     expect(body.actor).toBe('user')
   })
 
-  it('names the API token that answered, by its readable head only', async () => {
+  /**
+   * `credential.name` is the token's **name** now that tokens are named.
+   *
+   * It used to be the readable head of the single token, which was the only identity one could have.
+   * With several tokens, the name is what tells them apart in a settings page — and the head is still
+   * there as the fallback for a token migrated from the pre-0.14 single one, whose only identity was
+   * its own value. Either way: **the value never appears**.
+   */
+  it('names the API token that answered, and never echoes it', async () => {
     const created = await fixture({ views: [makeView('web')] })
     const token = generateApiToken()
     setApiToken(created, token)
@@ -65,10 +73,19 @@ describe('panel metadata', () => {
     const body = await response.json() as Meta
 
     expect(body.credential.kind).toBe('token')
-    expect(body.credential.name, 'a readable head, so two tokens can be told apart').toBeTruthy()
-    expect(token.startsWith(body.credential.name!), 'the head is a prefix of the token').toBe(true)
+    // The legacy single token migrates in as `default`, which is the name this one now has.
+    expect(body.credential.name).toBe('default')
     expect(JSON.stringify(body), 'the token itself must never be echoed').not.toContain(token)
     expect(body.actor).toBe('agent')
+  })
+
+  it('names a minted token by the name it was minted with', async () => {
+    const created = await fixture({ views: [makeView('web')] })
+    const { token } = created.globalSecrets.createApiToken({ name: 'monitor', scopes: ['read'] })
+
+    const body = await (await created.app.request('/api/meta', { headers: { authorization: `Bearer ${token}` } })).json() as Meta
+    expect(body.credential).toMatchObject({ kind: 'token', name: 'monitor' })
+    expect(JSON.stringify(body)).not.toContain(token)
   })
 
   /**

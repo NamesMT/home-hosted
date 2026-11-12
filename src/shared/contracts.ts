@@ -1554,6 +1554,39 @@ export type MetaView = typeof metaViewSchema.infer
 /** `POST /api/auth/token`: the new token, returned once, and the readable head the panel keeps. */
 export const apiTokenCreatedSchema = lazy(() => type({ token: 'string', hint: 'string' }))
 
+/**
+ * The scopes a token may hold. Declared here as well as in the store, because a **request** schema
+ * has to enumerate what it accepts — the store's constant is the one the guard reads.
+ */
+const apiTokenScopeSchema = lazy(() => type.enumerated('read', 'lifecycle', 'config', 'admin'))
+
+/** A token as a listing shows it: the name, its scopes, and whether it has been used. */
+export const apiTokenViewSchema = lazy(() => type({
+  'id': 'string',
+  'name': 'string',
+  'scopes': apiTokenScopeSchema.array(),
+  /** Absent means every workspace; the list limits the token to those. */
+  'workspaces?': 'string[]',
+  'createdAt': 'number',
+  'lastUsedAt?': 'number',
+}).onDeepUndeclaredKey('ignore'))
+export type ApiTokenView = typeof apiTokenViewSchema.infer
+
+export const apiTokenListSchema = lazy(() => type({ tokens: apiTokenViewSchema.array() }))
+
+/** Minting one: a name a person reads, the scopes, and an optional workspace limit. */
+export const apiTokenCreateSchema = lazy(() => type({
+  'name': '1 <= string <= 60',
+  'scopes': apiTokenScopeSchema.array(),
+  'workspaces?': 'string[]',
+}).onUndeclaredKey('reject'))
+
+/** The mint answer: the value **once**, plus the metadata a table renders. */
+export const apiTokenCreatedBodySchema = lazy(() => type({
+  token: 'string',
+  tokenMeta: apiTokenViewSchema,
+}))
+
 export const loginSchema = lazy(() => type({ password: 'string <= 512' }).onUndeclaredKey('reject'))
 export type LoginRequest = typeof loginSchema.infer
 

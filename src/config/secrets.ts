@@ -49,6 +49,49 @@ export interface ApiTokenRecord {
   updatedAt: number
 }
 
+/**
+ * What a token may do. Declared once, because the spec, the enforcement and the docs must agree.
+ *
+ * - `read` — every `GET`;
+ * - `lifecycle` — start, stop, restart, free-port, clear-logs;
+ * - `config` — server, workspace and settings writes, and backups;
+ * - `admin` — everything, including tokens, the password, UI install and restoring secrets.
+ *
+ * They are cumulative (`admin` implies the rest), and `workspaces` narrows a token to some
+ * workspaces. A panel-wide write needs no workspace limit, because there is no workspace to narrow.
+ */
+export const API_TOKEN_SCOPES = ['read', 'lifecycle', 'config', 'admin'] as const
+export type ApiTokenScope = typeof API_TOKEN_SCOPES[number]
+
+/**
+ * One named token. `id` is a stable, human-typable handle the API and the UI use to revoke it; the
+ * **hash** is the only thing stored that could be used to authenticate, and it never leaves the file.
+ */
+export interface NamedApiTokenRecord extends ApiTokenRecord {
+  id: string
+  name: string
+  scopes: ApiTokenScope[]
+  /** Absent means every workspace. An empty array would mean none, which is not a useful state. */
+  workspaces?: string[]
+  /** Set the first time it authenticates a request, so a stale token is visible. */
+  lastUsedAt?: number
+}
+
+/**
+ * A token as a listing shows it: metadata only, never the hash.
+ *
+ * `createdAt` is the record's `updatedAt` — the moment it was minted, since nothing updates a token
+ * after that. Renamed for the listing because "updated" reads as if it changes.
+ */
+export interface ApiTokenView {
+  id: string
+  name: string
+  scopes: ApiTokenScope[]
+  workspaces?: string[]
+  createdAt: number
+  lastUsedAt?: number
+}
+
 /** One account's provider credentials, with the provider they were entered for. */
 export interface DdnsCredentialRecord {
   provider: string
@@ -92,6 +135,12 @@ interface SecretsFile {
   password: PasswordRecord | null
   apiToken: ApiTokenRecord | null
   /**
+   * The named tokens. `apiToken` is the pre-0.14 single token, kept only so a file written by an older
+   * release still authenticates: it is migrated into this list on the first write and never written
+   * again.
+   */
+  apiTokens: NamedApiTokenRecord[]
+  /**
    * Bot tokens by destination id. A map, not a singleton: a workspace may point at more than one
    * Telegram chat, and each destination carries its own bot.
    */
@@ -115,7 +164,7 @@ interface SecretsFile {
 }
 
 /** Owned by this release, plus `version`: retired, and dropped on the next write rather than carried. */
-const KNOWN_SECRET_KEYS = new Set(['password', 'apiToken', 'telegram', 'ddns', 'ddnsKdf', 'serverEnv', 'version'])
+const KNOWN_SECRET_KEYS = new Set(['password', 'apiToken', 'apiTokens', 'telegram', 'ddns', 'ddnsKdf', 'serverEnv', 'version'])
 
 function unknownTopLevel(parsed: unknown): Record<string, unknown> {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
@@ -292,6 +341,48 @@ function readStoredDdns(value: unknown): Record<string, StoredDdnsRecord> {
  * rather than taken as a reason to refuse the whole file — the same rule the other unknown shapes
  * follow, and the reason a typo in one entry cannot lock a person out of their panel.
  */
+/**
+ * A hand-edited `apiTokens` list, read tolerantly — and the **legacy single token migrated in**.
+ *
+ * A file written by an older release has `apiToken` and no list. That token becomes one named
+ * `default` with `admin` and no workspace limit: it *was* full admin, so anything narrower would
+ * silently remove access an upgrade never announced. The migration happens on read, and the next
+ * write persists the list and drops the legacy field — which is why a revoke cannot resurrect it.
+ */
+function readNamedTokens(value: unknown): NamedApiTokenRecord[] {
+  if (!Array.isArray(value))
+    return []
+  const tokens: NamedApiTokenRecord[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (!isRecord(entry) || typeof entry.hash !== 'string' || typeof entry.id !== 'string' || typeof entry.name !== 'string')
+      continue
+    if (seen.has(entry.id))
+      continue
+    seen.add(entry.id)
+    const scopes = Array.isArray(entry.scopes)
+      ? entry.scopes.filter((scope): scope is ApiTokenScope => typeof scope === 'string' && (API_TOKEN_SCOPES as readonly string[]).includes(scope))
+      : []
+    const workspaces = Array.isArray(entry.workspaces)
+      ? entry.workspaces.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : undefined
+    tokens.push({
+      algo: 'sha256',
+      id: entry.id,
+      name: entry.name,
+      hash: entry.hash,
+      hint: typeof entry.hint === 'string' ? entry.hint : '',
+      // A record with no scopes is a hand-edit that would authenticate for nothing; `read` is the
+      // least it can mean, and an empty list is never what someone intended.
+      scopes: scopes.length === 0 ? ['read'] : scopes,
+      updatedAt: typeof entry.updatedAt === 'number' ? entry.updatedAt : 0,
+      ...(workspaces === undefined || workspaces.length === 0 ? {} : { workspaces }),
+      ...(typeof entry.lastUsedAt === 'number' ? { lastUsedAt: entry.lastUsedAt } : {}),
+    })
+  }
+  return tokens
+}
+
 function readServerEnv(value: unknown): Record<string, Record<string, string>> {
   if (!isRecord(value))
     return {}
@@ -444,17 +535,29 @@ export class SecretsStore {
     return this.password?.short === true
   }
 
+  /**
+   * The first configured token, whichever release wrote it.
+   *
+   * It answered about the pre-0.14 singleton when that was the only token there was. With named
+   * tokens, "the token" means the first of them — and the legacy field is migrated into that list, so
+   * this never answers `null` for a home that has one. A caller that needs a *specific* token asks
+   * `findApiToken(value)` or reads `apiTokens`.
+   */
   get apiToken(): ApiTokenRecord | null {
-    return this.load().apiToken
+    const contents = this.load()
+    if (contents.apiToken !== null)
+      return contents.apiToken
+    return this.apiTokens[0] ?? null
   }
 
+  /** Whether **any** token is configured — the legacy field or one of the named ones. */
   get apiTokenSet(): boolean {
-    return this.apiToken !== null
+    return this.apiToken !== null || this.apiTokens.length > 0
   }
 
-  /** The readable head of the stored token, or null when none is set. */
+  /** The first token's readable head, or null when none is set. */
   get apiTokenHint(): string | null {
-    return this.apiToken?.hint ?? null
+    return this.apiToken?.hint ?? this.apiTokens[0]?.hint ?? null
   }
 
   /** The bot token for one destination, or null when it has none. */
@@ -502,14 +605,127 @@ export class SecretsStore {
     this.save({ ...this.load(), password: null })
   }
 
+  /**
+   * The named tokens, with the pre-0.14 single token migrated in.
+   *
+   * The migration is here rather than in a config migration because this is a **secrets** file, and
+   * it is the only place that can read it: the old token becomes `default`/`admin`, so an upgrade
+   * removes no access. It runs on every read and is persisted by the next write, which drops
+   * `apiToken` — so a revoke cannot resurrect it.
+   */
+  get apiTokens(): NamedApiTokenRecord[] {
+    const contents = this.load()
+    if (contents.apiToken === null)
+      return contents.apiTokens
+    if (contents.apiTokens.some(entry => entry.name === 'default'))
+      return contents.apiTokens
+    return [{
+      ...contents.apiToken,
+      id: 'default',
+      name: 'default',
+      scopes: ['admin'],
+    }, ...contents.apiTokens]
+  }
+
+  /** Metadata for the list a settings page shows: ids, names, scopes, workspaces, when last used. */
+  listApiTokens(): ApiTokenView[] {
+    return this.apiTokens.map(({ hash: _hash, algo: _algo, updatedAt, hint: _hint, ...rest }) => ({ ...rest, createdAt: updatedAt }))
+  }
+
+  /**
+   * The token a bearer value names, or `null`. Constant-time against every stored hash.
+   *
+   * Every candidate is compared, not just the first: returning early on a mismatch of the *earlier*
+   * entries would make the number of comparisons a function of which token was presented, which is
+   * the timing signal `timingSafeEqual` exists to remove.
+   */
+  findApiToken(token: string): NamedApiTokenRecord | null {
+    if (token.length === 0)
+      return null
+    let found: NamedApiTokenRecord | null = null
+    for (const candidate of this.apiTokens) {
+      if (verifyApiToken(token, candidate))
+        found = candidate
+    }
+    return found
+  }
+
+  /**
+   * Mints one, returning the token **once**.
+   *
+   * `id` is derived from the name so it is typable in a `DELETE /api/auth/tokens/:id`, and a
+   * duplicate name is refused: two tokens called `monitor` are indistinguishable in a listing, which
+   * is the whole reason tokens are named.
+   */
+  createApiToken(input: { name: string, scopes: ApiTokenScope[], workspaces?: string[] }, now = Date.now()): { token: string, record: NamedApiTokenRecord } {
+    const name = input.name.trim()
+    if (name.length === 0)
+      throw new Error('a token needs a name')
+    if (input.scopes.length === 0)
+      throw new Error('a token needs at least one scope')
+    const existing = this.apiTokens
+    if (existing.some(entry => entry.name === name))
+      throw new Error(`a token named "${name}" already exists`)
+
+    const token = generateApiToken()
+    const base = apiTokenRecord(token, now)
+    // A slug, then a suffix if that collides — `id` must be unique, `name` is what a person reads.
+    const baseId = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'token'
+    let id = baseId
+    let index = 2
+    while (existing.some(entry => entry.id === id))
+      id = `${baseId}-${index++}`
+
+    const record: NamedApiTokenRecord = {
+      ...base,
+      id,
+      name,
+      scopes: [...new Set(input.scopes)],
+      ...(input.workspaces === undefined || input.workspaces.length === 0 ? {} : { workspaces: [...new Set(input.workspaces)] }),
+    }
+    // Persisted, and the legacy field cleared in the same write: the migration is now on disk.
+    this.save({ ...this.load(), apiToken: null, apiTokens: [...existing, record] })
+    return { token, record }
+  }
+
+  /** `true` when it removed one, `false` when no such id — a 404 is the caller's to answer. */
+  revokeApiToken(id: string): boolean {
+    const existing = this.apiTokens
+    const next = existing.filter(entry => entry.id !== id)
+    if (next.length === existing.length)
+      return false
+    this.save({ ...this.load(), apiToken: null, apiTokens: next })
+    return true
+  }
+
+  /** Records a successful use, so a settings page can show a token nobody uses any more. */
+  markApiTokenUsed(id: string, now = Date.now()): void {
+    const existing = this.apiTokens
+    const index = existing.findIndex(entry => entry.id === id)
+    if (index === -1)
+      return
+    const next = [...existing]
+    next[index] = { ...next[index]!, lastUsedAt: now }
+    this.save({ ...this.load(), apiToken: null, apiTokens: next })
+  }
+
+  /** The pre-0.14 single token, still what `set-token`/`set-token --clear` act on. */
   setApiToken(token: string): ApiTokenRecord {
     const record = apiTokenRecord(token)
-    this.save({ ...this.load(), apiToken: record })
+    // The old route rotates `default`: it is the token an upgraded home already had, and the one a
+    // person running `set-token` means.
+    const existing = this.apiTokens
+    const index = existing.findIndex(entry => entry.id === 'default')
+    const named: NamedApiTokenRecord = index === -1
+      ? { ...record, id: 'default', name: 'default', scopes: ['admin'] }
+      : { ...record, id: 'default', name: existing[index]!.name, scopes: existing[index]!.scopes, ...(existing[index]!.workspaces === undefined ? {} : { workspaces: existing[index]!.workspaces }) }
+    const next = index === -1 ? [...existing, named] : existing.map((entry, at) => (at === index ? named : entry))
+    this.save({ ...this.load(), apiToken: null, apiTokens: next })
     return record
   }
 
   clearApiToken(): void {
-    this.save({ ...this.load(), apiToken: null })
+    this.save({ ...this.load(), apiToken: null, apiTokens: this.apiTokens.filter(entry => entry.id !== 'default') })
   }
 
   setTelegramToken(id: string, token: string | null): void {
@@ -704,7 +920,7 @@ export class SecretsStore {
 
   private read(): SecretsFile {
     this.error = null
-    const empty: SecretsFile = { password: null, apiToken: null, telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
+    const empty: SecretsFile = { password: null, apiToken: null, apiTokens: [], telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
     if (!fs.existsSync(this.file))
       return this.inScope(empty)
     let text: string
@@ -721,6 +937,7 @@ export class SecretsStore {
       return this.inScope({
         password: parsed?.password ?? null,
         apiToken: parsed?.apiToken?.hash ? parsed.apiToken : null,
+        apiTokens: readNamedTokens((parsed as { apiTokens?: unknown })?.apiTokens),
         telegram: readTelegramTokens(parsed?.telegram),
         ddns: readStoredDdns(parsed?.ddns),
         ddnsKdf: readDdnsKdf((parsed as { ddnsKdf?: unknown })?.ddnsKdf),
@@ -741,7 +958,7 @@ export class SecretsStore {
       // writes it, so `set-password` cannot rewrite a workspace's secrets.
       return { ...contents, telegram: {}, ddns: {}, ddnsKdf: null, serverEnv: {} }
     if (this.scope === 'workspace')
-      return { ...contents, password: null, apiToken: null }
+      return { ...contents, password: null, apiToken: null, apiTokens: [] }
     return contents
   }
 

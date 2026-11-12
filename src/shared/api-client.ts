@@ -248,6 +248,23 @@ export function generateApiToken(): Promise<{ token: string, hint: string }> {
   return request('/api/auth/token', { method: 'POST' })
 }
 
+/**
+ * The named, scoped tokens — session-only, like the single-token routes above.
+ *
+ * `create` returns the value **once** and metadata; `list` names them and never shows one.
+ */
+export function listApiTokens(): Promise<{ tokens: Array<{ id: string, name: string, scopes: string[], workspaces?: string[], createdAt: number, lastUsedAt?: number }> }> {
+  return request('/api/auth/tokens')
+}
+
+export function createApiToken(body: { name: string, scopes: string[], workspaces?: string[] }): Promise<{ token: string, tokenMeta: { id: string, name: string, scopes: string[] } }> {
+  return request('/api/auth/tokens', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function revokeNamedApiToken(id: string): Promise<{ ok: boolean }> {
+  return request(`/api/auth/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
 export function revokeApiToken(): Promise<unknown> {
   return request('/api/auth/token', { method: 'DELETE' })
 }
