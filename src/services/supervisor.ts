@@ -490,6 +490,13 @@ export class Supervisor {
       })
 
       if (!outcome.ok) {
+        // A stop the person asked for is **not** a failed deploy, and must not wear the same
+        // notification — the job path already draws that distinction. Everything else is a failure.
+        if (cancelled()) {
+          this.log(entry, 'system', 'deploy stopped — the old process is still what runs')
+          this.publishServer(entry)
+          return { ok: false, error: 'the deploy was stopped' }
+        }
         this.notify(entry, 'deploy', entry.deployLastError ?? 'the deploy failed')
         this.log(entry, 'system', `deploy failed — the old process is still running`)
         this.publishServer(entry)
@@ -497,13 +504,23 @@ export class Supervisor {
       }
 
       this.log(entry, 'system', 'deploy finished')
-      // A deploy exists to make the running process pick up the change, so the restart is the
-      // default and only `restart: false` skips it.
+      /**
+       * The steps are on disk, so the history record says `ok` — and the restart is a **separate**
+       * action whose failure must not re-label the deploy.
+       *
+       * `deploying` stays true across the restart: a second `POST /deploy` arriving while the entry
+       * is coming back used to be accepted — the flag was cleared first — and started a second
+       * sequence over a service that was still starting. The `finally` clears it.
+       */
       if (deploy.restart !== false && (entry.status === 'running' || entry.status === 'starting')) {
-        entry.deploying = false
         this.publishServer(entry)
         const restarted = await this.restart(id, { actor: entry.actor })
-        return restarted.ok ? { ok: true } : restarted
+        if (!restarted.ok) {
+          // The deploy itself succeeded; saying otherwise would contradict the history event above.
+          this.log(entry, 'system', `deployed, but the restart was refused: ${restarted.error ?? 'unknown'}`)
+          return { ok: true }
+        }
+        return { ok: true }
       }
       this.publishServer(entry)
       return { ok: true }

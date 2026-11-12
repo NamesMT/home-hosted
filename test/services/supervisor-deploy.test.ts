@@ -142,3 +142,41 @@ describe('the environment a step runs with', () => {
     expect(seen.secret, 'and so is a declared secret').toBe('from-secret')
   }, 45_000)
 })
+
+/**
+ * A stop during a deploy is **not** a failed deploy.
+ *
+ * A stopped deploy used to take the same `outcome.ok === false` branch as a broken step, so it
+ * notified the crash channel and recorded `outcome: failed` — telling a person something broke when
+ * they were the one who stopped it. The job path already draws this distinction (`cancelled`), and
+ * the deploy path now does too.
+ */
+describe('a deploy that a stop interrupts', () => {
+  it('records and reports it as stopped, not as failed', async () => {
+    const harness = await makeSupervisor([])
+    harness.store.addServer({
+      id: 'app',
+      command: process.execPath,
+      args: ['-e', 'setInterval(() => {}, 1000)'],
+      port: null,
+      restart: { enabled: false },
+      health: { enabled: false },
+      deploy: {
+        steps: [{ command: process.execPath, args: ['-e', 'setTimeout(() => {}, 30000)'], timeoutMs: 25_000 }],
+        restart: false,
+      },
+    } as never)
+    await harness.supervisor.start('app')
+    await waitForStatus(harness.supervisor, 'app', 'running')
+
+    const deploying = harness.supervisor.deploy('app')
+    await waitFor(() => view(harness.supervisor, 'app').deploy?.running === true, 10_000)
+    await harness.supervisor.stop('app')
+    const result = await deploying
+
+    expect(result.ok).toBe(false)
+    expect(result.error, 'the sentence says it was stopped').toMatch(/stopped/i)
+    expect(result.error).not.toMatch(/timed out|exit code/)
+    void waitForStatus
+  }, 45_000)
+})
