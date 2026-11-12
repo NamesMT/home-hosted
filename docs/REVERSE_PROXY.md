@@ -143,8 +143,9 @@ and the panel reports the engine's own reason if it refuses.
 **Force retry certificate** appears on that row only, and asks the CA again immediately.
 The engine is **not** restarted: a certificate the engine holds cannot be cleared by
 deleting the file or by reloading the configuration, but it *is* released when the name
-leaves the configuration — so the panel reloads without that one route, drops the stored
-pair while it is out, and puts the route back. Every other route keeps serving; the name
+leaves the configuration — so the panel reloads without that name (every route on the
+hostname, whatever its path), drops the stored pair while it is out, and puts the routes back.
+Every other name keeps serving; the name
 itself has no certificate until the CA answers. It is not offered while a name is still
 *pending*, because there the engine is already mid-ACME. It is refused when removing that
 route would leave **nothing served** — it is the only working route, or every other one is

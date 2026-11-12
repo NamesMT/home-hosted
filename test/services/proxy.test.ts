@@ -1143,6 +1143,39 @@ describe('proxyService', () => {
     expect(fs.existsSync(path.join(root, 'local', 'media.example.com'))).toBe(true)
   })
 
+  it('takes every route on the name out for a retry, and forgets it in the case Caddy stores it', async () => {
+    // Only the one route id left the staged config, so a sibling path route on the same hostname
+    // kept the engine holding the certificate; and a mixed-case host missed its lower-case directory.
+    const { service, options, settings } = await harness()
+    writeStubEngine(service.enginePath, [])
+    stubPortPreflight()
+    settings.updateProxy({
+      enabled: true,
+      httpPort: 18080,
+      httpsPort: 18443,
+      routes: [
+        { id: 'git', host: 'Git.Example.com', target: 'external', url: 'http://10.0.0.5:3000' },
+        { id: 'git-api', host: 'git.example.com', path: '/api', target: 'external', url: 'http://10.0.0.5:3001' },
+        { id: 'other', host: 'other.example.com', target: 'external', url: 'http://10.0.0.6:3000' },
+      ],
+    })
+    const root = path.join(options.engineDir, 'data', 'certificates', 'acme-v02.api.letsencrypt.org-directory')
+    fs.mkdirSync(path.join(root, 'git.example.com'), { recursive: true })
+    const engine = await stubEngine(options)
+
+    try {
+      await service.initialize()
+      await service.retryCertificate('git')
+      const staged = JSON.stringify(engine.loads[1])
+      expect(staged, 'a sibling route on the name stayed in the staged config').not.toContain('git.example.com')
+      expect(staged).toContain('other.example.com')
+      expect(fs.existsSync(path.join(root, 'git.example.com'))).toBe(false)
+    }
+    finally {
+      await engine.stop()
+    }
+  })
+
   it('retries without restarting the engine, by taking the name out and putting it back', async () => {
     const { service, options, settings } = await harness()
     writeStubEngine(service.enginePath, ['dns.providers.acmeproxy'])

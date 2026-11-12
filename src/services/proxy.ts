@@ -703,7 +703,10 @@ export class ProxyService {
     // Count what the staged config actually *serves*, not routes: a second route that is disabled
     // or whose target is down renders no listener either, and a `load` the engine accepts would
     // take the site dark.
-    const staged = this.render(new Set([route.id]))
+    // Every route on this hostname leaves, not just this one: the certificate belongs to the name,
+    // and a sibling path route left in kept the engine holding it.
+    const hostKey = routeHostKey(route.host)
+    const staged = this.render(new Set(this.config.routes.filter(entry => routeHostKey(entry.host) === hostKey).map(entry => entry.id)))
     if (boundPorts(staged).length === 0) {
       throw new DetailedError(
         `making the engine forget its certificate for "${route.host}" would leave nothing served — add another working route first`,
@@ -729,7 +732,9 @@ export class ProxyService {
   }
 
   /** Removes the engine's stored certificates for one name, and nothing else. */
-  private forgetCertificates(host: string): void {
+  private forgetCertificates(name: string): void {
+    // Caddy's storage keys are lower-case, whatever case the route was typed in.
+    const host = routeHostKey(name)
     const root = path.join(this.options.engineDir, 'data', 'certificates')
     let issuers: string[]
     try {
