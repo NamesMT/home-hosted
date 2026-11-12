@@ -216,15 +216,21 @@ export function cronProblem(expression: string): string | null {
  */
 function dayMatches(spec: CronSpec, date: Date): boolean {
   /**
-   * A field that **begins with `*`** is a wildcard for this rule, and a wildcard does not filter.
+   * Both sets **always** filter; the star flags choose AND vs OR, exactly as Vixie's own comment says:
    *
-   * That is not the same as "it selects everything": a step over the whole range selects only every
-   * other day, yet Vixie treats it as unrestricted, so such a field paired with a weekday means *every
-   * Monday* rather than *an odd-day Monday*. Filtering by the step set as well was the defect —
-   * measured due on Mon 5 Jan 2026 and not Mon 12 Jan.
+   * > `'* * 1,15 * Sun'` runs on the first and fifteenth AND every Sunday; `'* * * * Sun'` runs *only*
+   * > on Sundays; `'* * 1,15 * *'` runs *only* the 1st and 15th.
+   *
+   * Its code is `(DOM_STAR || DOW_STAR) ? (dow_match && dom_match) : (dow_match || dom_match)` — both
+   * `*_match` are always bit tests.
+   *
+   * **A caution for the next reader**: making a star-leading field stop *filtering* as well looked
+   * like the same rule and is not. It made a step of 10 over the days run every single day instead of
+   * the 1st, 11th, 21st and 31st — a step over the range restricts under AND precisely because Vixie
+   * takes the AND branch when either field begins with a star.
    */
-  const dom = spec.domRestricted ? spec.daysOfMonth.has(date.getDate()) : true
-  const dow = spec.dowRestricted ? spec.daysOfWeek.has(date.getDay()) : true
+  const dom = spec.daysOfMonth.has(date.getDate())
+  const dow = spec.daysOfWeek.has(date.getDay())
   if (spec.domRestricted && spec.dowRestricted)
     return dom || dow
   return dom && dow
@@ -290,22 +296,23 @@ function advance(candidate: Date, unit: 'minute' | 'hour' | 'day' | 'month'): Da
  * yesterday's* 01:30, discarding the occurrence it had just found.
  */
 function firstInstantOfMinute(when: Date): number {
-  const fields = `${when.getFullYear()}-${when.getMonth()}-${when.getDate()}-${when.getHours()}-${when.getMinutes()}`
-  for (const shift of [60, 30]) {
-    const earlier = new Date(when.getTime() - shift * 60_000)
-    const earlierFields = `${earlier.getFullYear()}-${earlier.getMonth()}-${earlier.getDate()}-${earlier.getHours()}-${earlier.getMinutes()}`
-    if (earlierFields === fields)
-      return earlier.getTime()
+  const fields = localFields(when)
+  let earliest = when.getTime()
+  // Walk back in absolute time over a bounded window. Every shift in the tz database is at most two
+  // hours; probing a fixed 60 and 30 minutes was right for every zone tested and wrong for
+  // `Antarctica/Troll`, the one two-hour fold there is.
+  for (let back = 60_000; back <= 3 * 3_600_000; back += 60_000) {
+    const earlier = new Date(when.getTime() - back)
+    if (localFields(earlier) === fields)
+      earliest = earlier.getTime()
   }
-  return when.getTime()
+  return earliest
 }
 
-/**
- * How far back `previousCronRun` looks. A year, because the longest schedule that repeats is yearly
- * (`0 0 1 1 *`): anything that has not fired in a year has no occurrence to resume, and walking
- * further would cost a minute-per-step scan for an expression like `0 0 31 4 *` that never fires.
- */
-const LOOK_BACK_MS = 366 * 24 * 60 * 60 * 1000
+/** The wall-clock reading, comparable as a string — what "the same minute" means to a person. */
+function localFields(date: Date): string {
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}-${date.getHours()}-${date.getMinutes()}`
+}
 
 /**
  * How far ahead the search looks before giving up. **Eight** years, not four.
@@ -318,6 +325,16 @@ const LOOK_BACK_MS = 366 * 24 * 60 * 60 * 1000
  * occur and no limit can tell the two apart, so the message that reports it says which it is.
  */
 const SEARCH_LIMIT_MS = 8 * 366 * 24 * 60 * 60 * 1000
+
+/**
+ * How far back `previousCronRun` looks — the **same eight years** as the forward search.
+ *
+ * A year would cover every schedule that repeats yearly, but it made the two searches contradict each
+ * other on a leap-day expression: from 2026-06-01 `nextCronRun` answered 2028 while `previousCronRun`
+ * answered `null`, so the panel warned "no occurrence within eight years" about a schedule it knew was
+ * due in two. One limit for both, so the card and the log cannot disagree.
+ */
+const LOOK_BACK_MS = SEARCH_LIMIT_MS
 
 /**
  * The first minute strictly after `from` that the expression selects, in the host's local timezone,

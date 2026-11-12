@@ -314,6 +314,12 @@ describe('a repeated wall-clock time', () => {
     // 2026-10-25: Berlin goes 03:00 CEST -> 02:00 CET, so 02:00 happens twice. The first is 00:00Z.
     // Berlin's FIRST 02:00 is 00:00Z (CEST); the repeated one is 01:00Z (CET).
     ['Europe/Berlin', '0 2 * * *', Date.UTC(2026, 9, 25, 0, 0), Date.UTC(2026, 9, 25, 0, 1), Date.UTC(2026, 9, 25, 3, 0)],
+    /**
+     * `Antarctica/Troll` is the one **two-hour** fold in the tz database: 2026-10-25 01:00 -> 03:00
+     * UTC, so 01:30 happens twice, two hours apart. A fixed 60/30-minute probe missed it, which is
+     * why the search now walks a bounded window instead of assuming an offset.
+     */
+    ['Antarctica/Troll', '30 1 * * *', Date.UTC(2026, 9, 25, 1, 30), Date.UTC(2026, 9, 25, 1, 31), Date.UTC(2026, 9, 25, 4, 0)],
   ])('does not run again for the repeated hour in %s', async (zone, expression, firstRunAt, from, to) => {
     process.env.TZ = zone
     const harness = makeScheduler([{ id: 'nightly', kind: 'job', schedule: expression, enabled: true }])

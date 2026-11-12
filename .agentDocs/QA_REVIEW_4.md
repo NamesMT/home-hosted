@@ -418,3 +418,315 @@ BLOCKER-2. `.agentDocs/UPGRADING.md:124-141` repeats the deploy/job claims; the 
   detail on Windows, and I could not test on Windows. The DST defect is likely *worse* there.
 - **Whether `0554fe1` is intended to be in this review.** It landed mid-review; I treated it as
   context and flagged that it only partially fixes BLOCKER-1.
+
+---
+
+## QA review 4 — part 2: the fixes
+
+**Scope:** `git diff 446139f..HEAD`. The brief listed nine commits; there are **ten**.
+`74f41ed` ("the durable claim is written once the process exists, not before it") is the tenth. It
+also commits this file. I reviewed all ten.
+
+**Verdict: DO NOT SHIP — but much closer, and the two blockers are genuinely closed.**
+
+Five of the eight claimed fixes are real and I could not break them. Two regressions were
+*introduced by the fixes* — one of them worse than the original defect — and one fix is only applied
+on one of two code paths.
+
+I want to be explicit about the shape of the problem, because it is the interesting part: **all 823
+tests pass, and the branch is still not shippable.** Every regression below is in a case the new
+tests do not enumerate. The tests were written from the same mental model that wrote the fix, so they
+confirm the model rather than test it. That is why I re-derived each behaviour from an independent
+model (a hand-written Python Vixie evaluator and my own cron oracle) instead of reading the new tests.
+
+- **FIXED and verified:** BLOCKER-1 (the common case), BLOCKER-2, BUG-1 (panel path only), BUG-2,
+  BUG-6, RISK-1, RISK-2, RISK-3, BUG-3, BUG-5's prose.
+- **REGRESSED:** BUG-4's fix broke ordinary day-of-month steps (**BLOCKER-3**); BLOCKER-1's fix is
+  incomplete for a two-hour fold (**BUG-7**).
+- **PARTIAL:** BUG-1 is not applied on the offline CLI path (**BUG-8**).
+- **NEW, from the rewrite:** `previousCronRun` became a linear minute scan (**RISK-7**), and the
+  next/previous budgets now disagree (**BUG-9**).
+
+---
+
+## BLOCKER
+
+### BLOCKER-3 (NEW, introduced by the BUG-4 fix) — `*/N` in the day-of-month now runs **every day**
+
+`src/shared/cron.ts:218-228` (`dayMatches`), reached from `parseCron` at `:193-196`.
+
+**What I did.** The BUG-4 fix made a `*`-leading day field "not filter" as well as "not restrict":
+
+```ts
+const dom = spec.domRestricted ? spec.daysOfMonth.has(date.getDate()) : true
+const dow = spec.dowRestricted ? spec.daysOfWeek.has(date.getDay()) : true
+```
+
+I then ran the plainest schedules a person writes and counted the days they fire on, and modelled
+real Vixie in Python independently.
+
+**What I observed.** The step is parsed into the set and then never consulted:
+
+```
+0 0 */2 * *      domRestricted=false  domSize=16  -> runs 30/30 days   (intended ~15)
+0 0 */10 * *     -> runs 30/30 days                                     (intended 3)
+0 0 * * */2      -> runs 28/28 days                                     (intended ~16)
+0 0 */10 * 1     -> Jan 2026: 5,12,19,26   (identical to "0 0 * * 1")
+```
+
+Independent Vixie model, January 2026:
+
+| expression | real Vixie | this branch | agrees? |
+| --- | --- | --- | --- |
+| `0 0 */2 * *` | 1,3,5,…,31 | every day | **no — 15 days wrong** |
+| `0 0 */10 * *` | 1,11,21,31 | every day | **no — 27 days wrong** |
+| `0 0 */2 * 1` | odd-day Mondays (none in Jan) | every Monday | **no** |
+| `0 0 1-31/2 * 1` | 19 days | 19 days | yes |
+| `0 0 1 * 1` | 5 days | 5 days | yes |
+| `0 0 * * 1` | 5,12,19,26 | same | yes |
+
+**Why the fix is wrong, not merely different.** Vixie's `DOM_STAR`/`DOW_STAR` flags decide **only
+which boolean combination is used** — `daymatch = dom_match && dow_match` when either field is a
+star, `dom_match || dow_match` when neither is. `dom_match` is *always* "is today in the parsed
+element set", stars included. A `*` field's set is all 31 days, so its `dom_match` is trivially true
+and drops out — which is *why* a star looks like it stops filtering. But `*/10` starts with a star
+**and still has a three-element set**, so under Vixie's AND it restricts to the 1st, 11th, 21st and
+31st. This code reads the star as "ignore the set", which converts `*/10` into `*`.
+
+So the original BUG-4 was real (the OR rule was switched on by `*/2`), but the correct repair was to
+keep filtering with the set and only change the OR/AND *combination*. Both halves of Vixie matter, and
+the fix took one and dropped the other.
+
+**Why it matters.** `0 0 */2 * *` is a common way to write "every other day" — a container prune, a
+log rotation, a `pg_dump` alternation. It now runs **every single day**, silently, with no error, on
+a panel whose whole job is to run things when it said it would. This is worse than the pre-existing
+BUG-4: BUG-4 fired a job on roughly twice the intended days for an unusual `*/2`+weekday combination;
+this fires a job on **twice the intended days for the ordinary, single-field form**, and also
+silently widens `*/N` on day-of-week (`0 0 * * */2` → every day instead of Sun/Tue/Thu/Sat).
+
+**Why the suite missed it.** The new tests at `test/shared/cron.test.ts:331-352` only ever pair a
+star-step day field with a **weekday**, which is the one shape where "ignore the set" and "filter by
+the set" both look plausible. No test covers `*/N` in the day-of-month with a wildcard weekday, which
+is the shape that actually breaks. The summary test (`:379-392`) covers `0 0 * * 0-6` — a full set —
+so it passes for the same reason the bug exists: a full set is indistinguishable from a star.
+
+**Smallest fix.** Restore the set test in `dayMatches` and keep only the OR/AND choice from the
+star flag:
+
+```ts
+const dom = spec.daysOfMonth.has(date.getDate()) // always filter
+const dow = spec.daysOfWeek.has(date.getDay())
+return (spec.domRestricted && spec.dowRestricted) ? dom || dow : dom && dow
+```
+
+This is exactly the pre-fix `dayMatches` body, with `domRestricted`/`dowRestricted` now meaning
+"Vixie would OR" (`!startsWith('*')`, which the branch already computes correctly) rather than
+"should I filter" — those are two different questions and the fix conflated them. Then add the
+missing test: `*/N` in the day-of-month against a wildcard weekday, asserted day by day.
+
+---
+
+## BUG
+
+### BUG-7 (NEW) — BLOCKER-1's fix is incomplete: a **two-hour** fold still double-runs
+
+`src/shared/cron.ts:283-303` (`firstInstantOfMinute`, probing only `[60, 30]`).
+
+**What I did.** You asked me to re-measure with my own scheduler tick in zones your tests do not
+cover. I swept IANA zones for non-hour DST shifts and found exactly two in 2026:
+`Australia/Lord_Howe` (30 min) and `Antarctica/Troll` (**120 min**). Lord Howe is correct — I confirm
+it below. Troll is not.
+
+**What I observed.** Ticking once per second across Troll's 2026-10-25 fall-back (local 03:00 → 01:00,
+a two-hour repeat):
+
+```
+30 1 * * *  -> 3 runs
+  2026-10-23T23:30Z  01:30 GMT+2   (the 24th)
+  2026-10-24T23:30Z  01:30 GMT+2   (first 01:30 on the 25th)
+  2026-10-25T01:30Z  01:30 GMT+0   (SECOND 01:30, two hours later)
+```
+
+**Why.** `firstInstantOfMinute` probes 60 and then 30 minutes back and compares local fields. For the
+second `01:30` (at `01:30Z`), `-60m` is `00:30Z` which locally reads `02:30`, and `-30m` is `01:00Z`
+which reads `01:00`; neither matches `01:30`, so the function returns the *later* instant and the
+dedup guard sees a new occurrence. The comment at `:296-298` asserts "a wall minute can repeat at most
+once, and the shift is never more than an hour" — the first clause is true, the second is false and it
+is the load-bearing one.
+
+**Why it matters.** Same class as BLOCKER-1: a job runs twice for one wall-clock time. It is much
+rarer (Troll is a research station; almost no home server sets it), which is why I rate it BUG and not
+BLOCKER — **but the fix is advertised as principled and it is hard-coded to two magic numbers**, so it
+will silently miss the next zone that changes. I would rather you fixed the shape than the instance.
+
+**Smallest fix.** Do not guess the shift. Ask the platform: for a candidate minute, compute the offset
+at that instant and at that instant minus the maximum plausible shift, and take the earliest instant
+whose local fields match — or simply search backwards in whole minutes for up to, say, 4 hours
+(the search is already a linear scan, so this is a handful of extra comparisons and removes the magic
+numbers entirely). A `firstInstantOfMinute` built on "the earliest instant with these local fields in
+a bounded window" is correct for any shift, including a future one-off (the EU has discussed
+abolishing DST; a zone may change its base offset).
+
+### BUG-8 (fix partially applied) — BUG-1 is fixed for the panel, still broken for the offline CLI
+
+`src/cli/run-deploy.ts:74-76` vs `src/services/supervisor.ts:465-476`.
+
+`DeployContext.env` was added and the supervisor supplies it. The offline CLI call site does not, and
+it is the *second* of only two production call sites:
+
+```ts
+// src/cli/run-deploy.ts:74 — no `env`
+const outcome = await runDeploy(entry, { cancelled: () => false }, {
+  log: (stream, text) => process.stdout.write(`${dim(`[${stream}]`)} ${text}\n`),
+})
+```
+
+Measured on the default path (no `context.env`): `PLAIN=from-config`, `FILEVAR=` (empty),
+`TOKEN=` (empty). With `context.env` supplied: all three present.
+
+**Why it matters.** `home-hosted deploy <id>` with the panel down is documented (`docs/CLI.md:115-117`)
+as running "the same steps", and it is precisely the path someone uses to deploy *because* the panel
+is down — often a private-registry `pnpm install` that needs the token. It fails the same silent way
+the original BUG-1 did. Also note the fallback at `deploy.ts:101` still uses the old subset
+(`{ ...config.env, ...config.dataEnvs }`), so the parameter being optional means the bug survives
+whenever a caller forgets — a default that reproduces the defect is a footgun.
+
+**Smallest fix.** Pass `env` from the CLI too (the offline path already has the store, so
+`resolveSpawn`'s env logic or an equivalent is reachable), and consider making `env` required so a new
+call site cannot silently regress. A cheap guard: have `runDeploy` log a system line when it falls
+back to the subset, so the degraded path is visible rather than silent.
+
+### BUG-9 (NEW, from the BLOCKER-1 rewrite) — the two searches now disagree, and the panel reports a valid schedule as having no occurrence
+
+`src/shared/cron.ts:308` (`LOOK_BACK_MS`, one year) vs `:326` (`SEARCH_LIMIT_MS`, eight years).
+
+`previousCronRun` was rewritten as a linear minute scan with a **one-year** look-back; `nextCronRun`
+keeps the **eight-year** budget. For a leap-day job this splits the two searches:
+
+```
+0 0 29 2 * from 2026-06-01:  next = 2028-02-29   prev = null
+               from 2027-06-01:  next = 2028-02-29   prev = null
+               from 2028-06-01:  next = 2032-02-29   prev = 2028-02-29
+```
+
+`previousCronRun` returning `null` is what the scheduler treats as "the schedule does not come due"
+(`scheduler.ts:139-145`), so a leap-day job logs, on every boot for years:
+
+```
+WARN  job "leap": the schedule has no occurrence within eight years (0 0 29 2 *)
+```
+
+which is false — `nextCronRun`, in the same module, says 2028-02-29. The message you fixed in BUG-6
+is now accurate about the *limit* but wrong about *this* schedule, because the limit it is describing
+is no longer the one that produced the `null`. The view also shows `—` for next run only via
+`nextCronRun`, so the card and the log contradict each other.
+
+**Smallest fix.** Make the look-back consistent with the forward budget (both eight years), or better:
+have `previousCronRun`'s `null` mean only "no occurrence in the look-back window" and let the
+scheduler word its message as such ("no occurrence in the last year"), since the scheduler's actual
+question — "which occurrence is due now" — never needs a year of history. The yearly look-back is
+defensible *for the scheduler*; it is wrong as a general public function returning `null` with an
+8-year sibling.
+
+### BUG-10 (NEW) — the `*/N` regression also defeats the new summary tests for the shapes they don't enumerate
+
+`src/shared/cron.ts:454-478` (`cronSummary`).
+
+Verified as *correct* for what it claims: `0 0 */2 * *` → `custom` (safe), `0 0 * * 0-6` → `daily`
+(now right), `0 0 * * 1-5` → `weekly [1,2,3,4,5]`, `0 0 1 * 1` → `custom`. BUG-3 is fixed and I could
+not make the preview lie again. Recorded only so the BUG-3 closure is on the record with evidence —
+no action needed.
+
+---
+
+## RISK
+
+- **RISK-7 (NEW, perf) — `previousCronRun` is now a linear minute scan, called once per job per tick.**
+  Measured per call: `0 0 31 4 *` **37 ms**, `0 0 29 2 *` **38 ms**, `0 0 1 1 *` **16 ms**,
+  `0 0 * * *` 0.01 ms. For a never-due or rare schedule this is ~3.7 % of a 1 Hz tick *per such job*,
+  and it runs on the panel's tick loop beside health probes and backup scheduling. Ten jobs with a
+  rare schedule is ~370 ms of the 1000 ms budget. The old code jumped a month at a time; this walks
+  every minute of a year. The monotonicity argument is sound and the correctness is now good, but the
+  cost went up by four orders of magnitude for the worst case. Cheapest improvement that keeps the
+  fix: when a candidate fails on month/day, skip to the previous day boundary **in absolute time**
+  (`floor(t/86400000)*86400000 - 60000`), which is monotonic and cannot walk backwards, and keep the
+  minute scan only within a day. Worth a benchmark test either way, since nothing currently stops a
+  future edit from making this worse.
+- **RISK-5 (still open — and worse than I first said, please re-read).** You left this deliberately; my
+  re-assessment is that BUG-2's fix makes it *sharper*. Each run now writes a `running` claim **plus**
+  a completion, and the catch-up's entire defence against a double start is that the claim is still
+  inside the 5000-event window when the panel reboots. The cap is workspace-wide across all servers
+  (`history.ts:5`), not per-server. So the failure mode is: a busy workspace, a long run, a restart,
+  and the claim has rolled off — and BUG-2 re-opens silently. It is no longer "old evidence may be
+  lost"; it is "the fix for a double-run depends on an eviction policy that does not preserve it".
+  Smallest fix: keep `MAX_EVENTS` entries *plus* the newest `job-run`/`start` event per server id
+  (a small pinned set), or read the claim from a per-server state file rather than the shared log.
+- **RISK-6 (still open — agree with your call).** `overlap` per occurrence while a job hangs. With
+  RISK-5 above, this is now also an *availability* issue for the fix, not just noise: 288 events/day
+  from one hung job is 6 % of the cap per day. Lower priority than RISK-5 but same root.
+- **RISK-8 (NEW, minor) — `deploying` now spans the restart, which spans a health wait.** Closing
+  RISK-1 correctly keeps `deploying` true across `restart()`, so `POST /deploy` stays refused for the
+  whole restart including `health.startTimeoutMs`. That is the right trade; noting it so nobody
+  "fixes" it back. The `finally` clears it on every path, which I checked.
+
+## What I verified as genuinely FIXED
+
+- **BLOCKER-1 — fixed for 1 h and 30 min folds.** Berlin and New_York: one run per wall-clock time,
+  the earlier (DST) instant, monotonic occurrence sequence, **no duplicate wall minutes**. Lord Howe
+  (30 min): correct, including `*/15` and the `01:45` boundary case. Auckland (southern hemisphere):
+  correct. Spring-forward still skips the day. My independent oracle is unchanged: **1361 randomised
+  next/prev calls, 0 mismatches**, and `cronDueAt` still matches my brute-force model over the full
+  2026–2027 minute range. The `setSeconds(0, 0)` diagnosis was exactly right and the truncation in
+  absolute time is the correct repair.
+- **BLOCKER-2 — fixed, and I checked the process is actually dead**, not merely that the call
+  returned: cancel 250 ms into a 55 s step returns in **307 ms** (was 30,011 ms), the child is `GONE`
+  by `ps` at +0/+300/+1200 ms, and **no `sleep` survivors remain** — including a step that forks two
+  background grandchildren (`sleep 40 & sleep 40 & wait` → both gone). The timeout path also kills the
+  group. `killDeployStep` in `stopEntry` plus the 100 ms poll is the right shape.
+- **BUG-1 — fixed on the panel path.** `context.env` carries `env`, `envFile` and `secretEnv`; measured
+  through the real `runDeploy`. (Incomplete on the CLI path — BUG-8.)
+- **BUG-2 — fixed, and the hole you asked about is already closed by `74f41ed`.** The claim is written
+  **after** the spawn returns, so a throwing spawn leaves no record. Modelled both directions:
+  restart mid-run with a claim → **0** runs (no double start); genuine outage across 03:00 → **1**
+  run; restart loop → **0** replays. Your own note that `spawnJobRun` returns `pid: null` rather than
+  throwing for a missing program is correct, and asserting `['running','failed']` is the honest shape.
+- **BUG-6 — fixed.** 2096→**2104**, 2099→**2104**, 2100 correctly skipped (2104/2108/2112/2116
+  sequence), `0 0 31 4 *` still `null`. Message no longer says "never". (The wording is now wrong for
+  leap-day jobs for a different reason — BUG-9.)
+- **RISK-1/2/3 — fixed.** A refused restart no longer re-labels a successful deploy; `deploying` spans
+  the restart; a cancelled deploy logs "deploy stopped — the old process is still what runs" and does
+  not notify as a failure. The new supervisor tests exercise each and pass.
+- **BUG-3 — fixed.** Summary is built from sets; `0 0 * * 0-6` → `daily`; ambiguous shapes → `custom`.
+- **BUG-5 — prose corrected**, and the replacement doc claim is *accurate*: I reproduced your exact
+  example (`*/5`, tick at 10:00 then 10:17 → runs 10:00 and 10:15, never 10:05/10:10). Thank you for
+  measuring it rather than asserting it.
+
+## What I could not verify
+
+- **The Vue/UI halves.** Unchanged by these commits as far as I can see, and I still have not driven
+  either UI in a browser. My part-1 NIT-2 (noc-console renders service-only pid/uptime/restart/port/
+  probe tiles for a job) and NIT-3 (stale `jobError`/`deployError` under the buttons) are **open and
+  unverified as fixed** — they need a rendered check, so please either do it or record them as
+  unverified rather than fixed.
+- **Windows.** The DST reasoning depends on local `Date` semantics; I could not test on Windows.
+- **A live panel** (no port binding, no Caddy, no real home), as before. `supervisor.deploy` was
+  exercised through the shipped harness only.
+- **Whether `*/N` day-of-month regressions have bitten any real config** — I can only show the
+  behaviour, not the blast radius.
+
+## Commit messages — what is overstated
+
+1. `081eed2` "a repeated wall-clock minute is one occurrence, not two" — true for 1 h and 30 min
+   folds, **not** for the two-hour fold (BUG-7). The message and the `firstInstantOfMinute` comment
+   both assert "the shift is never more than an hour", which is false for `Antarctica/Troll`.
+2. `45b679c` "a day field that begins with a star is a wildcard, as Vixie means it" — half of Vixie.
+   The star decides the *combination*, not whether the field filters. As shipped this makes `*/10` in
+   the day-of-month mean `*` (BLOCKER-3), which Vixie never does.
+3. `51e3e2e` "a step runs with the entry's own environment" — true through the panel, **not** through
+   `home-hosted deploy` with the panel down (BUG-8).
+4. `1608df4` "a leap day seven years out is not 'never'" — correct in `nextCronRun`; the paired
+   `previousCronRun` still answers `null` within a year and the scheduler still warns that such a
+   schedule has no occurrence (BUG-9).
+5. To your credit: `74f41ed`'s message is honest about its own author getting the first test wrong and
+   about `spawnJobRun` not throwing. That is the kind of commit message the rest should match, and it
+   is why I trusted the BUG-2 fix enough to model it rather than just read it.

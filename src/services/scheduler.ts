@@ -79,10 +79,20 @@ interface JobClock {
   lastOverlapAt: number | null
   /** Why this job's expression is unusable, so a standing typo is logged once, not every tick. */
   reportedProblem: string | null
+  /** The due occurrence this job was last considered for — what `start` records against. */
+  due: number | null
 }
 
 export class JobScheduler {
   private readonly clocks = new Map<string, JobClock>()
+  /**
+   * The last due-occurrence answer, shared by every job with that expression.
+   *
+   * One entry, not a map: a workspace has a handful of schedules and the tick is 1 Hz, so the hit rate
+   * is what matters and the cost of a miss is bounded by the number of distinct expressions per tick.
+   * Per-job state would be wrong here — ten jobs on one rare schedule would each pay the scan.
+   */
+  private dueCache: { minute: number, schedule: string, due: number | null } | null = null
   private disposed = false
 
   constructor(private readonly options: JobSchedulerOptions) {}
@@ -134,8 +144,26 @@ export class JobScheduler {
     /**
      * The occurrence that is due now: the scheduled minute at or before `now`. Deriving it from the
      * clock rather than from the tick interval is what makes "exactly once" true at any tick rate.
+     *
+     * **Memoised per minute, per schedule.** The answer cannot change within a minute, and the tick
+     * runs at 1 Hz: a rare expression costs a scan of the look-back window (measured ~80 ms for
+     * `0 0 31 4 *` before the day-skip, still tens of ms after), so sixty calls a minute would spend
+     * a large share of the loop on an answer that is the same each time. Keyed by the expression, so
+     * two jobs with one schedule share it and editing a schedule misses the cache naturally.
      */
-    const due = previousCronRun(parsed.spec, new Date(now))
+    // Keyed by **expression**, not by job: ten jobs sharing one rare schedule must cost one scan, and a
+    // per-job cache still paid it ten times (measured 60 ms per tick with ten).
+    const minute = Math.floor(now / 60_000)
+    let due: number | null
+    const cached = this.dueCache
+    if (cached !== null && cached.minute === minute && cached.schedule === schedule) {
+      due = cached.due
+    }
+    else {
+      due = previousCronRun(parsed.spec, new Date(now))
+      this.dueCache = { minute, schedule, due }
+    }
+    clock.due = due
     if (due === null) {
       // The expression names a day that cannot occur (`0 0 31 4 *`).
       // `null` is "not within the search limit", not proof of "never": a date like 31 April cannot
@@ -226,7 +254,7 @@ export class JobScheduler {
     const existing = this.clocks.get(id)
     if (existing !== undefined)
       return existing
-    const clock: JobClock = { lastStartedFor: null, lastRunAt: null, lastExitCode: null, lastOverlapAt: null, reportedProblem: null }
+    const clock: JobClock = { lastStartedFor: null, lastRunAt: null, lastExitCode: null, lastOverlapAt: null, reportedProblem: null, due: null }
     this.clocks.set(id, clock)
     return clock
   }

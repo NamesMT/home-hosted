@@ -318,50 +318,68 @@ describe('daylight saving', () => {
 })
 
 /**
- * Vixie's OR rule turns on whether a day field **begins with `*`**, not on whether it equals it.
+ * Vixie's day rule, exactly: **both sets always filter**, and a star-leading field chooses AND vs OR.
  *
- * A step over the whole range (`0-59/2`, written with a leading star) is a wildcard for the rule even though it selects half the
- * days. Reading it as "restricted" made a star-step day field paired with a weekday mean *an odd-day weekday*, which is a schedule
- * nobody writes: measured due on Mon 5 Jan 2026 and not on Mon 12 Jan.
+ * Quoted from Vixie's own comment:
+ * > `'* * 1,15 * Sun'` runs on the first and fifteenth AND every Sunday; `'* * * * Sun'` runs *only*
+ * > on Sundays; `'* * 1,15 * *'` runs *only* the 1st and 15th.
+ *
+ * Its code is `(DOM_STAR || DOW_STAR) ? (dow && dom) : (dow || dom)`, both always bit tests.
+ *
+ * The case that makes this worth pinning: making a star-leading field stop *filtering* also looked
+ * like the same rule, and made a step of 10 over the days run every single day. A step over the range
+ * restricts under AND **because** Vixie takes the AND branch when either field begins with a star.
  */
-describe('a day field that begins with a star', () => {
-  const day = (spec: Parameters<typeof nextCronRun>[0], month: number, date: number): boolean =>
+describe('the Vixie day rule', () => {
+  const due = (spec: Parameters<typeof cronDueAt>[0], month: number, date: number): boolean =>
     cronDueAt(spec, new Date(2026, month, date, 0, 0))
 
-  it('treats `*/2` as a wildcard, so the weekday is the only restriction', () => {
+  it('filters a star-leading step field, so a step of 10 is not every day', () => {
+    const parsed = parseCron('0 0 */10 * *')
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok)
+      return
+    // January 2026: the 1st, 11th, 21st and 31st — and nothing between them.
+    const days: number[] = []
+    for (let date = 1; date <= 31; date += 1) {
+      if (due(parsed.spec, 0, date))
+        days.push(date)
+    }
+    expect(days, 'a step over the days still selects days').toEqual([1, 11, 21, 31])
+  })
+
+  it('and-s a star-leading day field with a weekday, because a star takes that branch', () => {
     const parsed = parseCron('0 0 */2 * 1')
     expect(parsed.ok).toBe(true)
     if (!parsed.ok)
       return
-    expect(parsed.spec.domRestricted).toBe(false)
-    expect(parsed.spec.dowRestricted).toBe(true)
-    // Every Monday, whatever the date's parity: 5 Jan is odd, 12 Jan is even.
-    expect(day(parsed.spec, 0, 5), 'Mon 5 Jan').toBe(true)
-    expect(day(parsed.spec, 0, 12), 'Mon 12 Jan').toBe(true)
-    expect(day(parsed.spec, 0, 6), 'Tue 6 Jan').toBe(false)
+    // Odd days that are also Mondays: Mon 5 Jan is odd, Mon 12 Jan is even.
+    expect(due(parsed.spec, 0, 5), 'Mon 5 Jan, odd').toBe(true)
+    expect(due(parsed.spec, 0, 12), 'Mon 12 Jan, even').toBe(false)
+    expect(due(parsed.spec, 0, 6), 'Tue 6 Jan').toBe(false)
   })
 
-  it('still treats a range-with-step as restricted, because it does not begin with a star', () => {
-    const parsed = parseCron('0 0 1-31/2 * 1')
+  it('or-s two restricted fields, so the 1st and 15th and every Sunday', () => {
+    const parsed = parseCron('0 0 1,15 * 0')
     expect(parsed.ok).toBe(true)
     if (!parsed.ok)
       return
-    expect(parsed.spec.domRestricted).toBe(true)
-    // OR: an odd day *or* a Monday — so Sun 1 Feb (the 1st) is due, and Tue 6 Jan is not.
-    expect(day(parsed.spec, 0, 5), 'Mon 5 Jan').toBe(true)
-    expect(day(parsed.spec, 1, 1), 'Sun 1 Feb, the 1st').toBe(true)
-    expect(day(parsed.spec, 0, 6), 'Tue 6 Jan').toBe(false)
+    expect(due(parsed.spec, 0, 1), 'Thu 1 Jan, the 1st').toBe(true)
+    expect(due(parsed.spec, 0, 15), 'Thu 15 Jan, the 15th').toBe(true)
+    expect(due(parsed.spec, 0, 4), 'Sun 4 Jan').toBe(true)
+    expect(due(parsed.spec, 0, 6), 'Tue 6 Jan').toBe(false)
+  })
+
+  it('runs only on Sundays when the day field is a bare star', () => {
+    const parsed = parseCron('0 0 * * 0')
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok)
+      return
+    expect(due(parsed.spec, 0, 4), 'Sun 4 Jan').toBe(true)
+    expect(due(parsed.spec, 0, 5), 'Mon 5 Jan').toBe(false)
   })
 })
 
-/**
- * The preview is built from the **sets**, not from how the field was spelled.
- *
- * `0 0 * * 0-6` selects all seven days — the same schedule as `0 0 * * *` — but the summary used to
- * describe it as the list "every Sun, Mon, Tue, Wed, Thu, Fri, Sat", because the wide check also
- * required the raw text to be `*`. A preview that reads back differently from the expression next to
- * it is the one place the words can lie about a schedule.
- */
 describe('a summary built from the sets', () => {
   it('reads a spelled-out full range as daily', () => {
     for (const expression of ['0 0 * * *', '0 0 * * 0-6', '0 0 * * 0-6/1']) {
