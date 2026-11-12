@@ -80,6 +80,34 @@ DDNS credentials are additionally sealed with AES-256-GCM under `HHOSTED_DDNS_SE
 are replayed to a third party. Its default is a fixed value, which protects nothing if the state
 directory is copied — **set your own** if you commit or share `.hh/`.
 
+### A token is scoped, and the scopes mean something
+
+A token used to be full admin — the right shape for one script and the wrong one for a homelab. The
+four scopes are **cumulative**, and `workspaces` narrows a token to some of them:
+
+| scope | what it allows |
+| --- | --- |
+| `read` | every `GET`: state, logs, metrics, the live feed |
+| `lifecycle` | start, stop, restart, free a port, clear logs |
+| `config` | server, workspace and settings writes, and backups |
+| `admin` | everything, including tokens, the password, a UI install and restoring secrets |
+
+**A `read` token is refused `403 TOKEN_SCOPE` on every non-GET**, and a token limited to `default`
+cannot act on `staging`. The requirement is declared **once**, per route, in
+`src/middleware/token-scope.ts`; a test walks every `/api` route in the published spec and fails on
+one that has no declaration, so a new route cannot ship without a scope. A route with no declaration
+is refused rather than allowed — the one somebody forgot must not be the one every token can use.
+
+Sessions and this machine are unaffected: scopes are about **tokens**.
+
+Only a hash is stored, compared in constant time against every token (an early return would make the
+timing depend on which token was presented). The single pre-0.14 token migrates to one named
+`default` with `admin`, so upgrading removes no access.
+
+The `admin` scope is still "everything a token may do" — and a token may still run any command
+through an entry. **It is not a boundary against someone holding the token**; it is a way to give a
+script only what it needs.
+
 ### A server's secret environment never enters its config
 
 `servers.config.json` declares only the **names** (`secretEnv`); the values sit in the workspace's

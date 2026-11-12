@@ -230,7 +230,8 @@ and `/healthz` operation with its body and responses — the two documents that 
 | `GET`/`POST /api/backups`, `DELETE /api/backups/:name`, `POST /api/backups/restore`, `GET /api/backups/:name/download` | archives; `GET` is the selection model, fetch it when a dialog opens. `POST /api/backups` creates at once; a restore only plans unless `?confirm=true`. A missing archive is `404 BACKUP_NOT_FOUND` on every one of these | |
 | `POST`/`DELETE /api/settings/ui`, `POST`/`DELETE /api/settings/tls` | install a UI zip / a PEM pair | |
 | `POST /api/auth/login`, `GET /api/auth/session`, `POST /api/auth/logout`, `POST`/`DELETE /api/auth/password` | the session and the password | |
-| `POST`/`DELETE /api/auth/token` | generate (session only, shown once) or revoke the API token | |
+| `POST`/`DELETE /api/auth/token` | generate (session only, shown once) or revoke the API token — **deprecated**, acts on the token named `default`; prefer `/api/auth/tokens` |
+| `GET`/`POST /api/auth/tokens`, `DELETE /api/auth/tokens/:id` | named, scoped tokens. Session-only, and the value is shown once. Scopes are `read`, `lifecycle`, `config`, `admin` (cumulative); `workspaces` limits one. A route's requirement is published as `x-required-scope` | |
 | `GET`/`POST`/`DELETE /api/host/temperature` | the WSL2 temperature bridge: whether a helper is installed, install one, remove it (`supported: false` off WSL — hide the control) | |
 | `GET /api/metrics` | Prometheus text | |
 | `GET /healthz` | **no credential**: `200`/`503` and uptime; per-server counts with a session, the API token, or the local `run.json` token from this machine; to a caller on this machine, `home` — a fingerprint of the state directory, so the CLI can tell this home's panel from another one sharing the port | |

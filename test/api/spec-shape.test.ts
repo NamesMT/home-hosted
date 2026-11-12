@@ -186,3 +186,29 @@ describe('response enums are extensible, request enums are not', () => {
       expect(node['x-extensible-enum'], 'a request enum is genuinely closed').toBeUndefined()
   })
 })
+
+/**
+ * Every operation publishes what an API token needs, as `x-required-scope`.
+ *
+ * The declaration is enforced in `src/middleware/token-scope.ts` and the document copies it, so a
+ * generated client can show — or check — what a credential has to hold. An extension rather than a
+ * standard field because OpenAPI's `security` names a *scheme*, and has no vocabulary for an
+ * application-defined scope.
+ */
+describe('the spec publishes each route\'s token scope', () => {
+  it('marks the routes a token can reach', async () => {
+    const doc = await spec() as unknown as { paths: Record<string, Record<string, { 'x-required-scope'?: string }>> }
+    // A read route, a lifecycle one, a config one and an admin one: the four scopes, each on a route
+    // that genuinely needs it.
+    expect(doc.paths['/api/state']!.get!['x-required-scope']).toBe('read')
+    expect(doc.paths['/api/servers/{id}/start']!.post!['x-required-scope']).toBe('lifecycle')
+    expect(doc.paths['/api/servers/{id}']!.patch!['x-required-scope']).toBe('config')
+    expect(doc.paths['/api/auth/tokens']!.post!['x-required-scope']).toBe('admin')
+  })
+
+  it('leaves a local-channel route unmarked, since a token never reaches it', async () => {
+    const doc = await spec() as unknown as { paths: Record<string, Record<string, { 'x-required-scope'?: string }>> }
+    // `/_hh` is guarded by the run.json token plus loopback, not by an API token.
+    expect(doc.paths['/_hh/servers']!.get!['x-required-scope']).toBeUndefined()
+  })
+})

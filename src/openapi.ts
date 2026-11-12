@@ -5,6 +5,7 @@ import { appFactory } from '#src/helpers/factory'
 import { ERROR_RESPONSES, jsonBody } from '#src/helpers/openapi'
 import { appVersion } from '#src/helpers/version'
 import { PUBLIC_API_PATHS } from '#src/middleware/auth'
+import { tokenScopesFor } from '#src/middleware/token-scope'
 import { openApiReferencePage } from '#src/openapi-reference'
 import { actionResultSchema, apiErrorSchema, appStateSchema, serverViewSchema, sseLogFrameSchema, sseMessageSchema, ssePingFrameSchema, sseServerFrameSchema, sseStateFrameSchema } from '#src/shared/contracts'
 
@@ -294,6 +295,22 @@ export function finishSpec(spec: Record<string, unknown>, rendered?: Record<stri
       }
     }
   }
+  /**
+   * What an API token needs for each route, published as `x-required-scope`.
+   *
+   * The declaration lives in `src/middleware/token-scope.ts` and is enforced there; this copies it
+   * into the document so a generated client can show, or check, what a credential needs. An extension
+   * rather than a standard field because OpenAPI has no vocabulary for "this operation needs one of
+   * these application-defined scopes" — `security` only names a scheme.
+   */
+  for (const [route, methods] of Object.entries(paths)) {
+    for (const [method, operation] of Object.entries(methods)) {
+      const scope = tokenScopesFor(method.toUpperCase(), route.replace(/\{[^}]+\}/g, ':param'))
+      if (scope !== null)
+        (operation as Record<string, unknown>)['x-required-scope'] = scope
+    }
+  }
+
   if (rendered !== undefined)
     liftNamedSchemas(spec, rendered)
   // After the lift, so a component's enum is widened once rather than at each `$ref`.

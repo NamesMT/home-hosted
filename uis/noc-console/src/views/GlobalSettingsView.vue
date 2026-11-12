@@ -11,6 +11,7 @@ import BackupDialog from '@/components/BackupDialog.vue'
 import ConfirmButton from '@/components/ConfirmButton.vue'
 import RestoreDialog from '@/components/RestoreDialog.vue'
 import ScheduleScope from '@/components/ScheduleScope.vue'
+import TokensSection from '@/components/TokensSection.vue'
 import { useBackupSelection } from '@/composables/useBackupSelection'
 import { useControlPlane } from '@/composables/useControlPlane'
 import { vFocusTrap } from '@/composables/useFocusTrap'
@@ -904,6 +905,8 @@ async function revertUi(): Promise<void> {
                 {{ passwordSet ? 'Update password' : 'Set password and enable auth' }}
               </button>
             </div>
+
+            <TokensSection />
 
             <p class="note">
               API token: <strong>{{ apiTokenSet ? 'set' : 'none' }}</strong> — scripts and apps send it as
