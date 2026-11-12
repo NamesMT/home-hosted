@@ -340,6 +340,20 @@ const SECTIONS = [
           @confirm="killPortHolder"
         />
       </div>
+      <!--
+        The running process predates a config change. The button restarts it in place, because the
+        badge's whole job is to be actionable — a "Restart to apply" note with no restart beside it
+        sends the person looking for one.
+      -->
+      <div
+        v-if="server.restartRequired"
+        class="flex items-center justify-between gap-3 rounded-control border border-warn/25 bg-warn-soft px-3 py-2 text-2xs leading-4 text-warn"
+      >
+        <span>{{ t('serverCard.restartRequiredHint') }}</span>
+        <AppButton size="sm" :disabled="busy" @click="act('restart')">
+          {{ t('serverCard.restartRequired') }}
+        </AppButton>
+      </div>
       <p
         v-if="server.health === 'unhealthy'"
         class="rounded-control border border-warn/25 bg-warn-soft px-3 py-2 text-2xs leading-4 text-warn"

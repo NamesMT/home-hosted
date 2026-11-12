@@ -248,6 +248,19 @@ function openDetail(): void {
         </p>
       </div>
       <StatusPill :status="server.status" :health="server.health" />
+      <!--
+        The config on disk is not what this process is running: a `PUT`/`PATCH` writes config only.
+        Without this the card read "saved" and nothing else while the old program kept serving.
+        Only ever present while something runs — a stopped entry has nothing to restart.
+      -->
+      <RouterLink
+        v-if="server.restartRequired"
+        :to="detailPath"
+        class="shrink-0 rounded-full border border-warn/40 bg-warn-soft px-2 py-0.5 text-2xs text-warn"
+        :title="t('serverCard.restartRequiredHint')"
+      >
+        {{ t('serverCard.restartRequired') }}
+      </RouterLink>
       <Tip
         v-if="server.adopted"
         :label="t('serverCard.adoptedHint')"

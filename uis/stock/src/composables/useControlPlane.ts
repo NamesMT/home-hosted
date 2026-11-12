@@ -317,7 +317,22 @@ export function useControlPlane() {
       }
       return run(() => api.patchServer(id, { bind: parsed }, workspaceId), { title: t('toast.bindFailed', { id }) })
     },
-    saveConfig: (workspaceId: string, id: string, patch: Record<string, unknown>) => run(() => api.patchServer(id, patch, workspaceId), { title: t('toast.saveServerFailed', { id }), success: t('toast.serverUpdated', { id }) }),
+    /**
+     * A saved config, and whether the running process now needs the restart it implies.
+     *
+     * The success text is computed from the frame the run re-read, not from what was sent: the
+     * panel decides `restartRequired` by comparing the running config with the new one, and a UI
+     * that guessed from the patch would disagree the moment the panel changed what it compares.
+     */
+    saveConfig: (workspaceId: string, id: string, patch: Record<string, unknown>) => run(() => api.patchServer(id, patch, workspaceId), {
+      title: t('toast.saveServerFailed', { id }),
+      success: () => {
+        const view = serverById(workspaceId, id)
+        return view?.restartRequired === true
+          ? t('toast.serverSavedRestart', { id })
+          : t('toast.serverUpdated', { id })
+      },
+    }),
     saveGlobalSettings: (patch: SettingsPatch) => run(() => api.patchSettings(patch), { title: t('toast.saveSettingsFailed') }),
     saveWorkspaceSettings: (workspaceId: string, patch: WorkspaceSettingsPatch) => run(() => api.patchWorkspaceSettings(patch, workspaceId), { title: t('toast.saveSettingsFailed') }),
     clearLogs: (workspaceId: string, id: string) => run(async () => {

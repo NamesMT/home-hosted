@@ -182,6 +182,13 @@ function ledClass(status: ServerStatus): string {
         <span class="mono" style="color: var(--text-hi); font-size: 14px">{{ label }}</span>
         <span class="faint mono">{{ server.id }}</span>
         <StatusChip :status="server.status" />
+        <!--
+          The config on disk is not what this process is running: a save writes config only. The
+          restart button below is the fix, so this is a signpost rather than a second control.
+        -->
+        <span v-if="server.restartRequired" class="chip chip--warn" title="the command, args, environment, port or a stop setting changed since this process started">
+          restart to apply
+        </span>
         <HealthChip :health="server.health" />
         <span v-if="config.persistent" class="chip chip--neutral" title="runs under its own nanny: it survives a panel stop, and `down` reports it instead of stopping it">persistent</span>
         <span class="view__spacer" />

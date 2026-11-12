@@ -136,7 +136,11 @@ async function save(): Promise<void> {
       return
     }
     selectedId.value = props.id
-    flash(`saved ${props.id}`)
+    // Read from the frame the save re-read, not from the patch: the panel decides
+    // `restartRequired` by comparing the running config with the new one.
+    flash(server.value?.restartRequired === true
+      ? `saved ${props.id} — restart to apply`
+      : `saved ${props.id}`)
     back()
   }
   finally {
@@ -164,6 +168,10 @@ async function remove(): Promise<void> {
       <span class="view__title">{{ id }} · config</span>
       <StatusChip v-if="server" :status="server.status" />
       <span v-if="server && !server.config.enabled" class="chip chip--idle">disabled</span>
+      <!-- The config on disk is not what this process is running; the button is on the detail view. -->
+      <span v-if="server?.restartRequired" class="chip chip--warn" title="the config changed since this process started">
+        restart to apply
+      </span>
       <span class="view__spacer" />
       <button
         v-if="changedCount > 0"
