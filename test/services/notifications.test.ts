@@ -697,3 +697,74 @@ describe('a list of destinations', () => {
     }
   })
 })
+
+/**
+ * The receiver's last message must describe the server's state.
+ *
+ * The cooldown is per reason, so `unhealthy` → `recovered` → `unhealthy` inside one window sent the
+ * first two and swallowed the third: the receiver read "recovered" for as long as the server stayed
+ * down. The swallowed state is now sent when its window ends — and only when it differs from what
+ * the receiver last heard, so a flap that ends where it began stays one message.
+ */
+describe('a state change the cooldown swallowed', () => {
+  async function withReceiver(body: (url: string, received: () => string[]) => Promise<void>): Promise<void> {
+    const reasons: string[] = []
+    const server = http.createServer((req, res) => {
+      let raw = ''
+      req.setEncoding('utf8')
+      req.on('data', (chunk: string) => { raw += chunk })
+      req.on('end', () => {
+        reasons.push((JSON.parse(raw) as { reason: string }).reason)
+        res.setHeader('content-type', 'application/json')
+        res.end('{"ok":true}')
+      })
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    try {
+      await body(`http://127.0.0.1:${(server.address() as AddressInfo).port}/alerts`, () => [...reasons])
+    }
+    finally {
+      await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  }
+
+  async function service(url: string): Promise<NotificationService> {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-notify-trailing-'))
+    dirs.push(dir)
+    const config = notificationsSchema({
+      destinations: [{ kind: 'webhook', id: 'phone', url, format: 'json', useOwnSettings: true, onRecovered: true, cooldownMs: 300 }],
+    })
+    if (config instanceof type.errors)
+      throw new Error(config.summary)
+    return new NotificationService(new SecretsStore(path.join(dir, 'secrets.json')), () => config)
+  }
+
+  const unhealthy: NotificationEvent = { serverId: 'web', label: 'Web', reason: 'unhealthy', detail: 'down' }
+  const recovered: NotificationEvent = { ...unhealthy, reason: 'recovered', detail: 'up' }
+
+  it('sends the state the server is left in once the window ends', async () => {
+    await withReceiver(async (url, received) => {
+      const notifications = await service(url)
+      await notifications.dispatch(unhealthy)
+      await notifications.dispatch(recovered)
+      expect(await notifications.dispatch(unhealthy), 'inside the window').toBe(false)
+      expect(received()).toEqual(['unhealthy', 'recovered'])
+
+      await new Promise(resolve => setTimeout(resolve, 600))
+      expect(received(), 'the receiver must not be left reading "recovered"').toEqual(['unhealthy', 'recovered', 'unhealthy'])
+    })
+  })
+
+  it('stays quiet when the flap ends in the state the receiver already has', async () => {
+    await withReceiver(async (url, received) => {
+      const notifications = await service(url)
+      await notifications.dispatch(unhealthy)
+      await notifications.dispatch(recovered)
+      await notifications.dispatch(unhealthy)
+      await notifications.dispatch(recovered)
+
+      await new Promise(resolve => setTimeout(resolve, 600))
+      expect(received()).toEqual(['unhealthy', 'recovered'])
+    })
+  })
+})

@@ -66,6 +66,17 @@ const COVERS: Record<NotificationReason, (policy: NotificationPolicy) => boolean
   'ddns-error': policy => policy.onDdns,
 }
 
+/**
+ * Reasons that are two halves of one state: the receiver's last message must describe the current
+ * one. Each half keeps its own cooldown, so a recovery is never held back behind the alert it ends.
+ */
+const STATE_PAIR: Partial<Record<NotificationReason, string>> = {
+  'unhealthy': 'health',
+  'recovered': 'health',
+  'host': 'host',
+  'host-recovered': 'host',
+}
+
 interface DeliveryResult {
   lastResult: string | null
   lastResultAt: number | null
@@ -85,11 +96,17 @@ interface DeliveryResult {
  * policy is one nobody can reason about.
  *
  * The throttle is per destination *and* server *and* reason: a flapping server must not flood one
- * destination, and one destination going quiet must not silence another.
+ * destination, and one destination going quiet must not silence another. A paired state change the
+ * throttle swallowed is sent when its window ends, if the receiver would otherwise be left reading
+ * the opposite state (`unhealthy` → `recovered` → `unhealthy` inside one window).
  */
 export class NotificationService {
   private readonly cooldowns = new Map<string, number>()
   private readonly results = new Map<string, DeliveryResult>()
+  /** The paired reason each destination last received, per server: the state it believes. */
+  private readonly delivered = new Map<string, NotificationReason>()
+  /** The newest paired event a cooldown swallowed, waiting for that window to end. */
+  private readonly trailing = new Map<string, { event: NotificationEvent, timer: ReturnType<typeof setTimeout> }>()
 
   constructor(
     private readonly secrets: SecretsStore,
@@ -167,15 +184,17 @@ export class NotificationService {
    * cooldown was still running.
    */
   targetsFor(event: NotificationEvent, now = Date.now()): NotificationTarget[] {
-    return this.getConfig().destinations.filter((target) => {
-      if (!target.enabled)
-        return false
-      const policy = this.effectivePolicy(target)
-      if (!COVERS[event.reason](policy))
-        return false
-      const until = this.cooldowns.get(this.cooldownKey(target, event)) ?? 0
-      return !(policy.cooldownMs > 0 && until > now)
-    })
+    return this.wanting(event).filter(target => !this.throttled(target, event, now))
+  }
+
+  /** The destinations switched on for this reason, cooldown aside. */
+  private wanting(event: NotificationEvent): NotificationTarget[] {
+    return this.getConfig().destinations.filter(target => target.enabled && COVERS[event.reason](this.effectivePolicy(target)))
+  }
+
+  private throttled(target: NotificationTarget, event: NotificationEvent, now: number): boolean {
+    const until = this.cooldowns.get(this.cooldownKey(target, event)) ?? 0
+    return this.effectivePolicy(target).cooldownMs > 0 && until > now
   }
 
   /** Whether *any* destination would deliver this event. */
@@ -221,8 +240,56 @@ export class NotificationService {
   }
 
   async dispatch(event: NotificationEvent): Promise<boolean> {
+    const now = Date.now()
+    if (STATE_PAIR[event.reason] !== undefined) {
+      for (const target of this.wanting(event)) {
+        if (this.throttled(target, event, now))
+          this.holdLatest(target, event, now)
+        else
+          this.dropTrailing(this.stateKey(target, event))
+      }
+    }
     // `targetsFor` owns the toggles and the cooldown, so the policy lives once.
-    const targets = this.targetsFor(event)
+    return this.sendTo(this.targetsFor(event, now), event)
+  }
+
+  /**
+   * Keeps the newest swallowed state change for one destination, to send when its window ends.
+   * Replacing the held event is the point: only the state the server ends the window in matters.
+   */
+  private holdLatest(target: NotificationTarget, event: NotificationEvent, now: number): void {
+    const key = this.stateKey(target, event)
+    this.dropTrailing(key)
+    const until = this.cooldowns.get(this.cooldownKey(target, event)) ?? now
+    const timer = setTimeout(() => {
+      this.trailing.delete(key)
+      // The receiver already reads this state (the flap ended where it began): nothing to correct.
+      if (this.delivered.get(key) === event.reason)
+        return
+      const current = this.wanting(event).find(entry => entry.id === target.id)
+      if (current === undefined)
+        return
+      if (this.throttled(current, event, Date.now())) {
+        this.holdLatest(current, event, Date.now())
+        return
+      }
+      void this.sendTo([current], event).catch((error: unknown) => {
+        logger.warn(`notification failed: ${errorMessage(error)}`)
+      })
+    }, Math.max(0, until - now))
+    timer.unref?.()
+    this.trailing.set(key, { event, timer })
+  }
+
+  private dropTrailing(key: string): void {
+    const held = this.trailing.get(key)
+    if (held !== undefined) {
+      clearTimeout(held.timer)
+      this.trailing.delete(key)
+    }
+  }
+
+  private async sendTo(targets: NotificationTarget[], event: NotificationEvent): Promise<boolean> {
     if (targets.length === 0)
       return false
     // Armed per destination so a failure can hand its own window back (see `releaseCooldown`).
@@ -244,6 +311,8 @@ export class NotificationService {
       this.remember(target.id, result.ok ? 'sent' : result.error ?? 'send failed')
       if (!result.ok)
         this.releaseCooldown(target, event, armed)
+      else if (STATE_PAIR[event.reason] !== undefined)
+        this.delivered.set(this.stateKey(target, event), event.reason)
       return result.ok
     }
     catch (error) {
@@ -325,6 +394,11 @@ export class NotificationService {
 
   private cooldownKey(target: NotificationTarget, event: NotificationEvent): string {
     return `${target.id}:${event.serverId}:${event.reason}`
+  }
+
+  /** One destination's view of one server's paired state. */
+  private stateKey(target: NotificationTarget, event: NotificationEvent): string {
+    return `${target.id}:${event.serverId}:${STATE_PAIR[event.reason] ?? event.reason}`
   }
 
   private async sendTelegram(target: Extract<NotificationTarget, { kind: 'telegram' }>, title: string, message: string): Promise<{ ok: boolean, error?: string }> {

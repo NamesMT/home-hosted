@@ -145,6 +145,11 @@ lives in the general block, or on a destination that has **Own settings** on, an
 **seconds** (`0` turns the throttle off). Clearing the box keeps the value it held, so retyping it
 cannot switch the throttle off by accident.
 
+A state change the window swallowed is not lost: when a server goes unhealthy, recovers and goes
+unhealthy again inside one window (or the host breaches, recovers and breaches), the state it is left
+in is sent once the window ends — so the last message a destination received always describes the
+current state. A flap that ends where it began stays one message.
+
 ## Header limits
 
 A webhook's headers are **HTTP headers**, which are byte strings, so their values carry no character
