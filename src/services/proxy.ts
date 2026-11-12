@@ -966,14 +966,12 @@ export class ProxyService {
     // before the signature is taken — otherwise a name that started resolving to the panel would
     // not move the signature, and the route would keep being served.
     await primeUpstreamResolutions(this.config)
+    // `certificateSignature` is what the last *successful* apply was built from; `null` means none
+    // has succeeded in this process (a reattach whose apply failed, a pair just replaced), which is
+    // a reason to apply — not a baseline to adopt, or a failed boot apply is never retried.
     const signature = this.syncSignature()
     if (signature === this.certificateSignature)
       return
-    const first = this.certificateSignature === null
-    if (first) {
-      this.certificateSignature = signature
-      return
-    }
     // A failure must be retried — that is the difference between "transient" and "permanently
     // stuck" — but the tick is one second, so retrying every tick posts to the engine 86k times a
     // day and logs every one. Back off, and give up on a failure that has repeated.

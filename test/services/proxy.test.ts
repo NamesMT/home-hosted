@@ -1951,12 +1951,26 @@ describe('re-applying when a certificate arrives', () => {
     const states: Record<string, string> = { a: 'pending' }
     certificates(service, states)
 
+    // Nothing has applied in this process yet, so the first tick applies.
     await service.sync()
-    expect(apply, 'the first tick only seeds the signature').not.toHaveBeenCalled()
+    expect(apply).toHaveBeenCalledTimes(1)
+    await service.sync()
+    expect(apply, 'a steady state is not a change').toHaveBeenCalledTimes(1)
 
     states.a = 'issued'
     await service.sync()
-    expect(apply).toHaveBeenCalledTimes(1)
+    expect(apply).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries an apply that failed when the engine was reattached', async () => {
+    // A null signature read as "already applied", so a reattach whose apply failed was never retried.
+    const { service } = await harness()
+    syncable(service)
+    certificates(service, { a: 'issued' })
+    const apply = vi.spyOn(service, 'apply').mockResolvedValue()
+
+    await service.sync()
+    expect(apply, 'a failed boot apply must be retried').toHaveBeenCalledTimes(1)
   })
 
   it('retries on the next tick when the apply fails, and records why', async () => {
@@ -2014,19 +2028,20 @@ describe('re-applying when a certificate arrives', () => {
     syncable(service, [{ id: 'web', host: 'web.example.com', target: 'server', workspace: 'default', server: 'web' }])
     certificates(service, { web: 'issued' })
 
+    // The first tick applies, as nothing has applied in this process yet.
     await service.sync()
     url = '127.0.0.1:8080'
     await service.sync()
-    expect(apply, 'the entry came up, so the route must be applied').toHaveBeenCalledTimes(1)
+    expect(apply, 'the entry came up, so the route must be applied').toHaveBeenCalledTimes(2)
 
     // A steady state is not a change: the tick is one second and must not re-apply each time.
     await service.sync()
     await service.sync()
-    expect(apply).toHaveBeenCalledTimes(1)
+    expect(apply).toHaveBeenCalledTimes(2)
 
     url = null
     await service.sync()
-    expect(apply, 'the entry went down, so the route must leave the engine').toHaveBeenCalledTimes(2)
+    expect(apply, 'the entry went down, so the route must leave the engine').toHaveBeenCalledTimes(3)
   })
 
   it('compares the first tick against what the boot apply was built from', async () => {
