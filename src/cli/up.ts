@@ -122,7 +122,37 @@ export function alreadyRunningConflict(flags: UpFlags, runtime: { url: string, p
   // "so --port 4800 it was not honoured" is not English: one flag reads "was not", several "were
   // not", and the flag names are the subject either way.
   const clause = asked.length === 1 ? `${what} was not honoured` : `${what} were not honoured`
-  return `home-hosted is already running at ${runtime.url} — ${clause}. Stop it and start it again with those flags, or use \`${invocation()} restart\` to move it.`
+  // The hint carries the flags, so it is the command to paste rather than half of one.
+  return `home-hosted is already running at ${runtime.url} — ${clause}. Use \`${invocation()} restart ${asked.join(' ')}\` to move it.`
+}
+
+/**
+ * Why the panel would refuse to start on this bind, read before anything is stopped or spawned.
+ *
+ * The daemon's own startup guard is the authority, but it runs *after* `restart` has taken the panel
+ * and every non-persistent server down — so `restart --host lan` on the first-run password left
+ * nothing running. This asks the same `checkExposure()` the same question first. A home with no
+ * password yet is read as the first-run password the daemon would generate. A config or secrets file
+ * the daemon would refuse anyway answers `null`: that refusal is the daemon's to explain.
+ */
+export async function exposureRefusal(host: string | undefined): Promise<string | null> {
+  const { GlobalSettingsStore } = await import('#src/config/settings')
+  const { SecretsStore } = await import('#src/config/secrets')
+  const { globalSecretsPath, globalSettingsPath } = await import('#src/helpers/paths')
+  const { parseBind } = await import('#src/shared/contracts')
+  const { checkExposure } = await import('#src/services/exposure')
+
+  const settings = new GlobalSettingsStore(globalSettingsPath)
+  settings.load({ write: false })
+  const secrets = new SecretsStore(globalSecretsPath, undefined, 'global')
+  if (settings.configError !== null || secrets.configError !== null)
+    return null
+  const bind = host === undefined ? settings.control.host : parseBind(host)
+  if (bind === null)
+    return null
+  // No password yet: the daemon generates the first-run one before it checks.
+  const firstRun = !secrets.passwordSet || secrets.usingDefaultPassword
+  return checkExposure({ ...settings.control, host: bind }, true, firstRun, secrets.passwordTooShort).blockedReason
 }
 
 export async function runUp(flags: UpFlags, entry: string): Promise<void> {
@@ -168,6 +198,11 @@ export async function runUp(flags: UpFlags, entry: string): Promise<void> {
   // a clock step can make a live panel look recycled — deleting its record would orphan it.
   if (existing !== null && await runtimeIsGone(existing))
     clearRuntime()
+
+  // Refused here rather than in the daemon log: the reason is one sentence the person can act on.
+  const exposure = await exposureRefusal(flags.host)
+  if (exposure !== null)
+    fail(`refusing to start: ${exposure}`)
 
   ensureStateDir(path.dirname(daemonLogPath))
   rotateLog(daemonLogPath)

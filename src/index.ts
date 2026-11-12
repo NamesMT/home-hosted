@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { createRootApp } from '#src/app'
+import { invocation } from '#src/cli/io'
 import { ensureLayout } from '#src/config/layout'
 import { generateInitialPassword, SecretsStore } from '#src/config/secrets'
 import { GlobalSettingsStore } from '#src/config/settings'
@@ -78,7 +79,7 @@ export interface ControlPlaneOptions {
 function refuseUnusableWorkspace(id: string, store: WorkspaceStore): void {
   if (store.pendingMigrations.length > 0) {
     logger.error(`refusing to start: workspace "${id}" needs ${store.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
-    logger.info('run `home-hosted migrate` to see and apply them')
+    logger.info(`run \`${invocation()} migrate\` to see and apply them`)
     process.exit(1)
   }
   if (store.configError !== null) {
@@ -110,7 +111,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // exited 1 there while `up --print-config` promises only to print and exit. Every other guard
   // below still runs, so a config this release would refuse is still reported.
   if (!options.printConfig && existing !== null && existing.pid !== process.pid && await runtimeIsAlive(existing)) {
-    logger.error(`already running (pid ${existing.pid}) at ${existing.url} — run \`home-hosted down\` first`)
+    logger.error(`already running (pid ${existing.pid}) at ${existing.url} — run \`${invocation()} down\` first`)
     process.exit(1)
   }
   // Deleted only when nothing is behind the pid; see `runtimeIsGone`. Otherwise the live daemon
@@ -137,7 +138,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   // release has `tooNew` and no steps, so it still gets "install that release".
   if (settings.pendingMigrations.length > 0) {
     logger.error(`refusing to start: ${settings.path} needs ${settings.pendingMigrations.length} migration(s) before ${appVersion()} can use it`)
-    logger.info('run `home-hosted migrate` to see and apply them')
+    logger.info(`run \`${invocation()} migrate\` to see and apply them`)
     process.exit(1)
   }
   if (settings.configError !== null) {
@@ -235,7 +236,8 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   const exposure = checkExposure({ ...configured, host: intended.host }, auth.passwordSet, auth.usingDefaultPassword, auth.passwordTooShort)
   if (exposure.blockedReason !== null) {
     logger.error(`refusing to start: ${exposure.blockedReason}`)
-    logger.info('bind the panel back to `local`, or set a password with `home-hosted set-password` and enable auth in Global Settings')
+    // The reason names its own fix; this is the other way out, which always works.
+    logger.info(`or keep the panel on this machine: \`${invocation()} up --host local\``)
     process.exit(1)
   }
   // Not a refusal: `true` has legitimate uses, and the real peer is not reachable once the header is
@@ -425,7 +427,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   logger.box(`home-hosted ${runtime.version}\n${endpoint.url}`)
   logger.info(`state:   ${hhDir}`)
   logger.info(`settings: ${settings.path}${auth.passwordSet ? '' : ' (no password set)'}`)
-  logger.info(`auth:    ${auth.isRequired() ? 'required' : 'disabled'}${auth.usingDefaultPassword ? ' (default password)' : ''}${auth.apiTokenSet ? ' · API token set' : ''}${exposure.exposed ? ' · exposed beyond loopback' : ''}`)
+  logger.info(`auth:    ${auth.isRequired() ? 'required' : 'disabled'}${auth.usingDefaultPassword ? ' (first-run password)' : ''}${auth.apiTokenSet ? ' · API token set' : ''}${exposure.exposed ? ' · exposed beyond loopback' : ''}`)
   logger.info(`project: ${projectDir}`)
   for (const workspace of panel.workspaces()) {
     logger.info(`workspace ${workspace.id} "${workspace.label}" — ${workspace.store.servers.length} server(s) · ${workspace.logsDir}`)
@@ -436,7 +438,7 @@ export async function runControlPlane(options: ControlPlaneOptions): Promise<voi
   for (const warning of [...settings.configWarnings, ...registry.configWarnings]) logger.warn(warning)
   if (ui.custom) {
     const meta = ui.status().meta
-    logger.warn(`custom UI in use${meta === null ? '' : ` (${meta.name}${meta.version === null ? '' : ` ${meta.version}`})`} — if it breaks, run \`home-hosted ui-revert\``)
+    logger.warn(`custom UI in use${meta === null ? '' : ` (${meta.name}${meta.version === null ? '' : ` ${meta.version}`})`} — if it breaks, run \`${invocation()} ui-revert\``)
     autoUpdateOfficialUi(ui, runtime.version)
   }
   for (const workspace of panel.workspaces()) {

@@ -111,6 +111,12 @@ describe('up on a running panel', () => {
     expect(sentence).toContain('--port 4800 and --host lan and --open were not honoured')
   })
 
+  /** "use `restart` to move it" without the flags restarted the panel where it already was. */
+  it('hands back the restart that carries the flags', () => {
+    expect(alreadyRunningConflict({ ...flags, host: 'lan' }, runtime)).toMatch(/`[^`]*restart --host lan` to move it/)
+    expect(alreadyRunningConflict({ ...flags, port: 4800, host: 'lan' }, runtime)).toMatch(/`[^`]*restart --port 4800 --host lan` to move it/)
+  })
+
   it('does not invent a conflict for a flag it cannot see', () => {
     // `--no-autostart` is a wish about a boot this command is not performing: the panel has already
     // booted, so there is nothing to honour or refuse. Refusing it would break `up --no-autostart`

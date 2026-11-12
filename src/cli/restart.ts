@@ -3,7 +3,7 @@ import { defineCommand } from 'citty'
 import { runDown } from '#src/cli/down'
 import { fail, invocation, paint } from '#src/cli/io'
 import { runServerAction } from '#src/cli/server'
-import { checkedUpFlags, runUp, upArgs } from '#src/cli/up'
+import { checkedUpFlags, exposureRefusal, runUp, upArgs } from '#src/cli/up'
 
 /**
  * `restart` restarts the panel (`down`, then `up`) — or, given a server id, just that entry.
@@ -72,6 +72,11 @@ export function restartCommand(entry: string) {
       // Every `up` flag is checked before anything is stopped: `restart --port abc` used to take the
       // panel down and only then refuse the port, leaving nothing running.
       const flags = await checkedUpFlags(args)
+      // The bind is checked too: `restart --host lan` on the first-run password used to stop the
+      // panel and every non-persistent server, then have the new panel refuse to start.
+      const exposure = await exposureRefusal(flags.host)
+      if (exposure !== null)
+        fail(`refusing to restart: ${exposure} — nothing was stopped`)
       const down = await runDown({ withPersistent: args.withPersistent === true })
       // `down` has already said why; going on to `up` would start a second panel over a live one.
       if (!down.ok)
