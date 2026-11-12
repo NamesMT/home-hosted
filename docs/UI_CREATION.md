@@ -34,6 +34,26 @@ for it, and the startup update of an official UI never replaces one you installe
 UI back. The delete is not archived — keep your own copy of the build. While a custom UI is active,
 `up` prints a reminder, so a broken UI never locks you out.
 
+### Caching, and what a missing path means
+
+The panel decides `Cache-Control` per request from the **name**, not from the directory:
+
+| Path | `Cache-Control` | Why |
+| --- | --- | --- |
+| `/assets/<name>-<hash>.<ext>`, where `<hash>` is 8 base64url characters carrying both a letter and an upper-case character or digit | `public, max-age=31536000, immutable` | The URL changes with the bytes, so a year is safe. This is what a Vite build emits. |
+| anything else (`index.html`, an unhashed `assets/logo.svg`, `favicon.ico`) | `no-cache` | The URL outlives one build. `immutable` on such a name froze a rebuilt UI in every browser. |
+
+`index.html` is always `no-cache` on purpose: it names the hashed files a rebuild deletes, so a
+cached shell pointing at a file that no longer exists is a blank page.
+
+**A missing path is a 404 unless it can be a page.** An extension-less path (a client route such as
+`/w/default/servers`) is answered with `index.html`, and so is any path outside `/assets/` requested
+with `Accept: text/html` — a browser navigating, and a route that happens to contain a dot. A request
+for a missing **file** is a 404: a `fetch`/`<script>`/`<link>` sends its own `Accept`, so a missing
+`.js` or `.css` never arrives as HTML (which a browser would report as a syntax error and hide the
+real 404). Nothing under `/assets/` is ever a page, so a missing name there is a 404 even for a
+request that accepts HTML — a broken reference in the build, not a route.
+
 ### `ui.json`
 
 Every field is optional; together they let the panel show what is installed and offer updates:
@@ -57,8 +77,9 @@ stamps. A BOM or UTF-16 file (Notepad, PowerShell) is read fine.
 
 1. **Static only.** Everything comes from the API; nothing is built on the server.
 2. **Same origin, relative paths.** Call `/api/...`, never an absolute host — the panel may be reached
-   over loopback, a LAN IP, TLS or a proxy. Unknown paths fall back to `index.html`, so client-side
-   routing and deep links work.
+   over loopback, a LAN IP, TLS or a proxy. A path a person navigated to falls back to `index.html`,
+   so client-side routing and deep links work; a missing *file* is a 404 (see
+   [Caching, and what a missing path means](#caching-and-what-a-missing-path-means)).
 3. **Keep the login flow.** `401 { code: "AUTH_REQUIRED" }` → show a login screen and
    `POST /api/auth/login`. While `session.usingDefaultPassword` is true, tell the person to change it
    (`home-hosted status` on the machine shows the first-run password).

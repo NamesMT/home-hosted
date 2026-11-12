@@ -1238,9 +1238,11 @@ describe('static UI', () => {
     const created = await fixture()
     const assets = path.join(created.ui.resolveDir(), 'assets')
     fs.mkdirSync(assets, { recursive: true })
-    fs.writeFileSync(path.join(assets, 'app-1a2b.js'), 'console.log(1)')
+    // A name of the shape a build emits: `[name]-<8 base64url chars>`. An `assets/` file *without*
+    // that shape gets `no-cache` — see `test/api/static.test.ts`, which pins the whole rule.
+    fs.writeFileSync(path.join(assets, 'app-1a2b3C4d.js'), 'console.log(1)')
 
-    const asset = await created.app.request('/assets/app-1a2b.js')
+    const asset = await created.app.request('/assets/app-1a2b3C4d.js')
     expect(asset.status).toBe(200)
     expect(asset.headers.get('cache-control')).toContain('immutable')
 
