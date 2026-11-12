@@ -192,6 +192,28 @@ describe('ui service', () => {
     expect(fixture.ui.custom).toBe(true)
   })
 
+  it('sweeps an upload a crash left behind', async () => {
+    const fixture = await makeFixture()
+    const upload = path.join(fixture.root, '.ui-upload-1730000000000.zip')
+    fs.writeFileSync(upload, 'partial')
+
+    expect(fixture.ui.recover().swept).toBe(1)
+    expect(fs.existsSync(upload)).toBe(false)
+  })
+
+  it('finds the wrapper directory beside the __MACOSX folder a Finder zip adds', async () => {
+    const fixture = await makeFixture()
+    const archive = await fixture.zip({
+      'dist/index.html': '<!doctype html><title>wrapped</title>',
+      '__MACOSX/dist/._index.html': 'resource fork',
+      '.hidden/x': 'x',
+    })
+
+    const result = await fixture.ui.install(archive)
+    expect(result.ok, JSON.stringify(result)).toBe(true)
+    expect(fs.readFileSync(path.join(fixture.ui.directory, 'index.html'), 'utf8')).toContain('wrapped')
+  })
+
   it('records the release it was fetched from, not the tag the archive claims', async () => {
     // Regression: a UI zip is built before its release is cut, so the tag inside it is
     // the *previous* release. Trusting it made a panel re-install the same UI on every

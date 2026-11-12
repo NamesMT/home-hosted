@@ -243,38 +243,33 @@ function withInstallLock<T>(dataRoot: string, run: () => Promise<T>): Promise<T>
 /** Renames the staged tree into place, keeping the old one until that has certainly worked. */
 function commitSwap(dataRoot: string, resting: string, staged: string, meta: UiMeta): Promise<UiInstallResult> {
   return withInstallLock(dataRoot, async () => {
-    // One rename, and no window at all: POSIX renames a directory onto an existing one.
+    // No platform renames a directory onto a non-empty one (POSIX answers ENOTEMPTY), so the old
+    // tree steps aside first — immediately, with no I/O in between — and is kept until the new one
+    // is in place.
+    const previous = `${resting}.previous-${process.pid}-${Date.now()}`
+    const hadPrevious = fs.existsSync(resting)
+    if (hadPrevious)
+      fs.renameSync(resting, previous)
+
     try {
       fs.renameSync(staged, resting)
     }
-    catch {
-      // Windows refuses that when the target is a non-empty directory, so the old tree
-      // steps aside first — immediately, with no I/O in between.
-      const previous = `${resting}.previous-${process.pid}-${Date.now()}`
-      const hadPrevious = fs.existsSync(resting)
-      if (hadPrevious)
-        fs.renameSync(resting, previous)
-
+    catch (error) {
+      // Put the user's UI back before reporting. If even that fails, keep the backup
+      // and say where it is — deleting it would destroy the only copy.
       try {
-        fs.renameSync(staged, resting)
+        fs.rmSync(resting, { recursive: true, force: true })
+        if (hadPrevious && fs.existsSync(previous))
+          fs.renameSync(previous, resting)
+        fs.rmSync(previous, { recursive: true, force: true })
       }
-      catch (error) {
-        // Put the user's UI back before reporting. If even that fails, keep the backup
-        // and say where it is — deleting it would destroy the only copy.
-        try {
-          fs.rmSync(resting, { recursive: true, force: true })
-          if (hadPrevious && fs.existsSync(previous))
-            fs.renameSync(previous, resting)
-          fs.rmSync(previous, { recursive: true, force: true })
-        }
-        catch {
-          return { ok: false, error: `${describeError(error)} — the previous UI is kept at ${previous}` }
-        }
-        return { ok: false, error: describeError(error) }
+      catch {
+        return { ok: false, error: `${errorMessage(error)} — the previous UI is kept at ${previous}` }
       }
-
-      fs.rmSync(previous, { recursive: true, force: true })
+      return { ok: false, error: errorMessage(error) }
     }
+
+    fs.rmSync(previous, { recursive: true, force: true })
 
     // Any backup older than this successful swap is now unreferenced; sweep them so an
     // interrupted install cannot leave a pile of stale full copies behind.
@@ -317,7 +312,7 @@ function newestBackup(dataRoot: string, resting: string): string | null {
 function sweepJunk(dataRoot: string): number {
   let swept = 0
   for (const entry of readDataRoot(dataRoot)) {
-    if (!entry.startsWith('.ui-staging-') && !entry.startsWith(`.ui.previous-`))
+    if (!entry.startsWith('.ui-staging-') && !entry.startsWith(`.ui.previous-`) && !entry.startsWith('.ui-upload-'))
       continue
     fs.rmSync(path.join(dataRoot, entry), { recursive: true, force: true })
     swept += 1
@@ -334,10 +329,6 @@ function readDataRoot(dataRoot: string): string[] {
   }
 }
 
-function describeError(error: unknown): string {
-  return errorMessage(error)
-}
-
 /**
  * Where the site actually starts: the archive root, or a single wrapper directory
  * (`zip -r ui.zip dist` is a common way to build one).
@@ -346,7 +337,9 @@ function resolveRoot(staging: string): string | null {
   if (fs.existsSync(path.join(staging, 'index.html')))
     return staging
 
-  const directories = fs.readdirSync(staging, { withFileTypes: true }).filter(entry => entry.isDirectory())
+  // A macOS zip carries `__MACOSX/` beside the real root, and dot-directories are never the site.
+  const directories = fs.readdirSync(staging, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && entry.name !== '__MACOSX' && !entry.name.startsWith('.'))
   if (directories.length !== 1)
     return null
 
