@@ -341,6 +341,16 @@ describe('view contracts', () => {
 
     expect(serverViewSchema(view) instanceof type.errors).toBe(false)
 
+    /**
+     * `restartRequired` is an optional server-view flag: absent while the running config matches the
+     * one the process started from, `true` once a restart-worthy field changes. Absent rather than
+     * `false`, like `adopted` and `stoppedByPanel`, so an older panel's view parses unchanged.
+     */
+    expect(serverViewSchema(view), 'absent is valid').not.toBeInstanceOf(type.errors)
+    expect(view).not.toHaveProperty('restartRequired')
+    expect(serverViewSchema({ ...view, restartRequired: true }) instanceof type.errors, 'true is valid').toBe(false)
+    expect(serverViewSchema({ ...view, restartRequired: 'yes' }) instanceof type.errors, 'a non-boolean is not').toBe(true)
+
     // Everything a workspace owns now lives under `workspaces`, not at the top.
     const workspace = {
       id: 'default',

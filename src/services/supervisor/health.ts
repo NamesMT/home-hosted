@@ -48,6 +48,8 @@ export function resetHealth(entry: Entry): void {
 export function endProcessReadings(entry: Entry): void {
   entry.runToken += 1
   entry.pid = null
+  // Nothing runs, so nothing is stale: `restartRequired` describes a live process, not a config.
+  entry.startedFrom = null
   entry.adopted = false
   entry.runPersistent = null
   entry.responseMs = null

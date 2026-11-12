@@ -2,6 +2,7 @@ import type { HistoryStore } from '#src/services/history'
 import type { Entry } from '#src/services/supervisor/entry'
 import type { ServerView } from '#src/shared/contracts'
 import { bindHost, displayHost } from '#src/helpers/bind'
+import { needsRestart } from '#src/services/supervisor/restart-required'
 
 /** Uptime/crash counters are reported over this window. */
 const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000
@@ -26,6 +27,7 @@ function summarizeHistory(entry: Entry, history: HistoryStore): ServerView['hist
 
 export function buildView(entry: Entry, workspaceId: string, history: HistoryStore): ServerView {
   const config = entry.config
+  const restartRequired = needsRestart(config, entry.startedFrom)
   const host = displayHost(config.bind)
   return {
     id: config.id,
@@ -52,5 +54,7 @@ export function buildView(entry: Entry, workspaceId: string, history: HistorySto
     history: summarizeHistory(entry, history),
     responseMs: entry.responseMs,
     resources: entry.resources,
+    // Omitted when false, like every other optional flag on the view.
+    ...(restartRequired ? { restartRequired: true } : {}),
   }
 }

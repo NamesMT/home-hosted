@@ -39,6 +39,7 @@ import { runPendingLoad } from '#src/services/supervisor/pending-load'
 import { PersistentEntries, rememberEchoedLine } from '#src/services/supervisor/persistent'
 import { freePort, preflight, supervisedPids } from '#src/services/supervisor/port-preflight'
 import { forgetRecordedChild, persistEntryState, pidLiveness, reportRecordedChildGone, resolveRecordedChild, scanOrphans, stopOrphanProcess, takeGoneRecordedChild } from '#src/services/supervisor/records'
+import { restartRelevant } from '#src/services/supervisor/restart-required'
 import { detectCompose, killBootstrap, resolveSpawn, runBootstrap } from '#src/services/supervisor/spawn'
 import { buildView } from '#src/services/supervisor/view'
 
@@ -791,6 +792,10 @@ export class Supervisor {
   private adoptEntry(entry: Entry, pid: number, reason: string, startedAt: number | null = null): StartResult {
     entry.adopted = true
     entry.runPersistent = entry.config.persistent
+    // An adopted process was started from whatever the config said before this panel booted, and the
+    // panel cannot know what that was — so the current config is the honest baseline. A later save
+    // still marks it, which is the case that matters.
+    entry.startedFrom = restartRelevant(entry.config)
     entry.pid = pid
     entry.child = null
     entry.status = 'running'
@@ -936,6 +941,9 @@ export class Supervisor {
   private attachChild(entry: Entry, child: ChildProcess, detail: string, cwd: string, flush?: () => void): void {
     entry.child = child
     entry.runPersistent = entry.config.persistent
+    // What this run is actually running. A config save afterwards changes `entry.config`, and only
+    // this snapshot can say the process predates the change.
+    entry.startedFrom = restartRelevant(entry.config)
     // A new run: whatever an earlier step said no longer describes it, and readiness only acts on `starting`.
     entry.status = 'starting'
     entry.lastError = null

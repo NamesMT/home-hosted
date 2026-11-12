@@ -1899,6 +1899,15 @@ export const serverViewSchema = lazy(() => type({
   /** Last health probe latency (TCP connect or HTTP request). */
   'responseMs': 'number | null',
   'resources': processResourcesSchema.or(type('null')),
+  /**
+   * The running process was started from a config that differs from the current one, in a field a
+   * restart actually re-reads (`command`, `args`, `cwd`, `env`, `envFile`, `port`, `bind`, …).
+   *
+   * A `PUT`/`PATCH` writes config only — the process keeps what it was started with — so a person
+   * who changed the program and pressed Save saw "saved" and nothing else, while the old program
+   * kept serving. Optional, like every response field.
+   */
+  'restartRequired?': 'boolean',
 }).onDeepUndeclaredKey('ignore'))
 // `config` is emitted normalized (port is always `number | null`, never absent),
 // while the schema accepts both forms so a hand-written payload still validates.

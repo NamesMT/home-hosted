@@ -108,6 +108,14 @@ export interface Entry {
    * can tell its work no longer belongs to the entry.
    */
   runToken: number
+  /**
+   * The restart-relevant fields of the config **this run started from**, recorded at spawn/adopt.
+   *
+   * `null` while nothing runs. Recorded per run rather than compared against the previous file: a
+   * second edit would move that baseline out from under the first, and the answer has to be "what is
+   * this process actually running", which only the value at spawn can say.
+   */
+  startedFrom: Pick<ServerConfig, 'command' | 'args' | 'cwd' | 'env' | 'envFile' | 'port' | 'bind' | 'persistent' | 'stop' | 'dataEnvs'> | null
   /** The start in flight, which a stop waits out once it has cancelled it. */
   startTask: Promise<StartResult> | null
   /**
@@ -195,6 +203,7 @@ export function createEntry(config: ServerConfig, nannyDir: string): Entry {
     bootstrapChild: null,
     actor: 'policy',
     stopActor: null,
+    startedFrom: null,
     removed: false,
     bootstrapDone: persisted?.bootstrapDone ?? !config.bootstrap,
     pendingLoad: persisted?.pendingLoad ?? null,

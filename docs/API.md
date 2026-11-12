@@ -210,7 +210,7 @@ and `/healthz` operation with its body and responses — the two documents that 
 | `GET /api/events` | the live feed (below) | ✅ optional |
 | `GET`/`POST /api/workspaces`, `PATCH`/`DELETE /api/workspaces/:id` | the workspace registry | |
 | `GET`/`POST /api/servers` | one workspace's entries | ✅ |
-| `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | one entry. `PUT` is create-or-replace (201, then 200): the idempotent form for config management. It writes config only — restart to apply | ✅ |
+| `GET`/`PUT`/`PATCH`/`DELETE /api/servers/:id` | one entry. `PUT` is create-or-replace (201, then 200): the idempotent form for config management. It writes config only — restart to apply, and the view's `restartRequired` says when that is needed | ✅ |
 | `POST /api/servers/:id/{start,stop,restart,free-port,clear-logs}` | lifecycle; `free-port` asks whatever holds the port to stop (a supervised holder is refused) | ✅ |
 | `POST /api/servers/{start-all,stop-all}` | the whole workspace (`?withPersistent=true` includes persistent entries) | ✅ |
 | `GET /api/servers/:id/logs`, `GET /api/servers/:id/stream` | buffered lines; one server's SSE (replays its last 200 lines first) | ✅ |
@@ -230,6 +230,13 @@ and `/healthz` operation with its body and responses — the two documents that 
 
 An entry body is **partial**: send only the fields the person chose, and the workspace's server
 defaults fill the rest. Sending a default explicitly freezes it against later default changes.
+
+**A create or `PUT` writes config; the running process keeps what it was started with.** The server
+view's optional `restartRequired` is `true` when the running process predates a change to a field a
+restart re-reads — `command`, `args`, `cwd`, `env`, `envFile`, `dataEnvs`, `port`, `bind`,
+`persistent` and `stop`. A change to anything else (`label`, `enabled`, `health`, `restart`,
+`resources`, `dependsOn`, log retention, backup paths, the port-conflict policy) takes effect live and
+does **not** set it. A stopped entry never sets it.
 
 ## Live events
 
