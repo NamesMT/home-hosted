@@ -1,6 +1,6 @@
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
-import { passwordLengthVerdict } from '#src/cli/set-password'
+import { passwordLengthVerdict } from '#src/cli/account'
 import { controlSchema, proxyConfigSchema } from '#src/shared/contracts'
 
 function settings(control: Record<string, unknown>, proxy: Record<string, unknown> = {}) {
@@ -15,7 +15,7 @@ function settings(control: Record<string, unknown>, proxy: Record<string, unknow
  * A one-character password was stored without a word beyond "short", and the panel could then be
  * put on the LAN behind it. The exposure bar is 12 characters; `set-password` says so up front.
  */
-describe('set-password and the length of what it stores', () => {
+describe('account secret and the length of what it stores', () => {
   it('refuses a short password while the config exposes the panel', async () => {
     const verdict = await passwordLengthVerdict('a', settings({ host: 'lan' }))
     expect(verdict.refusal).not.toBeNull()

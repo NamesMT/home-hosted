@@ -27,12 +27,19 @@ afterEach(async () => {
 })
 
 /** A token created with these scopes, and the header that carries it. */
+/**
+ * An account holding exactly these scopes, and the bearer header that carries it.
+ *
+ * The credential is `<id>:<secret>` — the id is not secret, and carrying it is what lets the panel
+ * refuse a wrong id and a wrong secret by the same path.
+ */
 function mint(created: Fixture, scopes: Array<'read' | 'lifecycle' | 'config' | 'admin'>, workspaces?: string[]): { token: string, headers: Record<string, string> } {
-  const { token } = created.globalSecrets.createApiToken({ name: `t-${scopes.join('-')}-${Math.random().toString(36).slice(2, 7)}`, scopes, workspaces })
-  return { token, headers: { authorization: `Bearer ${token}` } }
+  const id = `t-${scopes.join('-')}-${Math.random().toString(36).slice(2, 7)}`
+  const { secret } = created.globalSecrets.createAccount({ id, label: id, scopes, ...(workspaces === undefined ? {} : { workspaces }) })
+  return { token: secret, headers: { authorization: `Bearer ${id}:${secret}` } }
 }
 
-describe('a token with only read', () => {
+describe('an account with only read', () => {
   it('reads, and is refused every non-GET with TOKEN_SCOPE', async () => {
     const created = await fixture()
     const { headers } = mint(created, ['read'])
@@ -56,7 +63,7 @@ describe('a token with only read', () => {
   })
 })
 
-describe('a token with lifecycle', () => {
+describe('an account with lifecycle', () => {
   it('may start and stop, and may not change config', async () => {
     const created = await fixture()
     const { headers } = mint(created, ['read', 'lifecycle'])
@@ -76,8 +83,8 @@ describe('a token with lifecycle', () => {
   })
 })
 
-describe('a token with config', () => {
-  it('may write config and take a backup, and may not mint a token', async () => {
+describe('an account with config', () => {
+  it('may write config and take a backup, and may not mint another account', async () => {
     const created = await fixture()
     const { headers } = mint(created, ['read', 'config'])
 
@@ -97,7 +104,7 @@ describe('a token with config', () => {
   })
 })
 
-describe('a token with admin', () => {
+describe('an account with admin', () => {
   it('may do everything a token could do before', async () => {
     const created = await fixture()
     const { headers } = mint(created, ['admin'])
@@ -110,7 +117,7 @@ describe('a token with admin', () => {
   })
 })
 
-describe('a token limited to one workspace', () => {
+describe('an account limited to one workspace', () => {
   it('is refused a route naming another, and allowed its own', async () => {
     const created = await makeFixture({ workspaces: [{ id: 'staging' }], servers: [{ id: 'web', command: 'node' }] })
     fixtures.push(created)
@@ -147,6 +154,6 @@ describe('the declaration', () => {
     expect(tokenScopesFor('GET', '/api/state')).toBe('read')
     expect(tokenScopesFor('POST', '/api/servers/:id/start')).toBe('lifecycle')
     expect(tokenScopesFor('PATCH', '/api/settings')).toBe('config')
-    expect(tokenScopesFor('POST', '/api/auth/tokens')).toBe('admin')
+    expect(tokenScopesFor('POST', '/api/auth/accounts')).toBe('admin')
   })
 })

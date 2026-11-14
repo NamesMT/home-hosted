@@ -104,6 +104,9 @@ export const accountCommand = defineCommand({
       process.stdout.write(`  ${created.secret}\n`)
       process.stdout.write(`${dim('  shown once — only a hash is kept, so copy it now')}\n`)
       process.stdout.write(`${dim(`  sign in as ${created.account.id} with it, or send it as \`Authorization: Bearer ${created.account.id}:<secret>\``)}\n`)
+      // The next step names the command *and* this home, so a person running against a project's own
+      // state is not pointed at the default one.
+      process.stdout.write(`${dim(`  otherwise: \`${invocation()} account secret ${created.account.id}\` to set your own, \`${invocation()} account ls\` to list them`)}\n`)
       return
     }
 

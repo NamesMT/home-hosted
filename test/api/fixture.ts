@@ -266,8 +266,10 @@ export async function makeFixture(options: FixtureOptions = {}): Promise<Fixture
 
   const globalSecrets = new SecretsStore(path.join(hhDir, '.control-secrets.json'), undefined, 'global')
   const auth = new AuthService(globalSecrets, () => settings.control.auth)
+  // A fixture that asks for a password is asking for a way in: it becomes the `default` account's
+  // secret, which is what a real panel's first boot does.
   if (options.password !== undefined)
-    auth.setPassword(options.password)
+    globalSecrets.createAccount({ id: 'default', label: 'default', scopes: ['read', 'lifecycle', 'config', 'admin'], secret: options.password })
 
   const tls = new TlsStore(path.join(hhDir, '.tls'))
   const hub = new EventHub()

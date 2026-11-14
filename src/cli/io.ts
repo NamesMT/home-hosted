@@ -203,9 +203,9 @@ export async function firstRunPasswordState(file?: string): Promise<FirstRunPass
   }
 }
 
-/** The line `up` and `status` print for an unrecorded first-run password. */
+/** The line `up` and `status` print for an unrecorded first-run secret. */
 export function unrecordedFirstRunHint(): string {
-  return `the first-run password is in use but no longer recorded — run \`${invocation()} set-password\``
+  return `the first-run secret is in use but no longer recorded — run \`${invocation()} account reset\``
 }
 
 /** The first-run password while it is still the one in use, read from this machine's secrets file. */

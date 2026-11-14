@@ -165,9 +165,9 @@ export async function runStatus(json: boolean): Promise<void> {
   ]
   const initial = await firstRunPasswordState()
   if (initial?.kind === 'recorded')
-    rows.push(['password', `${paint('33', initial.password)} ${dim('(first-run password — change it in Global settings → Authentication)')}`])
+    rows.push(['secret', `${paint('33', initial.password)} ${dim('(first-run secret — change it in Global settings → Accounts)')}`])
   else if (initial?.kind === 'unrecorded')
-    rows.push(['password', paint('33', unrecordedFirstRunHint())])
+    rows.push(['secret', paint('33', unrecordedFirstRunHint())])
 
   // Which server, not only how many: "a server needs attention" named none of them.
   const table = running && probe.reachable ? await serverEntries(runtime) : []

@@ -174,8 +174,15 @@ export class AuthService {
     return this.isArmed()
   }
 
+  /**
+   * Whether a **bearer** credential exists — which now means "is there an enabled account".
+   *
+   * The name is kept for the `WWW-Authenticate` hint and older clients, but the meaning moved with the
+   * model: any account can authenticate the API, so advertising the scheme is right whenever one can
+   * sign in.
+   */
   get apiTokenSet(): boolean {
-    return this.secrets.apiTokenSet
+    return this.secrets.anyAccountEnabled
   }
 
   /** The readable head of the stored token, never the token itself. */
@@ -202,8 +209,21 @@ export class AuthService {
    */
   authenticate(credentials: { cookieToken: string | null, bearerToken: string | null }, options: { slide?: boolean } = {}): AuthIdentity {
     const session = this.validate(credentials.cookieToken, options)
-    if (session !== null)
-      return { authenticated: true, method: 'cookie', session }
+    if (session !== null) {
+      /**
+       * A cookie resolves to **its account**, exactly as a bearer value does.
+       *
+       * This is what makes the two credentials one model: the scope guard, `requestActor` and
+       * `/api/meta` read `identity.account` and cannot tell — or need to — which kind answered. A
+       * session whose account has since been removed or disabled authenticates as anonymous, because
+       * the credential it stands for no longer exists.
+       */
+      const owner = this.secrets.account(session.accountId)
+      if (owner !== null && owner.enabled)
+        return { authenticated: true, method: 'cookie', session, account: owner }
+      this.sessions.delete(session.token)
+      return ANONYMOUS
+    }
     const account = credentials.bearerToken === null ? null : this.accountFromBearer(credentials.bearerToken)
     if (account !== null) {
       // Recorded so a settings page can show an account nobody uses any more. Best-effort: a write
@@ -248,7 +268,7 @@ export class AuthService {
       authenticated,
       authRequired: this.isRequired(),
       passwordSet: this.secrets.passwordSet,
-      apiTokenSet: this.secrets.apiTokenSet,
+      apiTokenSet: this.secrets.anyAccountEnabled,
       usingDefaultPassword: this.secrets.usingDefaultPassword,
       // The first-run password is shown on the machine that started the panel, never over the API,
       // so the field is **absent** rather than a `null` that promised a value that cannot arrive.
@@ -272,9 +292,17 @@ export class AuthService {
     const session = this.sessions.get(token)
     if (!session)
       return null
-    // The password changed since this session was issued — by the API, or by `set-password` in
-    // another process writing the same file. Either way the credential it represents is gone.
-    if (session.passwordRevision !== this.secrets.passwordUpdatedAt) {
+    /**
+     * The **account's** secret changed since this session was issued — by the API, by another
+     * account's edit, or by `home-hosted account` in another process writing the same file.
+     *
+     * Per account, not panel-wide: this used to compare against the `default` account's timestamp, so
+     * revoking or renaming *any* account invalidated *every* session on the panel. Two people using
+     * one panel is the case accounts exist for, and one person's credential change must not sign the
+     * other out.
+     */
+    const owner = this.secrets.account(session.accountId)
+    if (owner === null || session.passwordRevision !== owner.updatedAt) {
       this.sessions.delete(token)
       return null
     }
@@ -449,7 +477,7 @@ export class AuthService {
     this.sessions.set(token, {
       token,
       accountId: account.id,
-      passwordRevision: this.secrets.passwordUpdatedAt,
+      passwordRevision: account.updatedAt,
       expiresAt,
       // The login response sets this same deadline, so the browser is already in step.
       cookieExpiresAt: expiresAt,

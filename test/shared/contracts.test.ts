@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { type } from 'arktype'
 import { describe, expect, it } from 'vitest'
 import {
+  accountSecretSchema,
   appStateSchema,
   authSchema,
   backupCreatedResponseSchema,
@@ -27,7 +28,6 @@ import {
   notificationDefaultsSchema,
   notificationsSchema,
   onPortConflictSchema,
-  passwordSchema,
   passwordValueSchema,
   portSchema,
   proxyCertificateSchema,
@@ -638,17 +638,17 @@ describe('genericity', () => {
   })
 })
 
-describe('password payload', () => {
-  it('accepts an omitted current password but not an explicit undefined', () => {
-    expect(passwordSchema({ newPassword: 'a-good-password' }) instanceof type.errors).toBe(false)
-    expect(passwordSchema({ currentPassword: undefined, newPassword: 'a-good-password' } as unknown) instanceof type.errors).toBe(true)
-    expect(passwordSchema({ currentPassword: 'old-one', newPassword: 'a-good-password' }) instanceof type.errors).toBe(false)
+describe('account secret payload', () => {
+  it('accepts an omitted current secret but not an explicit undefined', () => {
+    expect(accountSecretSchema({ newSecret: 'a-good-password' }) instanceof type.errors).toBe(false)
+    expect(accountSecretSchema({ currentSecret: undefined, newSecret: 'a-good-password' } as unknown) instanceof type.errors).toBe(true)
+    expect(accountSecretSchema({ currentSecret: 'old-one', newSecret: 'a-good-password' }) instanceof type.errors).toBe(false)
   })
 
-  it('accepts any non-empty password but rejects an empty one', () => {
-    expect(passwordSchema({ newPassword: 'a' }) instanceof type.errors).toBe(false)
-    expect(passwordSchema({ newPassword: 'hh' }) instanceof type.errors).toBe(false)
-    expect(passwordSchema({ newPassword: '' }) instanceof type.errors).toBe(true)
+  it('accepts any non-empty secret but rejects an empty one', () => {
+    expect(accountSecretSchema({ newSecret: 'a' }) instanceof type.errors).toBe(false)
+    expect(accountSecretSchema({ newSecret: 'hh' }) instanceof type.errors).toBe(false)
+    expect(accountSecretSchema({ newSecret: '' }) instanceof type.errors).toBe(true)
   })
 })
 

@@ -69,14 +69,14 @@ describe('the root app behind the host guard', () => {
     const created = await makeFixture({ password: 'a-good-password', ip: '127.0.0.1' })
     fixtures.push(created)
     const rebound = await created.app.request('http://evil.example.com:3999/api/auth/login', {
-      ...jsonRequest('POST', { password: 'a-good-password' }),
+      ...jsonRequest('POST', { id: 'default', secret: 'a-good-password' }),
       headers: { 'content-type': 'application/json', 'host': 'evil.example.com:3999', 'origin': 'http://evil.example.com:3999' },
     })
     expect(rebound.status).toBe(421)
     expect(await rebound.json()).toMatchObject({ code: 'HOST_NOT_ALLOWED' })
 
     const local = await created.app.request('http://127.0.0.1:3999/api/auth/login', {
-      ...jsonRequest('POST', { password: 'a-good-password' }),
+      ...jsonRequest('POST', { id: 'default', secret: 'a-good-password' }),
       headers: { 'content-type': 'application/json', 'host': '127.0.0.1:3999' },
     })
     expect(local.status).toBe(200)

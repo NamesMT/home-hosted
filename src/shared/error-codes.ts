@@ -72,6 +72,10 @@ export const ERROR_CODES = {
   NO_DEPLOY: { status: 400, meaning: 'this server has no deploy steps — nothing to run. Add a `deploy` block to its entry' },
   DEPLOY_RUNNING: { status: 409, meaning: 'a deploy is already running for this server; wait for it, or stop the server to cancel it' },
   DEPLOY_FAILED: { status: 409, meaning: 'a deploy step failed — the previous process is still running, and its log names the step' },
+  ACCOUNT_EXISTS: { status: 409, meaning: 'an account with that id already exists — ids are what a login is keyed on, so two cannot share one' },
+  UNKNOWN_ACCOUNT: { status: 404, meaning: 'no account has that id' },
+  CANNOT_REVOKE_SELF: { status: 400, meaning: 'that is the account making the request — sign in as another one to revoke it, or the caller signs itself out mid-action' },
+  LAST_ACCOUNT: { status: 400, meaning: 'that is the last account that can sign in; revoking it would leave the panel with no way in' },
   TOKEN_EXISTS: { status: 409, meaning: 'an API token with that name already exists — two tokens with one name cannot be told apart' },
   UNKNOWN_TOKEN: { status: 404, meaning: 'no API token has that id' },
 

@@ -1049,6 +1049,13 @@ export class SecretsStore {
     // A hand-set secret clears the first-run markers: it is no longer the boot default.
     delete record.isDefault
     delete record.initial
+    // And the length flag is recomputed, not carried: it describes the **current** secret, and a
+    // person who replaces a one-character one with a twelve-character one must stop being told it is
+    // too short. `credentialFields` only ever *sets* it, so the spread of the old record above keeps
+    // a stale `true` — the flag is rebuilt from the new secret alone.
+    const fresh = credentialFields(secret, false)
+    if (fresh.short !== true)
+      delete record.short
     const next = [...existing]
     next[index] = record
     this.writeAccounts(next)

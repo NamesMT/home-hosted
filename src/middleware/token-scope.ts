@@ -118,11 +118,15 @@ const RULES: Record<string, TokenScopeRule> = {
   'DELETE /api/tls': { scope: 'admin', workspaceScoped: false },
   'POST /api/auth/password': { scope: 'admin', workspaceScoped: false },
   'DELETE /api/auth/password': { scope: 'admin', workspaceScoped: false },
-  'POST /api/auth/token': { scope: 'admin', workspaceScoped: false },
-  'DELETE /api/auth/token': { scope: 'admin', workspaceScoped: false },
-  'POST /api/auth/tokens': { scope: 'admin', workspaceScoped: false },
-  'GET /api/auth/tokens': { scope: 'admin', workspaceScoped: false },
-  'DELETE /api/auth/tokens/:id': { scope: 'admin', workspaceScoped: false },
+
+  // Accounts are the credential model: managing one is the most privileged act there is, and the
+  // routes additionally require a **session** (a credential cannot mint another).
+  'POST /api/auth/accounts': { scope: 'admin', workspaceScoped: false },
+  'GET /api/auth/accounts': { scope: 'admin', workspaceScoped: false },
+  'PATCH /api/auth/accounts/:id': { scope: 'admin', workspaceScoped: false },
+  'DELETE /api/auth/accounts/:id': { scope: 'admin', workspaceScoped: false },
+  // Changing **your own** secret is not admin: every account may rotate its own credential.
+  'POST /api/auth/accounts/me/secret': { scope: 'read', workspaceScoped: false },
   'POST /api/proxy/engine': { scope: 'admin', workspaceScoped: false },
   'POST /api/proxy/start': { scope: 'admin', workspaceScoped: false },
   'POST /api/proxy/stop': { scope: 'admin', workspaceScoped: false },

@@ -59,7 +59,7 @@ const PURE_SYMBOLS: Record<string, Set<string>> = {
  * parsers, with no `#src` value import at all (one `import type`, erased at compile time). The command
  * that reads a file and writes entries is `import.ts`, which the guard still covers.
  */
-const ALWAYS_PURE = new Set(['io', 'nearest', 'args', 'backup-offline', 'import-plan'])
+const ALWAYS_PURE = new Set(['io', 'nearest', 'args', 'backup-offline', 'import-plan', 'account'])
 
 /** Every `import … from '#src/cli/<command>'` in a file, with the symbols it takes. */
 function cliImports(text: string): Array<{ specifier: string, symbols: string[] }> {

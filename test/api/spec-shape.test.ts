@@ -203,7 +203,7 @@ describe('the spec publishes each route\'s token scope', () => {
     expect(doc.paths['/api/state']!.get!['x-required-scope']).toBe('read')
     expect(doc.paths['/api/servers/{id}/start']!.post!['x-required-scope']).toBe('lifecycle')
     expect(doc.paths['/api/servers/{id}']!.patch!['x-required-scope']).toBe('config')
-    expect(doc.paths['/api/auth/tokens']!.post!['x-required-scope']).toBe('admin')
+    expect(doc.paths['/api/auth/accounts']!.post!['x-required-scope']).toBe('admin')
   })
 
   it('leaves a local-channel route unmarked, since a token never reaches it', async () => {

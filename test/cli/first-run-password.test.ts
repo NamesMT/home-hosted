@@ -33,7 +33,7 @@ describe('the first-run password as the CLI reports it', () => {
   it('is unrecorded when it is in use but its text is gone', async () => {
     const file = secretsFile(hashPassword('abcd-efgh-jkmn', { isDefault: true }))
     expect(await firstRunPasswordState(file)).toEqual({ kind: 'unrecorded' })
-    expect(unrecordedFirstRunHint()).toMatch(/^the first-run password is in use but no longer recorded — run `.+ set-password`$/)
+    expect(unrecordedFirstRunHint()).toMatch(/^the first-run secret is in use but no longer recorded — run `.+ account reset`$/)
   })
 
   it('is nothing once the person has set their own', async () => {

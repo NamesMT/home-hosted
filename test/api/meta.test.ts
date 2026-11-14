@@ -26,8 +26,16 @@ afterAll(async () => {
   for (const created of fixtures.splice(0).reverse()) await created.cleanup()
 })
 
-function setApiToken(created: Fixture, token: string): void {
-  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setApiToken(token)
+/**
+ * Give this panel an API account whose secret is `token`, and return the value to send.
+ *
+ * A token is an account now: the bearer value is `<id>:<secret>`, so this returns that pair rather
+ * than the bare secret the old single-token model used.
+ */
+function setApiToken(created: Fixture, token: string, id = 'script'): string {
+  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global')
+    .createAccount({ id, label: id, scopes: ['read', 'lifecycle', 'config', 'admin'], secret: token })
+  return `${id}:${token}`
 }
 
 interface Meta {
@@ -64,28 +72,29 @@ describe('panel metadata', () => {
    * there as the fallback for a token migrated from the pre-0.14 single one, whose only identity was
    * its own value. Either way: **the value never appears**.
    */
-  it('names the API token that answered, and never echoes it', async () => {
+  it('names the account that answered, and never echoes its secret', async () => {
     const created = await fixture({ views: [makeView('web')] })
-    const token = generateApiToken()
-    setApiToken(created, token)
+    const secret = generateApiToken()
+    const bearer = setApiToken(created, secret)
 
-    const response = await created.app.request('/api/meta', { headers: { authorization: `Bearer ${token}` } })
+    const response = await created.app.request('/api/meta', { headers: { authorization: `Bearer ${bearer}` } })
     const body = await response.json() as Meta
 
     expect(body.credential.kind).toBe('token')
-    // The legacy single token migrates in as `default`, which is the name this one now has.
-    expect(body.credential.name).toBe('default')
-    expect(JSON.stringify(body), 'the token itself must never be echoed').not.toContain(token)
+    // The account's label, which is what tells two accounts apart in a settings page.
+    expect(body.credential.name).toBe('script')
+    expect(JSON.stringify(body), 'the secret itself must never be echoed').not.toContain(secret)
     expect(body.actor).toBe('agent')
   })
 
-  it('names a minted token by the name it was minted with', async () => {
+  it('names an account by its label, whatever the id is', async () => {
     const created = await fixture({ views: [makeView('web')] })
-    const { token } = created.globalSecrets.createApiToken({ name: 'monitor', scopes: ['read'] })
+    const secret = generateApiToken()
+    created.globalSecrets.createAccount({ id: 'monitor', label: 'the monitor', scopes: ['read'], secret })
 
-    const body = await (await created.app.request('/api/meta', { headers: { authorization: `Bearer ${token}` } })).json() as Meta
-    expect(body.credential).toMatchObject({ kind: 'token', name: 'monitor' })
-    expect(JSON.stringify(body)).not.toContain(token)
+    const body = await (await created.app.request('/api/meta', { headers: { authorization: `Bearer monitor:${secret}` } })).json() as Meta
+    expect(body.credential).toMatchObject({ kind: 'token', name: 'the monitor' })
+    expect(JSON.stringify(body)).not.toContain(secret)
   })
 
   /**
@@ -98,8 +107,8 @@ describe('panel metadata', () => {
     expect(local.refused).toEqual([])
 
     const token = generateApiToken()
-    setApiToken(created, token)
-    const asToken = await (await created.app.request('/api/meta', { headers: { authorization: `Bearer ${token}` } })).json() as Meta
+    const bearer = setApiToken(created, token)
+    const asToken = await (await created.app.request('/api/meta', { headers: { authorization: `Bearer ${bearer}` } })).json() as Meta
 
     // Every entry is a refusal that exists in src/api — not a policy invented by this route.
     expect([...asToken.refused].sort()).toEqual([
@@ -118,7 +127,7 @@ describe('panel metadata', () => {
     const login = await created.app.request('/api/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'a-long-enough-password' }),
+      body: JSON.stringify({ id: 'default', secret: 'a-long-enough-password' }),
     })
     const cookie = login.headers.get('set-cookie')!.split(';')[0]!
 
@@ -205,8 +214,8 @@ describe('the session route’s credential field', () => {
     expect(local.credential).toEqual({ kind: 'local' })
 
     const token = generateApiToken()
-    setApiToken(created, token)
-    const viaToken = await (await created.app.request('/api/auth/session', { headers: { authorization: `Bearer ${token}` } })).json() as { credential?: { kind: string, name?: string } }
+    const bearer = setApiToken(created, token)
+    const viaToken = await (await created.app.request('/api/auth/session', { headers: { authorization: `Bearer ${bearer}` } })).json() as { credential?: { kind: string, name?: string } }
     expect(viaToken.credential?.kind).toBe('token')
     expect(JSON.stringify(viaToken)).not.toContain(token)
   })
@@ -220,7 +229,7 @@ describe('the session route’s credential field', () => {
     const login = await created.app.request('/api/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'a-long-enough-password' }),
+      body: JSON.stringify({ id: 'default', secret: 'a-long-enough-password' }),
     })
     const cookie = login.headers.get('set-cookie')!.split(';')[0]!
     const signedIn = await (await created.app.request('/api/auth/session', { headers: { cookie } })).json() as { credential?: { kind: string } }

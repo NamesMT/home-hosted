@@ -163,7 +163,7 @@ describe('ddns credentials on disk', () => {
     const store = new SecretsStore(file, 's')
     expect(store.getDdnsCredentials('cf', 'cloudflare')?.values).toEqual({ apiToken: 'plain-token' })
 
-    store.setPassword('a-password')
+    store.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a-password' })
     expect(fs.readFileSync(file, 'utf8')).not.toContain('plain-token')
     expect(read(file).ddns.cf.algo).toBe('aes-256-gcm')
     expect(read(file).version).toBeUndefined()
@@ -202,11 +202,11 @@ describe('ddns credentials on disk', () => {
   it('keeps the other secrets readable while the ddns entries are sealed', async () => {
     const file = await tempFile()
     const store = new SecretsStore(file, 's')
-    store.setPassword('a-password')
+    store.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a-password' })
     store.setTelegramToken('tg', 'bot-token')
     store.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'x' })
 
-    expect(read(file).password.algo).toBe('scrypt')
+    expect(read(file).accounts[0]!.algo).toBe('scrypt')
     expect(read(file).telegram.tg).toBe('bot-token')
     expect(new SecretsStore(file, 'different').passwordSet).toBe(true)
   })
@@ -236,7 +236,7 @@ describe('secret scopes', () => {
     const file = await tempFile()
     const store = new SecretsStore(file, 's', 'global')
 
-    store.setPassword('a-password')
+    store.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a-password' })
     store.setApiToken('hh_a-token')
     store.setTelegramToken('tg', 'bot-token')
     store.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
@@ -260,7 +260,7 @@ describe('secret scopes', () => {
 
     store.setTelegramToken('tg', 'bot-token')
     store.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
-    store.setPassword('a-password')
+    store.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a-password' })
     store.setApiToken('hh_a-token')
 
     // The workspace's own secrets are there…
@@ -277,7 +277,7 @@ describe('secret scopes', () => {
   it('a scoped store reads only its own half of a file that carries both', async () => {
     const file = await tempFile()
     const both = new SecretsStore(file, 's', 'all')
-    both.setPassword('a-password')
+    both.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a-password' })
     both.setApiToken('hh_a-token')
     both.setTelegramToken('tg', 'bot-token')
     both.setDdnsCredentials('cf', 'cloudflare', { apiToken: 'cf-token-value' })
@@ -308,7 +308,7 @@ describe('secret scopes', () => {
     }, null, 2))
 
     const global = new SecretsStore(file, 's', 'global')
-    global.setPassword('a-password')
+    global.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a-password' })
 
     // The workspace half is not echoed back through a global write. The map reads as `{}` now
     // rather than `null`: the tokens are keyed by destination id, and a scope keeps a map.
@@ -363,7 +363,7 @@ describe('an unreadable secrets file', () => {
 
     // `runControlPlane` refuses at boot; `set-password` and `set-token` never boot one,
     // so the same rule has to hold on the write path or they would replace the file.
-    expect(() => store.setPassword('a-new-password')).toThrowError(/refusing to write/)
+    expect(() => store.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a-new-password' })).toThrowError(/refusing to write/)
     expect(fs.readFileSync(file, 'utf8')).toBe('{ truncated')
   })
 
@@ -384,28 +384,28 @@ describe('a password too short for exposure', () => {
   it('is flagged when it is hashed, because the hash cannot be measured afterwards', async () => {
     const file = await tempFile()
     const store = new SecretsStore(file, undefined, 'global')
-    store.setPassword('a')
+    store.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a' })
     expect(store.passwordTooShort).toBe(true)
-    expect(read(file).password.short).toBe(true)
+    expect(read(file).accounts[0]!.short).toBe(true)
 
-    store.setPassword('twelve-chars')
+    store.setAccountSecret('default', 'twelve-chars')
     expect(store.passwordTooShort).toBe(false)
-    expect(read(file).password.short).toBeUndefined()
+    expect(read(file).accounts[0]!.short).toBeUndefined()
   })
 
   it('counts characters, not UTF-16 units', async () => {
     const file = await tempFile()
     const store = new SecretsStore(file, undefined, 'global')
     // Six emoji are twelve UTF-16 units and six characters.
-    store.setPassword('🔑🔑🔑🔑🔑🔑')
+    store.createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: '🔑🔑🔑🔑🔑🔑' })
     expect(store.passwordTooShort).toBe(true)
   })
 
   it('reads a record written before the flag existed as long enough', async () => {
     const file = await tempFile()
-    new SecretsStore(file, undefined, 'global').setPassword('a')
+    new SecretsStore(file, undefined, 'global').createAccount({ id: 'default', label: 'default', scopes: ['read', 'admin'], secret: 'a' })
     const raw = read(file)
-    delete raw.password.short
+    delete raw.accounts[0]!.short
     fs.writeFileSync(file, JSON.stringify(raw))
     expect(new SecretsStore(file, undefined, 'global').passwordTooShort).toBe(false)
   })

@@ -55,7 +55,7 @@ describe('password hashing', () => {
   // `mode` the write asked for, so this can only be asserted where it means something.
   it.skipIf(process.platform === 'win32')('writes the secrets file with mode 0600', async () => {
     const { secrets, file } = await makeAuth()
-    secrets.setPassword('a-good-password')
+    seedAccount(null, secrets, 'a-good-password')
 
     const mode = fs.statSync(file).mode & 0o777
     expect(mode).toBe(0o600)
@@ -63,7 +63,7 @@ describe('password hashing', () => {
 
   it('does not treat a corrupt secrets file as an accessible one', async () => {
     const { secrets, file } = await makeAuth()
-    secrets.setPassword('a-good-password')
+    seedAccount(null, secrets, 'a-good-password')
     await fs.promises.writeFile(file, '{ not json')
 
     const reloaded = new SecretsStore(file)
@@ -71,41 +71,68 @@ describe('password hashing', () => {
   })
 })
 
+/**
+ * Give this panel a way in: an account named `default` holding every scope.
+ *
+ * The tests used to call `auth.setPassword(...)`, which no longer exists — the credential model is an
+ * account now, and creating one is what arms the guard. Keeping it a helper means each test still
+ * reads as "a panel somebody can sign in to" rather than as a fixture detail.
+ */
+function seedAccount(auth: { secrets?: never } | unknown, secrets: SecretsStore, secret: string, options: { id?: string, scopes?: string[], generated?: boolean } = {}): void {
+  void auth
+  const id = options.id ?? 'default'
+  // An existing account is **rotated**, not duplicated: calling `createAccount` twice with one id
+  // throws, and a test that meant "the secret changed" must not silently do nothing.
+  if (secrets.account(id) !== null) {
+    secrets.setAccountSecret(id, secret)
+    return
+  }
+  secrets.createAccount({
+    id,
+    label: id,
+    scopes: (options.scopes ?? ['read', 'lifecycle', 'config', 'admin']) as never,
+    secret,
+    ...(options.generated === true ? { isDefault: true, keepInitial: true } : {}),
+  })
+}
+
 describe('auth service', () => {
   it('requires both the switch and a password to be armed', async () => {
-    const { auth } = await makeAuth({ enabled: true })
+    const { auth, secrets } = await makeAuth({ enabled: true })
     expect(auth.isEnabled()).toBe(true)
     expect(auth.isRequired()).toBe(false)
 
-    auth.setPassword('a-good-password')
+    seedAccount(auth, secrets, 'a-good-password')
     expect(auth.isRequired()).toBe(true)
   })
 
-  it('never sends the first-run password over the API, and drops it once replaced', async () => {
+  it('never sends the first-run secret over the API, and drops it once replaced', async () => {
     const { auth, secrets } = await makeAuth({ enabled: true })
 
-    secrets.ensureDefaultPassword('abcd-efgh-jkmn')
+    // What a first boot does: a generated secret, marked as the boot default so the machine can
+    // print it and exposure stays blocked.
+    seedAccount(auth, secrets, 'abcd-efgh-jkmn', { generated: true })
     expect(auth.usingDefaultPassword).toBe(true)
     // **Absent**, not `null`: a field that is always `null` promised a value that cannot arrive.
     expect(auth.sessionView(false)).not.toHaveProperty('defaultPassword')
     expect(secrets.initialPassword, 'the machine can still read it back').toBe('abcd-efgh-jkmn')
 
-    auth.setPassword('a-real-password')
+    seedAccount(auth, secrets, 'a-real-password')
     expect(auth.usingDefaultPassword).toBe(false)
     expect(secrets.initialPassword).toBeNull()
   })
 
   it('still recognises a home on the pre-0.12 shared default', async () => {
     const { secrets } = await makeAuth({ enabled: true })
-    secrets.setPassword('hh', { isDefault: true })
+    seedAccount(null, secrets, 'hh', { generated: true })
     expect(secrets.initialPassword).toBe('hh')
   })
 
   it('logs in, validates the session and signs out', async () => {
-    const { auth } = await makeAuth()
-    auth.setPassword('a-good-password')
+    const { auth, secrets } = await makeAuth()
+    seedAccount(auth, secrets, 'a-good-password')
 
-    const outcome = auth.login('a-good-password', '127.0.0.1')
+    const outcome = auth.login('default', 'a-good-password', '127.0.0.1')
     expect(outcome.ok).toBe(true)
     if (!outcome.ok)
       return
@@ -129,9 +156,9 @@ describe('auth service', () => {
   it('extends the session on each use, so the lifetime is idle rather than absolute', async () => {
     vi.useFakeTimers()
     try {
-      const { auth } = await makeAuth({ sessionTtlMs: 60_000 })
-      auth.setPassword('a-good-password')
-      const outcome = auth.login('a-good-password', '127.0.0.1')
+      const { auth, secrets } = await makeAuth({ sessionTtlMs: 60_000 })
+      seedAccount(auth, secrets, 'a-good-password')
+      const outcome = auth.login('default', 'a-good-password', '127.0.0.1')
       if (!outcome.ok)
         throw new Error('login failed')
 
@@ -151,29 +178,29 @@ describe('auth service', () => {
   })
 
   it('rejects a wrong password with 401', async () => {
-    const { auth } = await makeAuth()
-    auth.setPassword('a-good-password')
+    const { auth, secrets } = await makeAuth()
+    seedAccount(auth, secrets, 'a-good-password')
 
-    const outcome = auth.login('nope', '127.0.0.1')
-    expect(outcome).toEqual({ ok: false, status: 401, error: 'invalid password' })
+    const outcome = auth.login('default', 'nope', '127.0.0.1')
+    expect(outcome).toEqual({ ok: false, status: 401, error: 'invalid account id or secret' })
   })
 
-  it('refuses to log in before a password exists', async () => {
+  it('refuses to log in when no account can sign in', async () => {
     const { auth } = await makeAuth()
-    const outcome = auth.login('anything', '127.0.0.1')
+    const outcome = auth.login('default', 'anything', '127.0.0.1')
     expect(outcome.ok).toBe(false)
     if (!outcome.ok)
       expect(outcome.status).toBe(409)
   })
 
   it('locks out an address after the configured failures and then escalates', async () => {
-    const { auth } = await makeAuth({ maxLoginAttempts: 2, lockoutMs: 60000 })
+    const { auth, secrets } = await makeAuth({ maxLoginAttempts: 2, lockoutMs: 60000 })
 
-    auth.setPassword('a-good-password')
-    expect(auth.login('bad', '10.0.0.1').ok).toBe(false)
-    expect(auth.login('bad', '10.0.0.1').ok).toBe(false)
+    seedAccount(auth, secrets, 'a-good-password')
+    expect(auth.login('default', 'bad', '10.0.0.1').ok).toBe(false)
+    expect(auth.login('default', 'bad', '10.0.0.1').ok).toBe(false)
 
-    const locked = auth.login('a-good-password', '10.0.0.1')
+    const locked = auth.login('default', 'a-good-password', '10.0.0.1')
     expect(locked.ok).toBe(false)
     if (!locked.ok) {
       expect(locked.status).toBe(429)
@@ -181,21 +208,32 @@ describe('auth service', () => {
     }
 
     // A different address is unaffected.
-    expect(auth.login('a-good-password', '10.0.0.2').ok).toBe(true)
+    expect(auth.login('default', 'a-good-password', '10.0.0.2').ok).toBe(true)
   })
 
-  it('invalidates every session when the password changes', async () => {
-    const { auth } = await makeAuth()
-    auth.setPassword('a-good-password')
+  /**
+   * Rotating one account's secret invalidates **that account's** sessions, and no others.
+   *
+   * It used to compare every session against the `default` account's timestamp, so any credential
+   * change signed the whole panel out — which is wrong for the case accounts exist for: two people,
+   * two credentials, one panel.
+   */
+  it('invalidates the sessions of the account whose secret changed, and no others', async () => {
+    const { auth, secrets } = await makeAuth()
+    seedAccount(auth, secrets, 'a-good-password')
+    seedAccount(auth, secrets, 'teammate-password', { id: 'teammate', scopes: ['read'] })
 
-    const outcome = auth.login('a-good-password', null)
-    expect(outcome.ok).toBe(true)
-    if (!outcome.ok)
-      return
-    expect(auth.validate(outcome.token)).not.toBeNull()
+    const mine = auth.login('default', 'a-good-password', null)
+    const theirs = auth.login('teammate', 'teammate-password', null)
+    if (!mine.ok || !theirs.ok)
+      throw new Error('login failed')
+    expect(auth.validate(mine.token)).not.toBeNull()
+    expect(auth.validate(theirs.token)).not.toBeNull()
 
-    auth.setPassword('a-different-password')
-    expect(auth.validate(outcome.token)).toBeNull()
+    // Another process rotating the `default` secret.
+    new SecretsStore(secrets.path, undefined, 'global').setAccountSecret('default', 'rotated')
+    expect(auth.validate(mine.token), 'the rotated account is signed out').toBeNull()
+    expect(auth.validate(theirs.token), 'another account is untouched').not.toBeNull()
   })
 
   /**
@@ -206,56 +244,70 @@ describe('auth service', () => {
    * existing cookie stayed valid for up to `sessionTtlMs` (a week by default). Sessions now carry
    * the password revision they were issued under, so any rotation drops them whoever wrote it.
    */
-  it('invalidates sessions when another process changes the password file', async () => {
-    const { auth, file } = await makeAuth()
-    auth.setPassword('a-good-password')
+  it('lets another process rotate an account secret without the panel noticing a stale session', async () => {
+    const { auth, secrets, file } = await makeAuth()
+    seedAccount(auth, secrets, 'a-good-password')
 
-    const outcome = auth.login('a-good-password', null)
+    const outcome = auth.login('default', 'a-good-password', null)
     if (!outcome.ok)
       throw new Error('could not sign in')
     expect(auth.validate(outcome.token)).not.toBeNull()
 
     // A second store over the same file is exactly what the CLI is: another process, same state.
     const second = new SecretsStore(file)
-    second.setPassword('written-by-the-cli')
+    second.setAccountSecret('default', 'written-by-the-cli')
 
     expect(auth.validate(outcome.token), 'the old cookie must not survive a rotation').toBeNull()
   })
 
-  it('keeps the session that changed the password, and drops the others', async () => {
-    const { auth } = await makeAuth()
-    auth.setPassword('a-good-password')
+  it('keeps the session that changed the secret, and drops that account\'s others', async () => {
+    const { auth, secrets } = await makeAuth()
+    seedAccount(auth, secrets, 'a-good-password')
 
-    const mine = auth.login('a-good-password', null)
-    const other = auth.login('a-good-password', '10.0.0.9')
+    const mine = auth.login('default', 'a-good-password', null)
+    const other = auth.login('default', 'a-good-password', '10.0.0.9')
     if (!mine.ok || !other.ok)
       throw new Error('could not sign in twice')
 
-    auth.setPassword('a-different-password', { keepToken: mine.token })
+    // The service call, because it is what knows which session made the change; a bare store write
+    // invalidates both, which is the behaviour the test above pins.
+    auth.setAccountSecret('default', 'a-different-password', { keepToken: mine.token })
 
-    expect(auth.validate(mine.token)).not.toBeNull()
-    expect(auth.validate(other.token)).toBeNull()
+    expect(auth.validate(mine.token), 'the session that made the change stays').not.toBeNull()
+    expect(auth.validate(other.token), 'the account\'s other sessions end').toBeNull()
   })
 
-  it('clears the password and the sessions', async () => {
-    const { auth } = await makeAuth()
-    auth.setPassword('a-good-password')
-    const outcome = auth.login('a-good-password', null)
-    if (!outcome.ok)
-      throw new Error('login failed')
+  /**
+   * Revoking an account ends its sessions.
+   *
+   * The old test called `clearPassword()`, which no longer exists: a credential is an account now, and
+   * the way one goes away is revocation. The rule that mattered — a valid cookie must not outlive the
+   * credential it was issued for — is asserted directly, and a second account proves only the revoked
+   * one is affected.
+   */
+  it('ends the sessions of the account it revokes, and no others', async () => {
+    const { auth, secrets } = await makeAuth()
+    seedAccount(auth, secrets, 'a-good-password')
+    seedAccount(auth, secrets, 'another-password', { id: 'teammate', scopes: ['read'] })
 
-    auth.clearPassword()
-    expect(auth.passwordSet).toBe(false)
-    expect(auth.isRequired()).toBe(false)
-    expect(auth.validate(outcome.token)).toBeNull()
-    expect(auth.verifyCurrentPassword('a-good-password')).toBe(false)
+    const mine = auth.login('default', 'a-good-password', null)
+    const theirs = auth.login('teammate', 'another-password', null)
+    if (!mine.ok || !theirs.ok)
+      throw new Error('login failed')
+    expect(auth.validate(mine.token)).not.toBeNull()
+    expect(auth.validate(theirs.token)).not.toBeNull()
+
+    auth.revokeAccount('default')
+    expect(auth.validate(mine.token), 'the revoked account is signed out').toBeNull()
+    expect(auth.validate(theirs.token), 'another account is untouched').not.toBeNull()
+    expect(auth.verifyAccountSecret('default', 'a-good-password'), 'and its secret stops working').toBe(false)
   })
 
   it('expires a session once the configured lifetime passes', async () => {
-    const { auth } = await makeAuth({ sessionTtlMs: 60000 })
-    auth.setPassword('a-good-password')
+    const { auth, secrets } = await makeAuth({ sessionTtlMs: 60000 })
+    seedAccount(auth, secrets, 'a-good-password')
 
-    const outcome = auth.login('a-good-password', null)
+    const outcome = auth.login('default', 'a-good-password', null)
     if (!outcome.ok)
       throw new Error('login failed')
 
@@ -269,7 +321,7 @@ describe('auth service', () => {
 })
 
 describe('secrets store', () => {
-  it('picks up a password written by another process without a restart', async () => {
+  it('picks up an account created by another process without a restart', async () => {
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-secrets-'))
     dirs.push(dir)
     const file = path.join(dir, 'secrets.json')
@@ -277,26 +329,25 @@ describe('secrets store', () => {
     const live = new SecretsStore(file)
     expect(live.passwordSet).toBe(false)
 
-    // A separate store instance models the `set-password` script.
-    new SecretsStore(file).setPassword('a-good-password')
+    // A separate store instance models `home-hosted account create`.
+    new SecretsStore(file).createAccount({ id: 'admin', label: 'admin', scopes: ['read', 'admin'], secret: 'a-good-password' })
 
-    expect(live.passwordSet).toBe(true)
-    const record = live.password
-    expect(record).not.toBeNull()
-    expect(record && verifyPassword('a-good-password', record)).toBe(true)
+    expect(live.passwordSet, 'a panel that was up sees the new account').toBe(true)
+    expect(live.verifyAccountSecret('admin', 'a-good-password')).toBe(true)
+    expect(live.listAccounts().map(entry => entry.id)).toEqual(['admin'])
   })
 
-  it('also notices the password being removed', async () => {
+  it('also notices an account being revoked', async () => {
     const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'hh-secrets-'))
     dirs.push(dir)
     const file = path.join(dir, 'secrets.json')
 
     const live = new SecretsStore(file)
-    live.setPassword('a-good-password')
+    live.createAccount({ id: 'admin', label: 'admin', scopes: ['read'], secret: 'a-good-password' })
     expect(live.passwordSet).toBe(true)
 
-    new SecretsStore(file).clearPassword()
-    expect(live.passwordSet).toBe(false)
+    new SecretsStore(file).revokeAccount('admin')
+    expect(live.passwordSet, 'and notices it going away').toBe(false)
   })
 })
 
@@ -339,57 +390,67 @@ describe('api tokens', () => {
     expect(bearerToken(undefined)).toBeNull()
   })
 
-  it('treats the token as a first-class credential', async () => {
+  /**
+   * A bearer credential is a first-class way in — and it is `<id>:<secret>`.
+   *
+   * The id travels in the credential so the panel never has to ask "which account is this secret
+   * for": that would mean comparing every stored hash, which is slower *and* a timing signal. A value
+   * with no `:` is refused rather than guessed, so a 0.14 token cannot be silently reinterpreted.
+   */
+  it('treats a bearer credential as a first-class one', async () => {
     const { auth, secrets } = await makeAuth()
-    const token = generateApiToken()
-    secrets.setApiToken(token)
+    seedAccount(auth, secrets, 'a-script-secret', { id: 'script', scopes: ['read'] })
 
-    expect(auth.apiTokenSet).toBe(true)
-    expect(auth.apiTokenHint).toBe(token.slice(0, 8))
-    expect(auth.validateApiToken(token)).toBe(true)
-    expect(auth.validateApiToken(generateApiToken())).toBe(false)
-    expect(auth.validateApiToken(null)).toBe(false)
+    expect(auth.apiTokenSet, 'an account can authenticate the API').toBe(true)
+    expect(auth.accountFromBearer('script:a-script-secret')).toMatchObject({ id: 'script' })
+    expect(auth.accountFromBearer('script:wrong')).toBeNull()
+    expect(auth.accountFromBearer('ghost:a-script-secret')).toBeNull()
+    // No separator: this is a 0.14 token value, and it must not become an account.
+    expect(auth.accountFromBearer('a-script-secret')).toBeNull()
+    expect(auth.accountFromBearer(':a-script-secret')).toBeNull()
 
-    const identity = auth.authenticate({ cookieToken: null, bearerToken: token })
+    const identity = auth.authenticate({ cookieToken: null, bearerToken: 'script:a-script-secret' })
     expect(identity.authenticated).toBe(true)
     expect(identity.method).toBe('token')
     expect(identity.session).toBeNull()
+    expect(identity.account?.id).toBe('script')
 
-    expect(auth.authenticate({ cookieToken: null, bearerToken: 'not-the-token' }).authenticated).toBe(false)
+    expect(auth.authenticate({ cookieToken: null, bearerToken: 'script:not-the-secret' }).authenticated).toBe(false)
   })
 
   /**
-   * The sentence the docs and the settings page now both say, pinned where it can go stale:
-   * `setPassword()` drops every session and never calls `clearApiToken()`, so a token on a stolen
-   * laptop keeps working after "I changed the password". Rotation is `set-token --generate`.
+   * A bearer credential survives a **session** rotation, because it is not that account's session.
+   *
+   * The old rule was that rotating the password did not clear the API token, which is why retiring one
+   * was a separate act. With accounts the distinction is cleaner: a session ends when its account's
+   * secret changes, and any credential value already in use keeps working until it is revoked.
    */
-  it('keeps a token working across a password rotation, which is why rotating one is a separate act', async () => {
+  it('keeps a bearer credential working across a session rotation', async () => {
     const { auth, secrets } = await makeAuth()
-    const token = generateApiToken()
-    secrets.setApiToken(token)
-    auth.setPassword('a-good-password')
+    seedAccount(auth, secrets, 'a-good-password')
+    seedAccount(auth, secrets, 'a-script-secret', { id: 'script', scopes: ['read'] })
 
-    const outcome = auth.login('a-good-password', null)
+    const outcome = auth.login('default', 'a-good-password', null)
     if (!outcome.ok)
       throw new Error('login failed')
 
-    auth.setPassword('a-different-password')
+    seedAccount(auth, secrets, 'a-different-password')
     // The session it was issued under is gone…
     expect(auth.validate(outcome.token)).toBeNull()
-    // …and the token is untouched, so it still authenticates.
-    expect(auth.authenticate({ cookieToken: null, bearerToken: token })).toMatchObject({ authenticated: true, method: 'token' })
+    // …and another account's credential is untouched.
+    expect(auth.authenticate({ cookieToken: null, bearerToken: 'script:a-script-secret' })).toMatchObject({ authenticated: true, method: 'token' })
 
-    // Rotating is the act that retires it, which is what the docs tell a person to do.
-    secrets.clearApiToken()
-    expect(auth.authenticate({ cookieToken: null, bearerToken: token }).authenticated).toBe(false)
+    // Revoking the account is the act that retires it.
+    auth.revokeAccount('script')
+    expect(auth.authenticate({ cookieToken: null, bearerToken: 'script:a-script-secret' }).authenticated).toBe(false)
   })
 
   it('prefers a live session when a request carries both credentials', async () => {
     const { auth, secrets } = await makeAuth()
     secrets.setApiToken(generateApiToken())
-    auth.setPassword('a-good-password')
+    seedAccount(auth, secrets, 'a-good-password')
 
-    const outcome = auth.login('a-good-password', null)
+    const outcome = auth.login('default', 'a-good-password', null)
     if (!outcome.ok)
       throw new Error('login failed')
 
@@ -471,16 +532,16 @@ describe('login limits that do not trust the address', () => {
   async function limited(limits: ConstructorParameters<typeof AuthService>[2]) {
     const { secrets, config } = await makeAuth()
     const auth = new AuthService(secrets, () => config, limits)
-    auth.setPassword('a-good-password')
+    seedAccount(auth, secrets, 'a-good-password')
     return auth
   }
 
   it('caps the guesses across every address, a correct one included', async () => {
     const auth = await limited({ globalFailureBudget: 3 })
     for (let index = 0; index < 3; index++)
-      expect(auth.login('wrong', `198.51.100.${index}`)).toMatchObject({ ok: false, status: 401 })
+      expect(auth.login('default', 'wrong', `198.51.100.${index}`)).toMatchObject({ ok: false, status: 401 })
 
-    const refused = auth.login('a-good-password', '198.51.100.99')
+    const refused = auth.login('default', 'a-good-password', '198.51.100.99')
     expect(refused).toMatchObject({ ok: false, status: 429 })
     expect((refused as { retryAfterMs?: number }).retryAfterMs).toBeGreaterThan(0)
     auth.dispose()
@@ -490,10 +551,10 @@ describe('login limits that do not trust the address', () => {
     vi.useFakeTimers()
     try {
       const auth = await limited({ globalFailureBudget: 1, globalFailureWindowMs: 60_000 })
-      auth.login('wrong', '198.51.100.1')
-      expect(auth.login('a-good-password', '198.51.100.2')).toMatchObject({ status: 429 })
+      auth.login('default', 'wrong', '198.51.100.1')
+      expect(auth.login('default', 'a-good-password', '198.51.100.2')).toMatchObject({ status: 429 })
       vi.advanceTimersByTime(60_000)
-      expect(auth.login('a-good-password', '198.51.100.2')).toMatchObject({ ok: true })
+      expect(auth.login('default', 'a-good-password', '198.51.100.2')).toMatchObject({ ok: true })
       auth.dispose()
     }
     finally {
@@ -504,7 +565,7 @@ describe('login limits that do not trust the address', () => {
   it('bounds the per-address records on insert, not only in the sweep', async () => {
     const auth = await limited({ maxAttemptRecords: 3, globalFailureBudget: 1000 })
     for (let index = 0; index < 10; index++)
-      auth.login('wrong', `203.0.113.${index}`)
+      auth.login('default', 'wrong', `203.0.113.${index}`)
     expect(auth.attemptRecords()).toBe(3)
     auth.dispose()
   })

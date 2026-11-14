@@ -37,16 +37,21 @@ async function form(app: Fixture['app'], url: string, method: string, body: unkn
 }
 
 /**
- * Writes the global API token the way `home-hosted set-token` does — another process, same state —
- * so the panel has to pick it up from the file rather than from anything this fixture set up.
+/**
+ * Give this panel an API account whose secret is `token`, and return the value to send.
+ *
+ * A token is an account now: the bearer value is `<id>:<secret>`, so this returns that pair rather
+ * than the bare secret the old single-token model used.
  */
-function setApiToken(created: Fixture, token: string): void {
-  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setApiToken(token)
+function setApiToken(created: Fixture, token: string, id = 'script'): string {
+  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global')
+    .createAccount({ id, label: id, scopes: ['read', 'lifecycle', 'config', 'admin'], secret: token })
+  return `${id}:${token}`
 }
 
 /** Signs in and returns the cookie header a browser would send back. */
 async function signIn(created: Fixture, password: string): Promise<string> {
-  const response = await form(created.app, '/api/auth/login', 'POST', { password })
+  const response = await form(created.app, '/api/auth/login', 'POST', { id: 'default', secret: password })
   expect(response.status).toBe(200)
   const setCookie = response.headers.get('set-cookie')
   expect(setCookie).toContain('hh_session=')
@@ -126,19 +131,36 @@ describe('auth guard', () => {
     const remote = await fixture({ ip: '10.0.0.5' })
     remote.settings.updateControl({ auth: { enabled: false } })
     const token = generateApiToken()
-    setApiToken(remote, token)
-    expect((await remote.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
+    const bearer = setApiToken(remote, token)
+    expect((await remote.app.request('/api/state', { headers: { authorization: `Bearer ${bearer}` } })).status).toBe(200)
   })
 })
 
 describe('auth routes', () => {
-  it('rejects a wrong password without a cookie', async () => {
+  it('rejects a wrong secret without a cookie', async () => {
     const created = await fixture({ password: 'correct horse' })
-    const response = await form(created.app, '/api/auth/login', 'POST', { password: 'wrong' })
+    const response = await form(created.app, '/api/auth/login', 'POST', { id: 'default', secret: 'wrong' })
 
     expect(response.status).toBe(401)
     expect(await response.json()).toMatchObject({ code: 'LOGIN_FAILED' })
     expect(response.headers.get('set-cookie')).toBeNull()
+  })
+
+  /**
+   * A wrong id and a wrong secret answer identically.
+   *
+   * The answer must not confirm that an id exists — that would turn the login form into an account
+   * enumeration oracle, and the id is the half an attacker can guess cheaply.
+   */
+  it('answers the same for an unknown id as for a wrong secret', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    const unknownId = await form(created.app, '/api/auth/login', 'POST', { id: 'ghost', secret: 'correct horse' })
+    const wrongSecret = await form(created.app, '/api/auth/login', 'POST', { id: 'default', secret: 'wrong' })
+
+    expect(unknownId.status).toBe(wrongSecret.status)
+    const [a, b] = [await unknownId.json(), await wrongSecret.json()] as [Record<string, unknown>, Record<string, unknown>]
+    expect(a.message).toBe(b.message)
+    expect(a.code).toBe(b.code)
   })
 
   it('exchanges the password for a session the guard accepts', async () => {
@@ -186,7 +208,7 @@ describe('auth routes', () => {
     expect((await created.app.request('/api/state', { headers: { cookie } })).status).toBe(401)
   })
 
-  it('refuses to clear a password while the panel is bound beyond loopback', async () => {
+  it('refuses to turn authentication off while the panel is bound beyond loopback', async () => {
     const created = await fixture({ password: 'correct horse' })
     // Binding the LAN with no password is exactly what must stay impossible.
     created.settings.updateControl({ host: 'lan', auth: { enabled: false } })
@@ -202,7 +224,7 @@ describe('auth routes', () => {
    * exposure rule has to hold here as well: a route with `target: "panel"` serves this
    * control panel on a public hostname, and that guard only runs when a route is written.
    */
-  it('refuses to clear a password while a proxy route serves the panel', async () => {
+  it('refuses to turn authentication off while a proxy route serves the panel', async () => {
     const created = await fixture({ password: 'correct horse' })
     created.settings.updateProxy({
       enabled: true,
@@ -217,22 +239,22 @@ describe('auth routes', () => {
     expect(created.auth.passwordSet).toBe(true)
   })
 
-  it('demands the current password to change an existing one', async () => {
+  it('demands the current secret to change your own', async () => {
     const created = await fixture({ password: 'correct horse' })
     const cookie = await signIn(created, 'correct horse')
 
-    const missing = await created.app.request('/api/auth/password', {
+    const missing = await created.app.request('/api/auth/accounts/me/secret', {
       method: 'POST',
       headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ newPassword: 'next password' }),
+      body: JSON.stringify({ newSecret: 'next password' }),
     })
     expect(missing.status).toBe(400)
     expect(await missing.json()).toMatchObject({ code: 'CURRENT_PASSWORD_REQUIRED' })
 
-    const wrong = await created.app.request('/api/auth/password', {
+    const wrong = await created.app.request('/api/auth/accounts/me/secret', {
       method: 'POST',
       headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ currentPassword: 'nope', newPassword: 'next password' }),
+      body: JSON.stringify({ currentSecret: 'nope', newSecret: 'next password' }),
     })
     expect(wrong.status).toBe(401)
     expect(await wrong.json()).toMatchObject({ code: 'CURRENT_PASSWORD_WRONG' })
@@ -242,15 +264,15 @@ describe('auth routes', () => {
    * A short password on an exposed panel would make its next start refuse (`checkExposure` holds
    * the listener to 12 characters), so the change is refused while the panel is exposed.
    */
-  it('refuses a password shorter than 12 characters while the panel is exposed', async () => {
+  it('refuses a secret shorter than 12 characters while the panel is exposed', async () => {
     const created = await fixture({ password: 'correct horse' })
     created.settings.updateControl({ host: 'lan' })
     const cookie = await signIn(created, 'correct horse')
 
-    const response = await created.app.request('/api/auth/password', {
+    const response = await created.app.request('/api/auth/accounts/me/secret', {
       method: 'POST',
       headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ currentPassword: 'correct horse', newPassword: 'short' }),
+      body: JSON.stringify({ currentSecret: 'correct horse', newSecret: 'short' }),
     })
     expect(response.status).toBe(400)
     const body = await response.json() as { code: string, message: string }
@@ -259,14 +281,14 @@ describe('auth routes', () => {
     expect(created.auth.passwordTooShort).toBe(false)
   })
 
-  it('accepts a short password on a loopback-only panel, and flags it', async () => {
+  it('accepts a short secret on a loopback-only panel, and flags it', async () => {
     const created = await fixture({ password: 'correct horse' })
     const cookie = await signIn(created, 'correct horse')
 
-    const response = await created.app.request('/api/auth/password', {
+    const response = await created.app.request('/api/auth/accounts/me/secret', {
       method: 'POST',
       headers: { cookie, 'content-type': 'application/json' },
-      body: JSON.stringify({ currentPassword: 'correct horse', newPassword: 'short' }),
+      body: JSON.stringify({ currentSecret: 'correct horse', newSecret: 'short' }),
     })
     expect(response.status).toBe(200)
     expect(created.auth.passwordTooShort).toBe(true)
@@ -874,7 +896,7 @@ describe('/api/backups restore and the credential store', () => {
   it('refuses a token-only restore that would write global:secrets', async () => {
     const created = await fixture({ password: 'correct horse' })
     const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, token)
     const reached: unknown[] = []
     created.backups.restore = async (_archive, options) => {
       reached.push(options)
@@ -883,11 +905,11 @@ describe('/api/backups restore and the credential store', () => {
     const name = await archiveName(created)
 
     // The token does authenticate, so this cannot pass for the wrong reason.
-    expect((await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
+    expect((await created.app.request('/api/state', { headers: { authorization: `Bearer ${bearer}` } })).status).toBe(200)
 
     const response = await created.app.request('/api/backups/restore?confirm=true', {
       method: 'POST',
-      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { 'authorization': `Bearer ${bearer}`, 'content-type': 'application/json' },
       body: JSON.stringify({ name, include: ['global:secrets'] }),
     })
     expect(response.status).toBe(403)
@@ -903,13 +925,13 @@ describe('/api/backups restore and the credential store', () => {
   it('allows the same restore when the credentials are excluded, which is the documented move', async () => {
     const created = await fixture({ password: 'correct horse' })
     const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, token)
     created.backups.restore = async () => restorePlan({ dryRun: false, applied: ['workspace:default'] })
     const name = await archiveName(created)
 
     const response = await created.app.request('/api/backups/restore?confirm=true', {
       method: 'POST',
-      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { 'authorization': `Bearer ${bearer}`, 'content-type': 'application/json' },
       body: JSON.stringify({ name, exclude: ['global:secrets'] }),
     })
     // The whole point of `--exclude global:secrets`: a token may restore everything else.
@@ -946,7 +968,7 @@ describe('/api/backups restore and the credential store', () => {
   it('refuses a token-only restore naming the credential item by any of its spellings', async () => {
     const created = await fixture({ password: 'correct horse' })
     const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, token)
     const reached: unknown[] = []
     created.backups.restore = async (_archive, options) => {
       reached.push(options)
@@ -957,7 +979,7 @@ describe('/api/backups restore and the credential store', () => {
     for (const include of [['global:secrets'], ['secrets'], ['global:secrets:password']]) {
       const response = await created.app.request('/api/backups/restore?confirm=true', {
         method: 'POST',
-        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+        headers: { 'authorization': `Bearer ${bearer}`, 'content-type': 'application/json' },
         body: JSON.stringify({ name, include }),
       })
       expect(response.status, include.join()).toBe(403)
@@ -971,14 +993,14 @@ describe('/api/backups restore and the credential store', () => {
   it('still lets a token restore everything except the credentials, by either spelling', async () => {
     const created = await fixture({ password: 'correct horse' })
     const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, token)
     created.backups.restore = async () => restorePlan({ dryRun: false, applied: ['global:settings'] })
     const name = await archiveName(created)
 
     for (const body of [{ include: ['config'] }, { exclude: ['global:secrets'] }, { exclude: ['secrets'] }]) {
       const response = await created.app.request('/api/backups/restore?confirm=true', {
         method: 'POST',
-        headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+        headers: { 'authorization': `Bearer ${bearer}`, 'content-type': 'application/json' },
         body: JSON.stringify({ name, ...body }),
       })
       expect(response.status, JSON.stringify(body)).toBe(200)
@@ -1873,7 +1895,7 @@ describe('panel event stream', () => {
     expect(await streamEnds(reader)).toBe(true)
   })
 
-  it('ends a stream when the password changes, but not the one that changed it', async () => {
+  it('ends a stream when the account secret changes, but not the one that changed it', async () => {
     const created = await fixture({ password: 'correct horse' })
     const other = await signIn(created, 'correct horse')
     const mine = await signIn(created, 'correct horse')
@@ -1882,10 +1904,10 @@ describe('panel event stream', () => {
     await readFrames(otherStream, new TextDecoder(), '', text => text.includes('event: hello'), 2000)
     await readFrames(myStream, new TextDecoder(), '', text => text.includes('event: hello'), 2000)
 
-    const changed = await created.app.request('/api/auth/password', {
+    const changed = await created.app.request('/api/auth/accounts/me/secret', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'cookie': mine },
-      body: JSON.stringify({ currentPassword: 'correct horse', newPassword: 'battery staple' }),
+      body: JSON.stringify({ currentSecret: 'correct horse', newSecret: 'battery staple' }),
     })
     expect(changed.status).toBe(200)
     expect(await streamEnds(otherStream)).toBe(true)
@@ -1906,7 +1928,7 @@ describe('panel event stream', () => {
 
       // `set-password` in another process: same file, no notification to this one.
       vi.advanceTimersByTime(5)
-      new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setPassword('rotated elsewhere')
+      new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setAccountSecret('default', 'rotated elsewhere')
       await vi.advanceTimersByTimeAsync(15_000)
     }
     finally {
@@ -1969,11 +1991,11 @@ describe('auth: cookies and first-time setup', () => {
     const created = await fixture({ password: 'correct horse' })
 
     created.settings.updateControl({ auth: { cookieSecure: 'always' } })
-    const always = await form(created.app, '/api/auth/login', 'POST', { password: 'correct horse' })
+    const always = await form(created.app, '/api/auth/login', 'POST', { id: 'default', secret: 'correct horse' })
     expect(always.headers.get('set-cookie')).toMatch(/;\s*Secure/i)
 
     created.settings.updateControl({ auth: { cookieSecure: 'never' } })
-    const never = await form(created.app, '/api/auth/login', 'POST', { password: 'correct horse' })
+    const never = await form(created.app, '/api/auth/login', 'POST', { id: 'default', secret: 'correct horse' })
     expect(never.headers.get('set-cookie')).not.toMatch(/;\s*Secure/i)
   })
 
@@ -2048,93 +2070,110 @@ describe('auth: cookies and first-time setup', () => {
     }
   })
 
-  it('arms authentication when the first password is set on this machine', async () => {
-    const created = await fixture()
-    expect(created.auth.isArmed()).toBe(false)
-
-    const response = await form(created.app, '/api/auth/password', 'POST', { newPassword: 'first password' })
-    expect(response.status).toBe(200)
-    expect(await response.json()).toMatchObject({ ok: true, enabled: true })
-    expect(created.auth.isArmed()).toBe(true)
-    // From now on the guard means business.
-    expect((await created.app.request('/api/state')).status).toBe(401)
-  })
-
-  it('clears the password when the panel is bound to loopback', async () => {
+  /**
+   * Turning the guard off is a **session** action, and it keeps the accounts.
+   *
+   * The old `DELETE /api/auth/password` *deleted* the password, which meant "turn authentication off"
+   * and "destroy the way in" were the same button. They are not: a person who disables auth by
+   * mistake can switch it back on, and the credential model is not collateral damage of a settings
+   * toggle.
+   */
+  it('turns the guard off on loopback, and keeps the accounts', async () => {
     const created = await fixture({ password: 'correct horse' })
     const cookie = await signIn(created, 'correct horse')
 
     const response = await created.app.request('/api/auth/password', { method: 'DELETE', headers: { cookie } })
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
-    expect(created.auth.passwordSet).toBe(false)
+    expect(created.settings.control.auth.enabled, 'the switch is off').toBe(false)
+    expect(created.globalSecrets.listAccounts(), 'but the account is still there').toHaveLength(1)
+    // And the panel is reachable from this machine again without signing in, which is what "off" means.
+    expect((await created.app.request('/api/state')).status).toBe(200)
   })
 
   /**
-   * The measured escalation: `POST` demands `currentPassword` so a stolen token cannot rewrite the
-   * password, and `DELETE` demanded nothing but the token — so a token holder went
-   * `POST` (400 `CURRENT_PASSWORD_REQUIRED`) → `DELETE` (200, auth off) → `POST` (200, no password
-   * to prove) and left the panel armed with their own password.
+   * The measured escalation: a stolen bearer credential must not be able to switch authentication
+   * off, because off is as good as compromised.
    *
-   * `DELETE` now demands a **session**. Both credentials resolve through the same
-   * `requestIdentity()`, so this is the guard's own notion of "a browser", not a second one.
+   * The refusal names the real paths — sign in, or the CLI on this machine — rather than a rule.
    */
-  it('refuses a token-only DELETE, and names the ways a person can still clear it', async () => {
+  it('refuses a credential-only DELETE, and names the ways a person can still do it', async () => {
     const created = await fixture({ password: 'correct horse' })
-    const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, generateApiToken())
 
-    // The token does authenticate — otherwise this would pass for the wrong reason.
-    expect((await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
+    // The credential does authenticate — otherwise this would pass for the wrong reason.
+    expect((await created.app.request('/api/state', { headers: { authorization: `Bearer ${bearer}` } })).status).toBe(200)
 
-    const response = await created.app.request('/api/auth/password', { method: 'DELETE', headers: { authorization: `Bearer ${token}` } })
+    const response = await created.app.request('/api/auth/password', { method: 'DELETE', headers: { authorization: `Bearer ${bearer}` } })
     expect(response.status).toBe(403)
     const body = await response.json() as { code: string, message: string }
     expect(body.code).toBe('SESSION_REQUIRED')
-    // The message has to name the real path: sign in, or the CLI on this machine.
+    // The message has to name a real path: sign in, or the CLI on this machine.
     expect(body.message).toContain('session')
-    expect(body.message).toContain('home-hosted set-password')
-    // And nothing changed: the password and the auth switch are exactly as they were.
-    expect(created.auth.passwordSet).toBe(true)
+    expect(body.message).toContain('home-hosted account')
+    // And nothing changed.
     expect(created.settings.control.auth.enabled).toBe(true)
+    expect(created.globalSecrets.listAccounts()).toHaveLength(2)
   })
 
-  it('still lets a signed-in browser clear the password, even with a token also set', async () => {
+  it('still lets a signed-in browser turn it off, even with a credential also set', async () => {
     const created = await fixture({ password: 'correct horse' })
     setApiToken(created, generateApiToken())
     const cookie = await signIn(created, 'correct horse')
 
     const response = await created.app.request('/api/auth/password', { method: 'DELETE', headers: { cookie } })
     expect(response.status).toBe(200)
-    expect(created.auth.passwordSet).toBe(false)
+    expect(created.settings.control.auth.enabled).toBe(false)
   })
 
   /**
-   * The loopback first-setup exemption is the documented escape hatch — "no password yet, set one
-   * from this machine" — and a `DELETE` that only ever happens with a password set never touches it.
-   * Pinned so a future stricter check cannot quietly lock someone out of their own host.
+   * An account is created by an **admin session**, or by the CLI — never by an unauthenticated
+   * caller and never by a bearer credential.
+   *
+   * The old first-setup exemption (loopback with no password may set one) is gone with the model it
+   * belonged to: there is no "first password" to set, and a panel with no account is armed by its own
+   * boot rather than by whoever reaches it first.
    */
-  it('keeps the loopback first-setup exemption for POST with no password set', async () => {
+  it('refuses to create an account without a session, even on loopback', async () => {
     const created = await fixture()
-    const response = await form(created.app, '/api/auth/password', 'POST', { newPassword: 'first password' })
-    expect(response.status).toBe(200)
-    expect(created.auth.passwordSet).toBe(true)
+    const response = await form(created.app, '/api/auth/accounts', 'POST', { id: 'sneaky', scopes: ['admin'] })
+    // Loopback with auth unarmed is trusted for reads, but credential management needs a session.
+    expect([401, 403]).toContain(response.status)
+    expect(created.globalSecrets.listAccounts()).toHaveLength(0)
   })
 
-  /** A remote token holder arming the panel with their own password would lock its owner out. */
-  it('refuses a remote token setting the first password', async () => {
+  it('refuses a bearer credential creating an account, whatever its scopes', async () => {
     const created = await fixture({ ip: '10.0.0.5' })
-    const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, generateApiToken())
 
-    const response = await created.app.request('/api/auth/password', {
+    const response = await created.app.request('/api/auth/accounts', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'authorization': `Bearer ${token}` },
-      body: JSON.stringify({ newPassword: 'attacker password' }),
+      headers: { 'content-type': 'application/json', 'authorization': `Bearer ${bearer}` },
+      body: JSON.stringify({ id: 'attacker', scopes: ['admin'] }),
     })
     expect(response.status).toBe(403)
     expect(await response.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
-    expect(created.auth.passwordSet).toBe(false)
+    expect(created.globalSecrets.listAccounts().map(entry => entry.id), 'nothing was created').toEqual(['script'])
+  })
+
+  it('refuses a session whose account lacks admin, because minting one would escalate', async () => {
+    const created = await fixture({ password: 'correct horse' })
+    // A second account holding only `read`, signed in as that.
+    created.globalSecrets.createAccount({ id: 'viewer', label: 'viewer', scopes: ['read'], secret: 'viewer-secret' })
+    const viewer = await created.app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'viewer', secret: 'viewer-secret' }),
+    })
+    const cookie = viewer.headers.get('set-cookie')!.split(';')[0]!
+
+    const response = await created.app.request('/api/auth/accounts', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie },
+      body: JSON.stringify({ id: 'escalated', scopes: ['admin'] }),
+    })
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'TOKEN_SCOPE' })
   })
 
   it('keeps both exposure guards on the session path too', async () => {

@@ -2,12 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   AuthRequiredError,
   backupDownloadUrl,
-  clearPassword,
   clearProxyCertificate,
+  createAccount,
   createBackup,
   createBackupBody,
   ddnsView,
   deleteBackup,
+  disableAuth,
   failureMessage,
   fetchProxy,
   fetchSession,
@@ -25,7 +26,8 @@ import {
   retryProxyCertificate,
   revertProxy,
   revertUi,
-  setPassword,
+  revokeAccount,
+  setMySecret,
   startProxy,
   stopProxy,
   uploadProxyCertificate,
@@ -126,7 +128,7 @@ describe('request', () => {
     // The same rule on a mutating call: a 5xx from something in front of the panel answers HTML, and
     // a SyntaxError there would hide both the status and the fact that nothing was changed.
     vi.stubGlobal('fetch', vi.fn(async () => new Response('not json at all', { status: 500 })))
-    await expect(clearPassword()).rejects.toThrow('request failed with 500')
+    await expect(disableAuth()).rejects.toThrow('request failed with 500')
   })
 
   it('turns the envelope into an Error, and the bare `error` field too', async () => {
@@ -259,28 +261,47 @@ describe('the proxy contract is validated at the boundary', () => {
 })
 
 describe('auth and backups', () => {
-  it('omits currentPassword when there is none, and sends it when there is', async () => {
-    // ArkType rejects an explicit `undefined`, so first-time setup must omit the key entirely.
-    let mock = stub({ ok: true, enabled: true })
-    await setPassword(undefined, 'new-one')
-    expect(JSON.parse(String(lastCall(mock)[1]?.body))).toEqual({ newPassword: 'new-one' })
-    mock = stub({ ok: true, enabled: true })
-    await setPassword('old-one', 'new-one')
-    expect(JSON.parse(String(lastCall(mock)[1]?.body))).toEqual({ currentPassword: 'old-one', newPassword: 'new-one' })
+  it('omits currentSecret when there is none, and sends it when there is', async () => {
+    // ArkType rejects an explicit `undefined`, so a first-time set must omit the key entirely.
+    let mock = stub({ ok: true })
+    await setMySecret(undefined, 'new-one')
+    expect(JSON.parse(String(lastCall(mock)[1]?.body))).toEqual({ newSecret: 'new-one' })
+    mock = stub({ ok: true })
+    await setMySecret('old-one', 'new-one')
+    expect(JSON.parse(String(lastCall(mock)[1]?.body))).toEqual({ currentSecret: 'old-one', newSecret: 'new-one' })
+  })
+
+  it('creates and revokes an account through its own routes', async () => {
+    const created = stub({ account: { id: 'teammate' }, secret: 'hh_generated' })
+    await createAccount({ id: 'teammate', scopes: ['read'] })
+    expect(lastCall(created)[0]).toBe('/api/auth/accounts')
+    expect(lastCall(created)[1]?.method).toBe('POST')
+
+    const revoked = stub({ ok: true })
+    await revokeAccount('a b')
+    expect(lastCall(revoked)[0], 'the id is encoded into the path').toBe('/api/auth/accounts/a%20b')
+    expect(lastCall(revoked)[1]?.method).toBe('DELETE')
   })
 
   it('validates the body shape before sending it', async () => {
     const mock = stub({ authenticated: true })
-    await expect(login('a-good-password')).resolves.toBeDefined()
+    await expect(login('default', 'a-good-password')).resolves.toBeDefined()
     expect(mock).toHaveBeenCalledTimes(1)
 
-    // `loginSchema` requires only that `password` is a string, so an *empty* one is well-formed and
-    // does reach the server — which answers 401. Asserted so the boundary is not mistaken for a
-    // client-side empty check: only a non-string is refused here.
-    const fresh = vi.fn(async () => new Response(JSON.stringify({ message: 'invalid password', code: 'LOGIN_FAILED', detail: null }), { status: 401 }))
+    /**
+     * An empty secret or id is refused **before** the request.
+     *
+     * `loginSchema` used to accept an empty password, so it reached the server and came back 401. A
+     * credential is two non-empty halves now, and an empty one is not a guess worth spending a request
+     * — or an attempt against the address budget — on.
+     */
+    const fresh = vi.fn(async () => new Response(JSON.stringify({ message: 'invalid account id or secret', code: 'LOGIN_FAILED', detail: null }), { status: 401 }))
     vi.stubGlobal('fetch', fresh)
-    await expect(login('')).rejects.toThrow('invalid password')
-    expect(fresh, 'an empty string is a valid body and must be sent').toHaveBeenCalledTimes(1)
+    // It throws synchronously — the schema check runs before a promise is ever produced — so the
+    // assertion is `toThrow`, not `rejects`.
+    expect(() => login('default', '')).toThrow('secret')
+    expect(() => login('', 'a-good-password')).toThrow('id')
+    expect(fresh, 'neither reached the server').not.toHaveBeenCalled()
   })
 
   it('encodes names in a URL and a delete', async () => {
@@ -333,9 +354,10 @@ describe('auth and backups', () => {
     expect(() => createBackupBody({ exclude: [] })).toThrow('nothing is excluded')
   })
 
-  it('clears the password with DELETE', async () => {
+  it('turns the guard off with DELETE, keeping the accounts', async () => {
     const mock = stub({ ok: true })
-    await clearPassword()
+    await disableAuth()
+    expect(lastCall(mock)[0]).toBe('/api/auth/password')
     expect(lastCall(mock)[1]?.method).toBe('DELETE')
   })
 

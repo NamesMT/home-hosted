@@ -32,13 +32,16 @@ afterEach(async () => {
   for (const created of fixtures.splice(0).reverse()) await created.cleanup()
 })
 
-function setApiToken(created: Fixture, token: string): void {
-  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setApiToken(token)
+/** An account holding every scope, and the `<id>:<secret>` bearer value that carries it. */
+function setApiToken(created: Fixture, token: string, id = 'script'): string {
+  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global')
+    .createAccount({ id, label: id, scopes: ['read', 'lifecycle', 'config', 'admin'], secret: token })
+  return `${id}:${token}`
 }
 
 /** Signs in and returns the cookie header a browser would send back. */
 async function signIn(created: Fixture, password: string): Promise<string> {
-  const response = await request(created.app, '/api/auth/login', 'POST', { password })
+  const response = await request(created.app, '/api/auth/login', 'POST', { id: 'default', secret: password })
   expect(response.status).toBe(200)
   const setCookie = response.headers.get('set-cookie')
   expect(setCookie).toContain('hh_session=')
@@ -1183,11 +1186,11 @@ describe('settings route: listener and UI upload', () => {
   it('refuses a token-only attempt to switch authentication off, and allows one that turns it on', async () => {
     const created = await fixture({ password: 'correct horse' })
     const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, token)
 
     const off = await created.app.request('/api/settings', {
       method: 'PATCH',
-      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { 'authorization': `Bearer ${bearer}`, 'content-type': 'application/json' },
       body: JSON.stringify({ control: { auth: { enabled: false } } }),
     })
     expect(off.status).toBe(403)
@@ -1197,7 +1200,7 @@ describe('settings route: listener and UI upload', () => {
 
     const on = await created.app.request('/api/settings', {
       method: 'PATCH',
-      headers: { 'authorization': `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { 'authorization': `Bearer ${bearer}`, 'content-type': 'application/json' },
       body: JSON.stringify({ control: { auth: { enabled: true } } }),
     })
     expect(on.status).toBe(200)
@@ -1207,11 +1210,11 @@ describe('settings route: listener and UI upload', () => {
   it('refuses a UI upload made with an API token, before reading it', async () => {
     const created = await fixture()
     const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, token)
     const form = new FormData()
     form.append('file', new File([new Uint8Array([1, 2, 3])], 'ui.zip'))
 
-    const response = await created.app.request('/api/settings/ui', { method: 'POST', body: form, headers: { authorization: `Bearer ${token}` } })
+    const response = await created.app.request('/api/settings/ui', { method: 'POST', body: form, headers: { authorization: `Bearer ${bearer}` } })
     expect(response.status).toBe(403)
     expect(await response.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
   })
@@ -1547,87 +1550,64 @@ afterAll(async () => {
   // The fixture directories are removed per test; nothing else to sweep here.
 })
 
-describe('the API token, from the panel', () => {
-  it('mints a working token for a signed-in session, and revokes it', async () => {
+describe('accounts, from the panel', () => {
+  it('creates a working account for a signed-in session, and revokes it', async () => {
     const created = await fixture({ password: 'a-good-password' })
     const cookie = await signIn(created, 'a-good-password')
 
-    const minted = await created.app.request('/api/auth/token', { method: 'POST', headers: { cookie } })
-    expect(minted.status).toBe(200)
-    const { token, hint } = await minted.json() as { token: string, hint: string }
-    expect(token.startsWith(hint)).toBe(true)
+    const minted = await created.app.request('/api/auth/accounts', {
+      method: 'POST',
+      headers: { cookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'deploybot', scopes: ['read', 'lifecycle'] }),
+    })
+    expect(minted.status).toBe(201)
+    const { account, secret } = await minted.json() as { account: { id: string, scopes: string[] }, secret: string }
+    expect(account.id).toBe('deploybot')
+    // The secret is generated and shown exactly once.
+    expect(secret).toMatch(/^hh_/)
 
-    const used = await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })
-    expect(used.status, 'the minted token authenticates').toBe(200)
+    const bearer = `deploybot:${secret}`
+    const used = await created.app.request('/api/state', { headers: { authorization: `Bearer ${bearer}` } })
+    expect(used.status, 'the new account authenticates the API').toBe(200)
 
-    const revoked = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { cookie } })
+    const revoked = await created.app.request('/api/auth/accounts/deploybot', { method: 'DELETE', headers: { cookie } })
     expect(revoked.status).toBe(200)
-    const after = await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })
-    expect(after.status, 'a revoked token stops working at once').toBe(401)
+    const after = await created.app.request('/api/state', { headers: { authorization: `Bearer ${bearer}` } })
+    expect(after.status, 'a revoked account stops working at once').toBe(401)
   })
 
-  it('refuses to let a token mint its own successor', async () => {
+  it('refuses to let a bearer credential create an account', async () => {
     const created = await fixture({ password: 'a-good-password' })
-    const token = generateApiToken()
-    setApiToken(created, token)
-    const response = await created.app.request('/api/auth/token', { method: 'POST', headers: { authorization: `Bearer ${token}` } })
+    const bearer = setApiToken(created, generateApiToken())
+    const response = await created.app.request('/api/auth/accounts', {
+      method: 'POST',
+      headers: { 'authorization': `Bearer ${bearer}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'escalated', scopes: ['admin'] }),
+    })
     expect(response.status).toBe(403)
     expect(await response.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
   })
 
   /**
-   * Revoking is the mirror of minting, so it needs the same proof of a person.
+   * Revoking needs the same proof of a person that creating does.
    *
-   * `DELETE` was guarded only by the `/api` middleware while `POST` required a session: a leaked
-   * token could destroy the operator's own credential, and with auth switched off the request needed
-   * no credential at all. A token that can revoke itself makes a leak unrecoverable from the panel.
+   * A credential that can revoke another makes a leak unrecoverable from the panel, and one that can
+   * revoke *itself* turns a mistake into a lockout. Both are refused, and the credential is untouched
+   * by either refusal.
    */
-  it('refuses to let a token revoke itself, or an anonymous caller revoke anything', async () => {
+  it('refuses a bearer credential revoking an account, and an anonymous caller revoking anything', async () => {
     const created = await fixture({ password: 'a-good-password' })
-    const token = generateApiToken()
-    setApiToken(created, token)
+    const bearer = setApiToken(created, generateApiToken())
 
-    const byToken = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { authorization: `Bearer ${token}` } })
-    expect(byToken.status, 'a token may not revoke a token').toBe(403)
-    expect(await byToken.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
+    const byCredential = await created.app.request('/api/auth/accounts/default', { method: 'DELETE', headers: { authorization: `Bearer ${bearer}` } })
+    expect(byCredential.status, 'a credential may not revoke an account').toBe(403)
+    expect(await byCredential.json()).toMatchObject({ code: 'SESSION_REQUIRED' })
 
-    const anonymous = await created.app.request('/api/auth/token', { method: 'DELETE' })
+    const anonymous = await created.app.request('/api/auth/accounts/default', { method: 'DELETE' })
     expect(anonymous.status, 'and neither may nobody').toBe(401)
 
     // The credential is untouched by either refusal.
-    const stillWorks = await created.app.request('/api/state', { headers: { authorization: `Bearer ${token}` } })
+    const stillWorks = await created.app.request('/api/state', { headers: { authorization: `Bearer ${bearer}` } })
     expect(stillWorks.status).toBe(200)
-  })
-
-  it('lets a signed-in session revoke with no token present at all', async () => {
-    const created = await fixture({ password: 'a-good-password' })
-    const cookie = await signIn(created, 'a-good-password')
-    const response = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { cookie } })
-    expect(response.status, 'a session can always clear a stale token').toBe(200)
-  })
-
-  /**
-   * `DELETE /api/auth/token` only ever removed the token named `default`.
-   *
-   * Once tokens were named, a panel whose tokens were all named something else answered `{ ok: true }`
-   * and changed nothing — the UI showed "an API token is set", the person pressed Revoke, and every
-   * token stayed. A success that does not act is worse than a refusal, so it now names the ids that do
-   * exist and points at the route that removes one. It stays idempotent when there is nothing at all,
-   * which the test above pins.
-   */
-  it('refuses when tokens exist but none is named default, naming the ids', async () => {
-    const created = await fixture({ password: 'a-good-password' })
-    const cookie = await signIn(created, 'a-good-password')
-    created.globalSecrets.createApiToken({ name: 'monitor', scopes: ['read'] })
-
-    const response = await created.app.request('/api/auth/token', { method: 'DELETE', headers: { cookie } })
-    expect(response.status).toBe(404)
-    const body = await response.json() as { code: string, message: string }
-    expect(body.code).toBe('UNKNOWN_TOKEN')
-    // The message names the ids that exist, so the fix needs no further lookup.
-    expect(body.message).toContain('monitor')
-    expect(body.message).toContain('/api/auth/tokens/:id')
-    // And it changed nothing: the token is still there.
-    expect(created.globalSecrets.listApiTokens().map(token => token.id)).toEqual(['monitor'])
   })
 })

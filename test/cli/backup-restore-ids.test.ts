@@ -41,14 +41,16 @@ describe('a mistyped id on a restore', () => {
   it('leaves the target credential alone when the exclusion is spelled right', () => {
     const { home, backups } = makeHome()
     // A target panel with its own password, which a restore excluding the secrets must not touch.
-    const own = runCli(['set-password'], { home, env: { NO_COLOR: '1', HHOSTED_PASSWORD: 'the-targets-own-password' } })
+    runCli(['account', 'create', 'owner'], { home, env: { NO_COLOR: '1' } })
+    const own = runCli(['account', 'secret', 'owner'], { home, env: { NO_COLOR: '1', HHOSTED_SECRET: 'the-targets-own-password' } })
     expect(own.status, own.output).toBe(0)
     const before = fs.readFileSync(path.join(home, '.hh', '.control-secrets.json'), 'utf8')
 
     // Take the archive from a *second* home, so its secrets differ from this one's. It needs a
     // password of its own, or `global:secrets` would not be in the archive to leave out.
     const other = makeHome()
-    const otherOwn = runCli(['set-password'], { home: other.home, env: { NO_COLOR: '1', HHOSTED_PASSWORD: 'the-other-machines-password' } })
+    runCli(['account', 'create', 'owner'], { home: other.home, env: { NO_COLOR: '1' } })
+    const otherOwn = runCli(['account', 'secret', 'owner'], { home: other.home, env: { NO_COLOR: '1', HHOSTED_SECRET: 'the-other-machines-password' } })
     expect(otherOwn.status, otherOwn.output).toBe(0)
     const otherName = takeArchive(other.home)
     fs.copyFileSync(path.join(other.backups, otherName), path.join(backups, 'from-elsewhere.zip'))

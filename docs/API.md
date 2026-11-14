@@ -132,6 +132,10 @@ arrives with.
 | `NO_DEPLOY` | 400 | the server has no `deploy` steps to run |
 | `DEPLOY_RUNNING` | 409 | a deploy is already running for that server |
 | `DEPLOY_FAILED` | 409 | a deploy step failed — the previous process is still running |
+| `ACCOUNT_EXISTS` | 409 | an account with that id already exists |
+| `UNKNOWN_ACCOUNT` | 404 | no account has that id |
+| `CANNOT_REVOKE_SELF` | 400 | that is the account making the request |
+| `LAST_ACCOUNT` | 400 | the last account that can sign in; revoking it would lock the panel |
 | `TOKEN_EXISTS` | 409 | an API token with that name already exists |
 | `UNKNOWN_TOKEN` | 404 | no API token has that id |
 | `CURRENT_PASSWORD_REQUIRED` | 400 | changing an existing password needs `currentPassword` |

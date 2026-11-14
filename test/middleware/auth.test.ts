@@ -28,9 +28,9 @@ async function makeApp(options: { enabled: boolean, password?: string, token?: s
   const secrets = new SecretsStore(path.join(dir, 'secrets.json'))
   const auth = new AuthService(secrets, () => parsed)
   if (options.password !== undefined)
-    auth.setPassword(options.password)
+    secrets.createAccount({ id: 'default', label: 'default', scopes: ['read', 'lifecycle', 'config', 'admin'], secret: options.password })
   if (options.token !== undefined)
-    secrets.setApiToken(options.token)
+    secrets.createAccount({ id: 'script', label: 'script', scopes: ['read', 'lifecycle', 'config', 'admin'], secret: options.token })
 
   // The guard fails by throwing, exactly like the real app (see src/app.ts).
   const app = new Hono()
@@ -86,7 +86,7 @@ describe('auth guard', () => {
 
   it('accepts a valid session cookie and rejects a forged one', async () => {
     const { app, auth } = await makeApp({ enabled: true, password: 'a-good-password' })
-    const outcome = auth.login('a-good-password', '127.0.0.1')
+    const outcome = auth.login('default', 'a-good-password', '127.0.0.1')
     if (!outcome.ok)
       throw new Error('login failed')
 
@@ -108,7 +108,7 @@ describe('auth guard', () => {
 
   it('rejects a same-site-looking mutation from another origin', async () => {
     const { app, auth } = await makeApp({ enabled: true, password: 'a-good-password' })
-    const outcome = auth.login('a-good-password', '127.0.0.1')
+    const outcome = auth.login('default', 'a-good-password', '127.0.0.1')
     if (!outcome.ok)
       throw new Error('login failed')
 
@@ -121,7 +121,7 @@ describe('auth guard', () => {
 
   it('allows a mutation from its own origin', async () => {
     const { app, auth } = await makeApp({ enabled: true, password: 'a-good-password' })
-    const outcome = auth.login('a-good-password', '127.0.0.1')
+    const outcome = auth.login('default', 'a-good-password', '127.0.0.1')
     if (!outcome.ok)
       throw new Error('login failed')
 
@@ -142,9 +142,13 @@ describe('auth guard', () => {
   })
 })
 
-describe('auth guard with an API token', () => {
-  function bearer(token: string): Record<string, string> {
-    return { authorization: `Bearer ${token}` }
+describe('auth guard with an API credential', () => {
+  /**
+   * The credential is `<id>:<secret>`, so the id travels with it — the same reason a username travels
+   * with a password, and what lets the panel answer a wrong id and a wrong secret identically.
+   */
+  function bearer(token: string, id = 'script'): Record<string, string> {
+    return { authorization: `Bearer ${id}:${token}` }
   }
 
   it('accepts a token with no session cookie at all', async () => {
@@ -164,25 +168,47 @@ describe('auth guard with an API token', () => {
     expect(forged.headers.get('www-authenticate')).toContain('Bearer')
   })
 
-  it('does not advertise a scheme when no token exists', async () => {
+  /**
+   * The refusal advertises `Bearer` whenever an account could have authenticated instead.
+   *
+   * A signed-in-looking browser that has lost its cookie is told what else works, which is the whole
+   * point of advertising a scheme. The old test asserted the header was *absent* when no token
+   * existed; with accounts the two credentials are one, so an account configured is an account that
+   * could have answered.
+   */
+  it('advertises Bearer when an account exists', async () => {
     const { app } = await makeApp({ enabled: true, password: 'a-good-password' })
     const denied = await app.request('http://127.0.0.1:3999/api/state')
     expect(denied.status).toBe(401)
-    expect(denied.headers.get('www-authenticate')).toBeNull()
+    expect(denied.headers.get('www-authenticate')).toBe('Bearer realm="home-hosted"')
   })
 
-  it('lets a token through while auth is enabled but no password is set', async () => {
+  it('advertises nothing when the home has no account at all', async () => {
+    const { app } = await makeApp({ enabled: true })
+    const denied = await app.request('http://10.0.0.5:3999/api/state')
+    expect(denied.status).toBe(401)
+    expect(denied.headers.get('www-authenticate'), 'nothing could have authenticated').toBeNull()
+  })
+
+  /**
+   * A bearer credential reaches the panel from any address while the guard is armed.
+   *
+   * The old shape had two credentials and so could be "enabled with no password set but a token
+   * present"; an account is both at once, so the case it stood for — a remote script works without a
+   * browser session — is what is asserted.
+   */
+  it('lets an account through from a remote address, with no session cookie', async () => {
     const token = generateApiToken()
-    const { app } = await makeApp({ enabled: true, token })
+    const { app } = await makeApp({ enabled: true, password: 'a-good-password', token })
 
     // No socket in this harness, so a non-loopback url counts as remote.
     const remote = await app.request('http://192.168.1.10:3999/api/state', { headers: bearer(token) })
     expect(remote.status).toBe(200)
 
-    // Without the token that same address is still refused, exactly as before.
+    // Without it that same address is still refused.
     const bare = await app.request('http://192.168.1.10:3999/api/state')
     expect(bare.status).toBe(401)
-    expect(await bare.json()).toMatchObject({ code: 'AUTH_UNARMED' })
+    expect(await bare.json()).toMatchObject({ code: 'AUTH_REQUIRED' })
   })
 
   it('authorises mutations from any origin, since a browser never attaches a token itself', async () => {
@@ -205,7 +231,7 @@ describe('auth guard with an API token', () => {
     // A wrong token is not a credential, so it does not lift the same-origin rule.
     const forged = await app.request('http://127.0.0.1:3999/api/servers/demo/start', {
       method: 'POST',
-      headers: { authorization: 'Bearer hh_not-the-token', origin: 'http://evil.example' },
+      headers: { authorization: 'Bearer script:hh_not-the-token', origin: 'http://evil.example' },
     })
     expect(forged.status).toBe(403)
   })
@@ -214,6 +240,6 @@ describe('auth guard with an API token', () => {
     const token = generateApiToken()
     const { app } = await makeApp({ enabled: false, token, ip: '192.168.1.20' })
     expect((await app.request('http://192.168.1.10:3999/api/state')).status).toBe(401)
-    expect((await app.request('http://192.168.1.10:3999/api/state', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
+    expect((await app.request('http://192.168.1.10:3999/api/state', { headers: bearer(token) })).status).toBe(200)
   })
 })

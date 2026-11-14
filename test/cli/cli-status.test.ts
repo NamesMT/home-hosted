@@ -81,17 +81,19 @@ describe('status against a running panel', () => {
    * After a restore the first-run password can be in use with its text gone, and `status` printed
    * no password row at all — nothing said the only way in was a password nobody could read back.
    */
-  it('says so when the first-run password is in use but no longer recorded', () => {
+  it('says so when the first-run secret is in use but no longer recorded', () => {
     const secrets = path.join(home, '.hh', '.control-secrets.json')
     const original = fs.readFileSync(secrets, 'utf8')
     try {
-      const parsed = JSON.parse(original) as { password: { isDefault?: boolean, initial?: string } }
-      expect(parsed.password.isDefault, 'the smoke panel must be on its first-run password').toBe(true)
-      delete parsed.password.initial
+      // The boot default is an **account** now, so the marker lives on it.
+      const parsed = JSON.parse(original) as { accounts: Array<{ id: string, isDefault?: boolean, initial?: string }> }
+      const boot = parsed.accounts.find(account => account.isDefault === true)
+      expect(boot, 'the smoke panel must be on its first-run secret').toBeDefined()
+      delete boot!.initial
       fs.writeFileSync(secrets, JSON.stringify(parsed), { mode: 0o600 })
 
       const result = runCli(['status', '--home', home])
-      expect(result.stdout).toMatch(/password +the first-run password is in use but no longer recorded — run `.+ set-password`/)
+      expect(result.stdout).toMatch(/secret +the first-run secret is in use but no longer recorded — run `.+ account reset`/)
     }
     finally {
       fs.writeFileSync(secrets, original, { mode: 0o600 })

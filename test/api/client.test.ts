@@ -15,8 +15,11 @@ afterEach(async () => {
 async function clientFor(options: Parameters<typeof makeFixture>[0] = {}) {
   const created = await makeFixture({ password: 'a-good-password', ...options })
   fixtures.push(created)
-  const token = generateApiToken()
-  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global').setApiToken(token)
+  // A bearer credential is `<id>:<secret>`, which is what the client sends.
+  const secret = generateApiToken()
+  new SecretsStore(path.join(created.dir, '.hh', '.control-secrets.json'), undefined, 'global')
+    .createAccount({ id: 'script', label: 'script', scopes: ['read', 'lifecycle', 'config', 'admin'], secret })
+  const token = `script:${secret}`
   const client = createClient({
     baseUrl: 'http://127.0.0.1:3999/',
     token,
